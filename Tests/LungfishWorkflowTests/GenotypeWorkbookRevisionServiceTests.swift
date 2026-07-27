@@ -1808,6 +1808,7 @@ wb.save(path)
             "after-workbook-cleanup-detach-hard-stop",
             "after-workbook-cleanup-state-durable-hard-stop",
             "after-workbook-cleanup-marker-removal-hard-stop",
+            "after-workbook-cleanup-attestation-removal-hard-stop",
         ]
         for branch in branches {
             for checkpoint in checkpoints {
@@ -2525,6 +2526,240 @@ wb.save(path)
         XCTAssertTrue(
             FileManager.default.fileExists(atPath: paused.quarantine.path)
         )
+    }
+
+    func testMarkerlessCleanupRejectsCoherentReplacementStateAfterAuthorityRetirement()
+        throws
+    {
+        let paused = try pausedCommittedWorkbookCleanup(
+            outputName: "cleanup-state-coherent-replacement"
+        )
+        defer {
+            paused.lock.release()
+            try? FileManager.default.removeItem(at: paused.root)
+        }
+        let stateURL = try workbookCleanupStateURL(in: paused.root)
+        let original = try Data(contentsOf: stateURL)
+        var replacement = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: original) as? [String: Any]
+        )
+        replacement["createdAt"] = "2036-01-02T03:04:05Z"
+        try JSONSerialization.data(
+            withJSONObject: replacement,
+            options: [.prettyPrinted, .sortedKeys]
+        ).write(to: stateURL, options: .atomic)
+        let traversed = SendableFlagBox()
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: paused.fixture.bundleURL,
+                attestationRootURL: paused.attestationRoot,
+                cleanupFailureInjector: { checkpoint in
+                    if checkpoint == "during-workbook-cleanup-traversal" {
+                        traversed.set(1)
+                    }
+                }
+            )
+        ) { error in
+            XCTAssertTrue(
+                error.localizedDescription.localizedCaseInsensitiveContains(
+                    "cleanup attestation"
+                ),
+                error.localizedDescription
+            )
+        }
+        XCTAssertNil(traversed.value)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: paused.quarantine.path))
+        XCTAssertEqual(
+            try Data(contentsOf: stateURL),
+            try JSONSerialization.data(
+                withJSONObject: replacement,
+                options: [.prettyPrinted, .sortedKeys]
+            )
+        )
+    }
+
+    func testWorkbookCleanupRetirementNeverUnlinksSubstitutedMarker() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(
+            in: root,
+            outputName: "cleanup-marker-retirement-substitution"
+        )
+        let attestationRoot = root.appendingPathComponent(
+            "attestations",
+            isDirectory: true
+        )
+        try interruptCommittedWorkbookCleanup(
+            fixture: fixture,
+            attestationRoot: attestationRoot
+        )
+        let lock = try ONTGenotypeBundlePublicationLock.acquire(
+            for: fixture.bundleURL,
+            blocking: true,
+            createIfMissing: false
+        )
+        defer { lock.release() }
+        let marker = ONTGenotypeWorkbookUpdateRecovery.markerURL(
+            for: fixture.bundleURL
+        )
+        let held = root.appendingPathComponent("held-authenticated-marker.json")
+        let replacement = Data(#"{"replacement":"marker-must-survive"}"#.utf8)
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: fixture.bundleURL,
+                attestationRootURL: attestationRoot,
+                cleanupFailureInjector: { checkpoint in
+                    guard checkpoint.hasPrefix(
+                        "before-workbook-cleanup-marker-detach:"
+                    ) else { return }
+                    try FileManager.default.moveItem(at: marker, to: held)
+                    try replacement.write(to: marker)
+                }
+            )
+        )
+
+        XCTAssertEqual(try Data(contentsOf: marker), replacement)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: held.path))
+        XCTAssertFalse(try workbookCleanupArtifacts(in: root).isEmpty)
+    }
+
+    func testWorkbookCleanupRetirementNeverUnlinksSubstitutedAttestation() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(
+            in: root,
+            outputName: "cleanup-attestation-retirement-substitution"
+        )
+        let attestationRoot = root.appendingPathComponent(
+            "attestations",
+            isDirectory: true
+        )
+        try interruptCommittedWorkbookCleanup(
+            fixture: fixture,
+            attestationRoot: attestationRoot
+        )
+        let lock = try ONTGenotypeBundlePublicationLock.acquire(
+            for: fixture.bundleURL,
+            blocking: true,
+            createIfMissing: false
+        )
+        defer { lock.release() }
+        let held = root.appendingPathComponent("held-authenticated-attestation.json")
+        let replacement = Data(#"{"replacement":"attestation-must-survive"}"#.utf8)
+        let marker = ONTGenotypeWorkbookUpdateRecovery.markerURL(
+            for: fixture.bundleURL
+        )
+        let markerJSON = try XCTUnwrap(
+            try JSONSerialization.jsonObject(
+                with: Data(contentsOf: marker)
+            ) as? [String: Any]
+        )
+        let attestation = attestationRoot.appendingPathComponent(
+            "\(try XCTUnwrap(markerJSON["attestationID"] as? String)).json"
+        )
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: fixture.bundleURL,
+                attestationRootURL: attestationRoot,
+                cleanupFailureInjector: { checkpoint in
+                    let prefix =
+                        "before-workbook-cleanup-attestation-detach:"
+                    guard checkpoint.hasPrefix(prefix) else { return }
+                    let url = URL(
+                        fileURLWithPath: String(checkpoint.dropFirst(prefix.count))
+                    )
+                    XCTAssertEqual(url.standardizedFileURL, attestation.standardizedFileURL)
+                    try FileManager.default.moveItem(at: url, to: held)
+                    try replacement.write(to: url)
+                }
+            )
+        )
+
+        XCTAssertEqual(try Data(contentsOf: attestation), replacement)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: held.path))
+        XCTAssertFalse(try workbookCleanupArtifacts(in: root).isEmpty)
+    }
+
+    func testWorkbookCleanupRetirementNeverRemovesSubstitutedQuarantineRoot() throws {
+        let paused = try pausedCommittedWorkbookCleanup(
+            outputName: "cleanup-quarantine-retirement-substitution"
+        )
+        defer {
+            paused.lock.release()
+            try? FileManager.default.removeItem(at: paused.root)
+        }
+        let held = paused.root.appendingPathComponent(
+            "held-authenticated-quarantine",
+            isDirectory: true
+        )
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: paused.fixture.bundleURL,
+                attestationRootURL: paused.attestationRoot,
+                cleanupFailureInjector: { checkpoint in
+                    guard checkpoint.hasPrefix(
+                        "before-workbook-cleanup-quarantine-detach:"
+                    ) else { return }
+                    try FileManager.default.moveItem(
+                        at: paused.quarantine,
+                        to: held
+                    )
+                    try FileManager.default.createDirectory(
+                        at: paused.quarantine,
+                        withIntermediateDirectories: false
+                    )
+                }
+            )
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: paused.quarantine.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: held.path))
+        XCTAssertNotNil(try? workbookCleanupStateURL(in: paused.root))
+    }
+
+    func testWorkbookCleanupRetirementNeverUnlinksSubstitutedCleanupState() throws {
+        let paused = try pausedCommittedWorkbookCleanup(
+            outputName: "cleanup-state-retirement-substitution"
+        )
+        defer {
+            paused.lock.release()
+            try? FileManager.default.removeItem(at: paused.root)
+        }
+        let state = try workbookCleanupStateURL(in: paused.root)
+        let held = paused.root.appendingPathComponent(
+            "held-authenticated-cleanup-state.json"
+        )
+        var replacementObject = try XCTUnwrap(
+            try JSONSerialization.jsonObject(
+                with: Data(contentsOf: state)
+            ) as? [String: Any]
+        )
+        replacementObject["createdAt"] = "2037-02-03T04:05:06Z"
+        let replacement = try JSONSerialization.data(
+            withJSONObject: replacementObject,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: paused.fixture.bundleURL,
+                attestationRootURL: paused.attestationRoot,
+                cleanupFailureInjector: { checkpoint in
+                    guard checkpoint.hasPrefix(
+                        "before-workbook-cleanup-state-detach:"
+                    ) else { return }
+                    try FileManager.default.moveItem(at: state, to: held)
+                    try replacement.write(to: state)
+                }
+            )
+        )
+
+        XCTAssertEqual(try Data(contentsOf: state), replacement)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: held.path))
     }
 
     func testCleanupWarningPersistenceFailurePreservesOriginalStructuredCause() throws {

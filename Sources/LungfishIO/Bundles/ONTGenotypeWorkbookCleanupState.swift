@@ -2,6 +2,251 @@ import CryptoKit
 import Darwin
 import Foundation
 
+struct ONTGenotypeWorkbookRetirementFileWitness: Equatable {
+    let device: dev_t
+    let inode: ino_t
+    let size: off_t
+    let sha256: String
+}
+
+enum ONTGenotypeWorkbookRetirement {
+    static func fileWitness(
+        at url: URL
+    ) throws -> (Data, ONTGenotypeWorkbookRetirementFileWitness, stat) {
+        let descriptor = Darwin.open(
+            url.path,
+            O_RDONLY | O_NOFOLLOW | O_CLOEXEC
+        )
+        guard descriptor >= 0 else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(
+                url.path,
+                errno
+            )
+        }
+        defer { Darwin.close(descriptor) }
+        var before = stat()
+        guard Darwin.fstat(descriptor, &before) == 0,
+              before.st_mode & S_IFMT == S_IFREG else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.unsafeMarker(url.path)
+        }
+        var data = Data()
+        var digest = SHA256()
+        var buffer = [UInt8](repeating: 0, count: 64 * 1_024)
+        while true {
+            let count = Darwin.read(descriptor, &buffer, buffer.count)
+            if count == 0 { break }
+            if count < 0 {
+                if errno == EINTR { continue }
+                throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(
+                    url.path,
+                    errno
+                )
+            }
+            data.append(buffer, count: count)
+            digest.update(data: Data(buffer[0..<count]))
+        }
+        var after = stat()
+        guard Darwin.fstat(descriptor, &after) == 0,
+              before.st_dev == after.st_dev,
+              before.st_ino == after.st_ino,
+              before.st_size == after.st_size,
+              before.st_mtimespec.tv_sec == after.st_mtimespec.tv_sec,
+              before.st_mtimespec.tv_nsec == after.st_mtimespec.tv_nsec else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "A workbook recovery file changed while it was read."
+            )
+        }
+        return (
+            data,
+            ONTGenotypeWorkbookRetirementFileWitness(
+                device: after.st_dev,
+                inode: after.st_ino,
+                size: after.st_size,
+                sha256: digest.finalize().map {
+                    String(format: "%02x", $0)
+                }.joined()
+            ),
+            after
+        )
+    }
+
+    static func retireRegularFile(
+        at url: URL,
+        expected: ONTGenotypeWorkbookRetirementFileWitness,
+        checkpoint: String,
+        failureInjector: (@Sendable (String) throws -> Void)?
+    ) throws {
+        let parent = url.deletingLastPathComponent()
+        let parentDescriptor = Darwin.open(
+            parent.path,
+            O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+        )
+        guard parentDescriptor >= 0 else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(
+                parent.path,
+                errno
+            )
+        }
+        defer { Darwin.close(parentDescriptor) }
+        var info = stat()
+        let inspect = url.lastPathComponent.withCString {
+            Darwin.fstatat(parentDescriptor, $0, &info, AT_SYMLINK_NOFOLLOW)
+        }
+        guard inspect == 0,
+              info.st_mode & S_IFMT == S_IFREG,
+              info.st_dev == expected.device,
+              info.st_ino == expected.inode,
+              info.st_size == expected.size else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "A workbook recovery authority file changed before retirement."
+            )
+        }
+        try failureInjector?("\(checkpoint):\(url.path)")
+        let tombstone =
+            ".lungfish-workbook-retiring-\(UUID().uuidString.lowercased())"
+        let detached = url.lastPathComponent.withCString { sourceName in
+            tombstone.withCString { destinationName in
+                Darwin.renameatx_np(
+                    parentDescriptor,
+                    sourceName,
+                    parentDescriptor,
+                    destinationName,
+                    UInt32(RENAME_EXCL)
+                )
+            }
+        }
+        guard detached == 0 else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "A workbook recovery authority file changed before it could be detached."
+            )
+        }
+        let tombstoneURL = parent.appendingPathComponent(tombstone)
+        let detachedWitness = try? fileWitness(at: tombstoneURL).1
+        guard detachedWitness == expected else {
+            try restoreDetachedEntry(
+                parentDescriptor: parentDescriptor,
+                tombstone: tombstone,
+                original: url.lastPathComponent,
+                displayedAt: tombstoneURL
+            )
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "A substituted workbook recovery file was detached and preserved."
+            )
+        }
+        let removed = tombstone.withCString {
+            Darwin.unlinkat(parentDescriptor, $0, 0)
+        }
+        guard removed == 0, Darwin.fsync(parentDescriptor) == 0 else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(
+                tombstoneURL.path,
+                errno
+            )
+        }
+    }
+
+    static func retireDirectory(
+        named name: String,
+        beneath parentDescriptor: Int32,
+        parentURL: URL,
+        expected: ONTGenotypeWorkbookUpdateDirectoryIdentity,
+        checkpoint: String,
+        failureInjector: (@Sendable (String) throws -> Void)?
+    ) throws {
+        var info = stat()
+        let inspect = name.withCString {
+            Darwin.fstatat(parentDescriptor, $0, &info, AT_SYMLINK_NOFOLLOW)
+        }
+        guard inspect == 0,
+              info.st_mode & S_IFMT == S_IFDIR,
+              UInt64(bitPattern: Int64(info.st_dev)) == expected.device,
+              UInt64(info.st_ino) == expected.inode else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "The workbook cleanup quarantine changed before retirement."
+            )
+        }
+        let displayedURL = parentURL.appendingPathComponent(
+            name,
+            isDirectory: true
+        )
+        try failureInjector?("\(checkpoint):\(displayedURL.path)")
+        let tombstone =
+            ".lungfish-workbook-retiring-\(UUID().uuidString.lowercased())"
+        let detached = name.withCString { sourceName in
+            tombstone.withCString { destinationName in
+                Darwin.renameatx_np(
+                    parentDescriptor,
+                    sourceName,
+                    parentDescriptor,
+                    destinationName,
+                    UInt32(RENAME_EXCL)
+                )
+            }
+        }
+        guard detached == 0 else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "The workbook cleanup quarantine changed before it could be detached."
+            )
+        }
+        var detachedInfo = stat()
+        let detachedStatus = tombstone.withCString {
+            Darwin.fstatat(
+                parentDescriptor,
+                $0,
+                &detachedInfo,
+                AT_SYMLINK_NOFOLLOW
+            )
+        }
+        guard detachedStatus == 0,
+              detachedInfo.st_mode & S_IFMT == S_IFDIR,
+              UInt64(bitPattern: Int64(detachedInfo.st_dev))
+                == expected.device,
+              UInt64(detachedInfo.st_ino) == expected.inode else {
+            try restoreDetachedEntry(
+                parentDescriptor: parentDescriptor,
+                tombstone: tombstone,
+                original: name,
+                displayedAt: parentURL.appendingPathComponent(tombstone)
+            )
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "A substituted workbook cleanup quarantine was detached and preserved."
+            )
+        }
+        let removed = tombstone.withCString {
+            Darwin.unlinkat(parentDescriptor, $0, AT_REMOVEDIR)
+        }
+        guard removed == 0, Darwin.fsync(parentDescriptor) == 0 else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(
+                parentURL.appendingPathComponent(tombstone).path,
+                errno
+            )
+        }
+    }
+
+    private static func restoreDetachedEntry(
+        parentDescriptor: Int32,
+        tombstone: String,
+        original: String,
+        displayedAt: URL
+    ) throws {
+        let restored = tombstone.withCString { sourceName in
+            original.withCString { destinationName in
+                Darwin.renameatx_np(
+                    parentDescriptor,
+                    sourceName,
+                    parentDescriptor,
+                    destinationName,
+                    UInt32(RENAME_EXCL)
+                )
+            }
+        }
+        guard restored == 0, Darwin.fsync(parentDescriptor) == 0 else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "A substituted retirement target was preserved at \(displayedAt.path)."
+            )
+        }
+    }
+}
+
 public enum ONTGenotypeWorkbookCleanupDecision: String, Codable, Sendable {
     case committed
     case preparedDiscard = "prepared-discard"
@@ -269,51 +514,36 @@ enum ONTGenotypeWorkbookCleanupStateStore {
 
     static func removeState(
         at stateURL: URL,
-        expectedState: ONTGenotypeWorkbookCleanupState
+        expectedState: ONTGenotypeWorkbookCleanupState,
+        failureInjector: (@Sendable (String) throws -> Void)? = nil
     ) throws {
-        let parent = stateURL.deletingLastPathComponent()
-        let parentDescriptor = Darwin.open(
-            parent.path,
-            O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+        let read: (
+            Data,
+            ONTGenotypeWorkbookRetirementFileWitness,
+            stat
         )
-        guard parentDescriptor >= 0 else {
-            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(parent.path, errno)
+        do {
+            read = try ONTGenotypeWorkbookRetirement.fileWitness(at: stateURL)
+        } catch let error as ONTGenotypeWorkbookUpdateRecoveryError {
+            if case let .systemFailure(_, code) = error, code == ENOENT {
+                return
+            }
+            throw error
         }
-        defer { Darwin.close(parentDescriptor) }
-        var info = stat()
-        let inspect = stateURL.lastPathComponent.withCString {
-            Darwin.fstatat(parentDescriptor, $0, &info, AT_SYMLINK_NOFOLLOW)
-        }
-        guard inspect == 0 else {
-            if errno == ENOENT { return }
-            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(stateURL.path, errno)
-        }
-        guard info.st_mode & S_IFMT == S_IFREG,
-              try decoder.decode(
-                  ONTGenotypeWorkbookCleanupState.self,
-                  from: readRegularFileNoFollow(stateURL)
-              ) == expectedState else {
+        guard try decoder.decode(
+            ONTGenotypeWorkbookCleanupState.self,
+            from: read.0
+        ) == expectedState else {
             throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
                 "Workbook cleanup state was substituted before retirement: \(stateURL.path)"
             )
         }
-        var current = stat()
-        let currentStatus = stateURL.lastPathComponent.withCString {
-            Darwin.fstatat(parentDescriptor, $0, &current, AT_SYMLINK_NOFOLLOW)
-        }
-        guard currentStatus == 0,
-              current.st_dev == info.st_dev,
-              current.st_ino == info.st_ino,
-              stateURL.lastPathComponent.withCString({
-                  Darwin.unlinkat(parentDescriptor, $0, 0)
-              }) == 0 else {
-            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
-                "Workbook cleanup state changed before retirement: \(stateURL.path)"
-            )
-        }
-        guard Darwin.fsync(parentDescriptor) == 0 else {
-            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(parent.path, errno)
-        }
+        try ONTGenotypeWorkbookRetirement.retireRegularFile(
+            at: stateURL,
+            expected: read.1,
+            checkpoint: "before-workbook-cleanup-state-detach",
+            failureInjector: failureInjector
+        )
     }
 
     @discardableResult
@@ -392,7 +622,11 @@ enum ONTGenotypeWorkbookCleanupStateStore {
         guard inspect == 0 else {
             if errno == ENOENT {
                 try completion()
-                try removeState(at: stateURL, expectedState: state)
+                try removeState(
+                    at: stateURL,
+                    expectedState: state,
+                    failureInjector: failureInjector
+                )
                 return
             }
             try throwWarning(
@@ -454,26 +688,20 @@ enum ONTGenotypeWorkbookCleanupStateStore {
                 displayedAt: quarantine,
                 failureInjector: failureInjector
             )
-            var finalInfo = stat()
-            let finalStatus = quarantine.lastPathComponent.withCString {
-                Darwin.fstatat(parentDescriptor, $0, &finalInfo, AT_SYMLINK_NOFOLLOW)
-            }
-            guard finalStatus == 0,
-                  matches(finalInfo, state.quarantineIdentity),
-                  quarantine.lastPathComponent.withCString({
-                      Darwin.unlinkat(parentDescriptor, $0, AT_REMOVEDIR)
-                  }) == 0 else {
-                throw CleanupTraversalError(
-                    detail: "Cleanup quarantine changed before final removal (errno \(errno))."
-                )
-            }
-            guard Darwin.fsync(parentDescriptor) == 0 else {
-                throw CleanupTraversalError(
-                    detail: "Cleanup quarantine removal durability is uncertain (errno \(errno))."
-                )
-            }
+            try ONTGenotypeWorkbookRetirement.retireDirectory(
+                named: quarantine.lastPathComponent,
+                beneath: parentDescriptor,
+                parentURL: parent,
+                expected: state.quarantineIdentity,
+                checkpoint: "before-workbook-cleanup-quarantine-detach",
+                failureInjector: failureInjector
+            )
             try completion()
-            try removeState(at: stateURL, expectedState: state)
+            try removeState(
+                at: stateURL,
+                expectedState: state,
+                failureInjector: failureInjector
+            )
         } catch let error as ONTGenotypeWorkbookUpdateRecoveryError {
             throw error
         } catch {

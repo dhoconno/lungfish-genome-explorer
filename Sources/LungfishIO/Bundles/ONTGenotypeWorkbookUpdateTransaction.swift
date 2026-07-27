@@ -286,12 +286,28 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         let claim: AttestationClaim
     }
 
-    private struct FileWitness: Equatable {
-        let device: dev_t
-        let inode: ino_t
-        let size: off_t
-        let sha256: String
+    private struct CleanupAttestationRecord: Codable, Equatable {
+        let schemaVersion: Int
+        let cleanupAttestationID: String
+        let transactionAttestationID: String
+        let transactionID: String
+        let stateFileName: String
+        let stateSizeBytes: Int64
+        let stateSHA256: String
+        let finalBundlePath: String
+        let quarantinePath: String
+        let survivorIdentity:
+            ONTGenotypeWorkbookUpdateDirectoryIdentity
+        let survivorManifest: ONTGenotypeWorkbookUpdateFileDescriptor
+        let survivorCurrentWorkbook:
+            ONTGenotypeWorkbookUpdateFileDescriptor
+        let terminalReceiptAction: String
+        let terminalReceiptDetail: String
+        let decision: ONTGenotypeWorkbookCleanupDecision
     }
+
+    private typealias FileWitness =
+        ONTGenotypeWorkbookRetirementFileWitness
 
     private struct RecoveryAuthority {
         let transaction: ONTGenotypeWorkbookUpdateTransaction
@@ -504,23 +520,30 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             for: transaction,
             attestationRootURL: attestationRootURL
         )
-        try unlinkExact(url, expected: witness)
+        try unlinkExact(
+            url,
+            expected: witness,
+            checkpoint:
+                "before-workbook-unpublished-attestation-detach"
+        )
     }
 
     public static func removeMarker(for bundleURL: URL) throws {
         let marker = markerURL(for: bundleURL)
-        var info = stat()
-        if Darwin.lstat(marker.path, &info) != 0 {
-            if errno == ENOENT { return }
-            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(marker.path, errno)
+        let witness: FileWitness
+        do {
+            witness = try readFileWithWitness(marker).1
+        } catch let error as ONTGenotypeWorkbookUpdateRecoveryError {
+            if case let .systemFailure(_, code) = error, code == ENOENT {
+                return
+            }
+            throw error
         }
-        guard info.st_mode & S_IFMT == S_IFREG else {
-            throw ONTGenotypeWorkbookUpdateRecoveryError.unsafeMarker(marker.path)
-        }
-        guard Darwin.unlink(marker.path) == 0 else {
-            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(marker.path, errno)
-        }
-        try syncDirectory(marker.deletingLastPathComponent())
+        try unlinkExact(
+            marker,
+            expected: witness,
+            checkpoint: "before-workbook-marker-detach"
+        )
     }
 
     public static func finalizeCommittedTransactionAssumingLock(
@@ -553,6 +576,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         try prepareProvenTransactionRootCleanup(
             transaction,
             decision: .committed,
+            attestationRootURL: attestationRootURL,
             failureInjector: cleanupFailureInjector
         )
         try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
@@ -566,6 +590,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             transaction,
             decision: .committed,
             for: bundleURL,
+            attestationRootURL: attestationRootURL,
             failureInjector: cleanupFailureInjector
         )
     }
@@ -592,6 +617,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         try prepareProvenTransactionRootCleanup(
             transaction,
             decision: .preparedDiscard,
+            attestationRootURL: attestationRootURL,
             failureInjector: cleanupFailureInjector
         )
         try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
@@ -605,6 +631,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             transaction,
             decision: .preparedDiscard,
             for: bundleURL,
+            attestationRootURL: attestationRootURL,
             failureInjector: cleanupFailureInjector
         )
     }
@@ -658,6 +685,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             try prepareProvenTransactionRootCleanup(
                 transaction,
                 decision: .manualSaveWinner,
+                attestationRootURL: attestationRootURL,
                 failureInjector: cleanupFailureInjector
             )
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
@@ -672,6 +700,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 transaction,
                 decision: .manualSaveWinner,
                 for: bundleURL,
+                attestationRootURL: attestationRootURL,
                 failureInjector: cleanupFailureInjector
             )
             return
@@ -681,6 +710,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             try prepareProvenTransactionRootCleanup(
                 transaction,
                 decision: .preparedDiscard,
+                attestationRootURL: attestationRootURL,
                 failureInjector: cleanupFailureInjector
             )
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
@@ -695,6 +725,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 transaction,
                 decision: .preparedDiscard,
                 for: bundleURL,
+                attestationRootURL: attestationRootURL,
                 failureInjector: cleanupFailureInjector
             )
             return
@@ -719,6 +750,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             try prepareProvenTransactionRootCleanup(
                 transaction,
                 decision: .rollback,
+                attestationRootURL: attestationRootURL,
                 failureInjector: cleanupFailureInjector
             )
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
@@ -733,6 +765,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 transaction,
                 decision: .rollback,
                 for: bundleURL,
+                attestationRootURL: attestationRootURL,
                 failureInjector: cleanupFailureInjector
             )
             return
@@ -761,6 +794,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             try prepareProvenTransactionRootCleanup(
                 transaction,
                 decision: .manualSaveWinner,
+                attestationRootURL: attestationRootURL,
                 failureInjector: cleanupFailureInjector
             )
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
@@ -775,6 +809,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 transaction,
                 decision: .manualSaveWinner,
                 for: bundleURL,
+                attestationRootURL: attestationRootURL,
                 failureInjector: cleanupFailureInjector
             )
             return
@@ -785,6 +820,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             try prepareProvenTransactionRootCleanup(
                 transaction,
                 decision: .committed,
+                attestationRootURL: attestationRootURL,
                 failureInjector: cleanupFailureInjector
             )
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
@@ -799,6 +835,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 transaction,
                 decision: .committed,
                 for: bundleURL,
+                attestationRootURL: attestationRootURL,
                 failureInjector: cleanupFailureInjector
             )
             return
@@ -808,6 +845,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             try prepareProvenTransactionRootCleanup(
                 transaction,
                 decision: .committed,
+                attestationRootURL: attestationRootURL,
                 failureInjector: cleanupFailureInjector
             )
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
@@ -821,6 +859,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 transaction,
                 decision: .committed,
                 for: bundleURL,
+                attestationRootURL: attestationRootURL,
                 failureInjector: cleanupFailureInjector
             )
             return
@@ -831,6 +870,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             try prepareProvenTransactionRootCleanup(
                 transaction,
                 decision: .rollback,
+                attestationRootURL: attestationRootURL,
                 failureInjector: cleanupFailureInjector
             )
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
@@ -845,6 +885,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 transaction,
                 decision: .rollback,
                 for: bundleURL,
+                attestationRootURL: attestationRootURL,
                 failureInjector: cleanupFailureInjector
             )
             return
@@ -1489,6 +1530,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
     private static func prepareProvenTransactionRootCleanup(
         _ transaction: ONTGenotypeWorkbookUpdateTransaction,
         decision: ONTGenotypeWorkbookCleanupDecision,
+        attestationRootURL: URL?,
         failureInjector: (@Sendable (String) throws -> Void)?
     ) throws {
         let root = URL(fileURLWithPath: transaction.transactionRootPath, isDirectory: true)
@@ -1530,6 +1572,11 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             }
             try ONTGenotypeWorkbookCleanupStateStore.validateSurvivor(
                 existing.1
+            )
+            _ = try createCleanupAttestation(
+                for: existing.1,
+                stateURL: existing.0,
+                attestationRootURL: attestationRootURL
             )
             try writeCleanupAuthorizedReceipt(existing.1)
             return
@@ -1611,6 +1658,11 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             decision: decision
         )
         try ONTGenotypeWorkbookCleanupStateStore.write(state, at: stateURL)
+        _ = try createCleanupAttestation(
+            for: state,
+            stateURL: stateURL,
+            attestationRootURL: attestationRootURL
+        )
         try failureInjector?("after-workbook-cleanup-state-durable-hard-stop")
         try writeCleanupAuthorizedReceipt(state)
     }
@@ -1619,6 +1671,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         _ transaction: ONTGenotypeWorkbookUpdateTransaction,
         decision: ONTGenotypeWorkbookCleanupDecision,
         for bundleURL: URL,
+        attestationRootURL: URL?,
         failureInjector: (@Sendable (String) throws -> Void)?
     ) throws {
         let states = try ONTGenotypeWorkbookCleanupStateStore.states(for: bundleURL)
@@ -1635,6 +1688,11 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             )
             return
         }
+        let cleanupAttestation = try requireCleanupAttestation(
+            for: state,
+            stateURL: stateURL,
+            attestationRootURL: attestationRootURL
+        )
         guard ONTGenotypeWorkbookCleanupStateStore.transactionSemanticsMatch(
             state.transaction,
             transaction
@@ -1651,6 +1709,11 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             completion: {
                 try writeCleanupTerminalReceipt(state)
             }
+        )
+        try retireCleanupAttestation(
+            at: cleanupAttestation.0,
+            witness: cleanupAttestation.1,
+            failureInjector: failureInjector
         )
     }
 
@@ -1891,6 +1954,23 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         return root.appendingPathComponent("\(attestationID).json")
     }
 
+    private static func cleanupAttestationURL(
+        for state: ONTGenotypeWorkbookCleanupState,
+        attestationRootURL: URL?
+    ) throws -> URL {
+        guard let attestationID = state.transaction.attestationID,
+              let parsed = UUID(uuidString: attestationID),
+              parsed.uuidString == attestationID else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "The workbook cleanup state has no authenticated transaction identifier."
+            )
+        }
+        let root = try verifyAttestationRoot(attestationRootURL)
+        return root.appendingPathComponent(
+            "\(attestationID).workbook-cleanup.json"
+        )
+    }
+
     private static func prepareAttestationRoot(_ supplied: URL?) throws -> URL {
         let root = try (supplied ?? defaultAttestationRootURL()).standardizedFileURL
         if !FileManager.default.fileExists(atPath: root.path) {
@@ -2020,6 +2100,127 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             )
         }
         return witness
+    }
+
+    @discardableResult
+    private static func createCleanupAttestation(
+        for state: ONTGenotypeWorkbookCleanupState,
+        stateURL: URL,
+        attestationRootURL: URL?
+    ) throws -> (URL, FileWitness) {
+        let url = try cleanupAttestationURL(
+            for: state,
+            attestationRootURL: attestationRootURL
+        )
+        if FileManager.default.fileExists(atPath: url.path) {
+            return try requireCleanupAttestation(
+                for: state,
+                stateURL: stateURL,
+                attestationRootURL: attestationRootURL
+            )
+        }
+        guard let transactionAttestationID =
+                state.transaction.attestationID else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "The workbook cleanup state has no transaction attestation."
+            )
+        }
+        let read = try readFileWithWitness(stateURL)
+        let record = CleanupAttestationRecord(
+            schemaVersion: 1,
+            cleanupAttestationID: UUID().uuidString,
+            transactionAttestationID: transactionAttestationID,
+            transactionID: state.transactionID,
+            stateFileName: stateURL.lastPathComponent,
+            stateSizeBytes: Int64(read.1.size),
+            stateSHA256: read.1.sha256,
+            finalBundlePath: state.finalBundlePath,
+            quarantinePath: state.quarantinePath,
+            survivorIdentity: state.survivorIdentity,
+            survivorManifest: state.survivorManifest,
+            survivorCurrentWorkbook: state.survivorCurrentWorkbook,
+            terminalReceiptAction: state.terminalReceiptAction,
+            terminalReceiptDetail: state.terminalReceiptDetail,
+            decision: state.decision
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        try writeExclusiveAttestation(
+            try encoder.encode(record),
+            to: url,
+            root: url.deletingLastPathComponent()
+        )
+        return try requireCleanupAttestation(
+            for: state,
+            stateURL: stateURL,
+            attestationRootURL: attestationRootURL
+        )
+    }
+
+    private static func requireCleanupAttestation(
+        for state: ONTGenotypeWorkbookCleanupState,
+        stateURL: URL,
+        attestationRootURL: URL?
+    ) throws -> (URL, FileWitness) {
+        let url = try cleanupAttestationURL(
+            for: state,
+            attestationRootURL: attestationRootURL
+        )
+        let stateRead = try readFileWithWitness(stateURL)
+        let attestationRead = try readFileWithWitness(url)
+        guard attestationRead.2.st_uid == geteuid(),
+              attestationRead.2.st_nlink == 1,
+              attestationRead.2.st_mode & 0o777 == 0o600 else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "The workbook cleanup attestation has unsafe ownership or permissions."
+            )
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let record = try? decoder.decode(
+            CleanupAttestationRecord.self,
+            from: attestationRead.0
+        ),
+              record.schemaVersion == 1,
+              UUID(uuidString: record.cleanupAttestationID)?.uuidString
+                == record.cleanupAttestationID,
+              record.transactionAttestationID
+                == state.transaction.attestationID,
+              record.transactionID == state.transactionID,
+              record.stateFileName == stateURL.lastPathComponent,
+              record.stateSizeBytes == Int64(stateRead.1.size),
+              record.stateSHA256 == stateRead.1.sha256,
+              record.finalBundlePath == state.finalBundlePath,
+              record.quarantinePath == state.quarantinePath,
+              record.survivorIdentity == state.survivorIdentity,
+              record.survivorManifest == state.survivorManifest,
+              record.survivorCurrentWorkbook
+                == state.survivorCurrentWorkbook,
+              record.terminalReceiptAction
+                == state.terminalReceiptAction,
+              record.terminalReceiptDetail
+                == state.terminalReceiptDetail,
+              record.decision == state.decision else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "The workbook cleanup attestation does not bind the exact durable cleanup state."
+            )
+        }
+        return (url, attestationRead.1)
+    }
+
+    private static func retireCleanupAttestation(
+        at url: URL,
+        witness: FileWitness,
+        failureInjector: (@Sendable (String) throws -> Void)?
+    ) throws {
+        try ONTGenotypeWorkbookRetirement.retireRegularFile(
+            at: url,
+            expected: witness,
+            checkpoint:
+                "before-workbook-cleanup-cleanup-attestation-detach",
+            failureInjector: failureInjector
+        )
     }
 
     private static func loadRecoveryAuthority(
@@ -2184,7 +2385,12 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                     "The authenticated marker path is unavailable."
                 )
             }
-            try unlinkExact(markerURL, expected: markerWitness)
+            try unlinkExact(
+                markerURL,
+                expected: markerWitness,
+                checkpoint: "before-workbook-cleanup-marker-detach",
+                failureInjector: cleanupFailureInjector
+            )
             try cleanupFailureInjector?(
                 "after-workbook-cleanup-marker-removal-hard-stop"
             )
@@ -2193,7 +2399,15 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             for: authority.transaction,
             attestationRootURL: attestationRootURL
         )
-        try unlinkExact(recordURL, expected: authority.attestationWitness)
+        try unlinkExact(
+            recordURL,
+            expected: authority.attestationWitness,
+            checkpoint: "before-workbook-cleanup-attestation-detach",
+            failureInjector: cleanupFailureInjector
+        )
+        try cleanupFailureInjector?(
+            "after-workbook-cleanup-attestation-removal-hard-stop"
+        )
     }
 
     private static func recoverCleanupStateIfPresent(
@@ -2208,6 +2422,11 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             )
         }
         guard let (stateURL, state) = states.first else { return false }
+        let cleanupAttestation = try requireCleanupAttestation(
+            for: state,
+            stateURL: stateURL,
+            attestationRootURL: attestationRootURL
+        )
         let authority = try loadRecoveryAuthorityIfPresent(
             for: bundleURL,
             attestationRootURL: attestationRootURL
@@ -2253,33 +2472,26 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 try writeCleanupTerminalReceipt(state)
             }
         )
+        try retireCleanupAttestation(
+            at: cleanupAttestation.0,
+            witness: cleanupAttestation.1,
+            failureInjector: failureInjector
+        )
         return true
     }
 
-    private static func unlinkExact(_ url: URL, expected: FileWitness) throws {
-        let parent = url.deletingLastPathComponent()
-        let parentDescriptor = Darwin.open(parent.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
-        guard parentDescriptor >= 0 else {
-            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(parent.path, errno)
-        }
-        defer { Darwin.close(parentDescriptor) }
-        var info = stat()
-        let inspect = url.lastPathComponent.withCString {
-            Darwin.fstatat(parentDescriptor, $0, &info, AT_SYMLINK_NOFOLLOW)
-        }
-        guard inspect == 0,
-              info.st_mode & S_IFMT == S_IFREG,
-              info.st_dev == expected.device,
-              info.st_ino == expected.inode,
-              info.st_size == expected.size,
-              url.lastPathComponent.withCString({ Darwin.unlinkat(parentDescriptor, $0, 0) }) == 0 else {
-            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
-                "A workbook recovery authority file changed before cleanup."
-            )
-        }
-        guard Darwin.fsync(parentDescriptor) == 0 else {
-            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(parent.path, errno)
-        }
+    private static func unlinkExact(
+        _ url: URL,
+        expected: FileWitness,
+        checkpoint: String,
+        failureInjector: (@Sendable (String) throws -> Void)? = nil
+    ) throws {
+        try ONTGenotypeWorkbookRetirement.retireRegularFile(
+            at: url,
+            expected: expected,
+            checkpoint: checkpoint,
+            failureInjector: failureInjector
+        )
     }
 
     private static func readFileWithWitness(_ url: URL) throws -> (Data, FileWitness, stat) {
