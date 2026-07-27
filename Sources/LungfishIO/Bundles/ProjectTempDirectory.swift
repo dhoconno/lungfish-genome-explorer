@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import Darwin
 import os.log
 
 private let logger = Logger(subsystem: LogSubsystem.io, category: "ProjectTempDirectory")
@@ -116,16 +117,56 @@ public enum ProjectTempDirectory {
     ///   - projectURL: The `.lungfish` project directory, or `nil` for system fallback.
     /// - Returns: URL of the newly created directory.
     public static func create(prefix: String, in projectURL: URL?) throws -> URL {
-        let base: URL
         if let projectURL {
-            base = tempRoot(for: projectURL)
-        } else {
-            base = FileManager.default.temporaryDirectory
+            let base = tempRoot(for: projectURL)
+            let projectDescriptor: Int32
+            do {
+                projectDescriptor = try NoFollowFileSystem.openDirectoryHierarchy(projectURL)
+            } catch {
+                throw OwnedWorkDirectoryMarkerError.unsafePath(projectURL.path)
+            }
+            defer { Darwin.close(projectDescriptor) }
+            let createStatus = tmpDirName.withCString {
+                Darwin.mkdirat(
+                    projectDescriptor,
+                    $0,
+                    S_IRWXU | S_IRGRP | S_IXGRP
+                )
+            }
+            if createStatus != 0, errno != EEXIST {
+                throw OwnedWorkDirectoryMarkerError.systemFailure(
+                    path: base.path,
+                    operation: "create project temporary root",
+                    code: errno
+                )
+            }
+            guard Darwin.fsync(projectDescriptor) == 0 else {
+                throw OwnedWorkDirectoryMarkerError.systemFailure(
+                    path: projectURL.path,
+                    operation: "fsync project temporary root",
+                    code: errno
+                )
+            }
+            let request = OwnedWorkDirectoryCreationRequest(
+                projectURL: projectURL,
+                parentDirectoryURL: base,
+                prefix: prefix,
+                runID: UUID(),
+                processIdentity: try OwnedProcessIdentity.current(),
+                state: .active,
+                lockRelativePath: nil,
+                keepIntermediates: false,
+                toolName: "ProjectTempDirectory",
+                toolVersion: currentToolVersion
+            )
+            let directory = try OwnedWorkDirectoryMarkerStore.createDirectory(request)
+            logger.debug("Created attested project temp directory: \(directory.path, privacy: .public)")
+            return directory
         }
 
+        let base = FileManager.default.temporaryDirectory
         let dirName = "\(prefix)\(UUID().uuidString)"
         let dirURL = base.appendingPathComponent(dirName, isDirectory: true)
-
         try FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
         logger.debug("Created temp directory: \(dirURL.path, privacy: .public)")
         return dirURL
@@ -212,8 +253,17 @@ public enum ProjectTempDirectory {
 
     /// Reads the provenance marker from a temp directory, if present.
     public static func readMarker(from dirURL: URL) -> TempOriginMarker? {
-        let markerURL = dirURL.appendingPathComponent(TempOriginMarker.fileName)
-        guard let data = try? Data(contentsOf: markerURL) else { return nil }
+        guard let descriptor = try? NoFollowFileSystem.openDirectoryHierarchy(dirURL) else {
+            return nil
+        }
+        defer { Darwin.close(descriptor) }
+        guard let data = try? NoFollowFileSystem.readRegularFile(
+            named: TempOriginMarker.fileName,
+            inDirectory: descriptor,
+            displayPath: dirURL.path
+        ) else {
+            return nil
+        }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try? decoder.decode(TempOriginMarker.self, from: data)
@@ -240,26 +290,56 @@ public enum ProjectTempDirectory {
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         guard let data = try? encoder.encode(marker) else { return }
-        let markerURL = dirURL.appendingPathComponent(TempOriginMarker.fileName)
-        try? data.write(to: markerURL)
+        _ = try? DurableAtomicFileStore().create(
+            data,
+            named: TempOriginMarker.fileName,
+            in: dirURL
+        )
+    }
+
+    private static var currentToolVersion: String {
+        let version = Bundle.main.object(
+            forInfoDictionaryKey: "CFBundleShortVersionString"
+        ) as? String
+        return version?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? version!
+            : "debug"
     }
 
     // MARK: - cleanAll
 
-    /// Removes the entire `.tmp/` directory inside the project. Idempotent — does not throw if
-    /// the directory does not exist.
+    /// Removes only terminal, attested children of the project `.tmp/`.
+    ///
+    /// This compatibility entry point intentionally leaves the root, active
+    /// work, explicitly retained work, and unmarked legacy children untouched.
     public static func cleanAll(in projectURL: URL) throws {
         let root = tempRoot(for: projectURL)
         guard FileManager.default.fileExists(atPath: root.path) else {
             return
         }
-        try FileManager.default.removeItem(at: root)
-        logger.info("cleanAll: removed \(root.path, privacy: .public)")
+        let contents = try FileManager.default.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: nil,
+            options: []
+        )
+        for entry in contents {
+            guard let marker = try? OwnedWorkDirectoryMarkerStore.load(
+                from: entry,
+                expectedProjectURL: projectURL
+            ),
+            marker.state != .active,
+            !marker.keepIntermediates else {
+                continue
+            }
+            try FileManager.default.removeItem(at: entry)
+            logger.info("cleanAll: removed attested terminal child \(entry.path, privacy: .public)")
+        }
     }
 
     // MARK: - cleanStale
 
-    /// Removes subdirectories inside `.tmp/` whose modification date is older than `maxAge`.
+    /// Removes terminal, attested children inside `.tmp/` whose modification
+    /// date is older than `maxAge`.
     ///
     /// Subdirectories modified more recently than `maxAge` are left untouched.
     /// Does nothing if `.tmp/` does not exist.
@@ -283,10 +363,17 @@ public enum ProjectTempDirectory {
         for entry in contents {
             let attrs = try? entry.resourceValues(forKeys: [.contentModificationDateKey])
             guard let modDate = attrs?.contentModificationDate else { continue }
-            if modDate < cutoff {
-                try FileManager.default.removeItem(at: entry)
-                logger.info("cleanStale: removed \(entry.lastPathComponent, privacy: .public) (modified \(modDate))")
+            guard modDate < cutoff,
+                  let marker = try? OwnedWorkDirectoryMarkerStore.load(
+                    from: entry,
+                    expectedProjectURL: projectURL
+                  ),
+                  marker.state != .active,
+                  !marker.keepIntermediates else {
+                continue
             }
+            try FileManager.default.removeItem(at: entry)
+            logger.info("cleanStale: removed \(entry.lastPathComponent, privacy: .public) (modified \(modDate))")
         }
     }
 

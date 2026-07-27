@@ -141,7 +141,7 @@ final class ProjectTempDirectoryTests: XCTestCase {
 
     // MARK: - cleanAll
 
-    func testCleanAllRemovesEntireTmpDirectory() throws {
+    func testCleanAllRefusesActiveAndUnmarkedChildren() throws {
         let projectDir = testRoot.appendingPathComponent("myproject.lungfish", isDirectory: true)
         try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
 
@@ -150,12 +150,20 @@ final class ProjectTempDirectoryTests: XCTestCase {
         let dir2 = try ProjectTempDirectory.create(prefix: "b-", in: projectDir)
         try "hello".write(to: dir1.appendingPathComponent("data.txt"), atomically: true, encoding: .utf8)
         try "world".write(to: dir2.appendingPathComponent("data.txt"), atomically: true, encoding: .utf8)
+        let unmarked = ProjectTempDirectory.tempRoot(for: projectDir)
+            .appendingPathComponent("legacy-unmarked", isDirectory: true)
+        try FileManager.default.createDirectory(at: unmarked, withIntermediateDirectories: false)
 
         try ProjectTempDirectory.cleanAll(in: projectDir)
 
         let tmpRoot = ProjectTempDirectory.tempRoot(for: projectDir)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: tmpRoot.path),
-                       "Entire .tmp/ directory should be removed after cleanAll")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: tmpRoot.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: dir1.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: dir2.path))
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: unmarked.path),
+            "A broad compatibility cleanup must not infer ownership from location alone"
+        )
     }
 
     func testCleanAllIsIdempotent() throws {
@@ -299,14 +307,17 @@ final class ProjectTempDirectoryTests: XCTestCase {
         XCTAssertEqual(marker?.pid, ProcessInfo.processInfo.processIdentifier)
     }
 
-    func testMarkerAbsentForLegacyCreate() throws {
+    func testLegacyCreateUsesAuthoritativeOwnedMarkerForProjectLocalDirectory() throws {
         let projectDir = testRoot.appendingPathComponent("myproject.lungfish", isDirectory: true)
         try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
 
-        // The old create(prefix:in:) API should NOT write a marker
         let created = try ProjectTempDirectory.create(prefix: "legacy-", in: projectDir)
-        let marker = ProjectTempDirectory.readMarker(from: created)
-        XCTAssertNil(marker, "Legacy create should not write provenance marker")
+        let marker = try OwnedWorkDirectoryMarkerStore.load(
+            from: created,
+            expectedProjectURL: projectDir
+        )
+        XCTAssertEqual(marker.schemaVersion, OwnedWorkDirectoryMarker.schemaVersion)
+        XCTAssertEqual(marker.directoryIdentity, try FileSystemObjectIdentity.noFollow(created))
     }
 
     func testReadMarkerReturnsNilForMissingFile() throws {
@@ -326,16 +337,23 @@ final class ProjectTempDirectoryTests: XCTestCase {
         let marker = ProjectTempDirectory.readMarker(from: created)
         XCTAssertNotNil(marker)
         XCTAssertEqual(marker?.policy, .preferProjectContext)
+        let owned = try OwnedWorkDirectoryMarkerStore.load(
+            from: created,
+            expectedProjectURL: projectDir
+        )
+        XCTAssertEqual(owned.state, .active)
+        XCTAssertEqual(owned.toolName, "ProjectTempDirectory")
+        XCTAssertFalse(owned.toolVersion.isEmpty)
     }
 
     // MARK: - cleanStale
 
-    func testCleanStaleRemovesOldDirectoriesOnly() throws {
+    func testCleanStaleRefusesUnmarkedLegacyChildren() throws {
         let projectDir = testRoot.appendingPathComponent("myproject.lungfish", isDirectory: true)
-        try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
-
-        let recentDir = try ProjectTempDirectory.create(prefix: "recent-", in: projectDir)
-        let staleDir  = try ProjectTempDirectory.create(prefix: "stale-", in: projectDir)
+        let tmpRoot = ProjectTempDirectory.tempRoot(for: projectDir)
+        try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
+        let staleDir = tmpRoot.appendingPathComponent("legacy-unmarked", isDirectory: true)
+        try FileManager.default.createDirectory(at: staleDir, withIntermediateDirectories: false)
 
         // Backdate staleDir modification date to 25 hours ago
         let twentyFiveHoursAgo = Date(timeIntervalSinceNow: -25 * 3600)
@@ -347,9 +365,9 @@ final class ProjectTempDirectoryTests: XCTestCase {
         // Clean entries older than 24 hours
         try ProjectTempDirectory.cleanStale(in: projectDir, olderThan: 24 * 3600)
 
-        XCTAssertFalse(FileManager.default.fileExists(atPath: staleDir.path),
-                       "Stale directory (25h old) should have been removed")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: recentDir.path),
-                      "Recent directory should NOT have been removed")
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: staleDir.path),
+            "Age alone must never authorize removal of an unmarked legacy child"
+        )
     }
 }
