@@ -111,7 +111,7 @@ git commit -m "feat: add attested genotype review row catalog"
 - Test: `Tests/LungfishWorkflowTests/ONTBarcodeDemuxGenotypingPipelineTests.swift`
 - Test: `Tests/LungfishWorkflowTests/FullLengthONTMHCGenotypingPipelineTests.swift`
 
-- [ ] **Step 1: Write failing publisher tests**
+- [x] **Step 1: Write failing publisher tests**
 
 Cover reference rows absent from every sample, supported rows, `_nov`
 provisional exon-2 rows, full-length candidate stable IDs, exact roster
@@ -121,13 +121,13 @@ options and resolved defaults, runtime identity, descriptors for reference,
 roster, call/evidence projection and candidate artifacts, output
 path/SHA-256/size, exit status, wall time, and stderr/error outcome.
 
-- [ ] **Step 2: Run the tests and verify RED**
+- [x] **Step 2: Run the tests and verify RED**
 
 Run: `swift test --filter GenotypeReviewableRowCatalogPublisherTests`
 
 Expected: compile failure because the publisher does not exist.
 
-- [ ] **Step 3: Implement one shared publisher**
+- [x] **Step 3: Implement one shared publisher**
 
 The builder accepts already validated, checksummed authorities; it does not read a workbook, sidecar, or installed allele database.
 
@@ -150,13 +150,13 @@ public struct GenotypeReviewableRowCatalogPublication: Sendable {
 
 Compute per-sample evidence from the authoritative calls/candidate observations and reconcile every emitted value. Publish atomically, hash the final file, then include it in the result manifest and canonical provenance for genotype-only miSeq and full-length ONT runs. Do not change reciprocal artifact rules.
 
-- [ ] **Step 4: Run pipeline and provenance tests**
+- [x] **Step 4: Run pipeline and provenance tests**
 
 Run: `swift test --filter 'GenotypeReviewableRowCatalogPublisherTests|AmpliconGenotypeScientificArtifactPublisherTests|ONTBarcodeDemuxGenotypingPipelineTests|FullLengthONTMHCGenotypingPipelineTests'`
 
 Expected: all selected tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/LungfishWorkflow/ONTGenotyping/GenotypeReviewableRowCatalogPublisher.swift Sources/LungfishWorkflow/ONTGenotyping/AmpliconGenotypeScientificArtifactPublisher.swift Sources/LungfishWorkflow/ONTGenotyping/ONTBarcodeDemuxGenotypingPipeline.swift Sources/LungfishWorkflow/ONTGenotyping/FullLengthONTMHCGenotypingPipeline.swift Tests/LungfishWorkflowTests
