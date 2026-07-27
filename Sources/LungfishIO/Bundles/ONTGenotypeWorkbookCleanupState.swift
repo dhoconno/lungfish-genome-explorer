@@ -1,3 +1,4 @@
+import CryptoKit
 import Darwin
 import Foundation
 
@@ -17,12 +18,15 @@ public struct ONTGenotypeWorkbookCleanupState: Codable, Equatable, Sendable {
     public let parentIdentity: ONTGenotypeWorkbookUpdateDirectoryIdentity
     public let sourceIdentity: ONTGenotypeWorkbookUpdateDirectoryIdentity
     public let quarantineIdentity: ONTGenotypeWorkbookUpdateDirectoryIdentity
+    public let survivorIdentity: ONTGenotypeWorkbookUpdateDirectoryIdentity
+    public let survivorManifest: ONTGenotypeWorkbookUpdateFileDescriptor
+    public let survivorCurrentWorkbook: ONTGenotypeWorkbookUpdateFileDescriptor
     public let decision: ONTGenotypeWorkbookCleanupDecision
     public let retryState: String
     public let createdAt: Date
 
     public init(
-        schemaVersion: Int = 1,
+        schemaVersion: Int = 2,
         transactionID: String,
         finalBundlePath: String,
         sourceRootPath: String,
@@ -30,6 +34,9 @@ public struct ONTGenotypeWorkbookCleanupState: Codable, Equatable, Sendable {
         parentIdentity: ONTGenotypeWorkbookUpdateDirectoryIdentity,
         sourceIdentity: ONTGenotypeWorkbookUpdateDirectoryIdentity,
         quarantineIdentity: ONTGenotypeWorkbookUpdateDirectoryIdentity,
+        survivorIdentity: ONTGenotypeWorkbookUpdateDirectoryIdentity,
+        survivorManifest: ONTGenotypeWorkbookUpdateFileDescriptor,
+        survivorCurrentWorkbook: ONTGenotypeWorkbookUpdateFileDescriptor,
         decision: ONTGenotypeWorkbookCleanupDecision,
         retryState: String = "cleanup-pending",
         createdAt: Date = Date()
@@ -42,6 +49,9 @@ public struct ONTGenotypeWorkbookCleanupState: Codable, Equatable, Sendable {
         self.parentIdentity = parentIdentity
         self.sourceIdentity = sourceIdentity
         self.quarantineIdentity = quarantineIdentity
+        self.survivorIdentity = survivorIdentity
+        self.survivorManifest = survivorManifest
+        self.survivorCurrentWorkbook = survivorCurrentWorkbook
         self.decision = decision
         self.retryState = retryState
         self.createdAt = createdAt
@@ -61,6 +71,12 @@ struct ONTGenotypeWorkbookCleanupWarning: Codable, Sendable {
 }
 
 enum ONTGenotypeWorkbookCleanupStateStore {
+    struct SurvivorAuthority {
+        let identity: ONTGenotypeWorkbookUpdateDirectoryIdentity
+        let manifest: ONTGenotypeWorkbookUpdateFileDescriptor
+        let currentWorkbook: ONTGenotypeWorkbookUpdateFileDescriptor
+    }
+
     private static let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -226,6 +242,16 @@ enum ONTGenotypeWorkbookCleanupStateStore {
         stateURL: URL,
         failureInjector: (@Sendable (String) throws -> Void)?
     ) throws {
+        do {
+            try validateSurvivor(state)
+        } catch {
+            try throwWarning(
+                state: state,
+                stateURL: stateURL,
+                reason: "The surviving workbook generation is unavailable or changed: "
+                    + error.localizedDescription
+            )
+        }
         let parent = URL(
             fileURLWithPath: state.parentIdentity.path,
             isDirectory: true
@@ -341,6 +367,78 @@ enum ONTGenotypeWorkbookCleanupStateStore {
         }
     }
 
+    static func captureSurvivorAuthority(
+        bundleURL: URL,
+        expectedIdentity: ONTGenotypeWorkbookUpdateDirectoryIdentity,
+        expectedManifest: ONTGenotypeWorkbookUpdateFileDescriptor,
+        expectedCurrentWorkbookPath: String
+    ) throws -> SurvivorAuthority {
+        let bundle = bundleURL.standardizedFileURL
+        let expected = ONTGenotypeWorkbookUpdateDirectoryIdentity(
+            path: bundle.path,
+            device: expectedIdentity.device,
+            inode: expectedIdentity.inode
+        )
+        let descriptor = Darwin.open(
+            bundle.path,
+            O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+        )
+        guard descriptor >= 0 else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(
+                bundle.path,
+                errno
+            )
+        }
+        defer { Darwin.close(descriptor) }
+        try requireIdentity(
+            descriptor: descriptor,
+            expected: expected,
+            path: bundle.path
+        )
+
+        let manifestRead = try readRelativeRegularFile(
+            expectedManifest.path,
+            beneath: descriptor,
+            displayedAt: bundle,
+            collectDataLimit: 16 * 1_024 * 1_024
+        )
+        guard manifestRead.descriptor == expectedManifest,
+              let manifestData = manifestRead.data else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction(
+                "The surviving generation manifest does not match publication authority."
+            )
+        }
+        let manifest: ONTGenotypeResultBundleManifest
+        do {
+            manifest = try JSONDecoder().decode(
+                ONTGenotypeResultBundleManifest.self,
+                from: manifestData
+            )
+        } catch {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction(
+                "The surviving generation manifest is not valid JSON: \(error.localizedDescription)"
+            )
+        }
+        let currentWorkbookPath =
+            manifest.currentWorkbookPath ?? manifest.primaryWorkbookPath
+        guard currentWorkbookPath == expectedCurrentWorkbookPath else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction(
+                "The surviving generation manifest names an unexpected current workbook."
+            )
+        }
+        let workbookRead = try readRelativeRegularFile(
+            currentWorkbookPath,
+            beneath: descriptor,
+            displayedAt: bundle,
+            collectDataLimit: nil
+        )
+        return SurvivorAuthority(
+            identity: expected,
+            manifest: manifestRead.descriptor,
+            currentWorkbook: workbookRead.descriptor
+        )
+    }
+
     private struct CleanupTraversalError: LocalizedError {
         let detail: String
         var errorDescription: String? { detail }
@@ -379,7 +477,7 @@ enum ONTGenotypeWorkbookCleanupStateStore {
             transactionID: state.transactionID,
             parent: parent
         ).standardizedFileURL
-        guard state.schemaVersion == 1,
+        guard state.schemaVersion == 2,
               state.retryState == "cleanup-pending",
               DurableAtomicFileStore.isSinglePathComponent(state.transactionID),
               URL(fileURLWithPath: state.finalBundlePath).standardizedFileURL == bundle,
@@ -391,12 +489,155 @@ enum ONTGenotypeWorkbookCleanupStateStore {
               state.parentIdentity.path == parent.path,
               state.sourceIdentity.path == state.sourceRootPath,
               state.quarantineIdentity.path == state.quarantinePath,
+              state.survivorIdentity.path == state.finalBundlePath,
+              state.survivorManifest.path == ONTGenotypeResultBundleManifest.filename,
+              isSafeRelativePath(state.survivorCurrentWorkbook.path),
               state.sourceIdentity.device == state.quarantineIdentity.device,
               state.sourceIdentity.inode == state.quarantineIdentity.inode else {
             throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction(
                 "Invalid workbook cleanup state: \(stateURL.path)"
             )
         }
+    }
+
+    private static func validateSurvivor(
+        _ state: ONTGenotypeWorkbookCleanupState
+    ) throws {
+        let authority = try captureSurvivorAuthority(
+            bundleURL: URL(
+                fileURLWithPath: state.finalBundlePath,
+                isDirectory: true
+            ),
+            expectedIdentity: state.survivorIdentity,
+            expectedManifest: state.survivorManifest,
+            expectedCurrentWorkbookPath: state.survivorCurrentWorkbook.path
+        )
+        guard authority.identity == state.survivorIdentity,
+              authority.manifest == state.survivorManifest,
+              authority.currentWorkbook == state.survivorCurrentWorkbook else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction(
+                "The surviving generation no longer matches durable cleanup authority."
+            )
+        }
+    }
+
+    private static func isSafeRelativePath(_ path: String) -> Bool {
+        guard !path.isEmpty, !path.hasPrefix("/") else { return false }
+        let components = path.split(
+            separator: "/",
+            omittingEmptySubsequences: false
+        ).map(String.init)
+        return components.allSatisfy {
+            DurableAtomicFileStore.isSinglePathComponent($0)
+                && $0 != "."
+                && $0 != ".."
+        }
+    }
+
+    private static func readRelativeRegularFile(
+        _ relativePath: String,
+        beneath rootDescriptor: Int32,
+        displayedAt rootURL: URL,
+        collectDataLimit: Int64?
+    ) throws -> (
+        descriptor: ONTGenotypeWorkbookUpdateFileDescriptor,
+        data: Data?
+    ) {
+        guard isSafeRelativePath(relativePath) else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction(
+                "Unsafe survivor file path: \(relativePath)"
+            )
+        }
+        let components = relativePath.split(separator: "/").map(String.init)
+        var parentDescriptor = Darwin.dup(rootDescriptor)
+        guard parentDescriptor >= 0 else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(
+                rootURL.path,
+                errno
+            )
+        }
+        defer { Darwin.close(parentDescriptor) }
+        for component in components.dropLast() {
+            let nextDescriptor = component.withCString {
+                Darwin.openat(
+                    parentDescriptor,
+                    $0,
+                    O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+                )
+            }
+            guard nextDescriptor >= 0 else {
+                throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(
+                    rootURL.appendingPathComponent(relativePath).path,
+                    errno
+                )
+            }
+            Darwin.close(parentDescriptor)
+            parentDescriptor = nextDescriptor
+        }
+        let filename = components.last!
+        let fileDescriptor = filename.withCString {
+            Darwin.openat(
+                parentDescriptor,
+                $0,
+                O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC
+            )
+        }
+        guard fileDescriptor >= 0 else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(
+                rootURL.appendingPathComponent(relativePath).path,
+                errno
+            )
+        }
+        defer { Darwin.close(fileDescriptor) }
+        var before = stat()
+        guard Darwin.fstat(fileDescriptor, &before) == 0,
+              before.st_mode & S_IFMT == S_IFREG,
+              before.st_size >= 0 else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction(
+                "Survivor file is not a regular file: \(relativePath)"
+            )
+        }
+        if let collectDataLimit, before.st_size > collectDataLimit {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction(
+                "Survivor metadata file is too large: \(relativePath)"
+            )
+        }
+        var hasher = SHA256()
+        var collected = collectDataLimit == nil ? nil : Data()
+        var buffer = [UInt8](repeating: 0, count: 64 * 1_024)
+        while true {
+            let count = Darwin.read(fileDescriptor, &buffer, buffer.count)
+            if count == 0 { break }
+            guard count > 0 else {
+                if errno == EINTR { continue }
+                throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(
+                    rootURL.appendingPathComponent(relativePath).path,
+                    errno
+                )
+            }
+            let chunk = Data(buffer[0..<count])
+            hasher.update(data: chunk)
+            collected?.append(chunk)
+        }
+        var after = stat()
+        guard Darwin.fstat(fileDescriptor, &after) == 0,
+              before.st_dev == after.st_dev,
+              before.st_ino == after.st_ino,
+              before.st_size == after.st_size else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction(
+                "Survivor file changed while it was measured: \(relativePath)"
+            )
+        }
+        return (
+            ONTGenotypeWorkbookUpdateFileDescriptor(
+                path: relativePath,
+                sizeBytes: Int64(before.st_size),
+                sha256: hasher.finalize().map {
+                    String(format: "%02x", $0)
+                }.joined()
+            ),
+            collected
+        )
     }
 
     private static func readRegularFileNoFollow(_ url: URL) throws -> Data {

@@ -1798,62 +1798,82 @@ wb.save(path)
     }
 
     func testWorkbookCleanupRecoversAfterEveryDurabilityBoundary() throws {
-        for checkpoint in [
+        let branches = [
+            "committed",
+            "prepared-discard",
+            "rollback",
+            "manual-save-winner",
+        ]
+        let checkpoints = [
             "after-workbook-cleanup-detach-hard-stop",
             "after-workbook-cleanup-state-durable-hard-stop",
             "after-workbook-cleanup-marker-removal-hard-stop",
-        ] {
-            let root = try temporaryDirectory()
-            defer { try? FileManager.default.removeItem(at: root) }
-            let fixture = try makeMCMWorkbookBundle(
-                in: root,
-                outputName: "cleanup-\(checkpoint)"
-            )
-            let attestationRoot = root.appendingPathComponent(
-                "attestations",
-                isDirectory: true
-            )
+        ]
+        for branch in branches {
+            for checkpoint in checkpoints {
+                let root = try temporaryDirectory()
+                defer { try? FileManager.default.removeItem(at: root) }
+                let fixture = try makeMCMWorkbookBundle(
+                    in: root,
+                    outputName: "cleanup-\(branch)-\(checkpoint)"
+                )
+                let attestationRoot = root.appendingPathComponent(
+                    "attestations",
+                    isDirectory: true
+                )
 
-            try interruptCommittedWorkbookCleanup(
-                fixture: fixture,
-                attestationRoot: attestationRoot
-            )
+                try interruptWorkbookCleanup(
+                    branch: branch,
+                    fixture: fixture,
+                    attestationRoot: attestationRoot
+                )
 
-            XCTAssertNoThrow(try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL))
-            XCTAssertFalse(
-                try FileManager.default.contentsOfDirectory(atPath: root.path).contains {
-                    $0.hasPrefix(".lungfish-workbook-generation-archive-")
-                }
-            )
-            let lock = try ONTGenotypeBundlePublicationLock.acquire(
-                for: fixture.bundleURL,
-                blocking: true,
-                createIfMissing: false
-            )
-            defer { lock.release() }
-            XCTAssertThrowsError(
-                try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
-                    for: fixture.bundleURL,
-                    attestationRootURL: attestationRoot,
-                    cleanupFailureInjector: { observed in
-                        guard observed == checkpoint else { return }
-                        throw NSError(domain: "InjectedWorkbookCleanupCrash", code: 9)
+                XCTAssertNoThrow(
+                    try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
+                )
+                XCTAssertFalse(
+                    try FileManager.default.contentsOfDirectory(atPath: root.path).contains {
+                        $0.hasPrefix(".lungfish-workbook-generation-archive-")
                     }
                 )
-            )
-            XCTAssertFalse(try workbookCleanupArtifacts(in: root).isEmpty)
-            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
-                for: fixture.bundleURL,
-                attestationRootURL: attestationRoot
-            )
+                let lock = try ONTGenotypeBundlePublicationLock.acquire(
+                    for: fixture.bundleURL,
+                    blocking: true,
+                    createIfMissing: false
+                )
+                defer { lock.release() }
+                XCTAssertThrowsError(
+                    try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                        for: fixture.bundleURL,
+                        attestationRootURL: attestationRoot,
+                        cleanupFailureInjector: { observed in
+                            guard observed == checkpoint else { return }
+                            throw NSError(
+                                domain: "InjectedWorkbookCleanupCrash",
+                                code: 9
+                            )
+                        }
+                    ),
+                    "\(branch) @ \(checkpoint)"
+                )
+                XCTAssertFalse(try workbookCleanupArtifacts(in: root).isEmpty)
+                try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                    for: fixture.bundleURL,
+                    attestationRootURL: attestationRoot
+                )
 
-            XCTAssertNoThrow(try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL))
-            XCTAssertTrue(try workbookCleanupArtifacts(in: root).isEmpty)
-            XCTAssertFalse(FileManager.default.fileExists(
-                atPath: ONTGenotypeWorkbookUpdateRecovery.markerURL(
-                    for: fixture.bundleURL
-                ).path
-            ))
+                XCTAssertNoThrow(
+                    try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL),
+                    "\(branch) @ \(checkpoint)"
+                )
+                XCTAssertTrue(try workbookCleanupArtifacts(in: root).isEmpty)
+                XCTAssertFalse(FileManager.default.fileExists(
+                    atPath: ONTGenotypeWorkbookUpdateRecovery.markerURL(
+                        for: fixture.bundleURL
+                    ).path
+                ))
+                try assertNoRetiredWorkbookGeneration(in: root)
+            }
         }
     }
 
@@ -1914,6 +1934,105 @@ wb.save(path)
                     || $0.lastPathComponent.contains("cleanup-pending")
             }
         )
+    }
+
+    func testMarkerlessCleanupRetryRetainsQuarantineWhenSurvivorIsMissing() throws {
+        let paused = try pausedCommittedWorkbookCleanup(
+            outputName: "cleanup-missing-survivor"
+        )
+        defer {
+            paused.lock.release()
+            try? FileManager.default.removeItem(at: paused.root)
+        }
+        let held = paused.root.appendingPathComponent(
+            "held-surviving-generation",
+            isDirectory: true
+        )
+        try FileManager.default.moveItem(at: paused.fixture.bundleURL, to: held)
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: paused.fixture.bundleURL,
+                attestationRootURL: paused.attestationRoot
+            )
+        ) { error in
+            XCTAssertTrue(
+                error.localizedDescription.localizedCaseInsensitiveContains(
+                    "surviving workbook generation"
+                )
+            )
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: paused.quarantine.path))
+        XCTAssertFalse(try workbookCleanupArtifacts(in: paused.root).isEmpty)
+    }
+
+    func testMarkerlessCleanupRetryRetainsQuarantineWhenSurvivorIsSubstituted() throws {
+        let paused = try pausedCommittedWorkbookCleanup(
+            outputName: "cleanup-substituted-survivor"
+        )
+        defer {
+            paused.lock.release()
+            try? FileManager.default.removeItem(at: paused.root)
+        }
+        let held = paused.root.appendingPathComponent(
+            "held-surviving-generation",
+            isDirectory: true
+        )
+        try FileManager.default.moveItem(at: paused.fixture.bundleURL, to: held)
+        try FileManager.default.copyItem(at: held, to: paused.fixture.bundleURL)
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: paused.fixture.bundleURL,
+                attestationRootURL: paused.attestationRoot
+            )
+        ) { error in
+            XCTAssertTrue(
+                error.localizedDescription.localizedCaseInsensitiveContains(
+                    "surviving workbook generation"
+                )
+            )
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: paused.quarantine.path))
+        XCTAssertFalse(try workbookCleanupArtifacts(in: paused.root).isEmpty)
+    }
+
+    func testMarkerlessCleanupRetryRetainsQuarantineWhenSurvivorIntegrityIsCorrupt() throws {
+        for target in ["manifest", "workbook"] {
+            let paused = try pausedCommittedWorkbookCleanup(
+                outputName: "cleanup-corrupt-\(target)"
+            )
+            defer {
+                paused.lock.release()
+                try? FileManager.default.removeItem(at: paused.root)
+            }
+            let targetURL: URL
+            if target == "manifest" {
+                targetURL = ONTGenotypeResultBundle.manifestURL(
+                    in: paused.fixture.bundleURL
+                )
+            } else {
+                targetURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+                    for: paused.fixture.bundleURL
+                )
+            }
+            try Data("corrupt-survivor".utf8).write(to: targetURL, options: .atomic)
+
+            XCTAssertThrowsError(
+                try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                    for: paused.fixture.bundleURL,
+                    attestationRootURL: paused.attestationRoot
+                )
+            ) { error in
+                XCTAssertTrue(
+                    error.localizedDescription.localizedCaseInsensitiveContains(
+                        "surviving workbook generation"
+                    )
+                )
+            }
+            XCTAssertTrue(FileManager.default.fileExists(atPath: paused.quarantine.path))
+            XCTAssertFalse(try workbookCleanupArtifacts(in: paused.root).isEmpty)
+        }
     }
 
     func testWorkbookCleanupRetryNeverDeletesSubstitutedQuarantineInode() throws {
@@ -6130,6 +6249,138 @@ print(json.dumps(payload))
                 into: fixture.bundleURL
             )
         )
+    }
+
+    private func interruptWorkbookCleanup(
+        branch: String,
+        fixture: (bundleURL: URL, manifest: ONTGenotypeResultBundleManifest),
+        attestationRoot: URL
+    ) throws {
+        let checkpoint: String
+        switch branch {
+        case "committed":
+            checkpoint = "after-revision-manifest-hard-stop"
+        case "prepared-discard":
+            checkpoint = "after-transaction-marker-hard-stop"
+        case "rollback":
+            checkpoint = "after-exchange-hard-stop"
+        case "manual-save-winner":
+            checkpoint = "after-revision-manifest-hard-stop"
+        default:
+            XCTFail("Unknown workbook cleanup branch \(branch)")
+            return
+        }
+        let currentPath = try XCTUnwrap(fixture.manifest.currentWorkbookPath)
+        let pythonURL = testPythonExecutableURL
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                pythonExecutableURL: pythonURL,
+                publicationFailureInjector: { observed in
+                    guard observed == checkpoint else { return }
+                    if branch == "manual-save-winner" {
+                        let markerURL = ONTGenotypeWorkbookUpdateRecovery.markerURL(
+                            for: fixture.bundleURL
+                        )
+                        let marker = try XCTUnwrap(
+                            try JSONSerialization.jsonObject(
+                                with: Data(contentsOf: markerURL)
+                            ) as? [String: Any]
+                        )
+                        let staging = URL(
+                            fileURLWithPath: try XCTUnwrap(
+                                marker["stagingBundlePath"] as? String
+                            ),
+                            isDirectory: true
+                        )
+                        let workbook = staging.appendingPathComponent(currentPath)
+                        _ = try Self.runPythonStatic(["-c", #"""
+import sys
+from openpyxl import load_workbook
+path = sys.argv[1]
+wb = load_workbook(path)
+wb[wb.sheetnames[0]]["Z94"] = "manual-cleanup-winner"
+wb.save(path)
+"""#, workbook.path], executableURL: pythonURL)
+                    }
+                    throw NSError(
+                        domain: "SimulatedWorkbookBranchCrash",
+                        code: 9
+                    )
+                },
+                workbookAttestationRootURL: attestationRoot
+            ).applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: nil,
+                into: fixture.bundleURL
+            )
+        )
+    }
+
+    private func pausedCommittedWorkbookCleanup(
+        outputName: String
+    ) throws -> (
+        root: URL,
+        fixture: (bundleURL: URL, manifest: ONTGenotypeResultBundleManifest),
+        attestationRoot: URL,
+        quarantine: URL,
+        lock: ONTGenotypeBundlePublicationLock
+    ) {
+        let root = try temporaryDirectory()
+        do {
+            let fixture = try makeMCMWorkbookBundle(in: root, outputName: outputName)
+            let attestationRoot = root.appendingPathComponent(
+                "attestations",
+                isDirectory: true
+            )
+            try interruptCommittedWorkbookCleanup(
+                fixture: fixture,
+                attestationRoot: attestationRoot
+            )
+            let lock = try ONTGenotypeBundlePublicationLock.acquire(
+                for: fixture.bundleURL,
+                blocking: true,
+                createIfMissing: false
+            )
+            do {
+                XCTAssertThrowsError(
+                    try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                        for: fixture.bundleURL,
+                        attestationRootURL: attestationRoot,
+                        cleanupFailureInjector: { checkpoint in
+                            guard checkpoint == "during-workbook-cleanup-traversal" else {
+                                return
+                            }
+                            throw NSError(
+                                domain: "InjectedWorkbookCleanupTraversal",
+                                code: 5
+                            )
+                        }
+                    )
+                )
+                let quarantine = try XCTUnwrap(
+                    try FileManager.default.contentsOfDirectory(
+                        at: root,
+                        includingPropertiesForKeys: nil
+                    ).first {
+                        $0.lastPathComponent.hasPrefix(
+                            ".lungfish-workbook-cleanup-pending-"
+                        )
+                    }
+                )
+                XCTAssertFalse(FileManager.default.fileExists(
+                    atPath: ONTGenotypeWorkbookUpdateRecovery.markerURL(
+                        for: fixture.bundleURL
+                    ).path
+                ))
+                return (root, fixture, attestationRoot, quarantine, lock)
+            } catch {
+                lock.release()
+                throw error
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: root)
+            throw error
+        }
     }
 
     private func serviceThatFailsIfStagingBegins() -> GenotypeWorkbookRevisionService {

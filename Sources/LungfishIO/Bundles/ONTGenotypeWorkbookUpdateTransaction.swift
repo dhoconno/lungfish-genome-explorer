@@ -1555,6 +1555,22 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 "The detached workbook cleanup quarantine is unavailable or changed."
             )
         }
+        let expectedSurvivorIdentity: ONTGenotypeWorkbookUpdateDirectoryIdentity
+        let expectedSurvivorManifest: ONTGenotypeWorkbookUpdateFileDescriptor
+        switch decision {
+        case .committed:
+            expectedSurvivorIdentity = transaction.newGenerationIdentity
+            expectedSurvivorManifest = transaction.newManifest
+        case .preparedDiscard, .rollback, .manualSaveWinner:
+            expectedSurvivorIdentity = transaction.oldGenerationIdentity
+            expectedSurvivorManifest = transaction.oldManifest
+        }
+        let survivor = try ONTGenotypeWorkbookCleanupStateStore.captureSurvivorAuthority(
+            bundleURL: final,
+            expectedIdentity: expectedSurvivorIdentity,
+            expectedManifest: expectedSurvivorManifest,
+            expectedCurrentWorkbookPath: transaction.oldCurrentWorkbook.path
+        )
         let state = ONTGenotypeWorkbookCleanupState(
             transactionID: transaction.transactionID,
             finalBundlePath: final.path,
@@ -1567,6 +1583,9 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 device: detachedIdentity.device,
                 inode: detachedIdentity.inode
             ),
+            survivorIdentity: survivor.identity,
+            survivorManifest: survivor.manifest,
+            survivorCurrentWorkbook: survivor.currentWorkbook,
             decision: decision
         )
         try ONTGenotypeWorkbookCleanupStateStore.write(state, at: stateURL)
