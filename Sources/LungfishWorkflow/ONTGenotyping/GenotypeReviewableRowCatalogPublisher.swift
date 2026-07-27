@@ -69,6 +69,8 @@ struct GenotypeReviewAuthorityFileSnapshot: Equatable, Sendable {
     let identity: FileSystemObjectIdentity
     let modificationSeconds: Int64
     let modificationNanoseconds: Int64
+    let changeSeconds: Int64
+    let changeNanoseconds: Int64
 
     static func capture(
         _ url: URL,
@@ -134,6 +136,8 @@ struct GenotypeReviewAuthorityFileSnapshot: Equatable, Sendable {
               before.st_size == after.st_size,
               before.st_mtimespec.tv_sec == after.st_mtimespec.tv_sec,
               before.st_mtimespec.tv_nsec == after.st_mtimespec.tv_nsec,
+              before.st_ctimespec.tv_sec == after.st_ctimespec.tv_sec,
+              before.st_ctimespec.tv_nsec == after.st_ctimespec.tv_nsec,
               bytesRead == UInt64(after.st_size) else {
             throw GenotypeReviewableRowCatalogPublisherError
                 .authorityChanged(standardized.path)
@@ -147,7 +151,9 @@ struct GenotypeReviewAuthorityFileSnapshot: Equatable, Sendable {
             fileSize: bytesRead,
             identity: FileSystemObjectIdentity(from: after),
             modificationSeconds: Int64(after.st_mtimespec.tv_sec),
-            modificationNanoseconds: Int64(after.st_mtimespec.tv_nsec)
+            modificationNanoseconds: Int64(after.st_mtimespec.tv_nsec),
+            changeSeconds: Int64(after.st_ctimespec.tv_sec),
+            changeNanoseconds: Int64(after.st_ctimespec.tv_nsec)
         )
     }
 
@@ -157,7 +163,9 @@ struct GenotypeReviewAuthorityFileSnapshot: Equatable, Sendable {
               current.fileSize == fileSize,
               current.sha256 == sha256,
               current.modificationSeconds == modificationSeconds,
-              current.modificationNanoseconds == modificationNanoseconds else {
+              current.modificationNanoseconds == modificationNanoseconds,
+              current.changeSeconds == changeSeconds,
+              current.changeNanoseconds == changeNanoseconds else {
             throw GenotypeReviewableRowCatalogPublisherError
                 .authorityChanged(url.path)
         }
@@ -187,7 +195,9 @@ struct GenotypeReviewAuthorityFileSnapshot: Equatable, Sendable {
               FileSystemObjectIdentity(from: info) == identity,
               UInt64(info.st_size) == fileSize,
               Int64(info.st_mtimespec.tv_sec) == modificationSeconds,
-              Int64(info.st_mtimespec.tv_nsec) == modificationNanoseconds else {
+              Int64(info.st_mtimespec.tv_nsec) == modificationNanoseconds,
+              Int64(info.st_ctimespec.tv_sec) == changeSeconds,
+              Int64(info.st_ctimespec.tv_nsec) == changeNanoseconds else {
             throw GenotypeReviewableRowCatalogPublisherError
                 .authorityChanged(standardized.path)
         }
@@ -226,10 +236,13 @@ struct GenotypeReviewCSVSemanticAuthority: Sendable {
         let sampleRows = try rows(from: sampleSnapshot)
         let reportRows = try rows(from: reportSnapshot)
         let calls = try parseCalls(reportRows, path: reportURL.path)
-        var roster = try parseRoster(sampleRows, path: sampleSummaryURL.path)
-        var seenSamples = Set(roster)
-        for call in calls where seenSamples.insert(call.sample).inserted {
-            roster.append(call.sample)
+        let roster = try parseRoster(sampleRows, path: sampleSummaryURL.path)
+        let rosterSamples = Set(roster)
+        if let outsideRoster = calls.first(where: {
+            !rosterSamples.contains($0.sample)
+        }) {
+            throw GenotypeReviewableRowCatalogPublisherError
+                .sampleOutsideRoster(outsideRoster.sample)
         }
         return Self(
             roster: roster,

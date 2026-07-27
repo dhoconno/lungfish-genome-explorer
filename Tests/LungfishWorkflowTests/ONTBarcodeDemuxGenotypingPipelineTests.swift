@@ -931,9 +931,10 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         })
         XCTAssertEqual(provisionalReviewRow.kind, .provisionalExon2)
         XCTAssertEqual(provisionalReviewRow.stableID, "sha256:\(provisional.sequenceSHA256)")
+        XCTAssertEqual(reviewCatalog.samples, ["DW001"])
         XCTAssertEqual(
             provisionalReviewRow.supportBySample,
-            ["DW001": 11, "DW472": 0]
+            ["DW001": 11]
         )
 
         let canonicalEnvelope = try XCTUnwrap(
@@ -3359,6 +3360,21 @@ print(json.dumps(payload))
         let genotypeRowWrites = genotypeRows.map {
             "        handle.write(\(String(reflecting: $0 + "\n")))"
         }.joined(separator: "\n")
+        let sampleSummaryRows = genotypeRows.reduce(into: [String]()) {
+            samples,
+            row in
+            guard let sample = row.split(separator: ",", maxSplits: 1).first.map(
+                String.init
+            ),
+            !sample.isEmpty,
+            !samples.contains(sample) else {
+                return
+            }
+            samples.append(sample)
+        }
+        let sampleSummaryRowWrites = sampleSummaryRows.map {
+            "        handle.write(\(String(reflecting: $0 + ",1,1\n")))"
+        }.joined(separator: "\n")
         let fakePython = #"""
         #!/usr/bin/env python3
         import json
@@ -3394,7 +3410,8 @@ print(json.dumps(payload))
                 handle.write("sample,genotype,passed_alignments,passed_unique_reads\n")
         \#(genotypeRowWrites)
             with open(outputs["samples"], "w") as handle:
-                handle.write("sample,passed_alignments,passed_unique_reads\nDW472,1,1\n")
+                handle.write("sample,passed_alignments,passed_unique_reads\n")
+        \#(sampleSummaryRowWrites)
             stats = {
                 "totalInputReads": 1,
                 "totalAlignments": 1,

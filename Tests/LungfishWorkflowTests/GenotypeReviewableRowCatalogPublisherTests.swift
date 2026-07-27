@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import SQLite3
 import XCTest
@@ -61,6 +62,84 @@ final class GenotypeReviewableRowCatalogPublisherTests: XCTestCase {
 
         XCTAssertEqual(counter.value, payload.count)
         XCTAssertEqual(snapshot.fileSize, UInt64(payload.count))
+    }
+
+    func testEvidenceMetadataPostcheckRejectsSameInodeSameSizeMutationWithRestoredMtime() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let evidenceURL = fixture.root.appendingPathComponent("same-inode.bam")
+        let payload = Data(repeating: 0x41, count: 8 * 1_024 * 1_024)
+        try payload.write(to: evidenceURL)
+        let counter = LockedByteCounter()
+        let snapshot = try GenotypeReviewAuthorityFileSnapshot.capture(
+            evidenceURL,
+            retainingData: false,
+            readObserver: { counter.add($0) }
+        )
+        let descriptor = Darwin.open(
+            evidenceURL.path,
+            O_WRONLY | O_NOFOLLOW | O_CLOEXEC
+        )
+        XCTAssertGreaterThanOrEqual(descriptor, 0)
+        defer { Darwin.close(descriptor) }
+        var before = stat()
+        XCTAssertEqual(Darwin.fstat(descriptor, &before), 0)
+        var replacement = payload
+        replacement[0] = 0x42
+        let written = replacement.withUnsafeBytes {
+            Darwin.pwrite(descriptor, $0.baseAddress, $0.count, 0)
+        }
+        XCTAssertEqual(written, replacement.count)
+        var times = [before.st_atimespec, before.st_mtimespec]
+        XCTAssertEqual(Darwin.futimens(descriptor, &times), 0)
+        XCTAssertEqual(Darwin.fsync(descriptor), 0)
+
+        var after = stat()
+        XCTAssertEqual(Darwin.fstat(descriptor, &after), 0)
+        XCTAssertEqual(FileSystemObjectIdentity(from: after), snapshot.identity)
+        XCTAssertEqual(UInt64(after.st_size), snapshot.fileSize)
+        XCTAssertEqual(after.st_mtimespec.tv_sec, before.st_mtimespec.tv_sec)
+        XCTAssertEqual(after.st_mtimespec.tv_nsec, before.st_mtimespec.tv_nsec)
+        XCTAssertTrue(
+            after.st_ctimespec.tv_sec != before.st_ctimespec.tv_sec
+                || after.st_ctimespec.tv_nsec != before.st_ctimespec.tv_nsec
+        )
+
+        XCTAssertThrowsError(try snapshot.requireMetadataUnchanged()) { error in
+            XCTAssertEqual(
+                error as? GenotypeReviewableRowCatalogPublisherError,
+                .authorityChanged(evidenceURL.path)
+            )
+        }
+        XCTAssertEqual(counter.value, payload.count)
+    }
+
+    func testMiSeqCSVSemanticAuthorityRejectsReportSampleOutsideExactSummaryRoster() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let sampleURL = fixture.root.appendingPathComponent("samples.csv")
+        let reportURL = fixture.root.appendingPathComponent("calls.csv")
+        try Data("sample,passed_unique_reads\nS1,9\n".utf8).write(to: sampleURL)
+        try Data(
+            """
+            sample,genotype,passed_alignments,passed_unique_reads
+            S1,Mafa-A1*001:01,9,9
+            S2,Mafa-B*002:01,7,7
+
+            """.utf8
+        ).write(to: reportURL)
+
+        XCTAssertThrowsError(
+            try GenotypeReviewCSVSemanticAuthority.capture(
+                sampleSummaryURL: sampleURL,
+                reportURL: reportURL
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? GenotypeReviewableRowCatalogPublisherError,
+                .sampleOutsideRoster("S2")
+            )
+        }
     }
 
     func testMiSeqReferenceAuthorityDescriptorsCoverManifestAndRecordStoreMutation() throws {
