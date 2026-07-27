@@ -741,6 +741,13 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
                 bundledMicromambaProvider: { bundledMicromamba },
                 bundledMicromambaVersionProvider: { "test-micromamba" }
             ),
+            fileRemover: { url in
+                if url.standardizedFileURL
+                    == request.reportCSVURL.standardizedFileURL {
+                    throw CocoaError(.fileWriteNoPermission)
+                }
+                try FileManager.default.removeItem(at: url)
+            },
             reviewableRowCatalogPublisher: {
                 inputs, outputDirectory, authorityCheck in
                 guard let rosterIndex = inputs.argv.firstIndex(
@@ -774,8 +781,18 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             _ = try await failingPipeline.run(request)
             XCTFail("Expected review catalog publication failure")
         } catch {
-            let failure = try XCTUnwrap(
-                error as? GenotypeReviewableRowCatalogPublicationFailure
+            XCTAssertTrue(
+                error.localizedDescription.contains("authority changed"),
+                error.localizedDescription
+            )
+            XCTAssertTrue(
+                error.localizedDescription.contains(request.reportCSVURL.path),
+                error.localizedDescription
+            )
+            XCTAssertTrue(
+                error.localizedDescription.contains("permission")
+                    || error.localizedDescription.contains("write"),
+                error.localizedDescription
             )
             let failedEnvelope = try XCTUnwrap(
                 ProvenanceEnvelopeReader.load(from: outputDirectory)
@@ -784,7 +801,7 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             let failedStep = try XCTUnwrap(failedEnvelope.steps.first {
                 $0.toolName == "lungfish genotype reviewable row catalog publisher"
             })
-            XCTAssertEqual(failedStep.argv, failure.provenance.argv)
+            XCTAssertFalse(failedStep.argv.isEmpty)
             XCTAssertEqual(failedStep.exitStatus, 1)
             XCTAssertTrue(
                 failedStep.stderr?.contains("authority changed")
@@ -792,12 +809,33 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             )
             XCTAssertFalse(failedStep.inputs.isEmpty)
             XCTAssertEqual(failedStep.outputs.first?.path, catalogURL.path)
-            XCTAssertTrue(
-                failure.provenance.stderr?.contains(
-                    "Rollback paths: \(catalogURL.path)"
-                ) == true
-            )
+            XCTAssertTrue(failedEnvelope.stderr?.contains("authority changed") == true)
             XCTAssertEqual(try Data(contentsOf: catalogURL), priorCatalog)
+
+            let operationRoot = try XCTUnwrap(
+                FileManager.default.contentsOfDirectory(
+                    at: root.appendingPathComponent(
+                        ProjectOperationHistoryWriter.historyDirectoryName,
+                        isDirectory: true
+                    ),
+                    includingPropertiesForKeys: nil
+                ).first
+            )
+            let disposition = try jsonObject(
+                at: operationRoot.appendingPathComponent(
+                    "cleanup-disposition.json"
+                )
+            )
+            let entries = try XCTUnwrap(
+                disposition["entries"] as? [[String: Any]]
+            )
+            XCTAssertTrue(entries.contains {
+                $0["path"] as? String
+                    == request.reportCSVURL.standardizedFileURL.path
+                    && $0["disposition"] as? String
+                        == "retained-cleanup-failed"
+                    && ($0["error"] as? String)?.isEmpty == false
+            })
         }
 
         let result = try await ONTBarcodeDemuxGenotypingPipeline(
@@ -1304,9 +1342,79 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         let failure = try jsonObject(at: failureReceipt)
         XCTAssertEqual(failure["exitStatus"] as? Int, 1)
         XCTAssertEqual(
+            failure["toolName"] as? String,
+            "lungfish fastq genotype"
+        )
+        XCTAssertEqual(
+            failure["toolVersion"] as? String,
+            WorkflowRun.currentAppVersion
+        )
+        XCTAssertEqual(failure["argv"] as? [String], request.argv)
+        XCTAssertFalse(
+            (failure["reproducibleCommand"] as? String)?.isEmpty ?? true
+        )
+        XCTAssertEqual(
             (failure["resolvedOptions"] as? [String: Any])?["keepIntermediates"] as? Bool,
             false
         )
+        let resolvedOptions = try XCTUnwrap(
+            failure["resolvedOptions"] as? [String: Any]
+        )
+        let resolvedDefaults = try XCTUnwrap(
+            failure["resolvedDefaults"] as? [String: Any]
+        )
+        let requiredOptionKeys: Set<String> = [
+            "aiSpecialistPresetID", "analysisName", "barcodeDefinitions",
+            "comparisonName", "comparisonWorkbook", "demuxManifest",
+            "extraArguments", "haplotypeAssayID",
+            "haplotypeDefinitionScope", "haplotypeDefinitionSetID",
+            "haplotypeDropoutLocusFraction",
+            "haplotypeDropoutLocusFractionOverrides",
+            "haplotypeDropoutSampleFraction", "haplotypeSpeciesCode",
+            "keepIntermediates", "lockedReferenceSHA256", "minSupport",
+            "mode", "outputDirectory", "outputName", "presetID",
+            "presetVersion", "project", "readType", "referenceSource",
+            "sortThreads", "threads",
+        ]
+        XCTAssertTrue(
+            requiredOptionKeys.isSubset(of: Set(resolvedOptions.keys)),
+            "Missing resolved options: \(requiredOptionKeys.subtracting(resolvedOptions.keys))"
+        )
+        XCTAssertTrue(
+            requiredOptionKeys.isSubset(of: Set(resolvedDefaults.keys)),
+            "Missing resolved defaults: \(requiredOptionKeys.subtracting(resolvedDefaults.keys))"
+        )
+        let runtime = try XCTUnwrap(failure["runtimeIdentity"] as? [String: Any])
+        XCTAssertFalse((runtime["executablePath"] as? String)?.isEmpty ?? true)
+        XCTAssertFalse((runtime["operatingSystem"] as? String)?.isEmpty ?? true)
+        XCTAssertEqual(runtime["condaRoot"] as? String, condaRoot.path)
+        XCTAssertFalse(
+            (runtime["condaEnvironments"] as? [String])?.isEmpty ?? true
+        )
+        let failureInputs = try XCTUnwrap(
+            failure["inputs"] as? [[String: Any]]
+        )
+        for expectedInput in [sample.fastqURL, referenceFASTA] {
+            let descriptor = try XCTUnwrap(failureInputs.first {
+                $0["path"] as? String == expectedInput.standardizedFileURL.path
+            })
+            XCTAssertNotNil(descriptor["sha256"] as? String)
+            XCTAssertNotNil(descriptor["fileSize"] as? Int)
+        }
+        XCTAssertFalse(
+            failureInputs.contains {
+                ($0["path"] as? String)?.contains(".amplicon-genotyping")
+                    == true
+            },
+            "Failure provenance must hash original scientific inputs, not transient duplicates."
+        )
+        let failureOutputs = try XCTUnwrap(
+            failure["outputs"] as? [[String: Any]]
+        )
+        for descriptor in failureOutputs {
+            XCTAssertNotNil(descriptor["sha256"] as? String)
+            XCTAssertNotNil(descriptor["fileSize"] as? Int)
+        }
         XCTAssertTrue(
             (failure["stderr"] as? String)?.contains("permission") == true,
             failure["stderr"] as? String ?? "Missing failed-run stderr"
@@ -1399,6 +1507,101 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             ),
             "The support root must remain when no durable failure envelope exists."
         )
+    }
+
+    func testMarkerBindingFailureRollsBackSupportRootAndPublishesFailureEnvelope() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let inputFASTQ = root.appendingPathComponent("reads.fastq")
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        try "@r0\nACGT\n+\nIIII\n".write(
+            to: inputFASTQ,
+            atomically: true,
+            encoding: .utf8
+        )
+        try ">A1_063_01\nACGT\n".write(
+            to: referenceFASTA,
+            atomically: true,
+            encoding: .utf8
+        )
+        let outputDirectory = root.appendingPathComponent(
+            "marker-failure.lungfishgenotype",
+            isDirectory: true
+        )
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: [inputFASTQ],
+            referenceSourceURL: referenceFASTA,
+            outputDirectory: outputDirectory,
+            outputName: "marker-failure",
+            projectURL: root,
+            threads: 1,
+            sortThreads: 1,
+            mode: .illuminaPaired,
+            readType: .illumina
+        )
+        let failingStore = DurableAtomicFileStore(operations: .init(
+            syncFile: { Darwin.fsync($0) },
+            syncDirectory: { _ in
+                errno = ENOSPC
+                return -1
+            }
+        ))
+        let pipeline = ONTBarcodeDemuxGenotypingPipeline(
+            condaManager: CondaManager(rootPrefix: root.appendingPathComponent("conda")),
+            workDirectoryMarkerBinder: { directory, creation in
+                try OwnedWorkDirectoryMarkerStore.bindExistingDirectory(
+                    directory,
+                    request: creation,
+                    atomicFileStore: failingStore
+                )
+            }
+        )
+
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("Expected ownership-marker publication failure")
+        } catch {
+            XCTAssertTrue(
+                error.localizedDescription.contains("fsync")
+                    || error.localizedDescription.contains("No space"),
+                error.localizedDescription
+            )
+        }
+
+        let supportDirectory = outputDirectory.appendingPathComponent(
+            ".amplicon-genotyping",
+            isDirectory: true
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: supportDirectory.path),
+            "Marker failure must not leave an unmarked support root."
+        )
+        let historyRoot = root.appendingPathComponent(
+            ProjectOperationHistoryWriter.historyDirectoryName,
+            isDirectory: true
+        )
+        let operation = try XCTUnwrap(
+            FileManager.default.contentsOfDirectory(
+                at: historyRoot,
+                includingPropertiesForKeys: nil
+            ).first
+        )
+        let failure = try jsonObject(
+            at: operation.appendingPathComponent("failure-provenance.json")
+        )
+        XCTAssertEqual(failure["exitStatus"] as? Int, 1)
+        XCTAssertTrue(
+            (failure["stderr"] as? String)?.contains("fsync") == true,
+            failure["stderr"] as? String ?? "Missing marker failure stderr"
+        )
+        let disposition = try jsonObject(
+            at: operation.appendingPathComponent("cleanup-disposition.json")
+        )
+        let entries = try XCTUnwrap(disposition["entries"] as? [[String: Any]])
+        XCTAssertTrue(entries.contains {
+            $0["path"] as? String == supportDirectory.standardizedFileURL.path
+                && $0["disposition"] as? String == "already-removed"
+        })
     }
 
     func testIlluminaCohortMapsEachSampleWithSeparateMinimap2Invocation() async throws {

@@ -493,7 +493,8 @@ public enum OwnedWorkDirectoryMarkerStore {
     public static func bindExistingDirectory(
         _ directoryURL: URL,
         request: OwnedWorkDirectoryCreationRequest,
-        atomicFileStore: DurableAtomicFileStore = .init()
+        atomicFileStore: DurableAtomicFileStore = .init(),
+        rollbackOperations: RollbackOperations = .init()
     ) throws {
         try validate(request)
         let directoryURL = directoryURL.standardizedFileURL
@@ -514,6 +515,13 @@ public enum OwnedWorkDirectoryMarkerStore {
             throw OwnedWorkDirectoryMarkerError.unsafePath(directoryURL.path)
         }
         defer { Darwin.close(directoryDescriptor) }
+        let parentDescriptor: Int32
+        do {
+            parentDescriptor = try NoFollowFileSystem.openDirectoryHierarchy(parentURL)
+        } catch {
+            throw OwnedWorkDirectoryMarkerError.unsafePath(parentURL.path)
+        }
+        defer { Darwin.close(parentDescriptor) }
         let projectDescriptor: Int32
         do {
             projectDescriptor = try NoFollowFileSystem.openDirectoryHierarchy(projectURL)
@@ -548,16 +556,39 @@ public enum OwnedWorkDirectoryMarkerStore {
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try atomicFileStore.create(
-            encoder.encode(marker),
-            named: OwnedWorkDirectoryMarker.fileName,
-            inOpenDirectory: directoryDescriptor,
-            displayedAt: directoryURL
-        )
-        guard try load(from: directoryURL, expectedProjectURL: projectURL) == marker else {
-            throw OwnedWorkDirectoryMarkerError.invalidMarker(
-                "published marker changed while binding existing directory"
+        do {
+            try atomicFileStore.create(
+                encoder.encode(marker),
+                named: OwnedWorkDirectoryMarker.fileName,
+                inOpenDirectory: directoryDescriptor,
+                displayedAt: directoryURL
             )
+            guard rollbackOperations.syncParent(parentDescriptor) == 0 else {
+                throw OwnedWorkDirectoryMarkerError.systemFailure(
+                    path: parentURL.path,
+                    operation: "fsync bound owned directory parent",
+                    code: errno
+                )
+            }
+            guard try load(from: directoryURL, expectedProjectURL: projectURL) == marker else {
+                throw OwnedWorkDirectoryMarkerError.invalidMarker(
+                    "published marker changed while binding existing directory"
+                )
+            }
+        } catch {
+            do {
+                try rollbackNewDirectory(
+                    named: directoryURL.lastPathComponent,
+                    parentDescriptor: parentDescriptor,
+                    childDescriptor: directoryDescriptor,
+                    expectedIdentity: FileSystemObjectIdentity(directoryInfo),
+                    displayedAt: directoryURL,
+                    operations: rollbackOperations
+                )
+            } catch {
+                throw error
+            }
+            throw error
         }
     }
 

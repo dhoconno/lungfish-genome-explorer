@@ -153,6 +153,36 @@ final class OwnedWorkDirectoryMarkerTests: XCTestCase {
         XCTAssertEqual(completed.runID, active.runID)
     }
 
+    func testBindExistingDirectoryMarkerDurabilityFailureRollsBackNewDirectory() throws {
+        let directory = workParent.appendingPathComponent(
+            "pipeline-marker-failure",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: false
+        )
+        let store = DurableAtomicFileStore(operations: .init(
+            syncFile: { Darwin.fsync($0) },
+            syncDirectory: { _ in
+                errno = ENOSPC
+                return -1
+            }
+        ))
+
+        XCTAssertThrowsError(
+            try OwnedWorkDirectoryMarkerStore.bindExistingDirectory(
+                directory,
+                request: request(prefix: "unused-"),
+                atomicFileStore: store
+            )
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: directory.path),
+            "A newly created workflow root must not survive without a durable ownership marker."
+        )
+    }
+
     func testTransitionRejectsRunMismatchAndTerminalRewrite() throws {
         let creation = request(prefix: "transition-")
         let directory = try OwnedWorkDirectoryMarkerStore.createDirectory(creation)
