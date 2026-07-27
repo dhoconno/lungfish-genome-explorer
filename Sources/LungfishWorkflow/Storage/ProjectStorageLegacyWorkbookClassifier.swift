@@ -9,20 +9,26 @@ public struct ProjectStorageLegacyWorkbookClassifier {
 
     private let attestationRootURL: URL?
     private let cancellationCheck: () throws -> Void
+    private let callerHeldPublicationLocks:
+        [ONTGenotypeBundlePublicationLock]
 
     public init() {
         self.attestationRootURL = nil
         self.cancellationCheck = { try Task.checkCancellation() }
+        self.callerHeldPublicationLocks = []
     }
 
     init(
         attestationRootURL: URL? = nil,
         cancellationCheck: @escaping () throws -> Void = {
             try Task.checkCancellation()
-        }
+        },
+        callerHeldPublicationLocks:
+            [ONTGenotypeBundlePublicationLock] = []
     ) {
         self.attestationRootURL = attestationRootURL
         self.cancellationCheck = cancellationCheck
+        self.callerHeldPublicationLocks = callerHeldPublicationLocks
     }
 
     public func classify(
@@ -161,13 +167,23 @@ public struct ProjectStorageLegacyWorkbookClassifier {
                         + "workbook revisions; exactly one is required."
                 )
             }
-            let authority =
-                ONTGenotypeWorkbookUpdateRecovery
-                .inspectLegacyArchiveAuthority(
+            let authority: ONTGenotypeWorkbookLegacyAuthorityInspection
+            if let heldLock = callerHeldPublicationLocks.first(where: {
+                $0.bundleURL == liveBundle.standardizedFileURL
+            }) {
+                authority = heldLock.inspectLegacyArchiveAuthority(
                     transactionID: transactionID,
-                    liveBundleURL: liveBundle,
                     attestationRootURL: attestationRootURL
                 )
+            } else {
+                authority =
+                    ONTGenotypeWorkbookUpdateRecovery
+                    .inspectLegacyArchiveAuthority(
+                        transactionID: transactionID,
+                        liveBundleURL: liveBundle,
+                        attestationRootURL: attestationRootURL
+                    )
+            }
             try cancellationCheck()
             let receiptFacts: [
                 ONTGenotypeWorkbookLegacyReceiptFact

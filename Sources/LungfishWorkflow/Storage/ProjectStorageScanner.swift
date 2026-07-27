@@ -62,14 +62,26 @@ public struct ProjectStorageScanner {
         cancellationCheck: @escaping () throws -> Void = {
             try Task.checkCancellation()
         },
-        workbookAttestationRootURL: URL? = nil
+        workbookAttestationRootURL: URL? = nil,
+        callerHeldRunLocks: [OwnedRunLock] = [],
+        callerHeldWorkbookPublicationLocks:
+            [ONTGenotypeBundlePublicationLock] = []
     ) {
         self.processInspector = processInspector
-        self.lockProbe = lockProbe
+        self.lockProbe = { lockURL in
+            if callerHeldRunLocks.contains(where: {
+                $0.authorizesRevalidation(of: lockURL)
+            }) {
+                return .unlocked
+            }
+            return try lockProbe(lockURL)
+        }
         self.cancellationCheck = cancellationCheck
         self.legacyWorkbookClassifier = .init(
             attestationRootURL: workbookAttestationRootURL,
-            cancellationCheck: cancellationCheck
+            cancellationCheck: cancellationCheck,
+            callerHeldPublicationLocks:
+                callerHeldWorkbookPublicationLocks
         )
     }
 

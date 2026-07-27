@@ -192,10 +192,12 @@ public enum ONTGenotypeBundlePublicationLockProbe:
 
 public final class ONTGenotypeBundlePublicationLock: @unchecked Sendable {
     public let lockURL: URL
+    public let bundleURL: URL
     private let stateLock = NSLock()
     private var descriptor: Int32
 
-    private init(lockURL: URL, descriptor: Int32) {
+    private init(bundleURL: URL, lockURL: URL, descriptor: Int32) {
+        self.bundleURL = bundleURL.standardizedFileURL
         self.lockURL = lockURL
         self.descriptor = descriptor
     }
@@ -244,7 +246,11 @@ public final class ONTGenotypeBundlePublicationLock: @unchecked Sendable {
             }
             throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(lockURL.path, code)
         }
-        return ONTGenotypeBundlePublicationLock(lockURL: lockURL, descriptor: descriptor)
+        return ONTGenotypeBundlePublicationLock(
+            bundleURL: bundleURL,
+            lockURL: lockURL,
+            descriptor: descriptor
+        )
     }
 
     public static func probe(
@@ -311,6 +317,26 @@ public final class ONTGenotypeBundlePublicationLock: @unchecked Sendable {
         guard value >= 0 else { return }
         _ = flock(value, LOCK_UN)
         Darwin.close(value)
+    }
+
+    /// Revalidates legacy archive authority while this exact live bundle's
+    /// publication lock is demonstrably held by this capability object.
+    public func inspectLegacyArchiveAuthority(
+        transactionID: String,
+        attestationRootURL: URL? = nil
+    ) -> ONTGenotypeWorkbookLegacyAuthorityInspection {
+        let held = stateLock.withLock { descriptor >= 0 }
+        guard held else {
+            return .blocked(
+                reason: "The workbook publication lock is no longer held."
+            )
+        }
+        return ONTGenotypeWorkbookUpdateRecovery
+            .inspectLegacyArchiveAuthorityWhileHoldingLock(
+                transactionID: transactionID,
+                liveBundleURL: bundleURL,
+                attestationRootURL: attestationRootURL
+            )
     }
 
     deinit { release() }
@@ -1040,6 +1066,37 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         attestationRootURL: URL?,
         attestationEnumerationObserver: (() throws -> Void)?
     ) -> ONTGenotypeWorkbookLegacyAuthorityInspection {
+        inspectLegacyArchiveAuthority(
+            transactionID: transactionID,
+            liveBundleURL: liveBundleURL,
+            attestationRootURL: attestationRootURL,
+            publicationLockHeldByCapability: false,
+            attestationEnumerationObserver:
+                attestationEnumerationObserver
+        )
+    }
+
+    fileprivate static func inspectLegacyArchiveAuthorityWhileHoldingLock(
+        transactionID: String,
+        liveBundleURL: URL,
+        attestationRootURL: URL?
+    ) -> ONTGenotypeWorkbookLegacyAuthorityInspection {
+        inspectLegacyArchiveAuthority(
+            transactionID: transactionID,
+            liveBundleURL: liveBundleURL,
+            attestationRootURL: attestationRootURL,
+            publicationLockHeldByCapability: true,
+            attestationEnumerationObserver: nil
+        )
+    }
+
+    private static func inspectLegacyArchiveAuthority(
+        transactionID: String,
+        liveBundleURL: URL,
+        attestationRootURL: URL?,
+        publicationLockHeldByCapability: Bool,
+        attestationEnumerationObserver: (() throws -> Void)?
+    ) -> ONTGenotypeWorkbookLegacyAuthorityInspection {
         let bundle = liveBundleURL.standardizedFileURL
         guard !transactionID.isEmpty,
               !transactionID.utf8.contains(0),
@@ -1049,13 +1106,15 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             return .blocked(reason: "The archive transaction ID is unsafe.")
         }
         do {
-            switch try ONTGenotypeBundlePublicationLock.probe(for: bundle) {
-            case .held:
-                return .blocked(
-                    reason: "The workbook publication lock is held."
-                )
-            case .missing, .unlocked:
-                break
+            if !publicationLockHeldByCapability {
+                switch try ONTGenotypeBundlePublicationLock.probe(for: bundle) {
+                case .held:
+                    return .blocked(
+                        reason: "The workbook publication lock is held."
+                    )
+                case .missing, .unlocked:
+                    break
+                }
             }
 
             if try !discoveredMarkerURLs(for: bundle).isEmpty {

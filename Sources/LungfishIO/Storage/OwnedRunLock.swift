@@ -78,6 +78,16 @@ public final class OwnedRunLock: @unchecked Sendable {
         Darwin.close(value)
     }
 
+    /// Capability check used by lock-aware revalidation. Callers cannot forge
+    /// an instance because acquisition is the only public constructor.
+    public func authorizesRevalidation(of candidate: URL) -> Bool {
+        stateLock.withLock {
+            descriptor >= 0
+                && lockURL.standardizedFileURL
+                    == candidate.standardizedFileURL
+        }
+    }
+
     deinit { release() }
 
     private static func openLock(at lockURL: URL, createIfMissing: Bool) throws -> Int32 {
