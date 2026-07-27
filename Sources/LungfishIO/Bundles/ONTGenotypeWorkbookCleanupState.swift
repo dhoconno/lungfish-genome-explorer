@@ -118,6 +118,44 @@ enum ONTGenotypeWorkbookCleanupStateStore {
         )
     }
 
+    static func terminalReceiptDisposition(
+        for decision: ONTGenotypeWorkbookCleanupDecision
+    ) -> (action: String, detail: String) {
+        switch decision {
+        case .committed:
+            return (
+                "finished-committed-cleanup",
+                "The committed workbook generation is durable and the retired generation was removed."
+            )
+        case .preparedDiscard:
+            return (
+                "finished-prepared-discard-cleanup",
+                "The unpublished prepared generation was durably removed."
+            )
+        case .rollback:
+            return (
+                "finished-rollback-cleanup",
+                "The prior workbook generation was restored and the retired generation was removed."
+            )
+        case .manualSaveWinner:
+            return (
+                "finished-manual-save-winner-cleanup",
+                "The manually edited workbook generation was preserved and the generated revision was removed."
+            )
+        }
+    }
+
+    static func transactionSemanticsMatch(
+        _ lhs: ONTGenotypeWorkbookUpdateTransaction,
+        _ rhs: ONTGenotypeWorkbookUpdateTransaction
+    ) -> Bool {
+        guard let lhsData = try? encoder.encode(lhs),
+              let rhsData = try? encoder.encode(rhs) else {
+            return false
+        }
+        return lhsData == rhsData
+    }
+
     static func states(for bundleURL: URL) throws -> [(URL, ONTGenotypeWorkbookCleanupState)] {
         let requested = URL(
             fileURLWithPath: lexicalPath(bundleURL),
@@ -574,6 +612,51 @@ enum ONTGenotypeWorkbookCleanupStateStore {
             transactionID: state.transactionID,
             parent: parent
         )
+        do {
+            try ONTGenotypeWorkbookUpdateRecovery.validate(
+                state.transaction,
+                for: bundle
+            )
+        } catch {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction(
+                "Invalid workbook cleanup state transaction: \(stateURL.path)"
+            )
+        }
+        let expectedDisposition = terminalReceiptDisposition(
+            for: state.decision
+        )
+        let transactionSurvivorIdentity:
+            ONTGenotypeWorkbookUpdateDirectoryIdentity
+        let expectedSurvivorManifest:
+            ONTGenotypeWorkbookUpdateFileDescriptor
+        let expectedSurvivorCurrentWorkbook:
+            ONTGenotypeWorkbookUpdateFileDescriptor
+        switch state.decision {
+        case .committed:
+            transactionSurvivorIdentity =
+                state.transaction.newGenerationIdentity
+            expectedSurvivorManifest = state.transaction.newManifest
+            expectedSurvivorCurrentWorkbook =
+                state.transaction.newCurrentWorkbook
+        case .preparedDiscard, .rollback, .manualSaveWinner:
+            transactionSurvivorIdentity =
+                state.transaction.oldGenerationIdentity
+            expectedSurvivorManifest = state.transaction.oldManifest
+            expectedSurvivorCurrentWorkbook =
+                state.transaction.oldCurrentWorkbook
+        }
+        let expectedSurvivorIdentity =
+            ONTGenotypeWorkbookUpdateDirectoryIdentity(
+                path: state.finalBundlePath,
+                device: transactionSurvivorIdentity.device,
+                inode: transactionSurvivorIdentity.inode
+            )
+        let expectedQuarantineIdentity =
+            ONTGenotypeWorkbookUpdateDirectoryIdentity(
+                path: state.quarantinePath,
+                device: state.transaction.transactionRootIdentity.device,
+                inode: state.transaction.transactionRootIdentity.inode
+            )
         guard state.schemaVersion == 3,
               state.retryState == "cleanup-pending",
               DurableAtomicFileStore.isSinglePathComponent(state.transactionID),
@@ -585,18 +668,31 @@ enum ONTGenotypeWorkbookCleanupStateStore {
                   URL(fileURLWithPath: state.sourceRootPath)
                       .deletingLastPathComponent()
               ) == parent.path,
-              state.parentIdentity.path == parent.path,
-              state.sourceIdentity.path == state.sourceRootPath,
-              state.quarantineIdentity.path == state.quarantinePath,
-              state.survivorIdentity.path == state.finalBundlePath,
+              state.sourceRootPath == state.transaction.transactionRootPath,
+              state.parentIdentity == state.transaction.finalParentIdentity,
+              state.sourceIdentity
+                == state.transaction.transactionRootIdentity,
+              state.quarantineIdentity == expectedQuarantineIdentity,
+              state.survivorIdentity == expectedSurvivorIdentity,
               state.survivorManifest.path == ONTGenotypeResultBundleManifest.filename,
               isSafeRelativePath(state.survivorCurrentWorkbook.path),
+              isValidFileDescriptor(state.transaction.oldManifest),
+              isValidFileDescriptor(state.transaction.newManifest),
+              isValidFileDescriptor(
+                  state.transaction.oldCurrentWorkbook
+              ),
+              isValidFileDescriptor(
+                  state.transaction.newCurrentWorkbook
+              ),
+              isValidFileDescriptor(state.survivorManifest),
+              isValidFileDescriptor(state.survivorCurrentWorkbook),
               state.transaction.transactionID == state.transactionID,
               state.transaction.finalBundlePath == state.finalBundlePath,
-              !state.terminalReceiptAction.isEmpty,
-              !state.terminalReceiptDetail.isEmpty,
-              state.sourceIdentity.device == state.quarantineIdentity.device,
-              state.sourceIdentity.inode == state.quarantineIdentity.inode else {
+              state.survivorManifest == expectedSurvivorManifest,
+              state.survivorCurrentWorkbook.path
+                == expectedSurvivorCurrentWorkbook.path,
+              state.terminalReceiptAction == expectedDisposition.action,
+              state.terminalReceiptDetail == expectedDisposition.detail else {
             throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction(
                 "Invalid workbook cleanup state: \(stateURL.path)"
             )
@@ -660,7 +756,7 @@ enum ONTGenotypeWorkbookCleanupStateStore {
         return actualName
     }
 
-    private static func validateSurvivor(
+    static func validateSurvivor(
         _ state: ONTGenotypeWorkbookCleanupState
     ) throws {
         let authority = try captureSurvivorAuthority(
@@ -692,6 +788,22 @@ enum ONTGenotypeWorkbookCleanupStateStore {
                 && $0 != "."
                 && $0 != ".."
         }
+    }
+
+    private static func isValidFileDescriptor(
+        _ descriptor: ONTGenotypeWorkbookUpdateFileDescriptor
+    ) -> Bool {
+        descriptor.sizeBytes >= 0
+            && isSafeRelativePath(descriptor.path)
+            && descriptor.sha256.utf8.count == 64
+            && descriptor.sha256.utf8.allSatisfy { byte in
+                switch byte {
+                case 48...57, 65...70, 97...102:
+                    return true
+                default:
+                    return false
+                }
+            }
     }
 
     private static func readRelativeRegularFile(

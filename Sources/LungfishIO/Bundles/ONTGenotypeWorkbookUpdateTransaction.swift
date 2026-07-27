@@ -1125,7 +1125,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             && actual.sha256.caseInsensitiveCompare(expected.sha256) == .orderedSame
     }
 
-    private static func validate(
+    static func validate(
         _ transaction: ONTGenotypeWorkbookUpdateTransaction,
         for bundleURL: URL
     ) throws {
@@ -1518,11 +1518,19 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         }
         if let existing = existingStates.first {
             guard existing.0.standardizedFileURL == stateURL.standardizedFileURL,
+                  ONTGenotypeWorkbookCleanupStateStore
+                    .transactionSemanticsMatch(
+                        existing.1.transaction,
+                        transaction
+                    ),
                   existing.1.decision == decision else {
                 throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
-                    "Workbook cleanup decision changed for transaction \(transaction.transactionID)."
+                    "Workbook cleanup state changed for transaction \(transaction.transactionID)."
                 )
             }
+            try ONTGenotypeWorkbookCleanupStateStore.validateSurvivor(
+                existing.1
+            )
             try writeCleanupAuthorizedReceipt(existing.1)
             return
         }
@@ -1627,6 +1635,15 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             )
             return
         }
+        guard ONTGenotypeWorkbookCleanupStateStore.transactionSemanticsMatch(
+            state.transaction,
+            transaction
+        ),
+              state.decision == decision else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "Workbook cleanup state does not match its completing transaction."
+            )
+        }
         try ONTGenotypeWorkbookCleanupStateStore.removeQuarantineNoFollow(
             state: state,
             stateURL: stateURL,
@@ -1640,28 +1657,9 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
     private static func cleanupDisposition(
         for decision: ONTGenotypeWorkbookCleanupDecision
     ) -> (action: String, detail: String) {
-        switch decision {
-        case .committed:
-            return (
-                "finished-committed-cleanup",
-                "The committed workbook generation is durable and the retired generation was removed."
-            )
-        case .preparedDiscard:
-            return (
-                "finished-prepared-discard-cleanup",
-                "The unpublished prepared generation was durably removed."
-            )
-        case .rollback:
-            return (
-                "finished-rollback-cleanup",
-                "The prior workbook generation was restored and the retired generation was removed."
-            )
-        case .manualSaveWinner:
-            return (
-                "finished-manual-save-winner-cleanup",
-                "The manually edited workbook generation was preserved and the generated revision was removed."
-            )
-        }
+        ONTGenotypeWorkbookCleanupStateStore.terminalReceiptDisposition(
+            for: decision
+        )
     }
 
     private static func writeCleanupAuthorizedReceipt(
@@ -2210,17 +2208,31 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             )
         }
         guard let (stateURL, state) = states.first else { return false }
-        try writeCleanupAuthorizedReceipt(state)
-
-        if let authority = try loadRecoveryAuthorityIfPresent(
+        let authority = try loadRecoveryAuthorityIfPresent(
             for: bundleURL,
             attestationRootURL: attestationRootURL
-        ) {
-            guard authority.transaction.transactionID == state.transactionID else {
+        )
+        if let authority {
+            guard authority.transaction == state.transaction else {
                 throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
-                    "Workbook cleanup state and recovery authority claim different transactions."
+                    "Workbook cleanup state does not match the authenticated recovery authority."
                 )
             }
+            try requireAuthorityUnchanged(
+                authority,
+                for: bundleURL,
+                attestationRootURL: attestationRootURL
+            )
+            try ONTGenotypeWorkbookCleanupStateStore.validateSurvivor(state)
+            try requireAuthorityUnchanged(
+                authority,
+                for: bundleURL,
+                attestationRootURL: attestationRootURL
+            )
+        }
+        try writeCleanupAuthorizedReceipt(state)
+
+        if let authority {
             try requireAuthorityUnchanged(
                 authority,
                 for: bundleURL,

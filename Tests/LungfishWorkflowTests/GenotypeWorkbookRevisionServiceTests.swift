@@ -2291,6 +2291,242 @@ wb.save(path)
         )
     }
 
+    func testCleanupStateTransactionTamperingBeforeAuthorizedReceiptPreservesLiveAuthority() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(
+            in: root,
+            outputName: "cleanup-state-live-authority-tamper"
+        )
+        let attestationRoot = root.appendingPathComponent(
+            "attestations",
+            isDirectory: true
+        )
+        try interruptCommittedWorkbookCleanup(
+            fixture: fixture,
+            attestationRoot: attestationRoot
+        )
+        let lock = try ONTGenotypeBundlePublicationLock.acquire(
+            for: fixture.bundleURL,
+            blocking: true,
+            createIfMissing: false
+        )
+        defer { lock.release() }
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: fixture.bundleURL,
+                attestationRootURL: attestationRoot,
+                cleanupFailureInjector: { checkpoint in
+                    guard checkpoint
+                        == "after-workbook-cleanup-state-durable-hard-stop" else {
+                        return
+                    }
+                    throw NSError(
+                        domain: "InjectedCleanupStateBeforeReceiptCrash",
+                        code: 9
+                    )
+                }
+            )
+        )
+        let stateURL = try workbookCleanupStateURL(in: root)
+        let quarantine = try XCTUnwrap(
+            try workbookCleanupArtifacts(in: root).first {
+                $0.lastPathComponent.hasPrefix(
+                    ".lungfish-workbook-cleanup-pending-"
+                )
+            }
+        )
+        let markerURL = ONTGenotypeWorkbookUpdateRecovery.markerURL(
+            for: fixture.bundleURL
+        )
+        let attestationBefore = try Dictionary(
+            uniqueKeysWithValues: FileManager.default.contentsOfDirectory(
+                at: attestationRoot,
+                includingPropertiesForKeys: nil
+            ).map { ($0.lastPathComponent, try Data(contentsOf: $0)) }
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: markerURL.path))
+        XCTAssertFalse(
+            try workbookRecoveryReceiptActions(in: root).contains(
+                "workbook-cleanup-authorized"
+            )
+        )
+        try mutateJSONObject(at: stateURL) { state in
+            var transaction = try XCTUnwrap(
+                state["transaction"] as? [String: Any]
+            )
+            transaction["toolVersion"] = "forged-cleanup-tool-version"
+            state["transaction"] = transaction
+        }
+        let sentinelURL = quarantine.appendingPathComponent(
+            "replacement-must-not-be-traversed.txt"
+        )
+        let sentinel = Data("unrelated replacement".utf8)
+        try sentinel.write(to: sentinelURL)
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: fixture.bundleURL,
+                attestationRootURL: attestationRoot
+            )
+        ) { error in
+            XCTAssertTrue(
+                error.localizedDescription.localizedCaseInsensitiveContains(
+                    "cleanup state"
+                )
+                    || error.localizedDescription
+                        .localizedCaseInsensitiveContains("authority"),
+                error.localizedDescription
+            )
+        }
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: markerURL.path))
+        XCTAssertEqual(
+            try Dictionary(
+                uniqueKeysWithValues: FileManager.default.contentsOfDirectory(
+                    at: attestationRoot,
+                    includingPropertiesForKeys: nil
+                ).map { ($0.lastPathComponent, try Data(contentsOf: $0)) }
+            ),
+            attestationBefore
+        )
+        XCTAssertEqual(try Data(contentsOf: sentinelURL), sentinel)
+        XCTAssertFalse(
+            try workbookRecoveryReceiptActions(in: root).contains(
+                "workbook-cleanup-authorized"
+            )
+        )
+    }
+
+    func testPostReceiptCleanupStateRejectsEveryForgedDerivedAuthority() throws {
+        let paused = try pausedCommittedWorkbookCleanup(
+            outputName: "cleanup-state-derived-authority-tamper"
+        )
+        defer {
+            paused.lock.release()
+            try? FileManager.default.removeItem(at: paused.root)
+        }
+        let stateURL = try workbookCleanupStateURL(in: paused.root)
+        let originalState = try Data(contentsOf: stateURL)
+        typealias Mutation = (inout [String: Any]) throws -> Void
+        let mutations: [(String, Mutation)] = [
+            ("parent identity", { state in
+                var identity = try XCTUnwrap(
+                    state["parentIdentity"] as? [String: Any]
+                )
+                identity["inode"] = NSNumber(value: UInt64.max - 101)
+                state["parentIdentity"] = identity
+            }),
+            ("source and quarantine identity", { state in
+                let forged = NSNumber(value: UInt64.max - 102)
+                var source = try XCTUnwrap(
+                    state["sourceIdentity"] as? [String: Any]
+                )
+                var quarantine = try XCTUnwrap(
+                    state["quarantineIdentity"] as? [String: Any]
+                )
+                source["inode"] = forged
+                quarantine["inode"] = forged
+                state["sourceIdentity"] = source
+                state["quarantineIdentity"] = quarantine
+            }),
+            ("survivor identity", { state in
+                var identity = try XCTUnwrap(
+                    state["survivorIdentity"] as? [String: Any]
+                )
+                identity["device"] = NSNumber(value: UInt64.max - 103)
+                state["survivorIdentity"] = identity
+            }),
+            ("survivor manifest descriptor", { state in
+                var descriptor = try XCTUnwrap(
+                    state["survivorManifest"] as? [String: Any]
+                )
+                descriptor["sha256"] = String(repeating: "a", count: 64)
+                state["survivorManifest"] = descriptor
+            }),
+            ("survivor workbook descriptor", { state in
+                var descriptor = try XCTUnwrap(
+                    state["survivorCurrentWorkbook"] as? [String: Any]
+                )
+                descriptor["sizeBytes"] = NSNumber(value: -1)
+                state["survivorCurrentWorkbook"] = descriptor
+            }),
+            ("terminal receipt disposition", { state in
+                state["terminalReceiptAction"] = "forged-finished-cleanup"
+                state["terminalReceiptDetail"] = "forged terminal detail"
+            }),
+        ]
+
+        for (name, mutation) in mutations {
+            try originalState.write(to: stateURL, options: .atomic)
+            try mutateJSONObject(at: stateURL, mutation)
+            XCTAssertThrowsError(
+                try ONTGenotypeWorkbookUpdateRecovery.recoveryAuthorityExists(
+                    for: paused.fixture.bundleURL
+                ),
+                name
+            ) { error in
+                XCTAssertTrue(
+                    error.localizedDescription.localizedCaseInsensitiveContains(
+                        "invalid workbook cleanup state"
+                    ),
+                    "\(name): \(error.localizedDescription)"
+                )
+            }
+        }
+        try originalState.write(to: stateURL, options: .atomic)
+    }
+
+    func testPostReceiptSemanticTamperingNeverTraversesCleanupQuarantine() throws {
+        let paused = try pausedCommittedWorkbookCleanup(
+            outputName: "cleanup-state-semantic-traversal-tamper"
+        )
+        defer {
+            paused.lock.release()
+            try? FileManager.default.removeItem(at: paused.root)
+        }
+        let stateURL = try workbookCleanupStateURL(in: paused.root)
+        try mutateJSONObject(at: stateURL) { state in
+            state["terminalReceiptAction"] = "forged-finished-cleanup"
+        }
+        let sentinelURL = paused.quarantine.appendingPathComponent(
+            "replacement-must-not-be-traversed.txt"
+        )
+        let sentinel = Data("replacement survives semantic tamper".utf8)
+        try sentinel.write(to: sentinelURL)
+        let traversed = SendableFlagBox()
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: paused.fixture.bundleURL,
+                attestationRootURL: paused.attestationRoot,
+                cleanupFailureInjector: { checkpoint in
+                    guard checkpoint == "during-workbook-cleanup-traversal" else {
+                        return
+                    }
+                    traversed.set(1)
+                    throw NSError(
+                        domain: "UnexpectedCleanupTraversal",
+                        code: 1
+                    )
+                }
+            )
+        ) { error in
+            XCTAssertTrue(
+                error.localizedDescription.localizedCaseInsensitiveContains(
+                    "invalid workbook cleanup state"
+                ),
+                error.localizedDescription
+            )
+        }
+
+        XCTAssertNil(traversed.value)
+        XCTAssertEqual(try Data(contentsOf: sentinelURL), sentinel)
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: paused.quarantine.path)
+        )
+    }
+
     func testCleanupWarningPersistenceFailurePreservesOriginalStructuredCause() throws {
         let paused = try pausedCommittedWorkbookCleanup(
             outputName: "cleanup-warning-write-failure"
@@ -6455,6 +6691,45 @@ print(json.dumps(payload))
                 || name.contains(".workbook-cleanup-state-")
                 || name.contains(".workbook-cleanup-warning-")
         }
+    }
+
+    private func workbookCleanupStateURL(in parent: URL) throws -> URL {
+        try XCTUnwrap(
+            try workbookCleanupArtifacts(in: parent).first {
+                $0.lastPathComponent.contains(".workbook-cleanup-state-")
+            }
+        )
+    }
+
+    private func workbookRecoveryReceiptActions(in parent: URL) throws -> [String] {
+        try FileManager.default.contentsOfDirectory(
+            at: parent,
+            includingPropertiesForKeys: nil
+        ).filter {
+            $0.lastPathComponent.contains(".workbook-update-recovery-")
+                && $0.pathExtension == "json"
+        }.compactMap {
+            let object = try JSONSerialization.jsonObject(
+                with: Data(contentsOf: $0)
+            ) as? [String: Any]
+            return object?["action"] as? String
+        }
+    }
+
+    private func mutateJSONObject(
+        at url: URL,
+        _ mutation: (inout [String: Any]) throws -> Void
+    ) throws {
+        var object = try XCTUnwrap(
+            try JSONSerialization.jsonObject(
+                with: Data(contentsOf: url)
+            ) as? [String: Any]
+        )
+        try mutation(&object)
+        try JSONSerialization.data(
+            withJSONObject: object,
+            options: [.prettyPrinted, .sortedKeys]
+        ).write(to: url, options: .atomic)
     }
 
     private func assertNoRetiredWorkbookGeneration(in parent: URL) throws {
