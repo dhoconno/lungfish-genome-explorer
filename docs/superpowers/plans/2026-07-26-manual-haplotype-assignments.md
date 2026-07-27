@@ -361,27 +361,27 @@ git commit -m "feat: preserve manual haplotype drafts across navigation"
 - Modify: `Sources/LungfishGenotypeUI/GenotypeResultDisplayState.swift:314-390`
 - Modify: `Tests/LungfishGenotypeUITests/GenotypeResultViewportTests.swift`
 
-- [ ] **Step 1: Write failing band/context tests**
+- [x] **Step 1: Write failing band/context tests**
 
 Assert exact seven-row/H1-before-H2 content, default/persisted disclosure, horizontal alignment through scroll/reorder/resize/filter/show/hide, content typography, only affected visible-column redraw, non-focusable display cells, sample-header VoiceOver summary, and an exactly-one-eligible-column **Edit Haplotype Assignments…** command that focuses the Inspector card.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `swift test --filter 'GenotypeResultViewportTests/testManualHaplotypeBand|GenotypeResultViewportTests/testMatrixContext.*Haplotype'`
 
 Expected: missing band and context command failures.
 
-- [ ] **Step 3: Implement drawn visible-column layers**
+- [x] **Step 3: Implement drawn visible-column layers**
 
 Use the immutable assignment index and matrix column geometry; do not create fourteen controls per sample. Add one pinned locus renderer and one sample-band renderer synchronized with the existing scroll view. Integrate the command through the shared matrix context builder.
 
-- [ ] **Step 4: Run tests and verify GREEN**
+- [x] **Step 4: Run tests and verify GREEN**
 
 Run: `swift test --filter GenotypeResultViewportTests`
 
 Expected: all viewport tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/LungfishGenotypeUI/GenotypeManualHaplotypeAssignmentBand.swift Sources/LungfishGenotypeUI/GenotypeComparisonMatrixView.swift Sources/LungfishGenotypeUI/GenotypeResultDisplayState.swift Tests/LungfishGenotypeUITests/GenotypeResultViewportTests.swift
