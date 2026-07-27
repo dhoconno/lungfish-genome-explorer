@@ -4,8 +4,8 @@
 
 import Darwin
 import Foundation
-import LungfishWorkflow
 import Testing
+@testable import LungfishWorkflow
 
 @Suite("Provenance Signing")
 struct ProvenanceSigningTests {
@@ -349,6 +349,58 @@ struct ProvenanceSigningTests {
         )
     }
 
+    @Test(
+        "Exclusive writer rejects a staged artifact identity swap",
+        arguments: StagedArtifactSwapScenario.allCases
+    )
+    func testExclusiveWriterRejectsPostValidationIdentitySwap(
+        scenario: StagedArtifactSwapScenario
+    ) throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let provenanceURL = directory.appendingPathComponent(
+            "identity-swap.lungfish-provenance.json"
+        )
+        let swappedDestinationURL =
+            scenario.artifact.destinationURL(for: provenanceURL)
+        let writer = ProvenanceWriter(
+            signingProvider: LocalProvenanceSigningProvider(
+                privateKey: "identity-swap-key"
+            ),
+            exclusivePublicationPreRenameHook: {
+                stagedURL,
+                destinationURL in
+                guard destinationURL == swappedDestinationURL else {
+                    return
+                }
+                try scenario.replacement.replaceValidatedArtifact(
+                    at: stagedURL
+                )
+            }
+        )
+
+        do {
+            try writer.writeNew(
+                ProvenanceEnvelope.fixture(),
+                toSidecar: provenanceURL
+            )
+            Issue.record("Expected exclusive rename identity rejection")
+        } catch let error as ProvenanceWriterError {
+            guard case .exclusivePublicationIdentityMismatch(let path) =
+                    error else {
+                Issue.record("Unexpected provenance writer error: \(error)")
+                return
+            }
+            #expect(path == swappedDestinationURL.path)
+        }
+
+        #expect(
+            try FileManager.default.contentsOfDirectory(
+                atPath: directory.path
+            ).isEmpty
+        )
+    }
+
     private func makeTempDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("lungfish-provenance-signing-\(UUID().uuidString)", isDirectory: true)
@@ -528,5 +580,95 @@ private final class FIFOArtifactSigningProvider:
             signatureURL: signatureURL,
             publicKeyURL: publicKeyURL
         )
+    }
+}
+
+enum StagedArtifactTarget:
+    String,
+    CaseIterable,
+    Sendable
+{
+    case signature
+    case publicKey
+    case provenance
+
+    func destinationURL(for provenanceURL: URL) -> URL {
+        switch self {
+        case .signature:
+            ProvenanceSigningConfiguration.signatureURL(
+                for: provenanceURL
+            )
+        case .publicKey:
+            ProvenanceSigningConfiguration.publicKeyURL(
+                for: provenanceURL
+            )
+        case .provenance:
+            provenanceURL
+        }
+    }
+}
+
+enum StagedArtifactReplacement:
+    String,
+    CaseIterable,
+    CustomTestStringConvertible,
+    Sendable
+{
+    case symbolicLink
+    case fifo
+    case emptyDirectory
+
+    var testDescription: String { rawValue }
+
+    func replaceValidatedArtifact(at stagedURL: URL) throws {
+        let heldURL = stagedURL.appendingPathExtension(
+            "validated-held-\(rawValue)"
+        )
+        try FileManager.default.moveItem(
+            at: stagedURL,
+            to: heldURL
+        )
+        switch self {
+        case .symbolicLink:
+            try FileManager.default.createSymbolicLink(
+                at: stagedURL,
+                withDestinationURL: heldURL
+            )
+        case .fifo:
+            let result = stagedURL.path.withCString {
+                Darwin.mkfifo($0, mode_t(0o600))
+            }
+            guard result == 0 else {
+                throw POSIXError(.init(rawValue: errno) ?? .EIO)
+            }
+        case .emptyDirectory:
+            try FileManager.default.createDirectory(
+                at: stagedURL,
+                withIntermediateDirectories: false
+            )
+        }
+    }
+}
+
+struct StagedArtifactSwapScenario:
+    CustomTestStringConvertible,
+    Sendable
+{
+    let artifact: StagedArtifactTarget
+    let replacement: StagedArtifactReplacement
+
+    static let allCases = StagedArtifactTarget.allCases.flatMap {
+        artifact in
+        StagedArtifactReplacement.allCases.map {
+            replacement in
+            StagedArtifactSwapScenario(
+                artifact: artifact,
+                replacement: replacement
+            )
+        }
+    }
+
+    var testDescription: String {
+        "\(artifact.rawValue)-\(replacement.rawValue)"
     }
 }

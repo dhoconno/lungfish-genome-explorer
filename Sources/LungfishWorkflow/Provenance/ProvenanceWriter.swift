@@ -16,6 +16,7 @@ public enum ProvenanceWriterError: Error, LocalizedError, Sendable, Equatable {
     case unsafeStagedSignatureArtifact(provider: String, path: String)
     case unsafeStagedArtifact(path: String, reason: String)
     case exclusivePublicationFailed(path: String, code: Int32)
+    case exclusivePublicationIdentityMismatch(path: String)
     case durabilitySyncFailed(path: String, code: Int32)
 
     public var errorDescription: String? {
@@ -36,6 +37,8 @@ public enum ProvenanceWriterError: Error, LocalizedError, Sendable, Equatable {
             return "Unsafe staged provenance artifact at \(path): \(reason)."
         case .exclusivePublicationFailed(let path, let code):
             return "Could not publish a new provenance artifact without replacement at \(path): \(POSIXError(.init(rawValue: code) ?? .EIO).localizedDescription)"
+        case .exclusivePublicationIdentityMismatch(let path):
+            return "Exclusive provenance publication renamed a different filesystem object than the validated staged regular file at \(path)."
         case .durabilitySyncFailed(let path, let code):
             return "Could not durably synchronize provenance artifact \(path): \(POSIXError(.init(rawValue: code) ?? .EIO).localizedDescription)"
         }
@@ -49,9 +52,22 @@ public struct ProvenanceWriter: Sendable {
     public static let maximumBundleOutputSidecars = 100
 
     private let signingProvider: (any ProvenanceSigningProvider)?
+    private let exclusivePublicationPreRenameHook:
+        (@Sendable (URL, URL) throws -> Void)?
 
     public init(signingProvider: (any ProvenanceSigningProvider)? = ProvenanceSigningConfiguration.defaultProvider()) {
         self.signingProvider = signingProvider
+        exclusivePublicationPreRenameHook = nil
+    }
+
+    init(
+        signingProvider: (any ProvenanceSigningProvider)?,
+        exclusivePublicationPreRenameHook:
+            @escaping @Sendable (URL, URL) throws -> Void
+    ) {
+        self.signingProvider = signingProvider
+        self.exclusivePublicationPreRenameHook =
+            exclusivePublicationPreRenameHook
     }
 
     @discardableResult
@@ -224,6 +240,10 @@ public struct ProvenanceWriter: Sendable {
                             "the path no longer identifies the validated regular file"
                     )
                 }
+                try exclusivePublicationPreRenameHook?(
+                    artifact.staged,
+                    artifact.destination
+                )
                 let result = artifact.staged.path.withCString { sourcePath in
                     artifact.destination.path.withCString { destinationPath in
                         Darwin.renameatx_np(
@@ -240,6 +260,29 @@ public struct ProvenanceWriter: Sendable {
                         path: artifact.destination.path,
                         code: errno
                     )
+                }
+                let renamedIdentity: FileSystemObjectIdentity
+                do {
+                    renamedIdentity = try fileSystemObjectIdentity(
+                        at: artifact.destination
+                    )
+                } catch {
+                    throw ProvenanceWriterError
+                        .exclusivePublicationIdentityMismatch(
+                            path: artifact.destination.path
+                        )
+                }
+                guard renamedIdentity.isRegularFile,
+                      renamedIdentity.fileIdentity
+                        == artifact.identity else {
+                    removeMismatchedDestinationIfUnchanged(
+                        at: artifact.destination,
+                        identity: renamedIdentity
+                    )
+                    throw ProvenanceWriterError
+                        .exclusivePublicationIdentityMismatch(
+                            path: artifact.destination.path
+                        )
                 }
                 published.append(
                     (artifact.destination, artifact.identity)
@@ -442,6 +485,19 @@ public struct ProvenanceWriter: Sendable {
         let inode: ino_t
     }
 
+    private struct FileSystemObjectIdentity: Equatable {
+        let fileIdentity: FileIdentity
+        let fileType: mode_t
+
+        var isRegularFile: Bool {
+            fileType == mode_t(S_IFREG)
+        }
+
+        var isDirectory: Bool {
+            fileType == mode_t(S_IFDIR)
+        }
+    }
+
     private struct ValidatedPublicationArtifact {
         let staged: URL
         let destination: URL
@@ -480,11 +536,39 @@ public struct ProvenanceWriter: Sendable {
     }
 
     private func fileIdentity(at url: URL) throws -> FileIdentity {
+        try fileSystemObjectIdentity(at: url).fileIdentity
+    }
+
+    private func fileSystemObjectIdentity(
+        at url: URL
+    ) throws -> FileSystemObjectIdentity {
         var metadata = stat()
         guard url.path.withCString({ Darwin.lstat($0, &metadata) }) == 0 else {
             throw POSIXError(.init(rawValue: errno) ?? .EIO)
         }
-        return FileIdentity(device: metadata.st_dev, inode: metadata.st_ino)
+        return FileSystemObjectIdentity(
+            fileIdentity: FileIdentity(
+                device: metadata.st_dev,
+                inode: metadata.st_ino
+            ),
+            fileType: metadata.st_mode & mode_t(S_IFMT)
+        )
+    }
+
+    private func removeMismatchedDestinationIfUnchanged(
+        at url: URL,
+        identity: FileSystemObjectIdentity
+    ) {
+        guard let currentIdentity =
+                try? fileSystemObjectIdentity(at: url),
+              currentIdentity == identity else {
+            return
+        }
+        if identity.isDirectory {
+            _ = url.path.withCString { Darwin.rmdir($0) }
+        } else {
+            _ = url.path.withCString { Darwin.unlink($0) }
+        }
     }
 
     private func validateStagedRegularFile(
