@@ -398,6 +398,25 @@ public struct FullLengthONTMHCGenotypingResult: Sendable, Codable, Equatable {
     public let cleanupWarnings: [FullLengthONTMHCGenotypingCleanupWarning]
 }
 
+private struct FullLengthONTMHCStagedRunResult: Sendable {
+    let result: FullLengthONTMHCGenotypingResult
+    let cohortWorkDirectory: URL
+    let cohortTemporaryWorkDirectory: URL
+    let candidateWorkDirectory: URL
+}
+
+private struct GenotypingWorkDirectoryDisposition: Codable, Sendable {
+    let path: String
+    let disposition: String
+    let error: String?
+}
+
+private struct GenotypingWorkDirectoryDispositionEnvelope: Codable, Sendable {
+    let schemaVersion: Int
+    let runID: UUID
+    let entries: [GenotypingWorkDirectoryDisposition]
+}
+
 extension FullLengthONTMHCGenotypingResult {
     private enum CodingKeys: String, CodingKey {
         case outputDirectory
@@ -1022,11 +1041,12 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 outputDirectory: stagedOutputURL,
                 outputName: request.outputName
             )
-            let stagedResult = try await runStaged(
+            let stagedRun = try await runStaged(
                 stagedRequest,
                 logicalFinalOutputURL: finalOutputURL,
                 progressHandler: progressHandler
             )
+            let stagedResult = stagedRun.result
             try Task.checkCancellation()
             try finalizeStagedBundleMetadata(
                 stagedOutputURL: stagedOutputURL,
@@ -1126,7 +1146,13 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 }
                 throw error
             }
-            var publicationCleanupWarnings: [FullLengthONTMHCGenotypingCleanupWarning] = []
+            var publicationCleanupWarnings = completeSuccessfulWorkDirectoryLifecycle(
+                stagedRun: stagedRun,
+                finalOutputURL: finalOutputURL,
+                projectRoot: lifecycleProjectRoot,
+                runID: lifecycleRunID,
+                keepIntermediates: request.keepIntermediates
+            )
             if finalExisted, FileManager.default.fileExists(atPath: stagedOutputURL.path) {
                 do {
                     try FileManager.default.removeItem(at: stagedOutputURL)
@@ -1157,37 +1183,24 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             let failedPublicationRecord = (error as? FullLengthONTMHCResultBundlePublicationError)?.record
             var reportedError: Error = error
             var retainedFailureDiagnosticRoots = rollbackFailureRecovery?.retainedRoots ?? []
-            var candidateCleanupDeferred = false
             let candidateWorkDirectory = candidateArtifactWorkDirectory(for: stagedOutputURL)
             if FileManager.default.fileExists(atPath: candidateWorkDirectory.path) {
-                if request.keepIntermediates {
-                    retainedFailureDiagnosticRoots.append(candidateWorkDirectory)
-                } else {
-                    var candidateLogRetentionError: Error?
-                    do {
-                        if let retainedLogsURL = try retainCandidateFailureLogs(
-                            from: candidateWorkDirectory,
-                            for: request
-                        ) {
-                            retainedFailureDiagnosticRoots.append(retainedLogsURL)
-                        }
-                    } catch {
-                        candidateLogRetentionError = error
+                do {
+                    if let retainedLogsURL = try retainCandidateFailureLogs(
+                        from: candidateWorkDirectory,
+                        for: request
+                    ) {
+                        retainedFailureDiagnosticRoots.append(retainedLogsURL)
                     }
-                    candidateCleanupDeferred = true
-                    if candidateLogRetentionError != nil {
-                        var failureDetails: [String] = []
-                        if let candidateLogRetentionError {
-                            failureDetails.append(
-                                "candidate failure-log retention also failed (\(candidateLogRetentionError.localizedDescription))"
-                            )
-                        }
-                        reportedError = FullLengthONTMHCGenotypingError.reportFailed(
-                            "Run failed (\(error.localizedDescription)); \(failureDetails.joined(separator: "; "))."
-                        )
-                    }
+                } catch let candidateLogRetentionError {
+                    reportedError = FullLengthONTMHCGenotypingError.reportFailed(
+                        "Run failed (\(error.localizedDescription)); candidate failure-log retention also failed (\(candidateLogRetentionError.localizedDescription))."
+                    )
                 }
             }
+            let historyWriter = ProjectOperationHistoryWriter(
+                projectURL: lifecycleProjectRoot
+            )
             do {
                 try writeFailureProvenance(
                     request: request,
@@ -1207,9 +1220,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                     historyPayloads["superseded-prior-failure-provenance.json"] =
                         priorFailureEnvelopeData
                 }
-                _ = try ProjectOperationHistoryWriter(
-                    projectURL: lifecycleProjectRoot
-                ).createOperation(
+                _ = try historyWriter.createOperation(
                     operationID: lifecycleRunID,
                     payloads: historyPayloads
                 )
@@ -1218,44 +1229,44 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                     "Run failed (\(reportedError.localizedDescription)); failed-run provenance also could not be written (\(provenanceError.localizedDescription))."
                 )
             }
-            if candidateCleanupDeferred,
-               FileManager.default.fileExists(atPath: candidateWorkDirectory.path) {
-                do {
-                    try OwnedWorkDirectoryMarkerStore.transition(
-                        candidateWorkDirectory,
-                        expectedProjectURL: lifecycleProjectRoot,
-                        expectedRunID: lifecycleRunID,
-                        to: .failed
-                    )
-                    try postPublicationWorkDirectoryCleaner.removeWorkDirectory(
-                        at: candidateWorkDirectory
-                    )
-                } catch let cleanupError {
-                    reportedError = FullLengthONTMHCGenotypingError.reportFailed(
-                        "Run failed (\(error.localizedDescription)); candidate work cleanup also failed (\(cleanupError.localizedDescription))."
-                    )
-                }
-            }
             let retainedRecoveryPaths = Set(
                 rollbackFailureRecovery?.retainedRoots.map { $0.standardizedFileURL.path } ?? []
             )
-            if FileManager.default.fileExists(atPath: stagedOutputURL.path),
-               !retainedRecoveryPaths.contains(stagedOutputURL.standardizedFileURL.path) {
-                do {
-                    try OwnedWorkDirectoryMarkerStore.transition(
-                        stagedOutputURL,
-                        expectedProjectURL: lifecycleProjectRoot,
-                        expectedRunID: lifecycleRunID,
-                        to: .failed
+            let dispositions = failCurrentRunWorkDirectories(
+                stagedOutputURL: stagedOutputURL,
+                projectRoot: lifecycleProjectRoot,
+                runID: lifecycleRunID,
+                keepIntermediates: request.keepIntermediates,
+                retainedRecoveryPaths: retainedRecoveryPaths
+            )
+            do {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                let dispositionData = try encoder.encode(
+                    GenotypingWorkDirectoryDispositionEnvelope(
+                        schemaVersion: 1,
+                        runID: lifecycleRunID,
+                        entries: dispositions
                     )
-                    if !request.keepIntermediates {
-                        try FileManager.default.removeItem(at: stagedOutputURL)
-                    }
-                } catch let cleanupError {
-                    reportedError = FullLengthONTMHCGenotypingError.reportFailed(
-                        "Run failed (\(error.localizedDescription)); staging cleanup also failed (\(cleanupError.localizedDescription))."
-                    )
-                }
+                )
+                try historyWriter.append(
+                    dispositionData,
+                    named: "cleanup-disposition.json",
+                    toOperation: lifecycleRunID
+                )
+            } catch let dispositionError {
+                reportedError = FullLengthONTMHCGenotypingError.reportFailed(
+                    "Run failed (\(reportedError.localizedDescription)); cleanup disposition could not be appended for current-run roots (\(dispositionError.localizedDescription))."
+                )
+            }
+            let cleanupFailures = dispositions.filter { $0.error != nil }
+            if !cleanupFailures.isEmpty {
+                let details = cleanupFailures.map {
+                    "\($0.path): \($0.error ?? "unknown cleanup error")"
+                }.joined(separator: "; ")
+                reportedError = FullLengthONTMHCGenotypingError.reportFailed(
+                    "Run failed (\(reportedError.localizedDescription)); current-run work cleanup failed: \(details)"
+                )
             }
             throw reportedError
         }
@@ -1265,7 +1276,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         _ request: FullLengthONTMHCGenotypingRunRequest,
         logicalFinalOutputURL: URL,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
-    ) async throws -> FullLengthONTMHCGenotypingResult {
+    ) async throws -> FullLengthONTMHCStagedRunResult {
         let progress = FullLengthONTMHCProgressRelay(progressHandler)
         let startedAt = Date()
         progress.emit(0.01, "Validating full-length ONT MHC genotyping inputs.")
@@ -2138,97 +2149,12 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             }
             throw error
         }
-        var cleanupWarnings = cohortAlignmentResult.cleanupDiagnostics.map(cleanupWarning)
-        if request.keepIntermediates {
-            let projectRoot = request.projectURL
-                ?? request.outputDirectory.deletingLastPathComponent()
-            let rootMarker = try OwnedWorkDirectoryMarkerStore.load(
-                from: request.outputDirectory,
-                expectedProjectURL: projectRoot
-            )
-            for retainedRoot in [cohortWorkDirectory, candidateWorkDirectory]
-                where FileManager.default.fileExists(atPath: retainedRoot.path) {
-                try OwnedWorkDirectoryMarkerStore.transition(
-                    retainedRoot,
-                    expectedProjectURL: projectRoot,
-                    expectedRunID: rootMarker.runID,
-                    to: .completed
-                )
-            }
-            progress.emit(0.98, "Preserving full-length ONT MHC workflow intermediates.")
-        } else {
-            progress.emit(0.98, "Removing regenerable full-length ONT MHC workflow intermediates.")
-            let cohortCleanupDiagnostic = cohortAlignmentBuilder.cleanupTemporaryWorkDirectory(
-                for: cohortAlignmentResult
-            )
-            if let cohortCleanupDiagnostic {
-                cleanupWarnings.append(cleanupWarning(cohortCleanupDiagnostic))
-            } else {
-                do {
-                    if FileManager.default.fileExists(atPath: cohortWorkDirectory.path),
-                       try FileManager.default.contentsOfDirectory(atPath: cohortWorkDirectory.path)
-                        .allSatisfy({ $0 == OwnedWorkDirectoryMarker.fileName }) {
-                        let rootMarker = try OwnedWorkDirectoryMarkerStore.load(
-                            from: request.outputDirectory,
-                            expectedProjectURL: request.projectURL
-                                ?? request.outputDirectory.deletingLastPathComponent()
-                        )
-                        try OwnedWorkDirectoryMarkerStore.transition(
-                            cohortWorkDirectory,
-                            expectedProjectURL: request.projectURL
-                                ?? request.outputDirectory.deletingLastPathComponent(),
-                            expectedRunID: rootMarker.runID,
-                            to: .completed
-                        )
-                        try postPublicationWorkDirectoryCleaner.removeWorkDirectory(at: cohortWorkDirectory)
-                    }
-                } catch {
-                    cleanupWarnings.append(FullLengthONTMHCGenotypingCleanupWarning(
-                        kind: .cohortAlignmentWorkDirectory,
-                        path: cohortWorkDirectory.standardizedFileURL.path,
-                        error: cleanupErrorDescription(error),
-                        publishedArtifactsRemainValid: true
-                    ))
-                }
-            }
-            do {
-                if FileManager.default.fileExists(atPath: candidateWorkDirectory.path) {
-                    let rootMarker = try OwnedWorkDirectoryMarkerStore.load(
-                        from: request.outputDirectory,
-                        expectedProjectURL: request.projectURL
-                            ?? request.outputDirectory.deletingLastPathComponent()
-                    )
-                    try OwnedWorkDirectoryMarkerStore.transition(
-                        candidateWorkDirectory,
-                        expectedProjectURL: request.projectURL
-                            ?? request.outputDirectory.deletingLastPathComponent(),
-                        expectedRunID: rootMarker.runID,
-                        to: .completed
-                    )
-                    try postPublicationWorkDirectoryCleaner.removeWorkDirectory(at: candidateWorkDirectory)
-                }
-            } catch {
-                cleanupWarnings.append(FullLengthONTMHCGenotypingCleanupWarning(
-                    kind: .candidateArtifactWorkDirectory,
-                    path: candidateWorkDirectory.standardizedFileURL.path,
-                    error: cleanupErrorDescription(error),
-                    publishedArtifactsRemainValid: true
-                ))
-            }
-            do {
-                try removeGeneratedWorkflowIntermediates(workDirectory)
-            } catch {
-                cleanupWarnings.append(FullLengthONTMHCGenotypingCleanupWarning(
-                    kind: .workflowIntermediates,
-                    path: workDirectory.standardizedFileURL.path,
-                    error: cleanupErrorDescription(error),
-                    publishedArtifactsRemainValid: true
-                ))
-            }
-        }
-
-        progress.emit(1.0, "Full-length ONT MHC genotyping complete.")
-        return FullLengthONTMHCGenotypingResult(
+        let cleanupWarnings = cohortAlignmentResult.cleanupDiagnostics.map(cleanupWarning)
+        progress.emit(
+            0.98,
+            "Finalizing full-length ONT MHC result before intermediate cleanup."
+        )
+        let result = FullLengthONTMHCGenotypingResult(
             outputDirectory: request.outputDirectory,
             reportCSVURL: request.reportCSVURL,
             sampleSummaryCSVURL: request.sampleSummaryCSVURL,
@@ -2252,6 +2178,13 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             unnameableClustersFASTAURL: candidateArtifactResult.unnameableFASTAURL,
             unnameableClustersGenBankURL: candidateArtifactResult.unnameableGenBankURL,
             cleanupWarnings: cleanupWarnings
+        )
+        return FullLengthONTMHCStagedRunResult(
+            result: result,
+            cohortWorkDirectory: cohortWorkDirectory,
+            cohortTemporaryWorkDirectory:
+                cohortAlignmentResult.temporaryWorkDirectoryURL,
+            candidateWorkDirectory: candidateWorkDirectory
         )
     }
 
@@ -2673,6 +2606,12 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         var mappings: [(staged: ProvenanceFileDescriptor, final: ProvenanceFileDescriptor)] = []
         for case let source as URL in enumerator {
             try Task.checkCancellation()
+            let relativeComponents = source.standardizedFileURL.pathComponents
+                .dropFirst(rootComponents.count)
+            if relativeComponents.first == "workflow" {
+                enumerator.skipDescendants()
+                continue
+            }
             var information = stat()
             guard Darwin.lstat(source.path, &information) == 0 else {
                 throw FullLengthONTMHCGenotypingError.reportFailed(
@@ -2692,8 +2631,9 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             if source.lastPathComponent == "full-length-ont-mhc-genotyping-provenance.json" { continue }
             if source.lastPathComponent == OwnedWorkDirectoryMarker.fileName { continue }
             if source.lastPathComponent.hasPrefix(".\(ONTGenotypeResultBundleManifest.filename).staging-") { continue }
-            let relative = source.standardizedFileURL.pathComponents.dropFirst(rootComponents.count)
-            let destination = relative.reduce(finalOutputURL) { $0.appendingPathComponent($1) }
+            let destination = relativeComponents.reduce(finalOutputURL) {
+                $0.appendingPathComponent($1)
+            }
             let checksum = try ProvenanceFileHasher.sha256(of: source) {
                 try Task.checkCancellation()
             }
@@ -3024,17 +2964,189 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         )
     }
 
-    private func removeSiblingWorkDirectories(for stagedOutputURL: URL) throws {
-        let parent = stagedOutputURL.deletingLastPathComponent()
-        for suffix in ["cohort-alignment-work", "candidate-artifact-work"] {
-            let url = parent.appendingPathComponent(
-                ".\(stagedOutputURL.lastPathComponent).\(suffix)",
-                isDirectory: true
-            )
-            if FileManager.default.fileExists(atPath: url.path) {
-                try FileManager.default.removeItem(at: url)
+    private func completeSuccessfulWorkDirectoryLifecycle(
+        stagedRun: FullLengthONTMHCStagedRunResult,
+        finalOutputURL: URL,
+        projectRoot: URL,
+        runID: UUID,
+        keepIntermediates: Bool
+    ) -> [FullLengthONTMHCGenotypingCleanupWarning] {
+        if keepIntermediates {
+            var warnings: [FullLengthONTMHCGenotypingCleanupWarning] = []
+            for (url, kind) in [
+                (
+                    stagedRun.cohortWorkDirectory,
+                    FullLengthONTMHCGenotypingCleanupWarningKind
+                        .cohortAlignmentWorkDirectory
+                ),
+                (
+                    stagedRun.candidateWorkDirectory,
+                    FullLengthONTMHCGenotypingCleanupWarningKind
+                        .candidateArtifactWorkDirectory
+                ),
+            ] where FileManager.default.fileExists(atPath: url.path) {
+                do {
+                    try OwnedWorkDirectoryMarkerStore.transition(
+                        url,
+                        expectedProjectURL: projectRoot,
+                        expectedRunID: runID,
+                        to: .completed
+                    )
+                } catch {
+                    warnings.append(
+                        .init(
+                            kind: kind,
+                            path: url.standardizedFileURL.path,
+                            error: cleanupErrorDescription(error),
+                            publishedArtifactsRemainValid: true
+                        )
+                    )
+                }
+            }
+            return warnings
+        }
+
+        var warnings: [FullLengthONTMHCGenotypingCleanupWarning] = []
+        var cohortTemporaryCleanupFailed = false
+        if FileManager.default.fileExists(
+            atPath: stagedRun.cohortTemporaryWorkDirectory.path
+        ) {
+            do {
+                try postPublicationWorkDirectoryCleaner.removeWorkDirectory(
+                    at: stagedRun.cohortTemporaryWorkDirectory
+                )
+            } catch {
+                cohortTemporaryCleanupFailed = true
+                warnings.append(
+                    .init(
+                        kind: .cohortAlignmentTemporaryWorkDirectory,
+                        path:
+                            stagedRun.cohortTemporaryWorkDirectory
+                                .standardizedFileURL.path,
+                        error: cleanupErrorDescription(error),
+                        publishedArtifactsRemainValid: true
+                    )
+                )
             }
         }
+        for (url, kind) in [
+            (
+                stagedRun.cohortWorkDirectory,
+                FullLengthONTMHCGenotypingCleanupWarningKind
+                    .cohortAlignmentWorkDirectory
+            ),
+            (
+                stagedRun.candidateWorkDirectory,
+                FullLengthONTMHCGenotypingCleanupWarningKind
+                    .candidateArtifactWorkDirectory
+            ),
+        ] where FileManager.default.fileExists(atPath: url.path) {
+            if kind == .cohortAlignmentWorkDirectory,
+               cohortTemporaryCleanupFailed {
+                continue
+            }
+            do {
+                try OwnedWorkDirectoryMarkerStore.transition(
+                    url,
+                    expectedProjectURL: projectRoot,
+                    expectedRunID: runID,
+                    to: .completed
+                )
+                try postPublicationWorkDirectoryCleaner.removeWorkDirectory(
+                    at: url
+                )
+            } catch {
+                warnings.append(
+                    .init(
+                        kind: kind,
+                        path: url.standardizedFileURL.path,
+                        error: cleanupErrorDescription(error),
+                        publishedArtifactsRemainValid: true
+                    )
+                )
+            }
+        }
+        let relocatedWorkflowDirectory = finalOutputURL
+            .appendingPathComponent("workflow", isDirectory: true)
+        if FileManager.default.fileExists(atPath: relocatedWorkflowDirectory.path) {
+            do {
+                try removeGeneratedWorkflowIntermediates(
+                    relocatedWorkflowDirectory
+                )
+            } catch {
+                warnings.append(
+                    .init(
+                        kind: .workflowIntermediates,
+                        path: relocatedWorkflowDirectory.standardizedFileURL.path,
+                        error: cleanupErrorDescription(error),
+                        publishedArtifactsRemainValid: true
+                    )
+                )
+            }
+        }
+        return warnings
+    }
+
+    private func failCurrentRunWorkDirectories(
+        stagedOutputURL: URL,
+        projectRoot: URL,
+        runID: UUID,
+        keepIntermediates: Bool,
+        retainedRecoveryPaths: Set<String>
+    ) -> [GenotypingWorkDirectoryDisposition] {
+        let siblingParent = stagedOutputURL.deletingLastPathComponent()
+        let currentRunRoots = [
+            siblingParent.appendingPathComponent(
+                ".\(stagedOutputURL.lastPathComponent).cohort-alignment-work",
+                isDirectory: true
+            ),
+            candidateArtifactWorkDirectory(for: stagedOutputURL),
+            stagedOutputURL,
+        ]
+        var dispositions: [GenotypingWorkDirectoryDisposition] = []
+        for url in currentRunRoots {
+            let path = url.standardizedFileURL.path
+            guard FileManager.default.fileExists(atPath: path),
+                  !retainedRecoveryPaths.contains(path) else {
+                continue
+            }
+            do {
+                try OwnedWorkDirectoryMarkerStore.transition(
+                    url,
+                    expectedProjectURL: projectRoot,
+                    expectedRunID: runID,
+                    to: .failed
+                )
+                if keepIntermediates {
+                    dispositions.append(
+                        .init(
+                            path: path,
+                            disposition: "retained-by-request",
+                            error: nil
+                        )
+                    )
+                } else {
+                    try postPublicationWorkDirectoryCleaner
+                        .removeWorkDirectory(at: url)
+                    dispositions.append(
+                        .init(
+                            path: path,
+                            disposition: "removed",
+                            error: nil
+                        )
+                    )
+                }
+            } catch {
+                dispositions.append(
+                    .init(
+                        path: path,
+                        disposition: "retained-cleanup-failed",
+                        error: cleanupErrorDescription(error)
+                    )
+                )
+            }
+        }
+        return dispositions
     }
 
     private func projectRelativePath(_ url: URL, projectRoot: URL) -> String? {
@@ -3101,13 +3213,31 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         ) else {
             return nil
         }
-        let logURLs = (enumerator.allObjects as? [URL] ?? []).filter { url in
+        let maximumRetainedLogCount = 32
+        let maximumRetainedLogBytes: Int64 = 2 * 1_024 * 1_024
+        var logURLs: [URL] = []
+        for case let url as URL in enumerator {
+            if logURLs.count == maximumRetainedLogCount {
+                break
+            }
             var isDirectory: ObjCBool = false
             guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
                   !isDirectory.boolValue else {
-                return false
+                continue
             }
-            return url.pathComponents.contains("logs") || url.pathExtension.lowercased() == "log"
+            guard url.pathComponents.contains("logs")
+                    || url.pathExtension.lowercased() == "log" else {
+                continue
+            }
+            try safety.requireRegularFileNoFollow(
+                url,
+                role: "failed candidate artifact log"
+            )
+            guard try ProvenanceFileHasher.fileSize(of: url)
+                <= maximumRetainedLogBytes else {
+                continue
+            }
+            logURLs.append(url)
         }
         guard !logURLs.isEmpty else { return nil }
         let diagnosticsRoot = URL(
@@ -3124,10 +3254,6 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         )
         let sourcePrefix = candidateWorkDirectory.standardizedFileURL.path + "/"
         for sourceURL in logURLs.sorted(by: { $0.path < $1.path }) {
-            try safety.requireRegularFileNoFollow(
-                sourceURL,
-                role: "failed candidate artifact log"
-            )
             let relativePath = sourceURL.standardizedFileURL.path
                 .replacingOccurrences(of: sourcePrefix, with: "")
             let destinationURL = retainedLogsRoot.appendingPathComponent(relativePath)
@@ -6128,8 +6254,13 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             $0.lastPathComponent.contains(runToken)
                 && $0.standardizedFileURL != stagedOutputURL.standardizedFileURL
                 && !$0.lastPathComponent.contains("candidate-artifact-work")
+                && !$0.lastPathComponent.contains("cohort-alignment-work")
         } + additionalRoots)
             .map(\.standardizedFileURL)
+            .filter {
+                !$0.path.contains("candidate-artifact-work")
+                    && !$0.path.contains("cohort-alignment-work")
+            }
             .filter { seenRoots.insert($0.path).inserted }
         var fileURLs: [URL] = []
         let safety = FullLengthONTMHCAlignmentSafety()

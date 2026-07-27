@@ -741,6 +741,18 @@ private final class ONTGenotypingMappingProcessGroup: @unchecked Sendable {
     }
 }
 
+private struct AmpliconWorkDirectoryDisposition: Codable, Sendable {
+    let path: String
+    let disposition: String
+    let error: String?
+}
+
+private struct AmpliconWorkDirectoryDispositionEnvelope: Codable, Sendable {
+    let schemaVersion: Int
+    let runID: UUID
+    let entries: [AmpliconWorkDirectoryDisposition]
+}
+
 public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     private let condaManager: CondaManager
     private let referenceImporter: ReferenceBundleImportService
@@ -860,29 +872,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 toolVersion: WorkflowRun.currentAppVersion
             )
         )
-        var lifecycleCompleted = false
-        defer {
-            if !lifecycleCompleted,
-               FileManager.default.fileExists(atPath: supportDirectory.path) {
-                // The compact append-only failure receipt is made durable before
-                // any regenerable payload is removed.
-                try? writeCompactFailureHistory(
-                    request: request,
-                    runID: runID,
-                    projectRoot: projectRoot,
-                    startedAt: startedAt
-                )
-                try? OwnedWorkDirectoryMarkerStore.transition(
-                    supportDirectory,
-                    expectedProjectURL: projectRoot,
-                    expectedRunID: runID,
-                    to: .failed
-                )
-                if !request.keepIntermediates {
-                    try? fileRemover(supportDirectory)
-                }
-            }
-        }
+        do {
         let scriptURL = supportDirectory.appendingPathComponent("filter-demux-retained-bam.py")
         try Self.writeFilterScript(to: scriptURL)
         let reportScriptURL = supportDirectory.appendingPathComponent("write-retained-demux-workbook.py")
@@ -1116,9 +1106,18 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         if !request.keepIntermediates {
             try fileRemover(supportDirectory)
         }
-        lifecycleCompleted = true
         progressHandler?(0.98, "Finalizing amplicon genotyping outputs.")
         return finalizedResult
+        } catch {
+            throw recordFailedRunAndCleanupSupportDirectory(
+                originalError: error,
+                request: request,
+                runID: runID,
+                projectRoot: projectRoot,
+                supportDirectory: supportDirectory,
+                startedAt: startedAt
+            )
+        }
     }
 
     private static func projectRelativePath(_ url: URL, projectRoot: URL) -> String? {
@@ -1128,11 +1127,115 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         return String(path.dropFirst(rootPath.count + 1))
     }
 
+    private func recordFailedRunAndCleanupSupportDirectory(
+        originalError: Error,
+        request: ONTBarcodeDemuxGenotypingRunRequest,
+        runID: UUID,
+        projectRoot: URL,
+        supportDirectory: URL,
+        startedAt: Date
+    ) -> Error {
+        let historyWriter = ProjectOperationHistoryWriter(
+            projectURL: projectRoot
+        )
+        do {
+            try writeCompactFailureHistory(
+                request: request,
+                runID: runID,
+                projectRoot: projectRoot,
+                startedAt: startedAt,
+                error: originalError
+            )
+        } catch {
+            return ONTBarcodeDemuxGenotypingError.reportFailed(
+                status: 1,
+                stderr:
+                    "\(originalError.localizedDescription); failed-run provenance could not be durably published (\(error.localizedDescription)); retained current-run support directory: \(supportDirectory.standardizedFileURL.path)"
+            )
+        }
+
+        let supportPath = supportDirectory.standardizedFileURL.path
+        var disposition = AmpliconWorkDirectoryDisposition(
+            path: supportPath,
+            disposition: "already-removed",
+            error: nil
+        )
+        if FileManager.default.fileExists(atPath: supportPath) {
+            do {
+                let marker = try OwnedWorkDirectoryMarkerStore.load(
+                    from: supportDirectory,
+                    expectedProjectURL: projectRoot
+                )
+                if marker.state == .active {
+                    try OwnedWorkDirectoryMarkerStore.transition(
+                        supportDirectory,
+                        expectedProjectURL: projectRoot,
+                        expectedRunID: runID,
+                        to: .failed
+                    )
+                }
+                if request.keepIntermediates {
+                    disposition = .init(
+                        path: supportPath,
+                        disposition: "retained-by-request",
+                        error: nil
+                    )
+                } else {
+                    try fileRemover(supportDirectory)
+                    disposition = .init(
+                        path: supportPath,
+                        disposition: "removed",
+                        error: nil
+                    )
+                }
+            } catch {
+                disposition = .init(
+                    path: supportPath,
+                    disposition: "retained-cleanup-failed",
+                    error: error.localizedDescription
+                )
+            }
+        }
+
+        do {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(
+                AmpliconWorkDirectoryDispositionEnvelope(
+                    schemaVersion: 1,
+                    runID: runID,
+                    entries: [disposition]
+                )
+            )
+            try historyWriter.append(
+                data,
+                named: "cleanup-disposition.json",
+                toOperation: runID
+            )
+        } catch {
+            return ONTBarcodeDemuxGenotypingError.reportFailed(
+                status: 1,
+                stderr:
+                    "\(originalError.localizedDescription); cleanup disposition for \(supportPath) could not be durably appended (\(error.localizedDescription))"
+            )
+        }
+
+        if let cleanupError = disposition.error {
+            return ONTBarcodeDemuxGenotypingError.reportFailed(
+                status: 1,
+                stderr:
+                    "\(originalError.localizedDescription); current-run support cleanup failed at \(supportPath): \(cleanupError)"
+            )
+        }
+        return originalError
+    }
+
     private func writeCompactFailureHistory(
         request: ONTBarcodeDemuxGenotypingRunRequest,
         runID: UUID,
         projectRoot: URL,
-        startedAt: Date
+        startedAt: Date,
+        error: Error
     ) throws {
         let completedAt = Date()
         func descriptor(_ url: URL, role: String) -> [String: Any] {
@@ -1190,7 +1293,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "completedAt": ISO8601DateFormatter().string(from: completedAt),
             "wallTimeSeconds": completedAt.timeIntervalSince(startedAt),
             "exitStatus": 1,
-            "stderr": "Amplicon genotyping exited before all lifecycle cleanup completed.",
+            "stderr": error.localizedDescription,
         ]
         let data = try JSONSerialization.data(
             withJSONObject: payload,

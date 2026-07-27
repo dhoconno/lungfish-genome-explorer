@@ -1861,7 +1861,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         })
     }
 
-    func testFinalBAMViewFailureLeavesNoSuccessfulMetadataAndRetainsDiagnosticBAMs() async throws {
+    func testFinalBAMViewFailureLeavesNoSuccessfulMetadataAndRemovesLargeCohortPayload() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("full-length-ont-mhc-final-view-failure-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1878,15 +1878,18 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         }
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: request.outputDirectory.path))
-        let cohortWorkDirectory = try XCTUnwrap(
-            FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil).first {
+        XCTAssertFalse(
+            try FileManager.default.contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: nil
+            ).contains {
                 $0.lastPathComponent.contains(".run-staging-")
-                    && $0.lastPathComponent.hasSuffix(".cohort-alignment-work")
-            }
+                    && $0.lastPathComponent.hasSuffix(
+                        ".cohort-alignment-work"
+                    )
+            },
+            "Default failed runs must reclaim the large cohort payload."
         )
-        let retainedBAMs = try FileManager.default.subpathsOfDirectory(atPath: cohortWorkDirectory.path)
-            .filter { $0.hasSuffix(".bam") }
-        XCTAssertFalse(retainedBAMs.isEmpty, "Final-view failure must retain per-sample BAM diagnostics.")
         let failureEnvelope = try XCTUnwrap(
             ProvenanceEnvelopeReader.load(fromSidecar: request.failureProvenanceURL)
         )
@@ -1896,10 +1899,10 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertFalse(failureEnvelope.options.resolvedDefaults.isEmpty)
         XCTAssertNotNil(failureEnvelope.runtimeIdentity)
         XCTAssertFalse(failureEnvelope.steps.isEmpty)
-        XCTAssertFalse(failureEnvelope.outputs.isEmpty)
+        XCTAssertTrue(failureEnvelope.outputs.isEmpty)
         XCTAssertEqual(
             failureEnvelope.options.resolvedDefaults["retainedDiagnosticCount"],
-            .integer(failureEnvelope.outputs.count)
+            .integer(0)
         )
         for output in failureEnvelope.outputs {
             XCTAssertTrue(FileManager.default.fileExists(atPath: output.path), output.path)
@@ -2294,7 +2297,15 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: recoveryPath))
         XCTAssertFalse(failureEnvelope.outputs.isEmpty)
         XCTAssertTrue(failureEnvelope.outputs.allSatisfy {
-            $0.path.hasPrefix(recoveryPath + "/") && FileManager.default.fileExists(atPath: $0.path)
+            (
+                $0.path.hasPrefix(recoveryPath + "/")
+                    || $0.path.hasPrefix(
+                        request.failureProvenanceURL.path + ".diagnostics/"
+                    )
+            )
+                && !$0.path.contains("candidate-artifact-work")
+                && !$0.path.contains("cohort-alignment-work")
+                && FileManager.default.fileExists(atPath: $0.path)
         })
         let rollback = try XCTUnwrap(failureEnvelope.steps.first {
             $0.toolName == "lungfish-internal rollback-result-bundle"
@@ -2497,13 +2508,23 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
 
         let retainedWorkDirectories = try candidateArtifactWorkDirectories(in: root)
         XCTAssertEqual(retainedWorkDirectories.count, 1)
-        let retainedPath = try XCTUnwrap(retainedWorkDirectories.first).standardizedFileURL.path
         let failureEnvelope = try XCTUnwrap(
             ProvenanceEnvelopeReader.load(fromSidecar: request.failureProvenanceURL)
         )
+        let diagnosticsRoot = request.failureProvenanceURL.path
+            + ".diagnostics/"
         XCTAssertTrue(failureEnvelope.outputs.contains {
-            $0.role == .log && $0.path.hasPrefix(retainedPath + "/")
+            $0.role == .log && $0.path.hasPrefix(diagnosticsRoot)
         })
+        XCTAssertFalse(failureEnvelope.outputs.contains {
+            $0.path.contains("candidate-artifact-work")
+                || $0.path.contains("cohort-alignment-work")
+        })
+        let marker = try OwnedWorkDirectoryMarkerStore.load(
+            from: try XCTUnwrap(retainedWorkDirectories.first),
+            expectedProjectURL: root
+        )
+        XCTAssertEqual(marker.state, .failed)
     }
 
     func testResultPublicationRejectsSpecialFilesystemEntriesInsteadOfSkippingThem() async throws {
@@ -3271,6 +3292,105 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             1
         )
         XCTAssertFalse(failureEnvelope.options.resolvedDefaults.isEmpty)
+        XCTAssertFalse(
+            failureEnvelope.outputs.contains {
+                $0.path.contains("cohort-alignment-work")
+                    || $0.path.contains("candidate-artifact-work")
+            },
+            "Failed-run provenance must not recursively hash large sibling work roots."
+        )
+        let historyRoot = root.appendingPathComponent(
+            ProjectOperationHistoryWriter.historyDirectoryName,
+            isDirectory: true
+        )
+        let operations = try FileManager.default.contentsOfDirectory(
+            at: historyRoot,
+            includingPropertiesForKeys: nil
+        )
+        XCTAssertEqual(operations.count, 1)
+        let disposition = try JSONSerialization.jsonObject(
+            with: Data(
+                contentsOf: try XCTUnwrap(operations.first)
+                    .appendingPathComponent("cleanup-disposition.json")
+            )
+        ) as? [String: Any]
+        let entries = try XCTUnwrap(disposition?["entries"] as? [[String: Any]])
+        XCTAssertTrue(entries.contains {
+            ($0["path"] as? String)?.contains("cohort-alignment-work") == true
+                && $0["disposition"] as? String == "removed"
+        })
+    }
+
+    func testFinalPublicationBoundaryKeepsSiblingMarkersActiveUntilFailureEnvelopeIsDurable() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "full-length-ont-mhc-sibling-terminal-boundary-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (baseRequest, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            metadataPublicationObserver: { event in
+                guard case .provenanceFinalizedBeforeManifestPublication = event else {
+                    return
+                }
+                let siblings = try FileManager.default.contentsOfDirectory(
+                    at: root,
+                    includingPropertiesForKeys: nil
+                ).filter {
+                    $0.lastPathComponent.contains("cohort-alignment-work")
+                        || $0.lastPathComponent.contains("candidate-artifact-work")
+                }
+                XCTAssertEqual(siblings.count, 2)
+                for sibling in siblings {
+                    let marker = try OwnedWorkDirectoryMarkerStore.load(
+                        from: sibling,
+                        expectedProjectURL: root
+                    )
+                    XCTAssertEqual(marker.state, .active)
+                }
+                throw NSError(
+                    domain: "injected-sibling-terminal-boundary",
+                    code: 32
+                )
+            }
+        )
+        let request = FullLengthONTMHCGenotypingRunRequest(
+            inputFASTQURLs: baseRequest.inputFASTQURLs,
+            referenceSourceURL: baseRequest.referenceSourceURL,
+            outputDirectory: baseRequest.outputDirectory,
+            outputName: baseRequest.outputName,
+            threads: baseRequest.threads,
+            minimumLength: baseRequest.minimumLength,
+            maximumLength: baseRequest.maximumLength,
+            keepIntermediates: true
+        )
+
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("Expected final publication boundary failure")
+        } catch {
+            XCTAssertEqual(
+                (error as NSError).domain,
+                "injected-sibling-terminal-boundary"
+            )
+        }
+
+        let siblings = try FileManager.default.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: nil
+        ).filter {
+            $0.lastPathComponent.contains("cohort-alignment-work")
+                || $0.lastPathComponent.contains("candidate-artifact-work")
+        }
+        XCTAssertEqual(siblings.count, 2)
+        for sibling in siblings {
+            let marker = try OwnedWorkDirectoryMarkerStore.load(
+                from: sibling,
+                expectedProjectURL: root
+            )
+            XCTAssertEqual(marker.state, .failed)
+        }
     }
 
     func testPostPublicationWorkflowCleanupFailureReturnsSuccessWithRetainedPathWarning() async throws {
@@ -3344,8 +3464,16 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertFalse(envelope.runtimeIdentity.executablePath.isEmpty)
         XCTAssertEqual(envelope.options.resolvedDefaults["outcome"]?.stringValue, "failed")
         XCTAssertFalse(envelope.files.isEmpty)
-        XCTAssertTrue(envelope.outputs.isEmpty)
-        XCTAssertEqual(envelope.options.resolvedDefaults["retainedDiagnosticCount"], .integer(0))
+        XCTAssertFalse(envelope.outputs.isEmpty)
+        XCTAssertTrue(envelope.outputs.allSatisfy {
+            $0.path.hasPrefix(request.failureProvenanceURL.path + ".diagnostics/")
+                && !$0.path.contains("candidate-artifact-work")
+                && !$0.path.contains("cohort-alignment-work")
+        })
+        XCTAssertEqual(
+            envelope.options.resolvedDefaults["retainedDiagnosticCount"],
+            .integer(envelope.outputs.count)
+        )
         XCTAssertTrue(envelope.files.allSatisfy { $0.checksumSHA256 != nil && $0.fileSize != nil })
         for output in envelope.outputs {
             var information = stat()

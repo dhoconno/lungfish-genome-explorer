@@ -1233,7 +1233,8 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
                 bundledMicromambaVersionProvider: { "test-micromamba" }
             ),
             fileRemover: { url in
-                if url.standardizedFileURL == request.mappingBAMURL.standardizedFileURL {
+                if url.standardizedFileURL == request.mappingBAMURL.standardizedFileURL
+                    || url.lastPathComponent == ".amplicon-genotyping" {
                     throw CocoaError(.fileWriteNoPermission)
                 }
                 try FileManager.default.removeItem(at: url)
@@ -1247,6 +1248,14 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             XCTAssertTrue(
                 error.localizedDescription.contains("permission")
                     || error.localizedDescription.contains("write"),
+                error.localizedDescription
+            )
+            XCTAssertTrue(
+                error.localizedDescription.contains(
+                    outputDirectory
+                        .appendingPathComponent(".amplicon-genotyping")
+                        .path
+                ),
                 error.localizedDescription
             )
         }
@@ -1271,9 +1280,14 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
                 "Post-commit cleanup failure removed valid output: \(url.path)"
             )
         }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: request.mappingBAMURL.path))
         XCTAssertTrue(
-            FileManager.default.fileExists(atPath: request.mappingBAMURL.path),
-            "The injected failure should leave only the regenerable intermediate behind"
+            FileManager.default.fileExists(
+                atPath: outputDirectory
+                    .appendingPathComponent(".amplicon-genotyping")
+                    .path
+            ),
+            "Failed cleanup must retain the exact owned support root."
         )
         let historyRoot = root.appendingPathComponent(
             ProjectOperationHistoryWriter.historyDirectoryName,
@@ -1292,6 +1306,98 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(
             (failure["resolvedOptions"] as? [String: Any])?["keepIntermediates"] as? Bool,
             false
+        )
+        XCTAssertTrue(
+            (failure["stderr"] as? String)?.contains("permission") == true,
+            failure["stderr"] as? String ?? "Missing failed-run stderr"
+        )
+        let disposition = try jsonObject(
+            at: operations[0].appendingPathComponent(
+                "cleanup-disposition.json"
+            )
+        )
+        let entries = try XCTUnwrap(disposition["entries"] as? [[String: Any]])
+        let supportPath = outputDirectory
+            .appendingPathComponent(".amplicon-genotyping")
+            .standardizedFileURL.path
+        XCTAssertTrue(entries.contains {
+            $0["path"] as? String == supportPath
+                && $0["disposition"] as? String == "retained-cleanup-failed"
+                && ($0["error"] as? String)?.isEmpty == false
+        })
+
+        let unsafeProject = root.appendingPathComponent(
+            "unsafe-history-project",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: unsafeProject,
+            withIntermediateDirectories: false
+        )
+        let unsafeOutput = unsafeProject.appendingPathComponent(
+            "miseq-history-failure.lungfishgenotype",
+            isDirectory: true
+        )
+        let unsafeRequest = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: [sample.bundleURL],
+            referenceSourceURL: referenceFASTA,
+            outputDirectory: unsafeOutput,
+            outputName: "miseq-history-failure",
+            analysisName: "MiSeq history failure",
+            projectURL: unsafeProject,
+            threads: 2,
+            sortThreads: 1,
+            minSupport: 1,
+            mode: .illuminaPaired,
+            readType: .illumina
+        )
+        let unsafePipeline = ONTBarcodeDemuxGenotypingPipeline(
+            condaManager: CondaManager(
+                rootPrefix: condaRoot,
+                bundledMicromambaProvider: { bundledMicromamba },
+                bundledMicromambaVersionProvider: { "test-micromamba" }
+            ),
+            fileRemover: { url in
+                if url.standardizedFileURL
+                    == unsafeRequest.mappingBAMURL.standardizedFileURL {
+                    try Data("unsafe".utf8).write(
+                        to: unsafeProject.appendingPathComponent(
+                            ProjectOperationHistoryWriter
+                                .historyDirectoryName
+                        )
+                    )
+                    throw CocoaError(.fileWriteNoPermission)
+                }
+                try FileManager.default.removeItem(at: url)
+            }
+        )
+
+        do {
+            _ = try await unsafePipeline.run(unsafeRequest)
+            XCTFail("Failure-history publication failure must be surfaced")
+        } catch {
+            XCTAssertTrue(
+                error.localizedDescription.contains(
+                    "failed-run provenance could not be durably published"
+                ),
+                error.localizedDescription
+            )
+            XCTAssertTrue(
+                error.localizedDescription.contains(
+                    unsafeOutput
+                        .appendingPathComponent(".amplicon-genotyping")
+                        .path
+                ),
+                error.localizedDescription
+            )
+        }
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: unsafeOutput
+                    .appendingPathComponent(".amplicon-genotyping")
+                    .path
+            ),
+            "The support root must remain when no durable failure envelope exists."
         )
     }
 
