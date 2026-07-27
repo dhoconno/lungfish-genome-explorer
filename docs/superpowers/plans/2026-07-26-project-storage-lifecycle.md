@@ -23,7 +23,7 @@
 - Modify: `Sources/LungfishIO/Bundles/ProjectTempDirectory.swift:118-290`
 - Modify: `Tests/LungfishIOTests/ProjectTempDirectoryTests.swift`
 
-- [ ] **Step 1: Write failing identity and marker tests**
+- [x] **Step 1: Write failing identity and marker tests**
 
 Assert schema, project and child device/inode, run UUID, process-start and boot identity, completion state, lock path, Keep Intermediates, tool/version, atomic creation, parent fsync, rollback on marker failure, PID reuse rejection, symlink/special-file rejection, and automatic refusal of unmarked legacy children.
 
@@ -31,13 +31,13 @@ Also assert a shared nonblocking run-lock can be acquired/probed by full-length
 and miSeq workflows, and a shared operation-history writer exclusively creates
 append-only UUID directories with atomic/fsynced payloads.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `swift test --filter 'OwnedWorkDirectoryMarkerTests|OwnedRunLockTests|ProjectOperationHistoryWriterTests|ProjectTempDirectoryTests'`
 
 Expected: compile failure because the authoritative marker types do not exist.
 
-- [ ] **Step 3: Implement durable creation**
+- [x] **Step 3: Implement durable creation**
 
 ```swift
 public struct OwnedWorkDirectoryMarker: Codable, Equatable, Sendable {
@@ -62,13 +62,13 @@ lock into `OwnedRunLock`, and make `ProjectOperationHistoryWriter` the single
 durable path/layout authority reused by failure envelopes, storage journals,
 and disposition receipts.
 
-- [ ] **Step 4: Run tests and verify GREEN**
+- [x] **Step 4: Run tests and verify GREEN**
 
 Run: `swift test --filter 'OwnedWorkDirectoryMarkerTests|OwnedRunLockTests|ProjectOperationHistoryWriterTests|ProjectTempDirectoryTests'`
 
 Expected: all selected tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/LungfishIO/Storage Sources/LungfishWorkflow/Storage/ProjectOperationHistoryWriter.swift Sources/LungfishIO/Bundles/ProjectTempDirectory.swift Tests/LungfishIOTests Tests/LungfishWorkflowTests/ProjectOperationHistoryWriterTests.swift
