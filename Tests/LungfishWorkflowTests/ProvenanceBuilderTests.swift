@@ -405,6 +405,56 @@ struct ProvenanceBuilderTests {
         }
     }
 
+    @Test("Consumed input snapshots accept only complete absolute local descriptors")
+    func consumedInputSnapshotsAreNarrowlyValidated() throws {
+        let descriptor = ProvenanceFileDescriptor(
+            path: "/tmp/consumed-reference.fa",
+            checksumSHA256: String(repeating: "a", count: 64),
+            fileSize: 128,
+            format: .fasta,
+            role: .input
+        )
+        let output = ProvenanceFileDescriptor(
+            path: "memory://result",
+            checksumSHA256: String(repeating: "b", count: 64),
+            fileSize: 16,
+            format: .json,
+            role: .output
+        )
+        let builder = ProvenanceRunBuilder(
+            workflowName: "consumed.input.snapshot",
+            workflowVersion: "2026.07",
+            toolName: "lungfish-cli",
+            toolVersion: "2026.07"
+        )
+        .argv(["lungfish-cli", "snapshot"])
+        .runtime(ProvenanceRuntimeIdentity())
+
+        let envelope = try builder
+            .consumedInputSnapshot(descriptor)
+            .output(output)
+            .complete(
+                exitStatus: 0,
+                startedAt: Date(timeIntervalSince1970: 60),
+                endedAt: Date(timeIntervalSince1970: 61)
+            )
+        #expect(envelope.files.contains(descriptor))
+
+        let incomplete = ProvenanceFileDescriptor(
+            path: "relative.fa",
+            checksumSHA256: "not-a-sha",
+            fileSize: nil,
+            format: .fasta,
+            role: .input
+        )
+        #expect(
+            throws: ProvenanceBuilderError
+                .invalidConsumedInputSnapshotDescriptor("relative.fa")
+        ) {
+            _ = try builder.consumedInputSnapshot(incomplete)
+        }
+    }
+
     @Test("Relocated output accepts a verified staging file while the final path is absent")
     func relocatedOutputAcceptsVerifiedStagingFile() throws {
         let directory = try makeTempDirectory()

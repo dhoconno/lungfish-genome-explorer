@@ -317,19 +317,22 @@ git commit -m "fix: render false negatives portably in Excel"
 - Modify: `Sources/LungfishCLI/Support/GenotypeXlsxWorkbookWriter.swift:296-923`
 - Modify: `Sources/LungfishCLI/Commands/GenotypeExportSubcommand.swift:104-354`
 - Modify: `Sources/LungfishCLI/Commands/GenotypeExportProvenanceSupport.swift:4-48`
+- Modify: `Sources/LungfishCLI/Support/CLIProvenanceSupport.swift`
+- Modify: `Sources/LungfishWorkflow/Provenance/ProvenanceRunBuilder.swift`
 - Test: `Tests/LungfishCLITests/GenotypeExportSubcommandTests.swift`
+- Test: `Tests/LungfishWorkflowTests/ProvenanceBuilderTests.swift`
 
-- [ ] **Step 1: Write failing native-export parity tests**
+- [x] **Step 1: Write failing native-export parity tests**
 
 Assert that a missing authoritative row is appended once, exact OOXML style tokens match openpyxl output, comments compose, catalog checksum failure stops export, formula-like labels remain literal, and provenance contains the same semantic inputs/decisions.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `swift test --filter GenotypeExportSubcommandTests`
 
 Expected: the missing-row and literal `FN` assertions fail.
 
-- [ ] **Step 3: Reuse the typed resolver in the native writer**
+- [x] **Step 3: Reuse the typed resolver in the native writer**
 
 Accept the validated catalog in `writeViewProjection`, resolve rows through
 `GenotypeReviewableRowResolver`, and reuse the same cross-path semantic fixture
@@ -340,16 +343,27 @@ exist. Native initial workbook/export and openpyxl `current.xlsx` must therefore
 share catalog eligibility, exact identity, zero-support, and synthetic-row
 semantics.
 
-- [ ] **Step 4: Run parity and regression tests**
+- [x] **Step 4: Run parity and regression tests**
 
 Run: `swift test --filter 'GenotypeExportSubcommandTests|GenotypeWorkbookRevisionServiceTests|ONTGenotypeResultBundleTests'`
 
 Expected: all selected tests pass.
 
-- [ ] **Step 5: Commit**
+Verified on 2026-07-27: all 24 `GenotypeExportSubcommandTests`, all 32 tests
+selected by `GenotypeExport`, all 103 `ONTGenotypeResultBundleTests`, and the
+consumed-input-snapshot provenance builder test pass. The Task 5
+portable-presentation service test also passes. A deterministic concurrent
+publication test verifies that the output-directory lock serializes payload,
+root-provenance, and sidecar publication and that one failed export cannot
+roll back another export's committed provenance. The broader revision-service
+class cannot run as a whole in the managed sandbox because its pre-existing
+publication-attestation fixtures write to the user Application Support
+directory; Task 6 does not modify that service.
+
+- [x] **Step 5: Commit**
 
 ```bash
-git add Sources/LungfishCLI/Support/GenotypeXlsxWorkbookWriter.swift Sources/LungfishCLI/Commands/GenotypeExportSubcommand.swift Sources/LungfishCLI/Commands/GenotypeExportProvenanceSupport.swift Tests/LungfishCLITests/GenotypeExportSubcommandTests.swift
+git add Sources/LungfishCLI/Support/GenotypeXlsxWorkbookWriter.swift Sources/LungfishCLI/Commands/GenotypeExportSubcommand.swift Sources/LungfishCLI/Commands/GenotypeExportProvenanceSupport.swift Sources/LungfishCLI/Support/CLIProvenanceSupport.swift Sources/LungfishWorkflow/Provenance/ProvenanceRunBuilder.swift Tests/LungfishCLITests/GenotypeExportSubcommandTests.swift Tests/LungfishWorkflowTests/ProvenanceBuilderTests.swift
 git commit -m "feat: match false negative semantics in native export"
 ```
 

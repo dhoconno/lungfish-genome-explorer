@@ -114,6 +114,7 @@ enum CLIProvenanceSupport {
         extraSteps: [ProvenanceStep] = [],
         inputs: [FileRecord],
         outputs: [FileRecord],
+        consumedInputSnapshotPaths: Set<String> = [],
         exitCode: Int32,
         wallTime: TimeInterval,
         peakMemoryBytes: UInt64? = nil,
@@ -180,7 +181,13 @@ enum CLIProvenanceSupport {
         .runtime(runtimeIdentity)
 
         for input in inputs {
-            builder = try appendInputRecord(input, to: builder)
+            builder = try appendInputRecord(
+                input,
+                to: builder,
+                consumedSnapshot: consumedInputSnapshotPaths.contains(
+                    URL(fileURLWithPath: input.path).standardizedFileURL.path
+                )
+            )
         }
         for output in outputs {
             builder = try appendOutputRecord(output, to: builder)
@@ -226,9 +233,16 @@ enum CLIProvenanceSupport {
 
     private static func appendInputRecord(
         _ record: FileRecord,
-        to builder: ProvenanceRunBuilder
+        to builder: ProvenanceRunBuilder,
+        consumedSnapshot: Bool = false
     ) throws -> ProvenanceRunBuilder {
-        if shouldUseDescriptorVerbatim(for: record.path) || isDirectoryRecord(record) {
+        if consumedSnapshot {
+            return try builder.consumedInputSnapshot(
+                ProvenanceFileDescriptor(fileRecord: record)
+            )
+        }
+        if shouldUseDescriptorVerbatim(for: record.path)
+            || isDirectoryRecord(record) {
             return try builder.input(ProvenanceFileDescriptor(fileRecord: record))
         }
         return try builder.input(URL(fileURLWithPath: record.path), format: record.format, role: record.role)
