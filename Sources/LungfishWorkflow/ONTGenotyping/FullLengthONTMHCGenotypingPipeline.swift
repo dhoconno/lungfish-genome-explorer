@@ -935,6 +935,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
     private let postPublicationWorkDirectoryCleaner: any FullLengthONTMHCWorkDirectoryCleaning
     private let metadataPublicationObserver: @Sendable (FullLengthONTMHCMetadataPublicationEvent) throws -> Void
     private let rollbackOperationObserver: @Sendable () throws -> Void
+    private let cleanupJournalObserver:
+        @Sendable (GenotypingCleanupJournalEvent) throws -> Void
     private let exclusivePublicationFailureInjector: @Sendable (FullLengthONTMHCExclusivePublicationTarget) throws -> Int32?
     private let reviewableRowCatalogPublisher:
         @Sendable (
@@ -992,6 +994,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         self.postPublicationWorkDirectoryCleaner = postPublicationWorkDirectoryCleaner
         self.metadataPublicationObserver = { _ in }
         self.rollbackOperationObserver = {}
+        self.cleanupJournalObserver = { _ in }
         self.exclusivePublicationFailureInjector = { _ in nil }
         self.reviewableRowCatalogPublisher = {
             inputs, outputDirectory, authorityCheck in
@@ -1009,6 +1012,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         postPublicationWorkDirectoryCleaner: any FullLengthONTMHCWorkDirectoryCleaning,
         metadataPublicationObserver: @escaping @Sendable (FullLengthONTMHCMetadataPublicationEvent) throws -> Void,
         rollbackOperationObserver: @escaping @Sendable () throws -> Void = {},
+        cleanupJournalObserver:
+            @escaping @Sendable (GenotypingCleanupJournalEvent) throws -> Void = { _ in },
         exclusivePublicationFailureInjector: @escaping @Sendable (FullLengthONTMHCExclusivePublicationTarget) throws -> Int32? = { _ in nil },
         reviewableRowCatalogPublisher:
             @escaping @Sendable (
@@ -1028,6 +1033,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         self.postPublicationWorkDirectoryCleaner = postPublicationWorkDirectoryCleaner
         self.metadataPublicationObserver = metadataPublicationObserver
         self.rollbackOperationObserver = rollbackOperationObserver
+        self.cleanupJournalObserver = cleanupJournalObserver
         self.exclusivePublicationFailureInjector = exclusivePublicationFailureInjector
         self.reviewableRowCatalogPublisher = reviewableRowCatalogPublisher
     }
@@ -1200,6 +1206,20 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 }
                 throw error
             }
+            try beginSuccessfulCleanupJournal(
+                projectRoot: lifecycleProjectRoot,
+                runID: lifecycleRunID,
+                stagedRun: stagedRun,
+                finalOutputURL: finalOutputURL,
+                retiredPublicationURL:
+                    finalExisted
+                        && FileManager.default.fileExists(
+                            atPath: stagedOutputURL.path
+                        )
+                        ? stagedOutputURL
+                        : nil,
+                keepIntermediates: request.keepIntermediates
+            )
             var publicationCleanup = completeSuccessfulWorkDirectoryLifecycle(
                 stagedRun: stagedRun,
                 finalOutputURL: finalOutputURL,
@@ -1229,7 +1249,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                     ))
                 }
             }
-            try writeSuccessfulCleanupDispositionHistory(
+            try appendSuccessfulCleanupDisposition(
                 projectRoot: lifecycleProjectRoot,
                 runID: lifecycleRunID,
                 dispositions: publicationCleanup.dispositions
@@ -1240,6 +1260,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 to: finalOutputURL,
                 additionalCleanupWarnings: publicationCleanup.warnings
             )
+        } catch let journalError as GenotypingCleanupJournalError {
+            throw journalError
         } catch {
             let partialEnvelope = failureEnvelopeSnapshot ?? loadPartialFailureEnvelope(
                 stagedOutputURL: stagedOutputURL,
@@ -3263,26 +3285,106 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         return .init(warnings: warnings, dispositions: dispositions)
     }
 
-    private func writeSuccessfulCleanupDispositionHistory(
+    private func beginSuccessfulCleanupJournal(
+        projectRoot: URL,
+        runID: UUID,
+        stagedRun: FullLengthONTMHCStagedRunResult,
+        finalOutputURL: URL,
+        retiredPublicationURL: URL?,
+        keepIntermediates: Bool
+    ) throws {
+        do {
+            var candidates: [(url: URL, intendedAction: String)] = [
+                (
+                    stagedRun.cohortWorkDirectory,
+                    keepIntermediates
+                        ? "retain-by-request-after-marker-completion"
+                        : "remove-owned-work-directory"
+                ),
+                (
+                    stagedRun.candidateWorkDirectory,
+                    keepIntermediates
+                        ? "retain-by-request-after-marker-completion"
+                        : "remove-owned-work-directory"
+                ),
+                (
+                    finalOutputURL.appendingPathComponent(
+                        "workflow",
+                        isDirectory: true
+                    ),
+                    keepIntermediates
+                        ? "retain-by-request"
+                        : "remove-regenerable-workflow-intermediates"
+                ),
+            ]
+            if !keepIntermediates {
+                candidates.insert(
+                    (
+                        stagedRun.cohortTemporaryWorkDirectory,
+                        "remove-owned-temporary-work-directory"
+                    ),
+                    at: 0
+                )
+            }
+            if let retiredPublicationURL {
+                candidates.append(
+                    (
+                        retiredPublicationURL,
+                        "remove-retired-publication-directory"
+                    )
+                )
+            }
+            let entries = try GenotypingCleanupJournal.planEntries(candidates)
+            try cleanupJournalObserver(.beforeInitialCreation)
+            _ = try ProjectOperationHistoryWriter(
+                projectURL: projectRoot
+            ).createOperation(
+                operationID: runID,
+                payloads: [
+                    GenotypingCleanupJournal.planPayloadName:
+                        try GenotypingCleanupJournal.planData(
+                            runID: runID,
+                            entries: entries
+                        ),
+                ]
+            )
+        } catch {
+            throw GenotypingCleanupJournalError(
+                phase: .initialCreation,
+                underlyingDescription: error.localizedDescription
+            )
+        }
+    }
+
+    private func appendSuccessfulCleanupDisposition(
         projectRoot: URL,
         runID: UUID,
         dispositions: [GenotypingWorkDirectoryDisposition]
     ) throws {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(
-            GenotypingWorkDirectoryDispositionEnvelope(
-                schemaVersion: 1,
-                runID: runID,
-                entries: dispositions
+        do {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(
+                GenotypingWorkDirectoryDispositionEnvelope(
+                    schemaVersion: 1,
+                    runID: runID,
+                    entries: dispositions
+                )
             )
-        )
-        _ = try ProjectOperationHistoryWriter(
-            projectURL: projectRoot
-        ).createOperation(
-            operationID: runID,
-            payloads: ["cleanup-disposition.json": data]
-        )
+            try cleanupJournalObserver(.beforeTerminalAppend)
+            try ProjectOperationHistoryWriter(
+                projectURL: projectRoot
+            ).append(
+                data,
+                named: GenotypingCleanupJournal.terminalPayloadName,
+                toOperation: runID
+            )
+        } catch {
+            throw GenotypingCleanupJournalError(
+                phase: .terminalAppend,
+                underlyingDescription: error.localizedDescription
+            )
+        }
     }
 
     private func failCurrentRunWorkDirectories(

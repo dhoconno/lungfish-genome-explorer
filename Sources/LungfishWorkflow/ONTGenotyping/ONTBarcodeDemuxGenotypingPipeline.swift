@@ -768,6 +768,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     private let condaManager: CondaManager
     private let referenceImporter: ReferenceBundleImportService
     private let fileRemover: @Sendable (URL) throws -> Void
+    private let cleanupJournalObserver:
+        @Sendable (GenotypingCleanupJournalEvent) throws -> Void
     private let workDirectoryMarkerBinder:
         @Sendable (URL, OwnedWorkDirectoryCreationRequest) throws -> Void
     private let reviewableRowCatalogPublisher:
@@ -787,6 +789,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         self.fileRemover = { url in
             try FileManager.default.removeItem(at: url)
         }
+        self.cleanupJournalObserver = { _ in }
         self.workDirectoryMarkerBinder = { directory, request in
             try OwnedWorkDirectoryMarkerStore.bindExistingDirectory(
                 directory,
@@ -809,6 +812,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         fileRemover: @escaping @Sendable (URL) throws -> Void = {
             try FileManager.default.removeItem(at: $0)
         },
+        cleanupJournalObserver:
+            @escaping @Sendable (GenotypingCleanupJournalEvent) throws -> Void = { _ in },
         workDirectoryMarkerBinder:
             @escaping @Sendable (
                 URL,
@@ -835,6 +840,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         self.condaManager = condaManager
         self.referenceImporter = referenceImporter
         self.fileRemover = fileRemover
+        self.cleanupJournalObserver = cleanupJournalObserver
         self.workDirectoryMarkerBinder = workDirectoryMarkerBinder
         self.reviewableRowCatalogPublisher = reviewableRowCatalogPublisher
     }
@@ -1141,6 +1147,14 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         }
 
         progressHandler?(0.97, "Removing regenerable alignment intermediates.")
+        try beginSuccessfulCleanupJournal(
+            runID: runID,
+            projectRoot: projectRoot,
+            request: request,
+            mapping: mapping,
+            preserveRetainedEvidence: preserveRetainedEvidence,
+            supportDirectory: supportDirectory
+        )
         let alignmentDispositions = cleanupGeneratedAlignmentIntermediates(
             for: request,
             mapping: mapping,
@@ -1193,13 +1207,15 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 )
             }
         }
-        try writeSuccessfulCleanupDispositionHistory(
+        try appendSuccessfulCleanupDisposition(
             runID: runID,
             projectRoot: projectRoot,
             dispositions: failureCleanupDispositions
         )
         progressHandler?(0.98, "Finalizing amplicon genotyping outputs.")
         return finalizedResult
+        } catch let journalError as GenotypingCleanupJournalError {
+            throw journalError
         } catch {
             throw recordFailedRunAndCleanupSupportDirectory(
                 originalError: error,
@@ -1267,12 +1283,29 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                     originalError: originalError,
                     preparationError: preparationError
                 )
-                _ = try historyWriter.createOperation(
-                    operationID: runID,
-                    payloads: [
-                        "failure-provenance-preparation-error.json": receipt,
-                    ]
+                let cleanupPlanURL = historyWriter.operationDirectoryURL(
+                    for: runID
+                ).appendingPathComponent(
+                    GenotypingCleanupJournal.planPayloadName
                 )
+                if FileManager.default.fileExists(
+                    atPath: cleanupPlanURL.path
+                ) {
+                    try historyWriter.append(
+                        receipt,
+                        named:
+                            "failure-provenance-preparation-error.json",
+                        toOperation: runID
+                    )
+                } else {
+                    _ = try historyWriter.createOperation(
+                        operationID: runID,
+                        payloads: [
+                            "failure-provenance-preparation-error.json":
+                                receipt,
+                        ]
+                    )
+                }
             } catch {
                 return ONTBarcodeDemuxGenotypingError.reportFailed(
                     status: 1,
@@ -1752,10 +1785,22 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             withJSONObject: payload,
             options: [.prettyPrinted, .sortedKeys]
         )
-        _ = try ProjectOperationHistoryWriter(projectURL: projectRoot).createOperation(
-            operationID: runID,
-            payloads: ["failure-provenance.json": data]
-        )
+        let writer = ProjectOperationHistoryWriter(projectURL: projectRoot)
+        let cleanupPlanURL = writer.operationDirectoryURL(
+            for: runID
+        ).appendingPathComponent(GenotypingCleanupJournal.planPayloadName)
+        if FileManager.default.fileExists(atPath: cleanupPlanURL.path) {
+            try writer.append(
+                data,
+                named: "failure-provenance.json",
+                toOperation: runID
+            )
+        } else {
+            _ = try writer.createOperation(
+                operationID: runID,
+                payloads: ["failure-provenance.json": data]
+            )
+        }
     }
 
     public static func resolveInputFASTQURLs(for inputURL: URL) throws -> [URL] {
@@ -4933,11 +4978,11 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         }
     }
 
-    private func cleanupGeneratedAlignmentIntermediates(
+    private func generatedAlignmentIntermediateURLs(
         for request: ONTBarcodeDemuxGenotypingRunRequest,
         mapping: MappingStepResult,
         preserveRetainedEvidence: Bool
-    ) -> [AmpliconWorkDirectoryDisposition] {
+    ) -> [URL] {
         var removableURLs = [
             request.mappingBAMURL,
             request.mappingBAIURL,
@@ -4948,6 +4993,19 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 request.retainedBAIURL,
             ]
         }
+        return removableURLs
+    }
+
+    private func cleanupGeneratedAlignmentIntermediates(
+        for request: ONTBarcodeDemuxGenotypingRunRequest,
+        mapping: MappingStepResult,
+        preserveRetainedEvidence: Bool
+    ) -> [AmpliconWorkDirectoryDisposition] {
+        let removableURLs = generatedAlignmentIntermediateURLs(
+            for: request,
+            mapping: mapping,
+            preserveRetainedEvidence: preserveRetainedEvidence
+        )
         var seen = Set<String>()
         var dispositions: [AmpliconWorkDirectoryDisposition] = []
         for url in removableURLs.map(\.standardizedFileURL)
@@ -4979,26 +5037,88 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         return dispositions
     }
 
-    private func writeSuccessfulCleanupDispositionHistory(
+    private func beginSuccessfulCleanupJournal(
+        runID: UUID,
+        projectRoot: URL,
+        request: ONTBarcodeDemuxGenotypingRunRequest,
+        mapping: MappingStepResult,
+        preserveRetainedEvidence: Bool,
+        supportDirectory: URL
+    ) throws {
+        do {
+            var candidates = generatedAlignmentIntermediateURLs(
+                for: request,
+                mapping: mapping,
+                preserveRetainedEvidence: preserveRetainedEvidence
+            ).map {
+                (
+                    url: $0,
+                    intendedAction:
+                        request.keepIntermediates
+                            ? "retain-by-request"
+                            : "remove-regenerable-alignment-intermediate"
+                )
+            }
+            candidates.append(
+                (
+                    url: supportDirectory,
+                    intendedAction:
+                        request.keepIntermediates
+                            ? "retain-by-request-after-marker-completion"
+                            : "remove-owned-support-directory-after-marker-completion"
+                )
+            )
+            let entries = try GenotypingCleanupJournal.planEntries(candidates)
+            try cleanupJournalObserver(.beforeInitialCreation)
+            _ = try ProjectOperationHistoryWriter(
+                projectURL: projectRoot
+            ).createOperation(
+                operationID: runID,
+                payloads: [
+                    GenotypingCleanupJournal.planPayloadName:
+                        try GenotypingCleanupJournal.planData(
+                            runID: runID,
+                            entries: entries
+                        ),
+                ]
+            )
+        } catch {
+            throw GenotypingCleanupJournalError(
+                phase: .initialCreation,
+                underlyingDescription: error.localizedDescription
+            )
+        }
+    }
+
+    private func appendSuccessfulCleanupDisposition(
         runID: UUID,
         projectRoot: URL,
         dispositions: [AmpliconWorkDirectoryDisposition]
     ) throws {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(
-            AmpliconWorkDirectoryDispositionEnvelope(
-                schemaVersion: 1,
-                runID: runID,
-                entries: dispositions
+        do {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(
+                AmpliconWorkDirectoryDispositionEnvelope(
+                    schemaVersion: 1,
+                    runID: runID,
+                    entries: dispositions
+                )
             )
-        )
-        _ = try ProjectOperationHistoryWriter(
-            projectURL: projectRoot
-        ).createOperation(
-            operationID: runID,
-            payloads: ["cleanup-disposition.json": data]
-        )
+            try cleanupJournalObserver(.beforeTerminalAppend)
+            try ProjectOperationHistoryWriter(
+                projectURL: projectRoot
+            ).append(
+                data,
+                named: GenotypingCleanupJournal.terminalPayloadName,
+                toOperation: runID
+            )
+        } catch {
+            throw GenotypingCleanupJournalError(
+                phase: .terminalAppend,
+                underlyingDescription: error.localizedDescription
+            )
+        }
     }
 
     private func rollbackScientificOutputsAfterFinalizationFailure(

@@ -3549,6 +3549,152 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         })
     }
 
+    func testCleanupJournalInitialCreationFailureDoesNotMutateFullLengthWorkRoots() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "full-length-cleanup-journal-initial-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (request, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            cleanupJournalObserver: { event in
+                if case .beforeInitialCreation = event {
+                    throw NSError(
+                        domain: "cleanup journal initial creation",
+                        code: 1,
+                        userInfo: [
+                            NSLocalizedDescriptionKey:
+                                "cleanup journal initial creation",
+                        ]
+                    )
+                }
+            }
+        )
+
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("Expected cleanup journal creation failure")
+        } catch {
+            XCTAssertTrue(
+                error.localizedDescription.contains(
+                    "cleanup journal initial creation"
+                ),
+                error.localizedDescription
+            )
+        }
+
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: request.outputDirectory
+                    .appendingPathComponent("workflow", isDirectory: true).path
+            ),
+            "Published workflow intermediates must remain untouched."
+        )
+        let markerDirectories = try FileManager.default.subpathsOfDirectory(
+            atPath: root.path
+        ).filter {
+            $0.hasSuffix("/\(OwnedWorkDirectoryMarker.fileName)")
+        }.map {
+            root.appendingPathComponent($0).deletingLastPathComponent()
+        }
+        XCTAssertGreaterThanOrEqual(markerDirectories.count, 2)
+        for directory in markerDirectories {
+            let marker = try OwnedWorkDirectoryMarkerStore.load(
+                from: directory,
+                expectedProjectURL: root
+            )
+            XCTAssertEqual(marker.state, .active)
+        }
+    }
+
+    func testCleanupJournalTerminalAppendFailureLeavesRecoverableFullLengthPlan() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "full-length-cleanup-journal-terminal-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (request, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            cleanupJournalObserver: { event in
+                if case .beforeTerminalAppend = event {
+                    throw NSError(
+                        domain: "cleanup journal terminal append",
+                        code: 1,
+                        userInfo: [
+                            NSLocalizedDescriptionKey:
+                                "cleanup journal terminal append",
+                        ]
+                    )
+                }
+            }
+        )
+
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("Expected cleanup journal terminal append failure")
+        } catch {
+            XCTAssertTrue(
+                error.localizedDescription.contains(
+                    "cleanup journal terminal append"
+                ),
+                error.localizedDescription
+            )
+        }
+
+        let historyRoot = root.appendingPathComponent(
+            ProjectOperationHistoryWriter.historyDirectoryName,
+            isDirectory: true
+        )
+        let operation = try XCTUnwrap(
+            FileManager.default.contentsOfDirectory(
+                at: historyRoot,
+                includingPropertiesForKeys: nil
+            ).first
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: operation.appendingPathComponent(
+                    "cleanup-disposition.json"
+                ).path
+            )
+        )
+        let plan = try XCTUnwrap(
+            try JSONSerialization.jsonObject(
+                with: Data(
+                    contentsOf: operation.appendingPathComponent(
+                        "cleanup-plan.json"
+                    )
+                )
+            ) as? [String: Any]
+        )
+        XCTAssertEqual(
+            plan["state"] as? String,
+            "planned-terminal-disposition-pending"
+        )
+        XCTAssertTrue(
+            (plan["recoveryRule"] as? String)?.contains(
+                "device/inode"
+            ) == true
+        )
+        let entries = try XCTUnwrap(plan["entries"] as? [[String: Any]])
+        XCTAssertGreaterThanOrEqual(entries.count, 3)
+        for entry in entries {
+            let path = try XCTUnwrap(entry["path"] as? String)
+            XCTAssertFalse(
+                (entry["intendedAction"] as? String)?.isEmpty ?? true
+            )
+            let identity = try XCTUnwrap(
+                entry["identity"] as? [String: Any]
+            )
+            XCTAssertNotNil(identity["device"])
+            XCTAssertNotNil(identity["inode"])
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: path),
+                "The planned pre-mutation identity plus absence makes the exact removed disposition recoverable."
+            )
+        }
+    }
+
     func testAtomicPublicationFailureWritesCompleteCommandProvenanceReceipt() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("full-length-ont-mhc-publication-failure-\(UUID().uuidString)", isDirectory: true)
@@ -5291,6 +5437,8 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         postPublicationWorkDirectoryCleaner: any FullLengthONTMHCWorkDirectoryCleaning = DefaultFullLengthONTMHCWorkDirectoryCleaner(),
         metadataPublicationObserver: @escaping @Sendable (FullLengthONTMHCMetadataPublicationEvent) throws -> Void = { _ in },
         rollbackOperationObserver: @escaping @Sendable () throws -> Void = {},
+        cleanupJournalObserver:
+            @escaping @Sendable (GenotypingCleanupJournalEvent) throws -> Void = { _ in },
         exclusivePublicationFailureInjector: @escaping @Sendable (FullLengthONTMHCExclusivePublicationTarget) throws -> Int32? = { _ in nil }
     ) throws -> (
         FullLengthONTMHCGenotypingRunRequest,
@@ -5336,6 +5484,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             postPublicationWorkDirectoryCleaner: postPublicationWorkDirectoryCleaner,
             metadataPublicationObserver: metadataPublicationObserver,
             rollbackOperationObserver: rollbackOperationObserver,
+            cleanupJournalObserver: cleanupJournalObserver,
             exclusivePublicationFailureInjector: exclusivePublicationFailureInjector
         )
         return (request, pipeline)

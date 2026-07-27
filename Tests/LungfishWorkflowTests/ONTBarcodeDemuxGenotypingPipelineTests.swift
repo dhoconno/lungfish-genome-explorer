@@ -1586,6 +1586,115 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         )
     }
 
+    func testCleanupJournalInitialCreationFailureDoesNotMutateMiSeqWorkRoots() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (request, pipeline) = try makeCleanupJournalAmpliconRun(
+            root: root,
+            cleanupJournalObserver: { event in
+                if case .beforeInitialCreation = event {
+                    throw CocoaError(.fileWriteNoPermission)
+                }
+            }
+        )
+
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("Expected cleanup journal creation failure")
+        } catch {
+            XCTAssertTrue(
+                error.localizedDescription.contains("cleanup journal")
+                    || error.localizedDescription.contains("permission"),
+                error.localizedDescription
+            )
+        }
+
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: request.mappingBAMURL.path)
+        )
+        let supportDirectory = request.outputDirectory.appendingPathComponent(
+            ".amplicon-genotyping",
+            isDirectory: true
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: supportDirectory.path)
+        )
+        let marker = try OwnedWorkDirectoryMarkerStore.load(
+            from: supportDirectory,
+            expectedProjectURL: root
+        )
+        XCTAssertEqual(marker.state, .active)
+    }
+
+    func testCleanupJournalTerminalAppendFailureLeavesRecoverableMiSeqPlan() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (request, pipeline) = try makeCleanupJournalAmpliconRun(
+            root: root,
+            cleanupJournalObserver: { event in
+                if case .beforeTerminalAppend = event {
+                    throw CocoaError(.fileWriteNoPermission)
+                }
+            }
+        )
+
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("Expected cleanup journal terminal append failure")
+        } catch {
+            XCTAssertTrue(
+                error.localizedDescription.contains("cleanup journal")
+                    || error.localizedDescription.contains("permission"),
+                error.localizedDescription
+            )
+        }
+
+        let historyRoot = root.appendingPathComponent(
+            ProjectOperationHistoryWriter.historyDirectoryName,
+            isDirectory: true
+        )
+        let operation = try XCTUnwrap(
+            FileManager.default.contentsOfDirectory(
+                at: historyRoot,
+                includingPropertiesForKeys: nil
+            ).first
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: operation.appendingPathComponent(
+                    "cleanup-disposition.json"
+                ).path
+            )
+        )
+        let plan = try jsonObject(
+            at: operation.appendingPathComponent("cleanup-plan.json")
+        )
+        XCTAssertEqual(
+            plan["state"] as? String,
+            "planned-terminal-disposition-pending"
+        )
+        XCTAssertTrue(
+            (plan["recoveryRule"] as? String)?.contains(
+                "device/inode"
+            ) == true
+        )
+        let entries = try XCTUnwrap(plan["entries"] as? [[String: Any]])
+        XCTAssertGreaterThanOrEqual(entries.count, 3)
+        for entry in entries {
+            let path = try XCTUnwrap(entry["path"] as? String)
+            XCTAssertFalse(
+                (entry["intendedAction"] as? String)?.isEmpty ?? true
+            )
+            XCTAssertNotNil(
+                (entry["identity"] as? [String: Any])?["inode"]
+            )
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: path),
+                "The durable plan must permit exact removed-disposition recovery."
+            )
+        }
+    }
+
     func testFailureProvenanceSourceDescriptorFailureWritesIncompleteReceiptAndRecordsExactCleanupPath() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -3546,6 +3655,72 @@ print(json.dumps(payload))
             )
         }
         return out
+    }
+
+    private func makeCleanupJournalAmpliconRun(
+        root: URL,
+        cleanupJournalObserver:
+            @escaping @Sendable (GenotypingCleanupJournalEvent) throws -> Void
+    ) throws -> (
+        ONTBarcodeDemuxGenotypingRunRequest,
+        ONTBarcodeDemuxGenotypingPipeline
+    ) {
+        let condaRoot = root.appendingPathComponent(
+            "conda",
+            isDirectory: true
+        )
+        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(
+            at: condaRoot
+        )
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        try """
+        >A1_063_01
+        AACCGGTT
+        >14_M1_DQA1_24_03
+        AACCGGTT
+        >14_M1_DQB1_18_01_01
+        AACCGGTT
+        >14_M2M6_DQB1_06g:14_M_DQB1_06_01_01
+        AACCGGTT
+        >14_M4_DQB1_06_08
+        AACCGGTT
+
+        """.write(
+            to: referenceFASTA,
+            atomically: true,
+            encoding: .utf8
+        )
+        let sample = try makeMergedFASTQBundle(
+            root: root,
+            name: "DW001",
+            sequence: "AACCGGTT"
+        )
+        let outputDirectory = root.appendingPathComponent(
+            "miseq-cleanup-journal.lungfishgenotype",
+            isDirectory: true
+        )
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: [sample.bundleURL],
+            referenceSourceURL: referenceFASTA,
+            outputDirectory: outputDirectory,
+            outputName: "miseq-cleanup-journal",
+            analysisName: "MiSeq cleanup journal",
+            projectURL: root,
+            threads: 2,
+            sortThreads: 1,
+            minSupport: 1,
+            mode: .illuminaPaired,
+            readType: .illumina
+        )
+        let pipeline = ONTBarcodeDemuxGenotypingPipeline(
+            condaManager: CondaManager(
+                rootPrefix: condaRoot,
+                bundledMicromambaProvider: { bundledMicromamba },
+                bundledMicromambaVersionProvider: { "test-micromamba" }
+            ),
+            cleanupJournalObserver: cleanupJournalObserver
+        )
+        return (request, pipeline)
     }
 
     private func jsonObject(at url: URL) throws -> [String: Any] {
