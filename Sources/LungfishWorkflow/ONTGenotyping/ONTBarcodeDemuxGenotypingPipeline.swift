@@ -2772,9 +2772,16 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             ),
             request.outputDirectory
         )
-        try csvAuthority.requireUnchanged()
-        try referenceAuthority.requireUnchanged()
-        try candidateSnapshot?.requireUnchanged()
+        do {
+            try csvAuthority.requireUnchanged()
+            try referenceAuthority.requireUnchanged()
+            try candidateSnapshot?.requireUnchanged()
+        } catch {
+            throw publication.failedPostPublicationAuthorityCheck(
+                error,
+                rollbackPaths: [publication.outputURL]
+            )
+        }
         return publication
     }
 

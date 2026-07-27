@@ -725,26 +725,31 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
                 bundledMicromambaVersionProvider: { "test-micromamba" }
             ),
             reviewableRowCatalogPublisher: { inputs, outputDirectory in
-                try GenotypeReviewableRowCatalogPublisher(
-                    publicationObserver: { phase in
-                        if phase == .staged {
-                            throw NSError(
-                                domain: "ReviewCatalogTests",
-                                code: 91,
-                                userInfo: [
-                                    NSLocalizedDescriptionKey:
-                                        "injected miSeq review catalog failure",
-                                ]
-                            )
-                        }
-                    }
-                ).publish(inputs, to: outputDirectory)
+                let publication = try GenotypeReviewableRowCatalogPublisher()
+                    .publish(inputs, to: outputDirectory)
+                guard let rosterIndex = inputs.argv.firstIndex(
+                    of: "--sample-roster"
+                ),
+                inputs.argv.indices.contains(rosterIndex + 1) else {
+                    throw GenotypeReviewableRowCatalogPublisherError
+                        .invalidInputDescriptor("missing test sample roster")
+                }
+                let rosterURL = URL(
+                    fileURLWithPath: inputs.argv[rosterIndex + 1]
+                )
+                var changedRoster = try Data(contentsOf: rosterURL)
+                changedRoster.append(0x0a)
+                try changedRoster.write(to: rosterURL, options: .atomic)
+                return publication
             }
         )
         do {
             _ = try await failingPipeline.run(request)
             XCTFail("Expected review catalog publication failure")
         } catch {
+            let failure = try XCTUnwrap(
+                error as? GenotypeReviewableRowCatalogPublicationFailure
+            )
             let failedEnvelope = try XCTUnwrap(
                 ProvenanceEnvelopeReader.load(from: outputDirectory)
             )
@@ -752,19 +757,23 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             let failedStep = try XCTUnwrap(failedEnvelope.steps.first {
                 $0.toolName == "lungfish genotype reviewable row catalog publisher"
             })
+            XCTAssertEqual(failedStep.argv, failure.provenance.argv)
             XCTAssertEqual(failedStep.exitStatus, 1)
             XCTAssertTrue(
-                failedStep.stderr?.contains("injected miSeq review catalog failure")
+                failedStep.stderr?.contains("authority changed")
                     == true
             )
             XCTAssertFalse(failedStep.inputs.isEmpty)
-            XCTAssertEqual(
-                failedStep.outputs.first?.path,
-                outputDirectory
-                    .appendingPathComponent(
-                        "artifacts/projections/genotype-reviewable-rows.json"
-                    ).path
+            let catalogURL = outputDirectory.appendingPathComponent(
+                "artifacts/projections/genotype-reviewable-rows.json"
             )
+            XCTAssertEqual(failedStep.outputs.first?.path, catalogURL.path)
+            XCTAssertTrue(
+                failure.provenance.stderr?.contains(
+                    "Rollback paths: \(catalogURL.path)"
+                ) == true
+            )
+            XCTAssertFalse(FileManager.default.fileExists(atPath: catalogURL.path))
         }
 
         let result = try await ONTBarcodeDemuxGenotypingPipeline(

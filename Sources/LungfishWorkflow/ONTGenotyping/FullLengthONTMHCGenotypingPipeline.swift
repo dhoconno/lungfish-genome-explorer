@@ -4918,10 +4918,17 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             ),
             request.outputDirectory
         )
-        try reviewAuthority.requireUnchanged()
-        try csvAuthority.requireUnchanged()
-        try bamSnapshot.requireMetadataUnchanged()
-        try baiSnapshot.requireMetadataUnchanged()
+        do {
+            try reviewAuthority.requireUnchanged()
+            try csvAuthority.requireUnchanged()
+            try bamSnapshot.requireMetadataUnchanged()
+            try baiSnapshot.requireMetadataUnchanged()
+        } catch {
+            throw publication.failedPostPublicationAuthorityCheck(
+                error,
+                rollbackPaths: [publication.outputURL]
+            )
+        }
         return publication
     }
 

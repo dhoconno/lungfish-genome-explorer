@@ -624,6 +624,87 @@ public struct GenotypeReviewableRowCatalogPublication: Sendable {
         self.outputURL = outputURL
         self.provenance = provenance
     }
+
+    func failedPostPublicationAuthorityCheck(
+        _ error: Error,
+        rollbackPaths: [URL],
+        completedAt: Date = Date()
+    ) -> GenotypeReviewableRowCatalogPublicationFailure {
+        let rollbackPathText = rollbackPaths
+            .map { $0.standardizedFileURL.path }
+            .joined(separator: ", ")
+        let stderr = "\(error.localizedDescription) Rollback paths: \(rollbackPathText)"
+        let successfulStep = provenance.steps.last
+        let intendedOutput = ProvenanceFileDescriptor(
+            path: outputURL.standardizedFileURL.path,
+            format: .json,
+            role: .report
+        )
+        let startedAt = successfulStep?.startedAt ?? provenance.createdAt
+        let wallTime = completedAt.timeIntervalSince(startedAt)
+        let failedStep = ProvenanceStep(
+            id: successfulStep?.id ?? UUID(),
+            toolName: successfulStep?.toolName ?? provenance.toolName,
+            toolVersion: successfulStep?.toolVersion ?? provenance.toolVersion,
+            githubReleaseVersion:
+                successfulStep?.githubReleaseVersion
+                ?? provenance.githubReleaseVersion,
+            argv: successfulStep?.argv ?? provenance.argv,
+            durableReplayArgv:
+                successfulStep?.durableReplayArgv
+                ?? provenance.durableReplayArgv,
+            reproducibleCommand:
+                successfulStep?.reproducibleCommand
+                ?? provenance.reproducibleCommand,
+            resolvedOptions:
+                successfulStep?.resolvedOptions
+                ?? provenance.options.explicit.merging(
+                    provenance.options.resolvedDefaults
+                ) { explicit, _ in explicit },
+            runtimeIdentity:
+                successfulStep?.runtimeIdentity
+                ?? provenance.runtimeIdentity,
+            inputs: successfulStep?.inputs
+                ?? provenance.files.filter { $0.role != .report },
+            outputs: [intendedOutput],
+            exitStatus: 1,
+            wallTimeSeconds: wallTime,
+            peakMemoryBytes: successfulStep?.peakMemoryBytes,
+            stderr: stderr,
+            dependsOn: successfulStep?.dependsOn ?? [],
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+        let failedProvenance = ProvenanceEnvelope(
+            schemaVersion: provenance.schemaVersion,
+            id: provenance.id,
+            createdAt: completedAt,
+            workflowName: provenance.workflowName,
+            workflowVersion: provenance.workflowVersion,
+            toolName: provenance.toolName,
+            toolVersion: provenance.toolVersion,
+            githubReleaseVersion: provenance.githubReleaseVersion,
+            tool: provenance.tool,
+            argv: provenance.argv,
+            durableReplayArgv: provenance.durableReplayArgv,
+            reproducibleCommand: provenance.reproducibleCommand,
+            options: provenance.options,
+            runtimeIdentity: provenance.runtimeIdentity,
+            files: failedStep.inputs + [intendedOutput],
+            output: intendedOutput,
+            outputs: [intendedOutput],
+            steps: [failedStep],
+            wallTimeSeconds: wallTime,
+            exitStatus: 1,
+            stderr: stderr,
+            legacyWorkflowRun: provenance.legacyRun
+        )
+        return GenotypeReviewableRowCatalogPublicationFailure(
+            message: stderr,
+            provenance: failedProvenance,
+            underlyingError: error
+        )
+    }
 }
 
 public struct GenotypeReviewableRowCatalogPublisher: Sendable {
@@ -659,6 +740,20 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
         let stableID: String?
         let section: String
         var supportBySample: [String: Int]
+    }
+
+    private struct CatalogPayloadAttestation {
+        let sha256: String
+        let fileSize: UInt64
+        let identity: FileSystemObjectIdentity
+        let modificationSeconds: Int64
+        let modificationNanoseconds: Int64
+        let changeSeconds: Int64
+        let changeNanoseconds: Int64
+
+        func hasSameSemanticPayload(as other: Self) -> Bool {
+            sha256 == other.sha256 && fileSize == other.fileSize
+        }
     }
 
     private let dateProvider: @Sendable () -> Date
@@ -1132,7 +1227,7 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
         _ data: Data,
         bundleDirectoryURL: URL,
         outputURL: URL
-    ) throws -> (sha256: String, fileSize: UInt64) {
+    ) throws -> CatalogPayloadAttestation {
         let bundleDescriptor = try NoFollowFileSystem.openDirectoryHierarchy(
             bundleDirectoryURL
         )
@@ -1193,6 +1288,20 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
             throw posixError()
         }
         stagingIsOpen = false
+        let stagedAttestation = try descriptorSnapshot(
+            named: stagingName,
+            expectedIdentity: stagedIdentity,
+            in: projectionsDescriptor,
+            displayedAt: stagingURL
+        )
+        let semanticSHA256 = SHA256.hash(data: data)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        guard stagedAttestation.sha256 == semanticSHA256,
+              stagedAttestation.fileSize == UInt64(data.count) else {
+            throw GenotypeReviewableRowCatalogPublisherError
+                .finalArtifactMismatch(stagingURL.path)
+        }
         try publicationObserver(.staged)
 
         let previousIdentity = try regularFileIdentityIfPresent(
@@ -1251,6 +1360,12 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
                 in: projectionsDescriptor,
                 displayedAt: outputURL
             )
+            guard exactDescriptor.hasSameSemanticPayload(
+                as: stagedAttestation
+            ) else {
+                throw GenotypeReviewableRowCatalogPublisherError
+                    .finalArtifactMismatch(outputURL.path)
+            }
             if let finalArtifactDescriptorProvider {
                 let injectedDescriptor = try finalArtifactDescriptorProvider(outputURL)
                 guard injectedDescriptor.sha256 == exactDescriptor.sha256,
@@ -1553,7 +1668,7 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
         expectedIdentity: FileSystemObjectIdentity,
         in directoryDescriptor: Int32,
         displayedAt url: URL
-    ) throws -> (sha256: String, fileSize: UInt64) {
+    ) throws -> CatalogPayloadAttestation {
         let descriptor = name.withCString {
             Darwin.openat(
                 directoryDescriptor,
@@ -1575,13 +1690,24 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
         guard Darwin.fstat(descriptor, &after) == 0,
               FileSystemObjectIdentity(from: after) == expectedIdentity,
               before.st_size == after.st_size,
+              before.st_mtimespec.tv_sec == after.st_mtimespec.tv_sec,
+              before.st_mtimespec.tv_nsec == after.st_mtimespec.tv_nsec,
+              before.st_ctimespec.tv_sec == after.st_ctimespec.tv_sec,
+              before.st_ctimespec.tv_nsec == after.st_ctimespec.tv_nsec,
               data.count == Int(after.st_size) else {
             throw GenotypeReviewableRowCatalogPublisherError
                 .finalArtifactMismatch(url.path)
         }
-        return (
-            SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
-            UInt64(data.count)
+        return CatalogPayloadAttestation(
+            sha256: SHA256.hash(data: data)
+                .map { String(format: "%02x", $0) }
+                .joined(),
+            fileSize: UInt64(data.count),
+            identity: FileSystemObjectIdentity(from: after),
+            modificationSeconds: Int64(after.st_mtimespec.tv_sec),
+            modificationNanoseconds: Int64(after.st_mtimespec.tv_nsec),
+            changeSeconds: Int64(after.st_ctimespec.tv_sec),
+            changeNanoseconds: Int64(after.st_ctimespec.tv_nsec)
         )
     }
 

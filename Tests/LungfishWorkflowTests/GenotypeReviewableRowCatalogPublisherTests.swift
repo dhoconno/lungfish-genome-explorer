@@ -711,6 +711,65 @@ final class GenotypeReviewableRowCatalogPublisherTests: XCTestCase {
         }
     }
 
+    func testSameInodeSameSizePublishedMutationCannotReplaceStagedSemanticDocument() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let outputURL = fixture.outputDirectory
+            .appendingPathComponent("artifacts/projections/genotype-reviewable-rows.json")
+        try FileManager.default.createDirectory(
+            at: outputURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let original = Data("existing-before-same-inode-mutation".utf8)
+        try original.write(to: outputURL)
+        let publisher = GenotypeReviewableRowCatalogPublisher(
+            dateProvider: { fixture.startedAt },
+            publicationObserver: { phase in
+                guard phase == .published else { return }
+                let descriptor = Darwin.open(
+                    outputURL.path,
+                    O_WRONLY | O_NOFOLLOW | O_CLOEXEC
+                )
+                guard descriptor >= 0 else {
+                    throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                }
+                defer { Darwin.close(descriptor) }
+                var before = stat()
+                guard Darwin.fstat(descriptor, &before) == 0,
+                      before.st_size > 0 else {
+                    throw POSIXError(.EIO)
+                }
+                let forged = Data(repeating: 0x78, count: Int(before.st_size))
+                let written = forged.withUnsafeBytes {
+                    Darwin.pwrite(descriptor, $0.baseAddress, $0.count, 0)
+                }
+                guard written == forged.count,
+                      Darwin.fsync(descriptor) == 0 else {
+                    throw POSIXError(.EIO)
+                }
+                var after = stat()
+                guard Darwin.fstat(descriptor, &after) == 0,
+                      FileSystemObjectIdentity(from: before)
+                        == FileSystemObjectIdentity(from: after),
+                      before.st_size == after.st_size else {
+                    throw POSIXError(.EIO)
+                }
+            }
+        )
+
+        XCTAssertThrowsError(
+            try publisher.publish(fixture.inputs(), to: fixture.outputDirectory)
+        ) { error in
+            let failure = error as? GenotypeReviewableRowCatalogPublicationFailure
+            XCTAssertTrue(
+                failure?.provenance.stderr?.contains("does not match")
+                    == true
+            )
+            XCTAssertNil(failure?.provenance.output?.checksumSHA256)
+        }
+        XCTAssertEqual(try Data(contentsOf: outputURL), original)
+    }
+
     func testRejectsSymlinkedPublicationHierarchyWithoutTouchingExternalTarget() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
