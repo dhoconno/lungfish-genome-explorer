@@ -102,6 +102,47 @@ final class GenotypeManualHaplotypeReplaySubcommandTests: XCTestCase {
         })
     }
 
+    func testCommandReplaysFromRealGUIAnnotationProvenancePathWithoutMutatingSource() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let payload = try GenotypeManualHaplotypeAssignmentReplayPayload.decode(
+            replayPayloadData(from: fixture.sourceProvenanceURL)
+        )
+        let guiProvenanceURL = ProvenanceRecorder.fileSidecarURL(
+            for: fixture.sidecarURL
+        )
+        try writeGUIAnnotationProvenance(
+            payload: payload,
+            priorData: fixture.priorData,
+            finalAssignments: fixture.afterAssignments,
+            bundleURL: fixture.bundleURL,
+            annotationURL: fixture.sidecarURL,
+            to: guiProvenanceURL
+        )
+        let sourceBytes = try Data(contentsOf: guiProvenanceURL)
+        let replayOutputProvenanceURL =
+            GenotypeManualHaplotypeAssignmentReplayPayload
+                .replayOutputProvenanceURL(forBundleAt: fixture.bundleURL)
+        let command =
+            try GenotypeReplayManualHaplotypeAssignmentsSubcommand.parse([
+                "--provenance", guiProvenanceURL.path,
+                "--bundle", fixture.bundleURL.path,
+                "--output-provenance", replayOutputProvenanceURL.path,
+            ])
+
+        try await command.run()
+
+        XCTAssertEqual(try Data(contentsOf: guiProvenanceURL), sourceBytes)
+        let replayed = try GenotypeAnnotationSidecar.decode(
+            Data(contentsOf: fixture.sidecarURL)
+        )
+        XCTAssertEqual(
+            replayed.manualHaplotypeAssignments,
+            fixture.afterAssignments
+        )
+        XCTAssertEqual(replayed.auditLog, fixture.auditEntries)
+    }
+
     func testDefaultOutputProvenanceIsResolvedButNotRecordedAsExplicit() async throws {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -606,6 +647,107 @@ final class GenotypeManualHaplotypeReplaySubcommandTests: XCTestCase {
             exitStatus: 0
         )
         try ProvenanceJSON.encoder.encode(sourceEnvelope).write(to: sourceProvenanceURL)
+    }
+
+    private func writeGUIAnnotationProvenance(
+        payload: GenotypeManualHaplotypeAssignmentReplayPayload,
+        priorData: Data,
+        finalAssignments: [ManualHaplotypeAssignment],
+        bundleURL: URL,
+        annotationURL: URL,
+        to provenanceURL: URL
+    ) throws {
+        let payloadData = try payload.encoded()
+        var finalSidecar = try GenotypeAnnotationSidecar.decode(priorData)
+        finalSidecar.manualHaplotypeAssignments = finalAssignments
+        for audit in payload.auditEntries {
+            finalSidecar.append(audit: audit)
+        }
+        let finalData = try finalSidecar.encoded()
+        let output = ProvenanceFileDescriptor(
+            path: annotationURL.path,
+            checksumSHA256: sha256(finalData),
+            fileSize: UInt64(finalData.count),
+            format: .json,
+            role: .output
+        )
+        let replayInput = ProvenanceFileDescriptor(
+            path:
+                provenanceURL.path
+                + "#/options/explicit/replayPriorSidecarBase64",
+            checksumSHA256: sha256(priorData),
+            fileSize: UInt64(priorData.count),
+            format: .json,
+            role: .input,
+            originPath: annotationURL.path
+        )
+        let replayOutputProvenanceURL =
+            GenotypeManualHaplotypeAssignmentReplayPayload
+                .replayOutputProvenanceURL(forBundleAt: bundleURL)
+        let durableReplayArgv = [
+            "lungfish-cli",
+            "genotype",
+            "replay-manual-haplotype-assignments",
+            "--provenance", provenanceURL.path,
+            "--bundle", bundleURL.path,
+            "--output-provenance", replayOutputProvenanceURL.path,
+        ]
+        let envelope = ProvenanceEnvelope(
+            workflowName: "Genotype annotation sidecar edit",
+            toolName: "Lungfish Genome Explorer",
+            toolVersion: WorkflowRun.currentAppVersion,
+            tool: .init(
+                name: "Lungfish Genome Explorer",
+                version: WorkflowRun.currentAppVersion,
+                kind: "gui"
+            ),
+            argv: ["Lungfish"],
+            durableReplayArgv: durableReplayArgv,
+            reproducibleCommand:
+                durableReplayArgv.map(shellEscape).joined(separator: " "),
+            options: ProvenanceOptions(
+                explicit: [
+                    "bundle": .file(bundleURL),
+                    "annotationSidecar": .file(annotationURL),
+                    "action": .string(
+                        "replaceManualHaplotypeAssignments"
+                    ),
+                    "executionMode": .string("gui-edit"),
+                    "replayOutputProvenance": .file(
+                        replayOutputProvenanceURL
+                    ),
+                    "replayPriorSidecarBase64": .string(
+                        priorData.base64EncodedString()
+                    ),
+                    "replayFormat": .string(
+                        GenotypeManualHaplotypeAssignmentReplayPayload.format
+                    ),
+                    "replayPayloadBase64": .string(
+                        payloadData.base64EncodedString()
+                    ),
+                    "replayPayloadSHA256": .string(sha256(payloadData)),
+                ],
+                defaults: [
+                    "format": .string("json"),
+                    "sidecarFilename": .string(
+                        GenotypeAnnotationSidecar.filename
+                    ),
+                ],
+                resolvedDefaults: [
+                    "author": .string(payload.operation.author),
+                    "manualHaplotypeAssignmentCount": .integer(
+                        finalAssignments.count
+                    ),
+                ]
+            ),
+            files: [replayInput, output],
+            output: output,
+            outputs: [output],
+            wallTimeSeconds: 0,
+            exitStatus: 0,
+            stderr: ""
+        )
+        try ProvenanceJSON.encoder.encode(envelope).write(to: provenanceURL)
     }
 
     private func assignment(

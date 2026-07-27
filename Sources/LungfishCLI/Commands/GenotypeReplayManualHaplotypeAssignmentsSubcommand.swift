@@ -360,14 +360,9 @@ struct GenotypeReplayManualHaplotypeAssignmentsSubcommand:
             + ProvenancePublicationArtifacts.fileSidecarArtifacts(
                 for: annotationURL
             )
-        var protectedPaths = Set<String>()
-        for url in protectedArtifacts {
-            let path = url.standardizedFileURL.path
-            guard protectedPaths.insert(path).inserted else {
-                throw GenotypeReplayManualHaplotypeAssignmentsError
-                    .pathCollision(path)
-            }
-        }
+        let protectedPaths = Set(
+            protectedArtifacts.map { $0.standardizedFileURL.path }
+        )
         let writableArtifacts = [annotationURL]
             + ProvenancePublicationArtifacts.sidecarArtifacts(
                 for: outputProvenanceURL

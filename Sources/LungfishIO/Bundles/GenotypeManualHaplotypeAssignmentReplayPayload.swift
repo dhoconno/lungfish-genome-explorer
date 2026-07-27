@@ -270,14 +270,6 @@ public struct GenotypeManualHaplotypeAssignmentReplayPayload:
             )
         }
 
-        let beforeByKey = try assignmentMap(
-            beforeAssignments,
-            collectionName: "beforeAssignments"
-        )
-        let afterByKey = try assignmentMap(
-            afterAssignments,
-            collectionName: "afterAssignments"
-        )
         guard beforeAssignments.filter({ $0.sample != operation.sample })
                 == afterAssignments.filter({ $0.sample != operation.sample })
         else {
@@ -286,40 +278,52 @@ public struct GenotypeManualHaplotypeAssignmentReplayPayload:
             )
         }
 
-        let targetBefore = beforeByKey.filter {
-            $0.key.sample == operation.sample
+        let selectedBefore = beforeAssignments.filter {
+            $0.sample == operation.sample
         }
-        let targetAfter = afterByKey.filter {
-            $0.key.sample == operation.sample
+        let selectedAfter = afterAssignments.filter {
+            $0.sample == operation.sample
         }
-        let changedKeys = Set(targetBefore.keys).union(targetAfter.keys)
-            .filter { targetBefore[$0] != targetAfter[$0] }
+        let beforeState = try selectedBeforeState(selectedBefore)
+        let targetBefore = beforeState.effectiveByKey
+        let targetAfter = try canonicalAfterMap(selectedAfter)
+        let canonicalizationKeys = Set(beforeState.rawByKey.compactMap {
+            key, rawRecords in
+            guard let effective = targetBefore[key] else {
+                return key
+            }
+            let needsCanonicalization =
+                rawRecords.count != 1
+                || effective.locus != key.locus.rawValue
+                || !Self.hasStableAssignmentID(effective)
+            return needsCanonicalization ? key : nil
+        })
+        let allKeys = Set(targetBefore.keys).union(targetAfter.keys)
+        let changedKeys = Set(allKeys.filter { key in
+            guard let before = targetBefore[key],
+                  let after = targetAfter[key] else {
+                return true
+            }
+            return before.label != after.label
+                || before.colorTokenIndex != after.colorTokenIndex
+                || canonicalizationKeys.contains(key)
+        })
         guard !changedKeys.isEmpty else {
             throw ReplayError.invalidOperation(
                 "a replay operation must contain at least one assignment change."
             )
         }
 
-        let canonicalColors = Set(
-            HaplotypeColorToken.canonicalPalette.map(\.canonicalIndex)
-        )
-        for key in changedKeys {
+        for key in allKeys {
             let before = targetBefore[key]
             let after = targetAfter[key]
-            for record in [before, after].compactMap({ $0 }) {
-                let validatedLabel =
-                    try GenotypeManualHaplotypeAssignmentInputValidator
-                        .validatedLabel(record.label)
-                guard validatedLabel == record.label else {
+            guard changedKeys.contains(key) else {
+                guard before == after else {
                     throw ReplayError.invalidOperation(
-                        "changed labels must already be normalized."
+                        "unchanged canonical assignments must remain exact."
                     )
                 }
-                guard canonicalColors.contains(record.colorTokenIndex) else {
-                    throw ReplayError.invalidOperation(
-                        "changed assignments must use a canonical color token."
-                    )
-                }
+                continue
             }
             if let after {
                 guard after.author == operation.author,
@@ -332,25 +336,37 @@ public struct GenotypeManualHaplotypeAssignmentReplayPayload:
             switch (before, after) {
             case let (.some(before), .some(after)):
                 guard before.sample == after.sample,
-                      before.locus == after.locus,
                       before.slot == after.slot,
                       before.diagnosticAlleles == after.diagnosticAlleles,
-                      before.notes == after.notes,
-                      before.assignmentID == after.assignmentID else {
+                      before.notes == after.notes else {
                     throw ReplayError.invalidOperation(
-                        "updates must preserve key, diagnostic alleles, notes, and assignment ID."
+                        "updates must preserve key, diagnostic alleles, and notes."
                     )
                 }
+                if Self.hasStableAssignmentID(before) {
+                    guard before.assignmentID == after.assignmentID else {
+                        throw ReplayError.invalidOperation(
+                            "updates must preserve an existing assignment ID."
+                        )
+                    }
+                } else {
+                    guard Self.hasStableAssignmentID(after) else {
+                        throw ReplayError.invalidOperation(
+                            "legacy assignments missing an ID must receive one."
+                        )
+                    }
+                }
                 guard before.label != after.label
-                        || before.colorTokenIndex != after.colorTokenIndex else {
+                        || before.colorTokenIndex != after.colorTokenIndex
+                        || canonicalizationKeys.contains(key) else {
                     throw ReplayError.invalidOperation(
-                        "updates must change the editable label or color."
+                        "updates must change editable data or canonicalize legacy state."
                     )
                 }
             case let (.none, .some(after)):
                 guard after.diagnosticAlleles.isEmpty,
                       after.notes.isEmpty,
-                      !(after.assignmentID ?? "").isEmpty else {
+                      Self.hasStableAssignmentID(after) else {
                     throw ReplayError.invalidOperation(
                         "new assignments require a stable ID and empty diagnostic alleles and notes."
                     )
@@ -414,12 +430,62 @@ public struct GenotypeManualHaplotypeAssignmentReplayPayload:
         }
     }
 
-    private func assignmentMap(
-        _ assignments: [ManualHaplotypeAssignment],
-        collectionName: String
+    private struct SelectedBeforeState {
+        let rawByKey: [
+            GenotypeManualHaplotypeAssignmentKey: [
+                ManualHaplotypeAssignment
+            ]
+        ]
+        let effectiveByKey: [
+            GenotypeManualHaplotypeAssignmentKey: ManualHaplotypeAssignment
+        ]
+    }
+
+    private func selectedBeforeState(
+        _ assignments: [ManualHaplotypeAssignment]
+    ) throws -> SelectedBeforeState {
+        var rawByKey: [
+            GenotypeManualHaplotypeAssignmentKey: [
+                ManualHaplotypeAssignment
+            ]
+        ] = [:]
+        for assignment in assignments {
+            guard let locus = GenotypeManualHaplotypeLocus(
+                normalizing: assignment.locus
+            ) else {
+                throw ReplayError.invalidOperation(
+                    "selected legacy assignments must use a recognized locus."
+                )
+            }
+            let key = GenotypeManualHaplotypeAssignmentKey(
+                sample: operation.sample,
+                locus: locus,
+                slot: assignment.slot
+            )
+            rawByKey[key, default: []].append(assignment)
+        }
+        let effectiveByKey = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: assignments
+        ).assignmentsByKey.filter { $0.key.sample == operation.sample }
+        guard Set(rawByKey.keys) == Set(effectiveByKey.keys) else {
+            throw ReplayError.invalidOperation(
+                "selected legacy assignments could not be resolved consistently."
+            )
+        }
+        return SelectedBeforeState(
+            rawByKey: rawByKey,
+            effectiveByKey: effectiveByKey
+        )
+    }
+
+    private func canonicalAfterMap(
+        _ assignments: [ManualHaplotypeAssignment]
     ) throws -> [
         GenotypeManualHaplotypeAssignmentKey: ManualHaplotypeAssignment
     ] {
+        let canonicalColors = Set(
+            HaplotypeColorToken.canonicalPalette.map(\.canonicalIndex)
+        )
         var result: [
             GenotypeManualHaplotypeAssignmentKey: ManualHaplotypeAssignment
         ] = [:]
@@ -430,9 +496,16 @@ public struct GenotypeManualHaplotypeAssignmentReplayPayload:
             guard !sample.isEmpty, sample == assignment.sample,
                   let locus = GenotypeManualHaplotypeLocus(
                     normalizing: assignment.locus
-                  ) else {
+                  ),
+                  assignment.locus == locus.rawValue,
+                  let validatedLabel =
+                    try? GenotypeManualHaplotypeAssignmentInputValidator
+                        .validatedLabel(assignment.label),
+                  validatedLabel == assignment.label,
+                  canonicalColors.contains(assignment.colorTokenIndex),
+                  Self.hasStableAssignmentID(assignment) else {
                 throw ReplayError.invalidOperation(
-                    "\(collectionName) contains an invalid sample or locus."
+                    "selected after assignments must be valid canonical records."
                 )
             }
             let key = GenotypeManualHaplotypeAssignmentKey(
@@ -442,11 +515,22 @@ public struct GenotypeManualHaplotypeAssignmentReplayPayload:
             )
             guard result.updateValue(assignment, forKey: key) == nil else {
                 throw ReplayError.invalidOperation(
-                    "\(collectionName) contains a duplicate canonical assignment key."
+                    "selected after assignments contain a duplicate canonical key."
                 )
             }
         }
         return result
+    }
+
+    private static func hasStableAssignmentID(
+        _ assignment: ManualHaplotypeAssignment
+    ) -> Bool {
+        guard let assignmentID = assignment.assignmentID else {
+            return false
+        }
+        return !assignmentID
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty
     }
 
     private func validateDetailedAudit(
@@ -459,6 +543,9 @@ public struct GenotypeManualHaplotypeAssignmentReplayPayload:
         case (.none, .some):
             expectedAction = "addManualHaplotypeAssignment"
         case (.some, .some):
+            // Canonicalization-only migrations deliberately reuse the existing
+            // update action so GUI and CLI audit timelines share one stable
+            // vocabulary for an existing semantic assignment key.
             expectedAction = "updateManualHaplotypeAssignment"
         case (.some, .none):
             expectedAction = "removeManualHaplotypeAssignment"
