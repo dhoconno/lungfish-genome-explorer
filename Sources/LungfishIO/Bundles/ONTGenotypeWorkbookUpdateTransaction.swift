@@ -1658,6 +1658,9 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             decision: decision
         )
         try ONTGenotypeWorkbookCleanupStateStore.write(state, at: stateURL)
+        try failureInjector?(
+            "after-workbook-cleanup-state-write-before-attestation-hard-stop"
+        )
         _ = try createCleanupAttestation(
             for: state,
             stateURL: stateURL,
@@ -2209,6 +2212,110 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         return (url, attestationRead.1)
     }
 
+    private static func requireOrRehydrateCleanupAttestation(
+        for state: ONTGenotypeWorkbookCleanupState,
+        stateURL: URL,
+        bundleURL: URL,
+        attestationRootURL: URL?
+    ) throws -> (
+        cleanupAttestation: (URL, FileWitness),
+        rehydratingAuthority: RecoveryAuthority?
+    ) {
+        let expectedURL = try cleanupAttestationURL(
+            for: state,
+            attestationRootURL: attestationRootURL
+        )
+        do {
+            return (
+                try requireCleanupAttestation(
+                    for: state,
+                    stateURL: stateURL,
+                    attestationRootURL: attestationRootURL
+                ),
+                nil
+            )
+        } catch let error as ONTGenotypeWorkbookUpdateRecoveryError {
+            guard case .systemFailure(let path, let code) = error,
+                  code == ENOENT,
+                  URL(fileURLWithPath: path).standardizedFileURL
+                    == expectedURL.standardizedFileURL else {
+                throw error
+            }
+        }
+
+        // The only publication gap that can be reconstructed is the one after
+        // the cleanup state became durable but before its detached attestation
+        // was published. The original marker + detached transaction
+        // attestation remain the sole authority for that reconstruction.
+        let authority = try loadRecoveryAuthority(
+            for: bundleURL,
+            attestationRootURL: attestationRootURL
+        )
+        guard authority.transaction == state.transaction,
+              ONTGenotypeWorkbookCleanupStateStore
+                .transactionSemanticsMatch(
+                    authority.transaction,
+                    state.transaction
+                ) else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "Workbook cleanup state does not exactly match the authenticated recovery authority."
+            )
+        }
+
+        let stateBefore = try readFileWithWitness(stateURL)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let decodedState = try? decoder.decode(
+            ONTGenotypeWorkbookCleanupState.self,
+            from: stateBefore.0
+        ),
+              decodedState == state else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "Workbook cleanup state changed before its attestation could be reconstructed."
+            )
+        }
+        try requireAuthorityUnchanged(
+            authority,
+            for: bundleURL,
+            attestationRootURL: attestationRootURL
+        )
+        try ONTGenotypeWorkbookCleanupStateStore.validateSurvivor(state)
+        try requireAuthorityUnchanged(
+            authority,
+            for: bundleURL,
+            attestationRootURL: attestationRootURL
+        )
+
+        let cleanupAttestation = try createCleanupAttestation(
+            for: state,
+            stateURL: stateURL,
+            attestationRootURL: attestationRootURL
+        )
+        let stateAfter = try readFileWithWitness(stateURL)
+        guard stateAfter.1 == stateBefore.1,
+              stateAfter.0 == stateBefore.0 else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "Workbook cleanup state changed while its attestation was reconstructed."
+            )
+        }
+        let requiredAttestation = try requireCleanupAttestation(
+            for: state,
+            stateURL: stateURL,
+            attestationRootURL: attestationRootURL
+        )
+        guard requiredAttestation == cleanupAttestation else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "Workbook cleanup attestation changed after publication."
+            )
+        }
+        try requireAuthorityUnchanged(
+            authority,
+            for: bundleURL,
+            attestationRootURL: attestationRootURL
+        )
+        return (requiredAttestation, authority)
+    }
+
     private static func retireCleanupAttestation(
         at url: URL,
         witness: FileWitness,
@@ -2422,15 +2529,22 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             )
         }
         guard let (stateURL, state) = states.first else { return false }
-        let cleanupAttestation = try requireCleanupAttestation(
+        let cleanupAuthority = try requireOrRehydrateCleanupAttestation(
             for: state,
             stateURL: stateURL,
+            bundleURL: bundleURL,
             attestationRootURL: attestationRootURL
         )
-        let authority = try loadRecoveryAuthorityIfPresent(
-            for: bundleURL,
-            attestationRootURL: attestationRootURL
-        )
+        let cleanupAttestation = cleanupAuthority.cleanupAttestation
+        let authority = if let rehydratingAuthority =
+            cleanupAuthority.rehydratingAuthority {
+            rehydratingAuthority
+        } else {
+            try loadRecoveryAuthorityIfPresent(
+                for: bundleURL,
+                attestationRootURL: attestationRootURL
+            )
+        }
         if let authority {
             guard authority.transaction == state.transaction else {
                 throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(

@@ -9,6 +9,17 @@ struct ONTGenotypeWorkbookRetirementFileWitness: Equatable {
     let sha256: String
 }
 
+// Retirement is performed under the bundle publication lock; that lock is the
+// cooperative boundary for bundle-parent entries. Detached attestations also
+// live beneath an owner-only 0700 authority root. Cooperating Lungfish
+// processes must not mutate retirement tombstones.
+// macOS has no unlink-by-witness primitive: unlinkat(2) is name-based and
+// cannot condition deletion on a previously witnessed inode. A same-user
+// process that ignores the applicable cooperative boundary can therefore race
+// even the final witness/unlinkat pair. We narrow
+// that unavoidable kernel gap with a second randomized exclusive rename,
+// preserve anything substituted at the injectable boundary, re-witness the
+// final name, and expose no callback between that final witness and unlink.
 enum ONTGenotypeWorkbookRetirement {
     static func fileWitness(
         at url: URL
@@ -133,12 +144,53 @@ enum ONTGenotypeWorkbookRetirement {
                 "A substituted workbook recovery file was detached and preserved."
             )
         }
-        let removed = tombstone.withCString {
+        do {
+            try failureInjector?(
+                "after-workbook-retirement-witness:\(url.path)"
+            )
+        } catch {
+            try restoreDetachedEntry(
+                parentDescriptor: parentDescriptor,
+                tombstone: tombstone,
+                original: url.lastPathComponent,
+                displayedAt: tombstoneURL
+            )
+            throw error
+        }
+
+        let finalTombstone =
+            ".lungfish-workbook-retiring-\(UUID().uuidString.lowercased())"
+        let redetached = tombstone.withCString { sourceName in
+            finalTombstone.withCString { destinationName in
+                Darwin.renameatx_np(
+                    parentDescriptor,
+                    sourceName,
+                    parentDescriptor,
+                    destinationName,
+                    UInt32(RENAME_EXCL)
+                )
+            }
+        }
+        guard redetached == 0 else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError
+                .ambiguousTransaction(
+                    "A workbook recovery authority file changed after its retirement witness; the entry was preserved."
+                )
+        }
+        let finalTombstoneURL = parent.appendingPathComponent(finalTombstone)
+        let finalWitness = try? fileWitness(at: finalTombstoneURL).1
+        guard finalWitness == expected else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError
+                .ambiguousTransaction(
+                    "A substituted workbook recovery file was preserved at \(finalTombstoneURL.path)."
+                )
+        }
+        let removed = finalTombstone.withCString {
             Darwin.unlinkat(parentDescriptor, $0, 0)
         }
         guard removed == 0, Darwin.fsync(parentDescriptor) == 0 else {
             throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(
-                tombstoneURL.path,
+                finalTombstoneURL.path,
                 errno
             )
         }
@@ -211,12 +263,68 @@ enum ONTGenotypeWorkbookRetirement {
                 "A substituted workbook cleanup quarantine was detached and preserved."
             )
         }
-        let removed = tombstone.withCString {
+        do {
+            try failureInjector?(
+                "after-workbook-retirement-witness:\(displayedURL.path)"
+            )
+        } catch {
+            try restoreDetachedEntry(
+                parentDescriptor: parentDescriptor,
+                tombstone: tombstone,
+                original: name,
+                displayedAt: parentURL.appendingPathComponent(tombstone)
+            )
+            throw error
+        }
+
+        let finalTombstone =
+            ".lungfish-workbook-retiring-\(UUID().uuidString.lowercased())"
+        let redetached = tombstone.withCString { sourceName in
+            finalTombstone.withCString { destinationName in
+                Darwin.renameatx_np(
+                    parentDescriptor,
+                    sourceName,
+                    parentDescriptor,
+                    destinationName,
+                    UInt32(RENAME_EXCL)
+                )
+            }
+        }
+        guard redetached == 0 else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError
+                .ambiguousTransaction(
+                    "The workbook cleanup quarantine changed after its retirement witness; the entry was preserved."
+                )
+        }
+        let finalTombstoneURL = parentURL.appendingPathComponent(
+            finalTombstone,
+            isDirectory: true
+        )
+        var finalInfo = stat()
+        let finalStatus = finalTombstone.withCString {
+            Darwin.fstatat(
+                parentDescriptor,
+                $0,
+                &finalInfo,
+                AT_SYMLINK_NOFOLLOW
+            )
+        }
+        guard finalStatus == 0,
+              finalInfo.st_mode & S_IFMT == S_IFDIR,
+              UInt64(bitPattern: Int64(finalInfo.st_dev))
+                == expected.device,
+              UInt64(finalInfo.st_ino) == expected.inode else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError
+                .ambiguousTransaction(
+                    "A substituted workbook cleanup quarantine was preserved at \(finalTombstoneURL.path)."
+                )
+        }
+        let removed = finalTombstone.withCString {
             Darwin.unlinkat(parentDescriptor, $0, AT_REMOVEDIR)
         }
         guard removed == 0, Darwin.fsync(parentDescriptor) == 0 else {
             throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(
-                parentURL.appendingPathComponent(tombstone).path,
+                finalTombstoneURL.path,
                 errno
             )
         }

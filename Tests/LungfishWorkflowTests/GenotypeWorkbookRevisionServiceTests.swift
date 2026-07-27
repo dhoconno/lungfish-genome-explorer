@@ -1806,6 +1806,7 @@ wb.save(path)
         ]
         let checkpoints = [
             "after-workbook-cleanup-detach-hard-stop",
+            "after-workbook-cleanup-state-write-before-attestation-hard-stop",
             "after-workbook-cleanup-state-durable-hard-stop",
             "after-workbook-cleanup-marker-removal-hard-stop",
             "after-workbook-cleanup-attestation-removal-hard-stop",
@@ -2546,7 +2547,9 @@ print(wb[wb.sheetnames[0]]["Z94"].value or "")
         )
     }
 
-    func testCleanupStateTransactionTamperingBeforeAuthorizedReceiptPreservesLiveAuthority() throws {
+    func testCleanupStateTransactionTamperingBeforeAttestationPreservesLiveAuthority()
+        throws
+    {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let fixture = try makeMCMWorkbookBundle(
@@ -2573,7 +2576,7 @@ print(wb[wb.sheetnames[0]]["Z94"].value or "")
                 attestationRootURL: attestationRoot,
                 cleanupFailureInjector: { checkpoint in
                     guard checkpoint
-                        == "after-workbook-cleanup-state-durable-hard-stop" else {
+                        == "after-workbook-cleanup-state-write-before-attestation-hard-stop" else {
                         return
                     }
                     throw NSError(
@@ -2599,6 +2602,11 @@ print(wb[wb.sheetnames[0]]["Z94"].value or "")
                 at: attestationRoot,
                 includingPropertiesForKeys: nil
             ).map { ($0.lastPathComponent, try Data(contentsOf: $0)) }
+        )
+        XCTAssertFalse(
+            attestationBefore.keys.contains {
+                $0.hasSuffix(".workbook-cleanup.json")
+            }
         )
         XCTAssertTrue(FileManager.default.fileExists(atPath: markerURL.path))
         XCTAssertFalse(
@@ -2833,6 +2841,52 @@ print(wb[wb.sheetnames[0]]["Z94"].value or "")
         )
     }
 
+    func testMissingCleanupAttestationWithoutOriginalAuthorityFailsClosed()
+        throws
+    {
+        let paused = try pausedCommittedWorkbookCleanup(
+            outputName: "cleanup-attestation-missing-after-authority"
+        )
+        defer {
+            paused.lock.release()
+            try? FileManager.default.removeItem(at: paused.root)
+        }
+        let cleanupAttestation = try XCTUnwrap(
+            FileManager.default.contentsOfDirectory(
+                at: paused.attestationRoot,
+                includingPropertiesForKeys: nil
+            ).first {
+                $0.lastPathComponent.hasSuffix(
+                    ".workbook-cleanup.json"
+                )
+            }
+        )
+        try FileManager.default.removeItem(at: cleanupAttestation)
+        let traversed = SendableFlagBox()
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: paused.fixture.bundleURL,
+                attestationRootURL: paused.attestationRoot,
+                cleanupFailureInjector: { checkpoint in
+                    if checkpoint == "during-workbook-cleanup-traversal" {
+                        traversed.set(1)
+                    }
+                }
+            )
+        )
+
+        XCTAssertNil(traversed.value)
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: paused.quarantine.path)
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: cleanupAttestation.path
+            )
+        )
+    }
+
     func testWorkbookCleanupRetirementNeverUnlinksSubstitutedMarker() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -2876,6 +2930,92 @@ print(wb[wb.sheetnames[0]]["Z94"].value or "")
 
         XCTAssertEqual(try Data(contentsOf: marker), replacement)
         XCTAssertTrue(FileManager.default.fileExists(atPath: held.path))
+        XCTAssertFalse(try workbookCleanupArtifacts(in: root).isEmpty)
+    }
+
+    func testWorkbookCleanupPostWitnessMarkerSubstitutionIsPreserved() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(
+            in: root,
+            outputName: "cleanup-marker-post-witness-substitution"
+        )
+        let attestationRoot = root.appendingPathComponent(
+            "attestations",
+            isDirectory: true
+        )
+        try interruptCommittedWorkbookCleanup(
+            fixture: fixture,
+            attestationRoot: attestationRoot
+        )
+        let lock = try ONTGenotypeBundlePublicationLock.acquire(
+            for: fixture.bundleURL,
+            blocking: true,
+            createIfMissing: false
+        )
+        defer { lock.release() }
+        let marker = ONTGenotypeWorkbookUpdateRecovery.markerURL(
+            for: fixture.bundleURL
+        )
+        let authenticatedMarker = try Data(contentsOf: marker)
+        let held = root.appendingPathComponent(
+            "held-post-witness-authenticated-marker.json"
+        )
+        let replacement = Data(
+            #"{"replacement":"post-witness-marker-must-survive"}"#.utf8
+        )
+        let substituted = SendableFlagBox()
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: fixture.bundleURL,
+                attestationRootURL: attestationRoot,
+                cleanupFailureInjector: { checkpoint in
+                    guard checkpoint.hasPrefix(
+                        "after-workbook-retirement-witness:"
+                    ), checkpoint.hasSuffix(marker.path) else {
+                        return
+                    }
+                    let tombstones = try FileManager.default
+                        .contentsOfDirectory(
+                            at: root,
+                            includingPropertiesForKeys: nil
+                        )
+                        .filter {
+                            $0.lastPathComponent.hasPrefix(
+                                ".lungfish-workbook-retiring-"
+                            )
+                        }
+                    let tombstone = try XCTUnwrap(tombstones.first)
+                    XCTAssertEqual(tombstones.count, 1)
+                    try FileManager.default.moveItem(
+                        at: tombstone,
+                        to: held
+                    )
+                    try replacement.write(to: tombstone)
+                    substituted.set(1)
+                }
+            )
+        )
+
+        XCTAssertEqual(substituted.value, 1)
+        XCTAssertEqual(try Data(contentsOf: held), authenticatedMarker)
+        let preservedTombstones = try FileManager.default
+            .contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: nil
+            )
+            .filter {
+                $0.lastPathComponent.hasPrefix(
+                    ".lungfish-workbook-retiring-"
+                )
+            }
+        XCTAssertEqual(preservedTombstones.count, 1)
+        XCTAssertEqual(
+            try Data(contentsOf: try XCTUnwrap(preservedTombstones.first)),
+            replacement
+        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
         XCTAssertFalse(try workbookCleanupArtifacts(in: root).isEmpty)
     }
 
