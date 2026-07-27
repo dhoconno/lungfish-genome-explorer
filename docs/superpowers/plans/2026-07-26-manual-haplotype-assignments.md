@@ -298,7 +298,7 @@ git commit -m "feat: edit manual haplotypes in sample details"
 - Modify: `Tests/LungfishGenotypeUITests/GenotypeResultViewportTests.swift`
 - Create: `Tests/LungfishAppTests/GenotypeManualHaplotypeTransitionTests.swift`
 
-- [ ] **Step 1: Write failing ONT/miSeq routing and transition tests**
+- [x] **Step 1: Write failing ONT/miSeq routing and transition tests**
 
 Assert one selected column mounts the editor before QC, multiple columns show a
 bounded read-only summary, rows/cells remain unchanged, save schedules exactly
@@ -309,13 +309,13 @@ app quit, and eligibility change. Cancel must veto and leave filter text,
 visibility, selection, and scroll unchanged. Cover repeated close/quit requests
 and multiple dirty windows.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `swift test --filter 'GenotypeResultViewportTests/testManualHaplotype|GenotypeManualHaplotypeTransitionTests'`
 
 Expected: ONT column test fails at the full-length early return and the coordinator type is missing.
 
-- [ ] **Step 3: Implement one transition coordinator**
+- [x] **Step 3: Implement one transition coordinator**
 
 ```swift
 enum GenotypeManualHaplotypeDraftDecision { case save, discard, cancel }
@@ -340,13 +340,13 @@ re-entry guard so Cancel can veto closure. Implement
 `.terminateLater` while all window coordinators resolve, then call
 `reply(toApplicationShouldTerminate:)`.
 
-- [ ] **Step 4: Run tests and verify GREEN**
+- [x] **Step 4: Run tests and verify GREEN**
 
 Run: `swift test --filter 'GenotypeResultViewportTests|GenotypeManualHaplotypeTransitionTests'`
 
 Expected: all selected tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/LungfishGenotypeUI/GenotypeManualHaplotypeDraftCoordinator.swift Sources/LungfishGenotypeUI/GenotypeResultViewController.swift Sources/LungfishGenotypeUI/GenotypeComparisonMatrixView.swift Sources/LungfishApp/Views/MainWindow Sources/LungfishApp/App/AppDelegate.swift Tests
