@@ -5433,11 +5433,16 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         }
         try sidecar.encoded().write(to: annotationURL)
 
-        _ = try GenotypeWorkbookRevisionService(
-            dateProvider: { Date(timeIntervalSince1970: 8_100) },
+        let clock = IncrementingDateProvider(
+            start: Date(timeIntervalSince1970: 8_100),
+            increment: 1
+        )
+        let service = GenotypeWorkbookRevisionService(
+            dateProvider: clock.now,
             userProvider: { "tester" },
             pythonExecutableURL: testPythonExecutableURL
-        ).applyHaplotypeOverrides(
+        )
+        _ = try service.applyHaplotypeOverrides(
             [],
             annotationSidecarURL: annotationURL,
             into: fixture.bundleURL
@@ -5469,12 +5474,34 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         XCTAssertEqual(inspection["sampleBValue"], "")
         XCTAssertEqual(inspection["sampleABorders"], "thick|thick|thick|thick")
         XCTAssertEqual(inspection["sampleBBorders"], "thick|thick|thick|thick")
-        XCTAssertEqual(inspection["tableRef"], "A1:N3")
-        XCTAssertEqual(inspection["autoFilterRef"], "A1:N3")
+        XCTAssertEqual(inspection["tableRef"], "A1:N1")
+        XCTAssertEqual(inspection["autoFilterRef"], "A1:N1")
         XCTAssertEqual(inspection["freezePanes"], "A2")
         XCTAssertEqual(inspection["mergedRanges"], "O1:P1")
         XCTAssertEqual(inspection["formula"], "=1+1")
+        XCTAssertEqual(inspection["formulaFont"], "true|FFFF0000")
+        XCTAssertEqual(inspection["formulaFill"], "FFFFFF00")
+        XCTAssertEqual(inspection["formulaBorders"], "thin|thin|thin|thin")
+        XCTAssertEqual(inspection["formulaNumberFormat"], "0.00")
         XCTAssertEqual(inspection["managedSyntheticStateRows"], "2")
+
+        sidecar.matrixReviews = []
+        try sidecar.encoded().write(to: annotationURL)
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+        let cleared = try inspectAnnotationOnlyReviewWorkbook(currentURL)
+        XCTAssertEqual(cleared["markerRows"], "0")
+        XCTAssertEqual(cleared["syntheticRows"], "0")
+        XCTAssertEqual(cleared["tableRef"], "A1:N1")
+        XCTAssertEqual(cleared["autoFilterRef"], "A1:N1")
+        XCTAssertEqual(cleared["formula"], "=1+1")
+        XCTAssertEqual(cleared["formulaFont"], "true|FFFF0000")
+        XCTAssertEqual(cleared["formulaFill"], "FFFFFF00")
+        XCTAssertEqual(cleared["formulaBorders"], "thin|thin|thin|thin")
+        XCTAssertEqual(cleared["formulaNumberFormat"], "0.00")
     }
 
     func testGenericAnnotationOnlyRowIsIdempotentAndClearsSafely() throws {
@@ -5634,7 +5661,8 @@ wb.save(path)
         )
         var inspection = try inspectAnnotationOnlyGenericWorkbook(currentURL)
         XCTAssertEqual(inspection["syntheticRows"], "1")
-        XCTAssertEqual(inspection["markerRows"], "1")
+        XCTAssertEqual(inspection["markerRows"], "0")
+        XCTAssertEqual(inspection["retainedMarkerRows"], "1")
         XCTAssertEqual(inspection["analystComment"], "Analyst retained note")
         XCTAssertEqual(inspection["managedSyntheticRows"], "0")
         XCTAssertTrue(
@@ -5651,6 +5679,119 @@ wb.save(path)
         inspection = try inspectAnnotationOnlyGenericWorkbook(currentURL)
         XCTAssertEqual(inspection["syntheticRows"], "1")
         XCTAssertEqual(inspection["analystComment"], "Analyst retained note")
+        XCTAssertEqual(inspection["hasManagedReviewState"], "false")
+    }
+
+    func testRetainedSyntheticBlockMarkerIsNeverReadoptedForNewManagedRows() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "retained-marker-ownership"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installAnnotationOnlyGenericReviewMatrix(in: currentURL)
+        let rows = ["Mamu-A1*missing", "Mamu-A1*second"].map { displayName in
+            GenotypeReviewableRowCatalog.Row(
+                kind: .reference,
+                callID: "reference:MHC-A:\(displayName)",
+                displayName: displayName,
+                locus: "MHC-A",
+                stableID: nil,
+                section: "reference",
+                sortKey: "MHC-A|\(displayName)",
+                supportBySample: ["AR3628": 0]
+            )
+        }
+        _ = try installReviewableRowCatalog(
+            GenotypeReviewableRowCatalog(samples: ["AR3628"], rows: rows),
+            in: fixture.bundleURL
+        )
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        func review(
+            _ displayName: String,
+            minute: Int
+        ) -> GenotypeAnnotationSidecar.MatrixReviewAnnotation {
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: displayName,
+                    sample: "AR3628"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-27T01:\(String(format: "%02d", minute)):00Z"
+            )
+        }
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixReviews = [review("Mamu-A1*missing", minute: 0)]
+        try sidecar.encoded().write(to: annotationURL)
+        let clock = IncrementingDateProvider(
+            start: Date(timeIntervalSince1970: 8_175),
+            increment: 1
+        )
+        let service = GenotypeWorkbookRevisionService(
+            dateProvider: clock.now,
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        )
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+from openpyxl.comments import Comment
+
+path = sys.argv[1]
+wb = load_workbook(path)
+ws = wb["matrix"]
+row = next(
+    row for row in range(7, ws.max_row + 1)
+    if ws.cell(row, 1).value == "Mamu-A1*missing"
+)
+ws.cell(row, 2).comment = Comment("Retained analyst edit", "analyst")
+wb.save(path)
+"""#, currentURL.path])
+        sidecar.matrixReviews = [
+            review("Mamu-A1*missing", minute: 1),
+            review("Mamu-A1*second", minute: 2),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        let beforeRejectedUpdate = try ProvenanceFileHasher.sha256(of: currentURL)
+        XCTAssertThrowsError(
+            try service.applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: annotationURL,
+                into: fixture.bundleURL
+            )
+        )
+        XCTAssertEqual(
+            try ProvenanceFileHasher.sha256(of: currentURL),
+            beforeRejectedUpdate
+        )
+
+        sidecar.matrixReviews = []
+        try sidecar.encoded().write(to: annotationURL)
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+        let inspection = try inspectAnnotationOnlyGenericWorkbook(currentURL)
+        XCTAssertEqual(inspection["syntheticRows"], "1")
+        XCTAssertEqual(inspection["analystComment"], "Retained analyst edit")
+        XCTAssertEqual(inspection["markerRows"], "0")
+        XCTAssertEqual(inspection["retainedMarkerRows"], "1")
         XCTAssertEqual(inspection["hasManagedReviewState"], "false")
     }
 
@@ -5827,8 +5968,8 @@ wb.save(path)
         )
         XCTAssertEqual(inspection["markerRows"], "1")
         XCTAssertEqual(inspection["syntheticRows"], "2")
-        XCTAssertEqual(inspection["tableRef"], "A1:N4")
-        XCTAssertEqual(inspection["autoFilterRef"], "A1:N4")
+        XCTAssertEqual(inspection["tableRef"], "A1:N1")
+        XCTAssertEqual(inspection["autoFilterRef"], "A1:N1")
     }
 
     func testGenericDuplicateAliasesAndUnsupportedLayoutsFailClosed() throws {
@@ -5933,6 +6074,70 @@ wb.save(path)
             }
             XCTAssertEqual(try ProvenanceFileHasher.sha256(of: currentURL), before)
         }
+    }
+
+    func testUnifiedDuplicateSampleHeadersFailClosedWithoutWorkbookMutation() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "duplicate-unified-samples"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installAnnotationOnlyUnifiedReviewMatrix(in: currentURL)
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+
+path = sys.argv[1]
+wb = load_workbook(path)
+ws = wb["Unified Genotype Pivot"]
+ws["N1"] = "Sample-A"
+wb.save(path)
+"""#, currentURL.path])
+        _ = try installReviewableRowCatalog(
+            annotationOnlyReferenceCatalog(
+                samples: ["Sample-A"],
+                displayName: "Mamu-A1*duplicate"
+            ),
+            in: fixture.bundleURL
+        )
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-A1*duplicate",
+                    sample: "Sample-A"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-27T01:00:00Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        let before = try ProvenanceFileHasher.sha256(of: currentURL)
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                dateProvider: { Date(timeIntervalSince1970: 8_225) },
+                userProvider: { "tester" },
+                pythonExecutableURL: testPythonExecutableURL
+            ).applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: annotationURL,
+                into: fixture.bundleURL
+            )
+        )
+        XCTAssertEqual(try ProvenanceFileHasher.sha256(of: currentURL), before)
     }
 
     func testApplyHaplotypeOverridesWritesMatrixAnnotationsToCurrentWorkbook() throws {
@@ -6978,6 +7183,7 @@ wb.save(path)
         let code = #"""
 import sys
 from openpyxl import Workbook
+from openpyxl.styles import Border, Font, PatternFill, Side
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
 path = sys.argv[1]
@@ -6995,6 +7201,16 @@ ws.freeze_panes = "A2"
 ws.merge_cells("O1:P1")
 ws["O1"] = "Preserved merged heading"
 ws["P2"] = "=1+1"
+ws["P2"].font = Font(bold=True, color="FFFF0000")
+ws["P2"].fill = PatternFill(fill_type="solid", fgColor="FFFFFF00")
+formula_side = Side(style="thin", color="FF0000FF")
+ws["P2"].border = Border(
+    left=formula_side,
+    right=formula_side,
+    top=formula_side,
+    bottom=formula_side,
+)
+ws["P2"].number_format = "0.00"
 table = Table(displayName="UnifiedGenotypeTable", ref="A1:N1")
 table.tableStyleInfo = TableStyleInfo(
     name="TableStyleMedium2",
@@ -7085,6 +7301,11 @@ marker_rows = [
     row for row in range(7, ws.max_row + 1)
     if text(ws.cell(row, 1).value) == "Analyst annotation-only rows"
 ]
+retained_marker_rows = [
+    row for row in range(7, ws.max_row + 1)
+    if text(ws.cell(row, 1).value)
+        == "Analyst annotation-only rows (contains retained analyst edits)"
+]
 synthetic_rows = [
     row for row in range(7, ws.max_row + 1)
     if text(ws.cell(row, 1).value) == "Mamu-A1*missing"
@@ -7102,6 +7323,7 @@ if annotations is not None:
             review_warning = text(annotations.cell(row, 9).value)
 payload = {
     "markerRows": str(len(marker_rows)),
+    "retainedMarkerRows": str(len(retained_marker_rows)),
     "syntheticRows": str(len(synthetic_rows)),
     "syntheticTotal": "" if not synthetic else text(ws.cell(synthetic, 2).value),
     "syntheticObserved": "" if not synthetic else text(ws.cell(synthetic, 3).value),
@@ -7220,6 +7442,13 @@ payload = {
     "freezePanes": text(ws.freeze_panes),
     "mergedRanges": "|".join(sorted(str(item) for item in ws.merged_cells.ranges)),
     "formula": text(ws["P2"].value),
+    "formulaFont": (
+        f"{str(bool(ws['P2'].font.bold)).lower()}|"
+        f"{text(getattr(ws['P2'].font.color, 'rgb', None))}"
+    ),
+    "formulaFill": text(getattr(ws["P2"].fill.fgColor, "rgb", None)),
+    "formulaBorders": borders(ws["P2"]),
+    "formulaNumberFormat": text(ws["P2"].number_format),
     "managedSyntheticStateRows": str(
         0 if state is None else sum(
             1 for row in range(2, state.max_row + 1)

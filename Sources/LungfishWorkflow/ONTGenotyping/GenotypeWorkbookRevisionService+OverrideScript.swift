@@ -607,6 +607,12 @@ MANAGED_REVIEW_STATE_SHEET = "_LGE Matrix Review State"
 ANNOTATION_ONLY_BLOCK_CALL_TYPE = "analyst-annotation-only-block"
 ANNOTATION_ONLY_CALL_TYPE = "analyst-annotation-only"
 ANNOTATION_ONLY_BLOCK_LABEL = "Analyst annotation-only rows"
+RETAINED_ANNOTATION_ONLY_BLOCK_CALL_TYPE = (
+    "analyst-annotation-only-block-retained"
+)
+RETAINED_ANNOTATION_ONLY_BLOCK_LABEL = (
+    "Analyst annotation-only rows (contains retained analyst edits)"
+)
 managed_cleanup_warnings = {}
 
 
@@ -874,12 +880,19 @@ def matrix_layout_adapter(ws, sample_names, requires_synthesis=False):
                     )
                 continue
             headers = {name: columns[name][0] for name in columns if len(columns[name]) == 1}
-            sample_columns = {
-                sample: col
-                for sample in sample_names
-                for col in columns.get(normalized_header(sample), [])
-                if clean(ws.cell(row, col).value) == sample
-            }
+            sample_columns = {}
+            for sample in sample_names:
+                exact = [
+                    col for col in columns.get(normalized_header(sample), [])
+                    if clean(ws.cell(row, col).value) == sample
+                ]
+                if len(exact) > 1:
+                    raise ValueError(
+                        f"Ambiguous unified workbook layout repeats sample column "
+                        f"'{sample}'; workbook was not modified"
+                    )
+                if exact:
+                    sample_columns[sample] = exact[0]
             candidates.append({
                 "kind": "unified",
                 "ws": ws,
@@ -1064,7 +1077,7 @@ def catalog_identity(row):
 
 def append_annotation_only_row(adapter, catalog_row):
     ws = adapter["ws"]
-    row = adapter_matrix_end(adapter) + 1
+    row = max(adapter_matrix_end(adapter), ws.max_row) + 1
     style_adapter_owned_row(adapter, row)
     if adapter["kind"] == "unified":
         values = {
@@ -1097,18 +1110,25 @@ def append_annotation_only_row(adapter, catalog_row):
         ws.cell(row, adapter["observed_col"]).value = 0
     for col in adapter["sample_columns"].values():
         ws.cell(row, col).value = None
-    set_adapter_range_end(adapter, row)
+    if adapter.get("extend_owned_range"):
+        set_adapter_range_end(adapter, row)
     return row
 
 
 def append_annotation_only_marker(adapter):
     ws = adapter["ws"]
     marker_rows = []
+    retained_marker_rows = []
     if adapter["kind"] == "unified":
         marker_col = adapter["headers"]["call_type"]
         marker_rows = [
             row for row in range(adapter["header_row"] + 1, ws.max_row + 1)
             if clean(ws.cell(row, marker_col).value) == ANNOTATION_ONLY_BLOCK_CALL_TYPE
+        ]
+        retained_marker_rows = [
+            row for row in range(adapter["header_row"] + 1, ws.max_row + 1)
+            if clean(ws.cell(row, marker_col).value)
+                == RETAINED_ANNOTATION_ONLY_BLOCK_CALL_TYPE
         ]
     else:
         marker_col = adapter["genotype_col"]
@@ -1116,13 +1136,19 @@ def append_annotation_only_marker(adapter):
             row for row in range(adapter["header_row"] + 1, ws.max_row + 1)
             if clean(ws.cell(row, marker_col).value) == ANNOTATION_ONLY_BLOCK_LABEL
         ]
-    if len(marker_rows) > 1:
+        retained_marker_rows = [
+            row for row in range(adapter["header_row"] + 1, ws.max_row + 1)
+            if clean(ws.cell(row, marker_col).value)
+                == RETAINED_ANNOTATION_ONLY_BLOCK_LABEL
+        ]
+    if marker_rows or retained_marker_rows:
         raise ValueError(
-            "Ambiguous analyst annotation-only block markers; workbook was not modified"
+            "An unmanaged analyst annotation-only block already exists; "
+            "workbook was not modified"
         )
-    if marker_rows:
-        return marker_rows[0]
-    row = adapter_matrix_end(adapter) + 1
+    matrix_end = adapter_matrix_end(adapter)
+    row = max(matrix_end, ws.max_row) + 1
+    adapter["extend_owned_range"] = row == matrix_end + 1
     style_adapter_owned_row(adapter, row)
     if adapter["kind"] == "unified":
         ws.cell(row, adapter["headers"]["call_type"]).value = (
@@ -1136,7 +1162,8 @@ def append_annotation_only_marker(adapter):
     font = copy(ws.cell(row, marker_col).font)
     font.bold = True
     ws.cell(row, marker_col).font = font
-    set_adapter_range_end(adapter, row)
+    if adapter["extend_owned_range"]:
+        set_adapter_range_end(adapter, row)
     return row
 
 
@@ -1227,7 +1254,6 @@ def prepare_missing_false_negative_rows():
                 "adapter": adapter["kind"],
                 "marker_row": marker_row,
             }
-        set_adapter_range_end(adapter, adapter_matrix_end(adapter))
 
 
 def matrix_row_descriptors(ws):
@@ -1646,6 +1672,20 @@ def delete_managed_end_row(ws, row):
     ws.delete_rows(row, 1)
 
 
+def mark_annotation_only_marker_retained(ws, row):
+    replacements = 0
+    for cell in ws[row]:
+        value = clean(cell.value)
+        if value == ANNOTATION_ONLY_BLOCK_CALL_TYPE:
+            cell.value = RETAINED_ANNOTATION_ONLY_BLOCK_CALL_TYPE
+            replacements += 1
+        elif value == ANNOTATION_ONLY_BLOCK_LABEL:
+            cell.value = RETAINED_ANNOTATION_ONLY_BLOCK_LABEL
+            replacements += 1
+    if replacements == 0:
+        raise ValueError("Malformed managed annotation-only block marker")
+
+
 def restore_prior_managed_matrix_annotations():
     for ws in wb.worksheets:
         if ws.title == MANAGED_REVIEW_STATE_SHEET:
@@ -1698,6 +1738,17 @@ def restore_prior_managed_matrix_annotations():
                 target["stableClusterID"] = stable_id
             managed_cleanup_warnings[matrix_target_key(target)] = (
                 "Retained a user-edited analyst annotation-only row."
+            )
+
+    for marker_key, members in marker_members.items():
+        if (
+            marker_key[0] in wb.sheetnames
+            and isinstance(marker_key[1], int)
+            and any(not synthetic_safety.get(member, False) for member in members)
+        ):
+            mark_annotation_only_marker_retained(
+                wb[marker_key[0]],
+                marker_key[1],
             )
 
     for row in range(2, state.max_row + 1):
