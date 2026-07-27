@@ -8,6 +8,10 @@ struct GenotypeReviewableReferenceAuthority: Sendable {
     let descriptors: [ProvenanceFileDescriptor]
 }
 
+enum GenotypeReviewableReferenceAuthorityPhase: Equatable, Sendable {
+    case beforeFinalVerification
+}
+
 private struct GenotypeReviewableReferenceManifestProjection: Decodable {
     struct Genome: Decodable {
         let path: String
@@ -2707,10 +2711,14 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
 
     static func reviewableReferenceAuthority(
         referenceFASTAURL: URL,
-        sourceReferenceBundleURL: URL?
+        sourceReferenceBundleURL: URL?,
+        authorityObserver:
+            @Sendable (GenotypeReviewableReferenceAuthorityPhase) throws -> Void = { _ in }
     ) throws -> GenotypeReviewableReferenceAuthority {
         let catalogBundleURL: URL?
         var authorityURLs = [referenceFASTAURL.standardizedFileURL]
+        var preCapturedSnapshots:
+            [String: GenotypeReviewAuthorityFileSnapshot] = [:]
         if let source = sourceReferenceBundleURL,
            MHCAmpliconReferenceBundle.isBundleURL(source) {
             authorityURLs.append(
@@ -2724,14 +2732,17 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         } else {
             catalogBundleURL = nil
         }
-        let records: [MHCReferenceRecord]
         if let catalogBundleURL {
             let manifestURL = catalogBundleURL
                 .appendingPathComponent(BundleManifest.filename)
                 .standardizedFileURL
+            let manifestSnapshot = try GenotypeReviewAuthorityFileSnapshot.capture(
+                manifestURL
+            )
+            preCapturedSnapshots[manifestURL.path] = manifestSnapshot
             let manifest = try JSONDecoder().decode(
                 GenotypeReviewableReferenceManifestProjection.self,
-                from: Data(contentsOf: manifestURL)
+                from: manifestSnapshot.data
             )
             authorityURLs.append(manifestURL)
             if let genomePath = manifest.genome?.path {
@@ -2748,6 +2759,19 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                     field: "record_store.database_path"
                 ))
             }
+        }
+        var seenPaths = Set<String>()
+        let snapshots = try authorityURLs
+            .map(\.standardizedFileURL)
+            .filter { seenPaths.insert($0.path).inserted }
+            .map {
+                if let captured = preCapturedSnapshots[$0.path] {
+                    return captured
+                }
+                return try GenotypeReviewAuthorityFileSnapshot.capture($0)
+            }
+        let records: [MHCReferenceRecord]
+        if let catalogBundleURL {
             records = try MHCReferenceRecordCatalog.load(from: catalogBundleURL).records
         } else {
             records = try FASTAReader(url: referenceFASTAURL).readAllSync().map {
@@ -2773,19 +2797,18 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 )
             }
         }
-        var seenPaths = Set<String>()
-        let descriptors = try authorityURLs
-            .map(\.standardizedFileURL)
-            .filter { seenPaths.insert($0.path).inserted }
-            .map {
-                try ProvenanceFileDescriptor.file(
-                    url: $0,
-                    format: $0.pathExtension.lowercased() == "json"
+        try authorityObserver(.beforeFinalVerification)
+        for snapshot in snapshots {
+            try snapshot.requireUnchanged()
+        }
+        let descriptors = snapshots.map {
+            $0.descriptor(
+                    format: $0.url.pathExtension.lowercased() == "json"
                         ? .json
-                        : ($0.pathExtension.lowercased().contains("fa") ? .fasta : nil),
+                        : ($0.url.pathExtension.lowercased().contains("fa") ? .fasta : nil),
                     role: .reference
                 )
-            }
+        }
         return GenotypeReviewableReferenceAuthority(
             records: records,
             descriptors: descriptors

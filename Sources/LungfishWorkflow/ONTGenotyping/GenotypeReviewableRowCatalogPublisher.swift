@@ -1,4 +1,5 @@
 import Darwin
+import CryptoKit
 import Foundation
 import LungfishIO
 
@@ -22,6 +23,7 @@ public enum GenotypeReviewableRowCatalogPublisherError:
     case candidateSupportMismatch(locus: String, genotype: String, sample: String)
     case outputOutsideBundle(String)
     case finalArtifactMismatch(String)
+    case authorityChanged(String)
 
     public var errorDescription: String? {
         switch self {
@@ -53,7 +55,154 @@ public enum GenotypeReviewableRowCatalogPublisherError:
             return "The genotype reviewable-row catalog output is outside the result bundle: \(path)."
         case let .finalArtifactMismatch(path):
             return "The published genotype reviewable-row catalog does not match its staged payload: \(path)."
+        case let .authorityChanged(path):
+            return "The genotype review-row authority changed while it was being read: \(path)."
         }
+    }
+}
+
+struct GenotypeReviewAuthorityFileSnapshot: Equatable, Sendable {
+    let url: URL
+    let data: Data
+    let sha256: String
+    let fileSize: UInt64
+    let identity: FileSystemObjectIdentity
+    let modificationSeconds: Int64
+    let modificationNanoseconds: Int64
+
+    static func capture(
+        _ url: URL,
+        retainingData: Bool = true
+    ) throws -> Self {
+        let standardized = url.standardizedFileURL
+        let parentDescriptor = try NoFollowFileSystem.openDirectoryHierarchy(
+            standardized.deletingLastPathComponent()
+        )
+        defer { Darwin.close(parentDescriptor) }
+        let name = standardized.lastPathComponent
+        guard !name.isEmpty, name != ".", name != "..", !name.contains("/") else {
+            throw GenotypeReviewableRowCatalogPublisherError
+                .invalidInputDescriptor(standardized.path)
+        }
+        let descriptor = name.withCString {
+            Darwin.openat(
+                parentDescriptor,
+                $0,
+                O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC
+            )
+        }
+        guard descriptor >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        defer { Darwin.close(descriptor) }
+        var before = stat()
+        guard Darwin.fstat(descriptor, &before) == 0,
+              before.st_mode & S_IFMT == S_IFREG,
+              before.st_size >= 0 else {
+            throw GenotypeReviewableRowCatalogPublisherError
+                .invalidInputDescriptor(standardized.path)
+        }
+        var data = Data()
+        if retainingData {
+            data.reserveCapacity(Int(before.st_size))
+        }
+        var hasher = SHA256()
+        var bytesRead: UInt64 = 0
+        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+        while true {
+            let count = buffer.withUnsafeMutableBytes {
+                Darwin.read(descriptor, $0.baseAddress, $0.count)
+            }
+            if count < 0, errno == EINTR { continue }
+            guard count >= 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+            if count == 0 { break }
+            let chunk = Data(buffer.prefix(count))
+            hasher.update(data: chunk)
+            if retainingData {
+                data.append(chunk)
+            }
+            bytesRead += UInt64(count)
+        }
+        var after = stat()
+        guard Darwin.fstat(descriptor, &after) == 0,
+              FileSystemObjectIdentity(from: before)
+                == FileSystemObjectIdentity(from: after),
+              before.st_size == after.st_size,
+              before.st_mtimespec.tv_sec == after.st_mtimespec.tv_sec,
+              before.st_mtimespec.tv_nsec == after.st_mtimespec.tv_nsec,
+              bytesRead == UInt64(after.st_size) else {
+            throw GenotypeReviewableRowCatalogPublisherError
+                .authorityChanged(standardized.path)
+        }
+        return Self(
+            url: standardized,
+            data: data,
+            sha256: hasher.finalize()
+                .map { String(format: "%02x", $0) }
+                .joined(),
+            fileSize: bytesRead,
+            identity: FileSystemObjectIdentity(from: after),
+            modificationSeconds: Int64(after.st_mtimespec.tv_sec),
+            modificationNanoseconds: Int64(after.st_mtimespec.tv_nsec)
+        )
+    }
+
+    func requireUnchanged() throws {
+        let current = try Self.capture(url, retainingData: false)
+        guard current.identity == identity,
+              current.fileSize == fileSize,
+              current.sha256 == sha256,
+              current.modificationSeconds == modificationSeconds,
+              current.modificationNanoseconds == modificationNanoseconds else {
+            throw GenotypeReviewableRowCatalogPublisherError
+                .authorityChanged(url.path)
+        }
+    }
+
+    func descriptor(
+        format: FileFormat?,
+        role: FileRole
+    ) -> ProvenanceFileDescriptor {
+        ProvenanceFileDescriptor(
+            path: url.path,
+            checksumSHA256: sha256,
+            fileSize: fileSize,
+            format: format,
+            role: role
+        )
+    }
+}
+
+public struct GenotypeReviewableRowCatalogRecoveryError:
+    Error,
+    LocalizedError,
+    Sendable
+{
+    public let primaryErrorDescription: String
+    public let rollbackErrorDescription: String
+    public let canonicalOutputPath: String
+    public let recoveryPaths: [String]
+
+    public init(
+        primaryErrorDescription: String,
+        rollbackErrorDescription: String,
+        canonicalOutputPath: String,
+        recoveryPaths: [String]
+    ) {
+        self.primaryErrorDescription = primaryErrorDescription
+        self.rollbackErrorDescription = rollbackErrorDescription
+        self.canonicalOutputPath = canonicalOutputPath
+        self.recoveryPaths = recoveryPaths
+    }
+
+    public var errorDescription: String? {
+        """
+        \(primaryErrorDescription) Rollback also failed: \(rollbackErrorDescription) \
+        Canonical output: \(canonicalOutputPath). Recoverable generations: \
+        \(recoveryPaths.joined(separator: ", ")).
+        """
     }
 }
 
@@ -209,6 +358,12 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
         case published
     }
 
+    public enum RollbackPhase: Equatable, Sendable {
+        case beforeRestoreExchange
+        case beforeDetachNewOutput
+        case beforeRemoveRecovery
+    }
+
     private struct DisplayIdentity: Hashable {
         let locus: String
         let displayName: String
@@ -233,22 +388,20 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
 
     private let dateProvider: @Sendable () -> Date
     private let publicationObserver: @Sendable (PublicationPhase) throws -> Void
+    private let rollbackObserver: @Sendable (RollbackPhase) throws -> Void
     private let finalArtifactDescriptorProvider:
-        @Sendable (URL) throws -> (sha256: String, fileSize: UInt64)
+        (@Sendable (URL) throws -> (sha256: String, fileSize: UInt64))?
 
     public init(
         dateProvider: @escaping @Sendable () -> Date = Date.init,
         publicationObserver: @escaping @Sendable (PublicationPhase) throws -> Void = { _ in },
+        rollbackObserver: @escaping @Sendable (RollbackPhase) throws -> Void = { _ in },
         finalArtifactDescriptorProvider:
-            @escaping @Sendable (URL) throws -> (sha256: String, fileSize: UInt64) = {
-                (
-                    try ProvenanceFileHasher.sha256(of: $0),
-                    try ProvenanceFileHasher.fileSize(of: $0)
-                )
-            }
+            (@Sendable (URL) throws -> (sha256: String, fileSize: UInt64))? = nil
     ) {
         self.dateProvider = dateProvider
         self.publicationObserver = publicationObserver
+        self.rollbackObserver = rollbackObserver
         self.finalArtifactDescriptorProvider = finalArtifactDescriptorProvider
     }
 
@@ -338,37 +491,13 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
             from: bundleDirectoryURL,
             to: outputURL
         )
-        try FileManager.default.createDirectory(
-            at: outputURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
+        var encoded = try document.encoded()
+        encoded.append(0x0a)
+        let finalDescriptor = try publishCatalogData(
+            encoded,
+            bundleDirectoryURL: bundleDirectoryURL,
+            outputURL: outputURL
         )
-        let stagedURL = outputURL.deletingLastPathComponent()
-            .appendingPathComponent(".\(outputURL.lastPathComponent).staging-\(UUID().uuidString)")
-        let finalDescriptor: (sha256: String, fileSize: UInt64)
-        do {
-            var encoded = try document.encoded()
-            encoded.append(0x0a)
-            try encoded.write(to: stagedURL, options: .withoutOverwriting)
-            try publicationObserver(.staged)
-            let stagedHash = try ProvenanceFileHasher.sha256(of: stagedURL)
-            let stagedSize = try ProvenanceFileHasher.fileSize(of: stagedURL)
-            finalDescriptor = try publishStagedFile(
-                stagedURL,
-                to: outputURL
-            ) {
-                try publicationObserver(.published)
-                let descriptor = try finalArtifactDescriptorProvider(outputURL)
-                guard descriptor.sha256 == stagedHash,
-                      descriptor.fileSize == stagedSize else {
-                    throw GenotypeReviewableRowCatalogPublisherError
-                        .finalArtifactMismatch(outputURL.path)
-                }
-                return descriptor
-            }
-        } catch {
-            try? FileManager.default.removeItem(at: stagedURL)
-            throw error
-        }
 
         let outputHash = finalDescriptor.sha256
         let outputSize = finalDescriptor.fileSize
@@ -724,53 +853,484 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
         return String(file.dropFirst(prefix.count))
     }
 
-    private func publishStagedFile<T>(
-        _ stagedURL: URL,
-        to outputURL: URL,
-        validate: () throws -> T
-    ) throws -> T {
-        let hadExistingOutput = FileManager.default.fileExists(atPath: outputURL.path)
-        if hadExistingOutput {
-            guard Darwin.renamex_np(
-                stagedURL.path,
-                outputURL.path,
-                UInt32(RENAME_SWAP)
-            ) == 0 else {
-                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    private func publishCatalogData(
+        _ data: Data,
+        bundleDirectoryURL: URL,
+        outputURL: URL
+    ) throws -> (sha256: String, fileSize: UInt64) {
+        let bundleDescriptor = try NoFollowFileSystem.openDirectoryHierarchy(
+            bundleDirectoryURL
+        )
+        defer { Darwin.close(bundleDescriptor) }
+        let artifactsDescriptor = try openOrCreateDirectory(
+            named: "artifacts",
+            in: bundleDescriptor,
+            displayedAt: bundleDirectoryURL
+        )
+        defer { Darwin.close(artifactsDescriptor) }
+        let projectionsURL = bundleDirectoryURL
+            .appendingPathComponent("artifacts", isDirectory: true)
+            .appendingPathComponent("projections", isDirectory: true)
+        let projectionsDescriptor = try openOrCreateDirectory(
+            named: "projections",
+            in: artifactsDescriptor,
+            displayedAt: bundleDirectoryURL.appendingPathComponent("artifacts")
+        )
+        defer { Darwin.close(projectionsDescriptor) }
+
+        let outputName = "genotype-reviewable-rows.json"
+        let stagingName = ".\(outputName).staging-\(UUID().uuidString.lowercased())"
+        let stagingURL = projectionsURL.appendingPathComponent(stagingName)
+        let stagingDescriptor = stagingName.withCString {
+            Darwin.openat(
+                projectionsDescriptor,
+                $0,
+                O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
+                S_IRUSR | S_IWUSR
+            )
+        }
+        guard stagingDescriptor >= 0 else {
+            throw posixError()
+        }
+        var stagingIsOpen = true
+        var removeUnpublishedStaging = true
+        defer {
+            if stagingIsOpen {
+                Darwin.close(stagingDescriptor)
+            }
+            if removeUnpublishedStaging {
+                _ = stagingName.withCString {
+                    Darwin.unlinkat(projectionsDescriptor, $0, 0)
+                }
+            }
+        }
+
+        try writeAll(data, to: stagingDescriptor, displayedAt: stagingURL)
+        guard Darwin.fsync(stagingDescriptor) == 0 else { throw posixError() }
+        var stagedInfo = stat()
+        guard Darwin.fstat(stagingDescriptor, &stagedInfo) == 0,
+              stagedInfo.st_mode & S_IFMT == S_IFREG else {
+            throw posixError(defaultCode: EINVAL)
+        }
+        let stagedIdentity = FileSystemObjectIdentity(from: stagedInfo)
+        guard Darwin.close(stagingDescriptor) == 0 else {
+            stagingIsOpen = false
+            throw posixError()
+        }
+        stagingIsOpen = false
+        try publicationObserver(.staged)
+
+        let previousIdentity = try regularFileIdentityIfPresent(
+            named: outputName,
+            in: projectionsDescriptor,
+            displayedAt: outputURL
+        )
+        let renameStatus: Int32
+        if previousIdentity != nil {
+            renameStatus = stagingName.withCString { staging in
+                outputName.withCString { output in
+                    Darwin.renameatx_np(
+                        projectionsDescriptor,
+                        staging,
+                        projectionsDescriptor,
+                        output,
+                        UInt32(RENAME_SWAP)
+                    )
+                }
             }
         } else {
-            guard Darwin.renamex_np(
-                stagedURL.path,
-                outputURL.path,
-                UInt32(RENAME_EXCL)
-            ) == 0 else {
-                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            renameStatus = stagingName.withCString { staging in
+                outputName.withCString { output in
+                    Darwin.renameatx_np(
+                        projectionsDescriptor,
+                        staging,
+                        projectionsDescriptor,
+                        output,
+                        UInt32(RENAME_EXCL)
+                    )
+                }
             }
         }
+        guard renameStatus == 0 else { throw posixError() }
+        removeUnpublishedStaging = false
+        guard Darwin.fsync(projectionsDescriptor) == 0 else {
+            let primary = posixError()
+            try rollbackPublication(
+                primaryError: primary,
+                previousIdentity: previousIdentity,
+                stagedIdentity: stagedIdentity,
+                outputName: outputName,
+                stagingName: stagingName,
+                directoryDescriptor: projectionsDescriptor,
+                directoryURL: projectionsURL,
+                outputURL: outputURL
+            )
+            throw primary
+        }
+
         do {
-            let result = try validate()
-            if hadExistingOutput {
-                try FileManager.default.removeItem(at: stagedURL)
-            }
-            return result
-        } catch {
-            if hadExistingOutput {
-                if Darwin.renamex_np(
-                    stagedURL.path,
-                    outputURL.path,
-                    UInt32(RENAME_SWAP)
-                ) == 0 {
-                    try? FileManager.default.removeItem(at: stagedURL)
+            try publicationObserver(.published)
+            let exactDescriptor = try descriptorSnapshot(
+                named: outputName,
+                expectedIdentity: stagedIdentity,
+                in: projectionsDescriptor,
+                displayedAt: outputURL
+            )
+            if let finalArtifactDescriptorProvider {
+                let injectedDescriptor = try finalArtifactDescriptorProvider(outputURL)
+                guard injectedDescriptor.sha256 == exactDescriptor.sha256,
+                      injectedDescriptor.fileSize == exactDescriptor.fileSize else {
+                    throw GenotypeReviewableRowCatalogPublisherError
+                        .finalArtifactMismatch(outputURL.path)
                 }
-            } else if Darwin.renamex_np(
-                outputURL.path,
-                stagedURL.path,
-                UInt32(RENAME_EXCL)
-            ) == 0 {
-                try? FileManager.default.removeItem(at: stagedURL)
             }
+            if previousIdentity != nil {
+                do {
+                    guard try regularFileIdentityIfPresent(
+                        named: stagingName,
+                        in: projectionsDescriptor,
+                        displayedAt: stagingURL
+                    ) == previousIdentity else {
+                        throw GenotypeReviewableRowCatalogPublisherError
+                            .finalArtifactMismatch(
+                                "The retained prior catalog identity changed before cleanup."
+                            )
+                    }
+                    try rollbackObserver(.beforeRemoveRecovery)
+                    guard stagingName.withCString({
+                        Darwin.unlinkat(projectionsDescriptor, $0, 0)
+                    }) == 0 else {
+                        throw posixError()
+                    }
+                    guard Darwin.fsync(projectionsDescriptor) == 0 else {
+                        throw posixError()
+                    }
+                } catch {
+                    throw recoveryError(
+                        primary: GenotypeReviewableRowCatalogPublisherError
+                            .finalArtifactMismatch(
+                                "Published catalog is valid but the prior generation could not be removed."
+                            ),
+                        rollback: error,
+                        outputURL: outputURL,
+                        recoveryURLs: [outputURL, stagingURL]
+                    )
+                }
+            }
+            return exactDescriptor
+        } catch let recovery as GenotypeReviewableRowCatalogRecoveryError {
+            throw recovery
+        } catch {
+            try rollbackPublication(
+                primaryError: error,
+                previousIdentity: previousIdentity,
+                stagedIdentity: stagedIdentity,
+                outputName: outputName,
+                stagingName: stagingName,
+                directoryDescriptor: projectionsDescriptor,
+                directoryURL: projectionsURL,
+                outputURL: outputURL
+            )
             throw error
         }
+    }
+
+    private func rollbackPublication(
+        primaryError: Error,
+        previousIdentity: FileSystemObjectIdentity?,
+        stagedIdentity: FileSystemObjectIdentity,
+        outputName: String,
+        stagingName: String,
+        directoryDescriptor: Int32,
+        directoryURL: URL,
+        outputURL: URL
+    ) throws {
+        let stagingURL = directoryURL.appendingPathComponent(stagingName)
+        if let previousIdentity {
+            do {
+                guard try regularFileIdentityIfPresent(
+                    named: outputName,
+                    in: directoryDescriptor,
+                    displayedAt: outputURL
+                ) == stagedIdentity,
+                try regularFileIdentityIfPresent(
+                    named: stagingName,
+                    in: directoryDescriptor,
+                    displayedAt: stagingURL
+                ) == previousIdentity else {
+                    throw GenotypeReviewableRowCatalogPublisherError
+                        .finalArtifactMismatch(
+                            "Publication identities changed before rollback."
+                        )
+                }
+                try rollbackObserver(.beforeRestoreExchange)
+                let status = stagingName.withCString { staging in
+                    outputName.withCString { output in
+                        Darwin.renameatx_np(
+                            directoryDescriptor,
+                            staging,
+                            directoryDescriptor,
+                            output,
+                            UInt32(RENAME_SWAP)
+                        )
+                    }
+                }
+                guard status == 0 else { throw posixError() }
+                guard Darwin.fsync(directoryDescriptor) == 0 else {
+                    throw posixError()
+                }
+                guard try regularFileIdentityIfPresent(
+                    named: outputName,
+                    in: directoryDescriptor,
+                    displayedAt: outputURL
+                ) == previousIdentity,
+                try regularFileIdentityIfPresent(
+                    named: stagingName,
+                    in: directoryDescriptor,
+                    displayedAt: stagingURL
+                ) == stagedIdentity else {
+                    throw GenotypeReviewableRowCatalogPublisherError
+                        .finalArtifactMismatch(
+                            "Publication identities changed during rollback."
+                        )
+                }
+                try rollbackObserver(.beforeRemoveRecovery)
+                guard stagingName.withCString({
+                    Darwin.unlinkat(directoryDescriptor, $0, 0)
+                }) == 0 else {
+                    throw posixError()
+                }
+                guard Darwin.fsync(directoryDescriptor) == 0 else {
+                    throw posixError()
+                }
+            } catch {
+                throw recoveryError(
+                    primary: primaryError,
+                    rollback: error,
+                    outputURL: outputURL,
+                    recoveryURLs: existingRecoveryURLs(
+                        namesAndURLs: [
+                            (outputName, outputURL),
+                            (stagingName, stagingURL),
+                        ],
+                        in: directoryDescriptor
+                    )
+                )
+            }
+        } else {
+            do {
+                guard try regularFileIdentityIfPresent(
+                    named: outputName,
+                    in: directoryDescriptor,
+                    displayedAt: outputURL
+                ) == stagedIdentity else {
+                    throw GenotypeReviewableRowCatalogPublisherError
+                        .finalArtifactMismatch(
+                            "Published catalog identity changed before rollback."
+                        )
+                }
+                try rollbackObserver(.beforeDetachNewOutput)
+                let status = outputName.withCString { output in
+                    stagingName.withCString { staging in
+                        Darwin.renameatx_np(
+                            directoryDescriptor,
+                            output,
+                            directoryDescriptor,
+                            staging,
+                            UInt32(RENAME_EXCL)
+                        )
+                    }
+                }
+                guard status == 0 else { throw posixError() }
+                guard Darwin.fsync(directoryDescriptor) == 0 else {
+                    throw posixError()
+                }
+                guard try regularFileIdentityIfPresent(
+                    named: stagingName,
+                    in: directoryDescriptor,
+                    displayedAt: stagingURL
+                ) == stagedIdentity else {
+                    throw GenotypeReviewableRowCatalogPublisherError
+                        .finalArtifactMismatch(
+                            "Published catalog identity changed during rollback."
+                        )
+                }
+                try rollbackObserver(.beforeRemoveRecovery)
+                guard stagingName.withCString({
+                    Darwin.unlinkat(directoryDescriptor, $0, 0)
+                }) == 0 else {
+                    throw posixError()
+                }
+                guard Darwin.fsync(directoryDescriptor) == 0 else {
+                    throw posixError()
+                }
+            } catch {
+                throw recoveryError(
+                    primary: primaryError,
+                    rollback: error,
+                    outputURL: outputURL,
+                    recoveryURLs: existingRecoveryURLs(
+                        namesAndURLs: [
+                            (outputName, outputURL),
+                            (stagingName, stagingURL),
+                        ],
+                        in: directoryDescriptor
+                    )
+                )
+            }
+        }
+    }
+
+    private func recoveryError(
+        primary: Error,
+        rollback: Error,
+        outputURL: URL,
+        recoveryURLs: [URL]
+    ) -> GenotypeReviewableRowCatalogRecoveryError {
+        GenotypeReviewableRowCatalogRecoveryError(
+            primaryErrorDescription: primary.localizedDescription,
+            rollbackErrorDescription: rollback.localizedDescription,
+            canonicalOutputPath: outputURL.path,
+            recoveryPaths: recoveryURLs.map(\.path)
+        )
+    }
+
+    private func existingRecoveryURLs(
+        namesAndURLs: [(String, URL)],
+        in directoryDescriptor: Int32
+    ) -> [URL] {
+        namesAndURLs.compactMap { name, url in
+            var info = stat()
+            let status = name.withCString {
+                Darwin.fstatat(
+                    directoryDescriptor,
+                    $0,
+                    &info,
+                    AT_SYMLINK_NOFOLLOW
+                )
+            }
+            return status == 0 ? url : nil
+        }
+    }
+
+    private func openOrCreateDirectory(
+        named name: String,
+        in parentDescriptor: Int32,
+        displayedAt parentURL: URL
+    ) throws -> Int32 {
+        let createStatus = name.withCString {
+            Darwin.mkdirat(parentDescriptor, $0, S_IRWXU)
+        }
+        if createStatus != 0, errno != EEXIST {
+            throw posixError()
+        }
+        if createStatus == 0, Darwin.fsync(parentDescriptor) != 0 {
+            throw posixError()
+        }
+        let descriptor = name.withCString {
+            Darwin.openat(
+                parentDescriptor,
+                $0,
+                O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+            )
+        }
+        guard descriptor >= 0 else {
+            throw GenotypeReviewableRowCatalogPublisherError.outputOutsideBundle(
+                parentURL.appendingPathComponent(name).path
+            )
+        }
+        return descriptor
+    }
+
+    private func regularFileIdentityIfPresent(
+        named name: String,
+        in directoryDescriptor: Int32,
+        displayedAt url: URL
+    ) throws -> FileSystemObjectIdentity? {
+        var info = stat()
+        let status = name.withCString {
+            Darwin.fstatat(directoryDescriptor, $0, &info, AT_SYMLINK_NOFOLLOW)
+        }
+        if status != 0, errno == ENOENT { return nil }
+        guard status == 0, info.st_mode & S_IFMT == S_IFREG else {
+            throw GenotypeReviewableRowCatalogPublisherError.outputOutsideBundle(
+                url.path
+            )
+        }
+        return FileSystemObjectIdentity(from: info)
+    }
+
+    private func descriptorSnapshot(
+        named name: String,
+        expectedIdentity: FileSystemObjectIdentity,
+        in directoryDescriptor: Int32,
+        displayedAt url: URL
+    ) throws -> (sha256: String, fileSize: UInt64) {
+        let descriptor = name.withCString {
+            Darwin.openat(
+                directoryDescriptor,
+                $0,
+                O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC
+            )
+        }
+        guard descriptor >= 0 else { throw posixError() }
+        defer { Darwin.close(descriptor) }
+        var before = stat()
+        guard Darwin.fstat(descriptor, &before) == 0,
+              before.st_mode & S_IFMT == S_IFREG,
+              FileSystemObjectIdentity(from: before) == expectedIdentity else {
+            throw GenotypeReviewableRowCatalogPublisherError
+                .finalArtifactMismatch(url.path)
+        }
+        let data = try readAll(from: descriptor)
+        var after = stat()
+        guard Darwin.fstat(descriptor, &after) == 0,
+              FileSystemObjectIdentity(from: after) == expectedIdentity,
+              before.st_size == after.st_size,
+              data.count == Int(after.st_size) else {
+            throw GenotypeReviewableRowCatalogPublisherError
+                .finalArtifactMismatch(url.path)
+        }
+        return (
+            SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
+            UInt64(data.count)
+        )
+    }
+
+    private func writeAll(
+        _ data: Data,
+        to descriptor: Int32,
+        displayedAt url: URL
+    ) throws {
+        try data.withUnsafeBytes { rawBuffer in
+            guard var cursor = rawBuffer.baseAddress else { return }
+            var remaining = rawBuffer.count
+            while remaining > 0 {
+                let count = Darwin.write(descriptor, cursor, remaining)
+                if count < 0, errno == EINTR { continue }
+                guard count > 0 else { throw posixError() }
+                cursor = cursor.advanced(by: count)
+                remaining -= count
+            }
+        }
+    }
+
+    private func readAll(from descriptor: Int32) throws -> Data {
+        var result = Data()
+        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+        while true {
+            let count = buffer.withUnsafeMutableBytes {
+                Darwin.read(descriptor, $0.baseAddress, $0.count)
+            }
+            if count < 0, errno == EINTR { continue }
+            guard count >= 0 else { throw posixError() }
+            if count == 0 { return result }
+            result.append(buffer, count: count)
+        }
+    }
+
+    private func posixError(defaultCode: Int32 = EIO) -> POSIXError {
+        POSIXError(POSIXErrorCode(rawValue: errno == 0 ? defaultCode : errno) ?? .EIO)
     }
 
     private func failureProvenance(

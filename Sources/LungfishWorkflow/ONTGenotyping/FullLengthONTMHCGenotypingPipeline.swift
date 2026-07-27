@@ -844,6 +844,18 @@ private struct FullLengthONTMHCRollbackFailureRecovery: Sendable {
     }
 }
 
+struct FullLengthONTMHCReviewCatalogAuthority: Sendable {
+    let referenceRecords: [MHCReferenceRecord]
+    let candidateDocument: ONTMHCCandidateAllelesDocument
+    let snapshots: [GenotypeReviewAuthorityFileSnapshot]
+
+    func requireUnchanged() throws {
+        for snapshot in snapshots {
+            try snapshot.requireUnchanged()
+        }
+    }
+}
+
 public struct FullLengthONTMHCGenotypingPipeline: Sendable {
     private let nativeToolRunner: NativeToolRunner
     private let condaManager: CondaManager
@@ -856,6 +868,45 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             GenotypeReviewableRowCatalogInputs,
             URL
         ) throws -> GenotypeReviewableRowCatalogPublication
+
+    static func reviewableCatalogAuthority(
+        expectedReferenceRecords: [MHCReferenceRecord],
+        referenceCatalogURL: URL,
+        expectedCandidateDocument: ONTMHCCandidateAllelesDocument,
+        candidateURL: URL,
+        authorityObserver: () throws -> Void = {}
+    ) throws -> FullLengthONTMHCReviewCatalogAuthority {
+        let referenceSnapshot = try GenotypeReviewAuthorityFileSnapshot.capture(
+            referenceCatalogURL
+        )
+        let candidateSnapshot = try GenotypeReviewAuthorityFileSnapshot.capture(
+            candidateURL
+        )
+        let referenceProjection = try JSONDecoder().decode(
+            FullLengthONTMHCReferenceCatalogProjection.self,
+            from: referenceSnapshot.data
+        )
+        let candidateDocument = try JSONDecoder().decode(
+            ONTMHCCandidateAllelesDocument.self,
+            from: candidateSnapshot.data
+        )
+        guard referenceProjection.records == expectedReferenceRecords else {
+            throw GenotypeReviewableRowCatalogPublisherError
+                .authorityChanged(referenceCatalogURL.path)
+        }
+        guard candidateDocument == expectedCandidateDocument else {
+            throw GenotypeReviewableRowCatalogPublisherError
+                .authorityChanged(candidateURL.path)
+        }
+        try authorityObserver()
+        try referenceSnapshot.requireUnchanged()
+        try candidateSnapshot.requireUnchanged()
+        return FullLengthONTMHCReviewCatalogAuthority(
+            referenceRecords: referenceProjection.records,
+            candidateDocument: candidateDocument,
+            snapshots: [referenceSnapshot, candidateSnapshot]
+        )
+    }
 
     public init(
         nativeToolRunner: NativeToolRunner = .shared,
@@ -4724,10 +4775,21 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         genotypingEvidenceBAIURL: URL
     ) throws -> GenotypeReviewableRowCatalogPublication? {
         guard request.haplotypeDefinitionSetID == nil else { return nil }
-        let recordsBySequenceID = Dictionary(
-            uniqueKeysWithValues: referenceRecords.map { ($0.sequenceID, $0) }
+        let reviewAuthority = try Self.reviewableCatalogAuthority(
+            expectedReferenceRecords: referenceRecords,
+            referenceCatalogURL: referenceCatalogProjectionURL,
+            expectedCandidateDocument: candidateDocument,
+            candidateURL: candidateJSONURL
         )
-        let recordsByAllele = Dictionary(grouping: referenceRecords, by: \.alleleName)
+        let exactReferenceRecords = reviewAuthority.referenceRecords
+        let exactCandidateDocument = reviewAuthority.candidateDocument
+        let recordsBySequenceID = Dictionary(
+            uniqueKeysWithValues: exactReferenceRecords.map { ($0.sequenceID, $0) }
+        )
+        let recordsByAllele = Dictionary(
+            grouping: exactReferenceRecords,
+            by: \.alleleName
+        )
         var reportRowsByCall:
             [FullLengthONTMHCReviewCallKey: [FullLengthONTMHCReportRow]] = [:]
         for row in reportRows {
@@ -4785,44 +4847,37 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             "--output", outputURL.path,
             "--support-metric", "passed-unique-reads",
         ]
+        let sampleSnapshot = try GenotypeReviewAuthorityFileSnapshot.capture(
+            request.sampleSummaryCSVURL,
+            retainingData: false
+        )
+        let reportSnapshot = try GenotypeReviewAuthorityFileSnapshot.capture(
+            request.reportCSVURL,
+            retainingData: false
+        )
+        let bamSnapshot = try GenotypeReviewAuthorityFileSnapshot.capture(
+            genotypingEvidenceBAMURL,
+            retainingData: false
+        )
+        let baiSnapshot = try GenotypeReviewAuthorityFileSnapshot.capture(
+            genotypingEvidenceBAIURL,
+            retainingData: false
+        )
         let descriptors = [
-            try ProvenanceFileDescriptor.file(
-                url: referenceCatalogProjectionURL,
-                format: .json,
-                role: .reference
-            ),
-            try ProvenanceFileDescriptor.file(
-                url: request.sampleSummaryCSVURL,
-                format: .text,
-                role: .input
-            ),
-            try ProvenanceFileDescriptor.file(
-                url: request.reportCSVURL,
-                format: .text,
-                role: .input
-            ),
-            try ProvenanceFileDescriptor.file(
-                url: candidateJSONURL,
-                format: .json,
-                role: .input
-            ),
-            try ProvenanceFileDescriptor.file(
-                url: genotypingEvidenceBAMURL,
-                format: .bam,
-                role: .input
-            ),
-            try ProvenanceFileDescriptor.file(
-                url: genotypingEvidenceBAIURL,
-                role: .index
-            ),
+            reviewAuthority.snapshots[0].descriptor(format: .json, role: .reference),
+            sampleSnapshot.descriptor(format: .text, role: .input),
+            reportSnapshot.descriptor(format: .text, role: .input),
+            reviewAuthority.snapshots[1].descriptor(format: .json, role: .input),
+            bamSnapshot.descriptor(format: .bam, role: .input),
+            baiSnapshot.descriptor(format: nil, role: .index),
         ]
-        return try reviewableRowCatalogPublisher(
+        let publication = try reviewableRowCatalogPublisher(
             GenotypeReviewableRowCatalogInputs(
-                referenceRecords: referenceRecords,
+                referenceRecords: exactReferenceRecords,
                 authoritativeSamples: sampleNames,
                 calls: sharedCalls,
                 candidates: GenotypeReviewableRowCandidate.fullLengthCandidates(
-                    from: candidateDocument
+                    from: exactCandidateDocument
                 ),
                 inputDescriptors: descriptors,
                 workflowName: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
@@ -4849,6 +4904,12 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             ),
             request.outputDirectory
         )
+        try reviewAuthority.requireUnchanged()
+        try sampleSnapshot.requireUnchanged()
+        try reportSnapshot.requireUnchanged()
+        try bamSnapshot.requireUnchanged()
+        try baiSnapshot.requireUnchanged()
+        return publication
     }
 
     private func publishMHCReferenceVisualizations(
