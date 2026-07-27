@@ -8590,11 +8590,15 @@ extension GenotypeResultViewController {
     }
 
     func testingApplyNativeMatrixRowSelection(
-        _ indexes: IndexSet
+        _ indexes: IndexSet,
+        simulatedAppKitScrollOrigins:
+            GenotypeMatrixContentScrollOrigins? = nil
     ) {
         ensureComparisonMatrixConfigured()
         comparisonMatrix.testingApplyNativeRowSelection(
-            indexes
+            indexes,
+            simulatedAppKitScrollOrigins:
+                simulatedAppKitScrollOrigins
         )
     }
 
@@ -8906,6 +8910,34 @@ extension GenotypeResultViewController {
     func testingSetComparisonFilter(_ text: String) {
         ensureComparisonMatrixConfigured()
         comparisonMatrix.testingSetFilter(text)
+    }
+
+    func testingPerformNativeComparisonFilterAction(
+        text: String,
+        selectedRange: NSRange,
+        in window: NSWindow
+    ) -> Bool {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingPerformNativeFilterAction(
+            text: text,
+            selectedRange: selectedRange,
+            in: window
+        )
+    }
+
+    var testingComparisonFilterModelText: String {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingFilterModelText
+    }
+
+    var testingComparisonFilterNativeText: String {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingFilterNativeText
+    }
+
+    var testingComparisonFilterNativeSelectedRange: NSRange {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingFilterNativeSelectedRange
     }
 
     func testingSetUnifiedSampleFilter(_ text: String) {

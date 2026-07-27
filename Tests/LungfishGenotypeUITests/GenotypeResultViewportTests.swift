@@ -5676,6 +5676,158 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
     }
 
+    func testManualHaplotypeCancelRestoresNativeSearchFieldTextAndCaret() async throws {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "ManualHaplotypeNativeSearch-\(UUID().uuidString).lungfishgenotype",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let controller = GenotypeResultViewController()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1_000, height: 700),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = controller
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [
+                makeCall(
+                    sample: "AnimalA",
+                    genotype: "01_Mafa_A1_001_01",
+                    reads: 42
+                ),
+                makeCall(
+                    sample: "AnimalB",
+                    genotype: "01_Mafa_A1_001_01",
+                    reads: 21
+                ),
+            ]
+        ))
+        XCTAssertTrue(
+            controller.testingPerformNativeComparisonFilterAction(
+                text: "Animal",
+                selectedRange: NSRange(location: 2, length: 0),
+                in: window
+            )
+        )
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        controller.testingUpdateManualHaplotypeLabel("Unsaved")
+        controller.testingSetManualHaplotypeDraftDecisionProvider {
+            _ in .cancel
+        }
+
+        XCTAssertTrue(
+            controller.testingPerformNativeComparisonFilterAction(
+                text: "AnimalB",
+                selectedRange: NSRange(location: 7, length: 0),
+                in: window
+            )
+        )
+        await controller.testingWaitForManualHaplotypeTransitions()
+
+        XCTAssertEqual(
+            controller.testingComparisonFilterModelText,
+            "Animal"
+        )
+        XCTAssertEqual(
+            controller.testingComparisonFilterNativeText,
+            "Animal"
+        )
+        XCTAssertEqual(
+            controller.testingComparisonFilterNativeSelectedRange,
+            NSRange(location: 2, length: 0)
+        )
+        XCTAssertTrue(controller.testingManualHaplotypeEditorIsDirty)
+        XCTAssertEqual(
+            controller.testingManualHaplotypeEditorSample,
+            "AnimalA"
+        )
+    }
+
+    func testManualHaplotypeCancelRestoresPreAppKitAutoScrollSelectionSnapshot()
+        async throws
+    {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "ManualHaplotypePreAutoScroll-\(UUID().uuidString).lungfishgenotype",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let calls = (0..<40).flatMap { index in
+            [
+                makeCall(
+                    sample: "AnimalA",
+                    genotype: String(format: "01_Mafa_A1_%03d_01", index),
+                    reads: 42 + index
+                ),
+                makeCall(
+                    sample: "AnimalB",
+                    genotype: String(format: "01_Mafa_A1_%03d_01", index),
+                    reads: 21 + index
+                ),
+            ]
+        }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: calls
+        ))
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        controller.testingUpdateManualHaplotypeLabel("Unsaved")
+        controller.testingSetManualHaplotypeDraftDecisionProvider {
+            _ in .cancel
+        }
+        let originalScroll = GenotypeMatrixContentScrollOrigins(
+            pinned: NSPoint(x: 0, y: 160),
+            samples: NSPoint(x: 31, y: 160)
+        )
+        let appKitAutoScroll = GenotypeMatrixContentScrollOrigins(
+            pinned: NSPoint(x: 0, y: 610),
+            samples: NSPoint(x: 31, y: 610)
+        )
+        controller.testingSetMatrixContentScrollOrigins(
+            pinned: originalScroll.pinned,
+            samples: originalScroll.samples
+        )
+        let originalTargets =
+            controller.testingCurrentSelectionMatrixTargets
+
+        controller.testingApplyNativeMatrixRowSelection(
+            IndexSet(integer: 30),
+            simulatedAppKitScrollOrigins: appKitAutoScroll
+        )
+        await controller.testingWaitForManualHaplotypeTransitions()
+
+        XCTAssertEqual(
+            controller.testingCurrentSelectionMatrixTargets,
+            originalTargets
+        )
+        XCTAssertEqual(
+            controller.testingNativeMatrixSelectedRowIndexes,
+            []
+        )
+        XCTAssertEqual(
+            controller.testingMatrixContentScrollOrigins,
+            originalScroll
+        )
+        XCTAssertTrue(controller.testingManualHaplotypeEditorIsDirty)
+    }
+
     func testArtifactsLensListsValidatedCandidateFASTAAndGenBankArtifactsWhenDeclared() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeCandidateGenBankLens-\(UUID().uuidString)", isDirectory: true)

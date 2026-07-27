@@ -254,6 +254,15 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         let identity: Identity
         let usesAccessibilityFocus: Bool
     }
+    private struct NativeFilterState: Equatable {
+        let text: String
+        let selectedRange: NSRange
+    }
+    private struct NativeTableSelectionState {
+        let pinnedRows: IndexSet
+        let sampleRows: IndexSet
+        let scrollOrigins: GenotypeMatrixContentScrollOrigins
+    }
     private let columnDefaults = UserDefaults.standard
     private static let pinnedPaneWidthKey = "GenotypeMatrix.pinnedPaneWidth"
     private var displayState = GenotypeResultDisplayState()
@@ -313,6 +322,14 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private weak var accessibilityFocusedSelectorButton:
         GenotypeMatrixSelectorButton?
     private var filterText = ""
+    private var committedNativeFilterState = NativeFilterState(
+        text: "",
+        selectedRange: NSRange(location: 0, length: 0)
+    )
+    private var suppressNativeFilterSelectionTracking = false
+    private var nativeFilterActionGeneration = 0
+    private var pendingNativeTableSelectionState:
+        NativeTableSelectionState?
     private var isApplyingApprovedManualHaplotypeTransition = false
     private var supportSelectionPreviewMinimumReads = 1
     /// Set of sample IDs allowed by the active Smart Cohort + Quick Filter.
@@ -593,16 +610,32 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         onMatrixVisibilityCapabilityChanged?(next)
     }
 
-    func setFilterText(_ text: String) {
+    func setFilterText(
+        _ text: String,
+        selectedRange: NSRange? = nil
+    ) {
+        let requestedState = NativeFilterState(
+            text: text,
+            selectedRange: normalizedFilterSelectionRange(
+                selectedRange ?? filterEditorSelectedRange(),
+                for: text
+            )
+        )
         if deferManualHaplotypeTransition(.search, mutation: {
             [weak self] in
-            self?.setFilterText(text)
+            self?.applyFilterState(requestedState)
         }) {
+            restoreNativeFilterState(committedNativeFilterState)
             return
         }
+        applyFilterState(requestedState)
+    }
+
+    private func applyFilterState(_ state: NativeFilterState) {
         let previousSamples = activeSampleNames()
-        filterField.stringValue = text
-        filterText = text
+        filterText = state.text
+        restoreNativeFilterState(state)
+        committedNativeFilterState = state
         if activeSampleNames() != previousSamples {
             rebuildColumns()
             applyDefaultSortDescriptor()
@@ -613,8 +646,16 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     func applyFilters(allowedSampleIDs: Set<String>?, text: String) {
         self.allowedSampleIDs = allowedSampleIDs
         quickSearchRowIDs = nil
-        filterField.stringValue = text
+        let filterState = NativeFilterState(
+            text: text,
+            selectedRange: normalizedFilterSelectionRange(
+                filterEditorSelectedRange(),
+                for: text
+            )
+        )
         filterText = text
+        restoreNativeFilterState(filterState)
+        committedNativeFilterState = filterState
         rebuildColumns()
         applyDefaultSortDescriptor()
         applyFilterAndSort()
@@ -630,8 +671,13 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         let previousSamples = activeSampleNames()
         self.allowedSampleIDs = allowedSampleIDs
         quickSearchRowIDs = projectedRowIDs
-        filterField.stringValue = ""
+        let filterState = NativeFilterState(
+            text: "",
+            selectedRange: NSRange(location: 0, length: 0)
+        )
         filterText = ""
+        restoreNativeFilterState(filterState)
+        committedNativeFilterState = filterState
         if activeSampleNames() != previousSamples {
             rebuildColumns()
             syncSortDescriptorsToTables()
@@ -798,6 +844,12 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         filterField.setAccessibilityIdentifier("genotype-comparison-filter")
         filterField.isHidden = true
         addSubview(filterField)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(filterEditorSelectionDidChange(_:)),
+            name: NSTextView.didChangeSelectionNotification,
+            object: nil
+        )
 
         locusPopup.translatesAutoresizingMaskIntoConstraints = false
         locusPopup.controlSize = .small
@@ -1496,7 +1548,81 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     @objc private func filterChanged(_ sender: NSSearchField) {
-        setFilterText(sender.stringValue)
+        suppressNativeFilterSelectionTracking = true
+        nativeFilterActionGeneration &+= 1
+        let actionGeneration = nativeFilterActionGeneration
+        setFilterText(
+            sender.stringValue,
+            selectedRange: filterEditorSelectedRange()
+        )
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  self.nativeFilterActionGeneration
+                    == actionGeneration else {
+                return
+            }
+            self.restoreNativeFilterState(
+                self.committedNativeFilterState
+            )
+            self.suppressNativeFilterSelectionTracking = false
+        }
+    }
+
+    @objc private func filterEditorSelectionDidChange(
+        _ notification: Notification
+    ) {
+        guard !suppressNativeFilterSelectionTracking,
+              let editor = filterField.currentEditor() as? NSTextView,
+              let sourceEditor = notification.object as? NSTextView,
+              sourceEditor === editor,
+              editor.string == filterText else {
+            return
+        }
+        committedNativeFilterState = NativeFilterState(
+            text: filterText,
+            selectedRange: normalizedFilterSelectionRange(
+                editor.selectedRange(),
+                for: filterText
+            )
+        )
+    }
+
+    private func filterEditorSelectedRange() -> NSRange {
+        guard let editor = filterField.currentEditor() as? NSTextView else {
+            return committedNativeFilterState.selectedRange
+        }
+        return normalizedFilterSelectionRange(
+            editor.selectedRange(),
+            for: editor.string
+        )
+    }
+
+    private func restoreNativeFilterState(
+        _ state: NativeFilterState
+    ) {
+        filterField.stringValue = state.text
+        guard let editor = filterField.currentEditor() as? NSTextView else {
+            return
+        }
+        editor.string = state.text
+        editor.setSelectedRange(
+            normalizedFilterSelectionRange(
+                state.selectedRange,
+                for: state.text
+            )
+        )
+    }
+
+    private func normalizedFilterSelectionRange(
+        _ range: NSRange,
+        for text: String
+    ) -> NSRange {
+        let length = (text as NSString).length
+        let location = min(range.location, length)
+        return NSRange(
+            location: location,
+            length: min(range.length, length - location)
+        )
     }
 
     @objc private func locusChanged(_ sender: NSPopUpButton) {
@@ -2258,10 +2384,17 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         guard !suppressSelectionClearedCallback else { return }
         let sourceTable = notification.object as? NSTableView
         let selectedRows = IndexSet((sourceTable ?? tableView).selectedRowIndexes.filter { $0 >= 0 && $0 < visibleRows.count })
-        let previousRowIndexes = rowIndexes(
+        let nativeState = pendingNativeTableSelectionState
+        pendingNativeTableSelectionState = nil
+        let semanticPreviousRows = rowIndexes(
             for: selectedMatrixTargets
         )
-        let scrollOrigins = matrixContentScrollOrigins
+        let previousPinnedRows = nativeState?.pinnedRows
+            ?? semanticPreviousRows
+        let previousSampleRows = nativeState?.sampleRows
+            ?? semanticPreviousRows
+        let scrollOrigins = nativeState?.scrollOrigins
+            ?? matrixContentScrollOrigins
         if deferManualHaplotypeTransition(.selection, mutation: {
             [weak self] in
             guard let self else { return }
@@ -2271,7 +2404,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             )
         }) {
             restoreNativeTableSelection(
-                previousRowIndexes,
+                pinnedRows: previousPinnedRows,
+                sampleRows: previousSampleRows,
                 scrollOrigins: scrollOrigins
             )
             return
@@ -2280,6 +2414,22 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             selectedRows,
             preferredSample: selectedSampleName
         )
+    }
+
+    func selectionShouldChange(in tableView: NSTableView) -> Bool {
+        guard tableView === pinnedTableView
+                || tableView === self.tableView else {
+            return true
+        }
+        pendingNativeTableSelectionState =
+            NativeTableSelectionState(
+                pinnedRows:
+                    pinnedTableView.selectedRowIndexes,
+                sampleRows:
+                    self.tableView.selectedRowIndexes,
+                scrollOrigins: matrixContentScrollOrigins
+            )
+        return true
     }
 
     private func applyNativeTableSelection(
@@ -2308,17 +2458,20 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     private func restoreNativeTableSelection(
-        _ indexes: IndexSet,
+        pinnedRows: IndexSet,
+        sampleRows: IndexSet,
         scrollOrigins: GenotypeMatrixContentScrollOrigins
     ) {
-        if indexes.isEmpty {
-            deselectAllRows()
-        } else {
-            selectRowIndexes(
-                indexes,
-                byExtendingSelection: false
-            )
-        }
+        suppressSelectionClearedCallback = true
+        pinnedTableView.selectRowIndexes(
+            pinnedRows,
+            byExtendingSelection: false
+        )
+        tableView.selectRowIndexes(
+            sampleRows,
+            byExtendingSelection: false
+        )
+        suppressSelectionClearedCallback = false
         suppressScrollSync = true
         pinnedScrollView.contentView.setBoundsOrigin(
             scrollOrigins.pinned
@@ -6551,8 +6704,17 @@ extension GenotypeComparisonMatrixView {
     }
 
     func testingApplyNativeRowSelection(
-        _ indexes: IndexSet
+        _ indexes: IndexSet,
+        simulatedAppKitScrollOrigins:
+            GenotypeMatrixContentScrollOrigins? = nil
     ) {
+        _ = selectionShouldChange(in: tableView)
+        if let simulatedAppKitScrollOrigins {
+            testingSetContentScrollOrigins(
+                pinned: simulatedAppKitScrollOrigins.pinned,
+                samples: simulatedAppKitScrollOrigins.samples
+            )
+        }
         if indexes.isEmpty {
             tableView.deselectAll(nil)
         } else {
@@ -6659,6 +6821,51 @@ extension GenotypeComparisonMatrixView {
 
     func testingSetFilter(_ text: String) {
         setFilterText(text)
+    }
+
+    func testingPerformNativeFilterAction(
+        text: String,
+        selectedRange: NSRange,
+        in window: NSWindow
+    ) -> Bool {
+        filterField.isHidden = false
+        guard window.makeFirstResponder(filterField),
+              let editor = filterField.currentEditor()
+                as? NSTextView else {
+            return false
+        }
+        filterField.stringValue = text
+        editor.string = text
+        editor.setSelectedRange(
+            normalizedFilterSelectionRange(
+                selectedRange,
+                for: text
+            )
+        )
+        return filterField.sendAction(
+            filterField.action,
+            to: filterField.target
+        )
+    }
+
+    var testingFilterModelText: String {
+        filterText
+    }
+
+    var testingFilterNativeText: String {
+        (filterField.currentEditor() as? NSTextView)?.string
+            ?? filterField.stringValue
+    }
+
+    var testingFilterNativeSelectedRange: NSRange {
+        guard let editor = filterField.currentEditor()
+            as? NSTextView else {
+            return committedNativeFilterState.selectedRange
+        }
+        return normalizedFilterSelectionRange(
+            editor.selectedRange(),
+            for: editor.string
+        )
     }
 
     var testingActiveSortDescriptorKey: String? {
