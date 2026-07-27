@@ -263,6 +263,8 @@ public final class GenotypeResultViewController: NSViewController {
     private var annotationStore: GenotypeAnnotationStore?
     private var manualHaplotypeEditorModel:
         GenotypeManualHaplotypeEditorModel?
+    private let manualHaplotypeEditorTypographyModel =
+        ContentTypographyModel.shared
     private var manualHaplotypingSelection: Set<String> = []
     private var manualHaplotypingDraftLabel: String = ""
     private var manualHaplotypingDraftColorTokenIndex: Int = 1
@@ -5108,40 +5110,12 @@ public final class GenotypeResultViewController: NSViewController {
             return nil
         }
 
-        let normalizedSample =
-            GenotypeManualHaplotypeAssignmentInputValidator
-                .normalizedSampleIdentity(sample)
-        let orphanLegacyAssignments =
-            store.sidecar.manualHaplotypeAssignments.filter { assignment in
-                GenotypeManualHaplotypeAssignmentInputValidator
-                    .normalizedSampleIdentity(assignment.sample)
-                    == normalizedSample
-                    && GenotypeManualHaplotypeLocus(
-                        normalizing: assignment.locus
-                    ) == nil
-            }
-        let index = GenotypeManualHaplotypeAssignmentIndex(
-            assignments: store.sidecar.manualHaplotypeAssignments
-        )
-        let sampleNames = Set(
-            result.samples.map(\.sample)
-                + result.calls.map(\.sample)
-                + [sample]
-        )
-        let copyCandidates = sampleNames
-            .sorted {
-                $0.localizedStandardCompare($1) == .orderedAscending
-            }
-            .map(index.sampleAssignments(for:))
-
         let model = GenotypeManualHaplotypeEditorModel(
-            draft: GenotypeManualHaplotypeDraft(
+            snapshot: manualHaplotypeEditorSnapshot(
                 sample: sample,
-                index: index
+                result: result,
+                store: store
             ),
-            copyCandidates: copyCandidates,
-            orphanLegacyAssignments: orphanLegacyAssignments,
-            isReadOnly: store.isReadOnly,
             onSave: { [weak self] draft in
                 guard let self,
                       let currentStore = self.annotationStore else {
@@ -5190,12 +5164,10 @@ public final class GenotypeResultViewController: NSViewController {
                     reload: false
                 )
                 self.rebuildArtifactLens()
-                return GenotypeManualHaplotypeDraft(
+                return self.manualHaplotypeEditorSnapshot(
                     sample: sample,
-                    index: GenotypeManualHaplotypeAssignmentIndex(
-                        assignments:
-                            reloadedStore.sidecar.manualHaplotypeAssignments
-                    )
+                    result: currentResult,
+                    store: reloadedStore
                 )
             },
             onExport: { [weak self] in
@@ -5205,7 +5177,10 @@ public final class GenotypeResultViewController: NSViewController {
         manualHaplotypeEditorModel = model
 
         let container = NSHostingView(
-            rootView: GenotypeManualHaplotypeEditor(model: model)
+            rootView: GenotypeManualHaplotypeEditor(
+                model: model,
+                typographyModel: manualHaplotypeEditorTypographyModel
+            )
         )
         container.identifier = Self.generatedContentHostingViewIdentifier
         container.translatesAutoresizingMaskIntoConstraints = false
@@ -5216,6 +5191,52 @@ public final class GenotypeResultViewController: NSViewController {
             container.heightAnchor.constraint(greaterThanOrEqualToConstant: 590),
         ])
         return container
+    }
+
+    private func manualHaplotypeEditorSnapshot(
+        sample: String,
+        result: ONTGenotypeResultBundleData,
+        store: GenotypeAnnotationStore
+    ) -> GenotypeManualHaplotypeEditorModel.Snapshot {
+        let assignments = store.sidecar.manualHaplotypeAssignments
+        let normalizedSample =
+            GenotypeManualHaplotypeAssignmentInputValidator
+                .normalizedSampleIdentity(sample)
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: assignments
+        )
+        let orphanLegacyAssignments = assignments.filter { assignment in
+            GenotypeManualHaplotypeAssignmentInputValidator
+                .normalizedSampleIdentity(assignment.sample)
+                == normalizedSample
+                && GenotypeManualHaplotypeLocus(
+                    normalizing: assignment.locus
+                ) == nil
+        }
+        let normalizedSampleNames = Set(
+            (result.samples.map(\.sample)
+                + result.calls.map(\.sample)
+                + [sample])
+                .map {
+                    GenotypeManualHaplotypeAssignmentInputValidator
+                        .normalizedSampleIdentity($0)
+                }
+        )
+        let copyCandidates = normalizedSampleNames
+            .sorted {
+                $0.localizedStandardCompare($1) == .orderedAscending
+            }
+            .map(index.sampleAssignments(for:))
+
+        return GenotypeManualHaplotypeEditorModel.Snapshot(
+            draft: GenotypeManualHaplotypeDraft(
+                sample: normalizedSample,
+                index: index
+            ),
+            copyCandidates: copyCandidates,
+            orphanLegacyAssignments: orphanLegacyAssignments,
+            isReadOnly: store.isReadOnly
+        )
     }
 
     private func makeManualHaplotypingHost() -> NSView {

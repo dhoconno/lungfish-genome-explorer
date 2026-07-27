@@ -36,46 +36,192 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
         var id: String { sample }
     }
 
-    @Published private(set) var draft: GenotypeManualHaplotypeDraft
+    private struct CopyCandidateRecord: Sendable {
+        let presentation: CopyCandidate
+        let assignments:
+            GenotypeManualHaplotypeAssignmentIndex.SampleAssignments
+        let normalizedSearchKey: String
+    }
+
+    @MainActor
+    struct Snapshot: Sendable {
+        let draft: GenotypeManualHaplotypeDraft
+        let orphanLegacyAssignments: [ManualHaplotypeAssignment]
+        let isReadOnly: Bool
+        private let copyCandidateRecords: [CopyCandidateRecord]
+        private let copyCandidatePresentations: [CopyCandidate]
+        private let copyCandidateBySample: [String: CopyCandidate]
+        private let copyAssignmentsBySample: [
+            String:
+                GenotypeManualHaplotypeAssignmentIndex.SampleAssignments
+        ]
+
+        init(
+            draft: GenotypeManualHaplotypeDraft,
+            copyCandidates:
+                [GenotypeManualHaplotypeAssignmentIndex.SampleAssignments],
+            orphanLegacyAssignments: [ManualHaplotypeAssignment] = [],
+            isReadOnly: Bool
+        ) {
+            var seenSamples = Set<String>()
+            let candidates = copyCandidates.filter {
+                $0.sample != draft.sample
+                    && seenSamples.insert($0.sample).inserted
+            }
+            let records = candidates.map { assignments in
+                let presentation =
+                    GenotypeManualHaplotypeEditorModel.copyCandidate(
+                        assignments
+                    )
+                return CopyCandidateRecord(
+                    presentation: presentation,
+                    assignments: assignments,
+                    normalizedSearchKey:
+                        GenotypeManualHaplotypeEditorModel
+                            .normalizedSearchKey(
+                                "\(presentation.sample) \(presentation.compactSummary)"
+                            )
+                )
+            }
+            self.draft = draft
+            self.orphanLegacyAssignments = orphanLegacyAssignments
+            self.isReadOnly = isReadOnly
+            self.copyCandidateRecords = records
+            self.copyCandidatePresentations =
+                records.map(\.presentation)
+            self.copyCandidateBySample = Dictionary(
+                uniqueKeysWithValues: records.map {
+                    ($0.presentation.sample, $0.presentation)
+                }
+            )
+            self.copyAssignmentsBySample = Dictionary(
+                uniqueKeysWithValues: records.map {
+                    ($0.presentation.sample, $0.assignments)
+                }
+            )
+        }
+
+        private init(
+            draft: GenotypeManualHaplotypeDraft,
+            orphanLegacyAssignments: [ManualHaplotypeAssignment],
+            isReadOnly: Bool,
+            copyCandidateRecords: [CopyCandidateRecord],
+            copyCandidatePresentations: [CopyCandidate],
+            copyCandidateBySample: [String: CopyCandidate],
+            copyAssignmentsBySample: [
+                String:
+                    GenotypeManualHaplotypeAssignmentIndex.SampleAssignments
+            ]
+        ) {
+            self.draft = draft
+            self.orphanLegacyAssignments = orphanLegacyAssignments
+            self.isReadOnly = isReadOnly
+            self.copyCandidateRecords = copyCandidateRecords
+            self.copyCandidatePresentations =
+                copyCandidatePresentations
+            self.copyCandidateBySample = copyCandidateBySample
+            self.copyAssignmentsBySample = copyAssignmentsBySample
+        }
+
+        fileprivate var copyCandidates: [CopyCandidate] {
+            copyCandidatePresentations
+        }
+
+        fileprivate var copyCandidateCount: Int {
+            copyCandidateRecords.count
+        }
+
+        fileprivate func copyAssignments(
+            for sample: String
+        ) -> GenotypeManualHaplotypeAssignmentIndex.SampleAssignments? {
+            copyAssignmentsBySample[sample]
+        }
+
+        fileprivate func copyCandidate(
+            for sample: String
+        ) -> CopyCandidate? {
+            copyCandidateBySample[sample]
+        }
+
+        fileprivate func filteredCopyCandidates(
+            matching normalizedQuery: String
+        ) -> [CopyCandidate] {
+            guard !normalizedQuery.isEmpty else {
+                return copyCandidates
+            }
+            return copyCandidateRecords.compactMap { record in
+                record.normalizedSearchKey.contains(normalizedQuery)
+                    ? record.presentation
+                    : nil
+            }
+        }
+
+        fileprivate func replacingDraft(
+            _ draft: GenotypeManualHaplotypeDraft
+        ) -> Snapshot {
+            Snapshot(
+                draft: draft,
+                orphanLegacyAssignments: orphanLegacyAssignments,
+                isReadOnly: isReadOnly,
+                copyCandidateRecords: copyCandidateRecords,
+                copyCandidatePresentations: copyCandidatePresentations,
+                copyCandidateBySample: copyCandidateBySample,
+                copyAssignmentsBySample: copyAssignmentsBySample
+            )
+        }
+    }
+
+    private struct EditorState: Sendable {
+        let snapshot: Snapshot
+        let filteredCopyCandidates: [CopyCandidate]
+    }
+
+    @Published private var editorState: EditorState
     @Published private(set) var persistenceErrorMessage: String?
     @Published private(set) var copySearchText = ""
 
-    let isReadOnly: Bool
-    let orphanLegacyAssignments: [ManualHaplotypeAssignment]
-
-    private let copyAssignmentSnapshots:
-        [GenotypeManualHaplotypeAssignmentIndex.SampleAssignments]
     private let onSave:
         (GenotypeManualHaplotypeDraft) throws
             -> GenotypeManualHaplotypeDraft
-    private let onReload: () throws -> GenotypeManualHaplotypeDraft
+    private let onReload: () throws -> Snapshot
     private let onExport: () -> Void
     private let announcementPoster: any AccessibilityAnnouncementPosting
 
+    private(set) var copyCandidatePresentationBuildCount: Int
+    private(set) var copyFilterEvaluationCount = 1
+    private(set) var copyFilterCandidateScanCount = 0
+
     init(
-        draft: GenotypeManualHaplotypeDraft,
-        copyCandidates:
-            [GenotypeManualHaplotypeAssignmentIndex.SampleAssignments],
-        orphanLegacyAssignments: [ManualHaplotypeAssignment] = [],
-        isReadOnly: Bool,
+        snapshot: Snapshot,
         onSave: @escaping (
             GenotypeManualHaplotypeDraft
         ) throws -> GenotypeManualHaplotypeDraft,
-        onReload: @escaping () throws -> GenotypeManualHaplotypeDraft,
+        onReload: @escaping () throws -> Snapshot,
         onExport: @escaping () -> Void,
         announcementPoster: any AccessibilityAnnouncementPosting =
             AccessibilityAnnouncementPoster()
     ) {
-        self.draft = draft
-        self.copyAssignmentSnapshots = copyCandidates.filter {
-            $0.sample != draft.sample
-        }
-        self.orphanLegacyAssignments = orphanLegacyAssignments
-        self.isReadOnly = isReadOnly
+        self.editorState = EditorState(
+            snapshot: snapshot,
+            filteredCopyCandidates: snapshot.copyCandidates
+        )
+        self.copyCandidatePresentationBuildCount =
+            snapshot.copyCandidateCount
         self.onSave = onSave
         self.onReload = onReload
         self.onExport = onExport
         self.announcementPoster = announcementPoster
+    }
+
+    private var snapshot: Snapshot { editorState.snapshot }
+
+    var draft: GenotypeManualHaplotypeDraft { snapshot.draft }
+    var isReadOnly: Bool { snapshot.isReadOnly }
+    var orphanLegacyAssignments: [ManualHaplotypeAssignment] {
+        snapshot.orphanLegacyAssignments
+    }
+    var filteredCopyCandidates: [CopyCandidate] {
+        editorState.filteredCopyCandidates
     }
 
     var rows: [RowPresentation] {
@@ -89,26 +235,7 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
     }
 
     var copyCandidates: [CopyCandidate] {
-        copyAssignmentSnapshots.map(Self.copyCandidate)
-    }
-
-    var filteredCopyCandidates: [CopyCandidate] {
-        let query = copySearchText
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .folding(
-                options: [.caseInsensitive, .diacriticInsensitive],
-                locale: Locale(identifier: "en_US_POSIX")
-            )
-        guard !query.isEmpty else { return copyCandidates }
-        return copyCandidates.filter { candidate in
-            [candidate.sample, candidate.compactSummary]
-                .joined(separator: " ")
-                .folding(
-                    options: [.caseInsensitive, .diacriticInsensitive],
-                    locale: Locale(identifier: "en_US_POSIX")
-                )
-                .contains(query)
-        }
+        snapshot.copyCandidates
     }
 
     var canSave: Bool {
@@ -135,7 +262,7 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
     }
 
     var copyEmptyStateMessage: String? {
-        guard copyAssignmentSnapshots.isEmpty else { return nil }
+        guard snapshot.copyCandidateCount == 0 else { return nil }
         return "No other samples are available to copy."
     }
 
@@ -156,7 +283,7 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
         guard !isReadOnly else { return }
         var updated = draft
         updated.setLabel(label, locus: locus, slot: slot)
-        draft = updated
+        replaceDraft(updated)
         announceAutocomplete(for: label, locus: locus, slot: slot)
     }
 
@@ -167,7 +294,7 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
         guard !isReadOnly else { return }
         var updated = draft
         updated.clear(locus: locus, slot: slot)
-        draft = updated
+        replaceDraft(updated)
     }
 
     func autocompleteSuggestions(
@@ -181,22 +308,22 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
     }
 
     func updateCopySearch(_ query: String) {
+        guard query != copySearchText else { return }
         copySearchText = query
+        refreshFilteredCopyCandidates()
     }
 
     func copyAssignments(from sample: String) {
         guard !isReadOnly,
-              let source = copyAssignmentSnapshots.first(where: {
-                  $0.sample == sample
-              }) else {
+              let source = snapshot.copyAssignments(for: sample) else {
             return
         }
         var updated = draft
         updated.copyAssignments(from: source)
-        draft = updated
+        replaceDraft(updated)
         persistenceErrorMessage = nil
         announcementPoster.post(
-            "Copied \(Self.copyCandidate(source).completenessSummary) from \(source.sample).",
+            "Copied \(copyCandidate(for: sample).completenessSummary) from \(source.sample).",
             priority: .medium
         )
     }
@@ -204,7 +331,7 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
     func save() {
         guard canSave else { return }
         do {
-            draft = try onSave(draft)
+            replaceDraft(try onSave(draft))
             persistenceErrorMessage = nil
             announcementPoster.post(
                 "Saved haplotype assignments for \(draft.sample).",
@@ -225,7 +352,21 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
 
     func reload() {
         do {
-            draft = try onReload()
+            let reloadedSnapshot = try onReload()
+            copyCandidatePresentationBuildCount +=
+                reloadedSnapshot.copyCandidateCount
+            let query = Self.normalizedSearchKey(copySearchText)
+            recordFilterEvaluation(
+                query: query,
+                candidateCount: reloadedSnapshot.copyCandidateCount
+            )
+            editorState = EditorState(
+                snapshot: reloadedSnapshot,
+                filteredCopyCandidates:
+                    reloadedSnapshot.filteredCopyCandidates(
+                        matching: query
+                    )
+            )
             persistenceErrorMessage = nil
             announcementPoster.post(
                 "Reloaded haplotype assignments for \(draft.sample).",
@@ -313,23 +454,101 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
                 "\(assignments.sample), \(completeness), \(displaySummary)"
         )
     }
+
+    private func copyCandidate(for sample: String) -> CopyCandidate {
+        snapshot.copyCandidate(for: sample)
+            ?? CopyCandidate(
+                sample: sample,
+                assignedSlotCount: 0,
+                completenessSummary: "0 of 14 assigned",
+                compactSummary: "No assignments",
+                accessibilityLabel:
+                    "\(sample), 0 of 14 assigned, No assignments"
+            )
+    }
+
+    private func refreshFilteredCopyCandidates() {
+        let query = Self.normalizedSearchKey(copySearchText)
+        recordFilterEvaluation(
+            query: query,
+            candidateCount: snapshot.copyCandidateCount
+        )
+        editorState = EditorState(
+            snapshot: snapshot,
+            filteredCopyCandidates:
+                snapshot.filteredCopyCandidates(matching: query)
+        )
+    }
+
+    private func replaceDraft(_ draft: GenotypeManualHaplotypeDraft) {
+        editorState = EditorState(
+            snapshot: snapshot.replacingDraft(draft),
+            filteredCopyCandidates: filteredCopyCandidates
+        )
+    }
+
+    private func recordFilterEvaluation(
+        query: String,
+        candidateCount: Int
+    ) {
+        copyFilterEvaluationCount += 1
+        copyFilterCandidateScanCount = query.isEmpty ? 0 : candidateCount
+    }
+
+    private static func normalizedSearchKey(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(
+                options: [.caseInsensitive, .diacriticInsensitive],
+                locale: Locale(identifier: "en_US_POSIX")
+            )
+    }
 }
 
 @MainActor
 struct GenotypeManualHaplotypeEditor: View {
     @ObservedObject var model: GenotypeManualHaplotypeEditorModel
+    var typographyModel: ContentTypographyModel = .shared
+
+    private var headingFont: Font {
+        typographyModel.font(for: .emphasizedBody)
+    }
+    private var bodyFont: Font {
+        typographyModel.font(for: .body)
+    }
+    private var captionFont: Font {
+        typographyModel.font(for: .caption)
+    }
+    private var monospacedFont: Font {
+        typographyModel.font(for: .monospaced)
+    }
+    private var comboFieldFont: NSFont {
+        typographyModel.resolvedNSFont(for: .body)
+    }
+
+    var testingContentTypographyPointSizes: (
+        heading: CGFloat,
+        caption: CGFloat,
+        comboField: CGFloat
+    ) {
+        (
+            typographyModel.resolvedNSFont(for: .emphasizedBody).pointSize,
+            typographyModel.resolvedNSFont(for: .caption).pointSize,
+            comboFieldFont.pointSize
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Haplotype Assignments")
-                .font(.headline)
+                .font(headingFont)
             Text("Edit the two manual assignments for each workbook locus.")
-                .font(.caption)
+                .font(captionFont)
                 .foregroundStyle(.secondary)
 
             if let readOnlyMessage = model.readOnlyMessage {
                 Label(readOnlyMessage, systemImage: "lock.fill")
-                    .font(.caption)
+                    .font(captionFont)
                     .foregroundStyle(.secondary)
                     .accessibilityIdentifier(
                         "manual-haplotype-read-only-message"
@@ -341,7 +560,7 @@ struct GenotypeManualHaplotypeEditor: View {
                         orphanWarning,
                         systemImage: "exclamationmark.triangle.fill"
                     )
-                    .font(.caption)
+                    .font(captionFont)
                     .foregroundStyle(.secondary)
                     ForEach(
                         Array(
@@ -352,7 +571,7 @@ struct GenotypeManualHaplotypeEditor: View {
                         Text(
                             "\(assignment.locus) \(assignment.slot.displayName): \(assignment.label)"
                         )
-                        .font(.caption.monospaced())
+                        .font(monospacedFont)
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                     }
@@ -364,7 +583,7 @@ struct GenotypeManualHaplotypeEditor: View {
             }
             if let emptyStateMessage = model.emptyStateMessage {
                 Text(emptyStateMessage)
-                    .font(.caption)
+                    .font(captionFont)
                     .foregroundStyle(.secondary)
                     .accessibilityIdentifier(
                         "manual-haplotype-empty-message"
@@ -374,7 +593,7 @@ struct GenotypeManualHaplotypeEditor: View {
             ForEach(model.rows) { row in
                 VStack(alignment: .leading, spacing: 5) {
                     Text(row.locus.workbookLabel)
-                        .font(.caption.weight(.semibold))
+                        .font(headingFont)
                     slotEditor(row.h1)
                     slotEditor(row.h2)
                 }
@@ -392,7 +611,7 @@ struct GenotypeManualHaplotypeEditor: View {
             if let error = model.persistenceErrorMessage {
                 VStack(alignment: .leading, spacing: 6) {
                     Label(error, systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
+                        .font(captionFont)
                         .foregroundStyle(.secondary)
                     HStack {
                         Button("Retry") { model.retry() }
@@ -443,7 +662,7 @@ struct GenotypeManualHaplotypeEditor: View {
     ) -> some View {
         HStack(alignment: .center, spacing: 6) {
             Text(slot.slot.displayName)
-                .font(.caption)
+                .font(captionFont)
                 .frame(width: 22, alignment: .leading)
             Group {
                 if let colorTokenIndex = slot.colorTokenIndex {
@@ -465,6 +684,7 @@ struct GenotypeManualHaplotypeEditor: View {
                 accessibilityLabel: slot.accessibilityLabel,
                 accessibilityIdentifier: slot.accessibilityIdentifier,
                 isEnabled: !model.isReadOnly,
+                font: comboFieldFont,
                 onChange: {
                     model.updateLabel(
                         $0,
@@ -473,7 +693,12 @@ struct GenotypeManualHaplotypeEditor: View {
                     )
                 }
             )
-            .frame(minWidth: 120, idealWidth: 180, maxWidth: .infinity)
+            .frame(
+                minWidth: 120,
+                idealWidth: 180,
+                maxWidth: .infinity,
+                minHeight: ceil(comboFieldFont.pointSize + 10)
+            )
 
             if let validation = slot.validationDescription {
                 Image(systemName: "exclamationmark.triangle.fill")
@@ -505,7 +730,7 @@ struct GenotypeManualHaplotypeEditor: View {
             VStack(alignment: .leading, spacing: 6) {
                 if let empty = model.copyEmptyStateMessage {
                     Text(empty)
-                        .font(.caption)
+                        .font(captionFont)
                         .foregroundStyle(.secondary)
                 } else {
                     TextField(
@@ -516,6 +741,7 @@ struct GenotypeManualHaplotypeEditor: View {
                         )
                     )
                     .textFieldStyle(.roundedBorder)
+                    .font(bodyFont)
                     .accessibilityLabel(
                         "Search samples to copy haplotype assignments"
                     )
@@ -525,7 +751,7 @@ struct GenotypeManualHaplotypeEditor: View {
 
                     if model.filteredCopyCandidates.isEmpty {
                         Text("No samples match this search.")
-                            .font(.caption)
+                            .font(captionFont)
                             .foregroundStyle(.secondary)
                     } else {
                         ScrollView {
@@ -543,10 +769,11 @@ struct GenotypeManualHaplotypeEditor: View {
                                             spacing: 1
                                         ) {
                                             Text(candidate.sample)
+                                                .font(bodyFont)
                                             Text(
                                                 "\(candidate.completenessSummary) \u{2022} \(candidate.compactSummary)"
                                             )
-                                            .font(.caption2)
+                                            .font(captionFont)
                                             .foregroundStyle(.secondary)
                                             .lineLimit(2)
                                         }
@@ -566,6 +793,7 @@ struct GenotypeManualHaplotypeEditor: View {
             .padding(.top, 4)
         }
         .disabled(model.isReadOnly)
+        .font(bodyFont)
         .accessibilityIdentifier("manual-haplotype-copy-picker")
     }
 
@@ -588,6 +816,7 @@ private struct ManualHaplotypeComboBox: NSViewRepresentable {
     let accessibilityLabel: String
     let accessibilityIdentifier: String
     let isEnabled: Bool
+    let font: NSFont
     let onChange: (String) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -599,8 +828,6 @@ private struct ManualHaplotypeComboBox: NSViewRepresentable {
         comboBox.isEditable = true
         comboBox.completes = true
         comboBox.usesDataSource = false
-        comboBox.controlSize = .small
-        comboBox.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         comboBox.delegate = context.coordinator
         configure(comboBox)
         return comboBox
@@ -621,6 +848,7 @@ private struct ManualHaplotypeComboBox: NSViewRepresentable {
             comboBox.addItems(withObjectValues: suggestions)
         }
         comboBox.isEnabled = isEnabled
+        comboBox.font = font
         comboBox.setAccessibilityLabel(accessibilityLabel)
         comboBox.setAccessibilityIdentifier(accessibilityIdentifier)
     }

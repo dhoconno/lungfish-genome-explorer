@@ -153,6 +153,220 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
         XCTAssertTrue(model.canSave)
     }
 
+    func testReloadAtomicallyRefreshesDraftCatalogCandidatesOrphansAndWritability() {
+        let oldOrphan = ManualHaplotypeAssignment(
+            sample: "Animal-1",
+            locus: "MHC-OLD-OPAQUE",
+            slot: .h1,
+            label: "Old opaque",
+            colorTokenIndex: 1,
+            diagnosticAlleles: [],
+            notes: "old"
+        )
+        let newOrphan = ManualHaplotypeAssignment(
+            sample: "Animal-1",
+            locus: "MHC-NEW-OPAQUE",
+            slot: .h2,
+            label: "New opaque",
+            colorTokenIndex: 7,
+            diagnosticAlleles: [],
+            notes: "new"
+        )
+        let oldAssignments = [
+            assignment(
+                sample: "Animal-2",
+                locus: .a,
+                slot: .h1,
+                label: "Old source",
+                color: 1
+            ),
+            oldOrphan,
+        ]
+        let newAssignments = [
+            assignment(
+                sample: "Animal-1",
+                locus: .b,
+                slot: .h2,
+                label: "Reloaded current",
+                color: 3
+            ),
+            assignment(
+                sample: "Animal-2",
+                locus: .a,
+                slot: .h1,
+                label: "New source",
+                color: 5
+            ),
+            newOrphan,
+        ]
+        var nextSnapshot = makeSnapshot(
+            sample: "Animal-1",
+            assignments: newAssignments,
+            candidateSamples: ["Animal-2"],
+            orphanLegacyAssignments: [newOrphan],
+            isReadOnly: true
+        )
+        var savedDraft: GenotypeManualHaplotypeDraft?
+        let model = GenotypeManualHaplotypeEditorModel(
+            snapshot: makeSnapshot(
+                sample: "Animal-1",
+                assignments: oldAssignments,
+                candidateSamples: ["Animal-2"],
+                orphanLegacyAssignments: [oldOrphan],
+                isReadOnly: false
+            ),
+            onSave: {
+                savedDraft = $0
+                return self.cleanDraft(from: $0)
+            },
+            onReload: { nextSnapshot },
+            onExport: {},
+            announcementPoster: RecordingManualHaplotypeAnnouncements()
+        )
+
+        model.reload()
+
+        XCTAssertEqual(model.draft[.b, .h2]?.label, "Reloaded current")
+        XCTAssertEqual(model.copyCandidates.map(\.compactSummary), ["MHC-A H1 New source"])
+        XCTAssertEqual(model.orphanLegacyAssignments, [newOrphan])
+        XCTAssertTrue(model.isReadOnly)
+        XCTAssertEqual(
+            model.autocompleteSuggestions(
+                matching: "new",
+                locus: .a,
+                slot: .h1
+            ).map(\.label),
+            ["New source"]
+        )
+        XCTAssertTrue(
+            model.autocompleteSuggestions(
+                matching: "old",
+                locus: .a,
+                slot: .h1
+            ).isEmpty
+        )
+
+        nextSnapshot = makeSnapshot(
+            sample: "Animal-1",
+            assignments: newAssignments,
+            candidateSamples: ["Animal-2"],
+            orphanLegacyAssignments: [newOrphan],
+            isReadOnly: false
+        )
+        model.reload()
+        model.copyAssignments(from: "Animal-2")
+        model.save()
+
+        XCTAssertEqual(savedDraft?[.a, .h1]?.label, "New source")
+        XCTAssertEqual(savedDraft?.copySource, "Animal-2")
+    }
+
+    func testCopyCandidatePresentationAndFilteringAreCachedPerChange() {
+        let assignments = (0..<120).map { index in
+            assignment(
+                sample: "Animal-\(index)",
+                locus: .a,
+                slot: .h1,
+                label: "Family \(index)",
+                color: index % 8
+            )
+        }
+        let model = GenotypeManualHaplotypeEditorModel(
+            snapshot: makeSnapshot(
+                sample: "Selected",
+                assignments: assignments,
+                candidateSamples: assignments.map(\.sample)
+            ),
+            onSave: { self.cleanDraft(from: $0) },
+            onReload: {
+                self.makeSnapshot(
+                    sample: "Selected",
+                    assignments: assignments,
+                    candidateSamples: assignments.map(\.sample)
+                )
+            },
+            onExport: {},
+            announcementPoster: RecordingManualHaplotypeAnnouncements()
+        )
+        let initialBuilds = model.copyCandidatePresentationBuildCount
+        let initialEvaluations = model.copyFilterEvaluationCount
+
+        for _ in 0..<20 {
+            _ = model.copyCandidates
+            _ = model.filteredCopyCandidates
+        }
+
+        XCTAssertEqual(initialBuilds, 120)
+        XCTAssertEqual(model.copyCandidatePresentationBuildCount, initialBuilds)
+        XCTAssertEqual(model.copyFilterEvaluationCount, initialEvaluations)
+
+        model.updateCopySearch("family 11")
+
+        XCTAssertEqual(model.copyFilterEvaluationCount, initialEvaluations + 1)
+        XCTAssertLessThanOrEqual(model.copyFilterCandidateScanCount, 120)
+        XCTAssertEqual(model.filteredCopyCandidates.map(\.sample), [
+            "Animal-11",
+            "Animal-110",
+            "Animal-111",
+            "Animal-112",
+            "Animal-113",
+            "Animal-114",
+            "Animal-115",
+            "Animal-116",
+            "Animal-117",
+            "Animal-118",
+            "Animal-119",
+        ])
+
+        model.updateCopySearch("family 11")
+        XCTAssertEqual(model.copyFilterEvaluationCount, initialEvaluations + 1)
+    }
+
+    func testContentTypographyScalesHeadingsCaptionsAndComboFieldsWithoutChangingAccessibility() {
+        let notifications = NotificationCenter()
+        let preference = MutableManualHaplotypeTextSizePreference(.custom(100))
+        let provider = MutableManualHaplotypePreferredFonts(pointSize: 13)
+        let typography = ContentTypographyModel(
+            notificationCenter: notifications,
+            preferenceProvider: { preference.value },
+            preferredFontProvider: provider
+        )
+        let model = makeModel(sample: "Animal-1")
+        let view = GenotypeManualHaplotypeEditor(
+            model: model,
+            typographyModel: typography
+        )
+        let baseline = view.testingContentTypographyPointSizes
+        let accessibilityLabels = model.rows.flatMap {
+            [$0.h1.accessibilityLabel, $0.h2.accessibilityLabel]
+        }
+
+        preference.value = .custom(200)
+        notifications.post(name: .contentTextSizeDidChange, object: nil)
+
+        XCTAssertEqual(
+            view.testingContentTypographyPointSizes.heading,
+            baseline.heading * 2,
+            accuracy: 0.01
+        )
+        XCTAssertEqual(
+            view.testingContentTypographyPointSizes.caption,
+            baseline.caption * 2,
+            accuracy: 0.01
+        )
+        XCTAssertEqual(
+            view.testingContentTypographyPointSizes.comboField,
+            baseline.comboField * 2,
+            accuracy: 0.01
+        )
+        XCTAssertEqual(
+            model.rows.flatMap {
+                [$0.h1.accessibilityLabel, $0.h2.accessibilityLabel]
+            },
+            accessibilityLabels
+        )
+    }
+
     func testSaveFailureKeepsDraftAndOffersRetryAndReload() {
         struct SaveFailure: Error, LocalizedError {
             var errorDescription: String? { "Sidecar changed elsewhere." }
@@ -161,9 +375,11 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
         let original = makeDraft(sample: "Animal-1", assignments: [])
         let announcements = RecordingManualHaplotypeAnnouncements()
         let model = GenotypeManualHaplotypeEditorModel(
-            draft: original,
-            copyCandidates: [],
-            isReadOnly: false,
+            snapshot: GenotypeManualHaplotypeEditorModel.Snapshot(
+                draft: original,
+                copyCandidates: [],
+                isReadOnly: false
+            ),
             onSave: { draft in
                 saveAttempts += 1
                 if saveAttempts == 1 {
@@ -171,7 +387,13 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
                 }
                 return self.cleanDraft(from: draft)
             },
-            onReload: { original },
+            onReload: {
+                GenotypeManualHaplotypeEditorModel.Snapshot(
+                    draft: original,
+                    copyCandidates: [],
+                    isReadOnly: false
+                )
+            },
             onExport: {},
             announcementPoster: announcements
         )
@@ -236,15 +458,22 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
             notes: "preserve exactly"
         )
         let model = GenotypeManualHaplotypeEditorModel(
-            draft: makeDraft(sample: "Animal-1", assignments: [orphan]),
-            copyCandidates: [],
-            orphanLegacyAssignments: [orphan],
-            isReadOnly: false,
+            snapshot: GenotypeManualHaplotypeEditorModel.Snapshot(
+                draft: makeDraft(sample: "Animal-1", assignments: [orphan]),
+                copyCandidates: [],
+                orphanLegacyAssignments: [orphan],
+                isReadOnly: false
+            ),
             onSave: { self.cleanDraft(from: $0) },
             onReload: {
-                self.makeDraft(
-                    sample: "Animal-1",
-                    assignments: [orphan]
+                GenotypeManualHaplotypeEditorModel.Snapshot(
+                    draft: self.makeDraft(
+                        sample: "Animal-1",
+                        assignments: [orphan]
+                    ),
+                    copyCandidates: [],
+                    orphanLegacyAssignments: [orphan],
+                    isReadOnly: false
                 )
             },
             onExport: {},
@@ -278,11 +507,19 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
     ) -> GenotypeManualHaplotypeEditorModel {
         let draft = makeDraft(sample: sample, assignments: assignments)
         return GenotypeManualHaplotypeEditorModel(
-            draft: draft,
-            copyCandidates: copyCandidates,
-            isReadOnly: isReadOnly,
+            snapshot: GenotypeManualHaplotypeEditorModel.Snapshot(
+                draft: draft,
+                copyCandidates: copyCandidates,
+                isReadOnly: isReadOnly
+            ),
             onSave: { self.cleanDraft(from: $0) },
-            onReload: { draft },
+            onReload: {
+                GenotypeManualHaplotypeEditorModel.Snapshot(
+                    draft: draft,
+                    copyCandidates: copyCandidates,
+                    isReadOnly: isReadOnly
+                )
+            },
             onExport: onExport,
             announcementPoster: announcements
         )
@@ -297,6 +534,29 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
             index: GenotypeManualHaplotypeAssignmentIndex(
                 assignments: assignments
             )
+        )
+    }
+
+    private func makeSnapshot(
+        sample: String,
+        assignments: [ManualHaplotypeAssignment],
+        candidateSamples: [String],
+        orphanLegacyAssignments: [ManualHaplotypeAssignment] = [],
+        isReadOnly: Bool = false
+    ) -> GenotypeManualHaplotypeEditorModel.Snapshot {
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: assignments
+        )
+        return GenotypeManualHaplotypeEditorModel.Snapshot(
+            draft: GenotypeManualHaplotypeDraft(
+                sample: sample,
+                index: index
+            ),
+            copyCandidates: candidateSamples.map(
+                index.sampleAssignments(for:)
+            ),
+            orphanLegacyAssignments: orphanLegacyAssignments,
+            isReadOnly: isReadOnly
         )
     }
 
@@ -323,6 +583,45 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
             diagnosticAlleles: [],
             notes: ""
         )
+    }
+}
+
+@MainActor
+private final class MutableManualHaplotypeTextSizePreference {
+    var value: ContentTextSizePreference
+
+    init(_ value: ContentTextSizePreference) {
+        self.value = value
+    }
+}
+
+@MainActor
+private final class MutableManualHaplotypePreferredFonts:
+    ContentPreferredFontProviding {
+    var pointSize: CGFloat
+
+    init(pointSize: CGFloat) {
+        self.pointSize = pointSize
+    }
+
+    func preferredFont(for role: ContentTypography.Role) -> NSFont {
+        switch role {
+        case .monospaced:
+            return .monospacedSystemFont(
+                ofSize: pointSize,
+                weight: .regular
+            )
+        case .emphasizedBody, .tableHeader:
+            return .systemFont(ofSize: pointSize, weight: .semibold)
+        default:
+            return .systemFont(ofSize: pointSize)
+        }
+    }
+
+    func canonicalUnscaledPointSize(
+        for role: ContentTypography.Role
+    ) -> CGFloat {
+        13
     }
 }
 
