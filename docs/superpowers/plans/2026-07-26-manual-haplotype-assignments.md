@@ -85,17 +85,17 @@ git commit -m "feat: define genotype-only manual haplotype eligibility"
 - Test: `Tests/LungfishIOTests/GenotypeAnnotationSidecarTests.swift`
 - Create: `Tests/LungfishIOTests/GenotypeManualHaplotypeAssignmentIndexTests.swift`
 
-- [ ] **Step 1: Write failing migration/index tests**
+- [x] **Step 1: Write failing migration/index tests**
 
 Assert legacy JSON decodes, schema v3 round-trips IDs/timestamps/authors, newest structured record wins, last legacy array position is the deterministic fallback, one current record exists per semantic key, NFC/case-insensitive label deduplication preserves case, and lookup is sample→locus→H1/H2.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `swift test --filter 'ManualHaplotypeAssignmentTests|GenotypeAnnotationSidecarTests|GenotypeManualHaplotypeAssignmentIndexTests'`
 
 Expected: missing-property and schema-version failures.
 
-- [ ] **Step 3: Implement backward-compatible metadata and indexing**
+- [x] **Step 3: Implement backward-compatible metadata and indexing**
 
 Add optional-decoding `assignmentID`, `updatedAt`, and `author` with defaults in the existing initializer. Bump sidecar schema to 3 and add structured manual-assignment audit payload fields without breaking older audit entries.
 
@@ -109,13 +109,13 @@ public struct GenotypeManualHaplotypeAssignmentKey: Hashable, Sendable {
 
 Build current assignments and the normalized label/color catalog in one bounded pass.
 
-- [ ] **Step 4: Run tests and verify GREEN**
+- [x] **Step 4: Run tests and verify GREEN**
 
 Run: `swift test --filter 'ManualHaplotypeAssignmentTests|GenotypeAnnotationSidecarTests|GenotypeManualHaplotypeAssignmentIndexTests'`
 
 Expected: all selected tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/LungfishIO/Bundles Tests/LungfishIOTests
