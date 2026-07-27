@@ -206,6 +206,8 @@ public struct GenotypeWorkbookRevisionService {
         let knownCalls: [KnownCall]
         let tints: [String: Tint]
         let ooxmlAlphaSemantics: String
+        let expectedManagedStateAuthority: String?
+        let newManagedStateAuthority: String
 
         private enum CodingKeys: String, CodingKey {
             case candidateJSONPath = "candidate_json_path"
@@ -222,6 +224,8 @@ public struct GenotypeWorkbookRevisionService {
             case knownCalls = "known_calls"
             case tints
             case ooxmlAlphaSemantics = "ooxml_alpha_semantics"
+            case expectedManagedStateAuthority = "expected_managed_state_authority"
+            case newManagedStateAuthority = "new_managed_state_authority"
         }
     }
 
@@ -459,11 +463,18 @@ public struct GenotypeWorkbookRevisionService {
                 )
             }
         }
+        let expectedManagedStateAuthority = try managedWorkbookStateAuthority(
+            manifest: manifest,
+            bundleURL: bundle
+        )
         let configuration = try makeCandidateConfiguration(
             manifest: manifest,
             bundleURL: bundle,
             sidecar: sidecar,
-            preserveExistingWorkbookProjection: annotationOnly
+            preserveExistingWorkbookProjection: annotationOnly,
+            expectedManagedStateAuthority: expectedManagedStateAuthority,
+            newManagedStateAuthority:
+                expectedManagedStateAuthority ?? UUID().uuidString.lowercased()
         )
         try validateOptionalUpdatesDirectory(in: bundle)
         try checkCancellation()
@@ -563,6 +574,23 @@ public struct GenotypeWorkbookRevisionService {
         let executionRecord = try runPythonScript(scriptURL: scriptURL, arguments: scriptArguments)
         try writeStagedFile(try encoder.encode(executionRecord), to: stagedRuntimeRecordURL)
         try validateWorkbook(patchedURL)
+        let patchedWorkbookAttributes = try fileManager.attributesOfItem(
+            atPath: patchedURL.path
+        )
+        let patchedWorkbookSize =
+            (patchedWorkbookAttributes[.size] as? NSNumber)?.int64Value
+        let patchedWorkbookSHA256 = try ProvenanceFileHasher.sha256(of: patchedURL)
+        if patchedWorkbookSize == sourceWorkbookWitness.sizeBytes,
+           patchedWorkbookSHA256 == sourceWorkbookWitness.sha256 {
+            try requireUnchangedRegularFileNoFollow(
+                sourceWorkbookURL,
+                witness: sourceWorkbookWitness
+            )
+            try requireCLIInputDescriptorsUnchanged()
+            try requireAnnotationSidecarUnchanged()
+            try requireReviewableRowCatalogUnchanged()
+            return manifest
+        }
         try publicationFailureInjector?("after-python-before-source-conflict-check")
         try requireCLIInputDescriptorsUnchanged()
         try requireAnnotationSidecarUnchanged()
@@ -1191,7 +1219,9 @@ public struct GenotypeWorkbookRevisionService {
         manifest: ONTGenotypeResultBundleManifest,
         bundleURL: URL,
         sidecar: GenotypeAnnotationSidecar?,
-        preserveExistingWorkbookProjection: Bool = false
+        preserveExistingWorkbookProjection: Bool = false,
+        expectedManagedStateAuthority: String?,
+        newManagedStateAuthority: String
     ) throws -> WorkbookCandidateUpdateConfiguration {
         let artifacts = manifest.mhcCandidateArtifacts
         var normalizedUnmatchedRows: [FullLengthONTMHCNormalizedUnmatchedRow] = []
@@ -1345,7 +1375,9 @@ public struct GenotypeWorkbookRevisionService {
             samples: workbookSamples,
             knownCalls: workbookKnownCalls,
             tints: tints,
-            ooxmlAlphaSemantics: "The leading OOXML ARGB byte is alpha: 00 is transparent and FF is opaque; RGB and alpha are rounded from the exact bundle RGBA values."
+            ooxmlAlphaSemantics: "The leading OOXML ARGB byte is alpha: 00 is transparent and FF is opaque; RGB and alpha are rounded from the exact bundle RGBA values.",
+            expectedManagedStateAuthority: expectedManagedStateAuthority,
+            newManagedStateAuthority: newManagedStateAuthority
         )
     }
 
@@ -1927,7 +1959,35 @@ public struct GenotypeWorkbookRevisionService {
             "mhcWorkbookSampleCount": .integer(configuration.samples.count),
             "mhcWorkbookKnownCallCount": .integer(configuration.knownCalls.count),
             "ooxmlAlphaSemantics": .string(configuration.ooxmlAlphaSemantics),
+            "managedWorkbookStateAuthority": .string(
+                configuration.newManagedStateAuthority
+            ),
         ]
+    }
+
+    private func managedWorkbookStateAuthority(
+        manifest: ONTGenotypeResultBundleManifest,
+        bundleURL: URL
+    ) throws -> String? {
+        guard let revision = latestCurrentWorkbookRevision(in: manifest),
+              revision.path == manifest.currentWorkbookPath,
+              let provenancePath = revision.provenancePath else {
+            return nil
+        }
+        let provenanceURL = ONTGenotypeResultBundle.resolvedURL(
+            for: provenancePath,
+            in: bundleURL
+        )
+        try validateRegularBundleFile(
+            provenanceURL,
+            in: bundleURL,
+            role: "current workbook provenance"
+        )
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: provenanceURL)
+        )
+        return envelope.options.explicit["managedWorkbookStateAuthority"]?.stringValue
     }
 
     private func makePythonProvenanceStep(

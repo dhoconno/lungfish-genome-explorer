@@ -4,9 +4,12 @@ extension GenotypeWorkbookRevisionService {
     var workbookOverrideScript: String {
         #"""
 import json
+import hashlib
 import re
+import shutil
 import sys
 import platform
+import zipfile
 import openpyxl
 from copy import copy
 from openpyxl import load_workbook
@@ -45,6 +48,14 @@ normalized_unmatched_rows = candidate_configuration.get("normalized_unmatched_ro
 known_allele_display_names = candidate_configuration.get("known_allele_display_names") or {}
 workbook_samples = candidate_configuration.get("samples") or []
 workbook_known_calls = candidate_configuration.get("known_calls") or []
+expected_managed_state_authority = str(
+    candidate_configuration.get("expected_managed_state_authority") or ""
+).strip()
+new_managed_state_authority = str(
+    candidate_configuration.get("new_managed_state_authority") or ""
+).strip()
+if not new_managed_state_authority:
+    raise ValueError("Managed workbook state authority is missing")
 
 reviewable_row_catalog = {}
 if reviewable_row_catalog_path:
@@ -605,7 +616,7 @@ resolved_matrix_styles = resolve_current_annotations(matrix_styles)
 resolved_matrix_comments = resolve_current_annotations(matrix_comments)
 MANAGED_REVIEW_STATE_SHEET = "_LGE Matrix Review State"
 MANAGED_REVIEW_STATE_SCHEMA_ID = "org.lungfish.matrix-review-state"
-MANAGED_REVIEW_STATE_SCHEMA_VERSION = 2
+MANAGED_REVIEW_STATE_SCHEMA_VERSION = 3
 LEGACY_MANAGED_REVIEW_STATE_HEADERS = [
     "Sheet", "Target Kind", "Locus", "Genotype", "Sample",
     "Stable Cluster ID", "Coordinate", "Disposition", "Original Value",
@@ -620,10 +631,11 @@ UNVERSIONED_MANAGED_REVIEW_STATE_HEADERS = [
     "Adapter", "Synthetic Row Index", "Expected Synthetic Row",
     "Marker Row Index", "Expected Marker Row",
 ]
-VERSIONED_MANAGED_REVIEW_STATE_HEADERS = (
+VERSIONED_MANAGED_REVIEW_STATE_PREFIX = (
     UNVERSIONED_MANAGED_REVIEW_STATE_HEADERS
     + [MANAGED_REVIEW_STATE_SCHEMA_ID, MANAGED_REVIEW_STATE_SCHEMA_VERSION]
 )
+managed_state_created_for_current_run = False
 ANNOTATION_ONLY_BLOCK_CALL_TYPE = "analyst-annotation-only-block"
 ANNOTATION_ONLY_CALL_TYPE = "analyst-annotation-only"
 ANNOTATION_ONLY_BLOCK_LABEL = "Analyst annotation-only rows"
@@ -1568,13 +1580,121 @@ def set_lge_comment(cell, sections):
 
 
 def managed_review_state_sheet():
+    global managed_state_created_for_current_run
     if MANAGED_REVIEW_STATE_SHEET in wb.sheetnames:
-        managed_review_state_schema()
+        if not managed_state_created_for_current_run:
+            managed_review_state_schema()
         return wb[MANAGED_REVIEW_STATE_SHEET]
     ws = wb.create_sheet(MANAGED_REVIEW_STATE_SHEET)
-    ws.append(VERSIONED_MANAGED_REVIEW_STATE_HEADERS)
+    ws.append(
+        VERSIONED_MANAGED_REVIEW_STATE_PREFIX
+        + [new_managed_state_authority, ""]
+    )
     ws.sheet_state = "veryHidden"
+    managed_state_created_for_current_run = True
     return ws
+
+
+def managed_state_payload_digest(state, authority):
+    def color_payload(color):
+        if color is None:
+            return None
+        color_type = clean(color.type)
+        if color_type == "rgb":
+            value = clean(color.rgb).upper()
+        elif color_type == "indexed":
+            value = color.indexed
+        elif color_type == "theme":
+            value = color.theme
+        elif color_type == "auto":
+            value = bool(color.auto)
+        else:
+            value = None
+        return {"type": color_type, "value": value}
+
+    def font_payload(font):
+        return {
+            "italic": bool(font.i),
+            "color": color_payload(font.color),
+        }
+
+    def fill_payload(fill):
+        return {
+            "type": clean(fill.fill_type),
+            "foreground": color_payload(fill.fgColor),
+            "background": color_payload(fill.bgColor),
+        }
+
+    def side_payload(side):
+        if side is None:
+            return None
+        return {
+            "style": clean(side.style),
+            "color": color_payload(side.color),
+        }
+
+    def border_payload(border):
+        return {
+            side: side_payload(getattr(border, side))
+            for side in ("left", "right", "top", "bottom", "diagonal")
+        }
+
+    rows = []
+    for row in range(2, state.max_row + 1):
+        cells = []
+        for col in range(1, len(UNVERSIONED_MANAGED_REVIEW_STATE_HEADERS) + 1):
+            cell = state.cell(row, col)
+            payload = {
+                "value": serialize_managed_value(cell.value),
+            }
+            if col in (10, 14):
+                payload["font"] = font_payload(cell.font)
+            elif col in (11, 15):
+                payload["fill"] = fill_payload(cell.fill)
+            elif col in (12, 16):
+                payload["border"] = border_payload(cell.border)
+            cells.append(payload)
+        rows.append(cells)
+    payload = json.dumps(
+        {"authority": authority, "rows": rows},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def validate_legacy_managed_state(state):
+    for row in range(2, state.max_row + 1):
+        destination = state_destination(state, row)
+        coordinate = clean(state.cell(row, 7).value).upper()
+        if destination is None or destination.coordinate.upper() != coordinate:
+            raise ValueError(
+                "Legacy managed review-state coordinate does not match its "
+                "recorded matrix target; workbook was not modified"
+            )
+        disposition = clean(state.cell(row, 8).value)
+        if disposition == "falsePositive":
+            value = clean(destination.value)
+            valid = (
+                value.startswith("[")
+                and value.endswith("]")
+                and bool(destination.font.italic)
+                and color_has_rgb_suffix(destination.font.color, "767676")
+            )
+        else:
+            valid = all(
+                clean(getattr(destination.border, side_name).style) == "thick"
+                and color_has_rgb_suffix(
+                    getattr(destination.border, side_name).color,
+                    "000000",
+                )
+                for side_name in ("left", "right", "top", "bottom")
+            )
+        if not valid:
+            raise ValueError(
+                "Legacy managed review-state presentation is inconsistent "
+                "with the recorded annotation; workbook was not modified"
+            )
 
 
 def managed_review_state_schema():
@@ -1592,11 +1712,14 @@ def managed_review_state_schema():
     ]
     while headers and not headers[-1]:
         headers.pop()
-    versioned_headers = [clean(value) for value in VERSIONED_MANAGED_REVIEW_STATE_HEADERS]
-    if headers == versioned_headers:
+    versioned_prefix = [
+        clean(value) for value in VERSIONED_MANAGED_REVIEW_STATE_PREFIX
+    ]
+    if (
+        len(headers) == len(versioned_prefix) + 2
+        and headers[:len(versioned_prefix)] == versioned_prefix
+    ):
         schema = "versioned-current"
-    elif headers == UNVERSIONED_MANAGED_REVIEW_STATE_HEADERS:
-        schema = "unversioned-current"
     elif headers == LEGACY_MANAGED_REVIEW_STATE_HEADERS:
         schema = "legacy"
     else:
@@ -1622,6 +1745,23 @@ def managed_review_state_schema():
                 "Reserved managed review-state sheet contains malformed records; "
                 "workbook was not modified"
             )
+    if schema == "versioned-current":
+        authority = headers[-2]
+        recorded_digest = headers[-1].lower()
+        calculated_digest = managed_state_payload_digest(state, authority)
+        if (
+            not expected_managed_state_authority
+            or authority != expected_managed_state_authority
+            or not re.fullmatch(r"[0-9a-f]{64}", recorded_digest)
+            or calculated_digest != recorded_digest
+        ):
+            raise ValueError(
+                "Reserved managed review-state authority or payload binding "
+                "does not match the current workbook revision; "
+                "workbook was not modified"
+            )
+    elif schema == "legacy":
+        validate_legacy_managed_state(state)
     return schema
 
 
@@ -1747,6 +1887,10 @@ def finalize_managed_synthetic_state():
         state.cell(row, 22).value = cached_row_signature(
             signature_cache, ws, marker_row
         )
+    state.cell(1, 25).value = new_managed_state_authority
+    state.cell(1, 26).value = managed_state_payload_digest(
+        state, new_managed_state_authority
+    )
 
 
 def state_destination(state, row):
@@ -3038,7 +3182,38 @@ if uses_two_sheet_mhc_contract and not preserve_existing_workbook_projection:
         write_matrix_annotation_sheet(matrix_review_results)
         apply_matrix_annotations_to_workbook(matrix_review_results)
 
+
+def normalized_package_members(path):
+    members = {}
+    with zipfile.ZipFile(path) as archive:
+        for name in archive.namelist():
+            content = archive.read(name)
+            if name == "docProps/core.xml":
+                content = re.sub(
+                    rb"(<dcterms:modified\b[^>]*>).*?(</dcterms:modified>)",
+                    rb"\1\2",
+                    content,
+                    flags=re.DOTALL,
+                )
+            members[name] = content
+    return members
+
+
 wb.save(output_path)
+if MANAGED_REVIEW_STATE_SHEET in wb.sheetnames:
+    canonical_wb = load_workbook(output_path)
+    canonical_state = canonical_wb[MANAGED_REVIEW_STATE_SHEET]
+    canonical_state.cell(1, 25).value = new_managed_state_authority
+    canonical_state.cell(1, 26).value = managed_state_payload_digest(
+        canonical_state, new_managed_state_authority
+    )
+    canonical_wb.save(output_path)
+workbook_semantic_no_op = (
+    normalized_package_members(input_path)
+    == normalized_package_members(output_path)
+)
+if workbook_semantic_no_op:
+    shutil.copyfile(input_path, output_path)
 print(json.dumps({
     "python_version": platform.python_version(),
     "python_executable": sys.executable,
@@ -3048,6 +3223,7 @@ print(json.dumps({
     "candidate_count": len([row for row in normalized_unmatched_rows if clean(row.get("record_category")) == "candidate"]),
     "unnameable_count": len([row for row in normalized_unmatched_rows if clean(row.get("record_category")) == "un-nameable"]),
     "preserved_existing_workbook_projection": preserve_existing_workbook_projection,
+    "workbook_semantic_no_op": workbook_semantic_no_op,
 }, sort_keys=True))
 """#
     }
