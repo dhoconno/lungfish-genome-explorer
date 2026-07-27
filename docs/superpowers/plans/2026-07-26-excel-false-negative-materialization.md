@@ -217,7 +217,7 @@ git commit -m "feat: attest review catalog in workbook revisions"
 - Modify: `Sources/LungfishWorkflow/ONTGenotyping/GenotypeWorkbookRevisionService+OverrideScript.swift:796-1146`
 - Test: `Tests/LungfishWorkflowTests/GenotypeWorkbookRevisionServiceTests.swift`
 
-- [ ] **Step 1: Add failing missing-row lifecycle tests**
+- [x] **Step 1: Add failing missing-row lifecycle tests**
 
 Add fixtures for unified and supported generic layouts. Assert one
 annotation-only row is appended in a labeled, canonically sorted end block; two
@@ -233,13 +233,13 @@ zero supporting reads, analyst-metadata marker, blank sample evidence before
 `FN`, and adapter-owned styles. Assert the table/autofilter end ranges expand
 exactly to include the block.
 
-- [ ] **Step 2: Run the focused new test and verify RED**
+- [x] **Step 2: Run the focused new test and verify RED**
 
 Run: `swift test --filter GenotypeWorkbookRevisionServiceTests/testAbsentZeroSupportFalseNegativeCreatesManagedAnnotationOnlyRow`
 
 Expected: failure with the existing “No workbook cell matches” validation result.
 
-- [ ] **Step 3: Implement explicit adapters and ordered mutation**
+- [x] **Step 3: Implement explicit adapters and ordered mutation**
 
 Replace heuristic synthesis with adapter detection. The script must:
 
@@ -252,13 +252,13 @@ Replace heuristic synthesis with adapter detection. The script must:
 
 Managed state stores complete serialized original and expected managed value/font/fill/border plus semantic identity and synthetic-row status. Restore a property only when it still equals the expected managed property.
 
-- [ ] **Step 4: Run workbook lifecycle tests**
+- [x] **Step 4: Run workbook lifecycle tests**
 
 Run: `swift test --filter GenotypeWorkbookRevisionServiceTests`
 
 Expected: all workbook revision tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/LungfishWorkflow/ONTGenotyping/GenotypeWorkbookRevisionService+OverrideScript.swift Tests/LungfishWorkflowTests/GenotypeWorkbookRevisionServiceTests.swift
@@ -274,17 +274,17 @@ git commit -m "feat: materialize managed false negative rows"
 - Test: `Tests/LungfishWorkflowTests/GenotypeWorkbookRevisionServiceTests.swift`
 - Test: `Tests/LungfishCLITests/FastqGenotypingCommandTests.swift`
 
-- [ ] **Step 1: Write failing exact-style and provenance tests**
+- [x] **Step 1: Write failing exact-style and provenance tests**
 
 Inspect the produced OOXML and openpyxl-loaded cells. Assert literal `FN`, `mediumDashed` on all sides, border color `FFC65911`, fill `FFFFF2CC`, bold font color `FF7F6000`, preserved composed comment, blank-versus-zero restoration, and output provenance containing sidecar revision/hash, catalog descriptor, adapter version, synthesized identities/cells, decisions, output descriptor, runtime, argv, exit, wall time, and stderr.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `swift test --filter GenotypeWorkbookRevisionServiceTests/testAbsentZeroSupportFalseNegativeUsesExactPortablePresentation`
 
 Expected: failure because the existing style is a thick black border and the cell has no `FN` text.
 
-- [ ] **Step 3: Implement style and structured script result**
+- [x] **Step 3: Implement style and structured script result**
 
 Use:
 
@@ -298,13 +298,13 @@ cell.font = copy(cell.font, bold=True, color="FF7F6000")
 
 Return adapter, restoration, synthesis, and target-cell decisions in structured script JSON; parse them into the canonical revision provenance.
 
-- [ ] **Step 4: Run service and CLI tests**
+- [x] **Step 4: Run service and CLI tests**
 
 Run: `swift test --filter 'GenotypeWorkbookRevisionServiceTests|FastqGenotypingCommandTests|ScientificCLIProvenanceCoverageTests'`
 
 Expected: all selected tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/LungfishWorkflow/ONTGenotyping/GenotypeWorkbookRevisionService+OverrideScript.swift Sources/LungfishWorkflow/ONTGenotyping/GenotypeWorkbookRevisionService.swift Sources/LungfishCLI/Commands/FastqUpdateCurrentWorkbookSubcommand.swift Tests
