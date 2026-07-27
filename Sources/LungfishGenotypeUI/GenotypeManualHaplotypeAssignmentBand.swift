@@ -2,21 +2,41 @@ import AppKit
 import LungfishCore
 import LungfishIO
 
+/// Window-owned, bundle-keyed presentation state. A viewer keeps one instance
+/// for its lifetime and shares it with replacement result controllers.
+@MainActor
+public final class GenotypeManualHaplotypeBandDisclosureStore {
+    private var expansionByBundlePath: [String: Bool] = [:]
+
+    public init() {}
+
+    public func expansion(for bundleURL: URL) -> Bool? {
+        expansionByBundlePath[bundleURL.standardizedFileURL.path]
+    }
+
+    public func setExpansion(_ expanded: Bool, for bundleURL: URL) {
+        expansionByBundlePath[bundleURL.standardizedFileURL.path] = expanded
+    }
+}
+
 @MainActor
 struct GenotypeManualHaplotypeAssignmentBandSnapshot: Equatable {
     static let loci = GenotypeManualHaplotypeLocus.allCases
 
     let valuesBySample: [String: [String]]
+    let tooltipsBySample: [String: [String]]
     let accessibilitySummaryBySample: [String: String]
 
     init(index: GenotypeManualHaplotypeAssignmentIndex, samples: [String]) {
         var valuesBySample: [String: [String]] = [:]
+        var tooltipsBySample: [String: [String]] = [:]
         var summaries: [String: String] = [:]
         valuesBySample.reserveCapacity(samples.count)
         summaries.reserveCapacity(samples.count)
 
         for sample in samples {
             var summaryParts: [String] = []
+            var sampleTooltips: [String] = []
             let values = Self.loci.map { locus -> String in
                 let assignments = index.assignments(sample: sample, locus: locus)
                 let h1 = assignments.h1?.label
@@ -31,6 +51,10 @@ struct GenotypeManualHaplotypeAssignmentBandSnapshot: Equatable {
                             + locusSummary.joined(separator: ", ")
                     )
                 }
+                sampleTooltips.append(
+                    "\(locus.workbookLabel) — H1: \(h1 ?? "unassigned"); "
+                        + "H2: \(h2 ?? "unassigned")"
+                )
                 switch (h1, h2) {
                 case (.none, .none): return "—"
                 case let (.some(h1), .none): return "\(h1) · —"
@@ -39,11 +63,13 @@ struct GenotypeManualHaplotypeAssignmentBandSnapshot: Equatable {
                 }
             }
             valuesBySample[sample] = values
+            tooltipsBySample[sample] = sampleTooltips
             summaries[sample] = summaryParts.isEmpty
                 ? "No manual haplotype assignments"
                 : "Manual haplotypes: " + summaryParts.joined(separator: "; ")
         }
         self.valuesBySample = valuesBySample
+        self.tooltipsBySample = tooltipsBySample
         self.accessibilitySummaryBySample = summaries
     }
 
@@ -52,6 +78,16 @@ struct GenotypeManualHaplotypeAssignmentBandSnapshot: Equatable {
         return Set(samples.filter {
             valuesBySample[$0] != previous.valuesBySample[$0]
         })
+    }
+
+    func tooltip(
+        sample: String,
+        locus: GenotypeManualHaplotypeLocus
+    ) -> String? {
+        guard let locusIndex = Self.loci.firstIndex(of: locus) else {
+            return nil
+        }
+        return tooltipsBySample[sample]?[locusIndex]
     }
 }
 
@@ -68,7 +104,7 @@ final class GenotypeManualHaplotypePinnedBandView: NSView {
     var onDisclosureChanged: ((Bool) -> Void)?
 
     private let disclosureButton = NSButton(
-        title: "Manual haplotypes (H1 · H2)",
+        title: "Haplotype Assignments",
         target: nil,
         action: nil
     )
@@ -108,6 +144,8 @@ final class GenotypeManualHaplotypePinnedBandView: NSView {
         onDisclosureChanged?(sender.state == .on)
     }
 
+    var disclosureLabel: String { disclosureButton.title }
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard isExpanded else { return }
@@ -132,7 +170,8 @@ final class GenotypeManualHaplotypePinnedBandView: NSView {
 }
 
 @MainActor
-final class GenotypeManualHaplotypeSampleBandView: NSView {
+final class GenotypeManualHaplotypeSampleBandView:
+    NSView, NSViewToolTipOwner {
     var snapshot = GenotypeManualHaplotypeAssignmentBandSnapshot(
         index: GenotypeManualHaplotypeAssignmentIndex(assignments: []),
         samples: []
@@ -141,6 +180,7 @@ final class GenotypeManualHaplotypeSampleBandView: NSView {
     var font = NSFont.systemFont(ofSize: 11)
     var rowHeight: CGFloat = 22
     var isExpanded = true
+    private var tooltipTag: NSView.ToolTipTag?
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { false }
@@ -154,6 +194,40 @@ final class GenotypeManualHaplotypeSampleBandView: NSView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layout() {
+        super.layout()
+        if let tooltipTag {
+            removeToolTip(tooltipTag)
+        }
+        tooltipTag = isExpanded && !bounds.isEmpty
+            ? addToolTip(bounds, owner: self, userData: nil)
+            : nil
+    }
+
+    func view(
+        _ view: NSView,
+        stringForToolTip tag: NSView.ToolTipTag,
+        point: NSPoint,
+        userData data: UnsafeMutableRawPointer?
+    ) -> String {
+        guard isExpanded,
+              let sample = columnFrames.first(where: {
+                  $0.value.contains(point)
+              })?.key else {
+            return ""
+        }
+        let row = Int(floor(point.y / max(rowHeight, 1))) - 1
+        guard row >= 0,
+              row < GenotypeManualHaplotypeAssignmentBandSnapshot.loci.count
+        else {
+            return ""
+        }
+        return snapshot.tooltip(
+            sample: sample,
+            locus: GenotypeManualHaplotypeAssignmentBandSnapshot.loci[row]
+        ) ?? ""
     }
 
     func invalidate(samples: Set<String>) {

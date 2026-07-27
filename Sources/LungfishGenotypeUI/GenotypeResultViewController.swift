@@ -170,6 +170,8 @@ public final class GenotypeResultViewController: NSViewController {
     public var onSelectionStateChanged: ((GenotypeResultSelectionState?) -> Void)?
     public var onDisplaySummaryChanged: ((Int, Int, Int) -> Void)?
     public var onDisplayStateChanged: ((GenotypeResultDisplayState) -> Void)?
+    public var manualHaplotypeBandDisclosureStore:
+        GenotypeManualHaplotypeBandDisclosureStore?
     public var onAnnotationSidecarChanged: ((GenotypeAnnotationSidecar) -> Void)?
     public var onMatrixReviewCapabilityChanged: ((GenotypeMatrixReviewCapabilityState) -> Void)?
     public var onMatrixVisibilityCapabilityChanged:
@@ -947,6 +949,11 @@ public final class GenotypeResultViewController: NSViewController {
         candidateSettingsPersistenceGeneration &+= 1
         self.result = result
         manualHaplotypeEligibility = GenotypeManualHaplotypeEligibility.evaluate(result)
+        if case .eligible = manualHaplotypeEligibility {
+            displayState.manualHaplotypeBandExpanded =
+                manualHaplotypeBandDisclosureStore?
+                    .expansion(for: result.bundleURL) ?? true
+        }
         hasHaplotypingResult = result.haplotypeAnalysis != nil
         quickFilterBar.configureSearchCapability(
             hasHaplotypingResult: hasHaplotypingResult
@@ -2571,6 +2578,10 @@ public final class GenotypeResultViewController: NSViewController {
             [weak self] expanded in
             guard let self else { return }
             self.displayState.manualHaplotypeBandExpanded = expanded
+            if let bundleURL = self.result?.bundleURL {
+                self.manualHaplotypeBandDisclosureStore?
+                    .setExpansion(expanded, for: bundleURL)
+            }
             self.onDisplayStateChanged?(self.displayState)
         }
     }
@@ -9359,6 +9370,14 @@ extension GenotypeResultViewController {
 
     var testingLastManualHaplotypeFocusedFieldIdentifier: String? {
         testingLastManualHaplotypeFocusIdentifier
+    }
+
+    func testingSetManualHaplotypeBandDisclosureExpanded(
+        _ expanded: Bool
+    ) {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix
+            .testingSetManualHaplotypeBandDisclosureExpanded(expanded)
     }
 
     var testingManualHaplotypeEditorIsDirty: Bool {

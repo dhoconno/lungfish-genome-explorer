@@ -37,6 +37,8 @@ extension ViewerViewController {
         let controller = GenotypeResultViewController()
         controller.annotationAuthorProvider = { AppSettings.shared.resolvedAnalystIdentity() }
         controller.windowStateScope = windowStateScope
+        controller.manualHaplotypeBandDisclosureStore =
+            genotypeManualHaplotypeBandDisclosureStore
         addChild(controller)
 
         annotationDrawerView?.isHidden = true

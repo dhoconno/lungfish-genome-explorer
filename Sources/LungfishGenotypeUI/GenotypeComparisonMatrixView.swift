@@ -914,7 +914,6 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         pinnedScrollView.translatesAutoresizingMaskIntoConstraints = false
         pinnedScrollView.hasVerticalScroller = false
         pinnedScrollView.hasHorizontalScroller = true
-        pinnedScrollView.automaticallyAdjustsContentInsets = false
         pinnedScrollView.autohidesScrollers = true
         pinnedScrollView.verticalScrollElasticity = .none
         pinnedScrollView.contentView = VerticallyClampedClipView()
@@ -933,7 +932,6 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
-        scrollView.automaticallyAdjustsContentInsets = false
         scrollView.autohidesScrollers = true
         scrollView.verticalScrollElasticity = .none
         scrollView.contentView = VerticallyClampedClipView()
@@ -4603,6 +4601,10 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private func updateManualHaplotypeBand(
         assignments: [ManualHaplotypeAssignment]
     ) {
+        guard manualHaplotypeEditingEligible else {
+            manualHaplotypeBandAssignments = []
+            return
+        }
         guard assignments != manualHaplotypeBandAssignments
                 || Set(manualHaplotypeBandSnapshot.valuesBySample.keys)
                     != Set(sampleNames) else {
@@ -4665,6 +4667,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 
     private func applyManualHaplotypeBandPresentation() {
         let hidden = !manualHaplotypeEditingEligible
+        pinnedScrollView.automaticallyAdjustsContentInsets = hidden
+        scrollView.automaticallyAdjustsContentInsets = hidden
         manualHaplotypePinnedBand.isHidden = hidden
         manualHaplotypeSampleBand.isHidden = hidden
         manualHaplotypePinnedBand.isExpanded =
@@ -4747,6 +4751,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     private func updateManualHaplotypeHeaderAccessibility() {
+        guard manualHaplotypeEditingEligible else { return }
         for column in tableView.tableColumns {
             guard let sample = sampleColumnLookup[column.identifier] else {
                 continue
@@ -6281,6 +6286,47 @@ extension GenotypeComparisonMatrixView {
 
     var testingManualHaplotypeBandIsExpanded: Bool {
         displayState.manualHaplotypeBandExpanded
+    }
+
+    func testingSetManualHaplotypeBandDisclosureExpanded(
+        _ expanded: Bool
+    ) {
+        displayState.manualHaplotypeBandExpanded = expanded
+        applyManualHaplotypeBandPresentation()
+        onManualHaplotypeBandExpansionChanged?(expanded)
+    }
+
+    var testingManualHaplotypeBandDisclosureLabel: String {
+        manualHaplotypePinnedBand.disclosureLabel
+    }
+
+    func testingManualHaplotypeBandTooltip(
+        sample: String,
+        locus: String
+    ) -> String? {
+        guard let locus = GenotypeManualHaplotypeLocus(
+            normalizing: locus
+        ) else {
+            return nil
+        }
+        return manualHaplotypeBandSnapshot.tooltip(
+            sample: sample,
+            locus: locus
+        )
+    }
+
+    var testingManualHaplotypeBandTopInsets: [CGFloat] {
+        [
+            pinnedScrollView.contentInsets.top,
+            scrollView.contentInsets.top,
+        ]
+    }
+
+    var testingManualHaplotypeBandAutomaticInsetAdjustment: [Bool] {
+        [
+            pinnedScrollView.automaticallyAdjustsContentInsets,
+            scrollView.automaticallyAdjustsContentInsets,
+        ]
     }
 
     var testingManualHaplotypeBandRowHeight: CGFloat {

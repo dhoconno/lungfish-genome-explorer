@@ -5630,6 +5630,210 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
     }
 
+    func testManualHaplotypeBandDisclosurePersistsPerWindowAndBundleAcrossControllerRecreation() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "ManualHaplotypeDisclosure-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let firstBundle = root.appendingPathComponent(
+            "first.lungfishgenotype",
+            isDirectory: true
+        )
+        let secondBundle = root.appendingPathComponent(
+            "second.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: firstBundle,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: secondBundle,
+            withIntermediateDirectories: true
+        )
+        let store = GenotypeManualHaplotypeBandDisclosureStore()
+        var firstController: GenotypeResultViewController? =
+            GenotypeResultViewController()
+        firstController?.manualHaplotypeBandDisclosureStore = store
+        _ = firstController?.view
+        firstController?.configure(
+            result: makeResult(
+                bundleURL: firstBundle,
+                samples: [],
+                calls: [
+                    makeCall(
+                        sample: "AnimalA",
+                        genotype: "01_Mafa_A1_001_01",
+                        reads: 42
+                    ),
+                ]
+            )
+        )
+        firstController?
+            .testingSetManualHaplotypeBandDisclosureExpanded(false)
+        XCTAssertFalse(firstController?.testingDisplayState
+            .manualHaplotypeBandExpanded ?? true)
+        firstController = nil
+
+        let recreated = GenotypeResultViewController()
+        recreated.manualHaplotypeBandDisclosureStore = store
+        _ = recreated.view
+        recreated.configure(
+            result: makeResult(
+                bundleURL: firstBundle,
+                samples: [],
+                calls: [
+                    makeCall(
+                        sample: "AnimalA",
+                        genotype: "01_Mafa_A1_001_01",
+                        reads: 42
+                    ),
+                ]
+            )
+        )
+        XCTAssertFalse(
+            recreated.testingDisplayState.manualHaplotypeBandExpanded
+        )
+
+        recreated.configure(
+            result: makeResult(
+                bundleURL: secondBundle,
+                samples: [],
+                calls: [
+                    makeCall(
+                        sample: "AnimalB",
+                        genotype: "01_Mafa_A1_001_01",
+                        reads: 21
+                    ),
+                ]
+            )
+        )
+        XCTAssertTrue(
+            recreated.testingDisplayState.manualHaplotypeBandExpanded
+        )
+        recreated.configure(
+            result: makeResult(
+                bundleURL: firstBundle,
+                samples: [],
+                calls: [
+                    makeCall(
+                        sample: "AnimalA",
+                        genotype: "01_Mafa_A1_001_01",
+                        reads: 42
+                    ),
+                ]
+            )
+        )
+        XCTAssertFalse(
+            recreated.testingDisplayState.manualHaplotypeBandExpanded
+        )
+    }
+
+    func testManualHaplotypeBandLeavesIneligibleAccessibilityAndScrollingUnchanged() {
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixComments = [
+            .init(
+                target: .column(sample: "AnimalA"),
+                body: "Column note.",
+                author: "test",
+                timestamp: "2026-07-27T00:00:00Z"
+            ),
+        ]
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.configure(
+            result: makeResult(
+                samples: [],
+                calls: [
+                    makeCall(
+                        sample: "AnimalA",
+                        genotype: "01_Mafa_A1_001_01",
+                        reads: 42
+                    ),
+                ],
+                haplotypeAnalysis: GenotypeHaplotypeAnalysis(
+                    assayID: "MHC-exon2-miSeq",
+                    definitionSetID: "test",
+                    definitionSetName: "Test",
+                    speciesName: "Test",
+                    samples: []
+                )
+            ),
+            sidecar: sidecar
+        )
+        matrix.layoutSubtreeIfNeeded()
+
+        let label = matrix.testingColumnAccessibilityLabel(
+            sample: "AnimalA"
+        ) ?? ""
+        XCTAssertTrue(label.contains("1 sample column comment"))
+        XCTAssertFalse(label.contains("Manual haplotypes"))
+        XCTAssertEqual(matrix.testingManualHaplotypeBandTopInsets, [0, 0])
+        XCTAssertEqual(
+            matrix.testingManualHaplotypeBandAutomaticInsetAdjustment,
+            [true, true]
+        )
+    }
+
+    func testManualHaplotypeBandUsesApprovedLabelAndCompletePairTooltip() {
+        let longH1 = "M1A assignment label that is intentionally long"
+        let longH2 = "M2A assignment label that is also intentionally long"
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.manualHaplotypeAssignments = [
+            ManualHaplotypeAssignment(
+                sample: "AnimalA",
+                locus: "MHC-A",
+                slot: .h1,
+                label: longH1,
+                colorTokenIndex: 1,
+                diagnosticAlleles: [],
+                notes: ""
+            ),
+            ManualHaplotypeAssignment(
+                sample: "AnimalA",
+                locus: "MHC-A",
+                slot: .h2,
+                label: longH2,
+                colorTokenIndex: 2,
+                diagnosticAlleles: [],
+                notes: ""
+            ),
+        ]
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.frame = NSRect(x: 0, y: 0, width: 520, height: 480)
+        matrix.configure(
+            result: makeResult(
+                samples: [],
+                calls: [
+                    makeCall(
+                        sample: "AnimalA",
+                        genotype: "01_Mafa_A1_001_01",
+                        reads: 42
+                    ),
+                ]
+            ),
+            sidecar: sidecar
+        )
+        matrix.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(
+            matrix.testingManualHaplotypeBandDisclosureLabel,
+            "Haplotype Assignments"
+        )
+        XCTAssertEqual(
+            matrix.testingManualHaplotypeBandTooltip(
+                sample: "AnimalA",
+                locus: "MHC-A"
+            ),
+            "MHC-A — H1: \(longH1); H2: \(longH2)"
+        )
+    }
+
     func testManualHaplotypeBandTracksHorizontalGeometryAcrossScrollReorderResizeAndVisibility() throws {
         let matrix = GenotypeComparisonMatrixView()
         matrix.frame = NSRect(x: 0, y: 0, width: 560, height: 520)
