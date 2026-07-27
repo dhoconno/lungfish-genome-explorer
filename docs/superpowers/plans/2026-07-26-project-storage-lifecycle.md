@@ -82,30 +82,30 @@ git commit -m "feat: attest owned project work directories"
 - Modify: `Sources/LungfishIO/Bundles/ONTGenotypeWorkbookUpdateTransaction.swift:500-700,1324-1345`
 - Modify: `Tests/LungfishWorkflowTests/GenotypeWorkbookRevisionServiceTests.swift:1770-1810`
 
-- [ ] **Step 1: Replace the archive expectation with failing state-machine tests**
+- [x] **Step 1: Replace the archive expectation with failing state-machine tests**
 
 Cover committed, prepared-discard, rollback, and manual-save-winner branches with injected faults after detach, after state durability, after marker removal, and during quarantine traversal. Assert no permanent generation archive remains, a valid generation is always authoritative, and cleanup retry cannot delete a substituted inode.
 
 Traversal failure must also durably record and surface a storage warning naming
 the retained quarantine and retry state.
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run: `swift test --filter GenotypeWorkbookRevisionServiceTests/testAutomaticFinalizationDetachesAndRemovesRetiredGeneration`
 
 Expected: failure because the code creates `.lungfish-workbook-generation-archive-*`.
 
-- [ ] **Step 3: Implement the cleanup-pending state machine**
+- [x] **Step 3: Implement the cleanup-pending state machine**
 
 Rename the proven retired root exclusively to `.lungfish-workbook-cleanup-pending-<transactionID>`, fsync the parent, durably record source/quarantine identities and terminal decision, then retire marker/attestation. Recursive removal targets only the detached quarantine and never follows symlinks. Recovery processes cleanup state even when the original transaction marker is gone.
 
-- [ ] **Step 4: Run all workbook recovery tests**
+- [x] **Step 4: Run all workbook recovery tests**
 
 Run: `swift test --filter GenotypeWorkbookRevisionServiceTests`
 
 Expected: all selected tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/LungfishIO/Bundles/ONTGenotypeWorkbookCleanupState.swift Sources/LungfishIO/Bundles/ONTGenotypeWorkbookUpdateTransaction.swift Tests/LungfishWorkflowTests/GenotypeWorkbookRevisionServiceTests.swift
