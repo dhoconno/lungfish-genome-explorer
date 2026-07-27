@@ -3581,6 +3581,19 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                 ),
                 error.localizedDescription
             )
+            for expected in [
+                "initial creation",
+                ProjectOperationHistoryWriter.historyDirectoryName,
+                "cleanup-plan.json",
+                request.outputDirectory.path,
+                "published artifacts valid: true",
+                "retained roots:",
+            ] {
+                XCTAssertTrue(
+                    error.localizedDescription.contains(expected),
+                    error.localizedDescription
+                )
+            }
         }
 
         XCTAssertTrue(
@@ -3639,6 +3652,19 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                 ),
                 error.localizedDescription
             )
+            for expected in [
+                "terminal append",
+                ProjectOperationHistoryWriter.historyDirectoryName,
+                "cleanup-plan.json",
+                request.outputDirectory.path,
+                "published artifacts valid: true",
+                "retained roots:",
+            ] {
+                XCTAssertTrue(
+                    error.localizedDescription.contains(expected),
+                    error.localizedDescription
+                )
+            }
         }
 
         let historyRoot = root.appendingPathComponent(
@@ -3693,6 +3719,180 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                 "The planned pre-mutation identity plus absence makes the exact removed disposition recoverable."
             )
         }
+    }
+
+    func testCleanupPlanIdentityMismatchRetainsSubstitutedFullLengthDirectoryAndFile() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "full-length-cleanup-identity-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directoryToken = Data("replacement-owned-directory".utf8)
+        let fileToken = Data("replacement-generated-file".utf8)
+        let heldDirectory = root.appendingPathComponent(
+            "held-planned-candidate",
+            isDirectory: true
+        )
+        let heldFile = root.appendingPathComponent("held-planned-generated")
+        let witnessURL = root.appendingPathComponent(
+            "replacement-identity-witness.json"
+        )
+        let (request, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            cleanupJournalObserver: { event in
+                guard case .afterInitialCreationBeforeMutation = event else {
+                    return
+                }
+                let candidate = try XCTUnwrap(
+                    FileManager.default.contentsOfDirectory(
+                        at: root,
+                        includingPropertiesForKeys: nil
+                    ).first {
+                        $0.lastPathComponent.contains(
+                            "candidate-artifact-work"
+                        )
+                    }
+                )
+                try FileManager.default.moveItem(
+                    at: candidate,
+                    to: heldDirectory
+                )
+                try FileManager.default.createDirectory(
+                    at: candidate,
+                    withIntermediateDirectories: false
+                )
+                try directoryToken.write(
+                    to: candidate.appendingPathComponent("replacement-token")
+                )
+
+                let workflow = root.appendingPathComponent(
+                    "full-length.lungfishgenotype/workflow",
+                    isDirectory: true
+                )
+                let generated = try XCTUnwrap(
+                    FileManager.default.enumerator(
+                        at: workflow,
+                        includingPropertiesForKeys: [.isRegularFileKey]
+                    )?.compactMap { $0 as? URL }.first {
+                        (try? $0.resourceValues(
+                            forKeys: [.isRegularFileKey]
+                        ).isRegularFile) == true
+                    }
+                )
+                try FileManager.default.moveItem(
+                    at: generated,
+                    to: heldFile
+                )
+                try fileToken.write(to: generated)
+                let directoryIdentity =
+                    try FileSystemObjectIdentity.noFollow(candidate)
+                let fileIdentity =
+                    try FileSystemObjectIdentity.noFollow(generated)
+                try JSONSerialization.data(
+                    withJSONObject: [
+                        "directoryPath": candidate.path,
+                        "directoryDevice": directoryIdentity.device,
+                        "directoryInode": directoryIdentity.inode,
+                        "filePath": generated.path,
+                        "fileDevice": fileIdentity.device,
+                        "fileInode": fileIdentity.inode,
+                    ],
+                    options: [.sortedKeys]
+                ).write(to: witnessURL)
+            }
+        )
+
+        let result = try await pipeline.run(request)
+        XCTAssertTrue(
+            result.cleanupWarnings.contains {
+                $0.error.contains("did not match detached identity")
+            }
+        )
+        let replacementDirectory = try XCTUnwrap(
+            FileManager.default.contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: nil
+            ).first {
+                $0.lastPathComponent.contains("candidate-artifact-work")
+            }
+        )
+        XCTAssertEqual(
+            try Data(
+                contentsOf: replacementDirectory.appendingPathComponent(
+                    "replacement-token"
+                )
+            ),
+            directoryToken
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: heldDirectory.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: heldFile.path))
+        let witness = try XCTUnwrap(
+            try JSONSerialization.jsonObject(
+                with: Data(contentsOf: witnessURL)
+            ) as? [String: Any]
+        )
+        let witnessedDirectory = URL(
+            fileURLWithPath: try XCTUnwrap(
+                witness["directoryPath"] as? String
+            ),
+            isDirectory: true
+        )
+        let witnessedFile = URL(
+            fileURLWithPath: try XCTUnwrap(
+                witness["filePath"] as? String
+            )
+        )
+        let survivingDirectoryIdentity =
+            try FileSystemObjectIdentity.noFollow(witnessedDirectory)
+        let survivingFileIdentity =
+            try FileSystemObjectIdentity.noFollow(witnessedFile)
+        XCTAssertEqual(
+            survivingDirectoryIdentity.inode,
+            (witness["directoryInode"] as? NSNumber)?.uint64Value
+        )
+        XCTAssertEqual(
+            survivingDirectoryIdentity.device,
+            (witness["directoryDevice"] as? NSNumber)?.uint64Value
+        )
+        XCTAssertEqual(
+            survivingFileIdentity.inode,
+            (witness["fileInode"] as? NSNumber)?.uint64Value
+        )
+        XCTAssertEqual(
+            survivingFileIdentity.device,
+            (witness["fileDevice"] as? NSNumber)?.uint64Value
+        )
+        XCTAssertEqual(try Data(contentsOf: witnessedFile), fileToken)
+
+        let operation = try XCTUnwrap(
+            FileManager.default.contentsOfDirectory(
+                at: root.appendingPathComponent(
+                    ProjectOperationHistoryWriter.historyDirectoryName,
+                    isDirectory: true
+                ),
+                includingPropertiesForKeys: nil
+            ).first
+        )
+        let terminal = try XCTUnwrap(
+            try JSONSerialization.jsonObject(
+                with: Data(
+                    contentsOf: operation.appendingPathComponent(
+                        "cleanup-disposition.json"
+                    )
+                )
+            ) as? [String: Any]
+        )
+        let entries = try XCTUnwrap(
+            terminal["entries"] as? [[String: Any]]
+        )
+        XCTAssertGreaterThanOrEqual(
+            entries.filter {
+                $0["disposition"] as? String
+                    == "retained-identity-mismatch"
+            }.count,
+            2
+        )
+        XCTAssertEqual(try Data(contentsOf: witnessedFile), fileToken)
     }
 
     func testAtomicPublicationFailureWritesCompleteCommandProvenanceReceipt() async throws {
@@ -5893,10 +6093,16 @@ private struct SelectiveFailingPostPublicationCleaner: FullLengthONTMHCWorkDirec
         let label: String
         switch target {
         case .workflowIntermediates:
-            shouldFail = url.lastPathComponent == "workflow"
+            shouldFail =
+                url.lastPathComponent == "workflow"
+                || url.lastPathComponent.contains(
+                    ".workflow.cleanup-quarantine-"
+                )
             label = "workflow intermediates"
         case .cohortAlignmentTemporaryWorkDirectory:
-            shouldFail = url.lastPathComponent.hasPrefix("full-length-ont-mhc-cohort-alignment-")
+            shouldFail = url.lastPathComponent.contains(
+                "full-length-ont-mhc-cohort-alignment-"
+            )
             label = "cohort alignment temporary work directory"
         }
         if shouldFail {

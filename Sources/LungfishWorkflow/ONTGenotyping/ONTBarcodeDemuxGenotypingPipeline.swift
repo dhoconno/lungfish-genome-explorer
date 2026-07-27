@@ -894,6 +894,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let supportDirectory = request.outputDirectory
             .appendingPathComponent(".amplicon-genotyping", isDirectory: true)
         var failureCleanupDispositions: [AmpliconWorkDirectoryDisposition] = []
+        var successfulCleanupPlan: GenotypingCleanupPlan?
         do {
         try FileManager.default.createDirectory(
             at: supportDirectory,
@@ -1147,7 +1148,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         }
 
         progressHandler?(0.97, "Removing regenerable alignment intermediates.")
-        try beginSuccessfulCleanupJournal(
+        let cleanupPlan = try beginSuccessfulCleanupJournal(
             runID: runID,
             projectRoot: projectRoot,
             request: request,
@@ -1155,10 +1156,12 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             preserveRetainedEvidence: preserveRetainedEvidence,
             supportDirectory: supportDirectory
         )
+        successfulCleanupPlan = cleanupPlan
         let alignmentDispositions = cleanupGeneratedAlignmentIntermediates(
             for: request,
             mapping: mapping,
-            preserveRetainedEvidence: preserveRetainedEvidence
+            preserveRetainedEvidence: preserveRetainedEvidence,
+            cleanupPlan: cleanupPlan
         )
         failureCleanupDispositions.append(contentsOf: alignmentDispositions)
         if let cleanupFailure = alignmentDispositions.first(where: {
@@ -1172,44 +1175,49 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                     + "\(cleanupFailure.error ?? "unknown cleanup error")"
             )
         }
-        try OwnedWorkDirectoryMarkerStore.transition(
-            supportDirectory,
-            expectedProjectURL: projectRoot,
-            expectedRunID: runID,
-            to: .completed
-        )
         let supportPath = supportDirectory.standardizedFileURL.path
         if request.keepIntermediates {
-            failureCleanupDispositions.append(.init(
-                path: supportPath,
-                disposition: "retained-by-request",
-                error: nil
-            ))
+            failureCleanupDispositions.append(
+                identityBoundRetainedDisposition(
+                    plan: cleanupPlan,
+                    url: supportDirectory
+                ) { detachedURL in
+                    try OwnedWorkDirectoryMarkerStore.transition(
+                        detachedURL,
+                        expectedProjectURL: projectRoot,
+                        expectedRunID: runID,
+                        to: .completed
+                    )
+                }
+            )
         } else {
-            do {
-                try fileRemover(supportDirectory)
-                failureCleanupDispositions.append(.init(
-                    path: supportPath,
-                    disposition: "removed",
-                    error: nil
-                ))
-            } catch {
-                failureCleanupDispositions.append(.init(
-                    path: supportPath,
-                    disposition: "retained-cleanup-failed",
-                    error: error.localizedDescription
-                ))
+            let disposition = identityBoundRemovalDisposition(
+                plan: cleanupPlan,
+                url: supportDirectory,
+                successDisposition: "removed"
+            ) { detachedURL in
+                try OwnedWorkDirectoryMarkerStore.transition(
+                    detachedURL,
+                    expectedProjectURL: projectRoot,
+                    expectedRunID: runID,
+                    to: .completed
+                )
+                try fileRemover(detachedURL)
+            }
+            failureCleanupDispositions.append(disposition)
+            if let error = disposition.error {
                 throw ONTBarcodeDemuxGenotypingError.reportFailed(
                     status: 1,
                     stderr:
                         "Automatic support-directory cleanup failed for "
-                        + "\(supportPath): \(error.localizedDescription)"
+                        + "\(supportPath): \(error)"
                 )
             }
         }
         try appendSuccessfulCleanupDisposition(
             runID: runID,
             projectRoot: projectRoot,
+            outputBundleURL: request.outputDirectory,
             dispositions: failureCleanupDispositions
         )
         progressHandler?(0.98, "Finalizing amplicon genotyping outputs.")
@@ -1227,6 +1235,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 resolvedMode: resolvedMode,
                 resolvedReadType: resolvedReadType,
                 failureScientificFASTQURLs: failureScientificFASTQURLs,
+                cleanupPlan: successfulCleanupPlan,
                 additionalDispositions: failureCleanupDispositions
             )
         }
@@ -1249,6 +1258,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         resolvedMode: AmpliconGenotypingMode,
         resolvedReadType: AmpliconGenotypingReadType,
         failureScientificFASTQURLs: [URL],
+        cleanupPlan: GenotypingCleanupPlan?,
         additionalDispositions: [AmpliconWorkDirectoryDisposition]
     ) -> Error {
         let historyWriter = ProjectOperationHistoryWriter(
@@ -1331,40 +1341,71 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             disposition: "already-removed",
             error: nil
         )
-        if FileManager.default.fileExists(atPath: supportPath) {
-            do {
-                let marker = try OwnedWorkDirectoryMarkerStore.load(
-                    from: supportDirectory,
-                    expectedProjectURL: projectRoot
-                )
-                if marker.state == .active {
-                    try OwnedWorkDirectoryMarkerStore.transition(
-                        supportDirectory,
-                        expectedProjectURL: projectRoot,
-                        expectedRunID: runID,
-                        to: .failed
-                    )
-                }
+        if FileManager.default.fileExists(atPath: supportPath)
+            || cleanupPlan?.entry(for: supportDirectory) != nil {
+            if let cleanupPlan {
                 if request.keepIntermediates {
-                    supportDisposition = .init(
-                        path: supportPath,
-                        disposition: "retained-by-request",
-                        error: nil
-                    )
+                    supportDisposition = identityBoundRetainedDisposition(
+                        plan: cleanupPlan,
+                        url: supportDirectory
+                    ) { detachedURL in
+                        try OwnedWorkDirectoryMarkerStore.transition(
+                            detachedURL,
+                            expectedProjectURL: projectRoot,
+                            expectedRunID: runID,
+                            to: .failed
+                        )
+                    }
                 } else {
-                    try fileRemover(supportDirectory)
+                    supportDisposition = identityBoundRemovalDisposition(
+                        plan: cleanupPlan,
+                        url: supportDirectory,
+                        successDisposition: "removed"
+                    ) { detachedURL in
+                        try OwnedWorkDirectoryMarkerStore.transition(
+                            detachedURL,
+                            expectedProjectURL: projectRoot,
+                            expectedRunID: runID,
+                            to: .failed
+                        )
+                        try fileRemover(detachedURL)
+                    }
+                }
+            } else {
+                do {
+                    let marker = try OwnedWorkDirectoryMarkerStore.load(
+                        from: supportDirectory,
+                        expectedProjectURL: projectRoot
+                    )
+                    if marker.state == .active {
+                        try OwnedWorkDirectoryMarkerStore.transition(
+                            supportDirectory,
+                            expectedProjectURL: projectRoot,
+                            expectedRunID: runID,
+                            to: .failed
+                        )
+                    }
+                    if request.keepIntermediates {
+                        supportDisposition = .init(
+                            path: supportPath,
+                            disposition: "retained-by-request",
+                            error: nil
+                        )
+                    } else {
+                        try fileRemover(supportDirectory)
+                        supportDisposition = .init(
+                            path: supportPath,
+                            disposition: "removed",
+                            error: nil
+                        )
+                    }
+                } catch {
                     supportDisposition = .init(
                         path: supportPath,
-                        disposition: "removed",
-                        error: nil
+                        disposition: "retained-cleanup-failed",
+                        error: error.localizedDescription
                     )
                 }
-            } catch {
-                supportDisposition = .init(
-                    path: supportPath,
-                    disposition: "retained-cleanup-failed",
-                    error: error.localizedDescription
-                )
             }
         }
 
@@ -4999,7 +5040,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     private func cleanupGeneratedAlignmentIntermediates(
         for request: ONTBarcodeDemuxGenotypingRunRequest,
         mapping: MappingStepResult,
-        preserveRetainedEvidence: Bool
+        preserveRetainedEvidence: Bool,
+        cleanupPlan: GenotypingCleanupPlan
     ) -> [AmpliconWorkDirectoryDisposition] {
         let removableURLs = generatedAlignmentIntermediateURLs(
             for: request,
@@ -5010,29 +5052,25 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         var dispositions: [AmpliconWorkDirectoryDisposition] = []
         for url in removableURLs.map(\.standardizedFileURL)
         where seen.insert(url.path).inserted
-            && FileManager.default.fileExists(atPath: url.path) {
+            && cleanupPlan.entry(for: url) != nil {
             if request.keepIntermediates {
-                dispositions.append(.init(
-                    path: url.path,
-                    disposition: "retained-by-request",
-                    error: nil
-                ))
+                dispositions.append(
+                    identityBoundRetainedDisposition(
+                        plan: cleanupPlan,
+                        url: url,
+                        mutation: { _ in }
+                    )
+                )
                 continue
             }
-            do {
-                try fileRemover(url)
-                dispositions.append(.init(
-                    path: url.path,
-                    disposition: "removed",
-                    error: nil
-                ))
-            } catch {
-                dispositions.append(.init(
-                    path: url.path,
-                    disposition: "retained-cleanup-failed",
-                    error: error.localizedDescription
-                ))
-            }
+            dispositions.append(
+                identityBoundRemovalDisposition(
+                    plan: cleanupPlan,
+                    url: url,
+                    successDisposition: "removed",
+                    remover: fileRemover
+                )
+            )
         }
         return dispositions
     }
@@ -5044,35 +5082,41 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         mapping: MappingStepResult,
         preserveRetainedEvidence: Bool,
         supportDirectory: URL
-    ) throws {
-        do {
-            var candidates = generatedAlignmentIntermediateURLs(
-                for: request,
-                mapping: mapping,
-                preserveRetainedEvidence: preserveRetainedEvidence
-            ).map {
-                (
-                    url: $0,
-                    intendedAction:
-                        request.keepIntermediates
-                            ? "retain-by-request"
-                            : "remove-regenerable-alignment-intermediate"
-                )
-            }
-            candidates.append(
-                (
-                    url: supportDirectory,
-                    intendedAction:
-                        request.keepIntermediates
-                            ? "retain-by-request-after-marker-completion"
-                            : "remove-owned-support-directory-after-marker-completion"
-                )
+    ) throws -> GenotypingCleanupPlan {
+        var candidates: [
+            (
+                url: URL,
+                intendedAction: GenotypingCleanupIntendedAction
             )
+        ] = generatedAlignmentIntermediateURLs(
+            for: request,
+            mapping: mapping,
+            preserveRetainedEvidence: preserveRetainedEvidence
+        ).map {
+            (
+                url: $0,
+                intendedAction:
+                    request.keepIntermediates
+                        ? .retainByRequest
+                        : .removeRegenerableAlignmentIntermediate
+            )
+        }
+        candidates.append(
+            (
+                url: supportDirectory,
+                intendedAction:
+                    request.keepIntermediates
+                        ? .retainByRequestAfterMarkerCompletion
+                        : .removeOwnedSupportDirectoryAfterMarkerCompletion
+            )
+        )
+        do {
             let entries = try GenotypingCleanupJournal.planEntries(candidates)
             try cleanupJournalObserver(.beforeInitialCreation)
-            _ = try ProjectOperationHistoryWriter(
+            let writer = ProjectOperationHistoryWriter(
                 projectURL: projectRoot
-            ).createOperation(
+            )
+            _ = try writer.createOperation(
                 operationID: runID,
                 payloads: [
                     GenotypingCleanupJournal.planPayloadName:
@@ -5082,9 +5126,34 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                         ),
                 ]
             )
+            let plan = GenotypingCleanupPlan(
+                runID: runID,
+                operationURL: writer.operationDirectoryURL(for: runID),
+                outputBundleURL: request.outputDirectory,
+                entriesByPath: Dictionary(
+                    uniqueKeysWithValues: entries.map { ($0.path, $0) }
+                )
+            )
+            try cleanupJournalObserver(
+                .afterInitialCreationBeforeMutation
+            )
+            return plan
         } catch {
+            let operationURL = ProjectOperationHistoryWriter(
+                projectURL: projectRoot
+            ).operationDirectoryURL(for: runID)
             throw GenotypingCleanupJournalError(
+                runID: runID,
+                operationPath: operationURL.path,
+                cleanupPlanPath: operationURL.appendingPathComponent(
+                    GenotypingCleanupJournal.planPayloadName
+                ).path,
+                outputBundlePath: request.outputDirectory.path,
                 phase: .initialCreation,
+                publishedArtifactsValid: true,
+                retainedRootPaths: candidates.map {
+                    $0.url.standardizedFileURL.path
+                },
                 underlyingDescription: error.localizedDescription
             )
         }
@@ -5093,6 +5162,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     private func appendSuccessfulCleanupDisposition(
         runID: UUID,
         projectRoot: URL,
+        outputBundleURL: URL,
         dispositions: [AmpliconWorkDirectoryDisposition]
     ) throws {
         do {
@@ -5115,8 +5185,110 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             )
         } catch {
             throw GenotypingCleanupJournalError(
+                runID: runID,
+                operationPath: ProjectOperationHistoryWriter(
+                    projectURL: projectRoot
+                ).operationDirectoryURL(for: runID).path,
+                cleanupPlanPath: ProjectOperationHistoryWriter(
+                    projectURL: projectRoot
+                ).operationDirectoryURL(for: runID).appendingPathComponent(
+                    GenotypingCleanupJournal.planPayloadName
+                ).path,
+                outputBundlePath: outputBundleURL.path,
                 phase: .terminalAppend,
+                publishedArtifactsValid: true,
+                retainedRootPaths: dispositions.filter {
+                    $0.disposition != "removed"
+                }.map(\.path),
                 underlyingDescription: error.localizedDescription
+            )
+        }
+    }
+
+    private func identityBoundRemovalDisposition(
+        plan: GenotypingCleanupPlan,
+        url: URL,
+        successDisposition: String,
+        remover: (URL) throws -> Void
+    ) -> AmpliconWorkDirectoryDisposition {
+        let path = url.standardizedFileURL.path
+        guard let entry = plan.entry(for: url) else {
+            return .init(
+                path: path,
+                disposition: "retained-identity-mismatch",
+                error: "No immutable cleanup-plan identity exists for \(path)."
+            )
+        }
+        switch GenotypingIdentityBoundCleanup.remove(entry, remover: remover) {
+        case .removed:
+            return .init(
+                path: path,
+                disposition: successDisposition,
+                error: nil
+            )
+        case .identityMismatch(let detail):
+            return .init(
+                path: path,
+                disposition: "retained-identity-mismatch",
+                error: detail
+            )
+        case .failed(let detail):
+            return .init(
+                path: path,
+                disposition: "retained-cleanup-failed",
+                error: detail
+            )
+        case .retained(let quarantinePath):
+            return .init(
+                path: path,
+                disposition: "retained-cleanup-failed",
+                error: quarantinePath.map {
+                    "Unexpectedly retained at \($0)."
+                } ?? "Unexpectedly retained."
+            )
+        }
+    }
+
+    private func identityBoundRetainedDisposition(
+        plan: GenotypingCleanupPlan,
+        url: URL,
+        mutation: (URL) throws -> Void
+    ) -> AmpliconWorkDirectoryDisposition {
+        let path = url.standardizedFileURL.path
+        guard let entry = plan.entry(for: url) else {
+            return .init(
+                path: path,
+                disposition: "retained-identity-mismatch",
+                error: "No immutable cleanup-plan identity exists for \(path)."
+            )
+        }
+        switch GenotypingIdentityBoundCleanup.mutateAndRetain(
+            entry,
+            mutation: mutation
+        ) {
+        case .retained:
+            return .init(
+                path: path,
+                disposition: "retained-by-request",
+                error: nil
+            )
+        case .identityMismatch(let detail):
+            return .init(
+                path: path,
+                disposition: "retained-identity-mismatch",
+                error: detail
+            )
+        case .failed(let detail):
+            return .init(
+                path: path,
+                disposition: "retained-cleanup-failed",
+                error: detail
+            )
+        case .removed(let quarantinePath):
+            return .init(
+                path: path,
+                disposition: "retained-cleanup-failed",
+                error: "Unexpectedly removed via \(quarantinePath)."
             )
         }
     }

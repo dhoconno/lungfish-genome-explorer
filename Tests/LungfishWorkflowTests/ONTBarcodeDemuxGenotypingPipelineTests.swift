@@ -1343,8 +1343,12 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
                 bundledMicromambaVersionProvider: { "test-micromamba" }
             ),
             fileRemover: { url in
-                if url.standardizedFileURL == request.mappingBAMURL.standardizedFileURL
-                    || url.lastPathComponent == ".amplicon-genotyping" {
+                if url.lastPathComponent.contains(
+                    request.mappingBAMURL.lastPathComponent
+                )
+                    || url.lastPathComponent.contains(
+                        ".amplicon-genotyping"
+                    ) {
                     throw CocoaError(.fileWriteNoPermission)
                 }
                 try FileManager.default.removeItem(at: url)
@@ -1543,8 +1547,9 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
                 bundledMicromambaVersionProvider: { "test-micromamba" }
             ),
             fileRemover: { url in
-                if url.standardizedFileURL
-                    == unsafeRequest.mappingBAMURL.standardizedFileURL {
+                if url.lastPathComponent.contains(
+                    unsafeRequest.mappingBAMURL.lastPathComponent
+                ) {
                     try Data("unsafe".utf8).write(
                         to: unsafeProject.appendingPathComponent(
                             ProjectOperationHistoryWriter
@@ -1607,6 +1612,19 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
                     || error.localizedDescription.contains("permission"),
                 error.localizedDescription
             )
+            for expected in [
+                "initial creation",
+                ProjectOperationHistoryWriter.historyDirectoryName,
+                "cleanup-plan.json",
+                request.outputDirectory.path,
+                "published artifacts valid: true",
+                "retained roots:",
+            ] {
+                XCTAssertTrue(
+                    error.localizedDescription.contains(expected),
+                    error.localizedDescription
+                )
+            }
         }
 
         XCTAssertTrue(
@@ -1647,6 +1665,19 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
                     || error.localizedDescription.contains("permission"),
                 error.localizedDescription
             )
+            for expected in [
+                "terminal append",
+                ProjectOperationHistoryWriter.historyDirectoryName,
+                "cleanup-plan.json",
+                request.outputDirectory.path,
+                "published artifacts valid: true",
+                "retained roots:",
+            ] {
+                XCTAssertTrue(
+                    error.localizedDescription.contains(expected),
+                    error.localizedDescription
+                )
+            }
         }
 
         let historyRoot = root.appendingPathComponent(
@@ -1693,6 +1724,190 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
                 "The durable plan must permit exact removed-disposition recovery."
             )
         }
+    }
+
+    func testCleanupPlanIdentityMismatchRetainsSubstitutedMiSeqDirectoryAndFile() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directoryToken = Data("replacement-support-directory".utf8)
+        let fileToken = Data("replacement-alignment-file".utf8)
+        let heldDirectory = root.appendingPathComponent(
+            "held-planned-support",
+            isDirectory: true
+        )
+        let heldFile = root.appendingPathComponent("held-planned-alignment")
+        let witnessURL = root.appendingPathComponent(
+            "replacement-identity-witness.json"
+        )
+        let (request, pipeline) = try makeCleanupJournalAmpliconRun(
+            root: root,
+            cleanupJournalObserver: { event in
+                guard case .afterInitialCreationBeforeMutation = event else {
+                    return
+                }
+                let historyRoot = root.appendingPathComponent(
+                    ProjectOperationHistoryWriter.historyDirectoryName,
+                    isDirectory: true
+                )
+                let operation = try XCTUnwrap(
+                    FileManager.default.contentsOfDirectory(
+                        at: historyRoot,
+                        includingPropertiesForKeys: nil
+                    ).first
+                )
+                let object = try XCTUnwrap(
+                    try JSONSerialization.jsonObject(
+                        with: Data(
+                            contentsOf: operation.appendingPathComponent(
+                                "cleanup-plan.json"
+                            )
+                        )
+                    ) as? [String: Any]
+                )
+                let entries = try XCTUnwrap(
+                    object["entries"] as? [[String: Any]]
+                )
+                let supportPath = try XCTUnwrap(
+                    entries.first {
+                        $0["intendedAction"] as? String
+                            == "remove-owned-support-directory-after-marker-completion"
+                    }?["path"] as? String
+                )
+                let alignmentPath = try XCTUnwrap(
+                    entries.first {
+                        $0["intendedAction"] as? String
+                            == "remove-regenerable-alignment-intermediate"
+                            && (($0["path"] as? String)?.hasSuffix(".bam")
+                                ?? false)
+                    }?["path"] as? String
+                )
+                let support = URL(
+                    fileURLWithPath: supportPath,
+                    isDirectory: true
+                )
+                let alignment = URL(fileURLWithPath: alignmentPath)
+                try FileManager.default.moveItem(
+                    at: support,
+                    to: heldDirectory
+                )
+                try FileManager.default.createDirectory(
+                    at: support,
+                    withIntermediateDirectories: false
+                )
+                try directoryToken.write(
+                    to: support.appendingPathComponent("replacement-token")
+                )
+                try FileManager.default.moveItem(
+                    at: alignment,
+                    to: heldFile
+                )
+                try fileToken.write(to: alignment)
+                let directoryIdentity =
+                    try FileSystemObjectIdentity.noFollow(support)
+                let fileIdentity =
+                    try FileSystemObjectIdentity.noFollow(alignment)
+                try JSONSerialization.data(
+                    withJSONObject: [
+                        "directoryPath": support.path,
+                        "directoryDevice": directoryIdentity.device,
+                        "directoryInode": directoryIdentity.inode,
+                        "filePath": alignment.path,
+                        "fileDevice": fileIdentity.device,
+                        "fileInode": fileIdentity.inode,
+                    ],
+                    options: [.sortedKeys]
+                ).write(to: witnessURL)
+            }
+        )
+
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("Identity mismatch must be surfaced.")
+        } catch {
+            XCTAssertTrue(
+                error.localizedDescription.contains(
+                    "did not match detached identity"
+                ),
+                error.localizedDescription
+            )
+        }
+
+        let support = request.outputDirectory.appendingPathComponent(
+            ".amplicon-genotyping",
+            isDirectory: true
+        )
+        XCTAssertEqual(
+            try Data(
+                contentsOf: support.appendingPathComponent(
+                    "replacement-token"
+                )
+            ),
+            directoryToken
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: heldDirectory.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: heldFile.path))
+        let witness = try XCTUnwrap(
+            try JSONSerialization.jsonObject(
+                with: Data(contentsOf: witnessURL)
+            ) as? [String: Any]
+        )
+        let witnessedDirectory = URL(
+            fileURLWithPath: try XCTUnwrap(
+                witness["directoryPath"] as? String
+            ),
+            isDirectory: true
+        )
+        let witnessedFile = URL(
+            fileURLWithPath: try XCTUnwrap(
+                witness["filePath"] as? String
+            )
+        )
+        let survivingDirectoryIdentity =
+            try FileSystemObjectIdentity.noFollow(witnessedDirectory)
+        let survivingFileIdentity =
+            try FileSystemObjectIdentity.noFollow(witnessedFile)
+        XCTAssertEqual(
+            survivingDirectoryIdentity.inode,
+            (witness["directoryInode"] as? NSNumber)?.uint64Value
+        )
+        XCTAssertEqual(
+            survivingDirectoryIdentity.device,
+            (witness["directoryDevice"] as? NSNumber)?.uint64Value
+        )
+        XCTAssertEqual(
+            survivingFileIdentity.inode,
+            (witness["fileInode"] as? NSNumber)?.uint64Value
+        )
+        XCTAssertEqual(
+            survivingFileIdentity.device,
+            (witness["fileDevice"] as? NSNumber)?.uint64Value
+        )
+        XCTAssertEqual(try Data(contentsOf: witnessedFile), fileToken)
+
+        let operation = try XCTUnwrap(
+            FileManager.default.contentsOfDirectory(
+                at: root.appendingPathComponent(
+                    ProjectOperationHistoryWriter.historyDirectoryName,
+                    isDirectory: true
+                ),
+                includingPropertiesForKeys: nil
+            ).first
+        )
+        let terminal = try jsonObject(
+            at: operation.appendingPathComponent(
+                "cleanup-disposition.json"
+            )
+        )
+        let entries = try XCTUnwrap(
+            terminal["entries"] as? [[String: Any]]
+        )
+        XCTAssertGreaterThanOrEqual(
+            entries.filter {
+                $0["disposition"] as? String
+                    == "retained-identity-mismatch"
+            }.count,
+            2
+        )
     }
 
     func testFailureProvenanceSourceDescriptorFailureWritesIncompleteReceiptAndRecordsExactCleanupPath() async throws {
@@ -1748,8 +1963,9 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
                 bundledMicromambaVersionProvider: { "test-micromamba" }
             ),
             fileRemover: { url in
-                if url.standardizedFileURL
-                    == request.mappingBAMURL.standardizedFileURL {
+                if url.lastPathComponent.contains(
+                    request.mappingBAMURL.lastPathComponent
+                ) {
                     try """
                     @DW001:1:1:1:1:1:1
                     TTGGCCAA

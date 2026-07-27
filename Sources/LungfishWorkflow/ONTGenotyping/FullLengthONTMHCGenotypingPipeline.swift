@@ -1206,7 +1206,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 }
                 throw error
             }
-            try beginSuccessfulCleanupJournal(
+            let cleanupPlan = try beginSuccessfulCleanupJournal(
                 projectRoot: lifecycleProjectRoot,
                 runID: lifecycleRunID,
                 stagedRun: stagedRun,
@@ -1225,33 +1225,31 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 finalOutputURL: finalOutputURL,
                 projectRoot: lifecycleProjectRoot,
                 runID: lifecycleRunID,
-                keepIntermediates: request.keepIntermediates
+                keepIntermediates: request.keepIntermediates,
+                cleanupPlan: cleanupPlan
             )
-            if finalExisted, FileManager.default.fileExists(atPath: stagedOutputURL.path) {
-                do {
-                    try FileManager.default.removeItem(at: stagedOutputURL)
-                    publicationCleanup.dispositions.append(.init(
-                        path: stagedOutputURL.standardizedFileURL.path,
-                        disposition: "removed",
-                        error: nil
-                    ))
-                } catch {
+            if finalExisted, cleanupPlan.entry(for: stagedOutputURL) != nil {
+                let disposition = identityBoundRemovalDisposition(
+                    plan: cleanupPlan,
+                    url: stagedOutputURL,
+                    successDisposition: "removed"
+                ) {
+                    try FileManager.default.removeItem(at: $0)
+                }
+                publicationCleanup.dispositions.append(disposition)
+                if let error = disposition.error {
                     publicationCleanup.warnings.append(.init(
                         kind: .retiredCohortPublicationDirectory,
                         path: stagedOutputURL.path,
-                        error: error.localizedDescription,
+                        error: error,
                         publishedArtifactsRemainValid: true
-                    ))
-                    publicationCleanup.dispositions.append(.init(
-                        path: stagedOutputURL.standardizedFileURL.path,
-                        disposition: "retained-cleanup-failed",
-                        error: cleanupErrorDescription(error)
                     ))
                 }
             }
             try appendSuccessfulCleanupDisposition(
                 projectRoot: lifecycleProjectRoot,
                 runID: lifecycleRunID,
+                outputBundleURL: finalOutputURL,
                 dispositions: publicationCleanup.dispositions
             )
             return relocatedResult(
@@ -3103,7 +3101,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         finalOutputURL: URL,
         projectRoot: URL,
         runID: UUID,
-        keepIntermediates: Bool
+        keepIntermediates: Bool,
+        cleanupPlan: GenotypingCleanupPlan
     ) -> FullLengthWorkDirectoryCleanupResult {
         if keepIntermediates {
             var warnings: [FullLengthONTMHCGenotypingCleanupWarning] = []
@@ -3119,45 +3118,49 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                     FullLengthONTMHCGenotypingCleanupWarningKind
                         .candidateArtifactWorkDirectory
                 ),
-            ] where FileManager.default.fileExists(atPath: url.path) {
-                do {
+            ] {
+                let disposition = identityBoundRetainedDisposition(
+                    plan: cleanupPlan,
+                    url: url
+                ) { detachedURL in
                     try OwnedWorkDirectoryMarkerStore.transition(
-                        url,
+                        detachedURL,
                         expectedProjectURL: projectRoot,
                         expectedRunID: runID,
                         to: .completed
                     )
-                    dispositions.append(.init(
-                        path: url.standardizedFileURL.path,
-                        disposition: "retained-by-request",
-                        error: nil
-                    ))
-                } catch {
+                }
+                dispositions.append(disposition)
+                if let error = disposition.error {
                     warnings.append(
                         .init(
                             kind: kind,
                             path: url.standardizedFileURL.path,
-                            error: cleanupErrorDescription(error),
+                            error: error,
                             publishedArtifactsRemainValid: true
                         )
                     )
-                    dispositions.append(.init(
-                        path: url.standardizedFileURL.path,
-                        disposition: "retained-cleanup-failed",
-                        error: cleanupErrorDescription(error)
-                    ))
                 }
             }
             let workflowDirectory = finalOutputURL.appendingPathComponent(
                 "workflow",
                 isDirectory: true
             )
-            if FileManager.default.fileExists(atPath: workflowDirectory.path) {
-                dispositions.append(.init(
-                    path: workflowDirectory.standardizedFileURL.path,
-                    disposition: "retained-by-request",
-                    error: nil
-                ))
+            if cleanupPlan.entry(for: workflowDirectory) != nil {
+                let disposition = identityBoundRetainedDisposition(
+                    plan: cleanupPlan,
+                    url: workflowDirectory,
+                    mutation: { _ in }
+                )
+                dispositions.append(disposition)
+                if let error = disposition.error {
+                    warnings.append(.init(
+                        kind: .workflowIntermediates,
+                        path: workflowDirectory.standardizedFileURL.path,
+                        error: error,
+                        publishedArtifactsRemainValid: true
+                    ))
+                }
             }
             return .init(warnings: warnings, dispositions: dispositions)
         }
@@ -3165,21 +3168,20 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         var warnings: [FullLengthONTMHCGenotypingCleanupWarning] = []
         var dispositions: [GenotypingWorkDirectoryDisposition] = []
         var cohortTemporaryCleanupFailed = false
-        if FileManager.default.fileExists(
-            atPath: stagedRun.cohortTemporaryWorkDirectory.path
-        ) {
-            do {
+        if cleanupPlan.entry(
+            for: stagedRun.cohortTemporaryWorkDirectory
+        ) != nil {
+            let disposition = identityBoundRemovalDisposition(
+                plan: cleanupPlan,
+                url: stagedRun.cohortTemporaryWorkDirectory,
+                successDisposition: "removed"
+            ) {
                 try postPublicationWorkDirectoryCleaner.removeWorkDirectory(
-                    at: stagedRun.cohortTemporaryWorkDirectory
+                    at: $0
                 )
-                dispositions.append(.init(
-                    path:
-                        stagedRun.cohortTemporaryWorkDirectory
-                            .standardizedFileURL.path,
-                    disposition: "removed",
-                    error: nil
-                ))
-            } catch {
+            }
+            dispositions.append(disposition)
+            if let error = disposition.error {
                 cohortTemporaryCleanupFailed = true
                 warnings.append(
                     .init(
@@ -3187,17 +3189,10 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                         path:
                             stagedRun.cohortTemporaryWorkDirectory
                                 .standardizedFileURL.path,
-                        error: cleanupErrorDescription(error),
+                        error: error,
                         publishedArtifactsRemainValid: true
                     )
                 )
-                dispositions.append(.init(
-                    path:
-                        stagedRun.cohortTemporaryWorkDirectory
-                            .standardizedFileURL.path,
-                    disposition: "retained-cleanup-failed",
-                    error: cleanupErrorDescription(error)
-                ))
             }
         }
         for (url, kind) in [
@@ -3211,7 +3206,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 FullLengthONTMHCGenotypingCleanupWarningKind
                     .candidateArtifactWorkDirectory
             ),
-        ] where FileManager.default.fileExists(atPath: url.path) {
+        ] {
             if kind == .cohortAlignmentWorkDirectory,
                cohortTemporaryCleanupFailed {
                 dispositions.append(.init(
@@ -3223,66 +3218,180 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 ))
                 continue
             }
-            do {
+            let disposition = identityBoundRemovalDisposition(
+                plan: cleanupPlan,
+                url: url,
+                successDisposition: "removed"
+            ) { detachedURL in
                 try OwnedWorkDirectoryMarkerStore.transition(
-                    url,
+                    detachedURL,
                     expectedProjectURL: projectRoot,
                     expectedRunID: runID,
                     to: .completed
                 )
                 try postPublicationWorkDirectoryCleaner.removeWorkDirectory(
-                    at: url
+                    at: detachedURL
                 )
-                dispositions.append(.init(
-                    path: url.standardizedFileURL.path,
-                    disposition: "removed",
-                    error: nil
-                ))
-            } catch {
+            }
+            dispositions.append(disposition)
+            if let error = disposition.error {
                 warnings.append(
                     .init(
                         kind: kind,
                         path: url.standardizedFileURL.path,
-                        error: cleanupErrorDescription(error),
+                        error: error,
                         publishedArtifactsRemainValid: true
                     )
                 )
-                dispositions.append(.init(
-                    path: url.standardizedFileURL.path,
-                    disposition: "retained-cleanup-failed",
-                    error: cleanupErrorDescription(error)
-                ))
             }
         }
         let relocatedWorkflowDirectory = finalOutputURL
             .appendingPathComponent("workflow", isDirectory: true)
-        if FileManager.default.fileExists(atPath: relocatedWorkflowDirectory.path) {
-            do {
-                try removeGeneratedWorkflowIntermediates(
-                    relocatedWorkflowDirectory
-                )
-                dispositions.append(.init(
-                    path: relocatedWorkflowDirectory.standardizedFileURL.path,
-                    disposition: "intermediates-removed",
-                    error: nil
-                ))
-            } catch {
-                warnings.append(
-                    .init(
-                        kind: .workflowIntermediates,
-                        path: relocatedWorkflowDirectory.standardizedFileURL.path,
-                        error: cleanupErrorDescription(error),
-                        publishedArtifactsRemainValid: true
+        if cleanupPlan.entry(for: relocatedWorkflowDirectory) != nil {
+            let workflowPath = relocatedWorkflowDirectory
+                .standardizedFileURL.path
+            let workflowEntries = cleanupPlan.entries.filter {
+                $0.path == workflowPath
+                    || $0.path.hasPrefix(workflowPath + "/")
+            }.sorted {
+                $0.path.split(separator: "/").count
+                    > $1.path.split(separator: "/").count
+            }
+            var protectedDescendants: [String] = []
+            for entry in workflowEntries {
+                let url = URL(fileURLWithPath: entry.path)
+                if protectedDescendants.contains(where: {
+                    $0.hasPrefix(entry.path + "/")
+                }) {
+                    let disposition = GenotypingWorkDirectoryDisposition(
+                        path: entry.path,
+                        disposition: "retained-cleanup-failed",
+                        error:
+                            "Retained because an identity-mismatched or "
+                            + "unremovable descendant must survive."
                     )
-                )
-                dispositions.append(.init(
-                    path: relocatedWorkflowDirectory.standardizedFileURL.path,
-                    disposition: "retained-cleanup-failed",
-                    error: cleanupErrorDescription(error)
-                ))
+                    dispositions.append(disposition)
+                    protectedDescendants.append(entry.path)
+                    warnings.append(.init(
+                        kind: .workflowIntermediates,
+                        path: entry.path,
+                        error: disposition.error ?? "Cleanup was retained.",
+                        publishedArtifactsRemainValid: true
+                    ))
+                    continue
+                }
+                let disposition = identityBoundRemovalDisposition(
+                    plan: cleanupPlan,
+                    url: url,
+                    successDisposition:
+                        entry.path == workflowPath
+                            ? "intermediates-removed"
+                            : "removed"
+                ) {
+                    try postPublicationWorkDirectoryCleaner
+                        .removeWorkDirectory(at: $0)
+                }
+                dispositions.append(disposition)
+                if let error = disposition.error {
+                    protectedDescendants.append(entry.path)
+                    warnings.append(.init(
+                        kind: .workflowIntermediates,
+                        path: entry.path,
+                        error: error,
+                        publishedArtifactsRemainValid: true
+                    ))
+                }
             }
         }
         return .init(warnings: warnings, dispositions: dispositions)
+    }
+
+    private func identityBoundRemovalDisposition(
+        plan: GenotypingCleanupPlan,
+        url: URL,
+        successDisposition: String,
+        remover: (URL) throws -> Void
+    ) -> GenotypingWorkDirectoryDisposition {
+        let path = url.standardizedFileURL.path
+        guard let entry = plan.entry(for: url) else {
+            return .init(
+                path: path,
+                disposition: "retained-identity-mismatch",
+                error: "No immutable cleanup-plan identity exists for \(path)."
+            )
+        }
+        switch GenotypingIdentityBoundCleanup.remove(entry, remover: remover) {
+        case .removed:
+            return .init(
+                path: path,
+                disposition: successDisposition,
+                error: nil
+            )
+        case .identityMismatch(let detail):
+            return .init(
+                path: path,
+                disposition: "retained-identity-mismatch",
+                error: detail
+            )
+        case .failed(let detail):
+            return .init(
+                path: path,
+                disposition: "retained-cleanup-failed",
+                error: detail
+            )
+        case .retained(let quarantinePath):
+            return .init(
+                path: path,
+                disposition: "retained-cleanup-failed",
+                error: quarantinePath.map {
+                    "Unexpectedly retained at \($0)."
+                } ?? "Unexpectedly retained."
+            )
+        }
+    }
+
+    private func identityBoundRetainedDisposition(
+        plan: GenotypingCleanupPlan,
+        url: URL,
+        mutation: (URL) throws -> Void
+    ) -> GenotypingWorkDirectoryDisposition {
+        let path = url.standardizedFileURL.path
+        guard let entry = plan.entry(for: url) else {
+            return .init(
+                path: path,
+                disposition: "retained-identity-mismatch",
+                error: "No immutable cleanup-plan identity exists for \(path)."
+            )
+        }
+        switch GenotypingIdentityBoundCleanup.mutateAndRetain(
+            entry,
+            mutation: mutation
+        ) {
+        case .retained:
+            return .init(
+                path: path,
+                disposition: "retained-by-request",
+                error: nil
+            )
+        case .identityMismatch(let detail):
+            return .init(
+                path: path,
+                disposition: "retained-identity-mismatch",
+                error: detail
+            )
+        case .failed(let detail):
+            return .init(
+                path: path,
+                disposition: "retained-cleanup-failed",
+                error: detail
+            )
+        case .removed(let quarantinePath):
+            return .init(
+                path: path,
+                disposition: "retained-cleanup-failed",
+                error: "Unexpectedly removed via \(quarantinePath)."
+            )
+        }
     }
 
     private func beginSuccessfulCleanupJournal(
@@ -3292,36 +3401,64 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         finalOutputURL: URL,
         retiredPublicationURL: URL?,
         keepIntermediates: Bool
-    ) throws {
+    ) throws -> GenotypingCleanupPlan {
+        let operationURL = ProjectOperationHistoryWriter(
+            projectURL: projectRoot
+        ).operationDirectoryURL(for: runID)
+        let cleanupPlanURL = operationURL.appendingPathComponent(
+            GenotypingCleanupJournal.planPayloadName
+        )
         do {
-            var candidates: [(url: URL, intendedAction: String)] = [
+            var candidates: [
+                (
+                    url: URL,
+                    intendedAction: GenotypingCleanupIntendedAction
+                )
+            ] = [
                 (
                     stagedRun.cohortWorkDirectory,
                     keepIntermediates
-                        ? "retain-by-request-after-marker-completion"
-                        : "remove-owned-work-directory"
+                        ? .retainByRequestAfterMarkerCompletion
+                        : .removeOwnedWorkDirectory
                 ),
                 (
                     stagedRun.candidateWorkDirectory,
                     keepIntermediates
-                        ? "retain-by-request-after-marker-completion"
-                        : "remove-owned-work-directory"
-                ),
-                (
-                    finalOutputURL.appendingPathComponent(
-                        "workflow",
-                        isDirectory: true
-                    ),
-                    keepIntermediates
-                        ? "retain-by-request"
-                        : "remove-regenerable-workflow-intermediates"
+                        ? .retainByRequestAfterMarkerCompletion
+                        : .removeOwnedWorkDirectory
                 ),
             ]
+            let workflowDirectory = finalOutputURL.appendingPathComponent(
+                "workflow",
+                isDirectory: true
+            )
+            if keepIntermediates {
+                candidates.append(
+                    (workflowDirectory, .retainByRequest)
+                )
+            } else {
+                let descendantPaths =
+                    try FileManager.default.subpathsOfDirectory(
+                        atPath: workflowDirectory.path
+                    )
+                candidates.append(contentsOf: descendantPaths.map {
+                    (
+                        workflowDirectory.appendingPathComponent($0),
+                        .removeRegenerableWorkflowIntermediates
+                    )
+                })
+                candidates.append(
+                    (
+                        workflowDirectory,
+                        .removeRegenerableWorkflowIntermediates
+                    )
+                )
+            }
             if !keepIntermediates {
                 candidates.insert(
                     (
                         stagedRun.cohortTemporaryWorkDirectory,
-                        "remove-owned-temporary-work-directory"
+                        .removeOwnedTemporaryWorkDirectory
                     ),
                     at: 0
                 )
@@ -3330,7 +3467,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 candidates.append(
                     (
                         retiredPublicationURL,
-                        "remove-retired-publication-directory"
+                        .removeRetiredPublicationDirectory
                     )
                 )
             }
@@ -3348,9 +3485,33 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                         ),
                 ]
             )
+            let plan = GenotypingCleanupPlan(
+                runID: runID,
+                operationURL: operationURL,
+                outputBundleURL: finalOutputURL,
+                entriesByPath: Dictionary(
+                    uniqueKeysWithValues: entries.map { ($0.path, $0) }
+                )
+            )
+            try cleanupJournalObserver(
+                .afterInitialCreationBeforeMutation
+            )
+            return plan
         } catch {
             throw GenotypingCleanupJournalError(
+                runID: runID,
+                operationPath: operationURL.path,
+                cleanupPlanPath: cleanupPlanURL.path,
+                outputBundlePath: finalOutputURL.path,
                 phase: .initialCreation,
+                publishedArtifactsValid: true,
+                retainedRootPaths:
+                    [
+                        stagedRun.cohortWorkDirectory,
+                        stagedRun.candidateWorkDirectory,
+                        finalOutputURL.appendingPathComponent("workflow"),
+                        retiredPublicationURL,
+                    ].compactMap { $0?.standardizedFileURL.path },
                 underlyingDescription: error.localizedDescription
             )
         }
@@ -3359,8 +3520,12 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
     private func appendSuccessfulCleanupDisposition(
         projectRoot: URL,
         runID: UUID,
+        outputBundleURL: URL,
         dispositions: [GenotypingWorkDirectoryDisposition]
     ) throws {
+        let operationURL = ProjectOperationHistoryWriter(
+            projectURL: projectRoot
+        ).operationDirectoryURL(for: runID)
         do {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -3381,7 +3546,18 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             )
         } catch {
             throw GenotypingCleanupJournalError(
+                runID: runID,
+                operationPath: operationURL.path,
+                cleanupPlanPath: operationURL.appendingPathComponent(
+                    GenotypingCleanupJournal.planPayloadName
+                ).path,
+                outputBundlePath: outputBundleURL.standardizedFileURL.path,
                 phase: .terminalAppend,
+                publishedArtifactsValid: true,
+                retainedRootPaths: dispositions.filter {
+                    $0.disposition != "removed"
+                        && $0.disposition != "intermediates-removed"
+                }.map(\.path),
                 underlyingDescription: error.localizedDescription
             )
         }
