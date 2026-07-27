@@ -401,6 +401,237 @@ struct ProvenanceSigningTests {
         )
     }
 
+    @Test(
+        "Mismatch cleanup restores a destination replacement",
+        arguments: StagedArtifactTarget.allCases
+    )
+    func testExclusiveWriterMismatchCleanupRestoresRacer(
+        artifact: StagedArtifactTarget
+    ) throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let provenanceURL = directory.appendingPathComponent(
+            "mismatch-racer.lungfish-provenance.json"
+        )
+        let racedURL = artifact.destinationURL(for: provenanceURL)
+        let racerData = Data("mismatch cleanup racer".utf8)
+        let writer = ProvenanceWriter(
+            signingProvider: LocalProvenanceSigningProvider(
+                privateKey: "mismatch-racer-key"
+            ),
+            exclusivePublicationPreRenameHook: {
+                stagedURL,
+                destinationURL in
+                guard destinationURL == racedURL else { return }
+                try StagedArtifactReplacement.emptyDirectory
+                    .replaceValidatedArtifact(at: stagedURL)
+            },
+            exclusivePublicationPreMismatchCleanupHook: {
+                destinationURL in
+                guard destinationURL == racedURL else { return }
+                try FileManager.default.removeItem(at: destinationURL)
+                try racerData.write(
+                    to: destinationURL,
+                    options: .withoutOverwriting
+                )
+            }
+        )
+
+        do {
+            try writer.writeNew(
+                ProvenanceEnvelope.fixture(),
+                toSidecar: provenanceURL
+            )
+            Issue.record("Expected exclusive rename identity rejection")
+        } catch let error as ProvenanceWriterError {
+            guard case .exclusivePublicationIdentityMismatch(let path) =
+                    error else {
+                Issue.record("Unexpected provenance writer error: \(error)")
+                return
+            }
+            #expect(path == racedURL.path)
+        }
+
+        #expect(try Data(contentsOf: racedURL) == racerData)
+        let leftovers = try FileManager.default.contentsOfDirectory(
+            atPath: directory.path
+        )
+        #expect(leftovers == [racedURL.lastPathComponent])
+        #expect(
+            !leftovers.contains {
+                $0.contains(".cleanup-quarantine-")
+            }
+        )
+    }
+
+    @Test(
+        "Rollback restores a replacement of a published artifact",
+        arguments: StagedArtifactTarget.preCommitCases
+    )
+    func testExclusiveWriterRollbackRestoresRacer(
+        artifact: StagedArtifactTarget
+    ) throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let provenanceURL = directory.appendingPathComponent(
+            "rollback-racer.lungfish-provenance.json"
+        )
+        let racedURL = artifact.destinationURL(for: provenanceURL)
+        let racerData = Data("rollback cleanup racer".utf8)
+        let blockerData = Data("provenance publication blocker".utf8)
+        let writer = ProvenanceWriter(
+            signingProvider: LocalProvenanceSigningProvider(
+                privateKey: "rollback-racer-key"
+            ),
+            exclusivePublicationPreRenameHook: {
+                _,
+                destinationURL in
+                guard destinationURL == provenanceURL else { return }
+                try blockerData.write(
+                    to: destinationURL,
+                    options: .withoutOverwriting
+                )
+            },
+            exclusivePublicationPreRollbackCleanupHook: {
+                destinationURL in
+                guard destinationURL == racedURL else { return }
+                try FileManager.default.removeItem(at: destinationURL)
+                try racerData.write(
+                    to: destinationURL,
+                    options: .withoutOverwriting
+                )
+            }
+        )
+
+        do {
+            try writer.writeNew(
+                ProvenanceEnvelope.fixture(),
+                toSidecar: provenanceURL
+            )
+            Issue.record("Expected provenance publication blocker")
+        } catch let error as ProvenanceWriterError {
+            guard case .exclusivePublicationFailed(let path, _) = error else {
+                Issue.record("Unexpected provenance writer error: \(error)")
+                return
+            }
+            #expect(path == provenanceURL.path)
+        }
+
+        #expect(try Data(contentsOf: racedURL) == racerData)
+        #expect(try Data(contentsOf: provenanceURL) == blockerData)
+        let otherSigningURL = artifact == .signature
+            ? StagedArtifactTarget.publicKey.destinationURL(
+                for: provenanceURL
+            )
+            : StagedArtifactTarget.signature.destinationURL(
+                for: provenanceURL
+            )
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: otherSigningURL.path
+            )
+        )
+        let leftovers = try FileManager.default.contentsOfDirectory(
+            atPath: directory.path
+        )
+        #expect(
+            Set(leftovers)
+                == Set([
+                    racedURL.lastPathComponent,
+                    provenanceURL.lastPathComponent,
+                ])
+        )
+    }
+
+    @Test("Rollback preserves a racer in quarantine on restore conflict")
+    func testExclusiveWriterRollbackSurfacesRestoreConflict() throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let provenanceURL = directory.appendingPathComponent(
+            "rollback-conflict.lungfish-provenance.json"
+        )
+        let racedURL = StagedArtifactTarget.publicKey.destinationURL(
+            for: provenanceURL
+        )
+        let racerData = Data("quarantined rollback racer".utf8)
+        let conflictData = Data("restore conflict competitor".utf8)
+        let blockerData = Data("provenance publication blocker".utf8)
+        let writer = ProvenanceWriter(
+            signingProvider: LocalProvenanceSigningProvider(
+                privateKey: "rollback-conflict-key"
+            ),
+            exclusivePublicationPreRenameHook: {
+                _,
+                destinationURL in
+                guard destinationURL == provenanceURL else { return }
+                try blockerData.write(
+                    to: destinationURL,
+                    options: .withoutOverwriting
+                )
+            },
+            exclusivePublicationPreRollbackCleanupHook: {
+                destinationURL in
+                guard destinationURL == racedURL else { return }
+                try FileManager.default.removeItem(at: destinationURL)
+                try racerData.write(
+                    to: destinationURL,
+                    options: .withoutOverwriting
+                )
+            },
+            exclusivePublicationPreQuarantineRestoreHook: {
+                originalURL,
+                _ in
+                guard originalURL == racedURL else { return }
+                try conflictData.write(
+                    to: originalURL,
+                    options: .withoutOverwriting
+                )
+            }
+        )
+
+        var preservedQuarantinePaths: [String] = []
+        do {
+            try writer.writeNew(
+                ProvenanceEnvelope.fixture(),
+                toSidecar: provenanceURL
+            )
+            Issue.record("Expected rollback cleanup failure")
+        } catch let error as ProvenanceWriterError {
+            guard case .exclusivePublicationRollbackFailed(
+                _,
+                _,
+                let quarantinePaths
+            ) = error else {
+                Issue.record("Unexpected provenance writer error: \(error)")
+                return
+            }
+            preservedQuarantinePaths = quarantinePaths
+        }
+
+        #expect(try Data(contentsOf: racedURL) == conflictData)
+        let quarantinePath = try #require(
+            preservedQuarantinePaths.first
+        )
+        #expect(preservedQuarantinePaths.count == 1)
+        #expect(try Data(contentsOf: URL(fileURLWithPath: quarantinePath))
+            == racerData)
+        #expect(try Data(contentsOf: provenanceURL) == blockerData)
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: StagedArtifactTarget.signature.destinationURL(
+                    for: provenanceURL
+                ).path
+            )
+        )
+        #expect(
+            try FileManager.default.contentsOfDirectory(
+                atPath: directory.path
+            ).allSatisfy {
+                !$0.contains(".staging-")
+            }
+        )
+    }
+
     private func makeTempDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("lungfish-provenance-signing-\(UUID().uuidString)", isDirectory: true)
@@ -592,6 +823,11 @@ enum StagedArtifactTarget:
     case publicKey
     case provenance
 
+    static let preCommitCases: [StagedArtifactTarget] = [
+        .signature,
+        .publicKey,
+    ]
+
     func destinationURL(for provenanceURL: URL) -> URL {
         switch self {
         case .signature:
@@ -617,6 +853,7 @@ enum StagedArtifactReplacement:
     case symbolicLink
     case fifo
     case emptyDirectory
+    case nonEmptyDirectory
 
     var testDescription: String { rawValue }
 
@@ -645,6 +882,15 @@ enum StagedArtifactReplacement:
             try FileManager.default.createDirectory(
                 at: stagedURL,
                 withIntermediateDirectories: false
+            )
+        case .nonEmptyDirectory:
+            try FileManager.default.createDirectory(
+                at: stagedURL,
+                withIntermediateDirectories: false
+            )
+            try Data("nested attacker node".utf8).write(
+                to: stagedURL.appendingPathComponent("nested"),
+                options: .withoutOverwriting
             )
         }
     }

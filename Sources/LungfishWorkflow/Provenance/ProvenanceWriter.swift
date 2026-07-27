@@ -17,6 +17,16 @@ public enum ProvenanceWriterError: Error, LocalizedError, Sendable, Equatable {
     case unsafeStagedArtifact(path: String, reason: String)
     case exclusivePublicationFailed(path: String, code: Int32)
     case exclusivePublicationIdentityMismatch(path: String)
+    case exclusivePublicationCleanupFailed(
+        path: String,
+        quarantinePath: String?,
+        reason: String
+    )
+    case exclusivePublicationRollbackFailed(
+        originalError: String,
+        cleanupErrors: [String],
+        preservedQuarantinePaths: [String]
+    )
     case durabilitySyncFailed(path: String, code: Int32)
 
     public var errorDescription: String? {
@@ -39,6 +49,24 @@ public enum ProvenanceWriterError: Error, LocalizedError, Sendable, Equatable {
             return "Could not publish a new provenance artifact without replacement at \(path): \(POSIXError(.init(rawValue: code) ?? .EIO).localizedDescription)"
         case .exclusivePublicationIdentityMismatch(let path):
             return "Exclusive provenance publication renamed a different filesystem object than the validated staged regular file at \(path)."
+        case .exclusivePublicationCleanupFailed(
+            let path,
+            let quarantinePath,
+            let reason
+        ):
+            let quarantineDescription = quarantinePath.map {
+                " The filesystem object was preserved at \($0)."
+            } ?? ""
+            return "Could not safely clean provenance artifact at \(path): \(reason).\(quarantineDescription)"
+        case .exclusivePublicationRollbackFailed(
+            let originalError,
+            let cleanupErrors,
+            let preservedQuarantinePaths
+        ):
+            let preservedDescription = preservedQuarantinePaths.isEmpty
+                ? ""
+                : " Preserved filesystem objects: \(preservedQuarantinePaths.joined(separator: ", "))."
+            return "Provenance publication failed (\(originalError)), and rollback was incomplete: \(cleanupErrors.joined(separator: "; ")).\(preservedDescription)"
         case .durabilitySyncFailed(let path, let code):
             return "Could not durably synchronize provenance artifact \(path): \(POSIXError(.init(rawValue: code) ?? .EIO).localizedDescription)"
         }
@@ -54,20 +82,41 @@ public struct ProvenanceWriter: Sendable {
     private let signingProvider: (any ProvenanceSigningProvider)?
     private let exclusivePublicationPreRenameHook:
         (@Sendable (URL, URL) throws -> Void)?
+    private let exclusivePublicationPreMismatchCleanupHook:
+        (@Sendable (URL) throws -> Void)?
+    private let exclusivePublicationPreRollbackCleanupHook:
+        (@Sendable (URL) throws -> Void)?
+    private let exclusivePublicationPreQuarantineRestoreHook:
+        (@Sendable (URL, URL) throws -> Void)?
 
     public init(signingProvider: (any ProvenanceSigningProvider)? = ProvenanceSigningConfiguration.defaultProvider()) {
         self.signingProvider = signingProvider
         exclusivePublicationPreRenameHook = nil
+        exclusivePublicationPreMismatchCleanupHook = nil
+        exclusivePublicationPreRollbackCleanupHook = nil
+        exclusivePublicationPreQuarantineRestoreHook = nil
     }
 
     init(
         signingProvider: (any ProvenanceSigningProvider)?,
         exclusivePublicationPreRenameHook:
-            @escaping @Sendable (URL, URL) throws -> Void
+            @escaping @Sendable (URL, URL) throws -> Void,
+        exclusivePublicationPreMismatchCleanupHook:
+            (@Sendable (URL) throws -> Void)? = nil,
+        exclusivePublicationPreRollbackCleanupHook:
+            (@Sendable (URL) throws -> Void)? = nil,
+        exclusivePublicationPreQuarantineRestoreHook:
+            (@Sendable (URL, URL) throws -> Void)? = nil
     ) {
         self.signingProvider = signingProvider
         self.exclusivePublicationPreRenameHook =
             exclusivePublicationPreRenameHook
+        self.exclusivePublicationPreMismatchCleanupHook =
+            exclusivePublicationPreMismatchCleanupHook
+        self.exclusivePublicationPreRollbackCleanupHook =
+            exclusivePublicationPreRollbackCleanupHook
+        self.exclusivePublicationPreQuarantineRestoreHook =
+            exclusivePublicationPreQuarantineRestoreHook
     }
 
     @discardableResult
@@ -229,7 +278,9 @@ public struct ProvenanceWriter: Sendable {
         }
         try synchronizeDirectory(at: stagingDirectory)
 
-        var published: [(url: URL, identity: FileIdentity)] = []
+        var published: [
+            (url: URL, identity: FileSystemObjectIdentity)
+        ] = []
         do {
             for artifact in validatedArtifacts {
                 guard try fileIdentity(at: artifact.staged)
@@ -267,6 +318,16 @@ public struct ProvenanceWriter: Sendable {
                         at: artifact.destination
                     )
                 } catch {
+                    try exclusivePublicationPreMismatchCleanupHook?(
+                        artifact.destination
+                    )
+                    _ = try quarantineAndRemoveIfIdentityMatches(
+                        at: artifact.destination,
+                        expectedIdentity: FileSystemObjectIdentity(
+                            fileIdentity: artifact.identity,
+                            fileType: mode_t(S_IFREG)
+                        )
+                    )
                     throw ProvenanceWriterError
                         .exclusivePublicationIdentityMismatch(
                             path: artifact.destination.path
@@ -275,9 +336,12 @@ public struct ProvenanceWriter: Sendable {
                 guard renamedIdentity.isRegularFile,
                       renamedIdentity.fileIdentity
                         == artifact.identity else {
-                    removeMismatchedDestinationIfUnchanged(
+                    try exclusivePublicationPreMismatchCleanupHook?(
+                        artifact.destination
+                    )
+                    _ = try quarantineAndRemoveIfIdentityMatches(
                         at: artifact.destination,
-                        identity: renamedIdentity
+                        expectedIdentity: renamedIdentity
                     )
                     throw ProvenanceWriterError
                         .exclusivePublicationIdentityMismatch(
@@ -285,17 +349,50 @@ public struct ProvenanceWriter: Sendable {
                         )
                 }
                 published.append(
-                    (artifact.destination, artifact.identity)
+                    (artifact.destination, renamedIdentity)
                 )
             }
             try synchronizeDirectory(at: destinationDirectory)
         } catch {
-            for artifact in published.reversed()
-            where (try? fileIdentity(at: artifact.url)) == artifact.identity {
-                _ = artifact.url.path.withCString { Darwin.unlink($0) }
+            let originalError = error
+            var cleanupErrors: [String] = []
+            var preservedQuarantinePaths: [String] = []
+            for artifact in published.reversed() {
+                do {
+                    try exclusivePublicationPreRollbackCleanupHook?(
+                        artifact.url
+                    )
+                    _ = try quarantineAndRemoveIfIdentityMatches(
+                        at: artifact.url,
+                        expectedIdentity: artifact.identity
+                    )
+                } catch {
+                    cleanupErrors.append(error.localizedDescription)
+                    if case let ProvenanceWriterError
+                        .exclusivePublicationCleanupFailed(
+                            _,
+                            quarantinePath?,
+                            _
+                        ) = error {
+                        preservedQuarantinePaths.append(quarantinePath)
+                    }
+                }
             }
-            try? synchronizeDirectory(at: destinationDirectory)
-            throw error
+            do {
+                try synchronizeDirectory(at: destinationDirectory)
+            } catch {
+                cleanupErrors.append(error.localizedDescription)
+            }
+            guard cleanupErrors.isEmpty else {
+                throw ProvenanceWriterError
+                    .exclusivePublicationRollbackFailed(
+                        originalError: originalError.localizedDescription,
+                        cleanupErrors: cleanupErrors,
+                        preservedQuarantinePaths:
+                            preservedQuarantinePaths
+                    )
+            }
+            throw originalError
         }
 
         return provenanceURL
@@ -555,20 +652,125 @@ public struct ProvenanceWriter: Sendable {
         )
     }
 
-    private func removeMismatchedDestinationIfUnchanged(
+    private enum QuarantineCleanupResult {
+        case removedExpectedIdentity
+        case restoredUnexpectedIdentity
+        case destinationAlreadyAbsent
+    }
+
+    private func quarantineAndRemoveIfIdentityMatches(
         at url: URL,
-        identity: FileSystemObjectIdentity
-    ) {
-        guard let currentIdentity =
-                try? fileSystemObjectIdentity(at: url),
-              currentIdentity == identity else {
-            return
+        expectedIdentity: FileSystemObjectIdentity
+    ) throws -> QuarantineCleanupResult {
+        let quarantineURL = url.deletingLastPathComponent()
+            .appendingPathComponent(
+                ".\(url.lastPathComponent).cleanup-quarantine-\(UUID().uuidString)"
+            )
+        let quarantineResult = url.path.withCString { sourcePath in
+            quarantineURL.path.withCString { quarantinePath in
+                Darwin.renameatx_np(
+                    AT_FDCWD,
+                    sourcePath,
+                    AT_FDCWD,
+                    quarantinePath,
+                    UInt32(RENAME_EXCL)
+                )
+            }
         }
-        if identity.isDirectory {
-            _ = url.path.withCString { Darwin.rmdir($0) }
-        } else {
-            _ = url.path.withCString { Darwin.unlink($0) }
+        guard quarantineResult == 0 else {
+            let code = errno
+            if code == ENOENT {
+                return .destinationAlreadyAbsent
+            }
+            throw ProvenanceWriterError
+                .exclusivePublicationCleanupFailed(
+                    path: url.path,
+                    quarantinePath: nil,
+                    reason:
+                        "could not atomically move it to quarantine: \(String(cString: Darwin.strerror(code)))"
+                )
         }
+
+        let quarantinedIdentity: FileSystemObjectIdentity
+        do {
+            quarantinedIdentity = try fileSystemObjectIdentity(
+                at: quarantineURL
+            )
+        } catch {
+            let restoreResult = quarantineURL.path.withCString {
+                quarantinePath in
+                url.path.withCString { originalPath in
+                    Darwin.renameatx_np(
+                        AT_FDCWD,
+                        quarantinePath,
+                        AT_FDCWD,
+                        originalPath,
+                        UInt32(RENAME_EXCL)
+                    )
+                }
+            }
+            throw ProvenanceWriterError
+                .exclusivePublicationCleanupFailed(
+                    path: url.path,
+                    quarantinePath:
+                        restoreResult == 0 ? nil : quarantineURL.path,
+                    reason:
+                        "could not inspect the quarantined filesystem object"
+                )
+        }
+
+        guard quarantinedIdentity == expectedIdentity else {
+            do {
+                try exclusivePublicationPreQuarantineRestoreHook?(
+                    url,
+                    quarantineURL
+                )
+            } catch {
+                throw ProvenanceWriterError
+                    .exclusivePublicationCleanupFailed(
+                        path: url.path,
+                        quarantinePath: quarantineURL.path,
+                        reason:
+                            "the pre-restore operation failed: \(error.localizedDescription)"
+                    )
+            }
+            let restoreResult = quarantineURL.path.withCString {
+                quarantinePath in
+                url.path.withCString { originalPath in
+                    Darwin.renameatx_np(
+                        AT_FDCWD,
+                        quarantinePath,
+                        AT_FDCWD,
+                        originalPath,
+                        UInt32(RENAME_EXCL)
+                    )
+                }
+            }
+            guard restoreResult == 0 else {
+                let code = errno
+                throw ProvenanceWriterError
+                    .exclusivePublicationCleanupFailed(
+                        path: url.path,
+                        quarantinePath: quarantineURL.path,
+                        reason:
+                            "the quarantined replacement could not be restored exclusively: \(String(cString: Darwin.strerror(code)))"
+                    )
+            }
+            return .restoredUnexpectedIdentity
+        }
+
+        do {
+            try FileManager.default.removeItem(at: quarantineURL)
+        } catch {
+            throw ProvenanceWriterError
+                .exclusivePublicationCleanupFailed(
+                    path: url.path,
+                    quarantinePath: quarantineURL.path,
+                    reason:
+                        "could not remove the identity-matched quarantined object: \(error.localizedDescription)"
+                )
+        }
+        return .removedExpectedIdentity
     }
 
     private func validateStagedRegularFile(
