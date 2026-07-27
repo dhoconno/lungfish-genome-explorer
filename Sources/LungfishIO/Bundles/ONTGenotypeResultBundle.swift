@@ -3895,7 +3895,8 @@ public extension ONTGenotypeResultBundleData {
         expectedRevision: GenotypeAnnotationSidecarRevision,
         forBundleAt bundleURL: URL,
         assuming publicationLock: ONTGenotypeBundlePublicationLock,
-        precommitValidation: (() throws -> Void)? = nil
+        precommitValidation: (() throws -> Void)? = nil,
+        postRenameHook: (() throws -> Void)? = nil
     ) throws {
         var sidecar = sidecar
         try sidecar.promoteToCurrentSchema()
@@ -3905,7 +3906,8 @@ public extension ONTGenotypeResultBundleData {
             forBundleAt: bundleURL,
             assuming: publicationLock,
             beforeRename: nil,
-            precommitValidation: precommitValidation
+            precommitValidation: precommitValidation,
+            postRenameHook: postRenameHook
         )
     }
 
@@ -3924,7 +3926,8 @@ public extension ONTGenotypeResultBundleData {
             forBundleAt: bundleURL,
             assuming: publicationLock,
             beforeRename: nil,
-            precommitValidation: nil
+            precommitValidation: nil,
+            postRenameHook: nil
         )
     }
 
@@ -3941,7 +3944,8 @@ public extension ONTGenotypeResultBundleData {
             forBundleAt: bundleURL,
             assuming: publicationLock,
             beforeRename: beforeRename,
-            precommitValidation: nil
+            precommitValidation: nil,
+            postRenameHook: nil
         )
     }
 
@@ -3951,7 +3955,8 @@ public extension ONTGenotypeResultBundleData {
         forBundleAt bundleURL: URL,
         assuming publicationLock: ONTGenotypeBundlePublicationLock,
         beforeRename: (() throws -> Void)?,
-        precommitValidation: (() throws -> Void)?
+        precommitValidation: (() throws -> Void)?,
+        postRenameHook: (() throws -> Void)?
     ) throws {
         let expectedLockURL = ONTGenotypeBundlePublicationLock.lockURL(
             for: bundleURL
@@ -4096,6 +4101,7 @@ public extension ONTGenotypeResultBundleData {
                 )
             }
         }
+        try postRenameHook?()
         guard Darwin.fsync(directoryFD) == 0 else {
             throw annotationSidecarPOSIXError(
                 operation: "synchronize annotation sidecar directory",

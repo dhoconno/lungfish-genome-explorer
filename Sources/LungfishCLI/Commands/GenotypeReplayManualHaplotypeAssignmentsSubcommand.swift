@@ -73,6 +73,7 @@ struct GenotypeReplayManualHaplotypeAssignmentsSubcommand:
     var publicationPreparationHook: (@Sendable () throws -> Void)? = nil
     var sidecarPublicationPreparationHook:
         (@Sendable () throws -> Void)? = nil
+    var sidecarPostRenameHook: (@Sendable () throws -> Void)? = nil
     var provenancePublisher: ProvenancePublisher? = nil
 
     private enum CodingKeys: String, CodingKey {
@@ -154,24 +155,28 @@ struct GenotypeReplayManualHaplotypeAssignmentsSubcommand:
             targetManifestData: manifestData
         )
         let outputData = try reconstructed.encoded()
-
-        try sidecarPublicationPreparationHook?()
-        try ONTGenotypeResultBundleData.writeAnnotationSidecar(
-            reconstructed,
-            expectedRevision: priorSnapshot.revision,
-            forBundleAt: bundleURL,
-            assuming: publicationLock,
-            precommitValidation: {
-                let reattestedManifestData = try ONTGenotypeResultBundle
-                    .readManifestDataNoFollow(from: bundleURL)
-                guard reattestedManifestData == manifestData else {
-                    throw GenotypeReplayManualHaplotypeAssignmentsError
-                        .manifestChanged(manifestURL.path)
-                }
-            }
+        let replayedRevision = GenotypeAnnotationSidecarRevision.sha256(
+            sha256Hex(outputData)
         )
 
         do {
+            try sidecarPublicationPreparationHook?()
+            try ONTGenotypeResultBundleData.writeAnnotationSidecar(
+                reconstructed,
+                expectedRevision: priorSnapshot.revision,
+                forBundleAt: bundleURL,
+                assuming: publicationLock,
+                precommitValidation: {
+                    let reattestedManifestData =
+                        try ONTGenotypeResultBundle
+                            .readManifestDataNoFollow(from: bundleURL)
+                    guard reattestedManifestData == manifestData else {
+                        throw GenotypeReplayManualHaplotypeAssignmentsError
+                            .manifestChanged(manifestURL.path)
+                    }
+                },
+                postRenameHook: sidecarPostRenameHook
+            )
             let command = commandArgv(
                 sourceProvenanceURL: sourceProvenanceURL,
                 bundleURL: bundleURL
@@ -300,13 +305,27 @@ struct GenotypeReplayManualHaplotypeAssignmentsSubcommand:
             }
         } catch {
             try throwAfterProvenancePublicationFailure(error) {
-                try ONTGenotypeResultBundleData
-                    .restoreAnnotationSidecarData(
-                        priorData,
-                        expectedRevision: .sha256(sha256Hex(outputData)),
-                        forBundleAt: bundleURL,
-                        assuming: publicationLock
-                    )
+                let currentSnapshot =
+                    try ONTGenotypeResultBundleData
+                        .loadAnnotationSidecarSnapshot(
+                            forBundleAt: bundleURL
+                        )
+                if currentSnapshot.revision == replayedRevision {
+                    try ONTGenotypeResultBundleData
+                        .restoreAnnotationSidecarData(
+                            priorData,
+                            expectedRevision: replayedRevision,
+                            forBundleAt: bundleURL,
+                            assuming: publicationLock
+                        )
+                } else if currentSnapshot.revision
+                            != priorSnapshot.revision {
+                    throw GenotypeAnnotationSidecarPublicationError
+                        .staleRevision(
+                            expected: replayedRevision,
+                            actual: currentSnapshot.revision
+                        )
+                }
             }
         }
     }

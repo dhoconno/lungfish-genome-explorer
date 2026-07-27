@@ -2,9 +2,10 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import Darwin
 import Foundation
-import Testing
 import LungfishWorkflow
+import Testing
 
 @Suite("Provenance Signing")
 struct ProvenanceSigningTests {
@@ -291,6 +292,63 @@ struct ProvenanceSigningTests {
         #expect(leftovers == [provenanceURL.lastPathComponent])
     }
 
+    @Test("Exclusive writer rejects a directory signer artifact")
+    func testExclusiveWriterRejectsDirectorySignerArtifact() throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let provenanceURL = directory.appendingPathComponent(
+            "directory-artifact.lungfish-provenance.json"
+        )
+        let writer = ProvenanceWriter(
+            signingProvider: DirectoryArtifactSigningProvider()
+        )
+
+        do {
+            try writer.writeNew(
+                ProvenanceEnvelope.fixture(),
+                toSidecar: provenanceURL
+            )
+            Issue.record("Expected unsafe staged artifact rejection")
+        } catch {
+            #expect(error.localizedDescription.contains("regular file"))
+        }
+
+        #expect(
+            try FileManager.default.contentsOfDirectory(
+                atPath: directory.path
+            ).isEmpty
+        )
+    }
+
+    @Test("Exclusive writer rejects a FIFO signer artifact without blocking")
+    func testExclusiveWriterRejectsFIFOSignerArtifact() throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let provenanceURL = directory.appendingPathComponent(
+            "fifo-artifact.lungfish-provenance.json"
+        )
+        let provider = FIFOArtifactSigningProvider()
+        let writer = ProvenanceWriter(signingProvider: provider)
+        let startedAt = Date()
+
+        do {
+            try writer.writeNew(
+                ProvenanceEnvelope.fixture(),
+                toSidecar: provenanceURL
+            )
+            Issue.record("Expected unsafe staged artifact rejection")
+        } catch {
+            #expect(error.localizedDescription.contains("regular file"))
+        }
+
+        #expect(Date().timeIntervalSince(startedAt) < 1)
+        #expect(
+            try FileManager.default.contentsOfDirectory(
+                atPath: directory.path
+            ).isEmpty
+        )
+    }
+
     private func makeTempDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("lungfish-provenance-signing-\(UUID().uuidString)", isDirectory: true)
@@ -378,6 +436,92 @@ private struct RacingSigningProvider: ProvenanceSigningProvider {
         )
         try Data("transaction public key".utf8).write(
             to: publicKeyURL,
+            options: .atomic
+        )
+        return ProvenanceSignatureArtifact(
+            signatureURL: signatureURL,
+            publicKeyURL: publicKeyURL
+        )
+    }
+}
+
+private struct DirectoryArtifactSigningProvider:
+    ProvenanceSigningProvider
+{
+    let providerIdentifier = "directory-artifact-provider"
+
+    func sign(
+        provenanceURL: URL
+    ) throws -> ProvenanceSignatureArtifact {
+        let directory = provenanceURL.deletingLastPathComponent()
+        let signatureURL = directory.appendingPathComponent(
+            "\(provenanceURL.lastPathComponent).directory.signature"
+        )
+        let publicKeyURL = directory.appendingPathComponent(
+            "\(provenanceURL.lastPathComponent).directory.pub"
+        )
+        if !FileManager.default.fileExists(atPath: signatureURL.path) {
+            try FileManager.default.createDirectory(
+                at: signatureURL,
+                withIntermediateDirectories: false
+            )
+        }
+        try Data("public key".utf8).write(
+            to: publicKeyURL,
+            options: .atomic
+        )
+        return ProvenanceSignatureArtifact(
+            signatureURL: signatureURL,
+            publicKeyURL: publicKeyURL
+        )
+    }
+}
+
+private final class FIFOArtifactSigningProvider:
+    ProvenanceSigningProvider,
+    @unchecked Sendable
+{
+    let providerIdentifier = "fifo-artifact-provider"
+    private let lock = NSLock()
+    private var keeperDescriptor: Int32 = -1
+
+    deinit {
+        if keeperDescriptor >= 0 {
+            Darwin.close(keeperDescriptor)
+        }
+    }
+
+    func sign(
+        provenanceURL: URL
+    ) throws -> ProvenanceSignatureArtifact {
+        let directory = provenanceURL.deletingLastPathComponent()
+        let signatureURL = directory.appendingPathComponent(
+            "\(provenanceURL.lastPathComponent).fifo.signature"
+        )
+        let publicKeyURL = directory.appendingPathComponent(
+            "\(provenanceURL.lastPathComponent).fifo.pub"
+        )
+        lock.lock()
+        defer { lock.unlock() }
+        if keeperDescriptor < 0 {
+            let creationResult = publicKeyURL.path.withCString {
+                Darwin.mkfifo($0, mode_t(0o600))
+            }
+            guard creationResult == 0 else {
+                throw POSIXError(.init(rawValue: errno) ?? .EIO)
+            }
+            keeperDescriptor = publicKeyURL.path.withCString {
+                Darwin.open(
+                    $0,
+                    O_RDWR | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW
+                )
+            }
+            guard keeperDescriptor >= 0 else {
+                throw POSIXError(.init(rawValue: errno) ?? .EIO)
+            }
+        }
+        try Data("signature".utf8).write(
+            to: signatureURL,
             options: .atomic
         )
         return ProvenanceSignatureArtifact(

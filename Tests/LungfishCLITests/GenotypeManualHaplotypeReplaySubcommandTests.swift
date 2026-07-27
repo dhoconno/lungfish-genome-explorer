@@ -318,12 +318,123 @@ final class GenotypeManualHaplotypeReplaySubcommandTests: XCTestCase {
             )
         }
 
-        await XCTAssertThrowsErrorAsync(try await command.run())
+        await XCTAssertThrowsErrorAsync(try await command.run()) { error in
+            XCTAssertEqual(
+                error as? GenotypeReplayManualHaplotypeAssignmentsError,
+                .manifestChanged(fixture.manifestURL.path)
+            )
+            XCTAssertFalse(error is ProvenancePublicationRollbackError)
+        }
 
         XCTAssertEqual(try Data(contentsOf: fixture.sidecarURL), priorBytes)
         XCTAssertEqual(
             try Data(contentsOf: fixture.manifestURL),
             replacementManifestData
+        )
+        for artifact in ProvenancePublicationArtifacts.sidecarArtifacts(
+            for: outputProvenanceURL
+        ) {
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: artifact.path)
+            )
+        }
+        let reacquired = try ONTGenotypeBundlePublicationLock.acquire(
+            for: fixture.bundleURL
+        )
+        reacquired.release()
+    }
+
+    func testPostRenameDurabilityFailureRestoresPriorSidecarAndReleasesLock() async throws {
+        enum InjectedFailure: Error, Equatable {
+            case directorySync
+            case hookRanBeforeRename
+        }
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let priorBytes = try Data(contentsOf: fixture.sidecarURL)
+        let priorHash = sha256(priorBytes)
+        let sourceBytes = try Data(contentsOf: fixture.sourceProvenanceURL)
+        let outputProvenanceURL =
+            GenotypeManualHaplotypeAssignmentReplayPayload
+                .replayOutputProvenanceURL(forBundleAt: fixture.bundleURL)
+        var command =
+            try GenotypeReplayManualHaplotypeAssignmentsSubcommand.parse([
+                "--provenance", fixture.sourceProvenanceURL.path,
+                "--bundle", fixture.bundleURL.path,
+            ])
+        command.sidecarPostRenameHook = {
+            guard try Data(contentsOf: fixture.sidecarURL)
+                    != priorBytes else {
+                throw InjectedFailure.hookRanBeforeRename
+            }
+            throw InjectedFailure.directorySync
+        }
+
+        await XCTAssertThrowsErrorAsync(try await command.run()) { error in
+            XCTAssertEqual(
+                error as? InjectedFailure,
+                .directorySync
+            )
+            XCTAssertFalse(error is ProvenancePublicationRollbackError)
+        }
+
+        let restoredBytes = try Data(contentsOf: fixture.sidecarURL)
+        XCTAssertEqual(restoredBytes, priorBytes)
+        XCTAssertEqual(sha256(restoredBytes), priorHash)
+        XCTAssertEqual(
+            try Data(contentsOf: fixture.sourceProvenanceURL),
+            sourceBytes
+        )
+        for artifact in ProvenancePublicationArtifacts.sidecarArtifacts(
+            for: outputProvenanceURL
+        ) {
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: artifact.path)
+            )
+        }
+        let reacquired = try ONTGenotypeBundlePublicationLock.acquire(
+            for: fixture.bundleURL
+        )
+        reacquired.release()
+    }
+
+    func testPostRenameFailureDoesNotOverwriteUnexpectedConcurrentSidecar() async throws {
+        enum InjectedFailure: Error {
+            case directorySync
+        }
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        var unexpected = fixture.prior
+        unexpected.sampleNotes.append(.init(
+            sample: "Concurrent",
+            body: "must survive failed rollback",
+            author: "other writer",
+            timestamp: "2026-07-26T16:00:00Z"
+        ))
+        let unexpectedData = try unexpected.encoded()
+        let outputProvenanceURL =
+            GenotypeManualHaplotypeAssignmentReplayPayload
+                .replayOutputProvenanceURL(forBundleAt: fixture.bundleURL)
+        var command =
+            try GenotypeReplayManualHaplotypeAssignmentsSubcommand.parse([
+                "--provenance", fixture.sourceProvenanceURL.path,
+                "--bundle", fixture.bundleURL.path,
+            ])
+        command.sidecarPostRenameHook = {
+            try unexpectedData.write(
+                to: fixture.sidecarURL,
+                options: .atomic
+            )
+            throw InjectedFailure.directorySync
+        }
+
+        await XCTAssertThrowsErrorAsync(try await command.run()) { error in
+            XCTAssertTrue(error is ProvenancePublicationRollbackError)
+        }
+
+        XCTAssertEqual(
+            try Data(contentsOf: fixture.sidecarURL),
+            unexpectedData
         )
         for artifact in ProvenancePublicationArtifacts.sidecarArtifacts(
             for: outputProvenanceURL

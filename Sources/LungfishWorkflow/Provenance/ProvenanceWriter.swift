@@ -14,6 +14,7 @@ public enum ProvenanceWriterError: Error, LocalizedError, Sendable, Equatable {
         actualPublicKeyPath: String
     )
     case unsafeStagedSignatureArtifact(provider: String, path: String)
+    case unsafeStagedArtifact(path: String, reason: String)
     case exclusivePublicationFailed(path: String, code: Int32)
     case durabilitySyncFailed(path: String, code: Int32)
 
@@ -31,6 +32,8 @@ public enum ProvenanceWriterError: Error, LocalizedError, Sendable, Equatable {
             """
         case .unsafeStagedSignatureArtifact(let provider, let path):
             return "Provenance signing provider '\(provider)' produced an artifact outside the staging directory: \(path)."
+        case .unsafeStagedArtifact(let path, let reason):
+            return "Unsafe staged provenance artifact at \(path): \(reason)."
         case .exclusivePublicationFailed(let path, let code):
             return "Could not publish a new provenance artifact without replacement at \(path): \(POSIXError(.init(rawValue: code) ?? .EIO).localizedDescription)"
         case .durabilitySyncFailed(let path, let code):
@@ -194,15 +197,33 @@ public struct ProvenanceWriter: Sendable {
         }
         artifacts.append((stagedProvenanceURL, provenanceURL))
 
+        var validatedArtifacts: [ValidatedPublicationArtifact] = []
+        defer {
+            for artifact in validatedArtifacts {
+                Darwin.close(artifact.descriptor)
+            }
+        }
         for artifact in artifacts {
-            try synchronizeFile(at: artifact.staged)
+            validatedArtifacts.append(
+                try validateStagedRegularFile(
+                    at: artifact.staged,
+                    destination: artifact.destination
+                )
+            )
         }
         try synchronizeDirectory(at: stagingDirectory)
 
         var published: [(url: URL, identity: FileIdentity)] = []
         do {
-            for artifact in artifacts {
-                let identity = try fileIdentity(at: artifact.staged)
+            for artifact in validatedArtifacts {
+                guard try fileIdentity(at: artifact.staged)
+                        == artifact.identity else {
+                    throw ProvenanceWriterError.unsafeStagedArtifact(
+                        path: artifact.staged.path,
+                        reason:
+                            "the path no longer identifies the validated regular file"
+                    )
+                }
                 let result = artifact.staged.path.withCString { sourcePath in
                     artifact.destination.path.withCString { destinationPath in
                         Darwin.renameatx_np(
@@ -220,7 +241,9 @@ public struct ProvenanceWriter: Sendable {
                         code: errno
                     )
                 }
-                published.append((artifact.destination, identity))
+                published.append(
+                    (artifact.destination, artifact.identity)
+                )
             }
             try synchronizeDirectory(at: destinationDirectory)
         } catch {
@@ -419,6 +442,13 @@ public struct ProvenanceWriter: Sendable {
         let inode: ino_t
     }
 
+    private struct ValidatedPublicationArtifact {
+        let staged: URL
+        let destination: URL
+        let identity: FileIdentity
+        let descriptor: Int32
+    }
+
     private func exclusivePublicationArtifact(
         storedPath: String,
         provider: String,
@@ -457,28 +487,96 @@ public struct ProvenanceWriter: Sendable {
         return FileIdentity(device: metadata.st_dev, inode: metadata.st_ino)
     }
 
-    private func synchronizeFile(at url: URL) throws {
-        let descriptor = url.path.withCString {
-            Darwin.open($0, O_RDONLY | O_NOFOLLOW)
-        }
-        guard descriptor >= 0 else {
-            throw ProvenanceWriterError.durabilitySyncFailed(
+    private func validateStagedRegularFile(
+        at url: URL,
+        destination: URL
+    ) throws -> ValidatedPublicationArtifact {
+        var pathMetadata = stat()
+        guard url.path.withCString({
+            Darwin.lstat($0, &pathMetadata)
+        }) == 0 else {
+            throw ProvenanceWriterError.unsafeStagedArtifact(
                 path: url.path,
-                code: errno
+                reason: String(cString: Darwin.strerror(errno))
             )
         }
-        defer { Darwin.close(descriptor) }
+        guard (pathMetadata.st_mode & mode_t(S_IFMT))
+                == mode_t(S_IFREG) else {
+            throw ProvenanceWriterError.unsafeStagedArtifact(
+                path: url.path,
+                reason: "expected a regular file"
+            )
+        }
+        let descriptor = url.path.withCString {
+            Darwin.open(
+                $0,
+                O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
+            )
+        }
+        guard descriptor >= 0 else {
+            throw ProvenanceWriterError.unsafeStagedArtifact(
+                path: url.path,
+                reason:
+                    "could not open without following links: \(String(cString: Darwin.strerror(errno)))"
+            )
+        }
+        var shouldClose = true
+        defer {
+            if shouldClose {
+                Darwin.close(descriptor)
+            }
+        }
+        var descriptorMetadata = stat()
+        guard Darwin.fstat(descriptor, &descriptorMetadata) == 0 else {
+            throw ProvenanceWriterError.unsafeStagedArtifact(
+                path: url.path,
+                reason:
+                    "could not inspect the opened descriptor: \(String(cString: Darwin.strerror(errno)))"
+            )
+        }
+        guard (descriptorMetadata.st_mode & mode_t(S_IFMT))
+                == mode_t(S_IFREG) else {
+            throw ProvenanceWriterError.unsafeStagedArtifact(
+                path: url.path,
+                reason: "the opened descriptor is not a regular file"
+            )
+        }
+        let pathIdentity = FileIdentity(
+            device: pathMetadata.st_dev,
+            inode: pathMetadata.st_ino
+        )
+        let descriptorIdentity = FileIdentity(
+            device: descriptorMetadata.st_dev,
+            inode: descriptorMetadata.st_ino
+        )
+        guard pathIdentity == descriptorIdentity else {
+            throw ProvenanceWriterError.unsafeStagedArtifact(
+                path: url.path,
+                reason:
+                    "the path and opened descriptor identify different files"
+            )
+        }
         guard Darwin.fsync(descriptor) == 0 else {
             throw ProvenanceWriterError.durabilitySyncFailed(
                 path: url.path,
                 code: errno
             )
         }
+        shouldClose = false
+        return ValidatedPublicationArtifact(
+            staged: url,
+            destination: destination,
+            identity: descriptorIdentity,
+            descriptor: descriptor
+        )
     }
 
     private func synchronizeDirectory(at url: URL) throws {
         let descriptor = url.path.withCString {
-            Darwin.open($0, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+            Darwin.open(
+                $0,
+                O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW
+            )
         }
         guard descriptor >= 0 else {
             throw ProvenanceWriterError.durabilitySyncFailed(
