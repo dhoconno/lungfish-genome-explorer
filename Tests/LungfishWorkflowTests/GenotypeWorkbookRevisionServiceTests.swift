@@ -5381,7 +5381,7 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         XCTAssertNil(envelope.options.explicit["currentWorkbookSyncIntent"])
     }
 
-    func testAbsentZeroSupportFalseNegativeCreatesManagedAnnotationOnlyRow() throws {
+    func testAbsentZeroSupportFalseNegativeUsesExactPortablePresentation() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -5402,7 +5402,7 @@ wb = load_workbook(path)
 wb["Unified Genotype Pivot"].auto_filter.ref = "A1:P1"
 wb.save(path)
 """#, currentURL.path])
-        _ = try installReviewableRowCatalog(
+        let catalogReference = try installReviewableRowCatalog(
             GenotypeReviewableRowCatalog(
                 samples: ["Sample-A", "Sample-B"],
                 rows: [
@@ -5449,9 +5449,13 @@ wb.save(path)
         let service = GenotypeWorkbookRevisionService(
             dateProvider: clock.now,
             userProvider: { "tester" },
-            pythonExecutableURL: testPythonExecutableURL
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL: root.appendingPathComponent(
+                "workbook-attestations",
+                isDirectory: true
+            )
         )
-        _ = try service.applyHaplotypeOverrides(
+        let updated = try service.applyHaplotypeOverrides(
             [],
             annotationSidecarURL: annotationURL,
             into: fixture.bundleURL
@@ -5479,10 +5483,28 @@ wb.save(path)
         XCTAssertEqual(inspection["syntheticSampleCountType"], "n")
         XCTAssertEqual(inspection["syntheticTotalReads"], "0")
         XCTAssertEqual(inspection["syntheticTotalReadsType"], "n")
-        XCTAssertEqual(inspection["sampleAValue"], "")
-        XCTAssertEqual(inspection["sampleBValue"], "")
-        XCTAssertEqual(inspection["sampleABorders"], "thick|thick|thick|thick")
-        XCTAssertEqual(inspection["sampleBBorders"], "thick|thick|thick|thick")
+        XCTAssertEqual(inspection["sampleAValue"], "FN")
+        XCTAssertEqual(inspection["sampleBValue"], "FN")
+        XCTAssertEqual(
+            inspection["sampleABorders"],
+            "mediumDashed|mediumDashed|mediumDashed|mediumDashed"
+        )
+        XCTAssertEqual(
+            inspection["sampleBBorders"],
+            "mediumDashed|mediumDashed|mediumDashed|mediumDashed"
+        )
+        XCTAssertEqual(
+            inspection["sampleABorderColors"],
+            "FFC65911|FFC65911|FFC65911|FFC65911"
+        )
+        XCTAssertEqual(
+            inspection["sampleBBorderColors"],
+            "FFC65911|FFC65911|FFC65911|FFC65911"
+        )
+        XCTAssertEqual(inspection["sampleAFill"], "solid|FFFFF2CC")
+        XCTAssertEqual(inspection["sampleBFill"], "solid|FFFFF2CC")
+        XCTAssertEqual(inspection["sampleAFont"], "true|FF7F6000")
+        XCTAssertEqual(inspection["sampleBFont"], "true|FF7F6000")
         XCTAssertEqual(inspection["tableRef"], "A1:N3")
         XCTAssertEqual(inspection["tableAutoFilterRef"], "A1:N3")
         XCTAssertEqual(inspection["autoFilterRef"], "A1:P3")
@@ -5494,6 +5516,109 @@ wb.save(path)
         XCTAssertEqual(inspection["formulaBorders"], "thin|thin|thin|thin")
         XCTAssertEqual(inspection["formulaNumberFormat"], "0.00")
         XCTAssertEqual(inspection["managedSyntheticStateRows"], "2")
+        let ooxml = try inspectPortableFalseNegativeOOXML(currentURL)
+        XCTAssertEqual(ooxml["hasLiteralFN"], "true")
+        XCTAssertEqual(ooxml["hasDashedBorder"], "true")
+        XCTAssertEqual(ooxml["hasBorderColor"], "true")
+        XCTAssertEqual(ooxml["hasFillColor"], "true")
+        XCTAssertEqual(ooxml["hasFontColor"], "true")
+
+        let provenanceURL = ONTGenotypeResultBundle.resolvedURL(
+            for: try XCTUnwrap(updated.workbookRevisions?.last?.provenancePath),
+            in: fixture.bundleURL
+        )
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: provenanceURL)
+        )
+        let pythonStep = try XCTUnwrap(
+            envelope.steps.first {
+                $0.toolName == "python openpyxl workbook candidate update"
+            }
+        )
+        XCTAssertEqual(
+            pythonStep.resolvedOptions["annotationSidecarRevisionSHA256"],
+            .string(try ProvenanceFileHasher.sha256(of: annotationURL))
+        )
+        XCTAssertEqual(
+            pythonStep.resolvedOptions["workbookMatrixAdapterVersion"],
+            .string("lge-workbook-matrix-adapter-v1")
+        )
+        let catalogDescriptor = try XCTUnwrap(
+            pythonStep.resolvedOptions["reviewableRowCatalogDescriptor"]?
+                .dictionaryValue
+        )
+        XCTAssertEqual(catalogDescriptor["path"], .string(catalogReference.path))
+        XCTAssertEqual(
+            catalogDescriptor["sizeBytes"],
+            .integer(Int(catalogReference.sizeBytes))
+        )
+        XCTAssertEqual(
+            catalogDescriptor["sha256"],
+            .string(catalogReference.sha256)
+        )
+        XCTAssertEqual(
+            catalogDescriptor["schemaVersion"],
+            .integer(GenotypeReviewableRowCatalog.schemaVersion)
+        )
+        let adapterDecisions = try XCTUnwrap(
+            pythonStep.resolvedOptions["workbookAdapterDecisions"]?.arrayValue
+        )
+        XCTAssertEqual(adapterDecisions.count, 1)
+        XCTAssertEqual(
+            adapterDecisions.first?.dictionaryValue?["adapter"],
+            .string("unified")
+        )
+        let synthesisDecisions = try XCTUnwrap(
+            pythonStep.resolvedOptions["falseNegativeSynthesisDecisions"]?
+                .arrayValue
+        )
+        XCTAssertEqual(synthesisDecisions.count, 1)
+        XCTAssertEqual(
+            synthesisDecisions.first?.dictionaryValue?["identity"],
+            .string("reference|reference:MHC-A:Mamu-A1*001:01|MHC-A|Mamu-A1*001:01|")
+        )
+        XCTAssertEqual(
+            synthesisDecisions.first?.dictionaryValue?["cells"],
+            .array([.string("M3"), .string("N3")])
+        )
+        let targetDecisions = try XCTUnwrap(
+            pythonStep.resolvedOptions["falseNegativeTargetCellDecisions"]?
+                .arrayValue
+        )
+        XCTAssertEqual(targetDecisions.count, 2)
+        XCTAssertEqual(
+            Set(targetDecisions.compactMap {
+                $0.dictionaryValue?["cell"]?.stringValue
+            }),
+            ["M3", "N3"]
+        )
+        XCTAssertEqual(
+            pythonStep.resolvedOptions["managedReviewRestorationDecisions"],
+            .array([.dictionary([
+                "action": .string("none"),
+                "reason": .string("no-managed-review-state"),
+            ])])
+        )
+        let sidecarInput = try XCTUnwrap(
+            pythonStep.inputs.first { $0.path == annotationURL.path }
+        )
+        XCTAssertEqual(
+            sidecarInput.checksumSHA256,
+            try ProvenanceFileHasher.sha256(of: annotationURL)
+        )
+        let workbookOutput = try XCTUnwrap(
+            pythonStep.outputs.first { $0.path == currentURL.path }
+        )
+        XCTAssertEqual(
+            workbookOutput.checksumSHA256,
+            try ProvenanceFileHasher.sha256(of: currentURL)
+        )
+        XCTAssertEqual(pythonStep.exitStatus, 0)
+        XCTAssertEqual(pythonStep.stderr, "")
+        XCTAssertNotNil(pythonStep.wallTimeSeconds)
+        XCTAssertFalse(pythonStep.argv.isEmpty)
+        XCTAssertEqual(pythonStep.runtimeIdentity?.condaEnvironment, "openpyxl")
 
         sidecar.matrixReviews = []
         try sidecar.encoded().write(to: annotationURL)
@@ -5578,7 +5703,7 @@ wb.save(path)
         XCTAssertEqual(inspection["syntheticRows"], "1")
         XCTAssertEqual(inspection["syntheticTotal"], "0")
         XCTAssertEqual(inspection["syntheticObserved"], "0")
-        XCTAssertEqual(inspection["syntheticEvidence"], "")
+        XCTAssertEqual(inspection["syntheticEvidence"], "FN")
         XCTAssertEqual(inspection["tableRef"], "A6:D9")
         XCTAssertEqual(inspection["tableAutoFilterRef"], "A6:D9")
         XCTAssertEqual(inspection["autoFilterRef"], "A6:D9")
@@ -6717,7 +6842,10 @@ wb.save(path)
         XCTAssertEqual(inspection["markerRows"], "0")
         XCTAssertEqual(inspection["syntheticRows"], "0")
         XCTAssertEqual(inspection["realRows"], "1")
-        XCTAssertEqual(inspection["realSampleABorders"], "thick|thick|thick|thick")
+        XCTAssertEqual(
+            inspection["realSampleABorders"],
+            "mediumDashed|mediumDashed|mediumDashed|mediumDashed"
+        )
         XCTAssertEqual(inspection["tableRef"], "A1:N2")
         XCTAssertEqual(inspection["autoFilterRef"], "A1:N2")
         XCTAssertEqual(inspection["managedSyntheticStateRows"], "0")
@@ -7620,9 +7748,22 @@ wb.save(path)
                 timestamp: "2026-07-24T10:03:00Z"
             ),
         ]
+        sidecar.matrixComments = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-I*collision",
+                    sample: "Sample-Zero",
+                    stableClusterID: "cluster-a"
+                ),
+                body: "Analyst expects support in this sample.",
+                author: "reviewer",
+                timestamp: "2026-07-24T10:04:00Z"
+            ),
+        ]
         try sidecar.encoded().write(to: annotationURL)
 
-        _ = try GenotypeWorkbookRevisionService(
+        let updated = try GenotypeWorkbookRevisionService(
             dateProvider: { Date(timeIntervalSince1970: 8_000) },
             userProvider: { "tester" },
             pythonExecutableURL: testPythonExecutableURL
@@ -7632,12 +7773,26 @@ wb.save(path)
         XCTAssertEqual(inspection["falsePositiveValue"], "[42]")
         XCTAssertEqual(inspection["falsePositiveItalic"], "true")
         XCTAssertEqual(inspection["falsePositiveColor"], "767676")
-        XCTAssertEqual(inspection["explicitZeroValue"], "0")
-        XCTAssertEqual(inspection["explicitZeroType"], "n")
-        XCTAssertEqual(inspection["explicitZeroBorders"], "thick|thick|thick|thick")
-        XCTAssertEqual(inspection["absentValue"], "")
-        XCTAssertEqual(inspection["absentType"], "n")
-        XCTAssertEqual(inspection["absentBorders"], "thick|thick|thick|thick")
+        XCTAssertEqual(inspection["explicitZeroValue"], "FN")
+        XCTAssertEqual(inspection["explicitZeroType"], "s")
+        XCTAssertEqual(
+            inspection["explicitZeroBorders"],
+            "mediumDashed|mediumDashed|mediumDashed|mediumDashed"
+        )
+        XCTAssertEqual(inspection["explicitZeroFill"], "solid|FFF2CC")
+        XCTAssertEqual(inspection["explicitZeroBold"], "true")
+        XCTAssertEqual(inspection["explicitZeroColor"], "7F6000")
+        XCTAssertTrue(
+            inspection["explicitZeroComment"]?.contains(
+                "Analyst expects support in this sample."
+            ) == true
+        )
+        XCTAssertEqual(inspection["absentValue"], "FN")
+        XCTAssertEqual(inspection["absentType"], "s")
+        XCTAssertEqual(
+            inspection["absentBorders"],
+            "mediumDashed|mediumDashed|mediumDashed|mediumDashed"
+        )
         XCTAssertEqual(inspection["otherLocusValue"], "42", "The colliding genotype at another locus must not be formatted")
         XCTAssertEqual(inspection["otherStableIDValue"], "42", "The colliding genotype at another stable ID must not be formatted")
         XCTAssertEqual(inspection["invalidReviewValue"], "42", "An ineligible false-negative import must not be formatted")
@@ -7646,6 +7801,38 @@ wb.save(path)
         XCTAssertTrue(inspection["invalidReviewRow"]?.contains("|cluster-c|falseNegative|invalid|") == true)
         XCTAssertTrue(inspection["invalidAuditRow"]?.contains("validateMatrixReview") == true)
         XCTAssertTrue(inspection["invalidAuditRow"]?.contains("|cluster-c|falseNegative|invalid|") == true)
+        let provenanceURL = ONTGenotypeResultBundle.resolvedURL(
+            for: try XCTUnwrap(updated.workbookRevisions?.last?.provenancePath),
+            in: fixture.bundleURL
+        )
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: provenanceURL)
+        )
+        let pythonStep = try XCTUnwrap(
+            envelope.steps.first {
+                $0.toolName == "python openpyxl workbook candidate update"
+            }
+        )
+        let targetDecisions = try XCTUnwrap(
+            pythonStep.resolvedOptions["falseNegativeTargetCellDecisions"]?
+                .arrayValue
+        )
+        XCTAssertEqual(targetDecisions.count, 3)
+        let invalidDecision = try XCTUnwrap(
+            targetDecisions.first {
+                $0.dictionaryValue?["status"] == .string("invalid")
+            }?.dictionaryValue
+        )
+        XCTAssertEqual(invalidDecision["cell"], .null)
+        XCTAssertTrue(
+            invalidDecision["target"]?.stringValue?.contains("cluster-c") == true
+        )
+        XCTAssertTrue(
+            invalidDecision["reason"]?.stringValue?.contains(
+                "authoritative sample support of zero"
+            ) == true
+        )
     }
 
     func testClearingMatrixReviewsRestoresManagedPresentationAndRemovesStaleSheets() throws {
@@ -7681,7 +7868,18 @@ wb.save(path)
                 disposition: .falseNegative,
                 author: "reviewer",
                 timestamp: "2026-07-24T10:01:00Z"
-            )
+            ),
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-I*collision",
+                    sample: "Sample-Absent",
+                    stableClusterID: "cluster-a"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-24T10:02:00Z"
+            ),
         ]
         try sidecar.encoded().write(to: annotationURL)
         let service = GenotypeWorkbookRevisionService(
@@ -7695,6 +7893,12 @@ wb.save(path)
             into: fixture.bundleURL
         )
         XCTAssertEqual(try inspectSemanticReviewWorkbook(currentURL)["falsePositiveValue"], "[42]")
+        let applied = try inspectSemanticReviewWorkbook(currentURL)
+        XCTAssertEqual(applied["explicitZeroValue"], "FN")
+        XCTAssertEqual(applied["explicitZeroFill"], "solid|FFF2CC")
+        XCTAssertEqual(applied["explicitZeroBold"], "true")
+        XCTAssertEqual(applied["explicitZeroColor"], "7F6000")
+        XCTAssertEqual(applied["absentValue"], "FN")
         _ = try runPython(["-c", #"""
 import sys
 from copy import copy
@@ -7727,7 +7931,23 @@ wb.save(path)
         XCTAssertEqual(inspection["falsePositiveItalic"], "false")
         XCTAssertEqual(inspection["falsePositiveColor"], originalInspection["falsePositiveColor"])
         XCTAssertEqual(inspection["falsePositiveBold"], "true")
+        XCTAssertEqual(inspection["explicitZeroValue"], "0")
+        XCTAssertEqual(inspection["explicitZeroType"], "n")
+        XCTAssertEqual(
+            inspection["explicitZeroFill"],
+            originalInspection["explicitZeroFill"]
+        )
+        XCTAssertEqual(
+            inspection["explicitZeroBold"],
+            originalInspection["explicitZeroBold"]
+        )
+        XCTAssertEqual(
+            inspection["explicitZeroColor"],
+            originalInspection["explicitZeroColor"]
+        )
         XCTAssertEqual(inspection["explicitZeroBorders"], "thin|||")
+        XCTAssertEqual(inspection["absentValue"], "")
+        XCTAssertEqual(inspection["absentType"], "n")
         XCTAssertEqual(inspection["hasMatrixAnnotationsSheet"], "false")
         XCTAssertEqual(inspection["hasManagedReviewStateSheet"], "false")
     }
@@ -8743,6 +8963,24 @@ def borders(cell):
         for side in ("left", "right", "top", "bottom")
     )
 
+def border_colors(cell):
+    return "|".join(
+        text(getattr(getattr(getattr(cell.border, side), "color", None), "rgb", None))
+        for side in ("left", "right", "top", "bottom")
+    )
+
+def fill(cell):
+    return "|".join([
+        text(cell.fill.fill_type),
+        text(getattr(cell.fill.fgColor, "rgb", None)),
+    ])
+
+def font(cell):
+    return "|".join([
+        str(bool(cell.font.bold)).lower(),
+        text(getattr(cell.font.color, "rgb", None)),
+    ])
+
 marker_rows = [
     row for row in range(2, ws.max_row + 1)
     if text(ws.cell(row, headers["call_type"]).value)
@@ -8797,6 +9035,24 @@ payload = {
     "sampleBBorders": "" if not synthetic_row else borders(
         ws.cell(synthetic_row, headers["Sample-B"])
     ),
+    "sampleABorderColors": "" if not synthetic_row else border_colors(
+        ws.cell(synthetic_row, headers["Sample-A"])
+    ),
+    "sampleBBorderColors": "" if not synthetic_row else border_colors(
+        ws.cell(synthetic_row, headers["Sample-B"])
+    ),
+    "sampleAFill": "" if not synthetic_row else fill(
+        ws.cell(synthetic_row, headers["Sample-A"])
+    ),
+    "sampleBFill": "" if not synthetic_row else fill(
+        ws.cell(synthetic_row, headers["Sample-B"])
+    ),
+    "sampleAFont": "" if not synthetic_row else font(
+        ws.cell(synthetic_row, headers["Sample-A"])
+    ),
+    "sampleBFont": "" if not synthetic_row else font(
+        ws.cell(synthetic_row, headers["Sample-B"])
+    ),
     "realSampleABorders": "" if not real_row else borders(
         ws.cell(real_row, headers["Sample-A"])
     ),
@@ -8821,6 +9077,38 @@ payload = {
             if text(state.cell(row, 17).value) == "true"
         )
     ),
+}
+print(json.dumps(payload))
+"""#
+        let output = try runPython(["-c", code, url.path])
+        let object = try JSONSerialization.jsonObject(with: Data(output.utf8))
+        return try XCTUnwrap(object as? [String: String])
+    }
+
+    private func inspectPortableFalseNegativeOOXML(
+        _ url: URL
+    ) throws -> [String: String] {
+        let code = #"""
+import json
+import sys
+import zipfile
+
+with zipfile.ZipFile(sys.argv[1]) as archive:
+    styles = archive.read("xl/styles.xml").decode("utf-8")
+    cell_xml = "\n".join(
+        archive.read(name).decode("utf-8")
+        for name in archive.namelist()
+        if name.startswith("xl/worksheets/sheet") and name.endswith(".xml")
+    )
+    if "xl/sharedStrings.xml" in archive.namelist():
+        cell_xml += archive.read("xl/sharedStrings.xml").decode("utf-8")
+
+payload = {
+    "hasLiteralFN": str(">FN<" in cell_xml).lower(),
+    "hasDashedBorder": str('style="mediumDashed"' in styles).lower(),
+    "hasBorderColor": str('rgb="FFC65911"' in styles).lower(),
+    "hasFillColor": str('rgb="FFFFF2CC"' in styles).lower(),
+    "hasFontColor": str('rgb="FF7F6000"' in styles).lower(),
 }
 print(json.dumps(payload))
 """#
@@ -9069,6 +9357,12 @@ def color_suffix(color):
 def borders(cell):
     return "|".join(text(getattr(getattr(cell.border, side), "style", None)) for side in ("left", "right", "top", "bottom"))
 
+def fill(cell):
+    return "|".join([
+        text(cell.fill.fill_type),
+        color_suffix(cell.fill.fgColor),
+    ])
+
 def table_rows(name):
     if name not in wb.sheetnames:
         return []
@@ -9100,6 +9394,12 @@ payload = {
     "explicitZeroValue": text(ws["E7"].value),
     "explicitZeroType": text(ws["E7"].data_type),
     "explicitZeroBorders": borders(ws["E7"]),
+    "explicitZeroFill": fill(ws["E7"]),
+    "explicitZeroBold": str(bool(ws["E7"].font.bold)).lower(),
+    "explicitZeroColor": color_suffix(ws["E7"].font.color),
+    "explicitZeroComment": (
+        "" if ws["E7"].comment is None else ws["E7"].comment.text
+    ),
     "absentValue": text(ws["F7"].value),
     "absentType": text(ws["F7"].data_type),
     "absentBorders": borders(ws["F7"]),

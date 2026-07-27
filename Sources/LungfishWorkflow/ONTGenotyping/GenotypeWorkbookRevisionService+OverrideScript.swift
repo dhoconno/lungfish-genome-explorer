@@ -902,6 +902,11 @@ GENOTYPE_HEADER_ALIASES = (
 TOTAL_HEADER_ALIASES = ("total",)
 OBSERVED_HEADER_ALIASES = ("obs", "observed", "observations", "sample_count")
 synthetic_rows_for_current_run = {}
+WORKBOOK_MATRIX_ADAPTER_VERSION = "lge-workbook-matrix-adapter-v1"
+workbook_adapter_decisions = []
+managed_review_restoration_decisions = []
+false_negative_synthesis_decisions = []
+false_negative_target_cell_decisions = []
 
 
 def header_columns(ws, row):
@@ -1340,6 +1345,12 @@ def prepare_missing_false_negative_rows():
         adapter = matrix_layout_adapter(ws, sample_names, requires_synthesis=True)
         if adapter is not None and adapter["sample_columns"]:
             adapters.append(adapter)
+            workbook_adapter_decisions.append({
+                "worksheet": ws.title,
+                "adapter": adapter["kind"],
+                "header_row": adapter["header_row"],
+                "sample_count": len(adapter["sample_columns"]),
+            })
 
     required_by_adapter = {}
     unresolved_eligible_target = False
@@ -1408,6 +1419,23 @@ def prepare_missing_false_negative_rows():
                 "adapter": adapter["kind"],
                 "marker_row": marker_row,
             }
+            false_negative_synthesis_decisions.append({
+                "worksheet": adapter["ws"].title,
+                "adapter": adapter["kind"],
+                "row": row,
+                "marker_row": marker_row,
+                "identity": "|".join([
+                    clean(catalog_row.get("kind")),
+                    clean(catalog_row.get("call_id")),
+                    clean(catalog_row.get("locus")),
+                    clean(catalog_row.get("display_name")),
+                    clean(catalog_row.get("stable_id")),
+                ]),
+                "cells": [
+                    adapter["ws"].cell(row, col).coordinate
+                    for _sample, col in sorted(adapter["sample_columns"].items())
+                ],
+            })
         invalidate_matrix_descriptor_cache(adapter["ws"])
 
 
@@ -2086,6 +2114,10 @@ def restore_prior_managed_matrix_annotations():
                     set_lge_comment(cell, [])
 
     if MANAGED_REVIEW_STATE_SHEET not in wb.sheetnames:
+        managed_review_restoration_decisions.append({
+            "action": "none",
+            "reason": "no-managed-review-state",
+        })
         return
     state = wb[MANAGED_REVIEW_STATE_SHEET]
     legacy_state = managed_review_state_schema() == "legacy"
@@ -2200,6 +2232,22 @@ def restore_prior_managed_matrix_annotations():
                 font.color = copy(original_font.color)
             cell.font = font
         elif disposition == "falseNegative":
+            font = copy(cell.font)
+            expected_font = state.cell(row, 14).font
+            original_font = state.cell(row, 10).font
+            if font.bold == expected_font.bold:
+                font.bold = original_font.bold
+            if style_matches(font.color, expected_font.color):
+                font.color = copy(original_font.color)
+            cell.font = font
+            fill = copy(cell.fill)
+            expected_fill = state.cell(row, 15).fill
+            original_fill = state.cell(row, 11).fill
+            if fill.patternType == expected_fill.patternType:
+                fill.patternType = original_fill.patternType
+            if style_matches(fill.fgColor, expected_fill.fgColor):
+                fill.fgColor = copy(original_fill.fgColor)
+            cell.fill = fill
             border = copy(cell.border)
             expected_border = state.cell(row, 16).border
             original_border = state.cell(row, 12).border
@@ -2291,6 +2339,14 @@ def restore_prior_managed_matrix_annotations():
         adapter = cleanup_adapters[sheet_name]
         for row in sorted(rows, reverse=True):
             delete_managed_adapter_row(adapter, row)
+    managed_review_restoration_decisions.append({
+        "action": "restore",
+        "state_rows": max(0, state.max_row - 1),
+        "deleted_rows": sum(len(rows) for rows in deletions_by_sheet.values()),
+        "retained_rows": len(retained_member_keys),
+        "retained_markers": len(retained_marker_keys),
+        "legacy_state": legacy_state,
+    })
     del wb[MANAGED_REVIEW_STATE_SHEET]
 
 
@@ -2309,19 +2365,58 @@ def apply_review_format(result):
             font.color = "FF767676"
             cell.font = font
         else:
-            side = Side(style="thick", color="FF000000")
-            border = copy(cell.border)
-            border.left = side
-            border.right = side
-            border.top = side
-            border.bottom = side
-            cell.border = border
+            fn_side = Side(style="mediumDashed", color="FFC65911")
+            cell.value = "FN"
+            cell.border = Border(
+                left=fn_side,
+                right=fn_side,
+                top=fn_side,
+                bottom=fn_side,
+            )
+            cell.fill = PatternFill(fill_type="solid", fgColor="FFFFF2CC")
+            font = copy(cell.font)
+            font.bold = True
+            font.color = "FF7F6000"
+            cell.font = font
         record_expected_managed_review_state(state_row, cell)
+
+
+def record_false_negative_target_decisions(matrix_review_results):
+    for result in matrix_review_results:
+        disposition = clean(result["entry"].get("disposition"))
+        if disposition != "falseNegative":
+            continue
+        target = result["entry"].get("target") or {}
+        destinations = result["destinations"]
+        if not destinations:
+            false_negative_target_cell_decisions.append({
+                "worksheet": None,
+                "cell": None,
+                "target": "|".join(matrix_target_parts(target)),
+                "disposition": disposition,
+                "status": result["status"],
+                "reason": result["reason"],
+                "synthetic": False,
+            })
+            continue
+        for ws, _item, cell in destinations:
+            false_negative_target_cell_decisions.append({
+                "worksheet": ws.title,
+                "cell": cell.coordinate,
+                "target": "|".join(matrix_target_parts(target)),
+                "disposition": disposition,
+                "status": result["status"],
+                "reason": result["reason"],
+                "synthetic": (
+                    (ws.title, cell.row) in synthetic_rows_for_current_run
+                ),
+            })
 
 
 def apply_matrix_annotations_to_workbook(matrix_review_results):
     if not resolved_matrix_styles and not resolved_matrix_comments and not matrix_review_results:
         return
+    record_false_negative_target_decisions(matrix_review_results)
     row_styles, column_styles, cell_styles = collect_matrix_style_maps()
     row_comments = {}
     column_comments = {}
@@ -3391,6 +3486,11 @@ print(json.dumps({
     "unnameable_count": len([row for row in normalized_unmatched_rows if clean(row.get("record_category")) == "un-nameable"]),
     "preserved_existing_workbook_projection": preserve_existing_workbook_projection,
     "workbook_semantic_no_op": workbook_semantic_no_op,
+    "workbook_matrix_adapter_version": WORKBOOK_MATRIX_ADAPTER_VERSION,
+    "workbook_adapter_decisions": workbook_adapter_decisions,
+    "managed_review_restoration_decisions": managed_review_restoration_decisions,
+    "false_negative_synthesis_decisions": false_negative_synthesis_decisions,
+    "false_negative_target_cell_decisions": false_negative_target_cell_decisions,
 }, sort_keys=True))
 """#
     }

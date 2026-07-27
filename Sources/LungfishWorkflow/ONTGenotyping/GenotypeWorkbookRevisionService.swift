@@ -682,7 +682,9 @@ public struct GenotypeWorkbookRevisionService {
             patchedWorkbookURL: clonePatchedWorkbookURL,
             finalWorkbookURL: cloneFinalWorkbookURL,
             inputURLs: pythonInputURLs,
-            durableReplayArgv: durableReplayArgv
+            durableReplayArgv: durableReplayArgv,
+            annotationSidecarRevisionSHA256: annotationSidecarWitness?.sha256,
+            reviewableRowCatalogInput: reviewableRowCatalogInput
         )
         let cloneManifest = try importRevisedWorkbook(
             from: clonePatchedWorkbookURL,
@@ -1996,15 +1998,35 @@ public struct GenotypeWorkbookRevisionService {
         patchedWorkbookURL: URL,
         finalWorkbookURL: URL,
         inputURLs: [URL],
-        durableReplayArgv: [String]
+        durableReplayArgv: [String],
+        annotationSidecarRevisionSHA256: String?,
+        reviewableRowCatalogInput: ValidatedReviewableRowCatalogInput?
     ) throws -> ProvenanceStep {
-        let metadata = (try? JSONSerialization.jsonObject(with: Data(executionRecord.stdout.utf8))) as? [String: Any]
-        let pythonVersion = metadata?["python_version"] as? String ?? "unknown"
-        let openpyxlVersion = metadata?["openpyxl_version"] as? String ?? "unknown"
+        let metadataObject = try JSONSerialization.jsonObject(
+            with: Data(executionRecord.stdout.utf8)
+        )
+        guard let metadata = metadataObject as? [String: Any],
+              let pythonVersion = metadata["python_version"] as? String,
+              let openpyxlVersion = metadata["openpyxl_version"] as? String,
+              let adapterVersion =
+                  metadata["workbook_matrix_adapter_version"] as? String,
+              let adapterDecisions =
+                  metadata["workbook_adapter_decisions"] as? [Any],
+              let restorationDecisions =
+                  metadata["managed_review_restoration_decisions"] as? [Any],
+              let synthesisDecisions =
+                  metadata["false_negative_synthesis_decisions"] as? [Any],
+              let targetCellDecisions =
+                  metadata["false_negative_target_cell_decisions"] as? [Any]
+        else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Managed openpyxl runtime returned incomplete structured workbook decisions."
+            )
+        }
         let matrixDescriptorScanCount =
-            (metadata?["matrix_descriptor_scan_count"] as? NSNumber)?.intValue ?? -1
+            (metadata["matrix_descriptor_scan_count"] as? NSNumber)?.intValue ?? -1
         let matrixRowSignatureCount =
-            (metadata?["matrix_row_signature_count"] as? NSNumber)?.intValue ?? -1
+            (metadata["matrix_row_signature_count"] as? NSNumber)?.intValue ?? -1
         let inputs = try ([sourceWorkbookURL] + inputURLs).map {
             try ProvenanceFileDescriptor.file(url: $0, role: .input)
         }
@@ -2016,18 +2038,55 @@ public struct GenotypeWorkbookRevisionService {
             role: .output,
             originPath: patchedWorkbookURL.path
         )
+        var resolvedOptions: [String: ParameterValue] = [
+            "pythonVersion": .string(pythonVersion),
+            "openpyxlVersion": .string(openpyxlVersion),
+            "matrixDescriptorScanCount": .integer(matrixDescriptorScanCount),
+            "matrixRowSignatureCount": .integer(matrixRowSignatureCount),
+            "workbookMatrixAdapterVersion": .string(adapterVersion),
+            "workbookAdapterDecisions": try parameterValue(
+                fromJSONObject: adapterDecisions
+            ),
+            "managedReviewRestorationDecisions": try parameterValue(
+                fromJSONObject: restorationDecisions
+            ),
+            "falseNegativeSynthesisDecisions": try parameterValue(
+                fromJSONObject: synthesisDecisions
+            ),
+            "falseNegativeTargetCellDecisions": try parameterValue(
+                fromJSONObject: targetCellDecisions
+            ),
+        ]
+        if let annotationSidecarRevisionSHA256 {
+            resolvedOptions["annotationSidecarRevisionSHA256"] = .string(
+                annotationSidecarRevisionSHA256
+            )
+        }
+        if let reviewableRowCatalogInput {
+            guard reviewableRowCatalogInput.reference.sizeBytes <= UInt64(Int.max)
+            else {
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "Reviewable-row catalog is too large for workbook step provenance."
+                )
+            }
+            resolvedOptions["reviewableRowCatalogDescriptor"] = .dictionary([
+                "path": .string(reviewableRowCatalogInput.reference.path),
+                "sizeBytes": .integer(
+                    Int(reviewableRowCatalogInput.reference.sizeBytes)
+                ),
+                "sha256": .string(reviewableRowCatalogInput.reference.sha256),
+                "schemaVersion": .integer(
+                    reviewableRowCatalogInput.document.schemaVersion
+                ),
+            ])
+        }
         return ProvenanceStep(
             toolName: "python openpyxl workbook candidate update",
             toolVersion: pythonVersion,
             argv: executionRecord.argv,
             durableReplayArgv: durableReplayArgv,
             reproducibleCommand: durableReplayArgv.map(shellEscape).joined(separator: " "),
-            resolvedOptions: [
-                "pythonVersion": .string(pythonVersion),
-                "openpyxlVersion": .string(openpyxlVersion),
-                "matrixDescriptorScanCount": .integer(matrixDescriptorScanCount),
-                "matrixRowSignatureCount": .integer(matrixRowSignatureCount),
-            ],
+            resolvedOptions: resolvedOptions,
             runtimeIdentity: ProvenanceRuntimeIdentity(
                 executablePath: executionRecord.executable,
                 condaEnvironment: "openpyxl",
@@ -2042,6 +2101,41 @@ public struct GenotypeWorkbookRevisionService {
             startedAt: executionRecord.startedAt,
             completedAt: executionRecord.completedAt
         )
+    }
+
+    private func parameterValue(fromJSONObject value: Any) throws -> ParameterValue {
+        switch value {
+        case is NSNull:
+            return .null
+        case let value as String:
+            return .string(value)
+        case let value as NSNumber:
+            if CFGetTypeID(value) == CFBooleanGetTypeID() {
+                return .boolean(value.boolValue)
+            }
+            let number = value.doubleValue
+            guard number.isFinite else {
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "Managed openpyxl runtime returned non-finite structured workbook provenance."
+                )
+            }
+            if number.rounded(.towardZero) == number,
+               number >= Double(Int.min),
+               number <= Double(Int.max) {
+                return .integer(value.intValue)
+            }
+            return .number(number)
+        case let value as [Any]:
+            return .array(try value.map(parameterValue(fromJSONObject:)))
+        case let value as [String: Any]:
+            return .dictionary(
+                try value.mapValues(parameterValue(fromJSONObject:))
+            )
+        default:
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Managed openpyxl runtime returned unsupported structured workbook provenance."
+            )
+        }
     }
 
     private func shellEscape(_ value: String) -> String {
