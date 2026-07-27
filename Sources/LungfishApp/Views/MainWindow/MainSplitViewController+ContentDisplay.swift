@@ -443,7 +443,11 @@ extension MainSplitViewController {
                         calls: request.snapshot.calls,
                         includedLoci: request.snapshot.includedLoci,
                         annotationSidecar: request.snapshot.annotationSidecar,
-                        candidateArtifacts: request.snapshot.candidateArtifacts
+                        candidateArtifacts: request.snapshot.candidateArtifacts,
+                        reviewableRowCatalog:
+                            request.snapshot.reviewableRowCatalog,
+                        reviewableRowCatalogSchemaVersion:
+                            request.snapshot.reviewableRowCatalogSchemaVersion
                     )
                 }.value
                 guard let self,

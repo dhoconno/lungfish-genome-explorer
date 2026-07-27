@@ -129,6 +129,14 @@ public struct GenotypeWorkbookRevisionService {
         let sha256: String
     }
 
+    private struct ValidatedReviewableRowCatalogInput {
+        let reference: ONTMHCArtifactReference
+        let url: URL
+        let data: Data
+        let witness: SourceWorkbookWitness
+        let document: GenotypeReviewableRowCatalog
+    }
+
     private struct WorkbookOverrideExecutionRecord: Codable {
         let executable: String
         let argv: [String]
@@ -410,6 +418,23 @@ public struct GenotypeWorkbookRevisionService {
         let sidecar = try annotationSidecarData.map {
             try JSONDecoder().decode(GenotypeAnnotationSidecar.self, from: $0)
         }
+        let requestsFalseNegative = sidecar?.matrixReviews.contains {
+            $0.disposition == .falseNegative
+        } == true
+        let reviewableRowCatalogInput: ValidatedReviewableRowCatalogInput?
+        if let reference = manifest.reviewableRowCatalog {
+            reviewableRowCatalogInput = try validatedReviewableRowCatalogInput(
+                reference,
+                in: bundle
+            )
+        } else {
+            reviewableRowCatalogInput = nil
+        }
+        if requestsFalseNegative, reviewableRowCatalogInput == nil {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "False-negative workbook updates require an attested reviewable-row catalog."
+            )
+        }
         func requireCLIInputDescriptorsUnchanged() throws {
             for descriptor in provenanceContext?.cliInputDescriptors ?? [] {
                 try requireCLIInputDescriptorUnchanged(descriptor)
@@ -423,7 +448,10 @@ public struct GenotypeWorkbookRevisionService {
                 calls: semanticFingerprintCalls,
                 includedLoci: semanticFingerprintIncludedLoci,
                 annotationSidecar: sidecar,
-                candidateArtifacts: manifest.mhcCandidateArtifacts
+                candidateArtifacts: manifest.mhcCandidateArtifacts,
+                reviewableRowCatalog: reviewableRowCatalogInput?.reference,
+                reviewableRowCatalogSchemaVersion:
+                    reviewableRowCatalogInput?.document.schemaVersion
             )
             guard suppliedFingerprint == verifiedFingerprint else {
                 throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
@@ -462,6 +490,9 @@ public struct GenotypeWorkbookRevisionService {
         let stagedRuntimeRecordURL = stageDirectory.appendingPathComponent(runtimeName)
         let stagedSourceWorkbookURL = stageDirectory.appendingPathComponent("source-workbook.xlsx")
         let stagedAnnotationURL = stageDirectory.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        let stagedReviewableRowCatalogURL = stageDirectory.appendingPathComponent(
+            "reviewable-row-catalog.json"
+        )
         let patchedURL = stageDirectory.appendingPathComponent("current.xlsx")
         let scriptURL = stageDirectory.appendingPathComponent("apply-current-workbook-overrides.py")
         let hasAnnotationSidecar = annotationSidecarData != nil
@@ -478,6 +509,13 @@ public struct GenotypeWorkbookRevisionService {
                 )
             }
         }
+        func requireReviewableRowCatalogUnchanged() throws {
+            guard let input = reviewableRowCatalogInput else { return }
+            try requireUnchangedRegularFileNoFollow(
+                input.url,
+                witness: input.witness
+            )
+        }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try writeStagedFile(try encoder.encode(calls), to: stagedCallsURL)
@@ -492,6 +530,12 @@ public struct GenotypeWorkbookRevisionService {
         try writeStagedFile(Data(workbookOverrideScript.utf8), to: scriptURL)
         if let annotationSidecarData {
             try writeStagedFile(annotationSidecarData, to: stagedAnnotationURL)
+        }
+        if let reviewableRowCatalogInput {
+            try writeStagedFile(
+                reviewableRowCatalogInput.data,
+                to: stagedReviewableRowCatalogURL
+            )
         }
         let sourceWorkbookWitness = try snapshotRegularFileNoFollow(
             from: sourceWorkbookURL,
@@ -511,6 +555,9 @@ public struct GenotypeWorkbookRevisionService {
             stagedCallsURL.path,
             hasAnnotationSidecar ? stagedAnnotationURL.path : "",
             stagedConfigurationURL.path,
+            reviewableRowCatalogInput == nil
+                ? ""
+                : stagedReviewableRowCatalogURL.path,
         ]
         try checkCancellation()
         let executionRecord = try runPythonScript(scriptURL: scriptURL, arguments: scriptArguments)
@@ -519,6 +566,7 @@ public struct GenotypeWorkbookRevisionService {
         try publicationFailureInjector?("after-python-before-source-conflict-check")
         try requireCLIInputDescriptorsUnchanged()
         try requireAnnotationSidecarUnchanged()
+        try requireReviewableRowCatalogUnchanged()
         try checkCancellation()
 
         let cloneBundleURL = stageDirectory.appendingPathComponent(bundle.lastPathComponent, isDirectory: true)
@@ -536,6 +584,9 @@ public struct GenotypeWorkbookRevisionService {
         let cloneSourceWorkbookURL = cloneUpdatesURL.appendingPathComponent("source-workbook.xlsx")
         let clonePatchedWorkbookURL = cloneUpdatesURL.appendingPathComponent("generated-current-workbook.xlsx")
         let cloneAnnotationURL = cloneUpdatesURL.appendingPathComponent("annotations.json")
+        let cloneReviewableRowCatalogURL = cloneUpdatesURL.appendingPathComponent(
+            "reviewable-row-catalog.json"
+        )
         try fileManager.copyItem(at: stagedCallsURL, to: cloneCallsURL)
         if retainFingerprintCalls {
             try fileManager.copyItem(
@@ -557,6 +608,17 @@ public struct GenotypeWorkbookRevisionService {
             additionalInputs.append(cloneFingerprintCallsURL)
         }
         var pythonInputURLs = [cloneScriptURL, cloneCallsURL, cloneConfigurationURL] + cloneCandidateInputs
+        var durableReviewableRowCatalogPath = ""
+        if reviewableRowCatalogInput != nil {
+            try fileManager.copyItem(
+                at: stagedReviewableRowCatalogURL,
+                to: cloneReviewableRowCatalogURL
+            )
+            additionalInputs.append(cloneReviewableRowCatalogURL)
+            pythonInputURLs.append(cloneReviewableRowCatalogURL)
+            durableReviewableRowCatalogPath =
+                cloneReviewableRowCatalogURL.path
+        }
         var durableAnnotationPath = ""
         if hasAnnotationSidecar {
             try fileManager.copyItem(at: stagedAnnotationURL, to: cloneAnnotationURL)
@@ -584,6 +646,7 @@ public struct GenotypeWorkbookRevisionService {
             cloneCallsURL.path,
             durableAnnotationPath,
             cloneConfigurationURL.path,
+            durableReviewableRowCatalogPath,
         ]
         let pythonStep = try makePythonProvenanceStep(
             executionRecord: executionRecord,
@@ -622,6 +685,7 @@ public struct GenotypeWorkbookRevisionService {
         )
         try requireCLIInputDescriptorsUnchanged()
         try requireAnnotationSidecarUnchanged()
+        try requireReviewableRowCatalogUnchanged()
 
         let oldCurrentPath = manifest.currentWorkbookPath ?? manifest.primaryWorkbookPath
         let newCurrentPath = cloneManifest.currentWorkbookPath ?? cloneManifest.primaryWorkbookPath
@@ -645,6 +709,12 @@ public struct GenotypeWorkbookRevisionService {
             resolvedOptions: [
                 "annotationSidecar": annotationSidecarURL?.path ?? "none",
                 "annotationOnly": String(annotationOnly),
+                "reviewableRowCatalog":
+                    reviewableRowCatalogInput?.reference.path ?? "none",
+                "reviewableRowCatalogSchemaVersion":
+                    reviewableRowCatalogInput.map {
+                        String($0.document.schemaVersion)
+                    } ?? "none",
                 "candidateVisibilityFiltersApplied": "false",
                 "haplotypeCallCount": String(calls.count),
                 "mhcCandidateTints": configuration.tints.keys.sorted().map { key in
@@ -705,6 +775,7 @@ public struct GenotypeWorkbookRevisionService {
         )
         try requireCLIInputDescriptorsUnchanged()
         try requireAnnotationSidecarUnchanged()
+        try requireReviewableRowCatalogUnchanged()
         workbookTransaction = try ONTGenotypeWorkbookUpdateRecovery.createAttestation(
             for: workbookTransaction,
             attestationRootURL: workbookAttestationRootURL
@@ -749,6 +820,7 @@ public struct GenotypeWorkbookRevisionService {
             )
             try requireCLIInputDescriptorsUnchanged()
             try requireAnnotationSidecarUnchanged()
+            try requireReviewableRowCatalogUnchanged()
         } catch {
             try ONTGenotypeWorkbookUpdateRecovery.discardPreparedTransactionAssumingLock(
                 workbookTransaction,
@@ -1557,6 +1629,56 @@ public struct GenotypeWorkbookRevisionService {
         }
     }
 
+    private func validatedReviewableRowCatalogInput(
+        _ reference: ONTMHCArtifactReference,
+        in bundleURL: URL
+    ) throws -> ValidatedReviewableRowCatalogInput {
+        let url = ONTGenotypeResultBundle.resolvedURL(
+            for: reference.path,
+            in: bundleURL
+        )
+        do {
+            let descriptor = try FullLengthONTMHCAlignmentSafety()
+                .openRegularFileNoFollow(
+                    url,
+                    within: bundleURL,
+                    role: "workbook reviewable-row catalog"
+                )
+            defer { Darwin.close(descriptor) }
+            try publicationFailureInjector?(
+                "after-reviewable-row-catalog-validation-before-read"
+            )
+            let snapshot = try readRegularFile(
+                descriptor: descriptor,
+                sourceURL: url,
+                role: "reviewable-row catalog"
+            )
+            guard snapshot.witness.sizeBytes == reference.sizeBytes,
+                  snapshot.witness.sha256 == reference.sha256 else {
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "Reviewable-row catalog checksum or size does not match the manifest: \(reference.path)"
+                )
+            }
+            let document = try JSONDecoder().decode(
+                GenotypeReviewableRowCatalog.self,
+                from: snapshot.data
+            )
+            return ValidatedReviewableRowCatalogInput(
+                reference: reference,
+                url: url,
+                data: snapshot.data,
+                witness: snapshot.witness,
+                document: try document.validated()
+            )
+        } catch let error as GenotypeWorkbookRevisionError {
+            throw error
+        } catch {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Invalid reviewable-row catalog \(reference.path): \(error.localizedDescription)"
+            )
+        }
+    }
+
     private func validateRegularBundleFile(_ url: URL, in bundleURL: URL, role: String) throws {
         let safety = FullLengthONTMHCAlignmentSafety()
         try safety.requireDirectoryNoFollow(bundleURL, role: "genotype bundle")
@@ -1719,6 +1841,25 @@ public struct GenotypeWorkbookRevisionService {
             explicitOptions["currentWorkbookInputFingerprintSchemaVersion"] = .integer(
                 fingerprint.schemaVersion
             )
+            if let path = fingerprint.reviewableRowCatalogPath,
+               let size = fingerprint.reviewableRowCatalogSize,
+               let sha256 = fingerprint.reviewableRowCatalogSHA256,
+               let schemaVersion =
+                   fingerprint.reviewableRowCatalogSchemaVersion {
+                guard size <= UInt64(Int.max) else {
+                    throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                        "Reviewable-row catalog is too large for workbook provenance."
+                    )
+                }
+                explicitOptions["reviewableRowCatalogPath"] = .string(path)
+                explicitOptions["reviewableRowCatalogSize"] = .integer(
+                    Int(size)
+                )
+                explicitOptions["reviewableRowCatalogSHA256"] = .string(sha256)
+                explicitOptions["reviewableRowCatalogSchemaVersion"] = .integer(
+                    schemaVersion
+                )
+            }
         }
         if let syncIntent = provenanceContext?.syncIntent {
             explicitOptions["currentWorkbookSyncIntent"] = .string(syncIntent.rawValue)
@@ -2466,11 +2607,23 @@ public struct GenotypeWorkbookRevisionService {
             )
         }
         defer { Darwin.close(descriptor) }
+        return try readRegularFile(
+            descriptor: descriptor,
+            sourceURL: sourceURL,
+            role: "annotation sidecar"
+        )
+    }
+
+    private func readRegularFile(
+        descriptor: Int32,
+        sourceURL: URL,
+        role: String
+    ) throws -> (data: Data, witness: SourceWorkbookWitness) {
         var before = stat()
         guard Darwin.fstat(descriptor, &before) == 0,
               before.st_mode & S_IFMT == S_IFREG else {
             throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
-                "Annotation sidecar is not a regular file: \(sourceURL.path)"
+                "\(role.capitalized) is not a regular file: \(sourceURL.path)"
             )
         }
         var data = Data()
@@ -2485,7 +2638,7 @@ public struct GenotypeWorkbookRevisionService {
             guard count > 0 else {
                 if errno == EINTR { continue }
                 throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
-                    "Could not read annotation sidecar snapshot: \(sourceURL.path) (errno \(errno))."
+                    "Could not read \(role) snapshot: \(sourceURL.path) (errno \(errno))."
                 )
             }
             let chunk = Data(buffer[0..<count])
@@ -2505,7 +2658,7 @@ public struct GenotypeWorkbookRevisionService {
               before.st_ctimespec.tv_nsec == after.st_ctimespec.tv_nsec,
               Int64(data.count) == after.st_size else {
             throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
-                "Annotation sidecar changed while its immutable input snapshot was being created."
+                "\(role.capitalized) changed while its immutable input snapshot was being created."
             )
         }
         return (

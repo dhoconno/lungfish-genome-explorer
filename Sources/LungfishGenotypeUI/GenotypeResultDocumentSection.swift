@@ -73,6 +73,8 @@ public struct GenotypeCurrentWorkbookUISnapshot: Sendable {
     public let annotationSidecarData: Data
     public let annotationSidecarURL: URL
     public let candidateArtifacts: ONTMHCCandidateArtifactManifest?
+    public let reviewableRowCatalog: ONTMHCArtifactReference?
+    public let reviewableRowCatalogSchemaVersion: Int?
     public let annotationOnly: Bool
     public let isReadOnly: Bool
 
@@ -84,6 +86,8 @@ public struct GenotypeCurrentWorkbookUISnapshot: Sendable {
         annotationSidecarData: Data,
         annotationSidecarURL: URL,
         candidateArtifacts: ONTMHCCandidateArtifactManifest?,
+        reviewableRowCatalog: ONTMHCArtifactReference? = nil,
+        reviewableRowCatalogSchemaVersion: Int? = nil,
         annotationOnly: Bool,
         isReadOnly: Bool
     ) {
@@ -94,6 +98,9 @@ public struct GenotypeCurrentWorkbookUISnapshot: Sendable {
         self.annotationSidecarData = annotationSidecarData
         self.annotationSidecarURL = annotationSidecarURL.standardizedFileURL
         self.candidateArtifacts = candidateArtifacts
+        self.reviewableRowCatalog = reviewableRowCatalog
+        self.reviewableRowCatalogSchemaVersion =
+            reviewableRowCatalogSchemaVersion
         self.annotationOnly = annotationOnly
         self.isReadOnly = isReadOnly
     }
@@ -105,6 +112,8 @@ public struct GenotypeCurrentWorkbookUISnapshot: Sendable {
         annotationSidecar: GenotypeAnnotationSidecar,
         annotationSidecarURL: URL,
         candidateArtifacts: ONTMHCCandidateArtifactManifest?,
+        reviewableRowCatalog: ONTMHCArtifactReference? = nil,
+        reviewableRowCatalogSchemaVersion: Int? = nil,
         annotationOnly: Bool,
         isReadOnly: Bool,
         encoder: @Sendable (GenotypeAnnotationSidecar) throws -> Data = {
@@ -119,6 +128,9 @@ public struct GenotypeCurrentWorkbookUISnapshot: Sendable {
             annotationSidecarData: try encoder(annotationSidecar),
             annotationSidecarURL: annotationSidecarURL,
             candidateArtifacts: candidateArtifacts,
+            reviewableRowCatalog: reviewableRowCatalog,
+            reviewableRowCatalogSchemaVersion:
+                reviewableRowCatalogSchemaVersion,
             annotationOnly: annotationOnly,
             isReadOnly: isReadOnly
         )

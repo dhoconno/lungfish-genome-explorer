@@ -211,7 +211,7 @@ final class GenotypeCurrentWorkbookInputFingerprintTests: XCTestCase {
 
         XCTAssertEqual(
             fingerprint.sha256,
-            "acbb3314eab176852c4e354dbcf836470e94722b8d7aee5b493394e322b90d71"
+            "9122786611d9edfbb03956faef3518b4ba47deb888b62afa4c720c68bc38bd0b"
         )
     }
 
@@ -283,6 +283,140 @@ final class GenotypeCurrentWorkbookInputFingerprintTests: XCTestCase {
         )
     }
 
+    func testMakeAttestsReviewableRowCatalogDescriptorAndChangesForEveryField() throws {
+        let baseReference = artifact(
+            path: "artifacts/review/reviewable-row-catalog.json",
+            checksum: "8",
+            size: 128
+        )
+        let base = try GenotypeCurrentWorkbookInputFingerprint.make(
+            calls: [],
+            includedLoci: [],
+            annotationSidecar: nil,
+            candidateArtifacts: nil,
+            reviewableRowCatalog: baseReference,
+            reviewableRowCatalogSchemaVersion: 1
+        )
+
+        XCTAssertEqual(base.reviewableRowCatalogPath, baseReference.path)
+        XCTAssertEqual(base.reviewableRowCatalogSize, 128)
+        XCTAssertEqual(base.reviewableRowCatalogSHA256, baseReference.sha256)
+        XCTAssertEqual(base.reviewableRowCatalogSchemaVersion, 1)
+
+        for (reference, schemaVersion) in [
+            (
+                artifact(
+                    path: "artifacts/review/renamed-catalog.json",
+                    checksum: "8",
+                    size: 128
+                ),
+                1
+            ),
+            (
+                artifact(
+                    path: baseReference.path,
+                    checksum: "9",
+                    size: 128
+                ),
+                1
+            ),
+            (
+                artifact(
+                    path: baseReference.path,
+                    checksum: "8",
+                    size: 129
+                ),
+                1
+            ),
+            (baseReference, 2),
+        ] {
+            XCTAssertNotEqual(
+                base,
+                try GenotypeCurrentWorkbookInputFingerprint.make(
+                    calls: [],
+                    includedLoci: [],
+                    annotationSidecar: nil,
+                    candidateArtifacts: nil,
+                    reviewableRowCatalog: reference,
+                    reviewableRowCatalogSchemaVersion: schemaVersion
+                )
+            )
+        }
+    }
+
+    func testRecordedRestoresExactReviewableRowCatalogDescriptor() throws {
+        let bundleURL = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let reference = artifact(
+            path: "artifacts/review/reviewable-row-catalog.json",
+            checksum: "a",
+            size: 321
+        )
+        let fingerprint = try GenotypeCurrentWorkbookInputFingerprint.make(
+            calls: [],
+            includedLoci: [],
+            annotationSidecar: nil,
+            candidateArtifacts: nil,
+            reviewableRowCatalog: reference,
+            reviewableRowCatalogSchemaVersion: 1
+        )
+        try writeProvenance(fingerprint, to: "provenance/catalog.json", in: bundleURL)
+
+        let recorded = try GenotypeCurrentWorkbookInputFingerprint.recorded(
+            in: manifest(
+                currentWorkbookPath: "current.xlsx",
+                revisions: [
+                    revision(
+                        id: "catalog",
+                        path: "current.xlsx",
+                        provenancePath: "provenance/catalog.json"
+                    ),
+                ]
+            ),
+            bundleURL: bundleURL
+        )
+
+        XCTAssertEqual(recorded, fingerprint)
+    }
+
+    func testRecordedReturnsNilForUnsafeReviewableRowCatalogDescriptor() throws {
+        let bundleURL = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let fingerprint = try fingerprint(haplotype: "A*01")
+        let provenanceURL = bundleURL.appendingPathComponent("unsafe-catalog.json")
+        let envelope = ProvenanceEnvelope(
+            workflowName: "test",
+            toolName: "test",
+            options: ProvenanceOptions(explicit: [
+                "currentWorkbookInputFingerprint": .string(fingerprint.sha256),
+                "currentWorkbookInputFingerprintSchemaVersion":
+                    .integer(fingerprint.schemaVersion),
+                "reviewableRowCatalogPath": .string("../catalog.json"),
+                "reviewableRowCatalogSize": .integer(12),
+                "reviewableRowCatalogSHA256":
+                    .string(String(repeating: "a", count: 64)),
+                "reviewableRowCatalogSchemaVersion": .integer(1),
+            ])
+        )
+        try ProvenanceJSON.encoder.encode(envelope).write(to: provenanceURL)
+
+        XCTAssertNil(
+            try GenotypeCurrentWorkbookInputFingerprint.recorded(
+                in: manifest(
+                    currentWorkbookPath: "current.xlsx",
+                    revisions: [
+                        revision(
+                            id: "unsafe-catalog",
+                            path: "current.xlsx",
+                            provenancePath: "unsafe-catalog.json"
+                        ),
+                    ]
+                ),
+                bundleURL: bundleURL
+            )
+        )
+    }
+
     func testDigestHasVersionedCodableLowercaseSHA256Shape() throws {
         let fingerprint = try GenotypeCurrentWorkbookInputFingerprint.make(
             calls: [],
@@ -291,8 +425,8 @@ final class GenotypeCurrentWorkbookInputFingerprintTests: XCTestCase {
             candidateArtifacts: nil
         )
 
-        XCTAssertEqual(GenotypeCurrentWorkbookInputFingerprint.schemaVersion, 1)
-        XCTAssertEqual(fingerprint.schemaVersion, 1)
+        XCTAssertEqual(GenotypeCurrentWorkbookInputFingerprint.schemaVersion, 2)
+        XCTAssertEqual(fingerprint.schemaVersion, 2)
         XCTAssertEqual(fingerprint.sha256.count, 64)
         XCTAssertNotNil(fingerprint.sha256.range(of: #"^[0-9a-f]{64}$"#, options: .regularExpression))
         XCTAssertEqual(
@@ -312,7 +446,7 @@ final class GenotypeCurrentWorkbookInputFingerprintTests: XCTestCase {
             sha256: digest
         )
 
-        XCTAssertEqual(fingerprint.schemaVersion, 1)
+        XCTAssertEqual(fingerprint.schemaVersion, 2)
         XCTAssertEqual(fingerprint.sha256, digest)
     }
 
@@ -358,7 +492,12 @@ final class GenotypeCurrentWorkbookInputFingerprintTests: XCTestCase {
         let bundleURL = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: bundleURL) }
         let valid = try fingerprint(haplotype: "A*01")
-        try writeProvenance(valid, schemaVersion: 2, to: "unsupported.json", in: bundleURL)
+        try writeProvenance(
+            valid,
+            schemaVersion: GenotypeCurrentWorkbookInputFingerprint.schemaVersion + 1,
+            to: "unsupported.json",
+            in: bundleURL
+        )
         try writeProvenance(valid, digest: String(repeating: "A", count: 64), to: "malformed.json", in: bundleURL)
         let outsidePath = "fingerprint-escape-\(UUID().uuidString).json"
         let outsideURL = bundleURL.deletingLastPathComponent().appendingPathComponent(outsidePath)
@@ -616,13 +755,23 @@ final class GenotypeCurrentWorkbookInputFingerprintTests: XCTestCase {
         schemaVersion: Int = GenotypeCurrentWorkbookInputFingerprint.schemaVersion,
         digest: String? = nil
     ) throws -> Data {
+        var explicit: [String: ParameterValue] = [
+            "currentWorkbookInputFingerprint": .string(digest ?? fingerprint.sha256),
+            "currentWorkbookInputFingerprintSchemaVersion": .integer(schemaVersion),
+        ]
+        if let path = fingerprint.reviewableRowCatalogPath,
+           let size = fingerprint.reviewableRowCatalogSize,
+           let sha256 = fingerprint.reviewableRowCatalogSHA256,
+           let catalogSchemaVersion = fingerprint.reviewableRowCatalogSchemaVersion {
+            explicit["reviewableRowCatalogPath"] = .string(path)
+            explicit["reviewableRowCatalogSize"] = .integer(Int(size))
+            explicit["reviewableRowCatalogSHA256"] = .string(sha256)
+            explicit["reviewableRowCatalogSchemaVersion"] = .integer(catalogSchemaVersion)
+        }
         let envelope = ProvenanceEnvelope(
             workflowName: "test",
             toolName: "test",
-            options: ProvenanceOptions(explicit: [
-                "currentWorkbookInputFingerprint": .string(digest ?? fingerprint.sha256),
-                "currentWorkbookInputFingerprintSchemaVersion": .integer(schemaVersion),
-            ])
+            options: ProvenanceOptions(explicit: explicit)
         )
         return try ProvenanceJSON.encoder.encode(envelope)
     }

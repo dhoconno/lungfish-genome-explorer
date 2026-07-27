@@ -4420,6 +4420,11 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
             unnameableFASTA: reference
         )
         let unmatchedClustersPath = "artifacts/candidates/deduplicated-unmatched-clusters.fasta"
+        let reviewableRowCatalog = ONTMHCArtifactReference(
+            path: "artifacts/review/reviewable-row-catalog.json",
+            sha256: String(repeating: "c", count: 64),
+            sizeBytes: 314
+        )
         let manifest = ONTGenotypeResultBundleManifest(
             schemaVersion: fixture.manifest.schemaVersion,
             kind: fixture.manifest.kind,
@@ -4436,7 +4441,8 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
             provenancePath: fixture.manifest.provenancePath,
             deduplicatedUnmatchedClustersFASTAPath: unmatchedClustersPath,
             mhcCandidateArtifacts: candidateArtifacts,
-            referenceRecordStore: fixture.manifest.referenceRecordStore
+            referenceRecordStore: fixture.manifest.referenceRecordStore,
+            reviewableRowCatalog: reviewableRowCatalog
         )
         try ONTGenotypeResultBundle.writeManifest(manifest, to: fixture.bundleURL)
         let replacement = root.appendingPathComponent("replacement.xlsx")
@@ -4446,6 +4452,7 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
             .importRevisedWorkbook(from: replacement, into: fixture.bundleURL)
 
         XCTAssertEqual(updated.mhcCandidateArtifacts, candidateArtifacts)
+        XCTAssertEqual(updated.reviewableRowCatalog, reviewableRowCatalog)
         XCTAssertEqual(updated.deduplicatedUnmatchedClustersFASTAPath, unmatchedClustersPath)
         XCTAssertEqual(updated.referenceRecordStore, fixture.manifest.referenceRecordStore)
         XCTAssertEqual(updated.workflowKind, .fullLengthONTMHCGenotype)
@@ -4600,6 +4607,10 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "attested-update")
         try installCandidateArtifacts(in: fixture.bundleURL)
         try installMinimalUnifiedPivot(in: fixture.bundleURL)
+        let catalogReference = try installReviewableRowCatalog(
+            GenotypeReviewableRowCatalog(samples: ["sample-a"], rows: []),
+            in: fixture.bundleURL
+        )
         let annotationURL = fixture.bundleURL.appendingPathComponent(
             GenotypeAnnotationSidecar.filename
         )
@@ -4622,7 +4633,9 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
             calls: calls,
             includedLoci: includedLoci,
             annotationSidecar: sidecar,
-            candidateArtifacts: manifest.mhcCandidateArtifacts
+            candidateArtifacts: manifest.mhcCandidateArtifacts,
+            reviewableRowCatalog: catalogReference,
+            reviewableRowCatalogSchemaVersion: GenotypeReviewableRowCatalog.schemaVersion
         )
 
         let updated = try GenotypeWorkbookRevisionService(
@@ -4680,6 +4693,22 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
             .integer(fingerprint.schemaVersion)
         )
         XCTAssertEqual(
+            envelope.options.explicit["reviewableRowCatalogPath"],
+            .string(catalogReference.path)
+        )
+        XCTAssertEqual(
+            envelope.options.explicit["reviewableRowCatalogSize"],
+            .integer(Int(catalogReference.sizeBytes))
+        )
+        XCTAssertEqual(
+            envelope.options.explicit["reviewableRowCatalogSHA256"],
+            .string(catalogReference.sha256)
+        )
+        XCTAssertEqual(
+            envelope.options.explicit["reviewableRowCatalogSchemaVersion"],
+            .integer(GenotypeReviewableRowCatalog.schemaVersion)
+        )
+        XCTAssertEqual(
             envelope.options.explicit["currentWorkbookSyncIntent"],
             .string("update-and-view")
         )
@@ -4716,6 +4745,222 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         }
         XCTAssertNotNil(envelope.options.explicit["cliImmutableInputs"])
         XCTAssertNotNil(envelope.options.explicit["additionalInputs"])
+        XCTAssertEqual(updated.reviewableRowCatalog, catalogReference)
+        let retainedCatalog = try XCTUnwrap(
+            envelope.files.first {
+                $0.role == .input
+                    && $0.path.contains("/artifacts/workbooks/updates/")
+                    && $0.path.hasSuffix("/reviewable-row-catalog.json")
+            }
+        )
+        let retainedCatalogURL = URL(fileURLWithPath: retainedCatalog.path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: retainedCatalogURL.path))
+        XCTAssertEqual(
+            retainedCatalog.checksumSHA256,
+            try ProvenanceFileHasher.sha256(of: retainedCatalogURL)
+        )
+        XCTAssertEqual(
+            retainedCatalog.fileSize,
+            UInt64(try ProvenanceFileHasher.fileSize(of: retainedCatalogURL))
+        )
+        let pythonStep = try XCTUnwrap(
+            envelope.steps.first { $0.toolName.contains("python openpyxl") }
+        )
+        XCTAssertTrue(pythonStep.inputs.contains { $0.path == retainedCatalog.path })
+        XCTAssertTrue(pythonStep.durableReplayArgv?.contains(retainedCatalog.path) == true)
+    }
+
+    func testFalseNegativeWithoutAttestedReviewableRowCatalogFailsBeforeStagingOrMutation() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "false-negative-missing-catalog"
+        )
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-26T00:00:00Z"
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-A1*001:01",
+                    sample: "AR3628"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-26T00:01:00Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        let bundleBefore = try bundleSnapshot(fixture.bundleURL)
+
+        XCTAssertThrowsError(
+            try serviceThatFailsIfStagingBegins().applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: annotationURL,
+                into: fixture.bundleURL
+            )
+        ) { error in
+            XCTAssertTrue(
+                error.localizedDescription.contains("reviewable-row catalog"),
+                "Unexpected error: \(error)"
+            )
+        }
+
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), bundleBefore)
+        try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
+    }
+
+    func testFalseNegativeWithInvalidReviewableRowCatalogFailsBeforeStagingOrMutation() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "false-negative-invalid-catalog"
+        )
+        _ = try installReviewableRowCatalog(
+            GenotypeReviewableRowCatalog(samples: ["AR3628"], rows: []),
+            in: fixture.bundleURL
+        )
+        let catalogURL = fixture.bundleURL.appendingPathComponent(
+            "artifacts/review/reviewable-row-catalog.json"
+        )
+        var corrupted = try Data(contentsOf: catalogURL)
+        corrupted.append(0x20)
+        try corrupted.write(to: catalogURL)
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-26T00:00:00Z"
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-A1*001:01",
+                    sample: "AR3628"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-26T00:01:00Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        let bundleBefore = try bundleSnapshot(fixture.bundleURL)
+
+        XCTAssertThrowsError(
+            try serviceThatFailsIfStagingBegins().applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: annotationURL,
+                into: fixture.bundleURL
+            )
+        ) { error in
+            XCTAssertTrue(
+                error.localizedDescription.contains("checksum or size"),
+                "Unexpected error: \(error)"
+            )
+        }
+
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), bundleBefore)
+        try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
+    }
+
+    func testReviewableRowCatalogParentSwapCannotSubstituteOutsideBytes() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "reviewable-row-catalog-parent-swap"
+        )
+        _ = try installReviewableRowCatalog(
+            GenotypeReviewableRowCatalog(samples: ["inside"], rows: []),
+            in: fixture.bundleURL
+        )
+        let reviewDirectory = fixture.bundleURL.appendingPathComponent(
+            "artifacts/review",
+            isDirectory: true
+        )
+        let displacedReviewDirectory = fixture.bundleURL.appendingPathComponent(
+            "artifacts/displaced-review",
+            isDirectory: true
+        )
+        let outsideReviewDirectory = root.appendingPathComponent(
+            "outside-review",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: outsideReviewDirectory,
+            withIntermediateDirectories: true
+        )
+        let outsideCatalogURL = outsideReviewDirectory.appendingPathComponent(
+            "reviewable-row-catalog.json"
+        )
+        try GenotypeReviewableRowCatalog(samples: ["outside"], rows: [])
+            .validated()
+            .encoded()
+            .write(to: outsideCatalogURL, options: .atomic)
+        let outsideReference = try artifactReference(
+            outsideCatalogURL,
+            relativeTo: root
+        )
+        let manifestURL = ONTGenotypeResultBundle.manifestURL(in: fixture.bundleURL)
+        try mutateJSONObject(at: manifestURL) { object in
+            object["reviewableRowCatalog"] = [
+                "path": "artifacts/review/reviewable-row-catalog.json",
+                "sha256": outsideReference.sha256,
+                "size_bytes": outsideReference.sizeBytes,
+            ]
+        }
+        let workbookURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        let workbookBefore = try Data(contentsOf: workbookURL)
+        let reachedStaging = SendableFlagBox()
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                pythonExecutableURL: testPythonExecutableURL,
+                publicationFailureInjector: { checkpoint in
+                    switch checkpoint {
+                    case "after-reviewable-row-catalog-validation-before-read":
+                        try FileManager.default.moveItem(
+                            at: reviewDirectory,
+                            to: displacedReviewDirectory
+                        )
+                        try FileManager.default.createSymbolicLink(
+                            at: reviewDirectory,
+                            withDestinationURL: outsideReviewDirectory
+                        )
+                    case "after-stage-created":
+                        reachedStaging.set(1)
+                        throw NSError(
+                            domain: "UnexpectedWorkbookUpdateStaging",
+                            code: 1
+                        )
+                    default:
+                        break
+                    }
+                }
+            ).applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: nil,
+                into: fixture.bundleURL
+            )
+        ) { error in
+            XCTAssertTrue(
+                error.localizedDescription.contains("checksum or size"),
+                "Unexpected error: \(error)"
+            )
+        }
+
+        XCTAssertNil(reachedStaging.value)
+        XCTAssertEqual(try Data(contentsOf: workbookURL), workbookBefore)
+        try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
     }
 
     func testApplyHaplotypeOverridesRejectsSameSizeCallsInputMutationBeforePublication() throws {
@@ -5213,6 +5458,7 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "semantic-reviews")
         let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
         try installSemanticReviewMatrix(in: currentURL)
+        try installSemanticReviewableRowCatalog(in: fixture.bundleURL)
 
         let annotationURL = fixture.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
         var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-24T00:00:00Z")
@@ -5297,6 +5543,7 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "review-clear")
         let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
         try installSemanticReviewMatrix(in: currentURL)
+        try installSemanticReviewableRowCatalog(in: fixture.bundleURL)
         let originalInspection = try inspectSemanticReviewWorkbook(currentURL)
         let annotationURL = fixture.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
         var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-24T00:00:00Z")
@@ -5399,6 +5646,7 @@ wb.save(path)
             )
             let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
             try installSemanticReviewMatrix(in: currentURL)
+            try installSemanticReviewableRowCatalog(in: fixture.bundleURL)
             let original = try inspectSemanticReviewWorkbook(currentURL)
             let annotationURL = fixture.bundleURL.appendingPathComponent(
                 GenotypeAnnotationSidecar.filename
@@ -5453,6 +5701,7 @@ wb.save(path)
         let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "review-valid-invalid")
         let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
         try installSemanticReviewMatrix(in: currentURL)
+        try installSemanticReviewableRowCatalog(in: fixture.bundleURL)
         let originalInspection = try inspectSemanticReviewWorkbook(currentURL)
         let annotationURL = fixture.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
         var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-24T00:00:00Z")
@@ -6171,6 +6420,46 @@ wb.save(path)
         _ = try runPython(["-c", code, url.path, withUnrelatedComments ? "true" : "false"])
     }
 
+    private func installSemanticReviewableRowCatalog(
+        in bundleURL: URL
+    ) throws {
+        let samples = ["Sample-FP", "Sample-Zero", "Sample-Absent"]
+        let rows = [
+            GenotypeReviewableRowCatalog.Row(
+                kind: .candidate,
+                callID: "cluster-a",
+                displayName: "Mamu-I*collision",
+                locus: "MHC-A",
+                stableID: "cluster-a",
+                section: "candidate",
+                sortKey: "MHC-A|Mamu-I*collision|cluster-a",
+                supportBySample: [
+                    "Sample-FP": 42,
+                    "Sample-Zero": 0,
+                    "Sample-Absent": 0,
+                ]
+            ),
+            GenotypeReviewableRowCatalog.Row(
+                kind: .candidate,
+                callID: "cluster-c",
+                displayName: "Mamu-I*collision",
+                locus: "MHC-A",
+                stableID: "cluster-c",
+                section: "candidate",
+                sortKey: "MHC-A|Mamu-I*collision|cluster-c",
+                supportBySample: [
+                    "Sample-FP": 42,
+                    "Sample-Zero": 0,
+                    "Sample-Absent": 0,
+                ]
+            ),
+        ]
+        _ = try installReviewableRowCatalog(
+            GenotypeReviewableRowCatalog(samples: samples, rows: rows),
+            in: bundleURL
+        )
+    }
+
     private func makeMinimalMCMWorkbook(at url: URL) throws {
         let code = #"""
 import sys
@@ -6864,6 +7153,57 @@ wb.save(path)
             referenceRecordStore: manifest.referenceRecordStore
         )
         try ONTGenotypeResultBundle.writeManifest(updated, to: bundleURL)
+    }
+
+    private func installReviewableRowCatalog(
+        _ catalog: GenotypeReviewableRowCatalog,
+        in bundleURL: URL
+    ) throws -> ONTMHCArtifactReference {
+        let validated = try catalog.validated()
+        let catalogURL = bundleURL.appendingPathComponent(
+            "artifacts/review/reviewable-row-catalog.json"
+        )
+        try FileManager.default.createDirectory(
+            at: catalogURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try validated.encoded().write(to: catalogURL, options: .atomic)
+        let reference = try artifactReference(catalogURL, relativeTo: bundleURL)
+        let manifest = try ONTGenotypeResultBundle.loadManifest(from: bundleURL)
+        let updated = ONTGenotypeResultBundleManifest(
+            schemaVersion: manifest.schemaVersion,
+            kind: manifest.kind,
+            workflowKind: manifest.workflowKind,
+            workflowMode: manifest.workflowMode,
+            outputName: manifest.outputName,
+            analysisName: manifest.analysisName,
+            primaryWorkbookPath: manifest.primaryWorkbookPath,
+            currentWorkbookPath: manifest.currentWorkbookPath,
+            workbookRevisions: manifest.workbookRevisions,
+            longSummaryCSVPath: manifest.longSummaryCSVPath,
+            sampleSummaryCSVPath: manifest.sampleSummaryCSVPath,
+            statsJSONPath: manifest.statsJSONPath,
+            provenancePath: manifest.provenancePath,
+            deduplicatedUnmatchedClustersFASTAPath:
+                manifest.deduplicatedUnmatchedClustersFASTAPath,
+            haplotypeAnalysisPath: manifest.haplotypeAnalysisPath,
+            haplotypeDefinitionSetID: manifest.haplotypeDefinitionSetID,
+            haplotypeAssayID: manifest.haplotypeAssayID,
+            presetID: manifest.presetID,
+            presetVersion: manifest.presetVersion,
+            createdAt: manifest.createdAt,
+            activeHaplotypeAnalysisRevisionID:
+                manifest.activeHaplotypeAnalysisRevisionID,
+            haplotypeAnalysisRevisions: manifest.haplotypeAnalysisRevisions,
+            mhcCandidateArtifacts: manifest.mhcCandidateArtifacts,
+            mhcReferenceVisualizations: manifest.mhcReferenceVisualizations,
+            referenceRecordStore: manifest.referenceRecordStore,
+            alignmentArtifacts: manifest.alignmentArtifacts,
+            provisionalExon2Artifacts: manifest.provisionalExon2Artifacts,
+            reviewableRowCatalog: reference
+        )
+        try ONTGenotypeResultBundle.writeManifest(updated, to: bundleURL)
+        return reference
     }
 
     private func artifactReference(_ url: URL, relativeTo bundleURL: URL) throws -> ONTMHCArtifactReference {

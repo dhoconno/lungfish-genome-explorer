@@ -39,7 +39,12 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
         )
         let fingerprint = try GenotypeCurrentWorkbookInputFingerprint(
             schemaVersion: GenotypeCurrentWorkbookInputFingerprint.schemaVersion,
-            sha256: String(repeating: "b", count: 64)
+            sha256: String(repeating: "b", count: 64),
+            reviewableRowCatalogPath:
+                "artifacts/review/reviewable-row-catalog.json",
+            reviewableRowCatalogSize: 123,
+            reviewableRowCatalogSHA256: String(repeating: "c", count: 64),
+            reviewableRowCatalogSchemaVersion: 1
         )
 
         try await service.run(
@@ -87,6 +92,22 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
         )
         XCTAssertEqual(invocation.arguments.filter { $0 == "--input-fingerprint" }.count, 1)
         XCTAssertEqual(invocation.arguments.filter { $0 == "--input-fingerprint-schema" }.count, 1)
+        XCTAssertEqual(
+            try value(after: "--reviewable-row-catalog-path", in: invocation.arguments),
+            "artifacts/review/reviewable-row-catalog.json"
+        )
+        XCTAssertEqual(
+            try value(after: "--reviewable-row-catalog-size", in: invocation.arguments),
+            "123"
+        )
+        XCTAssertEqual(
+            try value(after: "--reviewable-row-catalog-sha256", in: invocation.arguments),
+            String(repeating: "c", count: 64)
+        )
+        XCTAssertEqual(
+            try value(after: "--reviewable-row-catalog-schema", in: invocation.arguments),
+            "1"
+        )
         XCTAssertEqual(invocation.arguments.filter { $0 == "--sync-intent" }.count, 1)
         XCTAssertEqual(try value(after: "--input-fingerprint", in: invocation.arguments), fingerprint.sha256)
         XCTAssertEqual(
@@ -103,7 +124,16 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
         XCTAssertTrue(item.cliCommand?.contains("lungfish-cli fastq update-current-workbook") == true)
         XCTAssertTrue(item.cliCommand?.contains("--included-locus MHC-A --included-locus MHC-DP") == true)
         XCTAssertTrue(item.cliCommand?.contains("--input-fingerprint \(fingerprint.sha256)") == true)
-        XCTAssertTrue(item.cliCommand?.contains("--input-fingerprint-schema 1") == true)
+        XCTAssertTrue(
+            item.cliCommand?.contains(
+                "--input-fingerprint-schema \(fingerprint.schemaVersion)"
+            ) == true
+        )
+        XCTAssertTrue(
+            item.cliCommand?.contains(
+                "--reviewable-row-catalog-path artifacts/review/reviewable-row-catalog.json"
+            ) == true
+        )
         XCTAssertTrue(item.cliCommand?.contains("--sync-intent update-and-view") == true)
         XCTAssertTrue(item.cliCommand?.contains(retainedAnnotationURL.path) == true)
         XCTAssertFalse(item.cliCommand?.contains(annotationURL.path) == true)

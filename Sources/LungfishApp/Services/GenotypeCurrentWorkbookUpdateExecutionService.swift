@@ -625,6 +625,19 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
                 "--input-fingerprint", inputFingerprint.sha256,
                 "--input-fingerprint-schema", String(inputFingerprint.schemaVersion),
             ]
+            if let path = inputFingerprint.reviewableRowCatalogPath,
+               let size = inputFingerprint.reviewableRowCatalogSize,
+               let sha256 = inputFingerprint.reviewableRowCatalogSHA256,
+               let schemaVersion =
+                   inputFingerprint.reviewableRowCatalogSchemaVersion {
+                arguments += [
+                    "--reviewable-row-catalog-path", path,
+                    "--reviewable-row-catalog-size", String(size),
+                    "--reviewable-row-catalog-sha256", sha256,
+                    "--reviewable-row-catalog-schema",
+                    String(schemaVersion),
+                ]
+            }
         }
         if let syncIntent {
             arguments += ["--sync-intent", syncIntent.rawValue]

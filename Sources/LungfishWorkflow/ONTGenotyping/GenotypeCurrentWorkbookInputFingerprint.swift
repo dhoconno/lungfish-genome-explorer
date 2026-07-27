@@ -4,11 +4,15 @@ import Foundation
 import LungfishIO
 
 public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Sendable {
-    public static let schemaVersion = 1
+    public static let schemaVersion = 2
     private static let maximumProvenanceBytes = 16 * 1024 * 1024
 
     public let schemaVersion: Int
     public let sha256: String
+    public let reviewableRowCatalogPath: String?
+    public let reviewableRowCatalogSize: UInt64?
+    public let reviewableRowCatalogSHA256: String?
+    public let reviewableRowCatalogSchemaVersion: Int?
 
     private struct CanonicalInput: Encodable {
         let schemaVersion: Int
@@ -16,6 +20,7 @@ public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Senda
         let includedLoci: [String]
         let annotationSidecar: GenotypeAnnotationSidecar?
         let candidateArtifacts: CanonicalCandidateArtifacts?
+        let reviewableRowCatalog: CanonicalReviewableRowCatalog?
     }
 
     private struct CanonicalCall: Encodable {
@@ -48,14 +53,26 @@ public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Senda
         let sizeBytes: Int64
     }
 
+    private struct CanonicalReviewableRowCatalog: Encodable {
+        let path: String
+        let size: UInt64
+        let sha256: String
+        let schemaVersion: Int
+    }
+
     private enum CodingKeys: String, CodingKey {
         case schemaVersion
         case sha256
+        case reviewableRowCatalogPath
+        case reviewableRowCatalogSize
+        case reviewableRowCatalogSHA256
+        case reviewableRowCatalogSchemaVersion
     }
 
     public enum ValidationError: Error, LocalizedError, Equatable, Sendable {
         case unsupportedSchemaVersion(Int)
         case invalidSHA256(String)
+        case invalidReviewableRowCatalogDescriptor
 
         public var errorDescription: String? {
             switch self {
@@ -63,47 +80,124 @@ public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Senda
                 return "Unsupported current workbook input fingerprint schema version: \(version)."
             case .invalidSHA256:
                 return "Current workbook input fingerprint must be a lowercase 64-character SHA-256 digest."
+            case .invalidReviewableRowCatalogDescriptor:
+                return "Current workbook input fingerprint reviewable-row catalog descriptor is incomplete or invalid."
             }
         }
     }
 
-    public init(schemaVersion: Int, sha256: String) throws {
+    public init(
+        schemaVersion: Int,
+        sha256: String,
+        reviewableRowCatalogPath: String? = nil,
+        reviewableRowCatalogSize: UInt64? = nil,
+        reviewableRowCatalogSHA256: String? = nil,
+        reviewableRowCatalogSchemaVersion: Int? = nil
+    ) throws {
         guard schemaVersion == Self.schemaVersion else {
             throw ValidationError.unsupportedSchemaVersion(schemaVersion)
         }
         guard Self.isValidSHA256(sha256) else {
             throw ValidationError.invalidSHA256(sha256)
         }
+        try Self.validateReviewableRowCatalogDescriptor(
+            path: reviewableRowCatalogPath,
+            size: reviewableRowCatalogSize,
+            sha256: reviewableRowCatalogSHA256,
+            schemaVersion: reviewableRowCatalogSchemaVersion
+        )
         self.schemaVersion = schemaVersion
         self.sha256 = sha256
+        self.reviewableRowCatalogPath = reviewableRowCatalogPath
+        self.reviewableRowCatalogSize = reviewableRowCatalogSize
+        self.reviewableRowCatalogSHA256 = reviewableRowCatalogSHA256
+        self.reviewableRowCatalogSchemaVersion = reviewableRowCatalogSchemaVersion
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
         let sha256 = try container.decode(String.self, forKey: .sha256)
-        guard schemaVersion == Self.schemaVersion else {
-            throw ValidationError.unsupportedSchemaVersion(schemaVersion)
-        }
-        guard Self.isValidSHA256(sha256) else {
-            throw ValidationError.invalidSHA256(sha256)
-        }
-        self.schemaVersion = schemaVersion
-        self.sha256 = sha256
+        let reviewableRowCatalogPath = try container.decodeIfPresent(
+            String.self,
+            forKey: .reviewableRowCatalogPath
+        )
+        let reviewableRowCatalogSize = try container.decodeIfPresent(
+            UInt64.self,
+            forKey: .reviewableRowCatalogSize
+        )
+        let reviewableRowCatalogSHA256 = try container.decodeIfPresent(
+            String.self,
+            forKey: .reviewableRowCatalogSHA256
+        )
+        let reviewableRowCatalogSchemaVersion = try container.decodeIfPresent(
+            Int.self,
+            forKey: .reviewableRowCatalogSchemaVersion
+        )
+        try self.init(
+            schemaVersion: schemaVersion,
+            sha256: sha256,
+            reviewableRowCatalogPath: reviewableRowCatalogPath,
+            reviewableRowCatalogSize: reviewableRowCatalogSize,
+            reviewableRowCatalogSHA256: reviewableRowCatalogSHA256,
+            reviewableRowCatalogSchemaVersion: reviewableRowCatalogSchemaVersion
+        )
     }
 
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(schemaVersion, forKey: .schemaVersion)
         try container.encode(sha256, forKey: .sha256)
+        try container.encodeIfPresent(
+            reviewableRowCatalogPath,
+            forKey: .reviewableRowCatalogPath
+        )
+        try container.encodeIfPresent(
+            reviewableRowCatalogSize,
+            forKey: .reviewableRowCatalogSize
+        )
+        try container.encodeIfPresent(
+            reviewableRowCatalogSHA256,
+            forKey: .reviewableRowCatalogSHA256
+        )
+        try container.encodeIfPresent(
+            reviewableRowCatalogSchemaVersion,
+            forKey: .reviewableRowCatalogSchemaVersion
+        )
     }
 
     public static func make(
         calls: [GenotypeWorkbookHaplotypeCall],
         includedLoci: [String],
         annotationSidecar: GenotypeAnnotationSidecar?,
-        candidateArtifacts: ONTMHCCandidateArtifactManifest?
+        candidateArtifacts: ONTMHCCandidateArtifactManifest?,
+        reviewableRowCatalog: ONTMHCArtifactReference? = nil,
+        reviewableRowCatalogSchemaVersion: Int? = nil
     ) throws -> Self {
+        let canonicalReviewableRowCatalog: CanonicalReviewableRowCatalog?
+        if let reviewableRowCatalog {
+            guard let size = UInt64(exactly: reviewableRowCatalog.sizeBytes),
+                  let reviewableRowCatalogSchemaVersion else {
+                throw ValidationError.invalidReviewableRowCatalogDescriptor
+            }
+            canonicalReviewableRowCatalog = CanonicalReviewableRowCatalog(
+                path: reviewableRowCatalog.path,
+                size: size,
+                sha256: reviewableRowCatalog.sha256,
+                schemaVersion: reviewableRowCatalogSchemaVersion
+            )
+        } else {
+            guard reviewableRowCatalogSchemaVersion == nil else {
+                throw ValidationError.invalidReviewableRowCatalogDescriptor
+            }
+            canonicalReviewableRowCatalog = nil
+        }
+        try validateReviewableRowCatalogDescriptor(
+            path: canonicalReviewableRowCatalog?.path,
+            size: canonicalReviewableRowCatalog?.size,
+            sha256: canonicalReviewableRowCatalog?.sha256,
+            schemaVersion: canonicalReviewableRowCatalog?.schemaVersion
+        )
         var callsByKey: [CanonicalCallKey: CanonicalCall] = [:]
         for call in calls {
             let sample = clean(call.sample)
@@ -133,14 +227,20 @@ public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Senda
             calls: canonicalCalls,
             includedLoci: Array(Set(canonicalIncludedLoci)).sorted(),
             annotationSidecar: annotationSidecar,
-            candidateArtifacts: candidateArtifacts.map(canonicalCandidateArtifacts)
+            candidateArtifacts: candidateArtifacts.map(canonicalCandidateArtifacts),
+            reviewableRowCatalog: canonicalReviewableRowCatalog
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let digest = SHA256.hash(data: try encoder.encode(input))
         return try Self(
             schemaVersion: schemaVersion,
-            sha256: digest.map { String(format: "%02x", $0) }.joined()
+            sha256: digest.map { String(format: "%02x", $0) }.joined(),
+            reviewableRowCatalogPath: canonicalReviewableRowCatalog?.path,
+            reviewableRowCatalogSize: canonicalReviewableRowCatalog?.size,
+            reviewableRowCatalogSHA256: canonicalReviewableRowCatalog?.sha256,
+            reviewableRowCatalogSchemaVersion:
+                canonicalReviewableRowCatalog?.schemaVersion
         )
     }
 
@@ -167,7 +267,60 @@ public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Senda
               isValidSHA256(digest) else {
             return nil
         }
-        return try Self(schemaVersion: recordedSchemaVersion, sha256: digest)
+        let path = envelope.options.explicit["reviewableRowCatalogPath"]?.stringValue
+        let sizeValue = envelope.options.explicit["reviewableRowCatalogSize"]?.integerValue
+        let catalogSHA256 =
+            envelope.options.explicit["reviewableRowCatalogSHA256"]?.stringValue
+        let catalogSchemaVersion =
+            envelope.options.explicit["reviewableRowCatalogSchemaVersion"]?.integerValue
+        let descriptorFieldCount = [
+            path != nil,
+            sizeValue != nil,
+            catalogSHA256 != nil,
+            catalogSchemaVersion != nil,
+        ].filter { $0 }.count
+        guard descriptorFieldCount == 0 || descriptorFieldCount == 4 else {
+            return nil
+        }
+        let size = sizeValue.flatMap(UInt64.init(exactly:))
+        if sizeValue != nil, size == nil {
+            return nil
+        }
+        return try? Self(
+            schemaVersion: recordedSchemaVersion,
+            sha256: digest,
+            reviewableRowCatalogPath: path,
+            reviewableRowCatalogSize: size,
+            reviewableRowCatalogSHA256: catalogSHA256,
+            reviewableRowCatalogSchemaVersion: catalogSchemaVersion
+        )
+    }
+
+    private static func validateReviewableRowCatalogDescriptor(
+        path: String?,
+        size: UInt64?,
+        sha256: String?,
+        schemaVersion: Int?
+    ) throws {
+        let fieldCount = [
+            path != nil,
+            size != nil,
+            sha256 != nil,
+            schemaVersion != nil,
+        ].filter { $0 }.count
+        guard fieldCount == 0 || fieldCount == 4 else {
+            throw ValidationError.invalidReviewableRowCatalogDescriptor
+        }
+        guard fieldCount != 0 else { return }
+        guard let path,
+              let sha256,
+              let schemaVersion,
+              size != nil,
+              safeRelativePathComponents(path) != nil,
+              isValidSHA256(sha256),
+              schemaVersion > 0 else {
+            throw ValidationError.invalidReviewableRowCatalogDescriptor
+        }
     }
 
     private static func canonicalCandidateArtifacts(

@@ -6,6 +6,34 @@ import LungfishWorkflow
 
 @MainActor
 final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
+    func testChangedReviewableRowCatalogDescriptorMarksWorkbookDirtyAndRunsUpdate() async throws {
+        let bundle = bundleURL("catalog-dirty")
+        let original = try makeCatalogFingerprint(
+            path: "artifacts/review/catalog.json",
+            checksumCharacter: "a",
+            size: 100,
+            schemaVersion: 1
+        )
+        let changed = try makeCatalogFingerprint(
+            path: "artifacts/review/catalog.json",
+            checksumCharacter: "b",
+            size: 100,
+            schemaVersion: 1
+        )
+        let runner = ControlledRunner()
+        runner.automaticallySucceed = true
+        let coordinator = makeCoordinator(recorded: original, runner: runner)
+
+        _ = try await coordinator.synchronize(
+            makeRequest(bundle: bundle, fingerprint: changed),
+            intent: .automaticIdle
+        )
+
+        XCTAssertEqual(runner.invocations.count, 1)
+        XCTAssertEqual(runner.invocations.first?.request.fingerprint, changed)
+        XCTAssertEqual(coordinator.phase(for: bundle), .current)
+    }
+
     func testCleanFingerprintAvoidsRunnerAndOnlyUpdateAndViewOpensResolvedWorkbook() async throws {
         let bundle = bundleURL("clean")
         let workbook = bundle.appendingPathComponent("custom/current.xlsx")
@@ -1291,6 +1319,26 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
         try GenotypeCurrentWorkbookInputFingerprint(
             schemaVersion: GenotypeCurrentWorkbookInputFingerprint.schemaVersion,
             sha256: String(repeating: character, count: 64)
+        )
+    }
+
+    private func makeCatalogFingerprint(
+        path: String,
+        checksumCharacter: Character,
+        size: Int64,
+        schemaVersion: Int
+    ) throws -> GenotypeCurrentWorkbookInputFingerprint {
+        try GenotypeCurrentWorkbookInputFingerprint.make(
+            calls: [],
+            includedLoci: [],
+            annotationSidecar: nil,
+            candidateArtifacts: nil,
+            reviewableRowCatalog: ONTMHCArtifactReference(
+                path: path,
+                sha256: String(repeating: checksumCharacter, count: 64),
+                sizeBytes: size
+            ),
+            reviewableRowCatalogSchemaVersion: schemaVersion
         )
     }
 

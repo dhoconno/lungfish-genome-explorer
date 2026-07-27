@@ -18,6 +18,7 @@ output_path = sys.argv[2]
 calls_path = sys.argv[3]
 sidecar_path = sys.argv[4] if len(sys.argv) > 4 else ""
 configuration_path = sys.argv[5] if len(sys.argv) > 5 else ""
+reviewable_row_catalog_path = sys.argv[6] if len(sys.argv) > 6 else ""
 
 with open(calls_path) as handle:
     call_rows = json.load(handle)

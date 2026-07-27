@@ -48,6 +48,10 @@ final class AIHaplotypingRevisionPublisherTests: XCTestCase {
             manifest.provisionalExon2Artifacts,
             fixture.result.manifest.provisionalExon2Artifacts
         )
+        XCTAssertEqual(
+            manifest.reviewableRowCatalog,
+            fixture.result.manifest.reviewableRowCatalog
+        )
     }
 
     func testPublishPreservesMalformedWorkflowKindWhileReplacingMode() throws {
@@ -566,6 +570,22 @@ private extension AIHaplotypingRevisionPublisherTests {
                 sizeBytes: Int64(try ProvenanceFileHasher.fileSize(of: url))
             )
         }
+        let reviewCatalogURL = bundleURL.appendingPathComponent(
+            "artifacts/review/reviewable-row-catalog.json"
+        )
+        try FileManager.default.createDirectory(
+            at: reviewCatalogURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try GenotypeReviewableRowCatalog(
+            samples: ["DW472", "DW473"],
+            rows: []
+        ).encoded().write(to: reviewCatalogURL)
+        let reviewCatalogReference = ONTMHCArtifactReference(
+            path: "artifacts/review/reviewable-row-catalog.json",
+            sha256: try ProvenanceFileHasher.sha256(of: reviewCatalogURL),
+            sizeBytes: Int64(try ProvenanceFileHasher.fileSize(of: reviewCatalogURL))
+        )
         let manifest = ONTGenotypeResultBundleManifest(
             kind: GenotypeResultWorkflowKind.miSeqAmpliconMHCGenotype.rawValue,
             workflowKind: .miSeqAmpliconMHCGenotype,
@@ -608,7 +628,8 @@ private extension AIHaplotypingRevisionPublisherTests {
                 sizeBytes: 512
             ),
             alignmentArtifacts: alignmentArtifacts,
-            provisionalExon2Artifacts: provisionalArtifacts
+            provisionalExon2Artifacts: provisionalArtifacts,
+            reviewableRowCatalog: reviewCatalogReference
         )
         try ONTGenotypeResultBundle.writeManifest(manifest, to: bundleURL)
 

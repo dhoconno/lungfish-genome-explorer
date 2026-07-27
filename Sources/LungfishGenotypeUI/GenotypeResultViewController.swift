@@ -4937,6 +4937,9 @@ public final class GenotypeResultViewController: NSViewController {
                 annotationSidecar: store.sidecar,
                 annotationSidecarURL: annotationURL,
                 candidateArtifacts: result.manifest.mhcCandidateArtifacts,
+                reviewableRowCatalog: result.manifest.reviewableRowCatalog,
+                reviewableRowCatalogSchemaVersion:
+                    result.reviewableRowCatalog?.schemaVersion,
                 annotationOnly: !currentWorkbookRequiresFullUpdate,
                 isReadOnly: store.isReadOnly
             )

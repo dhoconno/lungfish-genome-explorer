@@ -45,14 +45,32 @@ final class FastqGenotypingCommandTests: XCTestCase {
             "/tmp/barcode11-mhc.lungfishgenotype",
             "--calls-json", "/tmp/calls.json",
             "--input-fingerprint", digest,
-            "--input-fingerprint-schema", "1",
+            "--input-fingerprint-schema",
+            String(GenotypeCurrentWorkbookInputFingerprint.schemaVersion),
+            "--reviewable-row-catalog-path",
+            "artifacts/review/reviewable-row-catalog.json",
+            "--reviewable-row-catalog-size", "123",
+            "--reviewable-row-catalog-sha256",
+            String(repeating: "b", count: 64),
+            "--reviewable-row-catalog-schema", "1",
             "--sync-intent", "update-and-view",
         ])
 
         let attestation = try command.validatedAttestation()
 
         XCTAssertEqual(attestation.inputFingerprint?.sha256, digest)
-        XCTAssertEqual(attestation.inputFingerprint?.schemaVersion, 1)
+        XCTAssertEqual(
+            attestation.inputFingerprint?.schemaVersion,
+            GenotypeCurrentWorkbookInputFingerprint.schemaVersion
+        )
+        XCTAssertEqual(
+            attestation.inputFingerprint?.reviewableRowCatalogPath,
+            "artifacts/review/reviewable-row-catalog.json"
+        )
+        XCTAssertEqual(
+            attestation.inputFingerprint?.reviewableRowCatalogSize,
+            123
+        )
         XCTAssertEqual(attestation.syncIntent, .updateAndView)
     }
 
@@ -68,7 +86,8 @@ final class FastqGenotypingCommandTests: XCTestCase {
             try FastqUpdateCurrentWorkbookSubcommand.parse([
                 "/tmp/barcode11-mhc.lungfishgenotype",
                 "--calls-json", "/tmp/calls.json",
-                "--input-fingerprint-schema", "1",
+                "--input-fingerprint-schema",
+                String(GenotypeCurrentWorkbookInputFingerprint.schemaVersion),
             ])
         )
     }
@@ -87,7 +106,8 @@ final class FastqGenotypingCommandTests: XCTestCase {
                 "/tmp/barcode11-mhc.lungfishgenotype",
                 "--calls-json", "/tmp/calls.json",
                 "--input-fingerprint", String(repeating: "a", count: 64),
-                "--input-fingerprint-schema", "2",
+                "--input-fingerprint-schema",
+                String(GenotypeCurrentWorkbookInputFingerprint.schemaVersion + 1),
             ])
         )
         XCTAssertThrowsError(
@@ -104,6 +124,10 @@ final class FastqGenotypingCommandTests: XCTestCase {
 
         XCTAssertTrue(help.contains("--input-fingerprint"))
         XCTAssertTrue(help.contains("--input-fingerprint-schema"))
+        XCTAssertTrue(help.contains("--reviewable-row-catalog-path"))
+        XCTAssertTrue(help.contains("--reviewable-row-catalog-size"))
+        XCTAssertTrue(help.contains("--reviewable-row-catalog-sha256"))
+        XCTAssertTrue(help.contains("--reviewable-row-catalog-schema"))
         XCTAssertTrue(help.contains("--sync-intent"))
     }
 

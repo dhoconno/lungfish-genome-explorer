@@ -54,6 +54,18 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("input-fingerprint-schema"), help: "Schema version for --input-fingerprint")
     var inputFingerprintSchema: Int?
 
+    @Option(name: .customLong("reviewable-row-catalog-path"), help: "Manifest-relative path attested by --input-fingerprint")
+    var reviewableRowCatalogPath: String?
+
+    @Option(name: .customLong("reviewable-row-catalog-size"), help: "Byte size attested for the reviewable-row catalog")
+    var reviewableRowCatalogSize: UInt64?
+
+    @Option(name: .customLong("reviewable-row-catalog-sha256"), help: "SHA-256 attested for the reviewable-row catalog")
+    var reviewableRowCatalogSHA256: String?
+
+    @Option(name: .customLong("reviewable-row-catalog-schema"), help: "Document schema version attested for the reviewable-row catalog")
+    var reviewableRowCatalogSchema: Int?
+
     @Option(name: .customLong("sync-intent"), help: "Synchronization intent: automatic-idle, bundle-switch, or update-and-view")
     var syncIntent: String?
 
@@ -142,6 +154,14 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
         let fingerprint: GenotypeCurrentWorkbookInputFingerprint?
         switch (inputFingerprint, inputFingerprintSchema) {
         case (nil, nil):
+            guard reviewableRowCatalogPath == nil,
+                  reviewableRowCatalogSize == nil,
+                  reviewableRowCatalogSHA256 == nil,
+                  reviewableRowCatalogSchema == nil else {
+                throw ValidationError(
+                    "Reviewable-row catalog attestation options require --input-fingerprint and --input-fingerprint-schema."
+                )
+            }
             fingerprint = nil
         case (.some, nil), (nil, .some):
             throw ValidationError(
@@ -151,7 +171,12 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
             do {
                 fingerprint = try GenotypeCurrentWorkbookInputFingerprint(
                     schemaVersion: schemaVersion,
-                    sha256: digest
+                    sha256: digest,
+                    reviewableRowCatalogPath: reviewableRowCatalogPath,
+                    reviewableRowCatalogSize: reviewableRowCatalogSize,
+                    reviewableRowCatalogSHA256: reviewableRowCatalogSHA256,
+                    reviewableRowCatalogSchemaVersion:
+                        reviewableRowCatalogSchema
                 )
             } catch {
                 throw ValidationError(error.localizedDescription)
@@ -201,6 +226,21 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
                 "--input-fingerprint", inputFingerprint,
                 "--input-fingerprint-schema", String(inputFingerprintSchema),
             ]
+            if let reviewableRowCatalogPath,
+               let reviewableRowCatalogSize,
+               let reviewableRowCatalogSHA256,
+               let reviewableRowCatalogSchema {
+                arguments += [
+                    "--reviewable-row-catalog-path",
+                    reviewableRowCatalogPath,
+                    "--reviewable-row-catalog-size",
+                    String(reviewableRowCatalogSize),
+                    "--reviewable-row-catalog-sha256",
+                    reviewableRowCatalogSHA256,
+                    "--reviewable-row-catalog-schema",
+                    String(reviewableRowCatalogSchema),
+                ]
+            }
         }
         if let syncIntent {
             arguments += ["--sync-intent", syncIntent]
