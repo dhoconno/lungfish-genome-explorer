@@ -12,6 +12,7 @@ from copy import copy
 from openpyxl import load_workbook
 from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter, range_boundaries
 
 input_path = sys.argv[1]
 output_path = sys.argv[2]
@@ -44,6 +45,11 @@ normalized_unmatched_rows = candidate_configuration.get("normalized_unmatched_ro
 known_allele_display_names = candidate_configuration.get("known_allele_display_names") or {}
 workbook_samples = candidate_configuration.get("samples") or []
 workbook_known_calls = candidate_configuration.get("known_calls") or []
+
+reviewable_row_catalog = {}
+if reviewable_row_catalog_path:
+    with open(reviewable_row_catalog_path) as handle:
+        reviewable_row_catalog = json.load(handle)
 
 
 def load_json_path(key, collection):
@@ -598,6 +604,10 @@ def resolve_current_annotations(entries):
 resolved_matrix_styles = resolve_current_annotations(matrix_styles)
 resolved_matrix_comments = resolve_current_annotations(matrix_comments)
 MANAGED_REVIEW_STATE_SHEET = "_LGE Matrix Review State"
+ANNOTATION_ONLY_BLOCK_CALL_TYPE = "analyst-annotation-only-block"
+ANNOTATION_ONLY_CALL_TYPE = "analyst-annotation-only"
+ANNOTATION_ONLY_BLOCK_LABEL = "Analyst annotation-only rows"
+managed_cleanup_warnings = {}
 
 
 def write_matrix_annotation_sheet(matrix_review_results):
@@ -794,6 +804,432 @@ def normalized_header(value):
     return re.sub(r"[^a-z0-9]+", "_", clean(value).lower()).strip("_")
 
 
+UNIFIED_REQUIRED_HEADERS = {
+    "call_type", "call_id", "display_name", "stable_cluster_id", "locus",
+    "classification", "support_class", "closest_reference", "match_class",
+    "occurrence_count", "sample_count", "total_cluster_reads",
+}
+GENOTYPE_HEADER_ALIASES = (
+    "genotype", "display_name", "provisional_allele_name", "provisional_name"
+)
+TOTAL_HEADER_ALIASES = ("total",)
+OBSERVED_HEADER_ALIASES = ("obs", "observed", "observations", "sample_count")
+synthetic_rows_for_current_run = {}
+
+
+def header_columns(ws, row):
+    values = {}
+    for col in range(1, ws.max_column + 1):
+        header = normalized_header(ws.cell(row, col).value)
+        if header:
+            values.setdefault(header, []).append(col)
+    return values
+
+
+def unique_alias_column(columns, aliases, label, required):
+    matches = [
+        (alias, col)
+        for alias in aliases
+        for col in columns.get(alias, [])
+    ]
+    if len(matches) > 1:
+        raise ValueError(
+            f"Ambiguous workbook layout exposes duplicate {label} aliases; workbook was not modified"
+        )
+    if not matches:
+        if required:
+            return None
+        return None
+    return matches[0][1]
+
+
+def matrix_layout_adapter(ws, sample_names, requires_synthesis=False):
+    candidates = []
+    for row in range(1, min(ws.max_row, 60) + 1):
+        columns = header_columns(ws, row)
+        if "call_type" in columns:
+            if len(columns["call_type"]) != 1:
+                raise ValueError(
+                    "Ambiguous unified workbook layout exposes duplicate call_type headers; "
+                    "workbook was not modified"
+                )
+            duplicate_required = sorted(
+                name for name in UNIFIED_REQUIRED_HEADERS
+                if len(columns.get(name, [])) > 1
+            )
+            if duplicate_required:
+                raise ValueError(
+                    "Ambiguous unified workbook layout exposes duplicate headers: "
+                    + ", ".join(duplicate_required)
+                )
+            missing = sorted(
+                name for name in UNIFIED_REQUIRED_HEADERS
+                if len(columns.get(name, [])) != 1
+            )
+            if missing:
+                if requires_synthesis:
+                    raise ValueError(
+                        "Unsupported unified workbook layout is missing required headers: "
+                        + ", ".join(missing)
+                    )
+                continue
+            headers = {name: columns[name][0] for name in columns if len(columns[name]) == 1}
+            sample_columns = {
+                sample: col
+                for sample in sample_names
+                for col in columns.get(normalized_header(sample), [])
+                if clean(ws.cell(row, col).value) == sample
+            }
+            candidates.append({
+                "kind": "unified",
+                "ws": ws,
+                "header_row": row,
+                "headers": headers,
+                "genotype_col": headers["display_name"],
+                "locus_col": headers["locus"],
+                "stable_col": headers["stable_cluster_id"],
+                "total_col": headers["total_cluster_reads"],
+                "observed_col": headers["sample_count"],
+                "sample_columns": sample_columns,
+            })
+            continue
+
+        genotype_col = unique_alias_column(
+            columns, GENOTYPE_HEADER_ALIASES, "genotype", False
+        )
+        if genotype_col is None:
+            continue
+        total_col = unique_alias_column(columns, TOTAL_HEADER_ALIASES, "Total", False)
+        observed_col = unique_alias_column(
+            columns, OBSERVED_HEADER_ALIASES, "# Obs.", False
+        )
+        if requires_synthesis and (total_col is None or observed_col is None):
+            continue
+        locus_col = unique_alias_column(columns, ("locus",), "locus", False)
+        stable_col = unique_alias_column(
+            columns, ("stable_cluster_id", "stable_id"), "stable ID", False
+        )
+        sample_columns = {}
+        for sample in sample_names:
+            exact = [
+                col for col in range(1, ws.max_column + 1)
+                if clean(ws.cell(row, col).value) == sample
+            ]
+            if len(exact) > 1:
+                raise ValueError(
+                    f"Ambiguous generic workbook layout repeats sample column '{sample}'; "
+                    "workbook was not modified"
+                )
+            if exact:
+                sample_columns[sample] = exact[0]
+        candidates.append({
+            "kind": "generic",
+            "ws": ws,
+            "header_row": row,
+            "headers": {},
+            "genotype_col": genotype_col,
+            "locus_col": locus_col,
+            "stable_col": stable_col,
+            "total_col": total_col,
+            "observed_col": observed_col,
+            "sample_columns": sample_columns,
+        })
+
+    if len(candidates) > 1:
+        raise ValueError(
+            f"Ambiguous workbook layout in '{ws.title}' exposes multiple matrix headers; "
+            "workbook was not modified"
+        )
+    return candidates[0] if candidates else None
+
+
+def adapter_matrix_end(adapter):
+    ws = adapter["ws"]
+    header_row = adapter["header_row"]
+    matching_ends = []
+    for table in ws.tables.values():
+        min_col, min_row, max_col, max_row = range_boundaries(table.ref)
+        if min_row == header_row and min_col <= adapter["genotype_col"] <= max_col:
+            matching_ends.append(max_row)
+    if matching_ends:
+        return max(matching_ends)
+    descriptor_rows = [
+        item["row"] for item in matrix_row_descriptors(ws)
+        if item["row"] > header_row
+    ]
+    return max(descriptor_rows, default=header_row)
+
+
+def set_adapter_range_end(adapter, end_row):
+    ws = adapter["ws"]
+    header_row = adapter["header_row"]
+    for table in ws.tables.values():
+        min_col, min_row, max_col, _max_row = range_boundaries(table.ref)
+        if min_row == header_row and min_col <= adapter["genotype_col"] <= max_col:
+            table.ref = (
+                f"{get_column_letter(min_col)}{min_row}:"
+                f"{get_column_letter(max_col)}{end_row}"
+            )
+    if ws.auto_filter.ref:
+        min_col, min_row, max_col, _max_row = range_boundaries(ws.auto_filter.ref)
+        if min_row == header_row and min_col <= adapter["genotype_col"] <= max_col:
+            ws.auto_filter.ref = (
+                f"{get_column_letter(min_col)}{min_row}:"
+                f"{get_column_letter(max_col)}{end_row}"
+            )
+
+
+def style_adapter_owned_row(adapter, row):
+    ws = adapter["ws"]
+    for col in range(1, ws.max_column + 1):
+        cell = ws.cell(row, col)
+        cell.font = Font(name="Calibri", size=11)
+        cell.fill = PatternFill(fill_type=None)
+        cell.border = Border()
+        cell.alignment = Alignment(vertical="center")
+        cell.number_format = "General"
+    ws.row_dimensions[row].hidden = False
+    ws.row_dimensions[row].outlineLevel = 0
+
+
+def catalog_support(row):
+    values = row.get("support_by_sample")
+    if not isinstance(values, list):
+        raise ValueError("Malformed reviewable-row catalog evidence")
+    support = {}
+    for item in values:
+        if not isinstance(item, dict):
+            raise ValueError("Malformed reviewable-row catalog evidence")
+        sample = clean(item.get("sample"))
+        if not sample or sample in support:
+            raise ValueError("Malformed reviewable-row catalog evidence roster")
+        value = item.get("support")
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError("Malformed reviewable-row catalog evidence value")
+        support[sample] = value
+    return support
+
+
+def authoritative_catalog_row(target, requires_cohort_zero):
+    if not reviewable_row_catalog:
+        return None, "No authoritative reviewable-row catalog was supplied."
+    if (
+        clean(reviewable_row_catalog.get("schema_id"))
+        != "org.lungfish.genotype.reviewable-row-catalog"
+        or int(reviewable_row_catalog.get("schema_version") or 0) != 1
+    ):
+        raise ValueError("Unsupported reviewable-row catalog schema")
+    kind, locus, genotype, sample, stable_id = matrix_target_parts(target)
+    if kind != "cell":
+        return None, "False-negative reviews require an exact cell target."
+    roster = reviewable_row_catalog.get("samples") or []
+    if sample not in roster:
+        return None, "The selected sample is outside the authoritative roster."
+    matches = []
+    for row in reviewable_row_catalog.get("rows") or []:
+        row_kind = clean(row.get("kind"))
+        if clean(row.get("locus")) != locus or clean(row.get("display_name")) != genotype:
+            continue
+        if stable_id:
+            if row_kind == "reference" or clean(row.get("stable_id")) != stable_id:
+                continue
+        elif row_kind != "reference" or row.get("stable_id") is not None:
+            continue
+        matches.append(row)
+    if not matches:
+        return None, "No reviewable-row catalog record exactly matches the target."
+    if len(matches) != 1:
+        raise ValueError(
+            "Ambiguous reviewable-row catalog identity; workbook was not modified"
+        )
+    row = matches[0]
+    support = catalog_support(row)
+    if set(support) != set(roster):
+        raise ValueError("Reviewable-row catalog evidence does not match its roster")
+    if support.get(sample) != 0:
+        return None, "False-negative reviews require authoritative sample support of zero."
+    if requires_cohort_zero and any(value != 0 for value in support.values()):
+        return None, "An annotation-only row requires zero support across the cohort."
+    return row, ""
+
+
+def catalog_identity(row):
+    return (
+        clean(row.get("kind")),
+        clean(row.get("locus")),
+        clean(row.get("call_id")),
+        clean(row.get("stable_id")),
+    )
+
+
+def append_annotation_only_row(adapter, catalog_row):
+    ws = adapter["ws"]
+    row = adapter_matrix_end(adapter) + 1
+    style_adapter_owned_row(adapter, row)
+    if adapter["kind"] == "unified":
+        values = {
+            "call_type": ANNOTATION_ONLY_CALL_TYPE,
+            "call_id": clean(catalog_row.get("call_id")),
+            "display_name": clean(catalog_row.get("display_name")),
+            "stable_cluster_id": clean(catalog_row.get("stable_id")) or None,
+            "locus": clean(catalog_row.get("locus")),
+            "classification": ANNOTATION_ONLY_CALL_TYPE,
+            "support_class": "zero-support",
+            "closest_reference": None,
+            "match_class": ANNOTATION_ONLY_CALL_TYPE,
+            "occurrence_count": 0,
+            "sample_count": 0,
+            "total_cluster_reads": 0,
+        }
+        for header, col in adapter["headers"].items():
+            ws.cell(row, col).value = values.get(header)
+    else:
+        ws.cell(row, adapter["genotype_col"]).value = clean(
+            catalog_row.get("display_name")
+        )
+        if adapter["locus_col"]:
+            ws.cell(row, adapter["locus_col"]).value = clean(catalog_row.get("locus"))
+        if adapter["stable_col"]:
+            ws.cell(row, adapter["stable_col"]).value = (
+                clean(catalog_row.get("stable_id")) or None
+            )
+        ws.cell(row, adapter["total_col"]).value = 0
+        ws.cell(row, adapter["observed_col"]).value = 0
+    for col in adapter["sample_columns"].values():
+        ws.cell(row, col).value = None
+    set_adapter_range_end(adapter, row)
+    return row
+
+
+def append_annotation_only_marker(adapter):
+    ws = adapter["ws"]
+    marker_rows = []
+    if adapter["kind"] == "unified":
+        marker_col = adapter["headers"]["call_type"]
+        marker_rows = [
+            row for row in range(adapter["header_row"] + 1, ws.max_row + 1)
+            if clean(ws.cell(row, marker_col).value) == ANNOTATION_ONLY_BLOCK_CALL_TYPE
+        ]
+    else:
+        marker_col = adapter["genotype_col"]
+        marker_rows = [
+            row for row in range(adapter["header_row"] + 1, ws.max_row + 1)
+            if clean(ws.cell(row, marker_col).value) == ANNOTATION_ONLY_BLOCK_LABEL
+        ]
+    if len(marker_rows) > 1:
+        raise ValueError(
+            "Ambiguous analyst annotation-only block markers; workbook was not modified"
+        )
+    if marker_rows:
+        return marker_rows[0]
+    row = adapter_matrix_end(adapter) + 1
+    style_adapter_owned_row(adapter, row)
+    if adapter["kind"] == "unified":
+        ws.cell(row, adapter["headers"]["call_type"]).value = (
+            ANNOTATION_ONLY_BLOCK_CALL_TYPE
+        )
+        ws.cell(row, adapter["headers"]["display_name"]).value = (
+            ANNOTATION_ONLY_BLOCK_LABEL
+        )
+    else:
+        ws.cell(row, adapter["genotype_col"]).value = ANNOTATION_ONLY_BLOCK_LABEL
+    font = copy(ws.cell(row, marker_col).font)
+    font.bold = True
+    ws.cell(row, marker_col).font = font
+    set_adapter_range_end(adapter, row)
+    return row
+
+
+def prepare_missing_false_negative_rows():
+    current_reviews = resolve_current_annotations(matrix_reviews)
+    counts = {}
+    for entry in matrix_reviews:
+        key = matrix_target_key(entry.get("target") or {})
+        counts[key] = counts.get(key, 0) + 1
+    false_negatives = [
+        entry for entry in current_reviews
+        if clean(entry.get("disposition")) == "falseNegative"
+        and counts.get(matrix_target_key(entry.get("target") or {}), 0) == 1
+    ]
+    if not false_negatives:
+        return
+    sample_names = known_matrix_samples()
+    adapters = []
+    for ws in wb.worksheets:
+        if ws.title in {
+            "Matrix Annotations", "Overrides", "Audit Log", MANAGED_REVIEW_STATE_SHEET
+        }:
+            continue
+        adapter = matrix_layout_adapter(ws, sample_names, requires_synthesis=True)
+        if adapter is not None and adapter["sample_columns"]:
+            adapters.append(adapter)
+
+    required_by_adapter = {}
+    unresolved_eligible_target = False
+    for entry in false_negatives:
+        target = entry.get("target") or {}
+        _kind, _locus, _genotype, sample, stable_id = matrix_target_parts(target)
+        catalog_row, _catalog_error = authoritative_catalog_row(
+            target, requires_cohort_zero=True
+        )
+        if catalog_row is None:
+            continue
+        resolved_somewhere = False
+        for adapter in adapters:
+            if sample not in adapter["sample_columns"]:
+                continue
+            descriptors = matrix_row_descriptors(adapter["ws"])
+            matches, _match_error = matching_matrix_rows(descriptors, target)
+            if matches:
+                resolved_somewhere = True
+                continue
+            if stable_id and adapter["stable_col"] is None:
+                continue
+            if adapter["locus_col"] is None:
+                aliases = [
+                    row for row in reviewable_row_catalog.get("rows") or []
+                    if clean(row.get("display_name")) == clean(catalog_row.get("display_name"))
+                ]
+                if len(aliases) != 1:
+                    raise ValueError(
+                        "Generic workbook layout cannot disambiguate duplicate genotype aliases; "
+                        "workbook was not modified"
+                    )
+            required_by_adapter.setdefault(id(adapter), {
+                "adapter": adapter,
+                "rows": {},
+            })["rows"][catalog_identity(catalog_row)] = catalog_row
+            resolved_somewhere = True
+        if not resolved_somewhere:
+            unresolved_eligible_target = True
+
+    if unresolved_eligible_target:
+        raise ValueError(
+            "Unsupported workbook matrix layout cannot materialize the authoritative "
+            "annotation-only row; workbook was not modified"
+        )
+
+    for required in required_by_adapter.values():
+        adapter = required["adapter"]
+        marker_row = append_annotation_only_marker(adapter)
+        for catalog_row in sorted(
+            required["rows"].values(),
+            key=lambda row: (
+                clean(row.get("sort_key")),
+                clean(row.get("locus")),
+                clean(row.get("display_name")),
+                clean(row.get("stable_id")),
+                clean(row.get("call_id")),
+            ),
+        ):
+            row = append_annotation_only_row(adapter, catalog_row)
+            synthetic_rows_for_current_run[(adapter["ws"].title, row)] = {
+                "adapter": adapter["kind"],
+                "marker_row": marker_row,
+            }
+        set_adapter_range_end(adapter, adapter_matrix_end(adapter))
+
+
 def matrix_row_descriptors(ws):
     genotype_aliases = ("genotype", "display_name", "provisional_allele_name", "provisional_name")
     stable_aliases = ("stable_cluster_id", "stable_id")
@@ -930,6 +1366,15 @@ def validate_matrix_reviews():
             result["reason"] = "Matrix reviews require an exact cell target."
             results.append(result)
             continue
+        disposition = clean(entry.get("disposition"))
+        if disposition == "falseNegative":
+            _catalog_row, catalog_error = authoritative_catalog_row(
+                target, requires_cohort_zero=False
+            )
+            if _catalog_row is None:
+                result["reason"] = catalog_error
+                results.append(result)
+                continue
 
         target_destinations = []
         target_errors = []
@@ -955,7 +1400,6 @@ def validate_matrix_reviews():
             results.append(result)
             continue
 
-        disposition = clean(entry.get("disposition"))
         evidence = [numeric_review_evidence(cell.value) for _ws, _item, cell in target_destinations]
         if disposition == "falsePositive":
             supported_destinations = [
@@ -979,6 +1423,9 @@ def validate_matrix_reviews():
             continue
 
         result["status"] = "valid"
+        result["reason"] = managed_cleanup_warnings.get(
+            matrix_target_key(target), ""
+        )
         result["destinations"] = target_destinations
         results.append(result)
     return results
@@ -1024,16 +1471,78 @@ def managed_review_state_sheet():
         "Disposition",
         "Original Value",
         "Original Font",
+        "Original Fill",
         "Original Border",
+        "Expected Managed Value",
+        "Expected Managed Font",
+        "Expected Managed Fill",
+        "Expected Managed Border",
+        "Synthetic Row",
+        "Adapter",
+        "Synthetic Row Index",
+        "Expected Synthetic Row",
+        "Marker Row Index",
+        "Expected Marker Row",
     ])
     ws.sheet_state = "veryHidden"
     return ws
+
+
+def serialize_managed_value(value):
+    if value is None:
+        payload = {"type": "none", "value": None}
+    elif isinstance(value, bool):
+        payload = {"type": "bool", "value": value}
+    elif isinstance(value, int):
+        payload = {"type": "int", "value": value}
+    elif isinstance(value, float):
+        payload = {"type": "float", "value": value}
+    else:
+        payload = {"type": "string", "value": str(value)}
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+
+def deserialize_managed_value(value):
+    payload = json.loads(clean(value))
+    if payload.get("type") == "none":
+        return None
+    return payload.get("value")
+
+
+def style_array(cell):
+    return list(cell._style) if cell.has_style else []
+
+
+def row_signature(ws, row):
+    dimension = ws.row_dimensions[row]
+    cells = []
+    for col in range(1, ws.max_column + 1):
+        cell = ws.cell(row, col)
+        cells.append({
+            "coordinate": cell.coordinate,
+            "value": serialize_managed_value(cell.value),
+            "data_type": clean(cell.data_type),
+            "style": style_array(cell),
+            "number_format": clean(cell.number_format),
+            "comment": None if cell.comment is None else {
+                "text": cell.comment.text,
+                "author": cell.comment.author,
+            },
+            "hyperlink": None if cell.hyperlink is None else clean(cell.hyperlink.target),
+        })
+    return json.dumps({
+        "cells": cells,
+        "height": dimension.height,
+        "hidden": bool(dimension.hidden),
+        "outline_level": int(dimension.outlineLevel or 0),
+    }, sort_keys=True, separators=(",", ":"))
 
 
 def record_managed_review_state(ws, cell, target, disposition):
     state = managed_review_state_sheet()
     kind, locus, genotype, sample, stable_id = matrix_target_parts(target)
     row = state.max_row + 1
+    synthetic = synthetic_rows_for_current_run.get((ws.title, cell.row))
     values = [
         ws.title,
         kind,
@@ -1043,12 +1552,47 @@ def record_managed_review_state(ws, cell, target, disposition):
         stable_id,
         cell.coordinate,
         disposition,
-        cell.value,
+        serialize_managed_value(cell.value),
     ]
     for col, value in enumerate(values, start=1):
         state.cell(row, col).value = value
     state.cell(row, 10).font = copy(cell.font)
-    state.cell(row, 11).border = copy(cell.border)
+    state.cell(row, 11).fill = copy(cell.fill)
+    state.cell(row, 12).border = copy(cell.border)
+    state.cell(row, 17).value = "true" if synthetic else "false"
+    state.cell(row, 18).value = synthetic["adapter"] if synthetic else ""
+    state.cell(row, 19).value = cell.row if synthetic else None
+    state.cell(row, 21).value = synthetic["marker_row"] if synthetic else None
+    return row
+
+
+def record_expected_managed_review_state(state_row, cell):
+    state = managed_review_state_sheet()
+    state.cell(state_row, 13).value = serialize_managed_value(cell.value)
+    state.cell(state_row, 14).font = copy(cell.font)
+    state.cell(state_row, 15).fill = copy(cell.fill)
+    state.cell(state_row, 16).border = copy(cell.border)
+
+
+def finalize_managed_synthetic_state():
+    if MANAGED_REVIEW_STATE_SHEET not in wb.sheetnames:
+        return
+    state = wb[MANAGED_REVIEW_STATE_SHEET]
+    for row in range(2, state.max_row + 1):
+        if clean(state.cell(row, 17).value) != "true":
+            continue
+        sheet_name = clean(state.cell(row, 1).value)
+        synthetic_row = state.cell(row, 19).value
+        marker_row = state.cell(row, 21).value
+        if (
+            sheet_name not in wb.sheetnames
+            or not isinstance(synthetic_row, int)
+            or not isinstance(marker_row, int)
+        ):
+            raise ValueError("Malformed managed synthetic-row state")
+        ws = wb[sheet_name]
+        state.cell(row, 20).value = row_signature(ws, synthetic_row)
+        state.cell(row, 22).value = row_signature(ws, marker_row)
 
 
 def state_destination(state, row):
@@ -1080,6 +1624,28 @@ def color_has_rgb_suffix(color, suffix):
     return clean(getattr(color, "rgb", None)).upper().endswith(suffix)
 
 
+def style_matches(left, right):
+    return copy(left) == copy(right)
+
+
+def delete_managed_end_row(ws, row):
+    for table in ws.tables.values():
+        min_col, min_row, max_col, max_row = range_boundaries(table.ref)
+        if min_row < row <= max_row:
+            table.ref = (
+                f"{get_column_letter(min_col)}{min_row}:"
+                f"{get_column_letter(max_col)}{max_row - 1}"
+            )
+    if ws.auto_filter.ref:
+        min_col, min_row, max_col, max_row = range_boundaries(ws.auto_filter.ref)
+        if min_row < row <= max_row:
+            ws.auto_filter.ref = (
+                f"{get_column_letter(min_col)}{min_row}:"
+                f"{get_column_letter(max_col)}{max_row - 1}"
+            )
+    ws.delete_rows(row, 1)
+
+
 def restore_prior_managed_matrix_annotations():
     for ws in wb.worksheets:
         if ws.title == MANAGED_REVIEW_STATE_SHEET:
@@ -1092,34 +1658,122 @@ def restore_prior_managed_matrix_annotations():
     if MANAGED_REVIEW_STATE_SHEET not in wb.sheetnames:
         return
     state = wb[MANAGED_REVIEW_STATE_SHEET]
+    legacy_state = clean(state.cell(1, 13).value) != "Expected Managed Value"
+    synthetic_safety = {}
+    marker_safety = {}
+    marker_members = {}
+    for row in range(2, state.max_row + 1):
+        if clean(state.cell(row, 17).value) != "true":
+            continue
+        sheet_name = clean(state.cell(row, 1).value)
+        synthetic_row = state.cell(row, 19).value
+        marker_row = state.cell(row, 21).value
+        key = (sheet_name, synthetic_row)
+        marker_key = (sheet_name, marker_row)
+        marker_members.setdefault(marker_key, set()).add(key)
+        if (
+            sheet_name not in wb.sheetnames
+            or not isinstance(synthetic_row, int)
+            or not isinstance(marker_row, int)
+        ):
+            synthetic_safety[key] = False
+            marker_safety[marker_key] = False
+            continue
+        ws = wb[sheet_name]
+        expected_row = clean(state.cell(row, 20).value)
+        expected_marker = clean(state.cell(row, 22).value)
+        row_safe = bool(expected_row) and row_signature(ws, synthetic_row) == expected_row
+        marker_safe = bool(expected_marker) and row_signature(ws, marker_row) == expected_marker
+        synthetic_safety[key] = synthetic_safety.get(key, True) and row_safe
+        marker_safety[marker_key] = marker_safety.get(marker_key, True) and marker_safe
+        if not row_safe:
+            target = {
+                "kind": clean(state.cell(row, 2).value),
+                "locus": clean(state.cell(row, 3).value),
+                "genotype": clean(state.cell(row, 4).value),
+                "sample": clean(state.cell(row, 5).value),
+            }
+            stable_id = clean(state.cell(row, 6).value)
+            if stable_id:
+                target["stableClusterID"] = stable_id
+            managed_cleanup_warnings[matrix_target_key(target)] = (
+                "Retained a user-edited analyst annotation-only row."
+            )
+
     for row in range(2, state.max_row + 1):
         cell = state_destination(state, row)
         if cell is None:
             continue
+        if legacy_state:
+            disposition = clean(state.cell(row, 8).value)
+            if disposition == "falsePositive":
+                value = clean(cell.value)
+                if value.startswith("[") and value.endswith("]"):
+                    cell.value = state.cell(row, 9).value
+                font = copy(cell.font)
+                original_font = state.cell(row, 10).font
+                if bool(font.italic):
+                    font.italic = original_font.italic
+                if color_has_rgb_suffix(font.color, "767676"):
+                    font.color = copy(original_font.color)
+                cell.font = font
+            elif disposition == "falseNegative":
+                border = copy(cell.border)
+                original_border = state.cell(row, 11).border
+                for side_name in ("left", "right", "top", "bottom"):
+                    current_side = copy(getattr(border, side_name))
+                    original_side = getattr(original_border, side_name)
+                    if clean(current_side.style) == "thick":
+                        current_side.style = original_side.style
+                    if color_has_rgb_suffix(current_side.color, "000000"):
+                        current_side.color = copy(original_side.color)
+                    setattr(border, side_name, current_side)
+                cell.border = border
+            continue
         disposition = clean(state.cell(row, 8).value)
+        if serialize_managed_value(cell.value) == clean(state.cell(row, 13).value):
+            cell.value = deserialize_managed_value(state.cell(row, 9).value)
         if disposition == "falsePositive":
-            value = clean(cell.value)
-            if value.startswith("[") and value.endswith("]"):
-                cell.value = state.cell(row, 9).value
             font = copy(cell.font)
+            expected_font = state.cell(row, 14).font
             original_font = state.cell(row, 10).font
-            if bool(font.italic):
+            if font.italic == expected_font.italic:
                 font.italic = original_font.italic
-            if color_has_rgb_suffix(font.color, "767676"):
+            if style_matches(font.color, expected_font.color):
                 font.color = copy(original_font.color)
             cell.font = font
         elif disposition == "falseNegative":
             border = copy(cell.border)
-            original_border = state.cell(row, 11).border
+            expected_border = state.cell(row, 16).border
+            original_border = state.cell(row, 12).border
             for side_name in ("left", "right", "top", "bottom"):
-                current_side = copy(getattr(border, side_name))
-                original_side = getattr(original_border, side_name)
-                if clean(current_side.style) == "thick":
-                    current_side.style = original_side.style
-                if color_has_rgb_suffix(current_side.color, "000000"):
-                    current_side.color = copy(original_side.color)
-                setattr(border, side_name, current_side)
+                if style_matches(
+                    getattr(border, side_name),
+                    getattr(expected_border, side_name),
+                ):
+                    setattr(border, side_name, copy(getattr(original_border, side_name)))
             cell.border = border
+
+    rows_to_delete = [
+        key for key, is_safe in synthetic_safety.items()
+        if is_safe and key[0] in wb.sheetnames and isinstance(key[1], int)
+    ]
+    markers_to_delete = []
+    for marker_key, members in marker_members.items():
+        if (
+            marker_safety.get(marker_key, False)
+            and all(synthetic_safety.get(member, False) for member in members)
+            and marker_key[0] in wb.sheetnames
+            and isinstance(marker_key[1], int)
+        ):
+            markers_to_delete.append(marker_key)
+    deletions_by_sheet = {}
+    for sheet_name, row in rows_to_delete + markers_to_delete:
+        deletions_by_sheet.setdefault(sheet_name, set()).add(row)
+    for sheet_name, rows in deletions_by_sheet.items():
+        ws = wb[sheet_name]
+        for row in sorted(rows, reverse=True):
+            delete_managed_end_row(ws, row)
     del wb[MANAGED_REVIEW_STATE_SHEET]
 
 
@@ -1129,7 +1783,7 @@ def apply_review_format(result):
     disposition = clean(result["entry"].get("disposition"))
     target = result["entry"].get("target") or {}
     for ws, _item, cell in result["destinations"]:
-        record_managed_review_state(ws, cell, target, disposition)
+        state_row = record_managed_review_state(ws, cell, target, disposition)
         if disposition == "falsePositive":
             number = numeric_review_evidence(cell.value)
             cell.value = f"[{review_display_value(cell.value, number)}]"
@@ -1145,6 +1799,7 @@ def apply_review_format(result):
             border.top = side
             border.bottom = side
             cell.border = border
+        record_expected_managed_review_state(state_row, cell)
 
 
 def apply_matrix_annotations_to_workbook(matrix_review_results):
@@ -1250,6 +1905,7 @@ def apply_matrix_annotations_to_workbook(matrix_review_results):
 
     for result in matrix_review_results:
         apply_review_format(result)
+    finalize_managed_synthetic_state()
 
 
 # Candidate display visibility is deliberately ignored here: workbooks are durable
@@ -2134,6 +2790,7 @@ patch_summary_sheet("Custom Sort")
 patch_full_sheet()
 matrix_review_results = []
 if not uses_two_sheet_mhc_contract or preserve_existing_workbook_projection:
+    prepare_missing_false_negative_rows()
     matrix_review_results = validate_matrix_reviews()
     write_override_sheets(matrix_review_results)
     write_matrix_annotation_sheet(matrix_review_results)
@@ -2167,6 +2824,7 @@ if not preserve_existing_workbook_projection:
 if uses_two_sheet_mhc_contract and not preserve_existing_workbook_projection:
     write_two_sheet_mhc_contract()
     if resolved_matrix_styles or resolved_matrix_comments or matrix_reviews:
+        prepare_missing_false_negative_rows()
         matrix_review_results = validate_matrix_reviews()
         write_override_sheets(matrix_review_results)
         write_matrix_annotation_sheet(matrix_review_results)
