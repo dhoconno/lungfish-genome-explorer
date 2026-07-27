@@ -41,6 +41,7 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
     @Published private(set) var copySearchText = ""
 
     let isReadOnly: Bool
+    let orphanLegacyAssignments: [ManualHaplotypeAssignment]
 
     private let copyAssignmentSnapshots:
         [GenotypeManualHaplotypeAssignmentIndex.SampleAssignments]
@@ -55,6 +56,7 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
         draft: GenotypeManualHaplotypeDraft,
         copyCandidates:
             [GenotypeManualHaplotypeAssignmentIndex.SampleAssignments],
+        orphanLegacyAssignments: [ManualHaplotypeAssignment] = [],
         isReadOnly: Bool,
         onSave: @escaping (
             GenotypeManualHaplotypeDraft
@@ -68,6 +70,7 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
         self.copyAssignmentSnapshots = copyCandidates.filter {
             $0.sample != draft.sample
         }
+        self.orphanLegacyAssignments = orphanLegacyAssignments
         self.isReadOnly = isReadOnly
         self.onSave = onSave
         self.onReload = onReload
@@ -115,8 +118,20 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
     var canExport: Bool { true }
 
     var emptyStateMessage: String? {
-        guard draft.assignedSlotCount == 0 else { return nil }
+        guard draft.assignedSlotCount == 0,
+              orphanLegacyAssignments.isEmpty else {
+            return nil
+        }
         return "No assignments yet. Enter a label or copy from another sample."
+    }
+
+    var orphanLegacyWarningMessage: String? {
+        let count = orphanLegacyAssignments.count
+        guard count > 0 else { return nil }
+        let noun = count == 1 ? "assignment" : "assignments"
+        let verb = count == 1 ? "uses" : "use"
+        let pronoun = count == 1 ? "It is" : "They are"
+        return "\(count) legacy \(noun) \(verb) an unrecognized locus. \(pronoun) read-only and will be preserved when recognized assignments are saved."
     }
 
     var copyEmptyStateMessage: String? {
@@ -319,6 +334,33 @@ struct GenotypeManualHaplotypeEditor: View {
                     .accessibilityIdentifier(
                         "manual-haplotype-read-only-message"
                     )
+            }
+            if let orphanWarning = model.orphanLegacyWarningMessage {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label(
+                        orphanWarning,
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    ForEach(
+                        Array(
+                            model.orphanLegacyAssignments.enumerated()
+                        ),
+                        id: \.offset
+                    ) { _, assignment in
+                        Text(
+                            "\(assignment.locus) \(assignment.slot.displayName): \(assignment.label)"
+                        )
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                    }
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier(
+                    "manual-haplotype-orphan-legacy-warning"
+                )
             }
             if let emptyStateMessage = model.emptyStateMessage {
                 Text(emptyStateMessage)

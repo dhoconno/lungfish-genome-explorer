@@ -5097,6 +5097,10 @@ public final class GenotypeResultViewController: NSViewController {
         return true
     }
 
+    private var usesLegacyManualHaplotypingSection: Bool {
+        result?.haplotypeAnalysis != nil
+    }
+
     private func makeManualHaplotypeEditorHost(for sample: String) -> NSView? {
         guard case .eligible = manualHaplotypeEligibility,
               let result,
@@ -5104,6 +5108,18 @@ public final class GenotypeResultViewController: NSViewController {
             return nil
         }
 
+        let normalizedSample =
+            GenotypeManualHaplotypeAssignmentInputValidator
+                .normalizedSampleIdentity(sample)
+        let orphanLegacyAssignments =
+            store.sidecar.manualHaplotypeAssignments.filter { assignment in
+                GenotypeManualHaplotypeAssignmentInputValidator
+                    .normalizedSampleIdentity(assignment.sample)
+                    == normalizedSample
+                    && GenotypeManualHaplotypeLocus(
+                        normalizing: assignment.locus
+                    ) == nil
+            }
         let index = GenotypeManualHaplotypeAssignmentIndex(
             assignments: store.sidecar.manualHaplotypeAssignments
         )
@@ -5124,6 +5140,7 @@ public final class GenotypeResultViewController: NSViewController {
                 index: index
             ),
             copyCandidates: copyCandidates,
+            orphanLegacyAssignments: orphanLegacyAssignments,
             isReadOnly: store.isReadOnly,
             onSave: { [weak self] draft in
                 guard let self,
@@ -5212,14 +5229,75 @@ public final class GenotypeResultViewController: NSViewController {
         return container
     }
 
-    private func manualHaplotypingSectionBody() -> some View {
+    private func manualHaplotypingSectionBody() -> AnyView {
+        let storedAssignments =
+            annotationStore?.sidecar.manualHaplotypeAssignments ?? []
+        if usesLegacyManualHaplotypingSection {
+            return AnyView(
+                GenotypeLegacyManualHaplotypingSection(
+                    rows: manualHaplotypingRows(),
+                    manualAssignments: storedAssignments,
+                    selectedGenotypeIds: Binding(
+                        get: {
+                            [weak self] in
+                            self?.manualHaplotypingSelection ?? []
+                        },
+                        set: {
+                            [weak self] newValue in
+                            self?.manualHaplotypingSelection = newValue
+                        }
+                    ),
+                    draftLabel: Binding(
+                        get: {
+                            [weak self] in
+                            self?.manualHaplotypingDraftLabel ?? ""
+                        },
+                        set: {
+                            [weak self] newValue in
+                            self?.manualHaplotypingDraftLabel = newValue
+                        }
+                    ),
+                    draftColorTokenIndex: Binding(
+                        get: {
+                            [weak self] in
+                            self?.manualHaplotypingDraftColorTokenIndex
+                                ?? 1
+                        },
+                        set: {
+                            [weak self] newValue in
+                            self?.manualHaplotypingDraftColorTokenIndex =
+                                newValue
+                        }
+                    ),
+                    onCreateHaplotype: {
+                        [weak self] in
+                        self?.commitManualHaplotype()
+                    },
+                    onDeleteAssignment: {
+                        [weak self] assignment in
+                        self?.deleteManualHaplotype(
+                            matching: assignment
+                        )
+                    },
+                    onExportDefinitions: {
+                        [weak self] in
+                        self?.exportManualDefinitions()
+                    }
+                )
+            )
+        }
         let assignments = GenotypeManualHaplotypeAssignmentIndex(
             assignments:
-                annotationStore?.sidecar.manualHaplotypeAssignments ?? []
+                storedAssignments
         ).currentAssignments
-        return GenotypeManualHaplotypingSection(
-            manualAssignments: assignments,
-            onExportDefinitions: { [weak self] in self?.exportManualDefinitions() }
+        return AnyView(
+            GenotypeManualHaplotypingSection(
+                manualAssignments: assignments,
+                onExportDefinitions: {
+                    [weak self] in
+                    self?.exportManualDefinitions()
+                }
+            )
         )
     }
 
@@ -8684,6 +8762,23 @@ extension GenotypeResultViewController {
     var testingManualHaplotypingCreatorIsAvailable: Bool {
         guard let result else { return false }
         return manualHaplotypingIsAvailable(result: result)
+    }
+
+    var testingUsesLegacyManualHaplotypingSection: Bool {
+        usesLegacyManualHaplotypingSection
+    }
+
+    var testingManualHaplotypeEditorOrphanWarning: String? {
+        manualHaplotypeEditorModel?.orphanLegacyWarningMessage
+    }
+
+    var testingManualHaplotypeEditorOrphans:
+        [ManualHaplotypeAssignment] {
+        manualHaplotypeEditorModel?.orphanLegacyAssignments ?? []
+    }
+
+    var testingManualHaplotypeEditorEmptyStateMessage: String? {
+        manualHaplotypeEditorModel?.emptyStateMessage
     }
 
     var testingManualHaplotypeAssignments: [ManualHaplotypeAssignment] {

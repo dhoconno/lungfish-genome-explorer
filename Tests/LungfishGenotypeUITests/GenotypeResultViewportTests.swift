@@ -5268,6 +5268,9 @@ final class GenotypeResultViewportTests: XCTestCase {
             ["Existing Manual Haplotype"]
         )
         XCTAssertTrue(controller.testingManualHaplotypingCreatorIsAvailable)
+        XCTAssertTrue(
+            controller.testingUsesLegacyManualHaplotypingSection
+        )
         XCTAssertTrue(lensText.contains("Manual Haplotyping"))
         controller.testingAttemptManualHaplotypeCreation(
             selectedGenotypeIDs: ["MHC-A::01_Mafa_A1_001_01"],
@@ -5276,6 +5279,71 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(
             Set(controller.testingManualHaplotypeAssignments.map(\.label)),
             ["Existing Manual Haplotype", "Grandfathered Manual Haplotype"]
+        )
+    }
+
+    func testGenotypeOnlySampleShowsOrphanLegacyAssignmentsReadOnly() throws {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "OrphanManualAssignments-\(UUID().uuidString).lungfishgenotype",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.manualHaplotypeAssignments = [
+            ManualHaplotypeAssignment(
+                sample: "AnimalA",
+                locus: "MHC-OPAQUE",
+                slot: .h2,
+                label: "Legacy Opaque",
+                colorTokenIndex: 8,
+                diagnosticAlleles: ["opaque"],
+                notes: "must survive recognized edits"
+            ),
+        ]
+        try ONTGenotypeResultBundleData.writeAnnotationSidecar(
+            sidecar,
+            forBundleAt: bundleURL
+        )
+        let call = makeCall(
+            sample: "AnimalA",
+            genotype: "01_Mafa_A1_001_01",
+            reads: 42
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [call]
+        ))
+
+        controller.testingShowMatrixTargetSelection([
+            .column(sample: "AnimalA"),
+        ])
+
+        XCTAssertEqual(
+            controller.testingManualHaplotypeEditorOrphanWarning,
+            "1 legacy assignment uses an unrecognized locus. It is read-only and will be preserved when recognized assignments are saved."
+        )
+        XCTAssertEqual(
+            controller.testingManualHaplotypeEditorOrphans
+                .map(\.locus),
+            ["MHC-OPAQUE"]
+        )
+        XCTAssertEqual(
+            controller.testingManualHaplotypeEditorOrphans
+                .map(\.label),
+            ["Legacy Opaque"]
+        )
+        XCTAssertNil(
+            controller.testingManualHaplotypeEditorEmptyStateMessage
         )
     }
 

@@ -225,6 +225,47 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
         XCTAssertEqual(exportCount, 1)
     }
 
+    func testOrphanOnlyLegacyAssignmentsAreReadOnlyAndNotReportedAsEmpty() {
+        let orphan = ManualHaplotypeAssignment(
+            sample: "Animal-1",
+            locus: "MHC-OPAQUE",
+            slot: .h2,
+            label: "Legacy Opaque",
+            colorTokenIndex: 8,
+            diagnosticAlleles: ["opaque"],
+            notes: "preserve exactly"
+        )
+        let model = GenotypeManualHaplotypeEditorModel(
+            draft: makeDraft(sample: "Animal-1", assignments: [orphan]),
+            copyCandidates: [],
+            orphanLegacyAssignments: [orphan],
+            isReadOnly: false,
+            onSave: { self.cleanDraft(from: $0) },
+            onReload: {
+                self.makeDraft(
+                    sample: "Animal-1",
+                    assignments: [orphan]
+                )
+            },
+            onExport: {},
+            announcementPoster: RecordingManualHaplotypeAnnouncements()
+        )
+
+        XCTAssertNil(model.emptyStateMessage)
+        XCTAssertEqual(
+            model.orphanLegacyWarningMessage,
+            "1 legacy assignment uses an unrecognized locus. It is read-only and will be preserved when recognized assignments are saved."
+        )
+        XCTAssertEqual(model.orphanLegacyAssignments, [orphan])
+        XCTAssertFalse(model.canSave)
+
+        model.updateLabel("M2", locus: .a, slot: .h1)
+        model.save()
+
+        XCTAssertEqual(model.orphanLegacyAssignments, [orphan])
+        XCTAssertNil(model.persistenceErrorMessage)
+    }
+
     private func makeModel(
         sample: String,
         assignments: [ManualHaplotypeAssignment] = [],
