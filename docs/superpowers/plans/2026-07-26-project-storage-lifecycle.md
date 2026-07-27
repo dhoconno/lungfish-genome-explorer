@@ -331,11 +331,13 @@ git commit -m "feat: move proven project storage safely to Trash"
 - Modify: `Sources/LungfishApp/App/AppDelegate.swift:740-815`
 - Modify: `Sources/LungfishIO/Bundles/ProjectTempDirectory.swift:251-290`
 - Create: `Sources/LungfishWorkflow/Storage/ProjectStorageAutomaticCleanupService.swift`
+- Modify: `Sources/LungfishWorkflow/Storage/ProjectStorageScanner.swift`
 - Create: `Tests/LungfishWorkflowTests/ProjectStorageAutomaticCleanupServiceTests.swift`
+- Modify: `Tests/LungfishWorkflowTests/ProjectStorageScannerTests.swift`
 - Modify: `Tests/LungfishAppTests/ProjectTempCleanupTests.swift`
 - Modify: `Tests/LungfishAppTests/MainWindowSessionRoutingTests.swift`
 
-- [ ] **Step 1: Write failing no-mutation and owned-child tests**
+- [x] **Step 1: Write failing no-mutation and owned-child tests**
 
 Assert opening a project performs no scan or cleanup; periodic cleanup runs off-main and only handles terminal, marker-owned, unlocked, non-retained children; live/unknown/unmarked/unsafe entries remain; disposition provenance and retry warnings are recorded.
 
@@ -343,13 +345,13 @@ Also assert an active marker from a conclusively dead process/boot identity is
 handled as an orphan only after the full Task 4 proof; a reused PID, unknown
 boot identity, held lock, retained marker, or matching live operation remains.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `swift test --filter 'ProjectTempCleanupTests|MainWindowSessionRoutingTests'`
 
 Expected: failure because current project open calls `cleanAll`.
 
-- [ ] **Step 3: Remove production calls to whole-root/age-only deletion**
+- [x] **Step 3: Remove production calls to whole-root/age-only deletion**
 
 Keep compatibility methods deprecated if necessary, but route production
 cleanup through `ProjectStorageAutomaticCleanupService`. The service classifies
@@ -358,16 +360,32 @@ without following links, writes a durable disposition receipt through the
 shared operation-history writer, performs verified removal, and records
 retryable warnings. Project open performs no storage mutation.
 
-- [ ] **Step 4: Run tests and verify GREEN**
+- [x] **Step 4: Run tests and verify GREEN**
 
 Run: `swift test --filter 'ProjectStorageAutomaticCleanupServiceTests|ProjectTempCleanupTests|MainWindowSessionRoutingTests|ProjectTempDirectoryTests'`
 
 Expected: all selected tests pass.
 
-- [ ] **Step 5: Commit**
+Verification:
+
+- `ProjectStorageAutomaticCleanupServiceTests|ProjectStorageScannerTests`:
+  24 tests passed.
+- `ProjectStorageAutomaticCleanupServiceTests|ProjectTempCleanupTests|MainWindowSessionRoutingTests`:
+  40 tests passed.
+- Independent specification review: 58 focused tests passed and
+  `SPEC READY YES`.
+- Independent quality review: 40 focused tests passed and
+  `QUALITY READY YES`.
+- The combined command built successfully and all 40 Task 7 service/app tests
+  passed. The legacy `ProjectTempDirectoryTests` executed 15 tests successfully
+  and reported 21 managed-environment failures because this sandbox denies
+  `sysctl kern.bootsessionuuid` with `EPERM`; those failures are unrelated to
+  this diff and were reproduced by both reviewers.
+
+- [x] **Step 5: Commit**
 
 ```bash
-git add Sources/LungfishWorkflow/Storage/ProjectStorageAutomaticCleanupService.swift Sources/LungfishApp/App/AppDelegate.swift Sources/LungfishIO/Bundles/ProjectTempDirectory.swift Tests/LungfishWorkflowTests/ProjectStorageAutomaticCleanupServiceTests.swift Tests/LungfishAppTests/ProjectTempCleanupTests.swift Tests/LungfishAppTests/MainWindowSessionRoutingTests.swift
+git add Sources/LungfishWorkflow/Storage/ProjectStorageAutomaticCleanupService.swift Sources/LungfishWorkflow/Storage/ProjectStorageScanner.swift Sources/LungfishApp/App/AppDelegate.swift Sources/LungfishIO/Bundles/ProjectTempDirectory.swift Tests/LungfishWorkflowTests/ProjectStorageAutomaticCleanupServiceTests.swift Tests/LungfishWorkflowTests/ProjectStorageScannerTests.swift Tests/LungfishAppTests/ProjectTempCleanupTests.swift Tests/LungfishAppTests/MainWindowSessionRoutingTests.swift
 git commit -m "fix: stop deleting project temp data on open"
 ```
 

@@ -78,8 +78,20 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     private var workflowLibraryEnablementObserver: AppDelegateNotificationObserver?
 
-    /// Repeating timer that cleans stale project temp directories (>24 h old) every 4 hours.
-    private var projectTempCleanupTimer: Timer?
+    /// Repeating timer that requests conservative project storage cleanup.
+    private var projectTempCleanupTimers: [URL: Timer] = [:]
+    private var projectStorageAutomaticCleanupTasks:
+        [URL: Task<Void, Never>] = [:]
+    private var projectStorageAutomaticCleanupGenerations:
+        [URL: UUID] = [:]
+    internal var projectStorageAutomaticCleanupRunner:
+        @Sendable (URL) async -> ProjectStorageAutomaticCleanupResult = {
+            await ProjectStorageAutomaticCleanupService().run(
+                projectURL: $0
+            )
+        }
+    internal var projectStorageAutomaticCleanupDidProcessCompletion:
+        (@MainActor @Sendable (URL, Bool) -> Void)?
 #if DEBUG
     /// Repeating debug-only scan for temp directories that escaped project-local storage.
     private var debugTempEscapeScanTimer: Timer?
@@ -393,11 +405,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         ) {
             return
         }
+        let previousProjectURL = controller.projectSession.projectURL
+            .map(ProjectSessionRegistry.canonicalProjectURL)
         // Keep global working directory in sync with most recently activated project.
         workingDirectoryURL = projectURL
         mainWindowController = controller
-        let shouldCleanProjectTemp = shouldCleanProjectTempOnOpen(projectURL, excluding: controller)
-
         // Migrate analysis results from legacy derivatives/ location to Analyses/.
         // This is idempotent and safe to run on every project open.
         if let count = try? AnalysesMigration.migrateProject(at: projectURL), count > 0 {
@@ -407,43 +419,43 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         let result = projectOpenCoordinator.openProject(at: projectURL, using: controller.projectSession)
         switch result {
         case .opened(let project):
+            let openedProjectURL =
+                ProjectSessionRegistry.canonicalProjectURL(project.url)
             DocumentManager.shared.mirrorProjectSession(controller.projectSession)
             projectSessionRegistry.register(controller.projectSession, projectURL: project.url)
+            if let previousProjectURL,
+               previousProjectURL != openedProjectURL,
+               projectSessionRegistry
+                .sessions(forProjectURL: previousProjectURL)
+                .isEmpty {
+                stopAutomaticProjectStorageCleanup(
+                    for: previousProjectURL
+                )
+            }
             controller.mainSplitViewController?.applyProjectSessionState()
             updateProjectWindowTitle(controller)
+            startProjectTempCleanupTimer(for: openedProjectURL)
             debugLog("openProject: Opened project via ProjectSession")
         case .filesystemFallback(let fallback):
+            projectSessionRegistry.unregister(controller.projectSession)
+            controller.projectSession.closeProject()
+            if let previousProjectURL,
+               projectSessionRegistry
+                .sessions(forProjectURL: previousProjectURL)
+                .isEmpty {
+                stopAutomaticProjectStorageCleanup(
+                    for: previousProjectURL
+                )
+            }
             controller.window?.title = "\(fallback.name) - Lungfish Genome Explorer"
             debugLog("openProject: Failed via ProjectSession, falling back to filesystem sidebar: \(fallback.error.localizedDescription)")
             controller.mainSplitViewController?.sidebarController.openProject(at: fallback.url)
         }
 
-        // Clean stale project temp files only for the first open session. Duplicate
-        // same-project windows may be observing active workflow temp state.
-        if shouldCleanProjectTemp {
-            cleanProjectTempOnOpen(projectURL)
-        } else {
-            debugLog("openProject: Skipping project temp purge because project is already open")
-            startProjectTempCleanupTimer(for: projectURL)
-        }
+        // Opening is deliberately read-only with respect to project storage.
+        // The timer's first fire occurs later and runs the proof-based cleanup
+        // service off the main actor.
         saveApplicationState()
-    }
-
-    private func shouldCleanProjectTempOnOpen(_ projectURL: URL, excluding controller: MainWindowController) -> Bool {
-        let existingSessions = projectSessionRegistry
-            .sessions(forProjectURL: projectURL)
-            .filter { $0.id != controller.projectSession.id }
-        if !existingSessions.isEmpty {
-            return false
-        }
-
-        let canonicalProjectURL = ProjectSessionRegistry.canonicalProjectURL(projectURL)
-        return !mainWindowControllers.contains { candidate in
-            guard candidate !== controller else { return false }
-            let candidateProjectURL = candidate.projectSession.projectURL
-                ?? candidate.mainSplitViewController?.sidebarController?.currentProjectURL
-            return candidateProjectURL.map(ProjectSessionRegistry.canonicalProjectURL) == canonicalProjectURL
-        }
     }
 
     internal func updateProjectWindowTitle(_ controller: MainWindowController) {
@@ -532,8 +544,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         saveApplicationState()
 
         // Stop periodic project temp cleanup timer.
-        projectTempCleanupTimer?.invalidate()
-        projectTempCleanupTimer = nil
+        projectTempCleanupTimers.values.forEach { $0.invalidate() }
+        projectTempCleanupTimers.removeAll()
+        projectStorageAutomaticCleanupTasks.values.forEach { $0.cancel() }
+        projectStorageAutomaticCleanupTasks.removeAll()
+        projectStorageAutomaticCleanupGenerations.removeAll()
 #if DEBUG
         debugTempEscapeScanTimer?.invalidate()
         debugTempEscapeScanTimer = nil
@@ -1050,33 +1065,22 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     // MARK: - Project Temp Cleanup
 
-    /// Cleans the project `.tmp/` directory when a project is explicitly opened and starts
-    /// a periodic timer that removes stale (>24 h) subdirectories every 4 hours.
-    private func cleanProjectTempOnOpen(_ projectURL: URL) {
-        // Remove the entire .tmp/ directory left from previous sessions.
-        do {
-            try ProjectTempDirectory.cleanAll(in: projectURL)
-            debugLog("cleanProjectTempOnOpen: cleaned project temp files")
-        } catch {
-            debugLog("cleanProjectTempOnOpen: failed to clean project temp: \(error.localizedDescription)")
-        }
-
-        startProjectTempCleanupTimer(for: projectURL)
-    }
-
     private func startProjectTempCleanupTimer(for projectURL: URL) {
-        // Invalidate any previous timer (e.g. switching projects).
-        projectTempCleanupTimer?.invalidate()
+        let key = ProjectSessionRegistry.canonicalProjectURL(projectURL)
+        guard projectTempCleanupTimers[key] == nil else { return }
 
-        // Schedule periodic stale-file cleanup every 4 hours.
-        projectTempCleanupTimer = Timer.scheduledTimer(
+        // Schedule proof-based cleanup every 4 hours. Project open itself
+        // performs no storage traversal or mutation.
+        projectTempCleanupTimers[key] = Timer.scheduledTimer(
             withTimeInterval: 4 * 60 * 60,
             repeats: true
         ) { [weak self] _ in
             guard let self else { return }
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    self.cleanStaleProjectTemp(projectURL)
+                    self.scheduleAutomaticProjectStorageCleanup(
+                        projectURL
+                    )
                 }
             }
         }
@@ -1094,14 +1098,99 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 #endif
     }
 
-    /// Removes subdirectories inside the project `.tmp/` folder that are older than 24 hours.
-    private func cleanStaleProjectTemp(_ projectURL: URL) {
-        do {
-            try ProjectTempDirectory.cleanStale(in: projectURL, olderThan: 24 * 60 * 60)
-            debugLog("cleanStaleProjectTemp: cleaned stale project temp files")
-        } catch {
-            debugLog("cleanStaleProjectTemp: failed: \(error.localizedDescription)")
+    private func scheduleAutomaticProjectStorageCleanup(
+        _ projectURL: URL
+    ) {
+        let key = ProjectSessionRegistry.canonicalProjectURL(projectURL)
+        projectStorageAutomaticCleanupTasks[key]?.cancel()
+        let generation = UUID()
+        projectStorageAutomaticCleanupGenerations[key] = generation
+        let runner = projectStorageAutomaticCleanupRunner
+        projectStorageAutomaticCleanupTasks[key] =
+            Task.detached(priority: .utility) { [weak self] in
+                let result = await runner(key)
+                await MainActor.run {
+                    guard let self else { return }
+                    let isCurrent =
+                        self
+                        .projectStorageAutomaticCleanupGenerations[key]
+                        == generation
+                    self
+                        .projectStorageAutomaticCleanupDidProcessCompletion?(
+                            key,
+                            isCurrent
+                        )
+                    guard isCurrent else {
+                        return
+                    }
+                    self.projectStorageAutomaticCleanupTasks[key] = nil
+                    self.projectStorageAutomaticCleanupGenerations[key] = nil
+                    switch result.state {
+                    case .noEligibleEntries:
+                        debugLog(
+                            "Automatic project storage cleanup found "
+                                + "no proven removable temporary entries"
+                        )
+                    case .completed:
+                        debugLog(
+                            "Automatic project storage cleanup moved "
+                                + "\(result.selectedEntryCount) "
+                                + "proven entries to Trash"
+                        )
+                    case .retryRecommended:
+                        for warning in result.warnings {
+                            let path =
+                                warning.relativePath ?? "<project>"
+                            appDelegateLogger.warning(
+                                "Automatic project storage cleanup will retry \(path, privacy: .public): \(warning.message, privacy: .public)"
+                            )
+                        }
+                    case .cancelled:
+                        break
+                    }
+                }
+            }
+    }
+
+    private func stopAutomaticProjectStorageCleanup(
+        for projectURL: URL
+    ) {
+        let key = ProjectSessionRegistry.canonicalProjectURL(projectURL)
+        projectTempCleanupTimers.removeValue(forKey: key)?.invalidate()
+        projectStorageAutomaticCleanupTasks.removeValue(forKey: key)?
+            .cancel()
+        projectStorageAutomaticCleanupGenerations[key] = nil
+    }
+
+    internal func testingRunAutomaticProjectStorageCleanup(
+        _ projectURL: URL
+    ) {
+        scheduleAutomaticProjectStorageCleanup(projectURL)
+    }
+
+    internal func testingWaitForAutomaticProjectStorageCleanup(
+        _ projectURL: URL
+    ) async {
+        let key = ProjectSessionRegistry.canonicalProjectURL(projectURL)
+        while let task = projectStorageAutomaticCleanupTasks[key] {
+            await task.value
         }
+    }
+
+    internal func testingHasTrackedAutomaticProjectStorageCleanup(
+        _ projectURL: URL
+    ) -> Bool {
+        let key = ProjectSessionRegistry.canonicalProjectURL(projectURL)
+        return projectStorageAutomaticCleanupTasks[key] != nil
+    }
+
+    internal func testingHasAutomaticProjectStorageCleanupLifecycle(
+        _ projectURL: URL
+    ) -> Bool {
+        let key = ProjectSessionRegistry.canonicalProjectURL(projectURL)
+        return projectTempCleanupTimers[key] != nil
+            || projectStorageAutomaticCleanupTasks[key] != nil
+            || projectStorageAutomaticCleanupGenerations[key] != nil
     }
 
 #if DEBUG
@@ -1193,10 +1282,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 #endif
 
-    /// Clears all project temporary files after user confirmation.
-    ///
-    /// Shows an alert with the current disk usage, then removes the entire `.tmp/` directory
-    /// on confirmation. Called from the File > Clear Temporary Files menu item.
+    /// Reviews project temporary files after user confirmation and moves only
+    /// individually proven, unlocked, non-retained children to Trash.
     @objc func clearProjectTempFiles(_ sender: Any?) {
         guard let projectURL = mainWindowController?.mainSplitViewController?.sidebarController?.currentProjectURL else {
             let alert = NSAlert()
@@ -1211,52 +1298,68 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return
         }
 
-        let usageBytes = ProjectTempDirectory.diskUsage(in: projectURL)
-        let sizeString = Self.formatBytes(usageBytes)
         let projectName = projectURL.deletingPathExtension().lastPathComponent
 
         let alert = NSAlert()
-        alert.messageText = "Clear Temporary Files"
-        if usageBytes == 0 {
-            alert.informativeText = "There are no temporary files in \"\(projectName)\"."
-            alert.alertStyle = .informational
-            alert.addButton(withTitle: "OK")
-        } else {
-            alert.informativeText = "Remove \(sizeString) of temporary files from \"\(projectName)\"?"
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "Clear")
-            alert.addButton(withTitle: "Cancel")
-        }
+        alert.messageText = "Review Temporary Files"
+        alert.informativeText =
+            "Move temporary items in \"\(projectName)\" to Trash only "
+            + "when Lungfish can prove they are completed or orphaned, "
+            + "unlocked, and not retained? Active, unmarked, or unsafe "
+            + "items will remain."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Review and Clear")
+        alert.addButton(withTitle: "Cancel")
         alert.applyLungfishBranding()
 
         guard let window = mainWindowController?.window ?? NSApp.keyWindow else { return }
 
-        alert.beginSheetModal(for: window) { [weak self] response in
-            guard response == .alertFirstButtonReturn, usageBytes > 0 else { return }
+        alert.beginSheetModal(for: window) { [weak window] response in
+            guard response == .alertFirstButtonReturn else { return }
 
-            do {
-                try ProjectTempDirectory.cleanAll(in: projectURL)
-                debugLog("clearProjectTempFiles: removed \(sizeString) of temp files")
-
-                let doneAlert = NSAlert()
-                doneAlert.messageText = "Temporary Files Cleared"
-                doneAlert.informativeText = "Removed \(sizeString) of temporary files."
-                doneAlert.alertStyle = .informational
-                doneAlert.addButton(withTitle: "OK")
-                doneAlert.applyLungfishBranding()
-                doneAlert.beginSheetModal(for: window)
-            } catch {
-                debugLog("clearProjectTempFiles: failed: \(error.localizedDescription)")
-
-                let errorAlert = NSAlert()
-                errorAlert.messageText = "Failed to Clear Temporary Files"
-                errorAlert.informativeText = error.localizedDescription
-                errorAlert.alertStyle = .critical
-                errorAlert.addButton(withTitle: "OK")
-                errorAlert.applyLungfishBranding()
-                errorAlert.beginSheetModal(for: window)
+            Task { @MainActor in
+                let result = await Task.detached(priority: .userInitiated) {
+                    await ProjectStorageAutomaticCleanupService().run(
+                        projectURL: projectURL,
+                        trigger: .userRequested
+                    )
+                }.value
+                guard let window else { return }
+                let resultAlert = NSAlert()
+                switch result.state {
+                case .completed:
+                    resultAlert.messageText = "Temporary Files Moved to Trash"
+                    resultAlert.informativeText =
+                        "Moved \(result.selectedEntryCount) verified "
+                        + "temporary item"
+                        + (result.selectedEntryCount == 1 ? "" : "s")
+                        + " to Trash. Active, retained, unmarked, or unsafe "
+                        + "items were left unchanged."
+                    resultAlert.alertStyle = .informational
+                case .noEligibleEntries:
+                    resultAlert.messageText = "No Safe Cleanup Available"
+                    resultAlert.informativeText =
+                        "No temporary items could be proven safe to remove. "
+                        + "Active, retained, unmarked, and unsafe items remain."
+                    resultAlert.alertStyle = .informational
+                case .retryRecommended:
+                    resultAlert.messageText = "Cleanup Needs Attention"
+                    let details = result.warnings
+                        .prefix(3)
+                        .map(\.message)
+                        .joined(separator: "\n")
+                    resultAlert.informativeText =
+                        details.isEmpty
+                        ? "Cleanup could not safely complete and can be retried."
+                        : details
+                    resultAlert.alertStyle = .warning
+                case .cancelled:
+                    return
+                }
+                resultAlert.addButton(withTitle: "OK")
+                resultAlert.applyLungfishBranding()
+                resultAlert.beginSheetModal(for: window) { _ in }
             }
-            _ = self  // prevent unused capture warning
         }
     }
 
@@ -1295,6 +1398,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             mainWindowController = mainWindowControllers.first(where: { $0.window?.isMainWindow == true }) ?? mainWindowControllers.last
         }
         for projectURL in affectedProjectURLs {
+            if projectSessionRegistry
+                .sessions(forProjectURL: projectURL)
+                .isEmpty {
+                stopAutomaticProjectStorageCleanup(for: projectURL)
+            }
             refreshProjectWindowTitles(forProjectURL: projectURL)
         }
         saveApplicationState()

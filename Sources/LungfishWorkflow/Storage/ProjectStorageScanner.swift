@@ -527,12 +527,20 @@ public struct ProjectStorageScanner {
                     + "conclusively inspected."
             )
         }
-        if let currentProcess,
-           marker.matchesProcessIdentity(currentProcess) {
+        if let currentProcess {
+            if marker.matchesProcessIdentity(currentProcess) {
+                return .notRemovable(
+                    .liveProcess,
+                    reason:
+                        "The creating process is still live."
+                )
+            }
             return .notRemovable(
                 .liveProcess,
                 reason:
-                    "The creating process is still live."
+                    "The recorded process identifier has been reused by "
+                    + "another live process; automatic orphan cleanup "
+                    + "fails closed."
             )
         }
         guard let lockRelativePath = marker.lockRelativePath else {

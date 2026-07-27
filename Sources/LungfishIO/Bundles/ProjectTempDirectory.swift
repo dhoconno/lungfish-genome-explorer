@@ -379,6 +379,11 @@ public enum ProjectTempDirectory {
     ///
     /// This compatibility entry point intentionally leaves the root, active
     /// work, explicitly retained work, and unmarked legacy children untouched.
+    @available(
+        *,
+        deprecated,
+        message: "Use ProjectStorageAutomaticCleanupService for proven, audited cleanup."
+    )
     public static func cleanAll(in projectURL: URL) throws {
         try cleanAll(in: projectURL, beforeDetach: { _ in })
     }
@@ -420,7 +425,15 @@ public enum ProjectTempDirectory {
     /// - Parameters:
     ///   - projectURL: The `.lungfish` project directory.
     ///   - maxAge: Maximum age in seconds. Entries older than this are removed.
-    public static func cleanStale(in projectURL: URL, olderThan maxAge: TimeInterval) throws {
+    @available(
+        *,
+        deprecated,
+        message: "Age is not cleanup authority. Use ProjectStorageAutomaticCleanupService."
+    )
+    public static func cleanStale(
+        in projectURL: URL,
+        olderThan maxAge: TimeInterval
+    ) throws {
         try cleanCandidates(
             in: projectURL,
             olderThan: Date(timeIntervalSinceNow: -maxAge),

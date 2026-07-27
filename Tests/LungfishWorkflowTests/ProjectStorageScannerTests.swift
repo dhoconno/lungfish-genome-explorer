@@ -461,7 +461,7 @@ final class ProjectStorageScannerTests: XCTestCase {
         )
         XCTAssertEqual(
             try XCTUnwrap(entries[reused.lastPathComponent]).code,
-            .conclusivelyOrphanedOwnedWork
+            .liveProcess
         )
     }
 
