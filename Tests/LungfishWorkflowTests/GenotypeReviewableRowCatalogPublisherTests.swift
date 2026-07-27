@@ -663,6 +663,128 @@ final class GenotypeReviewableRowCatalogPublisherTests: XCTestCase {
         )
     }
 
+    func testTerminalCleanupNeverDeletesEntrySubstitutedAfterFinalIdentityCheck()
+        throws
+    {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let outputURL = fixture.outputDirectory
+            .appendingPathComponent("artifacts/projections/genotype-reviewable-rows.json")
+        let projectionsURL = outputURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(
+            at: projectionsURL,
+            withIntermediateDirectories: true
+        )
+        try Data("prior-catalog-after-final-check".utf8)
+            .write(to: outputURL)
+        let substitution = LockedURLBox()
+        let publisher = GenotypeReviewableRowCatalogPublisher(
+            dateProvider: { fixture.startedAt },
+            rollbackObserver: { phase in
+                guard phase
+                    == .afterFinalIdentityCheckBeforeTerminalDeletion else {
+                    return
+                }
+                let retiredURL = try XCTUnwrap(
+                    FileManager.default.contentsOfDirectory(
+                        at: projectionsURL,
+                        includingPropertiesForKeys: nil
+                    ).first {
+                        $0.lastPathComponent.contains(".retired-")
+                            && !$0.lastPathComponent.contains(".terminal-")
+                    }
+                )
+                let preserved = projectionsURL.appendingPathComponent(
+                    "preserved-final-check-\(UUID().uuidString)"
+                )
+                try FileManager.default.moveItem(
+                    at: retiredURL,
+                    to: preserved
+                )
+                try Data("late-substitution-must-survive".utf8)
+                    .write(to: retiredURL)
+                substitution.set(retiredURL)
+            }
+        )
+
+        XCTAssertThrowsError(
+            try publisher.publish(
+                fixture.inputs(),
+                to: fixture.outputDirectory
+            )
+        )
+        let substitutedURL = try XCTUnwrap(substitution.value)
+        XCTAssertEqual(
+            try Data(contentsOf: substitutedURL),
+            Data("late-substitution-must-survive".utf8)
+        )
+    }
+
+    func testFullLengthAliasOverflowBecomesAuditedCatalogFailure() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let references = [
+            makeReference("ref-a", "Mafa-A1*001:01", "MHC-A"),
+            makeReference("ref-b", "Mafa-A1*001:01", "MHC-A"),
+        ]
+        let csvCalls = [
+            ONTGenotypeCall(
+                sample: "S1",
+                genotype: "ref-a",
+                passedAlignments: Int.max,
+                passedUniqueReads: Int.max,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                overallInputReads: nil,
+                overallUniqueRetainedReads: nil,
+                overallUniqueRetainedPercent: nil
+            ),
+            ONTGenotypeCall(
+                sample: "S1",
+                genotype: "ref-b",
+                passedAlignments: 1,
+                passedUniqueReads: 1,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                overallInputReads: nil,
+                overallUniqueRetainedReads: nil,
+                overallUniqueRetainedPercent: nil
+            ),
+        ]
+        let sharedCalls =
+            try FullLengthONTMHCGenotypingPipeline.reviewableSharedCalls(
+                csvCalls,
+                referenceRecords: references
+            )
+        XCTAssertEqual(
+            Set(sharedCalls.map(\.genotype)),
+            ["ref-a", "ref-b"]
+        )
+
+        XCTAssertThrowsError(
+            try fixture.publisher.publish(
+                fixture.inputs(
+                    references: references,
+                    calls: sharedCalls
+                ),
+                to: fixture.outputDirectory
+            )
+        ) { error in
+            let failure = error
+                as? GenotypeReviewableRowCatalogPublicationFailure
+            XCTAssertEqual(failure?.provenance.exitStatus, 1)
+            XCTAssertEqual(failure?.provenance.steps.last?.exitStatus, 1)
+            XCTAssertNil(failure?.provenance.output?.checksumSHA256)
+            XCTAssertEqual(
+                failure?.underlyingError
+                    as? GenotypeReviewableRowCatalogPublisherError,
+                .invalidSupport(sample: "S1", value: Int.max)
+            )
+        }
+    }
+
     func testProvisionalCandidateSupportOverflowBecomesAuditedCatalogFailure() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

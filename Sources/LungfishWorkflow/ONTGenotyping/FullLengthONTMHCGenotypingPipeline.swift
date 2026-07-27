@@ -6,7 +6,7 @@ import LungfishIO
 
 private struct FullLengthONTMHCReviewCallKey: Hashable {
     let locus: String
-    let displayName: String
+    let genotype: String
 }
 
 public enum FullLengthONTPBAAClusterSourceMode: String, Sendable, Codable, Equatable, CaseIterable {
@@ -4810,55 +4810,10 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         )
         let exactReferenceRecords = reviewAuthority.referenceRecords
         let exactCandidateDocument = reviewAuthority.candidateDocument
-        let recordsBySequenceID = Dictionary(
-            uniqueKeysWithValues: exactReferenceRecords.map { ($0.sequenceID, $0) }
+        let sharedCalls = try Self.reviewableSharedCalls(
+            csvAuthority.calls,
+            referenceRecords: exactReferenceRecords
         )
-        let recordsByAllele = Dictionary(
-            grouping: exactReferenceRecords,
-            by: \.alleleName
-        )
-        var reportRowsByCall:
-            [FullLengthONTMHCReviewCallKey: [ONTGenotypeCall]] = [:]
-        for row in csvAuthority.calls {
-            let reference: MHCReferenceRecord
-            if let exact = recordsBySequenceID[row.genotype] {
-                reference = exact
-            } else if let matches = recordsByAllele[row.genotype],
-                      let first = matches.first,
-                      Set(matches.map(\.locus)).count == 1 {
-                reference = first
-            } else {
-                throw FullLengthONTMHCGenotypingError.reportFailed(
-                    "Authoritative workbook review-row call \(row.genotype) does not resolve to exactly one exact-run reference record."
-                )
-            }
-            let key = FullLengthONTMHCReviewCallKey(
-                locus: GenotypeHaplotypeLocusResolver.canonicalLocusName(
-                    reference.locus
-                ),
-                displayName: reference.alleleName
-            )
-            reportRowsByCall[key, default: []].append(row)
-        }
-        let sharedCalls = reportRowsByCall.map { key, rows in
-                let support = Dictionary(grouping: rows, by: \.sample)
-                    .map { sample, sampleRows in
-                        ONTGenotypeSampleSupport(
-                            sample: sample,
-                            passedAlignments: sampleRows.reduce(0) {
-                                $0 + $1.passedAlignments
-                            },
-                            passedUniqueReads: sampleRows.reduce(0) {
-                                $0 + $1.passedUniqueReads
-                            }
-                        )
-                    }
-                return ONTGenotypeSharedCall(
-                    locus: key.locus,
-                    genotype: key.displayName,
-                    sampleSupport: support
-                )
-            }
         let outputURL = request.outputDirectory
             .appendingPathComponent("artifacts", isDirectory: true)
             .appendingPathComponent("projections", isDirectory: true)
@@ -4930,6 +4885,81 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             }
         )
         return publication
+    }
+
+    static func reviewableSharedCalls(
+        _ calls: [ONTGenotypeCall],
+        referenceRecords: [MHCReferenceRecord]
+    ) throws -> [ONTGenotypeSharedCall] {
+        let recordsBySequenceID = Dictionary(
+            uniqueKeysWithValues: referenceRecords.map {
+                ($0.sequenceID, $0)
+            }
+        )
+        let recordsByAllele = Dictionary(
+            grouping: referenceRecords,
+            by: \.alleleName
+        )
+        var rowsByCall:
+            [FullLengthONTMHCReviewCallKey: [ONTGenotypeCall]] = [:]
+        for row in calls {
+            let reference: MHCReferenceRecord
+            if let exact = recordsBySequenceID[row.genotype] {
+                reference = exact
+            } else if let matches = recordsByAllele[row.genotype],
+                      let first = matches.first,
+                      Set(matches.map(\.locus)).count == 1 {
+                reference = first
+            } else {
+                throw FullLengthONTMHCGenotypingError.reportFailed(
+                    "Authoritative workbook review-row call \(row.genotype) does not resolve to exactly one exact-run reference record."
+                )
+            }
+            let key = FullLengthONTMHCReviewCallKey(
+                locus: GenotypeHaplotypeLocusResolver.canonicalLocusName(
+                    reference.locus
+                ),
+                genotype: row.genotype
+            )
+            rowsByCall[key, default: []].append(row)
+        }
+        return try rowsByCall.map { key, rows in
+            let support = try Dictionary(grouping: rows, by: \.sample)
+                .map { sample, sampleRows in
+                    ONTGenotypeSampleSupport(
+                        sample: sample,
+                        passedAlignments: try checkedReviewSupportSum(
+                            sampleRows.map(\.passedAlignments),
+                            sample: sample
+                        ),
+                        passedUniqueReads: try checkedReviewSupportSum(
+                            sampleRows.map(\.passedUniqueReads),
+                            sample: sample
+                        )
+                    )
+                }
+            return ONTGenotypeSharedCall(
+                locus: key.locus,
+                genotype: key.genotype,
+                sampleSupport: support
+            )
+        }
+    }
+
+    private static func checkedReviewSupportSum(
+        _ values: [Int],
+        sample: String
+    ) throws -> Int {
+        var result = 0
+        for value in values {
+            let addition = result.addingReportingOverflow(value)
+            guard !addition.overflow else {
+                throw GenotypeReviewableRowCatalogPublisherError
+                    .invalidSupport(sample: sample, value: value)
+            }
+            result = addition.partialValue
+        }
+        return result
     }
 
     private func publishMHCReferenceVisualizations(

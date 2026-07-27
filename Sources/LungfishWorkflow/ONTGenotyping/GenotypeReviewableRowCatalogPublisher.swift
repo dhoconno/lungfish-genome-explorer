@@ -721,6 +721,7 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
         case beforeRestoreExchange
         case beforeDetachNewOutput
         case beforeRemoveRecovery
+        case afterFinalIdentityCheckBeforeTerminalDeletion
         case beforeSyncRecoveryRemoval
     }
 
@@ -1191,7 +1192,7 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
                     guard !overflow else {
                         throw GenotypeReviewableRowCatalogPublisherError.invalidSupport(
                             sample: sample,
-                            value: callSupport[sample]!
+                            value: Int.max
                         )
                     }
                     accumulated[sample] = value
@@ -1650,7 +1651,54 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
                     "Detached catalog generation identity changed before removal."
                 )
         }
-        guard detachedName.withCString({
+        try rollbackObserver(
+            .afterFinalIdentityCheckBeforeTerminalDeletion
+        )
+        // Never unlink the observer-visible name. Move its current entry to a
+        // fresh terminal name, then bind deletion to a second identity check.
+        // A late substitution is preserved instead of being deleted.
+        let terminalName =
+            "\(detachedName).terminal-\(UUID().uuidString.lowercased())"
+        let terminalURL = detachedURL.deletingLastPathComponent()
+            .appendingPathComponent(terminalName)
+        let terminalStatus = detachedName.withCString { detached in
+            terminalName.withCString { terminal in
+                Darwin.renameatx_np(
+                    directoryDescriptor,
+                    detached,
+                    directoryDescriptor,
+                    terminal,
+                    UInt32(RENAME_EXCL)
+                )
+            }
+        }
+        guard terminalStatus == 0 else { throw posixError() }
+        guard Darwin.fsync(directoryDescriptor) == 0 else {
+            throw posixError()
+        }
+        guard try regularFileIdentityIfPresent(
+            named: terminalName,
+            in: directoryDescriptor,
+            displayedAt: terminalURL
+        ) == expectedIdentity else {
+            _ = terminalName.withCString { terminal in
+                detachedName.withCString { detached in
+                    Darwin.renameatx_np(
+                        directoryDescriptor,
+                        terminal,
+                        directoryDescriptor,
+                        detached,
+                        UInt32(RENAME_EXCL)
+                    )
+                }
+            }
+            _ = Darwin.fsync(directoryDescriptor)
+            throw GenotypeReviewableRowCatalogPublisherError
+                .finalArtifactMismatch(
+                    "Terminal catalog generation identity changed before removal."
+                )
+        }
+        guard terminalName.withCString({
             Darwin.unlinkat(directoryDescriptor, $0, 0)
         }) == 0 else {
             throw posixError()
