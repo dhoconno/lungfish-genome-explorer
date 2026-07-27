@@ -290,27 +290,35 @@ git commit -m "feat: journal project storage cleanup provenance"
 - Create: `Sources/LungfishWorkflow/Storage/ProjectStorageCleanupExecutor.swift`
 - Create: `Tests/LungfishWorkflowTests/ProjectStorageCleanupExecutorTests.swift`
 
-- [ ] **Step 1: Write failing executor tests with injected filesystem seams**
+- [x] **Step 1: Write failing executor tests with injected filesystem seams**
 
 Cover identity and classification revalidation, lock acquisition after preview, exclusive same-parent detach to `.lungfish-trash-pending-*`, parent/journal fsync, platform Trash only after detach, safe restore, retained quarantine when restore is unsafe, crash before/after Trash, restart finalization, cancellation between items, partial results, read-only volumes, and no permanent-delete fallback.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `swift test --filter ProjectStorageCleanupExecutorTests`
 
 Expected: compile failure because the executor does not exist.
 
-- [ ] **Step 3: Implement the identity-bound executor**
+- [x] **Step 3: Implement the identity-bound executor**
 
 Use a project-identity-keyed actor for one mutation per project. Hold the relevant workflow/publication lock through revalidation, exclusive detach, Trash, and durable journal result. Invoke `FileManager.trashItem(at:resultingItemURL:)` only on the detached quarantine. Restore only if the original name is free and the recorded identity remains safe.
 
-- [ ] **Step 4: Run tests and verify GREEN**
+- [x] **Step 4: Run tests and verify GREEN**
 
 Run: `swift test --filter 'ProjectStorageCleanupExecutorTests|ProjectStorageCleanupProvenanceTests'`
 
 Expected: all selected tests pass.
 
-- [ ] **Step 5: Commit**
+Evidence (2026-07-27): the combined executor, scanner, lock, and cleanup
+provenance suite executed 68 tests with 0 failures and 1 expected skip for the
+real macOS Trash adapter in the managed sandbox. The implementation was
+independently reviewed with `SPEC READY: YES` and `QUALITY READY: YES`,
+including fail-closed run/workbook locking, cross-process serialization,
+identity revalidation, durable crash recovery, partial results, cancellation,
+and provenance error reporting.
+
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/LungfishWorkflow/Storage/ProjectStorageCleanupExecutor.swift Tests/LungfishWorkflowTests/ProjectStorageCleanupExecutorTests.swift
