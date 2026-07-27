@@ -6,6 +6,35 @@ import XCTest
 
 @MainActor
 final class MainMenuStructureTests: XCTestCase {
+    func testFileMenuReplacesClearTemporaryFilesWithStorageManager() throws {
+        _ = NSApplication.shared
+        let fileMenu = try XCTUnwrap(
+            MainMenu.createMainMenu()
+                .items
+                .first(where: { $0.title == "File" })?
+                .submenu
+        )
+        let item = try XCTUnwrap(
+            fileMenu.items.first(where: {
+                $0.title == "Manage Project Storage…"
+            })
+        )
+
+        XCTAssertEqual(
+            item.identifier?.rawValue,
+            MainMenuAccessibilityID.manageProjectStorage
+        )
+        XCTAssertEqual(
+            item.action,
+            #selector(AppDelegate.manageProjectStorage(_:))
+        )
+        XCTAssertNil(
+            fileMenu.items.first(where: {
+                $0.title == "Clear Temporary Files…"
+            })
+        )
+    }
+
     func testContentTextSizeSubmenuHasStableItemsActionsAndShortcuts() throws {
         _ = NSApplication.shared
         let mainMenu = MainMenu.createMainMenu()

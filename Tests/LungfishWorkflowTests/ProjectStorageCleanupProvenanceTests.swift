@@ -107,6 +107,12 @@ final class ProjectStorageCleanupProvenanceTests: XCTestCase {
                     isDirectory: true
                 ).path
         )
+        XCTAssertEqual(
+            prepared.operationDirectoryIdentity,
+            try FileSystemObjectIdentity.noFollow(
+                prepared.operationDirectoryURL
+            )
+        )
         let inventoryPaths = try XCTUnwrap(
             prepared.journal.items.singleValue?.inventory.map(\.relativePath)
         )
@@ -907,6 +913,59 @@ final class ProjectStorageCleanupProvenanceTests: XCTestCase {
             )) ?? []
         XCTAssertTrue(children.isEmpty)
         XCTAssertTrue(FileManager.default.fileExists(atPath: candidate.path))
+    }
+
+    func testBeforePublishStagingReplacementFailsClosed() throws {
+        try Data("keep".utf8).write(
+            to: candidate.appendingPathComponent("payload.txt")
+        )
+        let entry = try storageEntry(for: candidate)
+        let request = try makeRequest(entry: entry)
+        let collection = try XCTUnwrap(project)
+            .appendingPathComponent(
+                ProjectOperationHistoryWriter.historyDirectoryName,
+                isDirectory: true
+            )
+            .appendingPathComponent(
+                ProjectStorageCleanupReceiptWriter.collectionDirectoryName,
+                isDirectory: true
+            )
+        let stagingPrefix =
+            ".\(request.cleanupID.uuidString.lowercased()).staging-"
+        let displaced = collection.appendingPathComponent(
+            "displaced-staging",
+            isDirectory: true
+        )
+        let replaced = Flag()
+        let writer = ProjectStorageCleanupReceiptWriter(
+            operations: .init(
+                beforePublish: {
+                    let name = try FileManager.default
+                        .contentsOfDirectory(atPath: collection.path)
+                        .first {
+                            $0.hasPrefix(stagingPrefix)
+                        }
+                    let staging = collection.appendingPathComponent(
+                        try XCTUnwrap(name),
+                        isDirectory: true
+                    )
+                    try FileManager.default.moveItem(
+                        at: staging,
+                        to: displaced
+                    )
+                    try FileManager.default.createDirectory(
+                        at: staging,
+                        withIntermediateDirectories: false
+                    )
+                    replaced.set()
+                }
+            )
+        )
+
+        XCTAssertThrowsError(
+            try writer.prepareConfirmedCleanup(request)
+        )
+        XCTAssertTrue(replaced.value)
     }
 
     func testInventoryParameterValueRejectsLossyNumericRepresentation() {

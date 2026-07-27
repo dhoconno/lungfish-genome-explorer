@@ -603,10 +603,11 @@ public struct ProjectStorageCleanupExecutor: Sendable {
         _ request: ProjectStorageCleanupExecutionRequest
     ) async throws -> ProjectStorageCleanupExecutionResult {
         let authority = try loadAuthority(request)
-        await ProjectStorageCleanupIdentityGate.shared.acquire(
+        try await ProjectStorageCleanupIdentityGate.shared.acquire(
             authority.journal.projectIdentity
         )
         do {
+            try Task.checkCancellation()
             let result = try await executeLocked(request, authority: authority)
             await ProjectStorageCleanupIdentityGate.shared.release(
                 authority.journal.projectIdentity
@@ -2582,30 +2583,66 @@ public struct ProjectStorageCleanupExecutor: Sendable {
     }
 }
 
-private actor ProjectStorageCleanupIdentityGate {
+actor ProjectStorageCleanupIdentityGate {
+    private struct Waiter {
+        let id: UUID
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+
     static let shared = ProjectStorageCleanupIdentityGate()
 
     private var held: Set<FileSystemObjectIdentity> = []
-    private var waiters:
-        [FileSystemObjectIdentity: [CheckedContinuation<Void, Never>]] = [:]
+    private var waiters: [FileSystemObjectIdentity: [Waiter]] = [:]
 
-    func acquire(_ identity: FileSystemObjectIdentity) async {
+    func acquire(_ identity: FileSystemObjectIdentity) async throws {
+        try Task.checkCancellation()
         if !held.contains(identity) {
             held.insert(identity)
             return
         }
-        await withCheckedContinuation { continuation in
-            waiters[identity, default: []].append(continuation)
+        let waiterID = UUID()
+        let acquired = await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                waiters[identity, default: []].append(
+                    Waiter(id: waiterID, continuation: continuation)
+                )
+            }
+        } onCancel: {
+            Task {
+                await self.cancelWaiter(
+                    identity: identity,
+                    waiterID: waiterID
+                )
+            }
+        }
+        guard acquired else { throw CancellationError() }
+        guard !Task.isCancelled else {
+            release(identity)
+            throw CancellationError()
         }
     }
 
     func release(_ identity: FileSystemObjectIdentity) {
         if var queued = waiters[identity], !queued.isEmpty {
-            let continuation = queued.removeFirst()
+            let waiter = queued.removeFirst()
             waiters[identity] = queued.isEmpty ? nil : queued
-            continuation.resume()
+            waiter.continuation.resume(returning: true)
         } else {
             held.remove(identity)
         }
+    }
+
+    private func cancelWaiter(
+        identity: FileSystemObjectIdentity,
+        waiterID: UUID
+    ) {
+        guard var queued = waiters[identity],
+              let index = queued.firstIndex(where: { $0.id == waiterID })
+        else {
+            return
+        }
+        let waiter = queued.remove(at: index)
+        waiters[identity] = queued.isEmpty ? nil : queued
+        waiter.continuation.resume(returning: false)
     }
 }

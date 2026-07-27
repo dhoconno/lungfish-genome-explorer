@@ -43,6 +43,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     private let projectSessionRegistry = ProjectSessionRegistry()
     internal let projectOpenCoordinator = ProjectOpenCoordinator()
+    private var projectStorageCoordinators:
+        [ObjectIdentifier: ProjectStorageCoordinator] = [:]
+    private var projectStorageBindingGenerations:
+        [ObjectIdentifier: UInt64] = [:]
 
     /// Welcome window controller for project selection
     internal var welcomeWindowController: WelcomeWindowController?
@@ -405,6 +409,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         ) {
             return
         }
+        invalidateProjectStorage(for: controller)
         let previousProjectURL = controller.projectSession.projectURL
             .map(ProjectSessionRegistry.canonicalProjectURL)
         // Keep global working directory in sync with most recently activated project.
@@ -534,6 +539,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     /// This approach follows professional genome browser patterns (IGV, UCSC) and:
     public func applicationWillTerminate(_ notification: Notification) {
         isTerminating = true
+
+        // Cancel and invalidate project-bound storage work before AppKit tears
+        // down its originating windows.
+        let storageCoordinators = Array(projectStorageCoordinators.values)
+        projectStorageCoordinators.removeAll()
+        storageCoordinators.forEach { $0.invalidate() }
+        projectStorageBindingGenerations.removeAll()
 
         // Ensure app-managed imports/workflows and any native tool descendants
         // are stopped before AppKit tears down the process.
@@ -1363,6 +1375,50 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
     }
 
+    /// Presents a window-bound preview of all classified project storage.
+    ///
+    /// The originating controller is resolved from the sender/key window and
+    /// never from the mutable global `mainWindowController` fallback.
+    @objc func manageProjectStorage(_ sender: Any?) {
+        guard let controller = projectStorageOriginController(sender: sender),
+              let window = controller.window,
+              let projectURL = successfullyOwnedProjectURL(
+                  for: controller
+              ),
+              let identity = try? FileSystemObjectIdentity.noFollow(
+                  ProjectSessionRegistry.canonicalProjectURL(projectURL)
+              ) else {
+            return
+        }
+        let windowID = ObjectIdentifier(window)
+        guard projectStorageCoordinators[windowID] == nil else { return }
+        let generation = projectStorageBindingGenerations[windowID, default: 0]
+        let coordinator = ProjectStorageCoordinator(
+            presentingWindow: window,
+            controller: controller,
+            projectURL: projectURL,
+            projectIdentity: identity,
+            generation: generation,
+            generationProvider: { [weak self, weak window] in
+                guard let self, let window else { return .max }
+                return self.projectStorageBindingGenerations[
+                    ObjectIdentifier(window),
+                    default: 0
+                ]
+            },
+            completion: { [weak self, weak window] in
+                guard let self, let window else { return }
+                self.projectStorageCoordinators.removeValue(
+                    forKey: ObjectIdentifier(window)
+                )
+            }
+        )
+        projectStorageCoordinators[windowID] = coordinator
+        if !coordinator.present() {
+            projectStorageCoordinators.removeValue(forKey: windowID)
+        }
+    }
+
     /// Formats a byte count for display: <1 MB shows KB, <1 GB shows MB, else GB.
     static func formatBytes(_ bytes: UInt64) -> String {
         let kb = Double(bytes) / 1_024
@@ -1378,12 +1434,19 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     @objc private func windowWillClose(_ notification: Notification) {
-        guard !isTerminating else { return }
         guard let closedWindow = notification.object as? NSWindow else { return }
 
         let closedControllers = mainWindowControllers.filter { controller in
             controller.window === closedWindow
         }
+        for controller in closedControllers {
+            invalidateProjectStorage(for: controller)
+        }
+        projectStorageBindingGenerations.removeValue(
+            forKey: ObjectIdentifier(closedWindow)
+        )
+        guard !isTerminating else { return }
+
         let affectedProjectURLs = Set(closedControllers.compactMap { $0.projectSession.projectURL })
         for controller in closedControllers {
             projectSessionRegistry.unregister(controller.projectSession)
@@ -1762,9 +1825,15 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return OperationCenter.shared.items.contains { !$0.state.isActive }
         }
 
-        // "Clear Temporary Files..." requires an open project
-        if menuItem.action == #selector(clearProjectTempFiles(_:)) {
-            return activeMainWindowController()?.mainSplitViewController?.sidebarController?.currentProjectURL != nil
+        // Storage preview requires a project successfully owned by the exact
+        // originating window/session (filesystem fallback roots do not count).
+        if menuItem.action == #selector(manageProjectStorage(_:)) {
+            guard let controller = projectStorageOriginController(
+                sender: menuItem
+            ) else {
+                return false
+            }
+            return successfullyOwnedProjectURL(for: controller) != nil
         }
 
         if menuItem.action == #selector(showWindowSizeDialog(_:)) {
@@ -1778,6 +1847,42 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
 
         return true
+    }
+
+    private func projectStorageOriginController(
+        sender: Any?
+    ) -> MainWindowController? {
+        if let view = sender as? NSView {
+            return view.window?.windowController as? MainWindowController
+        }
+        if let window = sender as? NSWindow {
+            return window.windowController as? MainWindowController
+        }
+        return (NSApp.keyWindow?.windowController as? MainWindowController)
+            ?? (NSApp.mainWindow?.windowController as? MainWindowController)
+    }
+
+    private func successfullyOwnedProjectURL(
+        for controller: MainWindowController
+    ) -> URL? {
+        guard let sessionURL = controller.projectSession.projectURL,
+              let sidebarURL = controller.mainSplitViewController?
+                .sidebarController?
+                .currentProjectURL,
+              ProjectSessionRegistry.canonicalProjectURL(sessionURL)
+                == ProjectSessionRegistry.canonicalProjectURL(sidebarURL) else {
+            return nil
+        }
+        return sessionURL
+    }
+
+    private func invalidateProjectStorage(
+        for controller: MainWindowController
+    ) {
+        guard let window = controller.window else { return }
+        let windowID = ObjectIdentifier(window)
+        projectStorageBindingGenerations[windowID, default: 0] &+= 1
+        projectStorageCoordinators.removeValue(forKey: windowID)?.invalidate()
     }
 
     func canNavigateToPosition(viewerController: ViewerViewController?) -> Bool {

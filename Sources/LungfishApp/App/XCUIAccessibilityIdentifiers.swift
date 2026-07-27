@@ -199,7 +199,7 @@ enum MainMenuAccessibilityID {
     static let openRecent = "file-menu-open-recent"
     static let importCenter = "file-menu-import-center"
     static let export = "file-menu-export"
-    static let clearTemporaryFiles = "file-menu-clear-temporary-files"
+    static let manageProjectStorage = "file-menu-manage-project-storage"
 
     static let focusViewer = "view-menu-focus-viewer"
     static let restoreSidePanes = "view-menu-restore-side-panes"
@@ -225,6 +225,25 @@ enum MainMenuAccessibilityID {
     static let onlineDocumentation = "help-menu-online-documentation"
     static let releaseNotes = "help-menu-release-notes"
     static let reportIssue = "help-menu-report-issue"
+}
+
+enum ProjectStorageAccessibilityID {
+    static let sheet = "project-storage-sheet"
+    static let root = "project-storage-root"
+    static let title = "project-storage-title"
+    static let outline = "project-storage-outline"
+    static let summary = "project-storage-summary"
+    static let status = "project-storage-status"
+    static let progress = "project-storage-progress"
+    static let cancelButton = "project-storage-cancel"
+    static let cleanupButton = "project-storage-move-to-trash"
+    static let retryScanButton = "project-storage-retry-scan"
+    static let retryFailedButton = "project-storage-retry-failed"
+    static let revealReceiptButton = "project-storage-reveal-receipt"
+    static let revealTrashButton = "project-storage-reveal-trash"
+    static let categoryCheckboxPrefix = "project-storage-category-"
+    static let entryCheckboxPrefix = "project-storage-entry-"
+    static let sidebarCommand = "project-storage-sidebar-command"
 }
 
 enum ViralReconAccessibilityID {

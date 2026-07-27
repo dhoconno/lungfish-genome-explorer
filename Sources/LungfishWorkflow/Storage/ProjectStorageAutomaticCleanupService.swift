@@ -528,44 +528,22 @@ struct ProjectStorageAutomaticCleanupPublishedCancellation:
 private func latestPublishedCleanupExecution(
     preparation: ProjectStorageCleanupPreparation
 ) throws -> ProjectStorageCleanupExecutionResult {
-    let names = try FileManager.default.contentsOfDirectory(
-        atPath: preparation.operationDirectoryURL.path
-    )
-    guard let summaryName = names.filter({
-        $0.hasPrefix("execution-summary-") && $0.hasSuffix(".json")
-    }).sorted().last else {
-        throw ProjectStorageAutomaticCleanupCompositionError
-            .missingCancellationReceipt
-    }
-    let sequence = summaryName
-        .dropFirst("execution-summary-".count)
-        .dropLast(".json".count)
-    let provenanceName = "execution-provenance-\(sequence).json"
-    guard names.contains(provenanceName) else {
-        throw ProjectStorageAutomaticCleanupCompositionError
-            .missingCancellationReceipt
-    }
-    let summaryURL = preparation.operationDirectoryURL
-        .appendingPathComponent(summaryName)
-    let provenanceURL = preparation.operationDirectoryURL
-        .appendingPathComponent(provenanceName)
-    let summary = try ProvenanceJSON.decoder.decode(
-        ProjectStorageCleanupExecutionSummary.self,
-        from: Data(contentsOf: summaryURL)
-    )
-    let provenance = try ProvenanceEnvelopeReader.decodeCanonical(
-        Data(contentsOf: provenanceURL)
-    )
-    guard summary.cleanupID == preparation.journal.cleanupID,
-          provenance.id == preparation.journal.cleanupID else {
+    do {
+        return try ProjectStoragePublishedCleanupOutcomeReader()
+            .readLatest(from: preparation)
+    } catch let error as ProjectStoragePublishedCleanupOutcomeError {
+        switch error {
+        case .missingCompleteReceipt:
+            throw ProjectStorageAutomaticCleanupCompositionError
+                .missingCancellationReceipt
+        case .unsafeAuthority, .mismatchedReceipt:
+            throw ProjectStorageAutomaticCleanupCompositionError
+                .mismatchedCancellationReceipt
+        }
+    } catch {
         throw ProjectStorageAutomaticCleanupCompositionError
             .mismatchedCancellationReceipt
     }
-    return .init(
-        summary: summary,
-        summaryURL: summaryURL,
-        provenanceURL: provenanceURL
-    )
 }
 
 private func writeAutomaticCleanupFailureReceipt(

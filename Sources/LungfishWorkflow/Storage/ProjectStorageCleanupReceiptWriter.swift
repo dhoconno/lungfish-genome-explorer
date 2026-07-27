@@ -400,7 +400,7 @@ public struct ProjectStorageCleanupReceiptWriter: Sendable {
                     .sourceIdentityChanged(item.sourceRelativePath)
             }
         }
-        try publish(
+        let operationDirectoryIdentity = try publish(
             cleanupID: request.cleanupID,
             projectURL: project,
             expectedProjectIdentity: request.projectIdentity,
@@ -411,6 +411,7 @@ public struct ProjectStorageCleanupReceiptWriter: Sendable {
         )
         return .init(
             operationDirectoryURL: operationDirectory,
+            operationDirectoryIdentity: operationDirectoryIdentity,
             journalURL: journalURL,
             provenanceURL: provenanceURL,
             journal: journal,
@@ -739,7 +740,7 @@ public struct ProjectStorageCleanupReceiptWriter: Sendable {
         projectURL: URL,
         expectedProjectIdentity: FileSystemObjectIdentity,
         payloads: [String: Data]
-    ) throws {
+    ) throws -> FileSystemObjectIdentity {
         let projectDescriptor: Int32
         do {
             projectDescriptor =
@@ -878,7 +879,9 @@ public struct ProjectStorageCleanupReceiptWriter: Sendable {
             )
             throw validationError
         }
-        let stagingIdentity = createdIdentity
+        let stagingIdentity = FileSystemObjectIdentity(
+            from: stagingInformation
+        )
         var published = false
         do {
             try syncDirectory(
@@ -908,6 +911,23 @@ public struct ProjectStorageCleanupReceiptWriter: Sendable {
                 operation: "fsync storage cleanup payloads"
             )
             try operations.beforePublish()
+            var stagingEntryInformation = stat()
+            let inspectStagingStatus = stagingName.withCString {
+                Darwin.fstatat(
+                    collection,
+                    $0,
+                    &stagingEntryInformation,
+                    AT_SYMLINK_NOFOLLOW
+                )
+            }
+            guard inspectStagingStatus == 0,
+                  stagingEntryInformation.st_mode & S_IFMT == S_IFDIR,
+                  FileSystemObjectIdentity(
+                    from: stagingEntryInformation
+                  ) == stagingIdentity else {
+                throw ProjectStorageCleanupPreparationError
+                    .unsafeSource(stagingURL.path)
+            }
             let renameStatus = stagingName.withCString { stagingNamePointer in
                 operationName.withCString { operationNamePointer in
                     Darwin.renameatx_np(
@@ -932,11 +952,30 @@ public struct ProjectStorageCleanupReceiptWriter: Sendable {
                 )
             }
             published = true
+            var publishedInformation = stat()
+            let inspectPublishedStatus = operationName.withCString {
+                Darwin.fstatat(
+                    collection,
+                    $0,
+                    &publishedInformation,
+                    AT_SYMLINK_NOFOLLOW
+                )
+            }
+            let publishedURL = collectionURL.appendingPathComponent(
+                operationName,
+                isDirectory: true
+            )
+            guard inspectPublishedStatus == 0,
+                  publishedInformation.st_mode & S_IFMT == S_IFDIR,
+                  FileSystemObjectIdentity(from: publishedInformation)
+                    == stagingIdentity else {
+                throw ProjectStorageCleanupPreparationError
+                    .unsafeSource(publishedURL.path)
+            }
             guard operations.syncDirectory(collection) == 0 else {
                 throw ProjectStorageCleanupPreparationError
                     .publicationDurabilityUncertain(
-                        collectionURL
-                            .appendingPathComponent(operationName).path,
+                        publishedURL.path,
                         errno
                     )
             }
@@ -954,6 +993,7 @@ public struct ProjectStorageCleanupReceiptWriter: Sendable {
             }
             throw error
         }
+        return stagingIdentity
     }
 
     private func rollbackNewStaging(

@@ -387,6 +387,7 @@ private func checkedParameterInteger<T: BinaryInteger>(
 
 public struct ProjectStorageCleanupPreparation: Sendable {
     public let operationDirectoryURL: URL
+    public let operationDirectoryIdentity: FileSystemObjectIdentity
     public let journalURL: URL
     public let provenanceURL: URL
     public let journal: ProjectStorageCleanupJournal
@@ -394,12 +395,14 @@ public struct ProjectStorageCleanupPreparation: Sendable {
 
     public init(
         operationDirectoryURL: URL,
+        operationDirectoryIdentity: FileSystemObjectIdentity,
         journalURL: URL,
         provenanceURL: URL,
         journal: ProjectStorageCleanupJournal,
         provenance: ProvenanceEnvelope
     ) {
         self.operationDirectoryURL = operationDirectoryURL
+        self.operationDirectoryIdentity = operationDirectoryIdentity
         self.journalURL = journalURL
         self.provenanceURL = provenanceURL
         self.journal = journal

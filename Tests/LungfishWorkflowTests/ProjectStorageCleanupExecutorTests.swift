@@ -3521,6 +3521,59 @@ final class ProjectStorageCleanupExecutorTests: XCTestCase {
         XCTAssertEqual(barrier.arrivals, 2)
     }
 
+    func testIdentityGatePromptlyRemovesCancelledWaiterAndAdvancesNext()
+        async throws
+    {
+        let gate = ProjectStorageCleanupIdentityGate()
+        let identity = FileSystemObjectIdentity(device: 901, inode: 902)
+        try await gate.acquire(identity)
+        let cancelledEntered = Flag()
+        let cancelled = Task {
+            try await gate.acquire(identity)
+            cancelledEntered.set()
+            await gate.release(identity)
+        }
+        for _ in 0..<20 {
+            await Task.yield()
+        }
+
+        cancelled.cancel()
+        let cancelledCompleted = Flag()
+        Task {
+            _ = await cancelled.result
+            cancelledCompleted.set()
+        }
+        for _ in 0..<200 where !cancelledCompleted.value {
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        XCTAssertTrue(
+            cancelledCompleted.value,
+            "A cancelled identity-gate waiter must finish before the holder releases."
+        )
+
+        let followingEntered = Flag()
+        let following = Task {
+            try await gate.acquire(identity)
+            followingEntered.set()
+            await gate.release(identity)
+        }
+        for _ in 0..<20 {
+            await Task.yield()
+        }
+        XCTAssertFalse(followingEntered.value)
+
+        await gate.release(identity)
+        try await following.value
+        let cancelledResult = await cancelled.result
+
+        XCTAssertFalse(cancelledEntered.value)
+        guard case .failure(let error) = cancelledResult else {
+            return XCTFail("The cancelled waiter unexpectedly acquired the gate.")
+        }
+        XCTAssertTrue(error is CancellationError)
+        XCTAssertTrue(followingEntered.value)
+    }
+
     private var executionArgv: [String] {
         [
             "lungfish-project-storage",

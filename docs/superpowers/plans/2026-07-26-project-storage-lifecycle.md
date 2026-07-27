@@ -403,27 +403,44 @@ git commit -m "fix: stop deleting project temp data on open"
 - Modify: `Tests/LungfishAppTests/AppShellAccessibilityTests.swift`
 - Modify: `Tests/LungfishAppTests/MainMenuStructureTests.swift`
 
-- [ ] **Step 1: Write failing menu, scope, and view-model tests**
+- [x] **Step 1: Write failing menu, scope, and view-model tests**
 
 Assert File → Manage Project Storage…, project-root-only context command, window/project identity binding, safe default checks, estimated allocated total, Return not destructive, Escape cancel, localized values, VoiceOver labels, cancellable progress, partial results, Retry Failed, and receipt/Trash reveal actions.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `swift test --filter 'ProjectStorageSheetViewModelTests|AppShellAccessibilityTests|MainMenuStructureTests'`
 
 Expected: missing type/menu-title failures.
 
-- [ ] **Step 3: Implement native asynchronous sheet**
+Evidence: the focused test command failed at compile time with missing
+`ProjectStorageSheetViewModel`, coordinator/controller, selector, and
+accessibility identifiers. Subsequent focused RED tests captured scan
+fail-closed behavior, read-only guidance, selection-bound Trash reveal,
+scan retry, complete row accessibility labels, and newest-paired cancellation
+receipt recovery before their implementations.
+
+- [x] **Step 3: Implement native asynchronous sheet**
 
 Use an `NSOutlineView` for category/entry rows. Scan and descriptor preparation off-main; throttle progress on the main actor. Bind coordinator lifetime to immutable window/project identity and disable stale actions after project change.
 
-- [ ] **Step 4: Run app tests and verify GREEN**
+- [x] **Step 4: Run app tests and verify GREEN**
 
 Run: `swift test --filter 'ProjectStorageSheetViewModelTests|AppShellAccessibilityTests|MainMenuStructureTests|ProjectTempCleanupTests'`
 
 Expected: all selected tests pass.
 
-- [ ] **Step 5: Commit**
+Review follow-up RED tests covered localized visible scan progress, a separate
+one-second coalescing throttle for VoiceOver progress announcements with
+immediate terminal announcements, complete category-row accessibility
+metadata, and moved-byte/result summaries captured before failed-entry
+reselection.
+
+Evidence: the exact focused command passed 62 tests with zero failures.
+`swift test --filter ProjectStorageCleanupProvenanceTests` additionally passed
+15 provenance safety tests with zero failures.
+
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/LungfishApp/Services/ProjectStorageCoordinator.swift Sources/LungfishApp/Views/ProjectStorage Sources/LungfishApp/App Sources/LungfishApp/Views/Sidebar Tests/LungfishAppTests
