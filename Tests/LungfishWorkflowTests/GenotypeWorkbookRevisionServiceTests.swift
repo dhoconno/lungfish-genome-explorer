@@ -5474,8 +5474,9 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         XCTAssertEqual(inspection["sampleBValue"], "")
         XCTAssertEqual(inspection["sampleABorders"], "thick|thick|thick|thick")
         XCTAssertEqual(inspection["sampleBBorders"], "thick|thick|thick|thick")
-        XCTAssertEqual(inspection["tableRef"], "A1:N1")
-        XCTAssertEqual(inspection["autoFilterRef"], "A1:N1")
+        XCTAssertEqual(inspection["tableRef"], "A1:N3")
+        XCTAssertEqual(inspection["tableAutoFilterRef"], "A1:N3")
+        XCTAssertEqual(inspection["autoFilterRef"], "A1:N3")
         XCTAssertEqual(inspection["freezePanes"], "A2")
         XCTAssertEqual(inspection["mergedRanges"], "O1:P1")
         XCTAssertEqual(inspection["formula"], "=1+1")
@@ -5496,6 +5497,7 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         XCTAssertEqual(cleared["markerRows"], "0")
         XCTAssertEqual(cleared["syntheticRows"], "0")
         XCTAssertEqual(cleared["tableRef"], "A1:N1")
+        XCTAssertEqual(cleared["tableAutoFilterRef"], "A1:N1")
         XCTAssertEqual(cleared["autoFilterRef"], "A1:N1")
         XCTAssertEqual(cleared["formula"], "=1+1")
         XCTAssertEqual(cleared["formulaFont"], "true|FFFF0000")
@@ -6131,7 +6133,12 @@ wb.save(path)
 
     func testLegacyManagedStateRequiresExactRecordedCoordinateAndManagedPresentation() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
-        for defect in ["coordinate", "presentation", "display-value"] {
+        for defect in [
+            "coordinate",
+            "presentation",
+            "display-value",
+            "display-whitespace",
+        ] {
             let root = try temporaryDirectory()
             defer { try? FileManager.default.removeItem(at: root) }
             let fixture = try makeGenericMatrixWorkbookBundle(
@@ -6152,7 +6159,12 @@ wb = load_workbook(path)
 matrix = wb["matrix"]
 original_font = copy(matrix["D7"].font)
 original_border = copy(matrix["D7"].border)
-matrix["D7"] = "[999]" if defect == "display-value" else "[5]"
+if defect == "display-value":
+    matrix["D7"] = "[999]"
+elif defect == "display-whitespace":
+    matrix["D7"] = " [5] "
+else:
+    matrix["D7"] = "[5]"
 managed_font = copy(matrix["D7"].font)
 managed_font.italic = defect != "presentation"
 managed_font.color = "FF767676"
@@ -6448,8 +6460,165 @@ wb.save(path)
         )
         XCTAssertEqual(inspection["markerRows"], "1")
         XCTAssertEqual(inspection["syntheticRows"], "2")
-        XCTAssertEqual(inspection["tableRef"], "A1:N1")
-        XCTAssertEqual(inspection["autoFilterRef"], "A1:N1")
+        XCTAssertEqual(inspection["tableRef"], "A1:N4")
+        XCTAssertEqual(inspection["tableAutoFilterRef"], "A1:N4")
+        XCTAssertEqual(inspection["autoFilterRef"], "A1:N4")
+    }
+
+    func testAmbiguousExistingRowsFailClosedBeforeAnnotationOnlySynthesis() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "ambiguous-existing-rows"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installAnnotationOnlyUnifiedReviewMatrix(in: currentURL)
+        let displayName = "Mamu-A1*ambiguous"
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+
+path, display_name = sys.argv[1:3]
+wb = load_workbook(path)
+ws = wb["Unified Genotype Pivot"]
+for row in (2, 3):
+    values = [
+        "known-allele",
+        "reference:MHC-A:" + display_name,
+        display_name,
+        None,
+        "MHC-A",
+        "known",
+        None,
+        display_name,
+        "exact",
+        0,
+        0,
+        0,
+        None,
+        None,
+    ]
+    for column, value in enumerate(values, start=1):
+        ws.cell(row, column).value = value
+ws.tables["UnifiedGenotypeTable"].ref = "A1:N3"
+ws.tables["UnifiedGenotypeTable"].autoFilter.ref = "A1:N3"
+ws.auto_filter.ref = "A1:N3"
+wb.save(path)
+"""#, currentURL.path, displayName])
+        _ = try installReviewableRowCatalog(
+            annotationOnlyReferenceCatalog(
+                samples: ["Sample-A", "Sample-B"],
+                displayName: displayName
+            ),
+            in: fixture.bundleURL
+        )
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: displayName,
+                    sample: "Sample-A"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-27T03:00:00Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        let before = try ProvenanceFileHasher.sha256(of: currentURL)
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                dateProvider: { Date(timeIntervalSince1970: 8_220) },
+                userProvider: { "tester" },
+                pythonExecutableURL: testPythonExecutableURL
+            ).applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: annotationURL,
+                into: fixture.bundleURL
+            )
+        ) { error in
+            XCTAssertTrue(
+                error.localizedDescription.localizedCaseInsensitiveContains(
+                    "ambiguous"
+                )
+            )
+        }
+        XCTAssertEqual(try ProvenanceFileHasher.sha256(of: currentURL), before)
+    }
+
+    func testAnnotationOnlySynthesisFailsClosedWhenNextOwnedRowIsOccupied() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "occupied-owned-row"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installAnnotationOnlyUnifiedReviewMatrix(in: currentURL)
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+
+path = sys.argv[1]
+wb = load_workbook(path)
+ws = wb["Unified Genotype Pivot"]
+ws["A2"] = "Unrelated analyst content in the next matrix-owned row"
+wb.save(path)
+"""#, currentURL.path])
+        _ = try installReviewableRowCatalog(
+            annotationOnlyReferenceCatalog(
+                samples: ["Sample-A", "Sample-B"],
+                displayName: "Mamu-A1*blocked"
+            ),
+            in: fixture.bundleURL
+        )
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-A1*blocked",
+                    sample: "Sample-A"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-27T03:00:00Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        let before = try ProvenanceFileHasher.sha256(of: currentURL)
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                dateProvider: { Date(timeIntervalSince1970: 8_230) },
+                userProvider: { "tester" },
+                pythonExecutableURL: testPythonExecutableURL
+            ).applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: annotationURL,
+                into: fixture.bundleURL
+            )
+        )
+        XCTAssertEqual(try ProvenanceFileHasher.sha256(of: currentURL), before)
     }
 
     func testAnnotationOnlyCachingScalesWithUniqueSheetsAndRows() throws {
@@ -8092,6 +8261,9 @@ payload = {
         ws.cell(real_row, headers["Sample-A"])
     ),
     "tableRef": text(ws.tables["UnifiedGenotypeTable"].ref),
+    "tableAutoFilterRef": text(
+        getattr(ws.tables["UnifiedGenotypeTable"].autoFilter, "ref", None)
+    ),
     "autoFilterRef": text(ws.auto_filter.ref),
     "freezePanes": text(ws.freeze_panes),
     "mergedRanges": "|".join(sorted(str(item) for item in ws.merged_cells.ranges)),

@@ -1032,16 +1032,50 @@ def matrix_layout_adapter(ws, sample_names, requires_synthesis=False):
     return candidates[0] if candidates else None
 
 
-def adapter_matrix_end(adapter):
+def adapter_owned_table(adapter):
     ws = adapter["ws"]
     header_row = adapter["header_row"]
-    matching_ends = []
+    matches = []
     for table in ws.tables.values():
         min_col, min_row, max_col, max_row = range_boundaries(table.ref)
         if min_row == header_row and min_col <= adapter["genotype_col"] <= max_col:
-            matching_ends.append(max_row)
-    if matching_ends:
-        return max(matching_ends)
+            matches.append((table, min_col, min_row, max_col, max_row))
+    if len(matches) > 1:
+        raise ValueError(
+            f"Ambiguous workbook layout in '{ws.title}' exposes multiple matrix tables; "
+            "workbook was not modified"
+        )
+    return matches[0] if matches else None
+
+
+def adapter_owned_column_bounds(adapter):
+    owned_table = adapter_owned_table(adapter)
+    if owned_table is not None:
+        _table, min_col, _min_row, max_col, _max_row = owned_table
+        return min_col, max_col
+    columns = [
+        adapter.get("genotype_col"),
+        adapter.get("locus_col"),
+        adapter.get("stable_col"),
+        adapter.get("total_col"),
+        adapter.get("observed_col"),
+        *adapter.get("sample_columns", {}).values(),
+    ]
+    columns = [column for column in columns if isinstance(column, int)]
+    if not columns:
+        raise ValueError(
+            f"Workbook layout in '{adapter['ws'].title}' has no owned matrix columns; "
+            "workbook was not modified"
+        )
+    return min(columns), max(columns)
+
+
+def adapter_matrix_end(adapter):
+    owned_table = adapter_owned_table(adapter)
+    if owned_table is not None:
+        return owned_table[4]
+    ws = adapter["ws"]
+    header_row = adapter["header_row"]
     descriptor_rows = [
         item["row"] for item in matrix_row_descriptors(ws)
         if item["row"] > header_row
@@ -1052,16 +1086,16 @@ def adapter_matrix_end(adapter):
 def set_adapter_range_end(adapter, end_row):
     ws = adapter["ws"]
     header_row = adapter["header_row"]
-    for table in ws.tables.values():
-        min_col, min_row, max_col, _max_row = range_boundaries(table.ref)
-        if min_row == header_row and min_col <= adapter["genotype_col"] <= max_col:
-            updated_ref = (
-                f"{get_column_letter(min_col)}{min_row}:"
-                f"{get_column_letter(max_col)}{end_row}"
-            )
-            table.ref = updated_ref
-            if table.autoFilter is not None:
-                table.autoFilter.ref = updated_ref
+    owned_table = adapter_owned_table(adapter)
+    if owned_table is not None:
+        table, min_col, min_row, max_col, _max_row = owned_table
+        updated_ref = (
+            f"{get_column_letter(min_col)}{min_row}:"
+            f"{get_column_letter(max_col)}{end_row}"
+        )
+        table.ref = updated_ref
+        if table.autoFilter is not None:
+            table.autoFilter.ref = updated_ref
     if ws.auto_filter.ref:
         min_col, min_row, max_col, _max_row = range_boundaries(ws.auto_filter.ref)
         if min_row == header_row and min_col <= adapter["genotype_col"] <= max_col:
@@ -1071,17 +1105,43 @@ def set_adapter_range_end(adapter, end_row):
             )
 
 
+def ensure_adapter_owned_row_is_vacant(adapter, row):
+    ws = adapter["ws"]
+    min_col, max_col = adapter_owned_column_bounds(adapter)
+    for merged_range in ws.merged_cells.ranges:
+        if (
+            merged_range.min_row <= row <= merged_range.max_row
+            and merged_range.min_col <= max_col
+            and merged_range.max_col >= min_col
+        ):
+            raise ValueError(
+                f"The next matrix-owned row in '{ws.title}' intersects merged cells; "
+                "workbook was not modified"
+            )
+    for col in range(min_col, max_col + 1):
+        cell = ws.cell(row, col)
+        if (
+            cell.value is not None
+            or cell.comment is not None
+            or cell.hyperlink is not None
+            or cell.has_style
+        ):
+            raise ValueError(
+                f"The next matrix-owned row in '{ws.title}' contains workbook content; "
+                "workbook was not modified"
+            )
+
+
 def style_adapter_owned_row(adapter, row):
     ws = adapter["ws"]
-    for col in range(1, ws.max_column + 1):
+    min_col, max_col = adapter_owned_column_bounds(adapter)
+    for col in range(min_col, max_col + 1):
         cell = ws.cell(row, col)
         cell.font = Font(name="Calibri", size=11)
         cell.fill = PatternFill(fill_type=None)
         cell.border = Border()
         cell.alignment = Alignment(vertical="center")
         cell.number_format = "General"
-    ws.row_dimensions[row].hidden = False
-    ws.row_dimensions[row].outlineLevel = 0
 
 
 def catalog_support(row):
@@ -1156,7 +1216,8 @@ def catalog_identity(row):
 
 def append_annotation_only_row(adapter, catalog_row):
     ws = adapter["ws"]
-    row = max(adapter_matrix_end(adapter), ws.max_row) + 1
+    row = adapter_matrix_end(adapter) + 1
+    ensure_adapter_owned_row_is_vacant(adapter, row)
     style_adapter_owned_row(adapter, row)
     if adapter["kind"] == "unified":
         values = {
@@ -1226,8 +1287,9 @@ def append_annotation_only_marker(adapter):
             "workbook was not modified"
         )
     matrix_end = adapter_matrix_end(adapter)
-    row = max(matrix_end, ws.max_row) + 1
-    adapter["extend_owned_range"] = row == matrix_end + 1
+    row = matrix_end + 1
+    ensure_adapter_owned_row_is_vacant(adapter, row)
+    adapter["extend_owned_range"] = True
     style_adapter_owned_row(adapter, row)
     if adapter["kind"] == "unified":
         ws.cell(row, adapter["headers"]["call_type"]).value = (
@@ -1285,10 +1347,14 @@ def prepare_missing_false_negative_rows():
             if sample not in adapter["sample_columns"]:
                 continue
             descriptors = matrix_row_descriptors(adapter["ws"])
-            matches, _match_error = matching_matrix_rows(descriptors, target)
+            matches, match_error = matching_matrix_rows(descriptors, target)
             if matches:
                 resolved_somewhere = True
                 continue
+            if match_error == (
+                "The workbook target is ambiguous at the available semantic identity."
+            ):
+                raise ValueError(f"{match_error} Workbook was not modified.")
             if stable_id and adapter["stable_col"] is None:
                 continue
             if adapter["locus_col"] is None:
@@ -1674,7 +1740,7 @@ def validate_legacy_managed_state(state):
             )
         disposition = clean(state.cell(row, 8).value)
         if disposition == "falsePositive":
-            value = clean(destination.value)
+            value = destination.value
             original_value = state.cell(row, 9).value
             original_number = numeric_review_evidence(original_value)
             expected_value = (
@@ -1683,7 +1749,8 @@ def validate_legacy_managed_state(state):
                 else None
             )
             valid = (
-                value == expected_value
+                isinstance(value, str)
+                and value == expected_value
                 and bool(destination.font.italic)
                 and color_has_rgb_suffix(destination.font.color, "767676")
             )
@@ -1933,24 +2000,73 @@ def style_matches(left, right):
 
 
 def delete_managed_end_row(ws, row):
+    owned_tables = []
     for table in ws.tables.values():
         min_col, min_row, max_col, max_row = range_boundaries(table.ref)
         if min_row < row <= max_row:
-            updated_ref = (
-                f"{get_column_letter(min_col)}{min_row}:"
-                f"{get_column_letter(max_col)}{max_row - 1}"
-            )
-            table.ref = updated_ref
-            if table.autoFilter is not None:
-                table.autoFilter.ref = updated_ref
-    if ws.auto_filter.ref:
-        min_col, min_row, max_col, max_row = range_boundaries(ws.auto_filter.ref)
-        if min_row < row <= max_row:
+            owned_tables.append((table, min_col, min_row, max_col, max_row))
+    if len(owned_tables) > 1:
+        raise ValueError(
+            "Managed annotation-only row intersects multiple workbook tables; "
+            "workbook was not modified"
+        )
+    if owned_tables:
+        table, min_col, min_row, max_col, max_row = owned_tables[0]
+        for merged_range in ws.merged_cells.ranges:
+            if (
+                merged_range.min_row <= max_row
+                and merged_range.max_row >= row
+                and merged_range.min_col <= max_col
+                and merged_range.max_col >= min_col
+            ):
+                raise ValueError(
+                    "Managed annotation-only row compaction intersects merged cells; "
+                    "workbook was not modified"
+                )
+        for source_row in range(row + 1, max_row + 1):
+            for col in range(min_col, max_col + 1):
+                source = ws.cell(source_row, col)
+                destination = ws.cell(source_row - 1, col)
+                destination._value = source._value
+                destination.data_type = source.data_type
+                destination._style = (
+                    copy(source._style) if source.has_style else None
+                )
+                destination.comment = (
+                    copy(source.comment) if source.comment is not None else None
+                )
+                destination._hyperlink = (
+                    copy(source.hyperlink) if source.hyperlink is not None else None
+                )
+        for col in range(min_col, max_col + 1):
+            cell = ws.cell(max_row, col)
+            cell.value = None
+            cell.comment = None
+            cell._hyperlink = None
+            cell._style = None
+        updated_ref = (
+            f"{get_column_letter(min_col)}{min_row}:"
+            f"{get_column_letter(max_col)}{max_row - 1}"
+        )
+        table.ref = updated_ref
+        if table.autoFilter is not None:
+            table.autoFilter.ref = updated_ref
+    if owned_tables and ws.auto_filter.ref:
+        filter_min_col, filter_min_row, filter_max_col, filter_max_row = (
+            range_boundaries(ws.auto_filter.ref)
+        )
+        if (
+            filter_min_col == min_col
+            and filter_min_row == min_row
+            and filter_max_col == max_col
+            and filter_min_row < row <= filter_max_row
+        ):
             ws.auto_filter.ref = (
-                f"{get_column_letter(min_col)}{min_row}:"
-                f"{get_column_letter(max_col)}{max_row - 1}"
+                f"{get_column_letter(filter_min_col)}{filter_min_row}:"
+                f"{get_column_letter(filter_max_col)}{filter_max_row - 1}"
             )
-    ws.delete_rows(row, 1)
+    if not owned_tables:
+        ws.delete_rows(row, 1)
     invalidate_matrix_descriptor_cache(ws)
 
 
