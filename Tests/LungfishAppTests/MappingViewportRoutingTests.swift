@@ -122,7 +122,7 @@ final class MappingViewportRoutingTests: XCTestCase {
                 if continuation != nil {
                     return true
                 }
-                await Task.yield()
+                try? await Task.sleep(nanoseconds: 1_000_000)
             }
             return false
         }
@@ -1805,6 +1805,100 @@ final class MappingViewportRoutingTests: XCTestCase {
             resultController.testingResultBundleURL,
             secondBundle.standardizedFileURL,
             "The old host reload must not replace the already-queued bundle configuration."
+        )
+    }
+
+    func testQueuedReplacementConfigurationRejectsOlderWorkbookReloadBeforeItStarts()
+        async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "GenotypeWorkbookDesiredConfiguration-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let firstBundle = try makeGenotypeResultBundle(
+            root: root,
+            name: "desired-authority-first",
+            haplotypeAnalysisPath: nil,
+            genotypeOnlyWorkflowKind: .fullLengthONTMHCGenotype
+        )
+        let secondBundle = try makeGenotypeResultBundle(
+            root: root,
+            name: "desired-authority-second",
+            haplotypeAnalysisPath: nil,
+            genotypeOnlyWorkflowKind: .fullLengthONTMHCGenotype
+        )
+        let firstResult = try await ONTGenotypeResultBundle.loadResultAsync(
+            from: firstBundle
+        )
+        let secondResult = try await ONTGenotypeResultBundle.loadResultAsync(
+            from: secondBundle
+        )
+        let coordinator = GenotypeCurrentWorkbookSyncCoordinator(
+            recordedFingerprintLoader: { _ in nil },
+            idleScheduler: { _, _ in IdleCancellation() }
+        )
+        let splitController = MainSplitViewController()
+        splitController.genotypeCurrentWorkbookSyncCoordinator = coordinator
+        _ = splitController.view
+        await splitController.testingDisplayGenotypeResultBundleAndWait(
+            firstBundle
+        )
+        let registered = await eventually {
+            splitController
+                .testingGenotypeCurrentWorkbookRetentionDiagnostics
+                .completionContextCount == 1
+        }
+        XCTAssertTrue(registered)
+        let resultController = try XCTUnwrap(
+            splitController.viewerController.genotypeResultViewController
+        )
+        resultController.testingSelectMatrixColumn(sample: "DW472")
+        resultController.testingUpdateManualHaplotypeLabel("H1")
+        XCTAssertTrue(resultController.testingManualHaplotypeEditorIsDirty)
+
+        let configurationGate = ManualHaplotypeConfigurationGate()
+        resultController.testingSetManualHaplotypeDraftDecisionProvider { _ in
+            await configurationGate.decide()
+        }
+        resultController.configure(result: secondResult)
+        let configurationIsPending =
+            await configurationGate.waitUntilPending()
+        XCTAssertTrue(configurationIsPending)
+        guard configurationIsPending else {
+            return
+        }
+
+        let reloadGate = WorkbookResultReloadGate()
+        splitController.genotypeResultLoader = { _ in
+            try await reloadGate.load()
+        }
+        splitController.applyGenotypeCurrentWorkbookSyncPhase(
+            .current,
+            bundleURL: firstBundle
+        )
+        let staleReloadStarted = await eventually {
+            reloadGate.loadCount == 1
+        }
+        XCTAssertFalse(
+            staleReloadStarted,
+            "Requesting bundle B must immediately revoke host reload authority for displayed bundle A."
+        )
+
+        if staleReloadStarted {
+            reloadGate.succeed(at: 0, with: firstResult)
+            _ = await eventually {
+                splitController
+                    .testingGenotypeCurrentWorkbookRetentionDiagnostics
+                    .reloadTaskCount == 0
+            }
+        }
+        await configurationGate.resume(with: .discard)
+        await resultController.testingWaitForManualHaplotypeTransitions()
+        XCTAssertEqual(
+            resultController.testingResultBundleURL,
+            secondBundle.standardizedFileURL,
+            "The older host reload must not replace the already-queued bundle configuration."
         )
     }
 

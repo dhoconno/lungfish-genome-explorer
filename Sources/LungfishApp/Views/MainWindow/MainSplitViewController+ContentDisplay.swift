@@ -629,9 +629,13 @@ extension MainSplitViewController {
         }
         let expectedGeneration = context.generation
         let expectedControllerAuthority =
-            controller.currentResultConfigurationAuthority
+            controller.desiredResultConfigurationAuthority
         guard expectedControllerAuthority.bundleURL?.standardizedFileURL
             == bundleURL.standardizedFileURL else {
+            cleanupGenotypeCurrentWorkbookTerminalState(
+                for: key,
+                bundleURL: bundleURL
+            )
             return
         }
         genotypeCurrentWorkbookResultReloadTasks
@@ -658,7 +662,7 @@ extension MainSplitViewController {
                         .generation == expectedGeneration,
                       self.viewerController.genotypeResultViewController
                         === controller,
-                      controller.ownsCurrentResultConfiguration(
+                      controller.ownsDesiredResultConfiguration(
                         expectedControllerAuthority
                       ),
                       updated.bundleURL.standardizedFileURL

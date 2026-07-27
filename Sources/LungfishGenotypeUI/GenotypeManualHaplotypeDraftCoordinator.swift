@@ -320,6 +320,7 @@ public final class GenotypeManualHaplotypeTransitionMutationCoordinator {
         let transition:
             GenotypeManualHaplotypeDraftCoordinator.Transition
         let mutation: @MainActor () -> Void
+        let rejection: @MainActor () -> Void
     }
 
     private var nextGeneration: UInt64 = 0
@@ -341,13 +342,16 @@ public final class GenotypeManualHaplotypeTransitionMutationCoordinator {
         prepare: @escaping @MainActor (
             GenotypeManualHaplotypeDraftCoordinator.Transition
         ) async -> Bool,
-        mutation: @escaping @MainActor () -> Void
+        mutation: @escaping @MainActor () -> Void,
+        rejection: @escaping @MainActor () -> Void = {}
     ) {
         nextGeneration &+= 1
+        pendingMutation?.rejection()
         pendingMutation = PendingMutation(
             generation: nextGeneration,
             transition: transition,
-            mutation: mutation
+            mutation: mutation,
+            rejection: rejection
         )
         guard resolutionTask == nil else { return }
         let promptingTransition = transition
@@ -359,6 +363,7 @@ public final class GenotypeManualHaplotypeTransitionMutationCoordinator {
             self.pendingMutation = nil
             guard allowed,
                   latest.generation == self.nextGeneration else {
+                latest.rejection()
                 return
             }
             latest.mutation()

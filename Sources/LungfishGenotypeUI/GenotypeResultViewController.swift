@@ -5,7 +5,8 @@ import LungfishIO
 import LungfishWorkflow
 import LungfishKit
 
-public struct GenotypeResultConfigurationAuthority: Equatable, Sendable {
+public struct GenotypeResultDesiredConfigurationAuthority:
+    Equatable, Sendable {
     public let bundleURL: URL?
     fileprivate let generation: UInt64
 
@@ -182,20 +183,20 @@ public final class GenotypeResultViewController: NSViewController {
         result?.bundleURL
     }
 
-    public var currentResultConfigurationAuthority:
-        GenotypeResultConfigurationAuthority {
-        GenotypeResultConfigurationAuthority(
-            bundleURL: result?.bundleURL.standardizedFileURL,
+    public var desiredResultConfigurationAuthority:
+        GenotypeResultDesiredConfigurationAuthority {
+        GenotypeResultDesiredConfigurationAuthority(
+            bundleURL: desiredResultConfigurationBundleURL,
             generation: resultConfigurationGeneration
         )
     }
 
-    public func ownsCurrentResultConfiguration(
-        _ authority: GenotypeResultConfigurationAuthority
+    public func ownsDesiredResultConfiguration(
+        _ authority: GenotypeResultDesiredConfigurationAuthority
     ) -> Bool {
         resultConfigurationGeneration == authority.generation
-            && result?.bundleURL.standardizedFileURL
-                == authority.bundleURL?.standardizedFileURL
+            && desiredResultConfigurationBundleURL
+                == authority.bundleURL
     }
 
     public var currentResultBundleIsReadOnly: Bool {
@@ -458,6 +459,7 @@ public final class GenotypeResultViewController: NSViewController {
     private var pendingConfigurationResult: ONTGenotypeResultBundleData?
     private var currentWorkbookResultReloadTask: Task<Void, Never>?
     private var resultConfigurationGeneration: UInt64 = 0
+    private var desiredResultConfigurationBundleURL: URL?
     private var aiHaplotypingStatus: String?
     private var outlineRowsBySample: [String: GenotypeOutlineView.Row] = [:]
     private var outlineRowOrder: [String] = []
@@ -894,12 +896,22 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     public func configure(result: ONTGenotypeResultBundleData) {
+        desiredResultConfigurationBundleURL =
+            result.bundleURL.standardizedFileURL
         invalidateCurrentWorkbookResultReload()
+        let requestedAuthority = desiredResultConfigurationAuthority
         if requiresManualHaplotypeTransitionCoordination {
-            deferManualHaplotypeTransition(.eligibilityChange) {
-                [weak self] in
-                self?.configure(result: result)
-            }
+            deferManualHaplotypeTransition(
+                .eligibilityChange,
+                mutation: { [weak self] in
+                    self?.configureImmediately(result: result)
+                },
+                rejection: { [weak self] in
+                    self?.restoreDisplayedResultAsDesiredConfiguration(
+                        ifCurrent: requestedAuthority
+                    )
+                }
+            )
             return
         }
         guard deferredMatrixAnnotationMutationCount == 0 else {
@@ -907,6 +919,18 @@ public final class GenotypeResultViewController: NSViewController {
             return
         }
         configureImmediately(result: result)
+    }
+
+    private func restoreDisplayedResultAsDesiredConfiguration(
+        ifCurrent authority:
+            GenotypeResultDesiredConfigurationAuthority
+    ) {
+        guard ownsDesiredResultConfiguration(authority) else {
+            return
+        }
+        desiredResultConfigurationBundleURL =
+            result?.bundleURL.standardizedFileURL
+        invalidateCurrentWorkbookResultReload()
     }
 
     private func configureImmediately(result: ONTGenotypeResultBundleData) {
@@ -7121,7 +7145,8 @@ public final class GenotypeResultViewController: NSViewController {
     @discardableResult
     public func deferManualHaplotypeTransition(
         _ transition: GenotypeManualHaplotypeDraftCoordinator.Transition,
-        mutation: @escaping @MainActor () -> Void
+        mutation: @escaping @MainActor () -> Void,
+        rejection: @escaping @MainActor () -> Void = {}
     ) -> Bool {
         guard requiresManualHaplotypeTransitionCoordination else {
             return false
@@ -7134,7 +7159,8 @@ public final class GenotypeResultViewController: NSViewController {
                     transition
                 )
             },
-            mutation: mutation
+            mutation: mutation,
+            rejection: rejection
         )
         return true
     }
