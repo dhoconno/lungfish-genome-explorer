@@ -166,6 +166,12 @@ public class SidebarViewController: NSViewController {
     /// Suppresses delegate and notification callbacks during programmatic selection changes.
     var suppressSelectionCallbacks = false
 
+    /// Last selection whose viewport callback and notification were committed.
+    /// AppKit updates its row indexes before notifying its delegate, so this
+    /// snapshot is used to restore the exact prior selection while an
+    /// asynchronous content-transition decision is pending.
+    var committedSelectionItems: [SidebarItem] = []
+
     /// Last width recommendation posted to the split-view controller.
     private var lastRecommendedSidebarWidth: CGFloat = 0
 
@@ -972,7 +978,10 @@ public class SidebarViewController: NSViewController {
                 handleSelectionChange(restoredItems, source: "reloadFromFilesystem")
             }
         } else if notifyUnchangedSelectionRefresh, !restoredItems.isEmpty {
-            selectionDelegate?.sidebarDidRefreshSelectedItems(restoredItems)
+            handleSelectionRefresh(
+                restoredItems,
+                source: "reloadFromFilesystem"
+            )
         }
 
         let itemCount = rootItems.reduce(0) { $0 + countItems(in: $1) }
@@ -1069,7 +1078,10 @@ public class SidebarViewController: NSViewController {
         }) else {
             return
         }
-        selectionDelegate?.sidebarDidRefreshSelectedItems(items)
+        handleSelectionRefresh(
+            items,
+            source: "notifySelectedItemsRefreshedIfNeeded"
+        )
     }
 
     private func shouldRefreshSelectedItem(

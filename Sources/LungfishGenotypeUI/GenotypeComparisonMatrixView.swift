@@ -3,6 +3,11 @@ import LungfishCore
 import LungfishIO
 import LungfishKit
 
+struct GenotypeMatrixContentScrollOrigins: Equatable {
+    let pinned: NSPoint
+    let samples: NSPoint
+}
+
 private extension GenotypeCandidateMatrixRowID {
     var accessibilityIdentifierComponent: String {
         switch self {
@@ -2253,19 +2258,81 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         guard !suppressSelectionClearedCallback else { return }
         let sourceTable = notification.object as? NSTableView
         let selectedRows = IndexSet((sourceTable ?? tableView).selectedRowIndexes.filter { $0 >= 0 && $0 < visibleRows.count })
+        let previousRowIndexes = rowIndexes(
+            for: selectedMatrixTargets
+        )
+        let scrollOrigins = matrixContentScrollOrigins
+        if deferManualHaplotypeTransition(.selection, mutation: {
+            [weak self] in
+            guard let self else { return }
+            self.applyNativeTableSelection(
+                selectedRows,
+                preferredSample: self.selectedSampleName
+            )
+        }) {
+            restoreNativeTableSelection(
+                previousRowIndexes,
+                scrollOrigins: scrollOrigins
+            )
+            return
+        }
+        applyNativeTableSelection(
+            selectedRows,
+            preferredSample: selectedSampleName
+        )
+    }
+
+    private func applyNativeTableSelection(
+        _ selectedRows: IndexSet,
+        preferredSample: String?
+    ) {
         guard !selectedRows.isEmpty else {
-            deselectAllRows()
-            onSelectionCleared?()
+            clearSelectionAfterColumnToggle()
             return
         }
         selectRowIndexes(selectedRows, byExtendingSelection: false)
-        let preferredSample = selectedSampleName
         if selectedRows.count > 1 {
             selectVisibleRows(Array(selectedRows), sample: preferredSample)
             return
         }
         let selectedRow = selectedRows[selectedRows.startIndex]
         selectVisibleRow(selectedRow, sample: preferredSample)
+    }
+
+    private var matrixContentScrollOrigins:
+        GenotypeMatrixContentScrollOrigins {
+        GenotypeMatrixContentScrollOrigins(
+            pinned: pinnedScrollView.contentView.bounds.origin,
+            samples: scrollView.contentView.bounds.origin
+        )
+    }
+
+    private func restoreNativeTableSelection(
+        _ indexes: IndexSet,
+        scrollOrigins: GenotypeMatrixContentScrollOrigins
+    ) {
+        if indexes.isEmpty {
+            deselectAllRows()
+        } else {
+            selectRowIndexes(
+                indexes,
+                byExtendingSelection: false
+            )
+        }
+        suppressScrollSync = true
+        pinnedScrollView.contentView.setBoundsOrigin(
+            scrollOrigins.pinned
+        )
+        scrollView.contentView.setBoundsOrigin(
+            scrollOrigins.samples
+        )
+        suppressScrollSync = false
+        pinnedScrollView.reflectScrolledClipView(
+            pinnedScrollView.contentView
+        )
+        scrollView.reflectScrolledClipView(
+            scrollView.contentView
+        )
     }
 
     private func selectRowIndexes(_ indexes: IndexSet, byExtendingSelection: Bool) {
@@ -6472,6 +6539,34 @@ extension GenotypeComparisonMatrixView {
         pinnedScrollView.contentView.setBoundsOrigin(pinned)
         scrollView.contentView.setBoundsOrigin(samples)
         suppressScrollSync = false
+    }
+
+    var testingContentScrollOrigins:
+        GenotypeMatrixContentScrollOrigins {
+        matrixContentScrollOrigins
+    }
+
+    var testingNativeSelectedRowIndexes: IndexSet {
+        tableView.selectedRowIndexes
+    }
+
+    func testingApplyNativeRowSelection(
+        _ indexes: IndexSet
+    ) {
+        if indexes.isEmpty {
+            tableView.deselectAll(nil)
+        } else {
+            tableView.selectRowIndexes(
+                indexes,
+                byExtendingSelection: false
+            )
+        }
+        tableViewSelectionDidChange(
+            Notification(
+                name: NSTableView.selectionDidChangeNotification,
+                object: tableView
+            )
+        )
     }
 
     var testingContentScrollAnchors: [CGFloat] {

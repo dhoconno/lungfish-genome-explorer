@@ -290,14 +290,9 @@ extension SidebarViewController: NSMenuDelegate {
         guard let item = items.first, item.type != .group && item.type != .project && item.type != .batchGroup else { return }
 
         sidebarLogger.info("contextMenuOpen: Opening '\(item.title, privacy: .public)'")
-
-        selectionDelegate?.sidebarDidSelectItem(item)
-
-        // Keep notification for other observers; display routes through the delegate.
-        NotificationCenter.default.post(
-            name: .sidebarSelectionChanged,
-            object: self,
-            userInfo: sidebarSelectionUserInfo(items: [item])
+        handleSelectionChange(
+            [item],
+            source: "contextMenuOpen"
         )
     }
 

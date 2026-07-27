@@ -200,6 +200,48 @@ final class GenotypeManualHaplotypeTransitionTests: XCTestCase {
         XCTAssertEqual(firstTransitions, [.appQuit])
         XCTAssertEqual(secondTransitions, [.appQuit])
     }
+
+    func testApplicationTerminationRepliesOnceAndReentryTerminatesNow()
+        async
+    {
+        let controller = MainWindowController()
+        let delegate = AppDelegate()
+        let gate = AsyncManualHaplotypeDecisionGate()
+        var replies: [Bool] = []
+        controller.testingSetManualHaplotypeTransitionState(
+            hasUnsavedDraft: { true },
+            prepare: { transition in
+                XCTAssertEqual(transition, .appQuit)
+                return await gate.wait() != .cancel
+            }
+        )
+        delegate.testingSetMainWindowControllers([controller])
+
+        XCTAssertEqual(
+            delegate.testingApplicationShouldTerminate {
+                replies.append($0)
+            },
+            .terminateLater
+        )
+        XCTAssertEqual(
+            delegate.testingApplicationShouldTerminate {
+                replies.append($0)
+            },
+            .terminateLater
+        )
+        await gate.waitUntilPending()
+        await gate.resume(with: .discard)
+        await delegate.testingWaitForManualHaplotypeTermination()
+
+        XCTAssertEqual(replies, [true])
+        XCTAssertEqual(
+            delegate.testingApplicationShouldTerminate {
+                replies.append($0)
+            },
+            .terminateNow
+        )
+        XCTAssertEqual(replies, [true])
+    }
 }
 
 private actor AsyncManualHaplotypeDecisionGate {

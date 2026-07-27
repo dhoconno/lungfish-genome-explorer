@@ -5595,6 +5595,87 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
     }
 
+    func testManualHaplotypeCancelRestoresNativeTableSelectionAndScroll() async throws {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "ManualHaplotypeNativeSelection-\(UUID().uuidString).lungfishgenotype",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let calls = (0..<30).flatMap { index in
+            [
+                makeCall(
+                    sample: "AnimalA",
+                    genotype: String(format: "01_Mafa_A1_%03d_01", index),
+                    reads: 42 + index
+                ),
+                makeCall(
+                    sample: "AnimalB",
+                    genotype: String(format: "01_Mafa_A1_%03d_01", index),
+                    reads: 21 + index
+                ),
+            ]
+        }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: calls
+        ))
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        controller.testingUpdateManualHaplotypeLabel("Unsaved")
+        controller.testingSetManualHaplotypeDraftDecisionProvider {
+            _ in .cancel
+        }
+        controller.testingSetMatrixContentScrollOrigins(
+            pinned: NSPoint(x: 0, y: 180),
+            samples: NSPoint(x: 35, y: 180)
+        )
+        let originalSelection =
+            controller.testingCurrentSelectionMatrixTargets
+        let originalScroll = controller.testingMatrixContentScrollOrigins
+
+        controller.testingApplyNativeMatrixRowSelection(
+            IndexSet(integer: 12)
+        )
+        await controller.testingWaitForManualHaplotypeTransitions()
+
+        XCTAssertEqual(
+            controller.testingCurrentSelectionMatrixTargets,
+            originalSelection
+        )
+        XCTAssertEqual(
+            controller.testingNativeMatrixSelectedRowIndexes,
+            []
+        )
+        XCTAssertEqual(
+            controller.testingMatrixContentScrollOrigins,
+            originalScroll
+        )
+        XCTAssertTrue(controller.testingManualHaplotypeEditorIsDirty)
+        XCTAssertEqual(
+            controller.testingManualHaplotypeEditorSample,
+            "AnimalA"
+        )
+
+        controller.testingApplyNativeMatrixRowSelection([])
+        await controller.testingWaitForManualHaplotypeTransitions()
+
+        XCTAssertEqual(
+            controller.testingCurrentSelectionMatrixTargets,
+            originalSelection
+        )
+        XCTAssertEqual(
+            controller.testingMatrixContentScrollOrigins,
+            originalScroll
+        )
+    }
+
     func testArtifactsLensListsValidatedCandidateFASTAAndGenBankArtifactsWhenDeclared() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeCandidateGenBankLens-\(UUID().uuidString)", isDirectory: true)
@@ -8015,6 +8096,119 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains {
             $0 == ("Column Comment", "Selected cohort note")
         })
+    }
+
+    func testSelectedMultipleColumnsShowBoundedCanonicalManualHaplotypeSummariesWithoutEditor()
+        throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "GenotypeMultiSampleHaplotypeSummary-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent(
+            "example.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.manualHaplotypeAssignments = [
+            ManualHaplotypeAssignment(
+                sample: "AnimalA",
+                locus: "MHC-A",
+                slot: .h1,
+                label: "Alpha",
+                colorTokenIndex: 1,
+                diagnosticAlleles: [],
+                notes: ""
+            ),
+            ManualHaplotypeAssignment(
+                sample: "AnimalA",
+                locus: "MHC-A",
+                slot: .h1,
+                label: "Superseded",
+                colorTokenIndex: 2,
+                diagnosticAlleles: [],
+                notes: "",
+                assignmentID: "superseded",
+                updatedAt: "2026-07-26T00:00:00Z",
+                author: "Analyst"
+            ),
+            ManualHaplotypeAssignment(
+                sample: "AnimalA",
+                locus: "MHC-A",
+                slot: .h1,
+                label: "Alpha",
+                colorTokenIndex: 1,
+                diagnosticAlleles: [],
+                notes: "",
+                assignmentID: "current",
+                updatedAt: "2026-07-27T00:00:00Z",
+                author: "Analyst"
+            ),
+            ManualHaplotypeAssignment(
+                sample: "AnimalB",
+                locus: "MHC-B",
+                slot: .h2,
+                label: "Beta",
+                colorTokenIndex: 3,
+                diagnosticAlleles: [],
+                notes: ""
+            ),
+        ]
+        try ONTGenotypeResultBundleData.writeAnnotationSidecar(
+            sidecar,
+            forBundleAt: bundleURL
+        )
+        let calls = [
+            makeCall(
+                sample: "AnimalA",
+                genotype: "01_Mafa_A1_001_01",
+                reads: 42
+            ),
+            makeCall(
+                sample: "AnimalB",
+                genotype: "01_Mafa_B_001_01",
+                reads: 21
+            ),
+        ]
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: calls
+        ))
+
+        controller.testingSelectMatrixColumns(
+            samples: ["AnimalA", "AnimalB"]
+        )
+
+        let rows = controller.testingCurrentSelectionDetailRows
+        XCTAssertTrue(rows.contains {
+            $0 == ("AnimalA Haplotype Completeness", "1 of 14 assigned")
+        })
+        XCTAssertTrue(rows.contains {
+            $0 == ("AnimalA Haplotype Labels", "Alpha")
+        })
+        XCTAssertTrue(rows.contains {
+            $0 == ("AnimalB Haplotype Completeness", "1 of 14 assigned")
+        })
+        XCTAssertTrue(rows.contains {
+            $0 == ("AnimalB Haplotype Labels", "Beta")
+        })
+        XCTAssertFalse(rows.contains { $0.1.contains("Superseded") })
+        XCTAssertNil(controller.testingManualHaplotypeEditorSample)
+        XCTAssertLessThanOrEqual(
+            rows.filter { $0.0.contains("Haplotype") }.count,
+            24
+        )
     }
 
     func testSelectedCellIncludesApplicableRowColumnAndCellComments() throws {

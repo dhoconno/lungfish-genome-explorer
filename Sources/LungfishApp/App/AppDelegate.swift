@@ -571,6 +571,17 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     public func applicationShouldTerminate(
         _ sender: NSApplication
     ) -> NSApplication.TerminateReply {
+        applicationShouldTerminate {
+            [weak sender] shouldTerminate in
+            sender?.reply(
+                toApplicationShouldTerminate: shouldTerminate
+            )
+        }
+    }
+
+    private func applicationShouldTerminate(
+        reply: @escaping @MainActor (Bool) -> Void
+    ) -> NSApplication.TerminateReply {
         if isReenteringManualHaplotypeTermination {
             isReenteringManualHaplotypeTermination = false
             return .terminateNow
@@ -585,7 +596,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return .terminateNow
         }
         manualHaplotypeTerminationTask =
-            Task { @MainActor [weak self, weak sender] in
+            Task { @MainActor [weak self] in
                 guard let self else { return }
                 let allowed =
                     await self
@@ -596,9 +607,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 if allowed {
                     self.isReenteringManualHaplotypeTermination = true
                 }
-                sender?.reply(
-                    toApplicationShouldTerminate: allowed
-                )
+                reply(allowed)
             }
         return .terminateLater
     }
@@ -1168,6 +1177,24 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         await prepareForManualHaplotypeTermination(
             in: controllers
         )
+    }
+
+    func testingSetMainWindowControllers(
+        _ controllers: [MainWindowController]
+    ) {
+        mainWindowControllers = controllers
+    }
+
+    func testingWaitForManualHaplotypeTermination() async {
+        while manualHaplotypeTerminationTask != nil {
+            await Task.yield()
+        }
+    }
+
+    func testingApplicationShouldTerminate(
+        reply: @escaping @MainActor (Bool) -> Void
+    ) -> NSApplication.TerminateReply {
+        applicationShouldTerminate(reply: reply)
     }
 
     @discardableResult

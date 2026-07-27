@@ -144,6 +144,56 @@ extension SidebarViewController: NSOutlineViewDelegate {
     }
 
     func handleSelectionChange(_ items: [SidebarItem], source: String) {
+        let requestedItems = items
+        let commit: @MainActor () -> Void = {
+            [weak self] in
+            guard let self else { return }
+            self.commitSelectionChange(
+                requestedItems,
+                source: source
+            )
+        }
+        if selectionDelegate?.sidebarShouldDeferSelectionTransition(
+            .selection,
+            commit: commit
+        ) == true {
+            restoreCommittedSelection()
+            return
+        }
+        commitSelectionChange(items, source: source)
+    }
+
+    func handleSelectionRefresh(
+        _ items: [SidebarItem],
+        source: String
+    ) {
+        let resolvedItems = resolveVisibleSelectionItems(items)
+        committedSelectionItems = resolvedItems
+        let commit = { @MainActor [weak self] in
+            guard let self else { return }
+            sidebarLogger.debug(
+                "\(source, privacy: .public): Refreshing \(resolvedItems.count) committed sidebar item(s)"
+            )
+            selectionDelegate?.sidebarDidRefreshSelectedItems(
+                resolvedItems
+            )
+        }
+        if selectionDelegate?.sidebarShouldDeferSelectionTransition(
+            .refresh,
+            commit: commit
+        ) == true {
+            return
+        }
+        commit()
+    }
+
+    private func commitSelectionChange(
+        _ requestedItems: [SidebarItem],
+        source: String
+    ) {
+        let items = resolveVisibleSelectionItems(requestedItems)
+        applySidebarSelection(items)
+        committedSelectionItems = items
 
         if items.isEmpty {
             sidebarLogger.debug("\(source, privacy: .public): Selection cleared")
@@ -180,6 +230,72 @@ extension SidebarViewController: NSOutlineViewDelegate {
             userInfo: sidebarSelectionUserInfo(items: items)
         )
         sidebarLogger.debug("\(source, privacy: .public): Called delegate and posted notification with \(items.count) items")
+    }
+
+    private func restoreCommittedSelection() {
+        let items = resolveVisibleSelectionItems(
+            committedSelectionItems
+        )
+        committedSelectionItems = items
+        applySidebarSelection(items)
+    }
+
+    private func applySidebarSelection(_ items: [SidebarItem]) {
+        let rows = IndexSet(
+            items.compactMap { item in
+                let row = outlineView.row(forItem: item)
+                return row >= 0 ? row : nil
+            }
+        )
+        suppressSelectionCallbacks = true
+        if rows.isEmpty {
+            outlineView.deselectAll(nil)
+        } else {
+            outlineView.selectRowIndexes(
+                rows,
+                byExtendingSelection: false
+            )
+        }
+        suppressSelectionCallbacks = false
+    }
+
+    private func resolveVisibleSelectionItems(
+        _ items: [SidebarItem]
+    ) -> [SidebarItem] {
+        var resolved: [SidebarItem] = []
+        var seen = Set<ObjectIdentifier>()
+        for item in items {
+            let candidate: SidebarItem?
+            if outlineView.row(forItem: item) >= 0 {
+                candidate = item
+            } else if let url = item.url?.standardizedFileURL {
+                candidate = visibleSidebarItem(matching: url)
+            } else {
+                candidate = nil
+            }
+            if let candidate,
+               seen.insert(ObjectIdentifier(candidate)).inserted {
+                resolved.append(candidate)
+            }
+        }
+        return resolved
+    }
+
+    private func visibleSidebarItem(
+        matching url: URL
+    ) -> SidebarItem? {
+        func search(_ items: [SidebarItem]) -> SidebarItem? {
+            for item in items {
+                if item.url?.standardizedFileURL == url {
+                    return item
+                }
+                if let match = search(item.children) {
+                    return match
+                }
+            }
+            return nil
+        }
+        return search(rootItems)
     }
 
     func sidebarSelectionUserInfo(items: [SidebarItem]) -> [String: Any] {

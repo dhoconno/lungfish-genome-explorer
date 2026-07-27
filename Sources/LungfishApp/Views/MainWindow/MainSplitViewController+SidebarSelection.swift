@@ -6,6 +6,7 @@ import AppKit
 import LungfishKit
 import LungfishCore
 import LungfishEsVirituUI
+import LungfishGenotypeUI
 import LungfishIO
 import LungfishWorkflow
 import os.log
@@ -13,6 +14,38 @@ import os.log
 // MARK: - SidebarSelectionDelegate
 
 extension MainSplitViewController: SidebarSelectionDelegate {
+    public func sidebarShouldDeferSelectionTransition(
+        _ transition: SidebarSelectionTransition,
+        commit: @escaping @MainActor () -> Void
+    ) -> Bool {
+        guard let genotypeController =
+                viewerController.genotypeResultViewController,
+              genotypeController.hasUnsavedManualHaplotypeDraft else {
+            return false
+        }
+        manualHaplotypeContentTransitionGeneration &+= 1
+        let generation =
+            manualHaplotypeContentTransitionGeneration
+        let draftTransition:
+            GenotypeManualHaplotypeDraftCoordinator.Transition =
+                transition == .refresh ? .reload : .bundleSwitch
+        Task { @MainActor [weak self, weak genotypeController] in
+            guard let self, let genotypeController else { return }
+            let allowed =
+                await genotypeController
+                    .prepareForManualHaplotypeTransition(
+                        draftTransition
+                    )
+            guard allowed,
+                  self.manualHaplotypeContentTransitionGeneration
+                    == generation else {
+                return
+            }
+            commit()
+        }
+        return true
+    }
+
     func recordUITestEvent(_ event: String) {
         AppUITestConfiguration.current.appendEvent(event)
     }

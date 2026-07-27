@@ -3900,6 +3900,12 @@ public final class GenotypeResultViewController: NSViewController {
         var stateRows: [(String, String)] = [
             ("Selection Type", samples.count == 1 ? "Column" : "Columns"),
         ]
+        let manualAssignmentIndex =
+            GenotypeManualHaplotypeAssignmentIndex(
+                assignments:
+                    annotationStore?.sidecar
+                        .manualHaplotypeAssignments ?? []
+            )
         let boundedSamples = samples.count == 1
             ? samples
             : Array(samples.prefix(12))
@@ -3918,9 +3924,56 @@ public final class GenotypeResultViewController: NSViewController {
                     ("QC", summary.qcStatus.displayName),
                 ]
             }
+            if samples.count > 1 {
+                let assignments =
+                    manualAssignmentIndex
+                        .sampleAssignments(for: sample)
+                        .assignments
+                let totalSlots =
+                    GenotypeManualHaplotypeLocus.allCases.count
+                    * HaplotypeSlot.allCases.count
+                let completeness =
+                    "\(assignments.count) of \(totalSlots) assigned"
+                let labels = Array(
+                    Set(assignments.map(\.label))
+                ).sorted {
+                    let order =
+                        $0.localizedStandardCompare($1)
+                    return order == .orderedSame
+                        ? $0 < $1
+                        : order == .orderedAscending
+                }
+                let boundedLabels = labels.prefix(6)
+                var labelSummary = boundedLabels.isEmpty
+                    ? "None"
+                    : boundedLabels.joined(separator: ", ")
+                let remainingLabels =
+                    labels.count - boundedLabels.count
+                if remainingLabels > 0 {
+                    labelSummary +=
+                        " (+\(remainingLabels) more)"
+                }
+                rows += [
+                    ("Haplotype Completeness", completeness),
+                    ("Haplotype Labels", labelSummary),
+                ]
+                stateRows += [
+                    (
+                        "\(sample) Haplotype Completeness",
+                        completeness
+                    ),
+                    (
+                        "\(sample) Haplotype Labels",
+                        labelSummary
+                    ),
+                ]
+            }
             detailStack.addArrangedSubview(detailRows(rows))
             stateRows.append((samples.count == 1 ? "Selected Sample" : "Sample \(index + 1)", sample))
-            stateRows += rows
+            stateRows += rows.filter {
+                samples.count == 1
+                    || !$0.0.hasPrefix("Haplotype ")
+            }
 
             guard samples.count == 1 else { continue }
 
@@ -8512,6 +8565,37 @@ extension GenotypeResultViewController {
     func testingSelectMatrixColumns(samples: [String]) {
         ensureComparisonMatrixConfigured()
         comparisonMatrix.testingSelectColumns(samples: samples)
+    }
+
+    func testingSetMatrixContentScrollOrigins(
+        pinned: NSPoint,
+        samples: NSPoint
+    ) {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.testingSetContentScrollOrigins(
+            pinned: pinned,
+            samples: samples
+        )
+    }
+
+    var testingMatrixContentScrollOrigins:
+        GenotypeMatrixContentScrollOrigins {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingContentScrollOrigins
+    }
+
+    var testingNativeMatrixSelectedRowIndexes: IndexSet {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingNativeSelectedRowIndexes
+    }
+
+    func testingApplyNativeMatrixRowSelection(
+        _ indexes: IndexSet
+    ) {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.testingApplyNativeRowSelection(
+            indexes
+        )
     }
 
     func testingShowMatrixTargetSelection(_ targets: [GenotypeAnnotationSidecar.MatrixTarget]) {

@@ -6,6 +6,11 @@
 
 import Foundation
 
+public enum SidebarSelectionTransition: Equatable, Sendable {
+    case selection
+    case refresh
+}
+
 /// Protocol for handling sidebar selection changes.
 ///
 /// Implement this protocol to receive direct callbacks when the user
@@ -34,6 +39,15 @@ import Foundation
 /// ```
 @MainActor
 public protocol SidebarSelectionDelegate: AnyObject {
+    /// Gives the content owner an opportunity to resolve an in-memory edit
+    /// before the sidebar commits selection UI, viewport callbacks, or
+    /// selection notifications. Returning `true` means the delegate retained
+    /// `commit` and will invoke it only after the transition is approved.
+    func sidebarShouldDeferSelectionTransition(
+        _ transition: SidebarSelectionTransition,
+        commit: @escaping @MainActor () -> Void
+    ) -> Bool
+
     /// Called when the sidebar selection changes to a single item.
     ///
     /// This method is called synchronously from `outlineViewSelectionDidChange`,
@@ -60,6 +74,15 @@ public protocol SidebarSelectionDelegate: AnyObject {
 // MARK: - Default Implementations
 
 public extension SidebarSelectionDelegate {
+    func sidebarShouldDeferSelectionTransition(
+        _ transition: SidebarSelectionTransition,
+        commit: @escaping @MainActor () -> Void
+    ) -> Bool {
+        _ = transition
+        _ = commit
+        return false
+    }
+
     /// Default implementation forwards to single-selection handler with first item.
     func sidebarDidSelectItems(_ items: [SidebarItem]) {
         sidebarDidSelectItem(items.first)
