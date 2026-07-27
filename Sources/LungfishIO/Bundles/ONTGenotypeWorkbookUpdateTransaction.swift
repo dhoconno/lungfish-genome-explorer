@@ -124,6 +124,12 @@ public enum ONTGenotypeWorkbookUpdateRecoveryError: Error, LocalizedError, Senda
     case invalidTransaction(String)
     case ambiguousTransaction(String)
     case currentWorkbookIntegrity(String)
+    case cleanupPendingWarning(
+        quarantinePath: String,
+        retryState: String,
+        warningPath: String,
+        reason: String
+    )
 
     public var errorDescription: String? {
         switch self {
@@ -136,6 +142,13 @@ public enum ONTGenotypeWorkbookUpdateRecoveryError: Error, LocalizedError, Senda
         case .invalidTransaction(let message): return "Workbook transaction marker is invalid: \(message)"
         case .ambiguousTransaction(let message): return "Workbook transaction recovery is ambiguous: \(message)"
         case .currentWorkbookIntegrity(let message): return "The current workbook failed integrity validation: \(message)"
+        case .cleanupPendingWarning(
+            let quarantinePath,
+            let retryState,
+            let warningPath,
+            let reason
+        ):
+            return "Workbook cleanup retained \(quarantinePath) in \(retryState) retry state. Warning: \(warningPath). \(reason)"
         }
     }
 }
@@ -498,7 +511,8 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
     public static func finalizeCommittedTransactionAssumingLock(
         _ transaction: ONTGenotypeWorkbookUpdateTransaction,
         for bundleURL: URL,
-        attestationRootURL: URL? = nil
+        attestationRootURL: URL? = nil,
+        cleanupFailureInjector: (@Sendable (String) throws -> Void)? = nil
     ) throws {
         let authority = try loadRecoveryAuthority(
             for: bundleURL,
@@ -521,15 +535,30 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             )
         }
         try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-        try removeProvenTransactionRoot(transaction)
+        try prepareProvenTransactionRootCleanup(
+            transaction,
+            decision: .committed,
+            failureInjector: cleanupFailureInjector
+        )
         try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-        try removeMarkerAndAttestation(authority, for: bundleURL, attestationRootURL: attestationRootURL)
+        try removeMarkerAndAttestation(
+            authority,
+            for: bundleURL,
+            attestationRootURL: attestationRootURL,
+            cleanupFailureInjector: cleanupFailureInjector
+        )
+        try completeProvenTransactionRootCleanup(
+            transaction,
+            for: bundleURL,
+            failureInjector: cleanupFailureInjector
+        )
     }
 
     public static func discardPreparedTransactionAssumingLock(
         _ transaction: ONTGenotypeWorkbookUpdateTransaction,
         for bundleURL: URL,
-        attestationRootURL: URL? = nil
+        attestationRootURL: URL? = nil,
+        cleanupFailureInjector: (@Sendable (String) throws -> Void)? = nil
     ) throws {
         let authority = try loadRecoveryAuthority(
             for: bundleURL,
@@ -544,15 +573,37 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         }
         try validatePreparedDirectoryIdentitiesAssumingLock(transaction, for: bundleURL)
         try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-        try removeProvenTransactionRoot(transaction)
+        try prepareProvenTransactionRootCleanup(
+            transaction,
+            decision: .preparedDiscard,
+            failureInjector: cleanupFailureInjector
+        )
         try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-        try removeMarkerAndAttestation(authority, for: bundleURL, attestationRootURL: attestationRootURL)
+        try removeMarkerAndAttestation(
+            authority,
+            for: bundleURL,
+            attestationRootURL: attestationRootURL,
+            cleanupFailureInjector: cleanupFailureInjector
+        )
+        try completeProvenTransactionRootCleanup(
+            transaction,
+            for: bundleURL,
+            failureInjector: cleanupFailureInjector
+        )
     }
 
     public static func recoverIfNeededAssumingLock(
         for bundleURL: URL,
-        attestationRootURL: URL? = nil
+        attestationRootURL: URL? = nil,
+        cleanupFailureInjector: (@Sendable (String) throws -> Void)? = nil
     ) throws {
+        if try recoverCleanupStateIfPresent(
+            for: bundleURL,
+            attestationRootURL: attestationRootURL,
+            failureInjector: cleanupFailureInjector
+        ) {
+            return
+        }
         guard let authority = try loadRecoveryAuthorityIfPresent(
             for: bundleURL,
             attestationRootURL: attestationRootURL
@@ -567,7 +618,8 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         ) {
             try recoverIfNeededAssumingLock(
                 for: bundleURL,
-                attestationRootURL: attestationRootURL
+                attestationRootURL: attestationRootURL,
+                cleanupFailureInjector: cleanupFailureInjector
             )
             return
         }
@@ -586,7 +638,11 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         if finalState == .oldWorkbookEdited,
            (stagingState == .committedNew || stagingState == .committedNewWorkbookEdited) {
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try removeProvenTransactionRoot(transaction)
+            try prepareProvenTransactionRootCleanup(
+                transaction,
+                decision: .manualSaveWinner,
+                failureInjector: cleanupFailureInjector
+            )
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
             try writeReceipt(
                 transaction,
@@ -594,16 +650,40 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 detail: "The prior generation was restored after a manual-save conflict; the generated revision was discarded."
             )
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try removeMarkerAndAttestation(authority, for: bundleURL, attestationRootURL: attestationRootURL)
+            try removeMarkerAndAttestation(
+                authority,
+                for: bundleURL,
+                attestationRootURL: attestationRootURL,
+                cleanupFailureInjector: cleanupFailureInjector
+            )
+            try completeProvenTransactionRootCleanup(
+                transaction,
+                for: bundleURL,
+                failureInjector: cleanupFailureInjector
+            )
             return
         }
         if (finalState == .old || finalState == .oldWorkbookEdited), stagingState == .preparedNew {
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try removeProvenTransactionRoot(transaction)
+            try prepareProvenTransactionRootCleanup(
+                transaction,
+                decision: .preparedDiscard,
+                failureInjector: cleanupFailureInjector
+            )
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
             try writeReceipt(transaction, action: "discarded-unpublished-staging", detail: "Final generation remained unchanged.")
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try removeMarkerAndAttestation(authority, for: bundleURL, attestationRootURL: attestationRootURL)
+            try removeMarkerAndAttestation(
+                authority,
+                for: bundleURL,
+                attestationRootURL: attestationRootURL,
+                cleanupFailureInjector: cleanupFailureInjector
+            )
+            try completeProvenTransactionRootCleanup(
+                transaction,
+                for: bundleURL,
+                failureInjector: cleanupFailureInjector
+            )
             return
         }
         if finalState == .preparedNew, stagingState == .old {
@@ -623,11 +703,25 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 throw try ambiguous(transaction, detail: "Rollback exchange did not restore the prior generation.")
             }
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try removeProvenTransactionRoot(transaction)
+            try prepareProvenTransactionRootCleanup(
+                transaction,
+                decision: .rollback,
+                failureInjector: cleanupFailureInjector
+            )
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
             try writeReceipt(transaction, action: "restored-prior-generation", detail: "Recovered an interrupted pre-manifest workbook publication.")
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try removeMarkerAndAttestation(authority, for: bundleURL, attestationRootURL: attestationRootURL)
+            try removeMarkerAndAttestation(
+                authority,
+                for: bundleURL,
+                attestationRootURL: attestationRootURL,
+                cleanupFailureInjector: cleanupFailureInjector
+            )
+            try completeProvenTransactionRootCleanup(
+                transaction,
+                for: bundleURL,
+                failureInjector: cleanupFailureInjector
+            )
             return
         }
         if (finalState == .committedNew || finalState == .committedNewWorkbookEdited),
@@ -651,7 +745,11 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 )
             }
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try removeProvenTransactionRoot(transaction)
+            try prepareProvenTransactionRootCleanup(
+                transaction,
+                decision: .manualSaveWinner,
+                failureInjector: cleanupFailureInjector
+            )
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
             try writeReceipt(
                 transaction,
@@ -659,34 +757,87 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 detail: "A manual save to the retired workbook generation won the publication conflict; the generated revision was discarded."
             )
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try removeMarkerAndAttestation(authority, for: bundleURL, attestationRootURL: attestationRootURL)
+            try removeMarkerAndAttestation(
+                authority,
+                for: bundleURL,
+                attestationRootURL: attestationRootURL,
+                cleanupFailureInjector: cleanupFailureInjector
+            )
+            try completeProvenTransactionRootCleanup(
+                transaction,
+                for: bundleURL,
+                failureInjector: cleanupFailureInjector
+            )
             return
         }
         if (finalState == .committedNew || finalState == .committedNewWorkbookEdited),
            stagingState == .old {
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try removeProvenTransactionRoot(transaction)
+            try prepareProvenTransactionRootCleanup(
+                transaction,
+                decision: .committed,
+                failureInjector: cleanupFailureInjector
+            )
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
             try writeReceipt(transaction, action: "finished-committed-cleanup", detail: "The new manifest and workbook were already durable.")
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try removeMarkerAndAttestation(authority, for: bundleURL, attestationRootURL: attestationRootURL)
+            try removeMarkerAndAttestation(
+                authority,
+                for: bundleURL,
+                attestationRootURL: attestationRootURL,
+                cleanupFailureInjector: cleanupFailureInjector
+            )
+            try completeProvenTransactionRootCleanup(
+                transaction,
+                for: bundleURL,
+                failureInjector: cleanupFailureInjector
+            )
             return
         }
         if (finalState == .committedNew || finalState == .committedNewWorkbookEdited), stagingState == .missing {
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
+            try prepareProvenTransactionRootCleanup(
+                transaction,
+                decision: .committed,
+                failureInjector: cleanupFailureInjector
+            )
             try writeReceipt(transaction, action: "finished-committed-marker-cleanup", detail: "The prior generation had already been retired.")
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try removeMarkerAndAttestation(authority, for: bundleURL, attestationRootURL: attestationRootURL)
+            try removeMarkerAndAttestation(
+                authority,
+                for: bundleURL,
+                attestationRootURL: attestationRootURL,
+                cleanupFailureInjector: cleanupFailureInjector
+            )
+            try completeProvenTransactionRootCleanup(
+                transaction,
+                for: bundleURL,
+                failureInjector: cleanupFailureInjector
+            )
             return
         }
         if (finalState == .old || finalState == .oldWorkbookEdited),
            !FileManager.default.fileExists(atPath: staging.path) {
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try removeProvenTransactionRoot(transaction)
+            try prepareProvenTransactionRootCleanup(
+                transaction,
+                decision: .rollback,
+                failureInjector: cleanupFailureInjector
+            )
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
             try writeReceipt(transaction, action: "finished-rollback-cleanup", detail: "The prior generation was already restored.")
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try removeMarkerAndAttestation(authority, for: bundleURL, attestationRootURL: attestationRootURL)
+            try removeMarkerAndAttestation(
+                authority,
+                for: bundleURL,
+                attestationRootURL: attestationRootURL,
+                cleanupFailureInjector: cleanupFailureInjector
+            )
+            try completeProvenTransactionRootCleanup(
+                transaction,
+                for: bundleURL,
+                failureInjector: cleanupFailureInjector
+            )
             return
         }
         throw try ambiguous(
@@ -696,7 +847,12 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
     }
 
     public static func recoveryAuthorityExists(for bundleURL: URL) throws -> Bool {
-        try loadRecoveryAuthorityIfPresent(
+        if try !ONTGenotypeWorkbookCleanupStateStore.states(
+            for: bundleURL.standardizedFileURL
+        ).isEmpty {
+            return true
+        }
+        return try loadRecoveryAuthorityIfPresent(
             for: bundleURL.standardizedFileURL,
             attestationRootURL: nil
         ) != nil
@@ -1321,7 +1477,11 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         return .ambiguousTransaction(detail)
     }
 
-    private static func removeProvenTransactionRoot(_ transaction: ONTGenotypeWorkbookUpdateTransaction) throws {
+    private static func prepareProvenTransactionRootCleanup(
+        _ transaction: ONTGenotypeWorkbookUpdateTransaction,
+        decision: ONTGenotypeWorkbookCleanupDecision,
+        failureInjector: (@Sendable (String) throws -> Void)?
+    ) throws {
         let root = URL(fileURLWithPath: transaction.transactionRootPath, isDirectory: true)
         let staging = URL(fileURLWithPath: transaction.stagingBundlePath, isDirectory: true)
         let final = URL(fileURLWithPath: transaction.finalBundlePath, isDirectory: true)
@@ -1331,29 +1491,105 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
               root.lastPathComponent.hasSuffix(".staging") else {
             throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction("unsafe transaction cleanup root")
         }
-        let archive = root.deletingLastPathComponent().appendingPathComponent(
-            ".lungfish-workbook-generation-archive-\(transaction.transactionID)",
-            isDirectory: true
+        let parent = root.deletingLastPathComponent()
+        let quarantine = ONTGenotypeWorkbookCleanupStateStore.quarantineURL(
+            transactionID: transaction.transactionID,
+            parent: parent
         )
-        if try directoryIdentityIfPresent(at: root) == nil {
-            if try directoryIdentityIfPresent(at: archive) != nil { return }
-            return
-        }
-        try requireDirectoryIdentity(
-            at: root,
-            expected: transaction.transactionRootIdentity,
-            role: "transaction root"
+        let stateURL = ONTGenotypeWorkbookCleanupStateStore.stateURL(
+            transactionID: transaction.transactionID,
+            bundleURL: final
         )
-        guard try directoryIdentityIfPresent(at: archive) == nil else {
+        let existingStates = try ONTGenotypeWorkbookCleanupStateStore.states(for: final)
+            .filter { $0.1.transactionID == transaction.transactionID }
+        guard existingStates.count <= 1 else {
             throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
-                "The retired workbook generation archive already exists; no generation was deleted."
+                "Multiple workbook cleanup states claim transaction \(transaction.transactionID)."
             )
         }
-        try moveDirectoryNoReplace(
-            root,
-            expected: transaction.transactionRootIdentity,
-            to: archive,
-            transaction: transaction
+        if let existing = existingStates.first {
+            guard existing.0.standardizedFileURL == stateURL.standardizedFileURL,
+                  existing.1.decision == decision else {
+                throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                    "Workbook cleanup decision changed for transaction \(transaction.transactionID)."
+                )
+            }
+            return
+        }
+
+        let rootIdentity = try directoryIdentityIfPresent(at: root)
+        let quarantineIdentity = try directoryIdentityIfPresent(at: quarantine)
+        if let rootIdentity {
+            guard identity(rootIdentity, matches: transaction.transactionRootIdentity) else {
+                throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction(
+                    "transaction root identity does not match before cleanup detach: \(root.path)"
+                )
+            }
+            guard quarantineIdentity == nil else {
+                throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                    "Workbook cleanup quarantine already exists while the transaction root remains."
+                )
+            }
+            try moveDirectoryNoReplace(
+                root,
+                expected: transaction.transactionRootIdentity,
+                to: quarantine,
+                transaction: transaction
+            )
+            try failureInjector?("after-workbook-cleanup-detach-hard-stop")
+        } else if let quarantineIdentity {
+            guard identity(quarantineIdentity, matches: transaction.transactionRootIdentity) else {
+                throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                    "Workbook cleanup quarantine identity does not match the transaction root."
+                )
+            }
+        } else {
+            // A prior cleanup may have removed the quarantine before retiring
+            // recovery authority. There is no retired generation left to delete.
+            return
+        }
+
+        guard let detachedIdentity = try directoryIdentityIfPresent(at: quarantine),
+              identity(detachedIdentity, matches: transaction.transactionRootIdentity) else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "The detached workbook cleanup quarantine is unavailable or changed."
+            )
+        }
+        let state = ONTGenotypeWorkbookCleanupState(
+            transactionID: transaction.transactionID,
+            finalBundlePath: final.path,
+            sourceRootPath: root.path,
+            quarantinePath: quarantine.path,
+            parentIdentity: transaction.finalParentIdentity,
+            sourceIdentity: transaction.transactionRootIdentity,
+            quarantineIdentity: ONTGenotypeWorkbookUpdateDirectoryIdentity(
+                path: quarantine.path,
+                device: detachedIdentity.device,
+                inode: detachedIdentity.inode
+            ),
+            decision: decision
+        )
+        try ONTGenotypeWorkbookCleanupStateStore.write(state, at: stateURL)
+        try failureInjector?("after-workbook-cleanup-state-durable-hard-stop")
+    }
+
+    private static func completeProvenTransactionRootCleanup(
+        _ transaction: ONTGenotypeWorkbookUpdateTransaction,
+        for bundleURL: URL,
+        failureInjector: (@Sendable (String) throws -> Void)?
+    ) throws {
+        let states = try ONTGenotypeWorkbookCleanupStateStore.states(for: bundleURL)
+            .filter { $0.1.transactionID == transaction.transactionID }
+        guard states.count <= 1 else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "Multiple workbook cleanup states claim transaction \(transaction.transactionID)."
+            )
+        }
+        guard let (stateURL, state) = states.first else { return }
+        try ONTGenotypeWorkbookCleanupStateStore.removeQuarantineNoFollow(
+            state: state,
+            stateURL: stateURL,
+            failureInjector: failureInjector
         )
     }
 
@@ -1786,7 +2022,8 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
     private static func removeMarkerAndAttestation(
         _ authority: RecoveryAuthority,
         for bundleURL: URL,
-        attestationRootURL: URL?
+        attestationRootURL: URL?,
+        cleanupFailureInjector: (@Sendable (String) throws -> Void)? = nil
     ) throws {
         if let markerWitness = authority.markerWitness {
             guard let markerURL = authority.markerURL else {
@@ -1795,12 +2032,57 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 )
             }
             try unlinkExact(markerURL, expected: markerWitness)
+            try cleanupFailureInjector?(
+                "after-workbook-cleanup-marker-removal-hard-stop"
+            )
         }
         let recordURL = try attestationURL(
             for: authority.transaction,
             attestationRootURL: attestationRootURL
         )
         try unlinkExact(recordURL, expected: authority.attestationWitness)
+    }
+
+    private static func recoverCleanupStateIfPresent(
+        for bundleURL: URL,
+        attestationRootURL: URL?,
+        failureInjector: (@Sendable (String) throws -> Void)?
+    ) throws -> Bool {
+        let states = try ONTGenotypeWorkbookCleanupStateStore.states(for: bundleURL)
+        guard states.count <= 1 else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "Multiple workbook cleanup states claim \(bundleURL.path)."
+            )
+        }
+        guard let (stateURL, state) = states.first else { return false }
+
+        if let authority = try loadRecoveryAuthorityIfPresent(
+            for: bundleURL,
+            attestationRootURL: attestationRootURL
+        ) {
+            guard authority.transaction.transactionID == state.transactionID else {
+                throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                    "Workbook cleanup state and recovery authority claim different transactions."
+                )
+            }
+            try requireAuthorityUnchanged(
+                authority,
+                for: bundleURL,
+                attestationRootURL: attestationRootURL
+            )
+            try removeMarkerAndAttestation(
+                authority,
+                for: bundleURL,
+                attestationRootURL: attestationRootURL,
+                cleanupFailureInjector: failureInjector
+            )
+        }
+        try ONTGenotypeWorkbookCleanupStateStore.removeQuarantineNoFollow(
+            state: state,
+            stateURL: stateURL,
+            failureInjector: failureInjector
+        )
+        return true
     }
 
     private static func unlinkExact(_ url: URL, expected: FileWitness) throws {
