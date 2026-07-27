@@ -137,6 +137,14 @@ public final class GenotypeResultViewController: NSViewController {
         case failure(Error, sidecarBeforeAttempt: GenotypeAnnotationSidecar)
     }
 
+    private enum ManualHaplotypeEditorError: Error, LocalizedError {
+        case unavailable
+
+        var errorDescription: String? {
+            "The manual haplotype assignment store is no longer available."
+        }
+    }
+
     private struct SharedCallKey: Hashable {
         let locus: String
         let genotype: String
@@ -253,6 +261,8 @@ public final class GenotypeResultViewController: NSViewController {
     private var hasHaplotypingResult = false
     private var sampleMetadataStore: SampleMetadataStore?
     private var annotationStore: GenotypeAnnotationStore?
+    private var manualHaplotypeEditorModel:
+        GenotypeManualHaplotypeEditorModel?
     private var manualHaplotypingSelection: Set<String> = []
     private var manualHaplotypingDraftLabel: String = ""
     private var manualHaplotypingDraftColorTokenIndex: Int = 1
@@ -3548,6 +3558,7 @@ public final class GenotypeResultViewController: NSViewController {
         currentSharedCall = nil
         currentCandidateRow = nil
         currentSelectedSample = nil
+        manualHaplotypeEditorModel = nil
         alleleSequenceDetailWidthConstraint?.isActive = false
         alleleSequenceDetailWidthConstraint = nil
         alleleSequenceDetailHeightConstraint?.isActive = false
@@ -3792,6 +3803,7 @@ public final class GenotypeResultViewController: NSViewController {
             let order = $0.localizedStandardCompare($1)
             return order == .orderedSame ? $0 < $1 : order == .orderedAscending
         }
+        manualHaplotypeEditorModel = nil
         removeArrangedSubviews(from: detailStack)
         detailStack.addArrangedSubview(sectionTitle(samples.count == 1 ? "Selected Sample" : "Selected Samples"))
         var stateRows: [(String, String)] = [
@@ -3799,6 +3811,10 @@ public final class GenotypeResultViewController: NSViewController {
         ]
         for (index, sample) in samples.enumerated() {
             detailStack.addArrangedSubview(wrappingText(sample, weight: .medium))
+            if samples.count == 1,
+               let editor = makeManualHaplotypeEditorHost(for: sample) {
+                detailStack.addArrangedSubview(editor)
+            }
             let summary = sampleResultsByName[sample]
             var rows: [(String, String)] = [("Sample", sample)]
             if let summary {
@@ -5081,6 +5097,110 @@ public final class GenotypeResultViewController: NSViewController {
         return true
     }
 
+    private func makeManualHaplotypeEditorHost(for sample: String) -> NSView? {
+        guard case .eligible = manualHaplotypeEligibility,
+              let result,
+              let store = annotationStore else {
+            return nil
+        }
+
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: store.sidecar.manualHaplotypeAssignments
+        )
+        let sampleNames = Set(
+            result.samples.map(\.sample)
+                + result.calls.map(\.sample)
+                + [sample]
+        )
+        let copyCandidates = sampleNames
+            .sorted {
+                $0.localizedStandardCompare($1) == .orderedAscending
+            }
+            .map(index.sampleAssignments(for:))
+
+        let model = GenotypeManualHaplotypeEditorModel(
+            draft: GenotypeManualHaplotypeDraft(
+                sample: sample,
+                index: index
+            ),
+            copyCandidates: copyCandidates,
+            isReadOnly: store.isReadOnly,
+            onSave: { [weak self] draft in
+                guard let self,
+                      let currentStore = self.annotationStore else {
+                    throw ManualHaplotypeEditorError.unavailable
+                }
+                let assignments = try draft.validatedAssignments()
+                let replacement =
+                    try currentStore.replaceManualHaplotypeAssignments(
+                        for: draft.sample,
+                        with: assignments,
+                        copySource: draft.copySource,
+                        author: self.annotationAuthorProvider()
+                    )
+                if replacement.didChange {
+                    self.markCurrentWorkbookDirty(
+                        requiresFullUpdate: true,
+                        legacyStatus:
+                            "current.xlsx does not include manual haplotype changes."
+                    )
+                    self.onAnnotationSidecarChanged?(currentStore.sidecar)
+                }
+                let currentIndex = GenotypeManualHaplotypeAssignmentIndex(
+                    assignments:
+                        currentStore.sidecar.manualHaplotypeAssignments
+                )
+                return GenotypeManualHaplotypeDraft(
+                    sample: draft.sample,
+                    index: currentIndex
+                )
+            },
+            onReload: { [weak self] in
+                guard let self,
+                      let currentResult = self.result else {
+                    throw ManualHaplotypeEditorError.unavailable
+                }
+                let reloadedStore = try GenotypeAnnotationStore(
+                    bundleURL: currentResult.bundleURL,
+                    author: self.annotationAuthorProvider(),
+                    seedBuiltInSmartCohorts: false
+                )
+                self.annotationStore = reloadedStore
+                self.currentWorkbookIsReadOnly = reloadedStore.isReadOnly
+                self.rebuildMatrixAnnotationIndexes()
+                self.comparisonMatrix.applyAnnotationSidecar(
+                    reloadedStore.sidecar,
+                    reload: false
+                )
+                self.rebuildArtifactLens()
+                return GenotypeManualHaplotypeDraft(
+                    sample: sample,
+                    index: GenotypeManualHaplotypeAssignmentIndex(
+                        assignments:
+                            reloadedStore.sidecar.manualHaplotypeAssignments
+                    )
+                )
+            },
+            onExport: { [weak self] in
+                self?.exportManualDefinitions()
+            }
+        )
+        manualHaplotypeEditorModel = model
+
+        let container = NSHostingView(
+            rootView: GenotypeManualHaplotypeEditor(model: model)
+        )
+        container.identifier = Self.generatedContentHostingViewIdentifier
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.setAccessibilityIdentifier(
+            "manual-haplotype-detail-editor"
+        )
+        NSLayoutConstraint.activate([
+            container.heightAnchor.constraint(greaterThanOrEqualToConstant: 590),
+        ])
+        return container
+    }
+
     private func makeManualHaplotypingHost() -> NSView {
         let container = NSHostingView(rootView: manualHaplotypingSectionBody())
         container.identifier = Self.generatedContentHostingViewIdentifier
@@ -5093,27 +5213,12 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func manualHaplotypingSectionBody() -> some View {
-        let rows = manualHaplotypingRows()
-        let assignments = annotationStore?.sidecar.manualHaplotypeAssignments ?? []
+        let assignments = GenotypeManualHaplotypeAssignmentIndex(
+            assignments:
+                annotationStore?.sidecar.manualHaplotypeAssignments ?? []
+        ).currentAssignments
         return GenotypeManualHaplotypingSection(
-            rows: rows,
             manualAssignments: assignments,
-            selectedGenotypeIds: Binding(
-                get: { [weak self] in self?.manualHaplotypingSelection ?? [] },
-                set: { [weak self] newValue in self?.manualHaplotypingSelection = newValue }
-            ),
-            draftLabel: Binding(
-                get: { [weak self] in self?.manualHaplotypingDraftLabel ?? "" },
-                set: { [weak self] newValue in self?.manualHaplotypingDraftLabel = newValue }
-            ),
-            draftColorTokenIndex: Binding(
-                get: { [weak self] in self?.manualHaplotypingDraftColorTokenIndex ?? 1 },
-                set: { [weak self] newValue in self?.manualHaplotypingDraftColorTokenIndex = newValue }
-            ),
-            onCreateHaplotype: { [weak self] in self?.commitManualHaplotype() },
-            onDeleteAssignment: { [weak self] assignment in
-                self?.deleteManualHaplotype(matching: assignment)
-            },
             onExportDefinitions: { [weak self] in self?.exportManualDefinitions() }
         )
     }
@@ -5204,6 +5309,9 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func exportManualDefinitions() {
         guard let store = annotationStore else { return }
+        let assignments = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: store.sidecar.manualHaplotypeAssignments
+        ).currentAssignments
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.json]
         panel.nameFieldStringValue = "manual-haplotype-definitions.json"
@@ -5213,11 +5321,11 @@ public final class GenotypeResultViewController: NSViewController {
                 let startedAt = Date()
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-                let data = try encoder.encode(store.sidecar.manualHaplotypeAssignments)
+                let data = try encoder.encode(assignments)
                 try data.write(to: url, options: .atomic)
                 try self.writeManualDefinitionsExportProvenance(
                     outputURL: url,
-                    assignmentCount: store.sidecar.manualHaplotypeAssignments.count,
+                    assignmentCount: assignments.count,
                     startedAt: startedAt
                 )
             } catch {
