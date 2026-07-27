@@ -1,9 +1,48 @@
 import Foundation
+import SQLite3
 import XCTest
 @testable import LungfishIO
 @testable import LungfishWorkflow
 
 final class GenotypeReviewableRowCatalogPublisherTests: XCTestCase {
+    func testMiSeqReferenceAuthorityDescriptorsCoverManifestAndRecordStoreMutation() throws {
+        let fixture = try AnnotatedReferenceFixture()
+        defer { fixture.remove() }
+
+        let first = try ONTBarcodeDemuxGenotypingPipeline.reviewableReferenceAuthority(
+            referenceFASTAURL: fixture.fastaURL,
+            sourceReferenceBundleURL: fixture.bundleURL
+        )
+        XCTAssertEqual(first.records.first?.displayNameForTesting, "Mafa-A1*001:01")
+        XCTAssertEqual(
+            Set(first.descriptors.map(\.path)),
+            Set([
+                fixture.fastaURL.path,
+                fixture.manifestURL.path,
+                fixture.databaseURL.path,
+            ])
+        )
+        XCTAssertTrue(first.descriptors.allSatisfy {
+            $0.checksumSHA256 != nil && $0.fileSize != nil
+        })
+        let firstDatabaseHash = first.descriptors.first {
+            $0.path == fixture.databaseURL.path
+        }?.checksumSHA256
+
+        try fixture.updateAllele(to: "Mafa-A1*002:01")
+        let second = try ONTBarcodeDemuxGenotypingPipeline.reviewableReferenceAuthority(
+            referenceFASTAURL: fixture.fastaURL,
+            sourceReferenceBundleURL: fixture.bundleURL
+        )
+
+        XCTAssertEqual(second.records.first?.displayNameForTesting, "Mafa-A1*002:01")
+        XCTAssertNotEqual(
+            second.descriptors.first { $0.path == fixture.databaseURL.path }?
+                .checksumSHA256,
+            firstDatabaseHash
+        )
+    }
+
     func testPublishesAbsentAndSupportedReferenceRowsForExactRoster() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -100,7 +139,8 @@ final class GenotypeReviewableRowCatalogPublisherTests: XCTestCase {
             to: fixture.outputDirectory
         )) {
             XCTAssertEqual(
-                $0 as? GenotypeReviewableRowCatalogPublisherError,
+                ($0 as? GenotypeReviewableRowCatalogPublicationFailure)?
+                    .underlyingError as? GenotypeReviewableRowCatalogPublisherError,
                 .sampleOutsideRoster("outside")
             )
         }
@@ -117,7 +157,8 @@ final class GenotypeReviewableRowCatalogPublisherTests: XCTestCase {
             to: fixture.outputDirectory
         )) {
             XCTAssertEqual(
-                $0 as? GenotypeReviewableRowCatalogPublisherError,
+                ($0 as? GenotypeReviewableRowCatalogPublicationFailure)?
+                    .underlyingError as? GenotypeReviewableRowCatalogPublisherError,
                 .duplicateCandidateStableID("stable-1")
             )
         }
@@ -130,7 +171,8 @@ final class GenotypeReviewableRowCatalogPublisherTests: XCTestCase {
             to: fixture.outputDirectory
         )) {
             XCTAssertEqual(
-                $0 as? GenotypeReviewableRowCatalogPublisherError,
+                ($0 as? GenotypeReviewableRowCatalogPublicationFailure)?
+                    .underlyingError as? GenotypeReviewableRowCatalogPublisherError,
                 .callWithoutAuthoritativeRow(locus: "MHC-A", genotype: "not-authoritative")
             )
         }
@@ -193,6 +235,76 @@ final class GenotypeReviewableRowCatalogPublisherTests: XCTestCase {
                 includingPropertiesForKeys: nil
             ).contains { $0.lastPathComponent.contains(".staging-") }
         )
+    }
+
+    func testPostPublicationFailureRestoresExistingCatalogAndCarriesFailedProvenance() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let outputURL = fixture.outputDirectory
+            .appendingPathComponent("artifacts/projections/genotype-reviewable-rows.json")
+        try FileManager.default.createDirectory(
+            at: outputURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let original = Data("existing-authoritative-catalog".utf8)
+        try original.write(to: outputURL)
+        let publisher = GenotypeReviewableRowCatalogPublisher(
+            dateProvider: { fixture.startedAt },
+            publicationObserver: { phase in
+                if phase == .published { throw FixtureError.injected }
+            }
+        )
+
+        XCTAssertThrowsError(
+            try publisher.publish(fixture.inputs(), to: fixture.outputDirectory)
+        ) { error in
+            let failure = error as? GenotypeReviewableRowCatalogPublicationFailure
+            XCTAssertEqual(failure?.provenance.exitStatus, 1)
+            XCTAssertEqual(failure?.provenance.steps.last?.exitStatus, 1)
+            XCTAssertTrue(failure?.provenance.stderr?.contains("injected") == true)
+            XCTAssertEqual(
+                failure?.provenance.steps.last?.outputs.first?.path,
+                outputURL.path
+            )
+        }
+        XCTAssertEqual(try Data(contentsOf: outputURL), original)
+        XCTAssertFalse(
+            try FileManager.default.contentsOfDirectory(
+                at: outputURL.deletingLastPathComponent(),
+                includingPropertiesForKeys: nil
+            ).contains {
+                $0.lastPathComponent.contains(".staging-")
+                    || $0.lastPathComponent.contains(".rollback-")
+            }
+        )
+    }
+
+    func testFinalHashFailureRestoresExistingCatalog() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let outputURL = fixture.outputDirectory
+            .appendingPathComponent("artifacts/projections/genotype-reviewable-rows.json")
+        try FileManager.default.createDirectory(
+            at: outputURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let original = Data("existing-before-hash-fault".utf8)
+        try original.write(to: outputURL)
+        let publisher = GenotypeReviewableRowCatalogPublisher(
+            dateProvider: { fixture.startedAt },
+            finalArtifactDescriptorProvider: { _ in
+                throw FixtureError.injected
+            }
+        )
+
+        XCTAssertThrowsError(
+            try publisher.publish(fixture.inputs(), to: fixture.outputDirectory)
+        ) { error in
+            let failure = error as? GenotypeReviewableRowCatalogPublicationFailure
+            XCTAssertEqual(failure?.provenance.exitStatus, 1)
+            XCTAssertTrue(failure?.provenance.stderr?.contains("injected") == true)
+        }
+        XCTAssertEqual(try Data(contentsOf: outputURL), original)
     }
 
     func testSuccessfulReplacementPublishesOnlyTheNewCompleteCatalog() throws {
@@ -258,8 +370,10 @@ final class GenotypeReviewableRowCatalogPublisherTests: XCTestCase {
         XCTAssertEqual(provenance.steps[0].exitStatus, 0)
     }
 
-    private enum FixtureError: Error {
+    private enum FixtureError: Error, LocalizedError {
         case injected
+
+        var errorDescription: String? { "injected review catalog failure" }
     }
 
     private struct Fixture {
@@ -400,4 +514,102 @@ private func makeCall(
             )
         }
     )
+}
+
+private struct AnnotatedReferenceFixture {
+    let root: URL
+    let bundleURL: URL
+    let fastaURL: URL
+    let manifestURL: URL
+    let databaseURL: URL
+
+    init() throws {
+        root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("review-reference-\(UUID().uuidString)", isDirectory: true)
+        bundleURL = root.appendingPathComponent("reference.lungfishref", isDirectory: true)
+        fastaURL = bundleURL.appendingPathComponent("genome/reference.fa")
+        manifestURL = bundleURL.appendingPathComponent("manifest.json")
+        databaseURL = bundleURL.appendingPathComponent("metadata/records.sqlite")
+        try FileManager.default.createDirectory(
+            at: fastaURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: databaseURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data(">raw-a\nACGT\n".utf8).write(to: fastaURL)
+        let manifest: [String: Any] = [
+            "genome": ["path": "genome/reference.fa"],
+            "record_store": ["database_path": "metadata/records.sqlite"],
+        ]
+        try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys])
+            .write(to: manifestURL)
+        try Self.createDatabase(at: databaseURL, allele: "Mafa-A1*001:01")
+    }
+
+    func updateAllele(to allele: String) throws {
+        var database: OpaquePointer?
+        guard sqlite3_open(databaseURL.path, &database) == SQLITE_OK,
+              let database else {
+            throw FixtureDatabaseError.open
+        }
+        defer { sqlite3_close(database) }
+        let escaped = allele.replacingOccurrences(of: "'", with: "''")
+        guard sqlite3_exec(
+            database,
+            "UPDATE field_values SET value = '\(escaped)' WHERE field_key = 'feature.allele';",
+            nil,
+            nil,
+            nil
+        ) == SQLITE_OK else {
+            throw FixtureDatabaseError.update
+        }
+    }
+
+    func remove() {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    private static func createDatabase(at url: URL, allele: String) throws {
+        var database: OpaquePointer?
+        guard sqlite3_open(url.path, &database) == SQLITE_OK,
+              let database else {
+            throw FixtureDatabaseError.open
+        }
+        defer { sqlite3_close(database) }
+        let escaped = allele.replacingOccurrences(of: "'", with: "''")
+        let sql = """
+        CREATE TABLE records (
+            id INTEGER PRIMARY KEY,
+            sequence_name TEXT NOT NULL UNIQUE,
+            sequence_length INTEGER NOT NULL,
+            source_ordinal INTEGER NOT NULL
+        );
+        CREATE TABLE field_values (
+            record_id INTEGER NOT NULL,
+            field_key TEXT NOT NULL,
+            value_ordinal INTEGER NOT NULL,
+            value TEXT NOT NULL,
+            PRIMARY KEY (record_id, field_key, value_ordinal)
+        );
+        INSERT INTO records VALUES (1, 'raw-a', 4, 0);
+        INSERT INTO field_values VALUES (1, 'feature.allele', 0, '\(escaped)');
+        INSERT INTO field_values VALUES (1, 'feature.gene', 0, 'A1');
+        INSERT INTO field_values VALUES (1, 'feature.mol_type', 0, 'genomic DNA');
+        """
+        guard sqlite3_exec(database, sql, nil, nil, nil) == SQLITE_OK else {
+            throw FixtureDatabaseError.create
+        }
+    }
+
+    private enum FixtureDatabaseError: Error {
+        case open
+        case create
+        case update
+    }
+}
+
+private extension MHCReferenceRecord {
+    var displayNameForTesting: String { alleleName }
 }

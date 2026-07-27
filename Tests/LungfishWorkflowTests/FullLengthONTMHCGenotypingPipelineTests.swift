@@ -1418,6 +1418,57 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             minimumLength: 4,
             maximumLength: 12
         )
+        let failingPipeline = FullLengthONTMHCGenotypingPipeline(
+            nativeToolRunner: NativeToolRunner(
+                toolsDirectory: nil,
+                homeDirectory: homeDirectory
+            ),
+            condaManager: CondaManager(
+                rootPrefix: condaRoot,
+                bundledMicromambaProvider: { bundledMicromamba },
+                bundledMicromambaVersionProvider: { "test-micromamba" }
+            ),
+            postPublicationWorkDirectoryCleaner:
+                DefaultFullLengthONTMHCWorkDirectoryCleaner(),
+            metadataPublicationObserver: { _ in },
+            reviewableRowCatalogPublisher: { inputs, outputDirectory in
+                try GenotypeReviewableRowCatalogPublisher(
+                    publicationObserver: { phase in
+                        if phase == .staged {
+                            throw NSError(
+                                domain: "ReviewCatalogTests",
+                                code: 92,
+                                userInfo: [
+                                    NSLocalizedDescriptionKey:
+                                        "injected full-length review catalog failure",
+                                ]
+                            )
+                        }
+                    }
+                ).publish(inputs, to: outputDirectory)
+            }
+        )
+        do {
+            _ = try await failingPipeline.run(request)
+            XCTFail("Expected review catalog publication failure")
+        } catch {
+            let failedEnvelope = try XCTUnwrap(
+                ProvenanceEnvelopeReader.load(
+                    fromSidecar: request.failureProvenanceURL
+                )
+            )
+            XCTAssertEqual(failedEnvelope.exitStatus, 1)
+            let failedStep = try XCTUnwrap(failedEnvelope.steps.first {
+                $0.toolName == "lungfish genotype reviewable row catalog publisher"
+            })
+            XCTAssertEqual(failedStep.exitStatus, 1)
+            XCTAssertTrue(
+                failedStep.stderr?
+                    .contains("injected full-length review catalog failure") == true
+            )
+            XCTAssertFalse(failedStep.inputs.isEmpty)
+            XCTAssertFalse(failedStep.outputs.isEmpty)
+        }
         let pipeline = FullLengthONTMHCGenotypingPipeline(
             nativeToolRunner: NativeToolRunner(toolsDirectory: nil, homeDirectory: homeDirectory),
             condaManager: CondaManager(

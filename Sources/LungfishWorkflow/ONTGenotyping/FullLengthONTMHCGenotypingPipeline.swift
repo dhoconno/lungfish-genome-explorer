@@ -851,6 +851,11 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
     private let metadataPublicationObserver: @Sendable (FullLengthONTMHCMetadataPublicationEvent) throws -> Void
     private let rollbackOperationObserver: @Sendable () throws -> Void
     private let exclusivePublicationFailureInjector: @Sendable (FullLengthONTMHCExclusivePublicationTarget) throws -> Int32?
+    private let reviewableRowCatalogPublisher:
+        @Sendable (
+            GenotypeReviewableRowCatalogInputs,
+            URL
+        ) throws -> GenotypeReviewableRowCatalogPublication
 
     public init(
         nativeToolRunner: NativeToolRunner = .shared,
@@ -863,6 +868,12 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         self.metadataPublicationObserver = { _ in }
         self.rollbackOperationObserver = {}
         self.exclusivePublicationFailureInjector = { _ in nil }
+        self.reviewableRowCatalogPublisher = { inputs, outputDirectory in
+            try GenotypeReviewableRowCatalogPublisher().publish(
+                inputs,
+                to: outputDirectory
+            )
+        }
     }
 
     init(
@@ -871,7 +882,17 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         postPublicationWorkDirectoryCleaner: any FullLengthONTMHCWorkDirectoryCleaning,
         metadataPublicationObserver: @escaping @Sendable (FullLengthONTMHCMetadataPublicationEvent) throws -> Void,
         rollbackOperationObserver: @escaping @Sendable () throws -> Void = {},
-        exclusivePublicationFailureInjector: @escaping @Sendable (FullLengthONTMHCExclusivePublicationTarget) throws -> Int32? = { _ in nil }
+        exclusivePublicationFailureInjector: @escaping @Sendable (FullLengthONTMHCExclusivePublicationTarget) throws -> Int32? = { _ in nil },
+        reviewableRowCatalogPublisher:
+            @escaping @Sendable (
+                GenotypeReviewableRowCatalogInputs,
+                URL
+            ) throws -> GenotypeReviewableRowCatalogPublication = {
+                try GenotypeReviewableRowCatalogPublisher().publish(
+                    $0,
+                    to: $1
+                )
+            }
     ) {
         self.nativeToolRunner = nativeToolRunner
         self.condaManager = condaManager
@@ -879,6 +900,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         self.metadataPublicationObserver = metadataPublicationObserver
         self.rollbackOperationObserver = rollbackOperationObserver
         self.exclusivePublicationFailureInjector = exclusivePublicationFailureInjector
+        self.reviewableRowCatalogPublisher = reviewableRowCatalogPublisher
     }
 
     public func run(
@@ -4794,7 +4816,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 role: .index
             ),
         ]
-        return try GenotypeReviewableRowCatalogPublisher().publish(
+        return try reviewableRowCatalogPublisher(
             GenotypeReviewableRowCatalogInputs(
                 referenceRecords: referenceRecords,
                 authoritativeSamples: sampleNames,
@@ -4825,7 +4847,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                     condaPrefix: condaManager.rootPrefix.path
                 )
             ),
-            to: request.outputDirectory
+            request.outputDirectory
         )
     }
 
@@ -5714,6 +5736,11 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         }
         if let visualizationError = error as? FullLengthONTMHCReferenceVisualizationPublicationError {
             appendIfMissing(visualizationError.step)
+        }
+        if let catalogError =
+            error as? GenotypeReviewableRowCatalogPublicationFailure,
+           let failedStep = catalogError.provenance.steps.last {
+            appendIfMissing(failedStep)
         }
         if let successfulPublicationRecord {
             appendIfMissing(successfulPublicationRecord.provenanceStep)

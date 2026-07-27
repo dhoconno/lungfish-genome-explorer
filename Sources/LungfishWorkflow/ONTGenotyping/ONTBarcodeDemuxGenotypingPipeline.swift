@@ -3,6 +3,33 @@ import Darwin
 import LungfishCore
 import LungfishIO
 
+struct GenotypeReviewableReferenceAuthority: Sendable {
+    let records: [MHCReferenceRecord]
+    let descriptors: [ProvenanceFileDescriptor]
+}
+
+private struct GenotypeReviewableReferenceManifestProjection: Decodable {
+    struct Genome: Decodable {
+        let path: String
+    }
+
+    struct RecordStore: Decodable {
+        let databasePath: String
+
+        enum CodingKeys: String, CodingKey {
+            case databasePath = "database_path"
+        }
+    }
+
+    let genome: Genome?
+    let recordStore: RecordStore?
+
+    enum CodingKeys: String, CodingKey {
+        case genome
+        case recordStore = "record_store"
+    }
+}
+
 public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable {
     public let inputFASTQURL: URL
     public let inputFASTQURLs: [URL]
@@ -697,6 +724,11 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     private let condaManager: CondaManager
     private let referenceImporter: ReferenceBundleImportService
     private let fileRemover: @Sendable (URL) throws -> Void
+    private let reviewableRowCatalogPublisher:
+        @Sendable (
+            GenotypeReviewableRowCatalogInputs,
+            URL
+        ) throws -> GenotypeReviewableRowCatalogPublication
     private static let mappingProcessTimeout: TimeInterval = 86_400
 
     public init(
@@ -708,16 +740,35 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         self.fileRemover = { url in
             try FileManager.default.removeItem(at: url)
         }
+        self.reviewableRowCatalogPublisher = { inputs, outputDirectory in
+            try GenotypeReviewableRowCatalogPublisher().publish(
+                inputs,
+                to: outputDirectory
+            )
+        }
     }
 
     init(
         condaManager: CondaManager,
         referenceImporter: ReferenceBundleImportService = .shared,
-        fileRemover: @escaping @Sendable (URL) throws -> Void
+        fileRemover: @escaping @Sendable (URL) throws -> Void = {
+            try FileManager.default.removeItem(at: $0)
+        },
+        reviewableRowCatalogPublisher:
+            @escaping @Sendable (
+                GenotypeReviewableRowCatalogInputs,
+                URL
+            ) throws -> GenotypeReviewableRowCatalogPublication = {
+                try GenotypeReviewableRowCatalogPublisher().publish(
+                    $0,
+                    to: $1
+                )
+            }
     ) {
         self.condaManager = condaManager
         self.referenceImporter = referenceImporter
         self.fileRemover = fileRemover
+        self.reviewableRowCatalogPublisher = reviewableRowCatalogPublisher
     }
 
     public func run(
@@ -946,6 +997,21 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                     request: request,
                     mapping: mapping
                 )
+            }
+            if let failure =
+                error as? GenotypeReviewableRowCatalogPublicationFailure {
+                do {
+                    try ProvenanceWriter(signingProvider: nil).write(
+                        failure.provenance,
+                        to: request.outputDirectory
+                    )
+                } catch let provenanceError {
+                    throw ONTBarcodeDemuxGenotypingError.reportFailed(
+                        status: 1,
+                        stderr:
+                            "\(failure.localizedDescription); failed-run provenance also could not be written (\(provenanceError.localizedDescription))."
+                    )
+                }
             }
             throw error
         }
@@ -2564,9 +2630,11 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             from: request.outputDirectory,
             manifest: projectionManifest
         )
-        let referenceRecords = try reviewableReferenceRecords(
-            reference: reference
-        ).filter {
+        let referenceAuthority = try Self.reviewableReferenceAuthority(
+            referenceFASTAURL: reference.referenceFASTAURL,
+            sourceReferenceBundleURL: reference.sourceReferenceBundleURL
+        )
+        let referenceRecords = referenceAuthority.records.filter {
             !$0.alleleName.localizedCaseInsensitiveContains("_nov")
         }
         let candidates = scientificArtifactPublication.reviewableRowCandidates
@@ -2584,12 +2652,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "--output", outputURL.path,
             "--support-metric", "passed-unique-reads",
         ]
-        var descriptors = [
-            try ProvenanceFileDescriptor.file(
-                url: reference.referenceFASTAURL,
-                format: .fasta,
-                role: .reference
-            ),
+        var descriptors = referenceAuthority.descriptors + [
             try ProvenanceFileDescriptor.file(
                 url: request.sampleSummaryCSVURL,
                 format: .text,
@@ -2608,7 +2671,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 role: .input
             ))
         }
-        return try GenotypeReviewableRowCatalogPublisher().publish(
+        return try reviewableRowCatalogPublisher(
             GenotypeReviewableRowCatalogInputs(
                 referenceRecords: referenceRecords,
                 authoritativeSamples: result.sampleNames,
@@ -2638,48 +2701,95 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                     condaPrefix: condaManager.rootPrefix.path
                 )
             ),
-            to: request.outputDirectory
+            request.outputDirectory
         )
     }
 
-    private func reviewableReferenceRecords(
-        reference: ReferenceResolution
-    ) throws -> [MHCReferenceRecord] {
+    static func reviewableReferenceAuthority(
+        referenceFASTAURL: URL,
+        sourceReferenceBundleURL: URL?
+    ) throws -> GenotypeReviewableReferenceAuthority {
         let catalogBundleURL: URL?
-        if let source = reference.sourceReferenceBundleURL,
+        var authorityURLs = [referenceFASTAURL.standardizedFileURL]
+        if let source = sourceReferenceBundleURL,
            MHCAmpliconReferenceBundle.isBundleURL(source) {
+            authorityURLs.append(
+                MHCAmpliconReferenceBundle.manifestURL(in: source)
+                    .standardizedFileURL
+            )
             catalogBundleURL = MHCAmpliconReferenceBundle.referenceBundleURL(in: source)
-        } else if reference.sourceReferenceBundleURL?.pathExtension.lowercased()
+        } else if sourceReferenceBundleURL?.pathExtension.lowercased()
             == "lungfishref" {
-            catalogBundleURL = reference.sourceReferenceBundleURL
+            catalogBundleURL = sourceReferenceBundleURL
         } else {
             catalogBundleURL = nil
         }
+        let records: [MHCReferenceRecord]
         if let catalogBundleURL {
-            return try MHCReferenceRecordCatalog.load(from: catalogBundleURL).records
-        }
-        return try FASTAReader(url: reference.referenceFASTAURL).readAllSync().map {
-            let locus = ONTGenotypeCall(
-                sample: "catalog-projection",
-                genotype: $0.name,
-                passedAlignments: 0,
-                passedUniqueReads: 0,
-                sampleTotalReads: nil,
-                sampleUniqueRetainedReads: nil,
-                sampleUniqueRetainedPercent: nil,
-                overallInputReads: nil,
-                overallUniqueRetainedReads: nil,
-                overallUniqueRetainedPercent: nil
-            ).locusGroup
-            return MHCReferenceRecord(
-                sequenceID: $0.name,
-                alleleName: $0.name,
-                locus: locus,
-                moleculeClass: .genomicDNA,
-                classEvidence: .lengthThresholdFallback,
-                sequenceLength: $0.length
+            let manifestURL = catalogBundleURL
+                .appendingPathComponent(BundleManifest.filename)
+                .standardizedFileURL
+            let manifest = try JSONDecoder().decode(
+                GenotypeReviewableReferenceManifestProjection.self,
+                from: Data(contentsOf: manifestURL)
             )
+            authorityURLs.append(manifestURL)
+            if let genomePath = manifest.genome?.path {
+                authorityURLs.append(try BundleManifest.validatedBundleMemberURL(
+                    for: genomePath,
+                    in: catalogBundleURL,
+                    field: "genome.path"
+                ))
+            }
+            if let databasePath = manifest.recordStore?.databasePath {
+                authorityURLs.append(try BundleManifest.validatedBundleMemberURL(
+                    for: databasePath,
+                    in: catalogBundleURL,
+                    field: "record_store.database_path"
+                ))
+            }
+            records = try MHCReferenceRecordCatalog.load(from: catalogBundleURL).records
+        } else {
+            records = try FASTAReader(url: referenceFASTAURL).readAllSync().map {
+                let locus = ONTGenotypeCall(
+                    sample: "catalog-projection",
+                    genotype: $0.name,
+                    passedAlignments: 0,
+                    passedUniqueReads: 0,
+                    sampleTotalReads: nil,
+                    sampleUniqueRetainedReads: nil,
+                    sampleUniqueRetainedPercent: nil,
+                    overallInputReads: nil,
+                    overallUniqueRetainedReads: nil,
+                    overallUniqueRetainedPercent: nil
+                ).locusGroup
+                return MHCReferenceRecord(
+                    sequenceID: $0.name,
+                    alleleName: $0.name,
+                    locus: locus,
+                    moleculeClass: .genomicDNA,
+                    classEvidence: .lengthThresholdFallback,
+                    sequenceLength: $0.length
+                )
+            }
         }
+        var seenPaths = Set<String>()
+        let descriptors = try authorityURLs
+            .map(\.standardizedFileURL)
+            .filter { seenPaths.insert($0.path).inserted }
+            .map {
+                try ProvenanceFileDescriptor.file(
+                    url: $0,
+                    format: $0.pathExtension.lowercased() == "json"
+                        ? .json
+                        : ($0.pathExtension.lowercased().contains("fa") ? .fasta : nil),
+                    role: .reference
+                )
+            }
+        return GenotypeReviewableReferenceAuthority(
+            records: records,
+            descriptors: descriptors
+        )
     }
 
     private func resolveHaplotypeDefinitionSet(

@@ -718,6 +718,55 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             readType: .illumina
         )
 
+        let failingPipeline = ONTBarcodeDemuxGenotypingPipeline(
+            condaManager: CondaManager(
+                rootPrefix: condaRoot,
+                bundledMicromambaProvider: { bundledMicromamba },
+                bundledMicromambaVersionProvider: { "test-micromamba" }
+            ),
+            reviewableRowCatalogPublisher: { inputs, outputDirectory in
+                try GenotypeReviewableRowCatalogPublisher(
+                    publicationObserver: { phase in
+                        if phase == .staged {
+                            throw NSError(
+                                domain: "ReviewCatalogTests",
+                                code: 91,
+                                userInfo: [
+                                    NSLocalizedDescriptionKey:
+                                        "injected miSeq review catalog failure",
+                                ]
+                            )
+                        }
+                    }
+                ).publish(inputs, to: outputDirectory)
+            }
+        )
+        do {
+            _ = try await failingPipeline.run(request)
+            XCTFail("Expected review catalog publication failure")
+        } catch {
+            let failedEnvelope = try XCTUnwrap(
+                ProvenanceEnvelopeReader.load(from: outputDirectory)
+            )
+            XCTAssertEqual(failedEnvelope.exitStatus, 1)
+            let failedStep = try XCTUnwrap(failedEnvelope.steps.first {
+                $0.toolName == "lungfish genotype reviewable row catalog publisher"
+            })
+            XCTAssertEqual(failedStep.exitStatus, 1)
+            XCTAssertTrue(
+                failedStep.stderr?.contains("injected miSeq review catalog failure")
+                    == true
+            )
+            XCTAssertFalse(failedStep.inputs.isEmpty)
+            XCTAssertEqual(
+                failedStep.outputs.first?.path,
+                outputDirectory
+                    .appendingPathComponent(
+                        "artifacts/projections/genotype-reviewable-rows.json"
+                    ).path
+            )
+        }
+
         let result = try await ONTBarcodeDemuxGenotypingPipeline(
             condaManager: CondaManager(
                 rootPrefix: condaRoot,

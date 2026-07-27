@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import LungfishIO
 
@@ -20,6 +21,7 @@ public enum GenotypeReviewableRowCatalogPublisherError:
     case callWithoutAuthoritativeRow(locus: String, genotype: String)
     case candidateSupportMismatch(locus: String, genotype: String, sample: String)
     case outputOutsideBundle(String)
+    case finalArtifactMismatch(String)
 
     public var errorDescription: String? {
         switch self {
@@ -49,8 +51,32 @@ public enum GenotypeReviewableRowCatalogPublisherError:
             return "Candidate observation and call evidence disagree: \(locus), \(genotype), \(sample)."
         case let .outputOutsideBundle(path):
             return "The genotype reviewable-row catalog output is outside the result bundle: \(path)."
+        case let .finalArtifactMismatch(path):
+            return "The published genotype reviewable-row catalog does not match its staged payload: \(path)."
         }
     }
+}
+
+public struct GenotypeReviewableRowCatalogPublicationFailure:
+    Error,
+    LocalizedError,
+    @unchecked Sendable
+{
+    public let message: String
+    public let provenance: ProvenanceEnvelope
+    public let underlyingError: Error
+
+    public init(
+        message: String,
+        provenance: ProvenanceEnvelope,
+        underlyingError: Error
+    ) {
+        self.message = message
+        self.provenance = provenance
+        self.underlyingError = underlyingError
+    }
+
+    public var errorDescription: String? { message }
 }
 
 /// A workflow-neutral projection of a validated candidate authority.
@@ -207,13 +233,23 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
 
     private let dateProvider: @Sendable () -> Date
     private let publicationObserver: @Sendable (PublicationPhase) throws -> Void
+    private let finalArtifactDescriptorProvider:
+        @Sendable (URL) throws -> (sha256: String, fileSize: UInt64)
 
     public init(
         dateProvider: @escaping @Sendable () -> Date = Date.init,
-        publicationObserver: @escaping @Sendable (PublicationPhase) throws -> Void = { _ in }
+        publicationObserver: @escaping @Sendable (PublicationPhase) throws -> Void = { _ in },
+        finalArtifactDescriptorProvider:
+            @escaping @Sendable (URL) throws -> (sha256: String, fileSize: UInt64) = {
+                (
+                    try ProvenanceFileHasher.sha256(of: $0),
+                    try ProvenanceFileHasher.fileSize(of: $0)
+                )
+            }
     ) {
         self.dateProvider = dateProvider
         self.publicationObserver = publicationObserver
+        self.finalArtifactDescriptorProvider = finalArtifactDescriptorProvider
     }
 
     public func publish(
@@ -221,6 +257,35 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
         to bundleDirectoryURL: URL
     ) throws -> GenotypeReviewableRowCatalogPublication {
         let startedAt = dateProvider()
+        do {
+            return try publish(
+                inputs,
+                to: bundleDirectoryURL,
+                startedAt: startedAt
+            )
+        } catch let failure as GenotypeReviewableRowCatalogPublicationFailure {
+            throw failure
+        } catch {
+            let completedAt = dateProvider()
+            throw GenotypeReviewableRowCatalogPublicationFailure(
+                message: error.localizedDescription,
+                provenance: failureProvenance(
+                    inputs: inputs,
+                    bundleDirectoryURL: bundleDirectoryURL,
+                    startedAt: startedAt,
+                    completedAt: completedAt,
+                    error: error
+                ),
+                underlyingError: error
+            )
+        }
+    }
+
+    private func publish(
+        _ inputs: GenotypeReviewableRowCatalogInputs,
+        to bundleDirectoryURL: URL,
+        startedAt: Date
+    ) throws -> GenotypeReviewableRowCatalogPublication {
         let roster = try validatedRoster(inputs.authoritativeSamples)
         try validateInputDescriptors(inputs.inputDescriptors)
         let references = try referenceRows(
@@ -279,21 +344,34 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
         )
         let stagedURL = outputURL.deletingLastPathComponent()
             .appendingPathComponent(".\(outputURL.lastPathComponent).staging-\(UUID().uuidString)")
+        let finalDescriptor: (sha256: String, fileSize: UInt64)
         do {
             var encoded = try document.encoded()
             encoded.append(0x0a)
             try encoded.write(to: stagedURL, options: .withoutOverwriting)
             try publicationObserver(.staged)
-            _ = try ProvenanceFileHasher.sha256(of: stagedURL)
-            try publishStagedFile(stagedURL, to: outputURL)
-            try publicationObserver(.published)
+            let stagedHash = try ProvenanceFileHasher.sha256(of: stagedURL)
+            let stagedSize = try ProvenanceFileHasher.fileSize(of: stagedURL)
+            finalDescriptor = try publishStagedFile(
+                stagedURL,
+                to: outputURL
+            ) {
+                try publicationObserver(.published)
+                let descriptor = try finalArtifactDescriptorProvider(outputURL)
+                guard descriptor.sha256 == stagedHash,
+                      descriptor.fileSize == stagedSize else {
+                    throw GenotypeReviewableRowCatalogPublisherError
+                        .finalArtifactMismatch(outputURL.path)
+                }
+                return descriptor
+            }
         } catch {
             try? FileManager.default.removeItem(at: stagedURL)
             throw error
         }
 
-        let outputHash = try ProvenanceFileHasher.sha256(of: outputURL)
-        let outputSize = try ProvenanceFileHasher.fileSize(of: outputURL)
+        let outputHash = finalDescriptor.sha256
+        let outputSize = finalDescriptor.fileSize
         let artifact = ONTMHCArtifactReference(
             path: relativeOutputPath,
             sha256: outputHash,
@@ -646,17 +724,119 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
         return String(file.dropFirst(prefix.count))
     }
 
-    private func publishStagedFile(_ stagedURL: URL, to outputURL: URL) throws {
-        if FileManager.default.fileExists(atPath: outputURL.path) {
-            _ = try FileManager.default.replaceItemAt(
-                outputURL,
-                withItemAt: stagedURL,
-                backupItemName: nil,
-                options: []
-            )
+    private func publishStagedFile<T>(
+        _ stagedURL: URL,
+        to outputURL: URL,
+        validate: () throws -> T
+    ) throws -> T {
+        let hadExistingOutput = FileManager.default.fileExists(atPath: outputURL.path)
+        if hadExistingOutput {
+            guard Darwin.renamex_np(
+                stagedURL.path,
+                outputURL.path,
+                UInt32(RENAME_SWAP)
+            ) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
         } else {
-            try FileManager.default.moveItem(at: stagedURL, to: outputURL)
+            guard Darwin.renamex_np(
+                stagedURL.path,
+                outputURL.path,
+                UInt32(RENAME_EXCL)
+            ) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
         }
+        do {
+            let result = try validate()
+            if hadExistingOutput {
+                try FileManager.default.removeItem(at: stagedURL)
+            }
+            return result
+        } catch {
+            if hadExistingOutput {
+                if Darwin.renamex_np(
+                    stagedURL.path,
+                    outputURL.path,
+                    UInt32(RENAME_SWAP)
+                ) == 0 {
+                    try? FileManager.default.removeItem(at: stagedURL)
+                }
+            } else if Darwin.renamex_np(
+                outputURL.path,
+                stagedURL.path,
+                UInt32(RENAME_EXCL)
+            ) == 0 {
+                try? FileManager.default.removeItem(at: stagedURL)
+            }
+            throw error
+        }
+    }
+
+    private func failureProvenance(
+        inputs: GenotypeReviewableRowCatalogInputs,
+        bundleDirectoryURL: URL,
+        startedAt: Date,
+        completedAt: Date,
+        error: Error
+    ) -> ProvenanceEnvelope {
+        let outputURL = bundleDirectoryURL
+            .appendingPathComponent("artifacts", isDirectory: true)
+            .appendingPathComponent("projections", isDirectory: true)
+            .appendingPathComponent("genotype-reviewable-rows.json")
+            .standardizedFileURL
+        let intendedOutput = ProvenanceFileDescriptor(
+            path: outputURL.path,
+            format: .json,
+            role: .report
+        )
+        let stderr = error.localizedDescription
+        let options = ProvenanceOptions(
+            explicit: inputs.userVisibleOptions,
+            resolvedDefaults: inputs.resolvedDefaults
+        )
+        let step = ProvenanceStep(
+            toolName: "lungfish genotype reviewable row catalog publisher",
+            toolVersion: inputs.toolVersion,
+            argv: inputs.argv,
+            durableReplayArgv: inputs.argv,
+            reproducibleCommand: inputs.argv.map(shellEscape).joined(separator: " "),
+            resolvedOptions: inputs.userVisibleOptions.merging(inputs.resolvedDefaults) {
+                explicit, _ in explicit
+            },
+            runtimeIdentity: inputs.runtimeIdentity,
+            inputs: inputs.inputDescriptors,
+            outputs: [intendedOutput],
+            exitStatus: 1,
+            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            stderr: stderr,
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+        return ProvenanceEnvelope(
+            createdAt: completedAt,
+            workflowName: inputs.workflowName,
+            workflowVersion: inputs.workflowVersion,
+            toolName: "lungfish genotype reviewable row catalog publisher",
+            toolVersion: inputs.toolVersion,
+            tool: ProvenanceToolIdentity(
+                name: "lungfish genotype reviewable row catalog publisher",
+                version: inputs.toolVersion,
+                kind: "in-process"
+            ),
+            argv: inputs.argv,
+            durableReplayArgv: inputs.argv,
+            reproducibleCommand: inputs.argv.map(shellEscape).joined(separator: " "),
+            options: options,
+            runtimeIdentity: inputs.runtimeIdentity,
+            files: inputs.inputDescriptors + [intendedOutput],
+            output: intendedOutput,
+            outputs: [intendedOutput],
+            steps: [step],
+            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            exitStatus: 1,
+            stderr: stderr
+        )
     }
 
     private func isCanonicalNonempty(_ value: String) -> Bool {
