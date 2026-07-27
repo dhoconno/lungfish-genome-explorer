@@ -276,6 +276,10 @@ public enum OwnedWorkDirectoryMarkerError: Error, LocalizedError, Equatable {
     case missingMarker(String)
     case invalidMarker(String)
     case identityMismatch(String)
+    case rollbackQuarantineRetained(path: String, operation: String, code: Int32)
+    case rollbackRemovalDurabilityUncertain(path: String, operation: String, code: Int32)
+    case cleanupQuarantineRetained(path: String, operation: String, code: Int32)
+    case cleanupRemovalDurabilityUncertain(path: String, operation: String, code: Int32)
     case systemFailure(path: String, operation: String, code: Int32)
 
     public var errorDescription: String? {
@@ -285,6 +289,14 @@ public enum OwnedWorkDirectoryMarkerError: Error, LocalizedError, Equatable {
         case .missingMarker(let path): return "Owned work-directory marker is missing: \(path)"
         case .invalidMarker(let detail): return "Owned work-directory marker is invalid: \(detail)"
         case .identityMismatch(let path): return "Owned work-directory identity no longer matches: \(path)"
+        case .rollbackQuarantineRetained(let path, let operation, let code):
+            return "Owned work-directory rollback retained a recoverable quarantine at \(path) after \(operation) failed (errno \(code))."
+        case .rollbackRemovalDurabilityUncertain(let path, let operation, let code):
+            return "Owned work-directory rollback removal at \(path) has uncertain durability after \(operation) failed (errno \(code))."
+        case .cleanupQuarantineRetained(let path, let operation, let code):
+            return "Temporary cleanup retained recoverable or partially cleaned data at \(path) after \(operation) failed (errno \(code))."
+        case .cleanupRemovalDurabilityUncertain(let path, let operation, let code):
+            return "Temporary cleanup removal at \(path) has uncertain durability after \(operation) failed (errno \(code))."
         case .systemFailure(let path, let operation, let code):
             return "Could not \(operation) \(path) (errno \(code))."
         }
@@ -292,10 +304,34 @@ public enum OwnedWorkDirectoryMarkerError: Error, LocalizedError, Equatable {
 }
 
 public enum OwnedWorkDirectoryMarkerStore {
+    public struct RollbackOperations: Sendable {
+        public typealias Synchronizer = @Sendable (Int32) -> Int32
+        public typealias EntryRemover = @Sendable (Int32, String) -> Int32
+
+        public var syncParent: Synchronizer
+        public var removeMarker: EntryRemover
+        public var removeDirectory: EntryRemover
+
+        public init(
+            syncParent: @escaping Synchronizer = { Darwin.fsync($0) },
+            removeMarker: @escaping EntryRemover = { descriptor, name in
+                name.withCString { Darwin.unlinkat(descriptor, $0, 0) }
+            },
+            removeDirectory: @escaping EntryRemover = { descriptor, name in
+                name.withCString { Darwin.unlinkat(descriptor, $0, AT_REMOVEDIR) }
+            }
+        ) {
+            self.syncParent = syncParent
+            self.removeMarker = removeMarker
+            self.removeDirectory = removeDirectory
+        }
+    }
+
     @discardableResult
     public static func createDirectory(
         _ request: OwnedWorkDirectoryCreationRequest,
-        atomicFileStore: DurableAtomicFileStore = .init()
+        atomicFileStore: DurableAtomicFileStore = .init(),
+        rollbackOperations: RollbackOperations = .init()
     ) throws -> URL {
         try validate(request)
 
@@ -378,11 +414,13 @@ public enum OwnedWorkDirectoryMarkerStore {
         }
         let childIdentity = FileSystemObjectIdentity(childInfo)
         guard childInfo.st_mode & S_IFMT == S_IFDIR else {
-            rollbackNewDirectory(
+            try rollbackNewDirectory(
                 named: childName,
                 parentDescriptor: parentDescriptor,
                 childDescriptor: childDescriptor,
-                expectedIdentity: childIdentity
+                expectedIdentity: childIdentity,
+                displayedAt: childURL,
+                operations: rollbackOperations
             )
             throw OwnedWorkDirectoryMarkerError.unsafePath(childURL.path)
         }
@@ -426,13 +464,18 @@ public enum OwnedWorkDirectoryMarkerStore {
             }
             return childURL
         } catch {
-            rollbackNewDirectory(
-                named: childName,
-                parentDescriptor: parentDescriptor,
-                childDescriptor: childDescriptor,
-                expectedIdentity: childIdentity
-            )
-            _ = Darwin.fsync(parentDescriptor)
+            do {
+                try rollbackNewDirectory(
+                    named: childName,
+                    parentDescriptor: parentDescriptor,
+                    childDescriptor: childDescriptor,
+                    expectedIdentity: childIdentity,
+                    displayedAt: childURL,
+                    operations: rollbackOperations
+                )
+            } catch {
+                throw error
+            }
             throw error
         }
     }
@@ -549,10 +592,14 @@ public enum OwnedWorkDirectoryMarkerStore {
         named childName: String,
         parentDescriptor: Int32,
         childDescriptor: Int32,
-        expectedIdentity: FileSystemObjectIdentity
-    ) {
+        expectedIdentity: FileSystemObjectIdentity,
+        displayedAt childURL: URL,
+        operations: RollbackOperations
+    ) throws {
         let quarantineName =
             ".lungfish-owned-rollback-pending-\(UUID().uuidString.lowercased())"
+        let quarantineURL = childURL.deletingLastPathComponent()
+            .appendingPathComponent(quarantineName, isDirectory: true)
         let detachStatus = childName.withCString { source in
             quarantineName.withCString { quarantine in
                 Darwin.renameatx_np(
@@ -564,7 +611,14 @@ public enum OwnedWorkDirectoryMarkerStore {
                 )
             }
         }
-        guard detachStatus == 0 else { return }
+        guard detachStatus == 0 else {
+            if errno == ENOENT { return }
+            throw OwnedWorkDirectoryMarkerError.rollbackQuarantineRetained(
+                path: childURL.path,
+                operation: "detach owned work directory into rollback quarantine",
+                code: errno
+            )
+        }
 
         var quarantineInfo = stat()
         let inspectStatus = quarantineName.withCString {
@@ -577,7 +631,7 @@ public enum OwnedWorkDirectoryMarkerStore {
         }
         guard inspectStatus == 0,
               FileSystemObjectIdentity(quarantineInfo) == expectedIdentity else {
-            _ = quarantineName.withCString { quarantine in
+            let restoreStatus = quarantineName.withCString { quarantine in
                 childName.withCString { destination in
                     Darwin.renameatx_np(
                         parentDescriptor,
@@ -588,12 +642,40 @@ public enum OwnedWorkDirectoryMarkerStore {
                     )
                 }
             }
-            _ = Darwin.fsync(parentDescriptor)
+            guard restoreStatus == 0 else {
+                throw OwnedWorkDirectoryMarkerError.rollbackQuarantineRetained(
+                    path: quarantineURL.path,
+                    operation: "restore substituted owned rollback quarantine",
+                    code: errno
+                )
+            }
+            guard operations.syncParent(parentDescriptor) == 0 else {
+                throw OwnedWorkDirectoryMarkerError.rollbackRemovalDurabilityUncertain(
+                    path: childURL.path,
+                    operation: "fsync restored owned rollback entry",
+                    code: errno
+                )
+            }
             return
         }
 
-        _ = OwnedWorkDirectoryMarker.fileName.withCString {
-            Darwin.unlinkat(childDescriptor, $0, 0)
+        guard operations.syncParent(parentDescriptor) == 0 else {
+            throw OwnedWorkDirectoryMarkerError.rollbackQuarantineRetained(
+                path: quarantineURL.path,
+                operation: "fsync owned rollback quarantine parent",
+                code: errno
+            )
+        }
+        let markerStatus = operations.removeMarker(
+            childDescriptor,
+            OwnedWorkDirectoryMarker.fileName
+        )
+        if markerStatus != 0, errno != ENOENT {
+            throw OwnedWorkDirectoryMarkerError.rollbackQuarantineRetained(
+                path: quarantineURL.path,
+                operation: "remove marker from owned rollback quarantine",
+                code: errno
+            )
         }
         var finalInfo = stat()
         let finalStatus = quarantineName.withCString {
@@ -604,13 +686,33 @@ public enum OwnedWorkDirectoryMarkerStore {
                 AT_SYMLINK_NOFOLLOW
             )
         }
-        guard finalStatus == 0,
-              FileSystemObjectIdentity(finalInfo) == expectedIdentity else {
-            return
+        guard finalStatus == 0 else {
+            throw OwnedWorkDirectoryMarkerError.rollbackQuarantineRetained(
+                path: quarantineURL.path,
+                operation: "inspect owned rollback quarantine before removal",
+                code: errno
+            )
         }
-        _ = quarantineName.withCString {
-            Darwin.unlinkat(parentDescriptor, $0, AT_REMOVEDIR)
+        guard FileSystemObjectIdentity(finalInfo) == expectedIdentity else {
+            throw OwnedWorkDirectoryMarkerError.rollbackQuarantineRetained(
+                path: quarantineURL.path,
+                operation: "revalidate owned rollback quarantine before removal",
+                code: ESTALE
+            )
         }
-        _ = Darwin.fsync(parentDescriptor)
+        guard operations.removeDirectory(parentDescriptor, quarantineName) == 0 else {
+            throw OwnedWorkDirectoryMarkerError.rollbackQuarantineRetained(
+                path: quarantineURL.path,
+                operation: "remove owned rollback quarantine",
+                code: errno
+            )
+        }
+        guard operations.syncParent(parentDescriptor) == 0 else {
+            throw OwnedWorkDirectoryMarkerError.rollbackRemovalDurabilityUncertain(
+                path: quarantineURL.path,
+                operation: "fsync owned rollback quarantine removal",
+                code: errno
+            )
+        }
     }
 }

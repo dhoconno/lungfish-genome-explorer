@@ -8,6 +8,8 @@ public enum ProjectOperationHistoryWriterError: Error, LocalizedError, Equatable
     case operationAlreadyExists(UUID)
     case operationDoesNotExist(UUID)
     case invalidPayloadName(String)
+    case rollbackQuarantineRetained(path: String, operation: String, code: Int32)
+    case rollbackRemovalDurabilityUncertain(path: String, operation: String, code: Int32)
     case systemFailure(path: String, operation: String, code: Int32)
 
     public var errorDescription: String? {
@@ -17,6 +19,10 @@ public enum ProjectOperationHistoryWriterError: Error, LocalizedError, Equatable
         case .operationAlreadyExists(let id): return "Operation history already exists for \(id)."
         case .operationDoesNotExist(let id): return "Operation history does not exist for \(id)."
         case .invalidPayloadName(let name): return "Invalid operation-history payload name: \(name)"
+        case .rollbackQuarantineRetained(let path, let operation, let code):
+            return "Operation-history rollback retained a recoverable quarantine at \(path) after \(operation) failed (errno \(code))."
+        case .rollbackRemovalDurabilityUncertain(let path, let operation, let code):
+            return "Operation-history rollback removal at \(path) has uncertain durability after \(operation) failed (errno \(code))."
         case .systemFailure(let path, let operation, let code):
             return "Could not \(operation) \(path) (errno \(code))."
         }
@@ -29,11 +35,30 @@ public struct ProjectOperationHistoryWriter: Sendable {
 
     struct Operations: Sendable {
         var beforePublish: @Sendable (URL, URL) throws -> Void
+        var rollbackSyncParent: @Sendable (Int32) -> Int32
+        var rollbackRemovePayload: @Sendable (Int32, String) -> Int32
+        var rollbackRemoveDirectory: @Sendable (Int32, String) -> Int32
 
         init(
-            beforePublish: @escaping @Sendable (URL, URL) throws -> Void = { _, _ in }
+            beforePublish: @escaping @Sendable (URL, URL) throws -> Void = { _, _ in },
+            rollbackSyncParent: @escaping @Sendable (Int32) -> Int32 = {
+                Darwin.fsync($0)
+            },
+            rollbackRemovePayload: @escaping @Sendable (Int32, String) -> Int32 = {
+                descriptor,
+                name in
+                name.withCString { Darwin.unlinkat(descriptor, $0, 0) }
+            },
+            rollbackRemoveDirectory: @escaping @Sendable (Int32, String) -> Int32 = {
+                descriptor,
+                name in
+                name.withCString { Darwin.unlinkat(descriptor, $0, AT_REMOVEDIR) }
+            }
         ) {
             self.beforePublish = beforePublish
+            self.rollbackSyncParent = rollbackSyncParent
+            self.rollbackRemovePayload = rollbackRemovePayload
+            self.rollbackRemoveDirectory = rollbackRemoveDirectory
         }
     }
 
@@ -172,13 +197,18 @@ public struct ProjectOperationHistoryWriter: Sendable {
             // Publication is all-or-nothing. Only this invocation's hidden
             // staging directory is eligible for rollback; a concurrently
             // published final directory is never touched.
-            rollbackStagingDirectory(
-                named: stagingName,
-                payloadNames: Array(payloads.keys),
-                expectedIdentity: stagingIdentity,
-                historyDescriptor: descriptors.history,
-                stagingDescriptor: operationDescriptor
-            )
+            do {
+                try rollbackStagingDirectory(
+                    named: stagingName,
+                    payloadNames: Array(payloads.keys),
+                    expectedIdentity: stagingIdentity,
+                    historyDescriptor: descriptors.history,
+                    stagingDescriptor: operationDescriptor,
+                    displayedAt: stagingURL
+                )
+            } catch {
+                throw error
+            }
             throw error
         }
     }
@@ -295,10 +325,13 @@ public struct ProjectOperationHistoryWriter: Sendable {
         payloadNames: [String],
         expectedIdentity: FileSystemObjectIdentity,
         historyDescriptor: Int32,
-        stagingDescriptor: Int32
-    ) {
+        stagingDescriptor: Int32,
+        displayedAt stagingURL: URL
+    ) throws {
         let quarantineName =
             ".lungfish-history-rollback-pending-\(UUID().uuidString.lowercased())"
+        let quarantineURL = stagingURL.deletingLastPathComponent()
+            .appendingPathComponent(quarantineName, isDirectory: true)
         let detachStatus = stagingName.withCString { staging in
             quarantineName.withCString { quarantine in
                 Darwin.renameatx_np(
@@ -310,7 +343,14 @@ public struct ProjectOperationHistoryWriter: Sendable {
                 )
             }
         }
-        guard detachStatus == 0 else { return }
+        guard detachStatus == 0 else {
+            if errno == ENOENT { return }
+            throw ProjectOperationHistoryWriterError.rollbackQuarantineRetained(
+                path: stagingURL.path,
+                operation: "detach operation-history staging rollback quarantine",
+                code: errno
+            )
+        }
 
         var quarantineInfo = stat()
         let inspectStatus = quarantineName.withCString {
@@ -323,7 +363,7 @@ public struct ProjectOperationHistoryWriter: Sendable {
         }
         guard inspectStatus == 0,
               FileSystemObjectIdentity(from: quarantineInfo) == expectedIdentity else {
-            _ = quarantineName.withCString { quarantine in
+            let restoreStatus = quarantineName.withCString { quarantine in
                 stagingName.withCString { staging in
                     Darwin.renameatx_np(
                         historyDescriptor,
@@ -334,12 +374,39 @@ public struct ProjectOperationHistoryWriter: Sendable {
                     )
                 }
             }
-            _ = Darwin.fsync(historyDescriptor)
+            guard restoreStatus == 0 else {
+                throw ProjectOperationHistoryWriterError.rollbackQuarantineRetained(
+                    path: quarantineURL.path,
+                    operation: "restore substituted history rollback quarantine",
+                    code: errno
+                )
+            }
+            guard operations.rollbackSyncParent(historyDescriptor) == 0 else {
+                throw ProjectOperationHistoryWriterError.rollbackRemovalDurabilityUncertain(
+                    path: stagingURL.path,
+                    operation: "fsync restored history rollback entry",
+                    code: errno
+                )
+            }
             return
         }
 
+        guard operations.rollbackSyncParent(historyDescriptor) == 0 else {
+            throw ProjectOperationHistoryWriterError.rollbackQuarantineRetained(
+                path: quarantineURL.path,
+                operation: "fsync history rollback quarantine parent",
+                code: errno
+            )
+        }
         for name in payloadNames {
-            _ = name.withCString { Darwin.unlinkat(stagingDescriptor, $0, 0) }
+            let status = operations.rollbackRemovePayload(stagingDescriptor, name)
+            if status != 0, errno != ENOENT {
+                throw ProjectOperationHistoryWriterError.rollbackQuarantineRetained(
+                    path: quarantineURL.path,
+                    operation: "remove payload from history rollback quarantine",
+                    code: errno
+                )
+            }
         }
         var finalInfo = stat()
         let finalStatus = quarantineName.withCString {
@@ -350,13 +417,36 @@ public struct ProjectOperationHistoryWriter: Sendable {
                 AT_SYMLINK_NOFOLLOW
             )
         }
-        guard finalStatus == 0,
-              FileSystemObjectIdentity(from: finalInfo) == expectedIdentity else {
-            return
+        guard finalStatus == 0 else {
+            throw ProjectOperationHistoryWriterError.rollbackQuarantineRetained(
+                path: quarantineURL.path,
+                operation: "inspect history rollback quarantine before removal",
+                code: errno
+            )
         }
-        _ = quarantineName.withCString {
-            Darwin.unlinkat(historyDescriptor, $0, AT_REMOVEDIR)
+        guard FileSystemObjectIdentity(from: finalInfo) == expectedIdentity else {
+            throw ProjectOperationHistoryWriterError.rollbackQuarantineRetained(
+                path: quarantineURL.path,
+                operation: "revalidate history rollback quarantine before removal",
+                code: ESTALE
+            )
         }
-        _ = Darwin.fsync(historyDescriptor)
+        guard operations.rollbackRemoveDirectory(
+            historyDescriptor,
+            quarantineName
+        ) == 0 else {
+            throw ProjectOperationHistoryWriterError.rollbackQuarantineRetained(
+                path: quarantineURL.path,
+                operation: "remove history rollback quarantine",
+                code: errno
+            )
+        }
+        guard operations.rollbackSyncParent(historyDescriptor) == 0 else {
+            throw ProjectOperationHistoryWriterError.rollbackRemovalDurabilityUncertain(
+                path: quarantineURL.path,
+                operation: "fsync history rollback quarantine removal",
+                code: errno
+            )
+        }
     }
 }

@@ -73,6 +73,105 @@ final class DurableAtomicFileStoreTests: XCTestCase {
         )
     }
 
+    func testRollbackDetachSyncFailureRetainsAndReportsQuarantine() throws {
+        let store = DurableAtomicFileStore(operations: .init(
+            syncFile: { Darwin.fsync($0) },
+            syncDirectory: { _ in
+                errno = EIO
+                return -1
+            },
+            syncRollbackDirectory: { _ in
+                errno = EIO
+                return -1
+            }
+        ))
+
+        XCTAssertThrowsError(
+            try store.create(Data("recoverable".utf8), named: "record.json", in: root)
+        ) { error in
+            guard case let DurableAtomicFileStore.StoreError.rollbackQuarantineRetained(
+                path,
+                operation,
+                code
+            ) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertTrue(path.contains("rollback-pending"))
+            XCTAssertEqual(operation, "fsync durable rollback quarantine parent")
+            XCTAssertEqual(code, EIO)
+        }
+        let quarantine = try XCTUnwrap(
+            FileManager.default.contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: nil
+            ).first { $0.lastPathComponent.contains("rollback-pending") }
+        )
+        XCTAssertEqual(try Data(contentsOf: quarantine), Data("recoverable".utf8))
+    }
+
+    func testRollbackUnlinkFailureRetainsAndReportsQuarantine() throws {
+        let store = DurableAtomicFileStore(operations: .init(
+            syncFile: { Darwin.fsync($0) },
+            syncDirectory: { _ in
+                errno = EIO
+                return -1
+            },
+            removeRollbackFile: { _, _ in
+                errno = EACCES
+                return -1
+            }
+        ))
+
+        XCTAssertThrowsError(
+            try store.create(Data("recoverable".utf8), named: "record.json", in: root)
+        ) { error in
+            guard case let DurableAtomicFileStore.StoreError.rollbackQuarantineRetained(
+                path,
+                operation,
+                code
+            ) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertTrue(path.contains("rollback-pending"))
+            XCTAssertEqual(operation, "remove durable rollback quarantine")
+            XCTAssertEqual(code, EACCES)
+        }
+        let quarantine = try XCTUnwrap(
+            FileManager.default.contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: nil
+            ).first { $0.lastPathComponent.contains("rollback-pending") }
+        )
+        XCTAssertEqual(try Data(contentsOf: quarantine), Data("recoverable".utf8))
+    }
+
+    func testRollbackRemovalSyncFailureReportsUncertainDisposition() throws {
+        let rollbackSync = DurableRollbackSyncSequence()
+        let store = DurableAtomicFileStore(operations: .init(
+            syncFile: { Darwin.fsync($0) },
+            syncDirectory: { _ in
+                errno = EIO
+                return -1
+            },
+            syncRollbackDirectory: { rollbackSync.sync($0) }
+        ))
+
+        XCTAssertThrowsError(
+            try store.create(Data("published".utf8), named: "record.json", in: root)
+        ) { error in
+            guard case let DurableAtomicFileStore.StoreError.rollbackRemovalDurabilityUncertain(
+                path,
+                operation,
+                code
+            ) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertTrue(path.contains("rollback-pending"))
+            XCTAssertEqual(operation, "fsync durable rollback quarantine removal")
+            XCTAssertEqual(code, EIO)
+        }
+    }
+
     func testRejectsEmbeddedNULBeforeAnyFilesystemMutation() throws {
         XCTAssertThrowsError(
             try DurableAtomicFileStore().create(
@@ -109,6 +208,22 @@ private final class RollbackDetachSwap: @unchecked Sendable {
             } catch {
                 failure = error
             }
+        }
+    }
+}
+
+private final class DurableRollbackSyncSequence: @unchecked Sendable {
+    private let lock = NSLock()
+    private var callCount = 0
+
+    func sync(_ descriptor: Int32) -> Int32 {
+        lock.withLock {
+            callCount += 1
+            if callCount == 2 {
+                errno = EIO
+                return -1
+            }
+            return Darwin.fsync(descriptor)
         }
     }
 }

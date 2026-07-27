@@ -8,6 +8,8 @@ public struct DurableAtomicFileStore: Sendable {
         case invalidFileName(String)
         case unsafeDirectory(String)
         case destinationExists(String)
+        case rollbackQuarantineRetained(path: String, operation: String, code: Int32)
+        case rollbackRemovalDurabilityUncertain(path: String, operation: String, code: Int32)
         case systemFailure(path: String, operation: String, code: Int32)
 
         public var errorDescription: String? {
@@ -18,6 +20,10 @@ public struct DurableAtomicFileStore: Sendable {
                 return "Durable file parent must be a real directory without symbolic links: \(path)"
             case .destinationExists(let path):
                 return "Durable file already exists: \(path)"
+            case .rollbackQuarantineRetained(let path, let operation, let code):
+                return "Durable rollback retained recoverable data at \(path) after \(operation) failed (errno \(code))."
+            case .rollbackRemovalDurabilityUncertain(let path, let operation, let code):
+                return "Durable rollback removal at \(path) has uncertain durability after \(operation) failed (errno \(code))."
             case .systemFailure(let path, let operation, let code):
                 return "Could not \(operation) \(path) (errno \(code))."
             }
@@ -26,18 +32,27 @@ public struct DurableAtomicFileStore: Sendable {
 
     public struct Operations: Sendable {
         public typealias Synchronizer = @Sendable (Int32) -> Int32
+        public typealias EntryRemover = @Sendable (Int32, String) -> Int32
 
         public var syncFile: Synchronizer
         public var syncDirectory: Synchronizer
+        public var syncRollbackDirectory: Synchronizer
+        public var removeRollbackFile: EntryRemover
         public var beforeRollbackDetach: @Sendable () -> Void
 
         public init(
             syncFile: @escaping Synchronizer = { Darwin.fsync($0) },
             syncDirectory: @escaping Synchronizer = { Darwin.fsync($0) },
+            syncRollbackDirectory: @escaping Synchronizer = { Darwin.fsync($0) },
+            removeRollbackFile: @escaping EntryRemover = { descriptor, name in
+                name.withCString { Darwin.unlinkat(descriptor, $0, 0) }
+            },
             beforeRollbackDetach: @escaping @Sendable () -> Void = {}
         ) {
             self.syncFile = syncFile
             self.syncDirectory = syncDirectory
+            self.syncRollbackDirectory = syncRollbackDirectory
+            self.removeRollbackFile = removeRollbackFile
             self.beforeRollbackDetach = beforeRollbackDetach
         }
     }
@@ -172,10 +187,11 @@ public struct DurableAtomicFileStore: Sendable {
             guard operations.syncDirectory(directoryDescriptor) == 0 else {
                 let code = errno
                 if let publishedIdentity,
-                   rollbackPublishedFile(
+                   try rollbackPublishedFile(
                        named: fileName,
                        expectedIdentity: publishedIdentity,
-                       inDirectory: directoryDescriptor
+                       inDirectory: directoryDescriptor,
+                       displayedAt: directoryURL
                    ) {
                     published = false
                 }
@@ -244,8 +260,9 @@ public struct DurableAtomicFileStore: Sendable {
     private func rollbackPublishedFile(
         named fileName: String,
         expectedIdentity: FileSystemObjectIdentity,
-        inDirectory directoryDescriptor: Int32
-    ) -> Bool {
+        inDirectory directoryDescriptor: Int32,
+        displayedAt directoryURL: URL
+    ) throws -> Bool {
         guard Self.identity(
             named: fileName,
             inDirectory: directoryDescriptor
@@ -256,6 +273,7 @@ public struct DurableAtomicFileStore: Sendable {
         operations.beforeRollbackDetach()
         let quarantineName =
             ".\(fileName).rollback-pending-\(UUID().uuidString.lowercased())"
+        let quarantineURL = directoryURL.appendingPathComponent(quarantineName)
         let renameStatus = fileName.withCString { source in
             quarantineName.withCString { quarantine in
                 Darwin.renameatx_np(
@@ -267,7 +285,15 @@ public struct DurableAtomicFileStore: Sendable {
                 )
             }
         }
-        guard renameStatus == 0 else { return false }
+        guard renameStatus == 0 else {
+            let code = errno
+            if code == ENOENT { return false }
+            throw StoreError.rollbackQuarantineRetained(
+                path: directoryURL.appendingPathComponent(fileName).path,
+                operation: "detach durable file into rollback quarantine",
+                code: code
+            )
+        }
 
         guard Self.identity(
             named: quarantineName,
@@ -276,7 +302,7 @@ public struct DurableAtomicFileStore: Sendable {
             // A substitution won the race after the first identity check.
             // Restore it only if its original name is still unoccupied;
             // otherwise leave the quarantine as recoverable evidence.
-            _ = quarantineName.withCString { quarantine in
+            let restoreStatus = quarantineName.withCString { quarantine in
                 fileName.withCString { destination in
                     Darwin.renameatx_np(
                         directoryDescriptor,
@@ -287,15 +313,48 @@ public struct DurableAtomicFileStore: Sendable {
                     )
                 }
             }
-            _ = operations.syncDirectory(directoryDescriptor)
+            guard restoreStatus == 0 else {
+                throw StoreError.rollbackQuarantineRetained(
+                    path: quarantineURL.path,
+                    operation: "restore substituted durable rollback quarantine",
+                    code: errno
+                )
+            }
+            guard operations.syncRollbackDirectory(directoryDescriptor) == 0 else {
+                throw StoreError.rollbackRemovalDurabilityUncertain(
+                    path: directoryURL.appendingPathComponent(fileName).path,
+                    operation: "fsync restored durable rollback entry",
+                    code: errno
+                )
+            }
             return false
         }
 
-        let unlinkStatus = quarantineName.withCString {
-            Darwin.unlinkat(directoryDescriptor, $0, 0)
+        guard operations.syncRollbackDirectory(directoryDescriptor) == 0 else {
+            throw StoreError.rollbackQuarantineRetained(
+                path: quarantineURL.path,
+                operation: "fsync durable rollback quarantine parent",
+                code: errno
+            )
         }
-        guard unlinkStatus == 0 else { return false }
-        _ = operations.syncDirectory(directoryDescriptor)
+        let unlinkStatus = operations.removeRollbackFile(
+            directoryDescriptor,
+            quarantineName
+        )
+        guard unlinkStatus == 0 else {
+            throw StoreError.rollbackQuarantineRetained(
+                path: quarantineURL.path,
+                operation: "remove durable rollback quarantine",
+                code: errno
+            )
+        }
+        guard operations.syncRollbackDirectory(directoryDescriptor) == 0 else {
+            throw StoreError.rollbackRemovalDurabilityUncertain(
+                path: quarantineURL.path,
+                operation: "fsync durable rollback quarantine removal",
+                code: errno
+            )
+        }
         return true
     }
 }

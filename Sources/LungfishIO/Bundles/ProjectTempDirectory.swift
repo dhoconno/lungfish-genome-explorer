@@ -67,6 +67,10 @@ public enum ProjectTempDirectory {
     struct CleanupOperations: Sendable {
         typealias Detacher = @Sendable (Int32, String, String) -> Int32
         typealias Synchronizer = @Sendable (Int32) -> Int32
+        typealias CandidateOpener = @Sendable (Int32, String) -> Int32
+        typealias FinalInspector =
+            @Sendable (Int32, String, UnsafeMutablePointer<stat>) -> Int32
+        typealias DirectoryRemover = @Sendable (Int32, String) -> Int32
 
         static let defaultDetach: Detacher = { descriptor, source, destination in
             source.withCString { sourcePointer in
@@ -81,16 +85,45 @@ public enum ProjectTempDirectory {
                 }
             }
         }
+        static let defaultOpenCandidate: CandidateOpener = { descriptor, name in
+            name.withCString {
+                Darwin.openat(
+                    descriptor,
+                    $0,
+                    O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+                )
+            }
+        }
+        static let defaultFinalInspector: FinalInspector = { descriptor, name, info in
+            name.withCString {
+                Darwin.fstatat(descriptor, $0, info, AT_SYMLINK_NOFOLLOW)
+            }
+        }
+        static let defaultRemoveQuarantine: DirectoryRemover = { descriptor, name in
+            name.withCString { Darwin.unlinkat(descriptor, $0, AT_REMOVEDIR) }
+        }
 
         var detach: Detacher
         var syncParent: Synchronizer
+        var openCandidate: CandidateOpener
+        var inspectFinalQuarantine: FinalInspector
+        var beforeFinalInspection: @Sendable (URL) throws -> Void
+        var removeQuarantine: DirectoryRemover
 
         init(
             detach: @escaping Detacher = Self.defaultDetach,
-            syncParent: @escaping Synchronizer = { Darwin.fsync($0) }
+            syncParent: @escaping Synchronizer = { Darwin.fsync($0) },
+            openCandidate: @escaping CandidateOpener = Self.defaultOpenCandidate,
+            inspectFinalQuarantine: @escaping FinalInspector = Self.defaultFinalInspector,
+            beforeFinalInspection: @escaping @Sendable (URL) throws -> Void = { _ in },
+            removeQuarantine: @escaping DirectoryRemover = Self.defaultRemoveQuarantine
         ) {
             self.detach = detach
             self.syncParent = syncParent
+            self.openCandidate = openCandidate
+            self.inspectFinalQuarantine = inspectFinalQuarantine
+            self.beforeFinalInspection = beforeFinalInspection
+            self.removeQuarantine = removeQuarantine
         }
     }
 
@@ -422,14 +455,16 @@ public enum ProjectTempDirectory {
         for name in names {
             guard DurableAtomicFileStore.isSinglePathComponent(name) else { continue }
             let entryURL = root.appendingPathComponent(name, isDirectory: true)
-            let candidateDescriptor = name.withCString {
-                Darwin.openat(
-                    rootDescriptor,
-                    $0,
-                    O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+            let candidateDescriptor = operations.openCandidate(rootDescriptor, name)
+            guard candidateDescriptor >= 0 else {
+                let code = errno
+                if code == ENOENT { continue }
+                throw OwnedWorkDirectoryMarkerError.systemFailure(
+                    path: entryURL.path,
+                    operation: "open owned temp cleanup candidate",
+                    code: code
                 )
             }
-            guard candidateDescriptor >= 0 else { continue }
             do {
                 defer { Darwin.close(candidateDescriptor) }
 
@@ -519,7 +554,7 @@ public enum ProjectTempDirectory {
                 guard operations.syncParent(rootDescriptor) == 0 else {
                     // Keep the detached directory recoverable if its rename cannot
                     // be made durable; never guess which pathname survived.
-                    throw OwnedWorkDirectoryMarkerError.systemFailure(
+                    throw OwnedWorkDirectoryMarkerError.cleanupQuarantineRetained(
                         path: quarantineURL.path,
                         operation: "fsync cleanup quarantine parent",
                         code: errno
@@ -531,28 +566,41 @@ public enum ProjectTempDirectory {
                         descriptor: candidateDescriptor,
                         displayedAt: entryURL
                     )
+                    try operations.beforeFinalInspection(quarantineURL)
                     var finalInfo = stat()
-                    let finalStatus = quarantineName.withCString {
-                        Darwin.fstatat(
-                            rootDescriptor,
-                            $0,
-                            &finalInfo,
-                            AT_SYMLINK_NOFOLLOW
+                    let finalStatus = operations.inspectFinalQuarantine(
+                        rootDescriptor,
+                        quarantineName,
+                        &finalInfo
+                    )
+                    guard finalStatus == 0 else {
+                        throw OwnedWorkDirectoryMarkerError.cleanupQuarantineRetained(
+                            path: quarantineURL.path,
+                            operation: "inspect partially cleaned temp cleanup quarantine",
+                            code: errno
                         )
                     }
-                    guard finalStatus == 0,
-                          FileSystemObjectIdentity(finalInfo) == expectedIdentity else {
-                        continue
+                    guard FileSystemObjectIdentity(finalInfo) == expectedIdentity else {
+                        throw OwnedWorkDirectoryMarkerError.cleanupQuarantineRetained(
+                            path: quarantineURL.path,
+                            operation: "revalidate partially cleaned temp cleanup quarantine",
+                            code: ESTALE
+                        )
                     }
-                    let removeStatus = quarantineName.withCString {
-                        Darwin.unlinkat(rootDescriptor, $0, AT_REMOVEDIR)
-                    }
+                    let removeStatus = operations.removeQuarantine(
+                        rootDescriptor,
+                        quarantineName
+                    )
                     guard removeStatus == 0 else {
-                        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                        throw OwnedWorkDirectoryMarkerError.cleanupQuarantineRetained(
+                            path: quarantineURL.path,
+                            operation: "remove partially cleaned temp cleanup quarantine",
+                            code: errno
+                        )
                     }
                     guard operations.syncParent(rootDescriptor) == 0 else {
-                        throw OwnedWorkDirectoryMarkerError.systemFailure(
-                            path: root.path,
+                        throw OwnedWorkDirectoryMarkerError.cleanupRemovalDurabilityUncertain(
+                            path: quarantineURL.path,
                             operation: "fsync removed temp cleanup entry",
                             code: errno
                         )
@@ -563,7 +611,21 @@ public enum ProjectTempDirectory {
                 } catch {
                     // The quarantine name intentionally remains recoverable if
                     // descriptor-relative removal cannot complete safely.
-                    throw error
+                    if error is OwnedWorkDirectoryMarkerError {
+                        throw error
+                    }
+                    if let posix = error as? POSIXError {
+                        throw OwnedWorkDirectoryMarkerError.cleanupQuarantineRetained(
+                            path: quarantineURL.path,
+                            operation: "remove contents from temp cleanup quarantine",
+                            code: posix.code.rawValue
+                        )
+                    }
+                    throw OwnedWorkDirectoryMarkerError.cleanupQuarantineRetained(
+                        path: quarantineURL.path,
+                        operation: "complete temp cleanup quarantine removal",
+                        code: EIO
+                    )
                 }
             }
         }

@@ -252,6 +252,113 @@ final class OwnedWorkDirectoryMarkerTests: XCTestCase {
         )
     }
 
+    func testMarkerRollbackDetachSyncFailureRetainsAndReportsQuarantine() throws {
+        let store = DurableAtomicFileStore(operations: .init(
+            syncFile: { _ in
+                errno = EIO
+                return -1
+            }
+        ))
+
+        XCTAssertThrowsError(
+            try OwnedWorkDirectoryMarkerStore.createDirectory(
+                request(prefix: "rollback-sync-"),
+                atomicFileStore: store,
+                rollbackOperations: .init(
+                    syncParent: { _ in
+                        errno = EIO
+                        return -1
+                    }
+                )
+            )
+        ) { error in
+            guard case let OwnedWorkDirectoryMarkerError.rollbackQuarantineRetained(
+                path,
+                operation,
+                code
+            ) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertTrue(path.contains(".lungfish-owned-rollback-pending-"))
+            XCTAssertEqual(operation, "fsync owned rollback quarantine parent")
+            XCTAssertEqual(code, EIO)
+        }
+        XCTAssertTrue(
+            try FileManager.default.contentsOfDirectory(
+                at: workParent,
+                includingPropertiesForKeys: nil
+            ).contains { $0.lastPathComponent.hasPrefix(".lungfish-owned-rollback-pending-") }
+        )
+    }
+
+    func testMarkerRollbackRmdirFailureRetainsAndReportsQuarantine() throws {
+        let store = DurableAtomicFileStore(operations: .init(
+            syncFile: { _ in
+                errno = EIO
+                return -1
+            }
+        ))
+
+        XCTAssertThrowsError(
+            try OwnedWorkDirectoryMarkerStore.createDirectory(
+                request(prefix: "rollback-rmdir-"),
+                atomicFileStore: store,
+                rollbackOperations: .init(
+                    removeDirectory: { _, _ in
+                        errno = EACCES
+                        return -1
+                    }
+                )
+            )
+        ) { error in
+            guard case let OwnedWorkDirectoryMarkerError.rollbackQuarantineRetained(
+                path,
+                operation,
+                code
+            ) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertTrue(path.contains(".lungfish-owned-rollback-pending-"))
+            XCTAssertEqual(operation, "remove owned rollback quarantine")
+            XCTAssertEqual(code, EACCES)
+        }
+        XCTAssertTrue(
+            try FileManager.default.contentsOfDirectory(
+                at: workParent,
+                includingPropertiesForKeys: nil
+            ).contains { $0.lastPathComponent.hasPrefix(".lungfish-owned-rollback-pending-") }
+        )
+    }
+
+    func testMarkerRollbackRemovalSyncFailureReportsUncertainDisposition() throws {
+        let sync = MarkerRollbackSyncSequence()
+        let store = DurableAtomicFileStore(operations: .init(
+            syncFile: { _ in
+                errno = EIO
+                return -1
+            }
+        ))
+
+        XCTAssertThrowsError(
+            try OwnedWorkDirectoryMarkerStore.createDirectory(
+                request(prefix: "rollback-final-sync-"),
+                atomicFileStore: store,
+                rollbackOperations: .init(syncParent: { sync.sync($0) })
+            )
+        ) { error in
+            guard case let OwnedWorkDirectoryMarkerError.rollbackRemovalDurabilityUncertain(
+                path,
+                operation,
+                code
+            ) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertTrue(path.contains(".lungfish-owned-rollback-pending-"))
+            XCTAssertEqual(operation, "fsync owned rollback quarantine removal")
+            XCTAssertEqual(code, EIO)
+        }
+    }
+
     func testCreateClosesProjectDescriptorWhenParentOpenFails() throws {
         let unsafeParent = project.appendingPathComponent("unsafe-parent", isDirectory: true)
         let outside = root.appendingPathComponent("outside-parent", isDirectory: true)
@@ -413,6 +520,22 @@ private final class MarkerRollbackSwap: @unchecked Sendable {
             } catch {
                 failure = error
             }
+        }
+    }
+}
+
+private final class MarkerRollbackSyncSequence: @unchecked Sendable {
+    private let lock = NSLock()
+    private var callCount = 0
+
+    func sync(_ descriptor: Int32) -> Int32 {
+        lock.withLock {
+            callCount += 1
+            if callCount == 2 {
+                errno = EIO
+                return -1
+            }
+            return Darwin.fsync(descriptor)
         }
     }
 }

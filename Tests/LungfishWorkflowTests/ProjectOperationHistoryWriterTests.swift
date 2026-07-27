@@ -249,6 +249,103 @@ final class ProjectOperationHistoryWriterTests: XCTestCase {
         )
     }
 
+    func testStagingRollbackDetachSyncFailureRetainsAndReportsQuarantine() throws {
+        let writer = ProjectOperationHistoryWriter(
+            projectURL: project,
+            operations: .init(
+                beforePublish: { _, _ in throw ForcedHistoryFailure() },
+                rollbackSyncParent: { _ in
+                    errno = EIO
+                    return -1
+                }
+            )
+        )
+
+        XCTAssertThrowsError(
+            try writer.createOperation(
+                operationID: UUID(),
+                payloads: ["parent.txt": Data("recoverable".utf8)]
+            )
+        ) { error in
+            guard case let ProjectOperationHistoryWriterError.rollbackQuarantineRetained(
+                path,
+                operation,
+                code
+            ) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertTrue(path.contains(".lungfish-history-rollback-pending-"))
+            XCTAssertEqual(operation, "fsync history rollback quarantine parent")
+            XCTAssertEqual(code, EIO)
+        }
+        let quarantine = try XCTUnwrap(historyRollbackQuarantine())
+        XCTAssertEqual(
+            try Data(contentsOf: quarantine.appendingPathComponent("parent.txt")),
+            Data("recoverable".utf8)
+        )
+    }
+
+    func testStagingRollbackRmdirFailureRetainsAndReportsQuarantine() throws {
+        let writer = ProjectOperationHistoryWriter(
+            projectURL: project,
+            operations: .init(
+                beforePublish: { _, _ in throw ForcedHistoryFailure() },
+                rollbackRemoveDirectory: { _, _ in
+                    errno = EACCES
+                    return -1
+                }
+            )
+        )
+
+        XCTAssertThrowsError(
+            try writer.createOperation(
+                operationID: UUID(),
+                payloads: ["parent.txt": Data("recoverable".utf8)]
+            )
+        ) { error in
+            guard case let ProjectOperationHistoryWriterError.rollbackQuarantineRetained(
+                path,
+                operation,
+                code
+            ) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertTrue(path.contains(".lungfish-history-rollback-pending-"))
+            XCTAssertEqual(operation, "remove history rollback quarantine")
+            XCTAssertEqual(code, EACCES)
+        }
+        XCTAssertNotNil(try historyRollbackQuarantine())
+    }
+
+    func testStagingRollbackRemovalSyncFailureReportsUncertainDisposition() throws {
+        let sync = HistoryRollbackSyncSequence()
+        let writer = ProjectOperationHistoryWriter(
+            projectURL: project,
+            operations: .init(
+                beforePublish: { _, _ in throw ForcedHistoryFailure() },
+                rollbackSyncParent: { sync.sync($0) }
+            )
+        )
+
+        XCTAssertThrowsError(
+            try writer.createOperation(
+                operationID: UUID(),
+                payloads: ["parent.txt": Data("recoverable".utf8)]
+            )
+        ) { error in
+            guard case let ProjectOperationHistoryWriterError.rollbackRemovalDurabilityUncertain(
+                path,
+                operation,
+                code
+            ) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertTrue(path.contains(".lungfish-history-rollback-pending-"))
+            XCTAssertEqual(operation, "fsync history rollback quarantine removal")
+            XCTAssertEqual(code, EIO)
+        }
+    }
+
     func testRejectsEmbeddedNULInPayloadName() {
         XCTAssertThrowsError(
             try ProjectOperationHistoryWriter(projectURL: project).createOperation(
@@ -256,6 +353,17 @@ final class ProjectOperationHistoryWriterTests: XCTestCase {
                 payloads: ["bad\u{0}.json": Data()]
             )
         )
+    }
+
+    private func historyRollbackQuarantine() throws -> URL? {
+        let history = project.appendingPathComponent(
+            ProjectOperationHistoryWriter.historyDirectoryName,
+            isDirectory: true
+        )
+        return try FileManager.default.contentsOfDirectory(
+            at: history,
+            includingPropertiesForKeys: nil
+        ).first { $0.lastPathComponent.hasPrefix(".lungfish-history-rollback-pending-") }
     }
 }
 
@@ -308,6 +416,22 @@ private final class HistoryRollbackSwap: @unchecked Sendable {
                 to: staging.appendingPathComponent("replacement.txt")
             )
             replacement = staging
+        }
+    }
+}
+
+private final class HistoryRollbackSyncSequence: @unchecked Sendable {
+    private let lock = NSLock()
+    private var callCount = 0
+
+    func sync(_ descriptor: Int32) -> Int32 {
+        lock.withLock {
+            callCount += 1
+            if callCount == 2 {
+                errno = EIO
+                return -1
+            }
+            return Darwin.fsync(descriptor)
         }
     }
 }

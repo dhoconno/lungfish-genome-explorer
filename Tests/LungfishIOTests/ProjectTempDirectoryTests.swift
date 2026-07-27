@@ -505,7 +505,7 @@ final class ProjectTempDirectoryTests: XCTestCase {
                 )
             )
         ) { error in
-            guard case let OwnedWorkDirectoryMarkerError.systemFailure(
+            guard case let OwnedWorkDirectoryMarkerError.cleanupQuarantineRetained(
                 path,
                 operation,
                 code
@@ -530,6 +530,160 @@ final class ProjectTempDirectoryTests: XCTestCase {
         )
     }
 
+    func testCleanAllCandidateOpenFailureReportsExactPath() throws {
+        let projectDir = testRoot.appendingPathComponent("open-error.lungfish", isDirectory: true)
+        let tmpRoot = ProjectTempDirectory.tempRoot(for: projectDir)
+        try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
+        let terminal = try makeTerminalDirectory(project: projectDir, parent: tmpRoot)
+
+        for expectedCode in [EACCES, EIO] {
+            XCTAssertThrowsError(
+                try ProjectTempDirectory.cleanAll(
+                    in: projectDir,
+                    beforeDetach: { _ in },
+                    operations: .init(
+                        openCandidate: { _, _ in
+                            errno = expectedCode
+                            return -1
+                        }
+                    )
+                )
+            ) { error in
+                XCTAssertEqual(
+                    error as? OwnedWorkDirectoryMarkerError,
+                    .systemFailure(
+                        path: terminal.path,
+                        operation: "open owned temp cleanup candidate",
+                        code: expectedCode
+                    )
+                )
+            }
+        }
+    }
+
+    func testCleanAllFinalInspectionFailureReportsPartiallyCleanedQuarantine() throws {
+        let projectDir = testRoot.appendingPathComponent("inspect-error.lungfish", isDirectory: true)
+        let tmpRoot = ProjectTempDirectory.tempRoot(for: projectDir)
+        try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
+        _ = try makeTerminalDirectory(project: projectDir, parent: tmpRoot)
+
+        XCTAssertThrowsError(
+            try ProjectTempDirectory.cleanAll(
+                in: projectDir,
+                beforeDetach: { _ in },
+                operations: .init(
+                    inspectFinalQuarantine: { _, _, _ in
+                        errno = EIO
+                        return -1
+                    }
+                )
+            )
+        ) { error in
+            guard case let OwnedWorkDirectoryMarkerError.cleanupQuarantineRetained(
+                path,
+                operation,
+                code
+            ) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertTrue(path.contains(".lungfish-cleanup-pending-"))
+            XCTAssertEqual(operation, "inspect partially cleaned temp cleanup quarantine")
+            XCTAssertEqual(code, EIO)
+        }
+        XCTAssertNotNil(try tempCleanupQuarantine(in: tmpRoot))
+    }
+
+    func testCleanAllMovedFinalQuarantineReportsOriginalRecoveryPath() throws {
+        let projectDir = testRoot.appendingPathComponent("moved-final.lungfish", isDirectory: true)
+        let tmpRoot = ProjectTempDirectory.tempRoot(for: projectDir)
+        try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
+        _ = try makeTerminalDirectory(project: projectDir, parent: tmpRoot)
+        let held = tmpRoot.appendingPathComponent("held-partially-cleaned", isDirectory: true)
+
+        XCTAssertThrowsError(
+            try ProjectTempDirectory.cleanAll(
+                in: projectDir,
+                beforeDetach: { _ in },
+                operations: .init(
+                    beforeFinalInspection: { quarantine in
+                        try FileManager.default.moveItem(at: quarantine, to: held)
+                    }
+                )
+            )
+        ) { error in
+            guard case let OwnedWorkDirectoryMarkerError.cleanupQuarantineRetained(
+                path,
+                operation,
+                code
+            ) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertTrue(path.contains(".lungfish-cleanup-pending-"))
+            XCTAssertEqual(operation, "inspect partially cleaned temp cleanup quarantine")
+            XCTAssertEqual(code, ENOENT)
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: held.path))
+    }
+
+    func testCleanAllQuarantineRmdirFailureRetainsAndReportsPath() throws {
+        let projectDir = testRoot.appendingPathComponent("rmdir-error.lungfish", isDirectory: true)
+        let tmpRoot = ProjectTempDirectory.tempRoot(for: projectDir)
+        try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
+        _ = try makeTerminalDirectory(project: projectDir, parent: tmpRoot)
+
+        XCTAssertThrowsError(
+            try ProjectTempDirectory.cleanAll(
+                in: projectDir,
+                beforeDetach: { _ in },
+                operations: .init(
+                    removeQuarantine: { _, _ in
+                        errno = EACCES
+                        return -1
+                    }
+                )
+            )
+        ) { error in
+            guard case let OwnedWorkDirectoryMarkerError.cleanupQuarantineRetained(
+                path,
+                operation,
+                code
+            ) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertTrue(path.contains(".lungfish-cleanup-pending-"))
+            XCTAssertEqual(operation, "remove partially cleaned temp cleanup quarantine")
+            XCTAssertEqual(code, EACCES)
+        }
+        XCTAssertNotNil(try tempCleanupQuarantine(in: tmpRoot))
+    }
+
+    func testCleanAllRemovalSyncFailureReportsUncertainDisposition() throws {
+        let projectDir = testRoot.appendingPathComponent("final-sync.lungfish", isDirectory: true)
+        let tmpRoot = ProjectTempDirectory.tempRoot(for: projectDir)
+        try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
+        _ = try makeTerminalDirectory(project: projectDir, parent: tmpRoot)
+        let sync = TempCleanupSyncSequence()
+
+        XCTAssertThrowsError(
+            try ProjectTempDirectory.cleanAll(
+                in: projectDir,
+                beforeDetach: { _ in },
+                operations: .init(syncParent: { sync.sync($0) })
+            )
+        ) { error in
+            guard case let OwnedWorkDirectoryMarkerError.cleanupRemovalDurabilityUncertain(
+                path,
+                operation,
+                code
+            ) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertTrue(path.contains(".lungfish-cleanup-pending-"))
+            XCTAssertEqual(operation, "fsync removed temp cleanup entry")
+            XCTAssertEqual(code, EIO)
+        }
+    }
+
     private func makeTerminalDirectory(project: URL, parent: URL) throws -> URL {
         try OwnedWorkDirectoryMarkerStore.createDirectory(
             OwnedWorkDirectoryCreationRequest(
@@ -545,5 +699,28 @@ final class ProjectTempDirectoryTests: XCTestCase {
                 toolVersion: "1"
             )
         )
+    }
+
+    private func tempCleanupQuarantine(in root: URL) throws -> URL? {
+        try FileManager.default.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: nil
+        ).first { $0.lastPathComponent.hasPrefix(".lungfish-cleanup-pending-") }
+    }
+}
+
+private final class TempCleanupSyncSequence: @unchecked Sendable {
+    private let lock = NSLock()
+    private var callCount = 0
+
+    func sync(_ descriptor: Int32) -> Int32 {
+        lock.withLock {
+            callCount += 1
+            if callCount == 2 {
+                errno = EIO
+                return -1
+            }
+            return Darwin.fsync(descriptor)
+        }
     }
 }
