@@ -4393,18 +4393,13 @@ public final class GenotypeResultViewController: NSViewController {
         if manualHaplotypingIsAvailable(result: result) {
             addAuditSection(
                 title: "Manual Haplotyping",
-                contents: [makeManualHaplotypingHost(allowsCreation: true)]
+                contents: [makeManualHaplotypingHost()]
             )
         } else if result.haplotypeAnalysis == nil,
                   let reason = manualHaplotypeDisabledReason {
             addAuditSection(
                 title: "Manual Haplotyping",
                 contents: [caption(reason)]
-            )
-        } else if !(annotationStore?.sidecar.manualHaplotypeAssignments.isEmpty ?? true) {
-            addAuditSection(
-                title: "Manual Haplotyping",
-                contents: [makeManualHaplotypingHost(allowsCreation: false)]
             )
         }
         addAuditSection(title: "Haplotype Thresholds", contents: [makeRunHaplotypeThresholdSummaryHost()])
@@ -5079,17 +5074,15 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func manualHaplotypingIsAvailable(result: ONTGenotypeResultBundleData) -> Bool {
-        guard result.haplotypeAnalysis == nil,
-              case .eligible = manualHaplotypeEligibility else {
-            return false
+        if result.haplotypeAnalysis != nil {
+            return !(annotationStore?.sidecar.manualHaplotypeAssignments.isEmpty ?? true)
         }
+        guard case .eligible = manualHaplotypeEligibility else { return false }
         return true
     }
 
-    private func makeManualHaplotypingHost(allowsCreation: Bool) -> NSView {
-        let container = NSHostingView(
-            rootView: manualHaplotypingSectionBody(allowsCreation: allowsCreation)
-        )
+    private func makeManualHaplotypingHost() -> NSView {
+        let container = NSHostingView(rootView: manualHaplotypingSectionBody())
         container.identifier = Self.generatedContentHostingViewIdentifier
         container.translatesAutoresizingMaskIntoConstraints = false
         container.frame.size.height = 240
@@ -5099,7 +5092,7 @@ public final class GenotypeResultViewController: NSViewController {
         return container
     }
 
-    private func manualHaplotypingSectionBody(allowsCreation: Bool) -> some View {
+    private func manualHaplotypingSectionBody() -> some View {
         let rows = manualHaplotypingRows()
         let assignments = annotationStore?.sidecar.manualHaplotypeAssignments ?? []
         return GenotypeManualHaplotypingSection(
@@ -5117,7 +5110,6 @@ public final class GenotypeResultViewController: NSViewController {
                 get: { [weak self] in self?.manualHaplotypingDraftColorTokenIndex ?? 1 },
                 set: { [weak self] newValue in self?.manualHaplotypingDraftColorTokenIndex = newValue }
             ),
-            allowsCreation: allowsCreation,
             onCreateHaplotype: { [weak self] in self?.commitManualHaplotype() },
             onDeleteAssignment: { [weak self] assignment in
                 self?.deleteManualHaplotype(matching: assignment)
@@ -5140,8 +5132,8 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func commitManualHaplotype() {
-        guard case .eligible = manualHaplotypeEligibility,
-              let result,
+        guard let result,
+              manualHaplotypingIsAvailable(result: result),
               let store = annotationStore else {
             return
         }

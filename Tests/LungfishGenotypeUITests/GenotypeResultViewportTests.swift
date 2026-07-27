@@ -5211,6 +5211,74 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertFalse(visibleText(in: controller.view).contains("Manual Haplotyping"))
     }
 
+    func testHaplotypedResultWithManualAssignmentsPreservesFullCreatorBehavior() throws {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "HaplotypedManualAssignments-\(UUID().uuidString).lungfishgenotype",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-26T00:00:00Z"
+        )
+        sidecar.manualHaplotypeAssignments = [
+            ManualHaplotypeAssignment(
+                sample: "LegacyAnimal",
+                locus: "MHC-A",
+                slot: .h1,
+                label: "Existing Manual Haplotype",
+                colorTokenIndex: 1,
+                diagnosticAlleles: ["legacy-allele"],
+                notes: "created before automated haplotyping"
+            ),
+        ]
+        try ONTGenotypeResultBundleData.writeAnnotationSidecar(
+            sidecar,
+            forBundleAt: bundleURL
+        )
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "test-definitions",
+            definitionSetName: "Test definitions",
+            speciesName: "Test species",
+            samples: []
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [makeCall(
+                sample: "AnimalA",
+                genotype: "01_Mafa_A1_001_01",
+                reads: 42
+            )],
+            haplotypeAnalysis: analysis
+        ))
+
+        controller.testingSelectLens(.audit)
+
+        let lensText = visibleText(in: controller.view)
+        XCTAssertEqual(
+            controller.testingManualHaplotypeAssignments.map(\.label),
+            ["Existing Manual Haplotype"]
+        )
+        XCTAssertTrue(controller.testingManualHaplotypingCreatorIsAvailable)
+        XCTAssertTrue(lensText.contains("Manual Haplotyping"))
+        controller.testingAttemptManualHaplotypeCreation(
+            selectedGenotypeIDs: ["MHC-A::01_Mafa_A1_001_01"],
+            label: "Grandfathered Manual Haplotype"
+        )
+        XCTAssertEqual(
+            Set(controller.testingManualHaplotypeAssignments.map(\.label)),
+            ["Existing Manual Haplotype", "Grandfathered Manual Haplotype"]
+        )
+    }
+
     func testArtifactsLensListsValidatedCandidateFASTAAndGenBankArtifactsWhenDeclared() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeCandidateGenBankLens-\(UUID().uuidString)", isDirectory: true)
