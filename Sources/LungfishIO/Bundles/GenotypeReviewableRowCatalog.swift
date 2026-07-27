@@ -14,6 +14,16 @@ public struct GenotypeReviewableRowCatalog: Codable, Equatable, Sendable {
         }
     }
 
+    public struct SampleSupport: Codable, Equatable, Sendable {
+        public let sample: String
+        public let support: Int
+
+        public init(sample: String, support: Int) {
+            self.sample = sample
+            self.support = support
+        }
+    }
+
     public struct Row: Codable, Equatable, Sendable {
         public let kind: RowKind
         public let callID: String
@@ -44,6 +54,12 @@ public struct GenotypeReviewableRowCatalog: Codable, Equatable, Sendable {
             self.supportBySample = supportBySample
         }
 
+        public var sampleSupport: [SampleSupport] {
+            supportBySample
+                .map { SampleSupport(sample: $0.key, support: $0.value) }
+                .sorted { $0.sample < $1.sample }
+        }
+
         public var semanticIdentity: SemanticIdentity {
             SemanticIdentity(
                 kind: kind,
@@ -51,6 +67,47 @@ public struct GenotypeReviewableRowCatalog: Codable, Equatable, Sendable {
                 callID: callID,
                 stableID: stableID
             )
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            kind = try container.decode(RowKind.self, forKey: .kind)
+            callID = try container.decode(String.self, forKey: .callID)
+            displayName = try container.decode(String.self, forKey: .displayName)
+            locus = try container.decode(String.self, forKey: .locus)
+            stableID = try container.decodeIfPresent(String.self, forKey: .stableID)
+            section = try container.decode(String.self, forKey: .section)
+            sortKey = try container.decode(String.self, forKey: .sortKey)
+
+            let records = try container.decode(
+                [SampleSupport].self,
+                forKey: .supportBySample
+            )
+            var support: [String: Int] = [:]
+            support.reserveCapacity(records.count)
+            for record in records {
+                guard support.updateValue(record.support, forKey: record.sample) == nil else {
+                    throw DecodingError.dataCorruptedError(
+                        forKey: .supportBySample,
+                        in: container,
+                        debugDescription:
+                            "Duplicate authoritative evidence sample '\(record.sample)'."
+                    )
+                }
+            }
+            supportBySample = support
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(kind, forKey: .kind)
+            try container.encode(callID, forKey: .callID)
+            try container.encode(displayName, forKey: .displayName)
+            try container.encode(locus, forKey: .locus)
+            try container.encodeIfPresent(stableID, forKey: .stableID)
+            try container.encode(section, forKey: .section)
+            try container.encode(sortKey, forKey: .sortKey)
+            try container.encode(sampleSupport, forKey: .supportBySample)
         }
 
         private enum CodingKeys: String, CodingKey {
@@ -136,6 +193,12 @@ public struct GenotypeReviewableRowCatalog: Codable, Equatable, Sendable {
         self.schemaVersion = schemaVersion
         self.samples = samples
         self.rows = rows
+    }
+
+    public func encoded() throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try encoder.encode(self)
     }
 
     @discardableResult

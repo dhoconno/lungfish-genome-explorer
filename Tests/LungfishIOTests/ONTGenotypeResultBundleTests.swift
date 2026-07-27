@@ -117,6 +117,90 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         )
     }
 
+    func testReviewableRowCatalogRejectsLegacyDuplicateEvidenceObjectKeys() {
+        let data = Data(
+            #"""
+            {
+              "schema_id": "org.lungfish.genotype.reviewable-row-catalog",
+              "schema_version": 1,
+              "samples": ["S1", "S2"],
+              "rows": [{
+                "kind": "reference",
+                "call_id": "reference:MHC-A:Mafa-A1*001:01",
+                "display_name": "Mafa-A1*001:01",
+                "locus": "MHC-A",
+                "section": "reference",
+                "sort_key": "MHC-A|Mafa-A1*001:01",
+                "support_by_sample": {"S1": 0, "S1": 7, "S2": 0}
+              }]
+            }
+            """#.utf8
+        )
+
+        XCTAssertThrowsError(
+            try JSONDecoder()
+                .decode(GenotypeReviewableRowCatalog.self, from: data)
+                .validated()
+        )
+    }
+
+    func testReviewableRowCatalogRejectsDuplicateEvidenceArrayRecordsPrecisely() {
+        let data = Data(
+            #"""
+            {
+              "schema_id": "org.lungfish.genotype.reviewable-row-catalog",
+              "schema_version": 1,
+              "samples": ["S1", "S2"],
+              "rows": [{
+                "kind": "reference",
+                "call_id": "reference:MHC-A:Mafa-A1*001:01",
+                "display_name": "Mafa-A1*001:01",
+                "locus": "MHC-A",
+                "section": "reference",
+                "sort_key": "MHC-A|Mafa-A1*001:01",
+                "support_by_sample": [
+                  {"sample": "S1", "support": 0},
+                  {"sample": "S1", "support": 7},
+                  {"sample": "S2", "support": 0}
+                ]
+              }]
+            }
+            """#.utf8
+        )
+
+        XCTAssertThrowsError(
+            try JSONDecoder().decode(GenotypeReviewableRowCatalog.self, from: data)
+        ) { error in
+            guard case DecodingError.dataCorrupted(let context) = error else {
+                return XCTFail("Expected duplicate-evidence data corruption, found \(error)")
+            }
+            XCTAssertTrue(context.debugDescription.localizedCaseInsensitiveContains("duplicate"))
+            XCTAssertTrue(context.debugDescription.contains("S1"))
+        }
+    }
+
+    func testReviewableRowCatalogCanonicalEncodingUsesSortedEvidenceRecords() throws {
+        let catalog = reviewableRowCatalog()
+
+        let first = try catalog.encoded()
+        let second = try catalog.encoded()
+        XCTAssertEqual(first, second)
+
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: first) as? [String: Any]
+        )
+        let rows = try XCTUnwrap(object["rows"] as? [[String: Any]])
+        let firstSupport = try XCTUnwrap(
+            rows[0]["support_by_sample"] as? [[String: Any]]
+        )
+        XCTAssertEqual(firstSupport.compactMap { $0["sample"] as? String }, ["S1", "S2"])
+        XCTAssertEqual(firstSupport.compactMap { $0["support"] as? Int }, [0, 0])
+
+        let encodedText = try XCTUnwrap(String(data: first, encoding: .utf8))
+        XCTAssertTrue(encodedText.hasPrefix(#"{"rows":"#))
+        XCTAssertTrue(encodedText.contains(#""support_by_sample":[{"sample":"S1","support":0},{"sample":"S2","support":0}]"#))
+    }
+
     func testReviewableRowCatalogRejectsUnsupportedSchemaAndInvalidRowIdentity() {
         let catalog = reviewableRowCatalog()
         XCTAssertThrowsError(
