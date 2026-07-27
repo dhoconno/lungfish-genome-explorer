@@ -130,6 +130,12 @@ public enum ONTGenotypeWorkbookUpdateRecoveryError: Error, LocalizedError, Senda
         warningPath: String,
         reason: String
     )
+    case cleanupPendingWarningPersistenceFailure(
+        quarantinePath: String,
+        retryState: String,
+        reason: String,
+        warningFailure: String
+    )
 
     public var errorDescription: String? {
         switch self {
@@ -149,6 +155,15 @@ public enum ONTGenotypeWorkbookUpdateRecoveryError: Error, LocalizedError, Senda
             let reason
         ):
             return "Workbook cleanup retained \(quarantinePath) in \(retryState) retry state. Warning: \(warningPath). \(reason)"
+        case .cleanupPendingWarningPersistenceFailure(
+            let quarantinePath,
+            let retryState,
+            let reason,
+            let warningFailure
+        ):
+            return "Workbook cleanup retained \(quarantinePath) in \(retryState) retry state. "
+                + "Original cleanup failure: \(reason) Warning persistence also failed: "
+                + warningFailure
         }
     }
 }
@@ -286,7 +301,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
     }
 
     private struct Receipt: Codable {
-        struct File: Codable {
+        struct File: Codable, Equatable {
             let role: String
             let descriptor: ONTGenotypeWorkbookUpdateFileDescriptor
         }
@@ -549,6 +564,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         )
         try completeProvenTransactionRootCleanup(
             transaction,
+            decision: .committed,
             for: bundleURL,
             failureInjector: cleanupFailureInjector
         )
@@ -587,6 +603,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         )
         try completeProvenTransactionRootCleanup(
             transaction,
+            decision: .preparedDiscard,
             for: bundleURL,
             failureInjector: cleanupFailureInjector
         )
@@ -644,11 +661,6 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 failureInjector: cleanupFailureInjector
             )
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try writeReceipt(
-                transaction,
-                action: "preserved-manually-edited-prior-generation",
-                detail: "The prior generation was restored after a manual-save conflict; the generated revision was discarded."
-            )
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
             try removeMarkerAndAttestation(
                 authority,
@@ -658,6 +670,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             )
             try completeProvenTransactionRootCleanup(
                 transaction,
+                decision: .manualSaveWinner,
                 for: bundleURL,
                 failureInjector: cleanupFailureInjector
             )
@@ -671,7 +684,6 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 failureInjector: cleanupFailureInjector
             )
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try writeReceipt(transaction, action: "discarded-unpublished-staging", detail: "Final generation remained unchanged.")
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
             try removeMarkerAndAttestation(
                 authority,
@@ -681,6 +693,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             )
             try completeProvenTransactionRootCleanup(
                 transaction,
+                decision: .preparedDiscard,
                 for: bundleURL,
                 failureInjector: cleanupFailureInjector
             )
@@ -709,7 +722,6 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 failureInjector: cleanupFailureInjector
             )
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try writeReceipt(transaction, action: "restored-prior-generation", detail: "Recovered an interrupted pre-manifest workbook publication.")
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
             try removeMarkerAndAttestation(
                 authority,
@@ -719,6 +731,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             )
             try completeProvenTransactionRootCleanup(
                 transaction,
+                decision: .rollback,
                 for: bundleURL,
                 failureInjector: cleanupFailureInjector
             )
@@ -751,11 +764,6 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 failureInjector: cleanupFailureInjector
             )
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try writeReceipt(
-                transaction,
-                action: "restored-manually-edited-prior-generation",
-                detail: "A manual save to the retired workbook generation won the publication conflict; the generated revision was discarded."
-            )
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
             try removeMarkerAndAttestation(
                 authority,
@@ -765,6 +773,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             )
             try completeProvenTransactionRootCleanup(
                 transaction,
+                decision: .manualSaveWinner,
                 for: bundleURL,
                 failureInjector: cleanupFailureInjector
             )
@@ -779,7 +788,6 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 failureInjector: cleanupFailureInjector
             )
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try writeReceipt(transaction, action: "finished-committed-cleanup", detail: "The new manifest and workbook were already durable.")
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
             try removeMarkerAndAttestation(
                 authority,
@@ -789,6 +797,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             )
             try completeProvenTransactionRootCleanup(
                 transaction,
+                decision: .committed,
                 for: bundleURL,
                 failureInjector: cleanupFailureInjector
             )
@@ -801,7 +810,6 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 decision: .committed,
                 failureInjector: cleanupFailureInjector
             )
-            try writeReceipt(transaction, action: "finished-committed-marker-cleanup", detail: "The prior generation had already been retired.")
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
             try removeMarkerAndAttestation(
                 authority,
@@ -811,6 +819,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             )
             try completeProvenTransactionRootCleanup(
                 transaction,
+                decision: .committed,
                 for: bundleURL,
                 failureInjector: cleanupFailureInjector
             )
@@ -825,7 +834,6 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 failureInjector: cleanupFailureInjector
             )
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try writeReceipt(transaction, action: "finished-rollback-cleanup", detail: "The prior generation was already restored.")
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
             try removeMarkerAndAttestation(
                 authority,
@@ -835,6 +843,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             )
             try completeProvenTransactionRootCleanup(
                 transaction,
+                decision: .rollback,
                 for: bundleURL,
                 failureInjector: cleanupFailureInjector
             )
@@ -1514,6 +1523,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                     "Workbook cleanup decision changed for transaction \(transaction.transactionID)."
                 )
             }
+            try writeCleanupAuthorizedReceipt(existing.1)
             return
         }
 
@@ -1571,6 +1581,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             expectedManifest: expectedSurvivorManifest,
             expectedCurrentWorkbookPath: transaction.oldCurrentWorkbook.path
         )
+        let disposition = cleanupDisposition(for: decision)
         let state = ONTGenotypeWorkbookCleanupState(
             transactionID: transaction.transactionID,
             finalBundlePath: final.path,
@@ -1586,14 +1597,19 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             survivorIdentity: survivor.identity,
             survivorManifest: survivor.manifest,
             survivorCurrentWorkbook: survivor.currentWorkbook,
+            transaction: transaction,
+            terminalReceiptAction: disposition.action,
+            terminalReceiptDetail: disposition.detail,
             decision: decision
         )
         try ONTGenotypeWorkbookCleanupStateStore.write(state, at: stateURL)
         try failureInjector?("after-workbook-cleanup-state-durable-hard-stop")
+        try writeCleanupAuthorizedReceipt(state)
     }
 
     private static func completeProvenTransactionRootCleanup(
         _ transaction: ONTGenotypeWorkbookUpdateTransaction,
+        decision: ONTGenotypeWorkbookCleanupDecision,
         for bundleURL: URL,
         failureInjector: (@Sendable (String) throws -> Void)?
     ) throws {
@@ -1604,11 +1620,94 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 "Multiple workbook cleanup states claim transaction \(transaction.transactionID)."
             )
         }
-        guard let (stateURL, state) = states.first else { return }
+        guard let (stateURL, state) = states.first else {
+            try writeCleanupTerminalReceipt(
+                transaction,
+                decision: decision
+            )
+            return
+        }
         try ONTGenotypeWorkbookCleanupStateStore.removeQuarantineNoFollow(
             state: state,
             stateURL: stateURL,
-            failureInjector: failureInjector
+            failureInjector: failureInjector,
+            completion: {
+                try writeCleanupTerminalReceipt(state)
+            }
+        )
+    }
+
+    private static func cleanupDisposition(
+        for decision: ONTGenotypeWorkbookCleanupDecision
+    ) -> (action: String, detail: String) {
+        switch decision {
+        case .committed:
+            return (
+                "finished-committed-cleanup",
+                "The committed workbook generation is durable and the retired generation was removed."
+            )
+        case .preparedDiscard:
+            return (
+                "finished-prepared-discard-cleanup",
+                "The unpublished prepared generation was durably removed."
+            )
+        case .rollback:
+            return (
+                "finished-rollback-cleanup",
+                "The prior workbook generation was restored and the retired generation was removed."
+            )
+        case .manualSaveWinner:
+            return (
+                "finished-manual-save-winner-cleanup",
+                "The manually edited workbook generation was preserved and the generated revision was removed."
+            )
+        }
+    }
+
+    private static func writeCleanupAuthorizedReceipt(
+        _ state: ONTGenotypeWorkbookCleanupState
+    ) throws {
+        try writeReceipt(
+            state.transaction,
+            action: "workbook-cleanup-authorized",
+            detail: "Cleanup decision \(state.decision.rawValue) is durable; retired bytes remain pending.",
+            exitStatus: 75,
+            stableSuffix: "cleanup-authorized",
+            outputRole: "authorized-surviving-current-workbook",
+            outputDescriptor: state.survivorCurrentWorkbook
+        )
+    }
+
+    private static func writeCleanupTerminalReceipt(
+        _ state: ONTGenotypeWorkbookCleanupState
+    ) throws {
+        try writeReceipt(
+            state.transaction,
+            action: state.terminalReceiptAction,
+            detail: state.terminalReceiptDetail,
+            exitStatus: 0,
+            stableSuffix: "cleanup-terminal",
+            outputRole: "surviving-current-workbook",
+            outputDescriptor: state.survivorCurrentWorkbook
+        )
+    }
+
+    private static func writeCleanupTerminalReceipt(
+        _ transaction: ONTGenotypeWorkbookUpdateTransaction,
+        decision: ONTGenotypeWorkbookCleanupDecision
+    ) throws {
+        let disposition = cleanupDisposition(for: decision)
+        let survivor = decision == .committed
+            ? transaction.newCurrentWorkbook
+            : transaction.oldCurrentWorkbook
+        try writeReceipt(
+            transaction,
+            action: disposition.action,
+            detail: disposition.detail,
+            exitStatus: 0,
+            stableSuffix: "cleanup-terminal",
+            outputRole: "surviving-current-workbook",
+            outputDescriptor: survivor
         )
     }
 
@@ -1639,18 +1738,26 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
     private static func writeReceipt(
         _ transaction: ONTGenotypeWorkbookUpdateTransaction,
         action: String,
-        detail: String
+        detail: String,
+        exitStatus suppliedExitStatus: Int? = nil,
+        stableSuffix: String? = nil,
+        outputRole suppliedOutputRole: String? = nil,
+        outputDescriptor suppliedOutputDescriptor:
+            ONTGenotypeWorkbookUpdateFileDescriptor? = nil
     ) throws {
         let final = URL(fileURLWithPath: transaction.finalBundlePath, isDirectory: true)
+        let receiptID = stableSuffix ?? UUID().uuidString
         let url = final.deletingLastPathComponent().appendingPathComponent(
-            ".\(final.lastPathComponent).workbook-update-recovery-\(transaction.transactionID)-\(UUID().uuidString).json"
+            ".\(final.lastPathComponent).workbook-update-recovery-"
+                + "\(transaction.transactionID)-\(receiptID).json"
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         let completedAt = Date()
-        let exitStatus = action == "ambiguous-preserved" ? 1 : 0
-        try atomicWriteNoFollow(try encoder.encode(Receipt(
+        let exitStatus = suppliedExitStatus
+            ?? (action == "ambiguous-preserved" ? 1 : 0)
+        let receipt = Receipt(
             schemaVersion: 1,
             transaction: transaction,
             action: action,
@@ -1667,14 +1774,43 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             ],
             outputs: [
                 Receipt.File(
-                    role: action.contains("committed") ? "committed-current-workbook" : "restored-current-workbook",
-                    descriptor: action.contains("committed")
-                        ? transaction.newCurrentWorkbook
-                        : transaction.oldCurrentWorkbook
+                    role: suppliedOutputRole
+                        ?? (action.contains("committed")
+                            ? "committed-current-workbook"
+                            : "restored-current-workbook"),
+                    descriptor: suppliedOutputDescriptor
+                        ?? (action.contains("committed")
+                            ? transaction.newCurrentWorkbook
+                            : transaction.oldCurrentWorkbook)
                 ),
             ],
             detail: detail
-        )), to: url)
+        )
+        if stableSuffix != nil, FileManager.default.fileExists(atPath: url.path) {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            let existing = try decoder.decode(
+                Receipt.self,
+                from: readRegularFileNoFollow(url)
+            )
+            guard existing.transaction == transaction,
+                  existing.schemaVersion == receipt.schemaVersion,
+                  existing.action == action,
+                  existing.startedAt == receipt.startedAt,
+                  existing.exitStatus == exitStatus,
+                  existing.stderr == receipt.stderr,
+                  existing.inputs == receipt.inputs,
+                  existing.outputs == receipt.outputs,
+                  existing.detail == detail,
+                  existing.completedAt >= existing.startedAt,
+                  existing.wallTimeSeconds >= 0 else {
+                throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                    "A durable workbook cleanup receipt was substituted: \(url.path)"
+                )
+            }
+            return
+        }
+        try atomicWriteNoFollow(try encoder.encode(receipt), to: url)
     }
 
     private static func claim(
@@ -2074,6 +2210,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             )
         }
         guard let (stateURL, state) = states.first else { return false }
+        try writeCleanupAuthorizedReceipt(state)
 
         if let authority = try loadRecoveryAuthorityIfPresent(
             for: bundleURL,
@@ -2099,7 +2236,10 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         try ONTGenotypeWorkbookCleanupStateStore.removeQuarantineNoFollow(
             state: state,
             stateURL: stateURL,
-            failureInjector: failureInjector
+            failureInjector: failureInjector,
+            completion: {
+                try writeCleanupTerminalReceipt(state)
+            }
         )
         return true
     }

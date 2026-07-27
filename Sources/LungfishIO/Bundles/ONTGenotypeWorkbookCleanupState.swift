@@ -21,12 +21,15 @@ public struct ONTGenotypeWorkbookCleanupState: Codable, Equatable, Sendable {
     public let survivorIdentity: ONTGenotypeWorkbookUpdateDirectoryIdentity
     public let survivorManifest: ONTGenotypeWorkbookUpdateFileDescriptor
     public let survivorCurrentWorkbook: ONTGenotypeWorkbookUpdateFileDescriptor
+    public let transaction: ONTGenotypeWorkbookUpdateTransaction
+    public let terminalReceiptAction: String
+    public let terminalReceiptDetail: String
     public let decision: ONTGenotypeWorkbookCleanupDecision
     public let retryState: String
     public let createdAt: Date
 
     public init(
-        schemaVersion: Int = 2,
+        schemaVersion: Int = 3,
         transactionID: String,
         finalBundlePath: String,
         sourceRootPath: String,
@@ -37,6 +40,9 @@ public struct ONTGenotypeWorkbookCleanupState: Codable, Equatable, Sendable {
         survivorIdentity: ONTGenotypeWorkbookUpdateDirectoryIdentity,
         survivorManifest: ONTGenotypeWorkbookUpdateFileDescriptor,
         survivorCurrentWorkbook: ONTGenotypeWorkbookUpdateFileDescriptor,
+        transaction: ONTGenotypeWorkbookUpdateTransaction,
+        terminalReceiptAction: String,
+        terminalReceiptDetail: String,
         decision: ONTGenotypeWorkbookCleanupDecision,
         retryState: String = "cleanup-pending",
         createdAt: Date = Date()
@@ -52,6 +58,9 @@ public struct ONTGenotypeWorkbookCleanupState: Codable, Equatable, Sendable {
         self.survivorIdentity = survivorIdentity
         self.survivorManifest = survivorManifest
         self.survivorCurrentWorkbook = survivorCurrentWorkbook
+        self.transaction = transaction
+        self.terminalReceiptAction = terminalReceiptAction
+        self.terminalReceiptDetail = terminalReceiptDetail
         self.decision = decision
         self.retryState = retryState
         self.createdAt = createdAt
@@ -110,15 +119,41 @@ enum ONTGenotypeWorkbookCleanupStateStore {
     }
 
     static func states(for bundleURL: URL) throws -> [(URL, ONTGenotypeWorkbookCleanupState)] {
-        let bundle = URL(
+        let requested = URL(
             fileURLWithPath: lexicalPath(bundleURL),
             isDirectory: true
         )
-        let parent = bundle.deletingLastPathComponent()
-        let prefix = ".\(bundle.lastPathComponent).workbook-cleanup-state-"
-        let names = try FileManager.default.contentsOfDirectory(atPath: parent.path)
-            .filter { $0.hasPrefix(prefix) && $0.hasSuffix(".json") }
-            .sorted()
+        let parent = requested.deletingLastPathComponent()
+        let parentDescriptor = Darwin.open(
+            parent.path,
+            O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+        )
+        guard parentDescriptor >= 0 else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(
+                parent.path,
+                errno
+            )
+        }
+        defer { Darwin.close(parentDescriptor) }
+        let actualBundleName = try identityBoundBundleNameIfPresent(
+            requested,
+            parentDescriptor: parentDescriptor
+        )
+        let requestedPrefix =
+            ".\(requested.lastPathComponent).workbook-cleanup-state-"
+        let names = try directoryEntryNames(
+            descriptor: parentDescriptor,
+            displayedAt: parent
+        ).filter { name in
+            guard name.hasSuffix(".json") else { return false }
+            if let actualBundleName {
+                return name.hasPrefix(
+                    ".\(actualBundleName).workbook-cleanup-state-"
+                )
+            }
+            return String(name.prefix(requestedPrefix.count))
+                .caseInsensitiveCompare(requestedPrefix) == .orderedSame
+        }.sorted()
         return try names.map { name in
             guard DurableAtomicFileStore.isSinglePathComponent(name) else {
                 throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction(
@@ -126,8 +161,41 @@ enum ONTGenotypeWorkbookCleanupStateStore {
                 )
             }
             let url = parent.appendingPathComponent(name)
-            let data = try readRegularFileNoFollow(url)
+            let read = try readRelativeRegularFile(
+                name,
+                beneath: parentDescriptor,
+                displayedAt: parent,
+                collectDataLimit: 16 * 1_024 * 1_024
+            )
+            guard let data = read.data else {
+                throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction(
+                    "Workbook cleanup state could not be read: \(url.path)"
+                )
+            }
             let state = try decoder.decode(ONTGenotypeWorkbookCleanupState.self, from: data)
+            let stateBundle = URL(
+                fileURLWithPath: lexicalPath(
+                    URL(fileURLWithPath: state.finalBundlePath)
+                ),
+                isDirectory: true
+            )
+            let bundle: URL
+            if let actualBundleName {
+                bundle = parent.appendingPathComponent(
+                    actualBundleName,
+                    isDirectory: true
+                )
+            } else {
+                guard stateBundle.deletingLastPathComponent().path == parent.path,
+                      stateBundle.lastPathComponent.caseInsensitiveCompare(
+                          requested.lastPathComponent
+                      ) == .orderedSame else {
+                    throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction(
+                        "Markerless workbook cleanup state does not identify the requested bundle."
+                    )
+                }
+                bundle = stateBundle
+            }
             try validate(state, at: url, for: bundle)
             return (url, state)
         }
@@ -243,7 +311,8 @@ enum ONTGenotypeWorkbookCleanupStateStore {
     static func removeQuarantineNoFollow(
         state: ONTGenotypeWorkbookCleanupState,
         stateURL: URL,
-        failureInjector: (@Sendable (String) throws -> Void)?
+        failureInjector: (@Sendable (String) throws -> Void)?,
+        completion: () throws -> Void
     ) throws {
         do {
             try validateSurvivor(state)
@@ -252,7 +321,8 @@ enum ONTGenotypeWorkbookCleanupStateStore {
                 state: state,
                 stateURL: stateURL,
                 reason: "The surviving workbook generation is unavailable or changed: "
-                    + error.localizedDescription
+                    + error.localizedDescription,
+                failureInjector: failureInjector
             )
         }
         let parent = URL(
@@ -283,20 +353,23 @@ enum ONTGenotypeWorkbookCleanupStateStore {
         }
         guard inspect == 0 else {
             if errno == ENOENT {
+                try completion()
                 try removeState(at: stateURL, expectedState: state)
                 return
             }
             try throwWarning(
                 state: state,
                 stateURL: stateURL,
-                reason: "Could not inspect cleanup quarantine (errno \(errno))."
+                reason: "Could not inspect cleanup quarantine (errno \(errno)).",
+                failureInjector: failureInjector
             )
         }
         guard matches(entryInfo, state.quarantineIdentity) else {
             try throwWarning(
                 state: state,
                 stateURL: stateURL,
-                reason: "Cleanup quarantine identity changed before traversal."
+                reason: "Cleanup quarantine identity changed before traversal.",
+                failureInjector: failureInjector
             )
         }
         let descriptor = quarantine.lastPathComponent.withCString {
@@ -310,7 +383,8 @@ enum ONTGenotypeWorkbookCleanupStateStore {
             try throwWarning(
                 state: state,
                 stateURL: stateURL,
-                reason: "Could not open cleanup quarantine without following links (errno \(errno))."
+                reason: "Could not open cleanup quarantine without following links (errno \(errno)).",
+                failureInjector: failureInjector
             )
         }
         defer { Darwin.close(descriptor) }
@@ -320,7 +394,8 @@ enum ONTGenotypeWorkbookCleanupStateStore {
             try throwWarning(
                 state: state,
                 stateURL: stateURL,
-                reason: "Opened cleanup quarantine identity does not match durable state."
+                reason: "Opened cleanup quarantine identity does not match durable state.",
+                failureInjector: failureInjector
             )
         }
 
@@ -338,7 +413,8 @@ enum ONTGenotypeWorkbookCleanupStateStore {
             }
             try removeContentsNoFollow(
                 descriptor: descriptor,
-                displayedAt: quarantine
+                displayedAt: quarantine,
+                failureInjector: failureInjector
             )
             var finalInfo = stat()
             let finalStatus = quarantine.lastPathComponent.withCString {
@@ -358,6 +434,7 @@ enum ONTGenotypeWorkbookCleanupStateStore {
                     detail: "Cleanup quarantine removal durability is uncertain (errno \(errno))."
                 )
             }
+            try completion()
             try removeState(at: stateURL, expectedState: state)
         } catch let error as ONTGenotypeWorkbookUpdateRecoveryError {
             throw error
@@ -365,7 +442,8 @@ enum ONTGenotypeWorkbookCleanupStateStore {
             try throwWarning(
                 state: state,
                 stateURL: stateURL,
-                reason: error.localizedDescription
+                reason: error.localizedDescription,
+                failureInjector: failureInjector
             )
         }
     }
@@ -450,13 +528,26 @@ enum ONTGenotypeWorkbookCleanupStateStore {
     private static func throwWarning(
         state: ONTGenotypeWorkbookCleanupState,
         stateURL: URL,
-        reason: String
+        reason: String,
+        failureInjector: (@Sendable (String) throws -> Void)?
     ) throws -> Never {
-        let warningURL = try recordWarning(
-            state: state,
-            stateURL: stateURL,
-            reason: reason
-        )
+        let warningURL: URL
+        do {
+            try failureInjector?("before-workbook-cleanup-warning-write")
+            warningURL = try recordWarning(
+                state: state,
+                stateURL: stateURL,
+                reason: reason
+            )
+        } catch {
+            throw ONTGenotypeWorkbookUpdateRecoveryError
+                .cleanupPendingWarningPersistenceFailure(
+                    quarantinePath: state.quarantinePath,
+                    retryState: state.retryState,
+                    reason: reason,
+                    warningFailure: error.localizedDescription
+                )
+        }
         throw ONTGenotypeWorkbookUpdateRecoveryError.cleanupPendingWarning(
             quarantinePath: state.quarantinePath,
             retryState: state.retryState,
@@ -483,7 +574,7 @@ enum ONTGenotypeWorkbookCleanupStateStore {
             transactionID: state.transactionID,
             parent: parent
         )
-        guard state.schemaVersion == 2,
+        guard state.schemaVersion == 3,
               state.retryState == "cleanup-pending",
               DurableAtomicFileStore.isSinglePathComponent(state.transactionID),
               lexicalPath(URL(fileURLWithPath: state.finalBundlePath)) == bundle.path,
@@ -500,6 +591,10 @@ enum ONTGenotypeWorkbookCleanupStateStore {
               state.survivorIdentity.path == state.finalBundlePath,
               state.survivorManifest.path == ONTGenotypeResultBundleManifest.filename,
               isSafeRelativePath(state.survivorCurrentWorkbook.path),
+              state.transaction.transactionID == state.transactionID,
+              state.transaction.finalBundlePath == state.finalBundlePath,
+              !state.terminalReceiptAction.isEmpty,
+              !state.terminalReceiptDetail.isEmpty,
               state.sourceIdentity.device == state.quarantineIdentity.device,
               state.sourceIdentity.inode == state.quarantineIdentity.inode else {
             throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction(
@@ -510,6 +605,59 @@ enum ONTGenotypeWorkbookCleanupStateStore {
 
     private static func lexicalPath(_ url: URL) -> String {
         NSString(string: url.path).standardizingPath
+    }
+
+    private static func identityBoundBundleNameIfPresent(
+        _ requested: URL,
+        parentDescriptor: Int32
+    ) throws -> String? {
+        let descriptor = Darwin.open(
+            requested.path,
+            O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+        )
+        guard descriptor >= 0 else {
+            if errno == ENOENT { return nil }
+            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(
+                requested.path,
+                errno
+            )
+        }
+        defer { Darwin.close(descriptor) }
+        var opened = stat()
+        guard Darwin.fstat(descriptor, &opened) == 0,
+              opened.st_mode & S_IFMT == S_IFDIR else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction(
+                "The requested workbook bundle is not an identity-bound directory."
+            )
+        }
+        let parent = requested.deletingLastPathComponent()
+        let matchingNames = try directoryEntryNames(
+            descriptor: parentDescriptor,
+            displayedAt: parent
+        ).filter { name in
+            guard name.caseInsensitiveCompare(requested.lastPathComponent) == .orderedSame else {
+                return false
+            }
+            var candidate = stat()
+            let status = name.withCString {
+                Darwin.fstatat(
+                    parentDescriptor,
+                    $0,
+                    &candidate,
+                    AT_SYMLINK_NOFOLLOW
+                )
+            }
+            return status == 0
+                && candidate.st_mode & S_IFMT == S_IFDIR
+                && candidate.st_dev == opened.st_dev
+                && candidate.st_ino == opened.st_ino
+        }
+        guard matchingNames.count == 1, let actualName = matchingNames.first else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction(
+                "The requested workbook bundle has no unique identity-bound directory entry."
+            )
+        }
+        return actualName
     }
 
     private static func validateSurvivor(
@@ -717,9 +865,16 @@ enum ONTGenotypeWorkbookCleanupStateStore {
         descriptor: Int32,
         displayedAt url: URL
     ) throws -> [String] {
-        let duplicate = Darwin.dup(descriptor)
-        guard duplicate >= 0, let stream = Darwin.fdopendir(duplicate) else {
-            if duplicate >= 0 { Darwin.close(duplicate) }
+        let enumerationDescriptor = Darwin.openat(
+            descriptor,
+            ".",
+            O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+        )
+        guard enumerationDescriptor >= 0,
+              let stream = Darwin.fdopendir(enumerationDescriptor) else {
+            if enumerationDescriptor >= 0 {
+                Darwin.close(enumerationDescriptor)
+            }
             throw CleanupTraversalError(
                 detail: "Could not enumerate \(url.path) (errno \(errno))."
             )
@@ -740,7 +895,8 @@ enum ONTGenotypeWorkbookCleanupStateStore {
 
     private static func removeContentsNoFollow(
         descriptor: Int32,
-        displayedAt url: URL
+        displayedAt url: URL,
+        failureInjector: (@Sendable (String) throws -> Void)?
     ) throws {
         for name in try directoryEntryNames(descriptor: descriptor, displayedAt: url) {
             guard DurableAtomicFileStore.isSinglePathComponent(name) else {
@@ -783,7 +939,8 @@ enum ONTGenotypeWorkbookCleanupStateStore {
                     }
                     try removeContentsNoFollow(
                         descriptor: child,
-                        displayedAt: url.appendingPathComponent(name, isDirectory: true)
+                        displayedAt: url.appendingPathComponent(name, isDirectory: true),
+                        failureInjector: failureInjector
                     )
                     var current = stat()
                     let currentStatus = name.withCString {
@@ -801,10 +958,68 @@ enum ONTGenotypeWorkbookCleanupStateStore {
                     }
                 }
             } else {
-                let status = name.withCString { Darwin.unlinkat(descriptor, $0, 0) }
-                guard status == 0 || errno == ENOENT else {
+                try failureInjector?(
+                    "before-workbook-cleanup-nondirectory-detach:"
+                        + url.appendingPathComponent(name).path
+                )
+                let tombstone = ".lungfish-cleanup-entry-\(UUID().uuidString.lowercased())"
+                let detach = name.withCString { source in
+                    tombstone.withCString { destination in
+                        Darwin.renameatx_np(
+                            descriptor,
+                            source,
+                            descriptor,
+                            destination,
+                            UInt32(RENAME_EXCL)
+                        )
+                    }
+                }
+                guard detach == 0 else {
+                    if errno == ENOENT { continue }
                     throw CleanupTraversalError(
-                        detail: "Could not remove quarantine entry \(name) (errno \(errno))."
+                        detail: "Could not detach quarantine entry \(name) safely (errno \(errno))."
+                    )
+                }
+                var detached = stat()
+                let inspectDetached = tombstone.withCString {
+                    Darwin.fstatat(descriptor, $0, &detached, AT_SYMLINK_NOFOLLOW)
+                }
+                guard inspectDetached == 0,
+                      detached.st_dev == info.st_dev,
+                      detached.st_ino == info.st_ino,
+                      detached.st_mode & S_IFMT == info.st_mode & S_IFMT else {
+                    _ = tombstone.withCString { source in
+                        name.withCString { destination in
+                            Darwin.renameatx_np(
+                                descriptor,
+                                source,
+                                descriptor,
+                                destination,
+                                UInt32(RENAME_EXCL)
+                            )
+                        }
+                    }
+                    throw CleanupTraversalError(
+                        detail: "Quarantine entry \(name) was substituted before safe detach."
+                    )
+                }
+                try failureInjector?(
+                    "before-workbook-cleanup-nondirectory-unlink:"
+                        + url.appendingPathComponent(tombstone).path
+                )
+                var current = stat()
+                let inspectCurrent = tombstone.withCString {
+                    Darwin.fstatat(descriptor, $0, &current, AT_SYMLINK_NOFOLLOW)
+                }
+                guard inspectCurrent == 0,
+                      current.st_dev == info.st_dev,
+                      current.st_ino == info.st_ino,
+                      current.st_mode & S_IFMT == info.st_mode & S_IFMT,
+                      tombstone.withCString({
+                          Darwin.unlinkat(descriptor, $0, 0)
+                      }) == 0 else {
+                    throw CleanupTraversalError(
+                        detail: "Detached quarantine entry \(name) changed before removal."
                     )
                 }
             }
