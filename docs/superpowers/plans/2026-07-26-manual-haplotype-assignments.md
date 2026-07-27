@@ -25,7 +25,7 @@
 - Modify: `Tests/LungfishIOTests/ONTGenotypeResultBundleTests.swift`
 - Modify: `Sources/LungfishGenotypeUI/GenotypeResultViewController.swift:375-383`
 
-- [ ] **Step 1: Write failing locus-order, alias, and eligibility tests**
+- [x] **Step 1: Write failing locus-order, alias, and eligibility tests**
 
 Cover exact A/B/DRB/DQA/DQB/DPA/DPB order, accepted aliases, explicit ONT and miSeq genotype-only kinds, each authoritative haplotyping indicator, malformed/mixed declarations, recognized legacy genotype-only schemas, and the fact that an available definition/reference alone does not mean haplotyping was performed.
 
@@ -33,13 +33,13 @@ Add manifest Codable/migration tests for a typed `workflowMode`, producer tests
 for explicit ONT/miSeq `genotypeOnly`, copy-forward tests for workbook/AI
 revisions, and fail-closed disagreement between mode and haplotyping fields.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `swift test --filter 'GenotypeManualHaplotypeLocusTests|GenotypeManualHaplotypeEligibilityTests'`
 
 Expected: compile failure because the new types do not exist.
 
-- [ ] **Step 3: Implement the shared contracts**
+- [x] **Step 3: Implement the shared contracts**
 
 ```swift
 public enum GenotypeManualHaplotypeLocus: String, Codable, CaseIterable, Sendable {
@@ -62,13 +62,13 @@ only allowlisted result kinds and fail closed on any authoritative haplotyping
 declaration, disagreement, or malformed data. Replace controller-local
 heuristics with this evaluator.
 
-- [ ] **Step 4: Run tests and verify GREEN**
+- [x] **Step 4: Run tests and verify GREEN**
 
 Run: `swift test --filter 'GenotypeManualHaplotypeLocusTests|GenotypeManualHaplotypeEligibilityTests|GenotypeResultViewportTests/testGenotypeOnly'`
 
 Expected: all selected tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/LungfishIO/Bundles/GenotypeManualHaplotypeLocus.swift Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift Sources/LungfishWorkflow/ONTGenotyping Sources/LungfishGenotypeUI/GenotypeManualHaplotypeEligibility.swift Sources/LungfishGenotypeUI/GenotypeResultViewController.swift Tests
