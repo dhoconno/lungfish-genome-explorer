@@ -1,6 +1,7 @@
 import XCTest
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 @testable import LungfishGenotypeUI
 
 @MainActor
@@ -53,5 +54,66 @@ final class GenotypeAnnotationStoreReadOnlyTests: XCTestCase {
         // Persist happens implicitly during seeding.
         let sidecarPath = dir.appendingPathComponent(GenotypeAnnotationSidecar.filename).path
         XCTAssertTrue(FileManager.default.fileExists(atPath: sidecarPath))
+    }
+
+    func testManualHaplotypeReplacementRejectsReadOnlyWithoutMutation() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString + ".lungfishgenotype")
+        try FileManager.default.createDirectory(
+            at: dir,
+            withIntermediateDirectories: true
+        )
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: NSNumber(value: 0o755)],
+                ofItemAtPath: dir.path
+            )
+            try? FileManager.default.removeItem(at: dir)
+        }
+        try Data("{}".utf8).write(
+            to: dir.appendingPathComponent(
+                ONTGenotypeResultBundleManifest.filename
+            )
+        )
+        _ = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        let annotationURL = dir.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
+        let beforeAnnotation = try Data(contentsOf: annotationURL)
+        let beforeProvenance = try Data(contentsOf: provenanceURL)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: NSNumber(value: 0o555)],
+            ofItemAtPath: dir.path
+        )
+        let store = try GenotypeAnnotationStore(
+            bundleURL: dir,
+            author: "Read-only Analyst"
+        )
+
+        XCTAssertThrowsError(try store.replaceManualHaplotypeAssignments(
+            for: "Animal-1",
+            with: [
+                ManualHaplotypeAssignment(
+                    sample: "Animal-1",
+                    locus: "MHC-A",
+                    slot: .h1,
+                    label: "Manual-A",
+                    colorTokenIndex: 2,
+                    diagnosticAlleles: [],
+                    notes: ""
+                ),
+            ],
+            copySource: nil,
+            author: nil
+        )) {
+            XCTAssertEqual(
+                $0 as? ManualHaplotypeReplacementError,
+                .readOnly
+            )
+        }
+        XCTAssertEqual(try Data(contentsOf: annotationURL), beforeAnnotation)
+        XCTAssertEqual(try Data(contentsOf: provenanceURL), beforeProvenance)
+        XCTAssertEqual(store.manualHaplotypeAssignmentMutationRevision, 0)
     }
 }
