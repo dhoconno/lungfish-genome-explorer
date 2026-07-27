@@ -561,7 +561,7 @@ final class ProjectTempDirectoryTests: XCTestCase {
         }
     }
 
-    func testCleanAllFinalInspectionFailureReportsPartiallyCleanedQuarantine() throws {
+    func testCleanAllFinalInspectionFailureReportsUncertainQuarantineLocation() throws {
         let projectDir = testRoot.appendingPathComponent("inspect-error.lungfish", isDirectory: true)
         let tmpRoot = ProjectTempDirectory.tempRoot(for: projectDir)
         try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
@@ -579,21 +579,21 @@ final class ProjectTempDirectoryTests: XCTestCase {
                 )
             )
         ) { error in
-            guard case let OwnedWorkDirectoryMarkerError.cleanupQuarantineRetained(
-                path,
+            guard case let OwnedWorkDirectoryMarkerError.cleanupQuarantineLocationUncertain(
+                lastKnownPath,
                 operation,
                 code
             ) = error else {
                 return XCTFail("Unexpected error: \(error)")
             }
-            XCTAssertTrue(path.contains(".lungfish-cleanup-pending-"))
+            XCTAssertTrue(lastKnownPath.contains(".lungfish-cleanup-pending-"))
             XCTAssertEqual(operation, "inspect partially cleaned temp cleanup quarantine")
             XCTAssertEqual(code, EIO)
         }
         XCTAssertNotNil(try tempCleanupQuarantine(in: tmpRoot))
     }
 
-    func testCleanAllMovedFinalQuarantineReportsOriginalRecoveryPath() throws {
+    func testCleanAllMovedFinalQuarantineReportsLastKnownLocation() throws {
         let projectDir = testRoot.appendingPathComponent("moved-final.lungfish", isDirectory: true)
         let tmpRoot = ProjectTempDirectory.tempRoot(for: projectDir)
         try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
@@ -611,18 +611,84 @@ final class ProjectTempDirectoryTests: XCTestCase {
                 )
             )
         ) { error in
-            guard case let OwnedWorkDirectoryMarkerError.cleanupQuarantineRetained(
-                path,
+            guard case let OwnedWorkDirectoryMarkerError.cleanupQuarantineLocationUncertain(
+                lastKnownPath,
                 operation,
                 code
             ) = error else {
                 return XCTFail("Unexpected error: \(error)")
             }
-            XCTAssertTrue(path.contains(".lungfish-cleanup-pending-"))
+            XCTAssertTrue(lastKnownPath.contains(".lungfish-cleanup-pending-"))
             XCTAssertEqual(operation, "inspect partially cleaned temp cleanup quarantine")
             XCTAssertEqual(code, ENOENT)
         }
         XCTAssertTrue(FileManager.default.fileExists(atPath: held.path))
+    }
+
+    func testCleanAllVanishedFinalQuarantineReportsLastKnownLocation() throws {
+        let projectDir = testRoot.appendingPathComponent("vanished-final.lungfish", isDirectory: true)
+        let tmpRoot = ProjectTempDirectory.tempRoot(for: projectDir)
+        try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
+        _ = try makeTerminalDirectory(project: projectDir, parent: tmpRoot)
+
+        XCTAssertThrowsError(
+            try ProjectTempDirectory.cleanAll(
+                in: projectDir,
+                beforeDetach: { _ in },
+                operations: .init(
+                    beforeFinalInspection: { quarantine in
+                        try FileManager.default.removeItem(at: quarantine)
+                    }
+                )
+            )
+        ) { error in
+            guard case let OwnedWorkDirectoryMarkerError.cleanupQuarantineLocationUncertain(
+                lastKnownPath,
+                operation,
+                code
+            ) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertTrue(lastKnownPath.contains(".lungfish-cleanup-pending-"))
+            XCTAssertEqual(operation, "inspect partially cleaned temp cleanup quarantine")
+            XCTAssertEqual(code, ENOENT)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: lastKnownPath))
+        }
+    }
+
+    func testCleanAllRmdirENOENTReportsUncertainQuarantineLocation() throws {
+        let projectDir = testRoot.appendingPathComponent("rmdir-enoent.lungfish", isDirectory: true)
+        let tmpRoot = ProjectTempDirectory.tempRoot(for: projectDir)
+        try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
+        _ = try makeTerminalDirectory(project: projectDir, parent: tmpRoot)
+
+        XCTAssertThrowsError(
+            try ProjectTempDirectory.cleanAll(
+                in: projectDir,
+                beforeDetach: { _ in },
+                operations: .init(
+                    removeQuarantine: { descriptor, name in
+                        let status = ProjectTempDirectory.CleanupOperations
+                            .defaultRemoveQuarantine(descriptor, name)
+                        XCTAssertEqual(status, 0)
+                        errno = ENOENT
+                        return -1
+                    }
+                )
+            )
+        ) { error in
+            guard case let OwnedWorkDirectoryMarkerError.cleanupQuarantineLocationUncertain(
+                lastKnownPath,
+                operation,
+                code
+            ) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertTrue(lastKnownPath.contains(".lungfish-cleanup-pending-"))
+            XCTAssertEqual(operation, "remove partially cleaned temp cleanup quarantine")
+            XCTAssertEqual(code, ENOENT)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: lastKnownPath))
+        }
     }
 
     func testCleanAllQuarantineRmdirFailureRetainsAndReportsPath() throws {

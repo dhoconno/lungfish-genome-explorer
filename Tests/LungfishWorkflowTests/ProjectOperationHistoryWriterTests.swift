@@ -171,6 +171,42 @@ final class ProjectOperationHistoryWriterTests: XCTestCase {
         )
     }
 
+    func testPublishedOperationIsPreservedWhenParentSyncFails() throws {
+        let operationID = UUID()
+        let writer = ProjectOperationHistoryWriter(
+            projectURL: project,
+            operations: .init(
+                publishSyncParent: { _ in
+                    errno = EIO
+                    return -1
+                }
+            )
+        )
+        let final = writer.operationDirectoryURL(for: operationID)
+
+        XCTAssertThrowsError(
+            try writer.createOperation(
+                operationID: operationID,
+                payloads: ["failure.json": Data("preserved".utf8)]
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? ProjectOperationHistoryWriterError,
+                .publicationDurabilityUncertain(path: final.path, code: EIO)
+            )
+        }
+        XCTAssertEqual(
+            try Data(contentsOf: final.appendingPathComponent("failure.json")),
+            Data("preserved".utf8),
+            "A published operation must not be rolled back after its final rename"
+        )
+        let hiddenEntries = try FileManager.default.contentsOfDirectory(
+            at: final.deletingLastPathComponent(),
+            includingPropertiesForKeys: nil
+        ).filter { $0.lastPathComponent.hasPrefix(".") }
+        XCTAssertTrue(hiddenEntries.isEmpty)
+    }
+
     func testChildProcessPublicationWinnerAndAppendAreNeverDeleted() throws {
         let operationID = UUID()
         let writer = ProjectOperationHistoryWriter(

@@ -8,6 +8,7 @@ public enum ProjectOperationHistoryWriterError: Error, LocalizedError, Equatable
     case operationAlreadyExists(UUID)
     case operationDoesNotExist(UUID)
     case invalidPayloadName(String)
+    case publicationDurabilityUncertain(path: String, code: Int32)
     case rollbackQuarantineRetained(path: String, operation: String, code: Int32)
     case rollbackRemovalDurabilityUncertain(path: String, operation: String, code: Int32)
     case systemFailure(path: String, operation: String, code: Int32)
@@ -19,6 +20,8 @@ public enum ProjectOperationHistoryWriterError: Error, LocalizedError, Equatable
         case .operationAlreadyExists(let id): return "Operation history already exists for \(id)."
         case .operationDoesNotExist(let id): return "Operation history does not exist for \(id)."
         case .invalidPayloadName(let name): return "Invalid operation-history payload name: \(name)"
+        case .publicationDurabilityUncertain(let path, let code):
+            return "Operation history was published at \(path), but its directory-entry durability is uncertain (errno \(code))."
         case .rollbackQuarantineRetained(let path, let operation, let code):
             return "Operation-history rollback retained a recoverable quarantine at \(path) after \(operation) failed (errno \(code))."
         case .rollbackRemovalDurabilityUncertain(let path, let operation, let code):
@@ -35,12 +38,16 @@ public struct ProjectOperationHistoryWriter: Sendable {
 
     struct Operations: Sendable {
         var beforePublish: @Sendable (URL, URL) throws -> Void
+        var publishSyncParent: @Sendable (Int32) -> Int32
         var rollbackSyncParent: @Sendable (Int32) -> Int32
         var rollbackRemovePayload: @Sendable (Int32, String) -> Int32
         var rollbackRemoveDirectory: @Sendable (Int32, String) -> Int32
 
         init(
             beforePublish: @escaping @Sendable (URL, URL) throws -> Void = { _, _ in },
+            publishSyncParent: @escaping @Sendable (Int32) -> Int32 = {
+                Darwin.fsync($0)
+            },
             rollbackSyncParent: @escaping @Sendable (Int32) -> Int32 = {
                 Darwin.fsync($0)
             },
@@ -56,6 +63,7 @@ public struct ProjectOperationHistoryWriter: Sendable {
             }
         ) {
             self.beforePublish = beforePublish
+            self.publishSyncParent = publishSyncParent
             self.rollbackSyncParent = rollbackSyncParent
             self.rollbackRemovePayload = rollbackRemovePayload
             self.rollbackRemoveDirectory = rollbackRemoveDirectory
@@ -140,6 +148,7 @@ public struct ProjectOperationHistoryWriter: Sendable {
             throw ProjectOperationHistoryWriterError.unsafeHistory(stagingURL.path)
         }
         let stagingIdentity = FileSystemObjectIdentity(from: stagingInfo)
+        var publishedFinalIdentity: FileSystemObjectIdentity?
         do {
             guard Darwin.fsync(descriptors.history) == 0 else {
                 throw ProjectOperationHistoryWriterError.systemFailure(
@@ -185,15 +194,22 @@ public struct ProjectOperationHistoryWriter: Sendable {
                     code: errno
                 )
             }
-            guard Darwin.fsync(descriptors.history) == 0 else {
-                throw ProjectOperationHistoryWriterError.systemFailure(
-                    path: operationURL.deletingLastPathComponent().path,
-                    operation: "fsync published operation-history directory",
+            // The open operation descriptor remains bound to this inode after
+            // rename. From this point onward the final entry may be published;
+            // a failed parent sync must preserve it and report uncertainty
+            // instead of trying to roll back the now-vanished staging name.
+            publishedFinalIdentity = stagingIdentity
+            guard operations.publishSyncParent(descriptors.history) == 0 else {
+                throw ProjectOperationHistoryWriterError.publicationDurabilityUncertain(
+                    path: operationURL.path,
                     code: errno
                 )
             }
             return operationURL
         } catch {
+            if publishedFinalIdentity != nil {
+                throw error
+            }
             // Publication is all-or-nothing. Only this invocation's hidden
             // staging directory is eligible for rollback; a concurrently
             // published final directory is never touched.

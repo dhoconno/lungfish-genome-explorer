@@ -574,15 +574,15 @@ public enum ProjectTempDirectory {
                         &finalInfo
                     )
                     guard finalStatus == 0 else {
-                        throw OwnedWorkDirectoryMarkerError.cleanupQuarantineRetained(
-                            path: quarantineURL.path,
+                        throw OwnedWorkDirectoryMarkerError.cleanupQuarantineLocationUncertain(
+                            lastKnownPath: quarantineURL.path,
                             operation: "inspect partially cleaned temp cleanup quarantine",
                             code: errno
                         )
                     }
                     guard FileSystemObjectIdentity(finalInfo) == expectedIdentity else {
-                        throw OwnedWorkDirectoryMarkerError.cleanupQuarantineRetained(
-                            path: quarantineURL.path,
+                        throw OwnedWorkDirectoryMarkerError.cleanupQuarantineLocationUncertain(
+                            lastKnownPath: quarantineURL.path,
                             operation: "revalidate partially cleaned temp cleanup quarantine",
                             code: ESTALE
                         )
@@ -592,6 +592,13 @@ public enum ProjectTempDirectory {
                         quarantineName
                     )
                     guard removeStatus == 0 else {
+                        if errno == ENOENT {
+                            throw OwnedWorkDirectoryMarkerError.cleanupQuarantineLocationUncertain(
+                                lastKnownPath: quarantineURL.path,
+                                operation: "remove partially cleaned temp cleanup quarantine",
+                                code: errno
+                            )
+                        }
                         throw OwnedWorkDirectoryMarkerError.cleanupQuarantineRetained(
                             path: quarantineURL.path,
                             operation: "remove partially cleaned temp cleanup quarantine",

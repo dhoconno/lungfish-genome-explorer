@@ -279,6 +279,11 @@ public enum OwnedWorkDirectoryMarkerError: Error, LocalizedError, Equatable {
     case rollbackQuarantineRetained(path: String, operation: String, code: Int32)
     case rollbackRemovalDurabilityUncertain(path: String, operation: String, code: Int32)
     case cleanupQuarantineRetained(path: String, operation: String, code: Int32)
+    case cleanupQuarantineLocationUncertain(
+        lastKnownPath: String,
+        operation: String,
+        code: Int32
+    )
     case cleanupRemovalDurabilityUncertain(path: String, operation: String, code: Int32)
     case systemFailure(path: String, operation: String, code: Int32)
 
@@ -295,6 +300,8 @@ public enum OwnedWorkDirectoryMarkerError: Error, LocalizedError, Equatable {
             return "Owned work-directory rollback removal at \(path) has uncertain durability after \(operation) failed (errno \(code))."
         case .cleanupQuarantineRetained(let path, let operation, let code):
             return "Temporary cleanup retained recoverable or partially cleaned data at \(path) after \(operation) failed (errno \(code))."
+        case .cleanupQuarantineLocationUncertain(let path, let operation, let code):
+            return "Temporary cleanup can no longer verify its quarantine at the last known path \(path) after \(operation) failed (errno \(code))."
         case .cleanupRemovalDurabilityUncertain(let path, let operation, let code):
             return "Temporary cleanup removal at \(path) has uncertain durability after \(operation) failed (errno \(code))."
         case .systemFailure(let path, let operation, let code):
