@@ -252,6 +252,7 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
     public let referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo?
     public let alignmentArtifacts: ONTGenotypeAlignmentArtifactManifest?
     public let provisionalExon2Artifacts: ONTGenotypeProvisionalExon2ArtifactManifest?
+    public let reviewableRowCatalog: ONTMHCArtifactReference?
 
     public init(
         schemaVersion: Int = 1,
@@ -276,7 +277,8 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         haplotypeAnalysisRevisions: [ONTGenotypeHaplotypeAnalysisRevision]? = nil,
         mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest? = nil,
         mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifacts? = nil,
-        referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo? = nil
+        referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo? = nil,
+        reviewableRowCatalog: ONTMHCArtifactReference? = nil
     ) {
         self.init(
             schemaVersion: schemaVersion,
@@ -303,7 +305,8 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
             mhcReferenceVisualizations: mhcReferenceVisualizations,
             referenceRecordStore: referenceRecordStore,
             alignmentArtifacts: nil,
-            provisionalExon2Artifacts: nil
+            provisionalExon2Artifacts: nil,
+            reviewableRowCatalog: reviewableRowCatalog
         )
     }
 
@@ -332,7 +335,8 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifacts? = nil,
         referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo? = nil,
         alignmentArtifacts: ONTGenotypeAlignmentArtifactManifest?,
-        provisionalExon2Artifacts: ONTGenotypeProvisionalExon2ArtifactManifest?
+        provisionalExon2Artifacts: ONTGenotypeProvisionalExon2ArtifactManifest?,
+        reviewableRowCatalog: ONTMHCArtifactReference? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.kind = kind
@@ -361,6 +365,7 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         self.referenceRecordStore = referenceRecordStore
         self.alignmentArtifacts = alignmentArtifacts
         self.provisionalExon2Artifacts = provisionalExon2Artifacts
+        self.reviewableRowCatalog = reviewableRowCatalog
     }
 
     public init(
@@ -385,7 +390,8 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         activeHaplotypeAnalysisRevisionID: String? = nil,
         haplotypeAnalysisRevisions: [ONTGenotypeHaplotypeAnalysisRevision]? = nil,
         mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest? = nil,
-        referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo? = nil
+        referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo? = nil,
+        reviewableRowCatalog: ONTMHCArtifactReference? = nil
     ) {
         self.init(
             schemaVersion: schemaVersion,
@@ -412,7 +418,8 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
             mhcReferenceVisualizations: nil,
             referenceRecordStore: referenceRecordStore,
             alignmentArtifacts: nil,
-            provisionalExon2Artifacts: nil
+            provisionalExon2Artifacts: nil,
+            reviewableRowCatalog: reviewableRowCatalog
         )
     }
 
@@ -440,7 +447,8 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest? = nil,
         referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo? = nil,
         alignmentArtifacts: ONTGenotypeAlignmentArtifactManifest?,
-        provisionalExon2Artifacts: ONTGenotypeProvisionalExon2ArtifactManifest?
+        provisionalExon2Artifacts: ONTGenotypeProvisionalExon2ArtifactManifest?,
+        reviewableRowCatalog: ONTMHCArtifactReference? = nil
     ) {
         self.init(
             schemaVersion: schemaVersion,
@@ -467,7 +475,8 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
             mhcReferenceVisualizations: nil,
             referenceRecordStore: referenceRecordStore,
             alignmentArtifacts: alignmentArtifacts,
-            provisionalExon2Artifacts: provisionalExon2Artifacts
+            provisionalExon2Artifacts: provisionalExon2Artifacts,
+            reviewableRowCatalog: reviewableRowCatalog
         )
     }
 
@@ -498,7 +507,8 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifacts? = nil,
         referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo? = nil,
         alignmentArtifacts: ONTGenotypeAlignmentArtifactManifest? = nil,
-        provisionalExon2Artifacts: ONTGenotypeProvisionalExon2ArtifactManifest? = nil
+        provisionalExon2Artifacts: ONTGenotypeProvisionalExon2ArtifactManifest? = nil,
+        reviewableRowCatalog: ONTMHCArtifactReference? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.kind = kind
@@ -527,6 +537,7 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         self.referenceRecordStore = referenceRecordStore
         self.alignmentArtifacts = alignmentArtifacts
         self.provisionalExon2Artifacts = provisionalExon2Artifacts
+        self.reviewableRowCatalog = reviewableRowCatalog
     }
 
     public func replacingWorkbookFields(
@@ -1232,6 +1243,7 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
     public let referenceMetadata: ONTGenotypeReferenceMetadata?
     public let provisionalExon2SequencesByGenotype: [String: ONTGenotypeProvisionalExon2Sequence]
     public let provisionalExon2ArtifactURLs: ONTGenotypeProvisionalExon2ArtifactURLs
+    public let reviewableRowCatalog: GenotypeReviewableRowCatalog?
 
     public var alignmentArtifactURLs: ONTMHCAlignmentArtifactURLs {
         mhcAlignmentArtifactURLs
@@ -1318,7 +1330,8 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         integrityWarnings: [ONTGenotypeIntegrityWarning],
         referenceMetadata: ONTGenotypeReferenceMetadata?,
         provisionalExon2SequencesByGenotype: [String: ONTGenotypeProvisionalExon2Sequence],
-        provisionalExon2ArtifactURLs: ONTGenotypeProvisionalExon2ArtifactURLs
+        provisionalExon2ArtifactURLs: ONTGenotypeProvisionalExon2ArtifactURLs,
+        reviewableRowCatalog: GenotypeReviewableRowCatalog? = nil
     ) {
         self.bundleURL = bundleURL.standardizedFileURL
         self.manifest = manifest
@@ -1337,6 +1350,7 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         self.referenceMetadata = referenceMetadata
         self.provisionalExon2SequencesByGenotype = provisionalExon2SequencesByGenotype
         self.provisionalExon2ArtifactURLs = provisionalExon2ArtifactURLs
+        self.reviewableRowCatalog = reviewableRowCatalog
     }
 
     public init(
@@ -1418,6 +1432,7 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         case referenceMetadata
         case provisionalExon2SequencesByGenotype
         case provisionalExon2ArtifactURLs
+        case reviewableRowCatalog
     }
 
     public init(from decoder: Decoder) throws {
@@ -1466,7 +1481,11 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
             provisionalExon2ArtifactURLs: try container.decodeIfPresent(
                 ONTGenotypeProvisionalExon2ArtifactURLs.self,
                 forKey: .provisionalExon2ArtifactURLs
-            ) ?? .empty
+            ) ?? .empty,
+            reviewableRowCatalog: try container.decodeIfPresent(
+                GenotypeReviewableRowCatalog.self,
+                forKey: .reviewableRowCatalog
+            )
         )
     }
 
@@ -1501,6 +1520,7 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
             forKey: .provisionalExon2SequencesByGenotype
         )
         try container.encode(provisionalExon2ArtifactURLs, forKey: .provisionalExon2ArtifactURLs)
+        try container.encodeIfPresent(reviewableRowCatalog, forKey: .reviewableRowCatalog)
     }
 
     public var sampleCount: Int {
@@ -2316,6 +2336,10 @@ public enum ONTGenotypeResultBundle {
             manifest.referenceRecordStore,
             from: bundleURL
         )
+        let reviewableRowCatalog = try loadReviewableRowCatalog(
+            from: manifest.reviewableRowCatalog,
+            bundleURL: bundleURL
+        )
 
         let callsBySample = Dictionary(grouping: calls, by: \.sample)
         let orderedSampleNames = orderedAssignedSampleNames(sampleRows: sampleRows, calls: calls)
@@ -2353,8 +2377,40 @@ public enum ONTGenotypeResultBundle {
             integrityWarnings: mhcProjection.warnings,
             referenceMetadata: referenceMetadata,
             provisionalExon2SequencesByGenotype: provisionalExon2Projection.sequencesByGenotype,
-            provisionalExon2ArtifactURLs: provisionalExon2Projection.artifactURLs
+            provisionalExon2ArtifactURLs: provisionalExon2Projection.artifactURLs,
+            reviewableRowCatalog: reviewableRowCatalog
         )
+    }
+
+    private static func loadReviewableRowCatalog(
+        from reference: ONTMHCArtifactReference?,
+        bundleURL: URL
+    ) throws -> GenotypeReviewableRowCatalog? {
+        guard let reference else { return nil }
+        guard let data = try validateArtifact(
+            reference,
+            in: bundleURL,
+            collectData: true
+        ) else {
+            throw integrityFailure(
+                .candidateArtifactMalformedJSON,
+                "The reviewable-row catalog could not be read.",
+                path: reference.path
+            )
+        }
+        do {
+            return try JSONDecoder()
+                .decode(GenotypeReviewableRowCatalog.self, from: data)
+                .validated()
+        } catch let failure as CandidateIntegrityFailure {
+            throw failure
+        } catch {
+            throw integrityFailure(
+                .candidateArtifactMalformedJSON,
+                "The reviewable-row catalog is invalid: \(error.localizedDescription)",
+                path: reference.path
+            )
+        }
     }
 
     private static func loadGenericAlignmentArtifacts(
