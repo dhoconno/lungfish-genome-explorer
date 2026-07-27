@@ -100,9 +100,10 @@ final class GenotypeManualHaplotypeTransitionTests: XCTestCase {
         XCTAssertFalse(isDirty)
     }
 
-    func testRepeatedCloseAndQuitRequestsShareOneResolution() async {
+    func testOutstandingDecisionIsOwnedByItsTransition() async {
         var isDirty = true
         var promptCount = 0
+        var discardCount = 0
         let gate = AsyncManualHaplotypeDecisionGate()
         let coordinator = GenotypeManualHaplotypeDraftCoordinator(
             hasUnsavedChanges: { isDirty },
@@ -111,6 +112,7 @@ final class GenotypeManualHaplotypeTransitionTests: XCTestCase {
                 return true
             },
             discard: {
+                discardCount += 1
                 isDirty = false
                 return true
             }
@@ -134,9 +136,83 @@ final class GenotypeManualHaplotypeTransitionTests: XCTestCase {
         let closeAllowed = await close.value
         let quitAllowed = await quit.value
         XCTAssertTrue(closeAllowed)
-        XCTAssertTrue(quitAllowed)
+        XCTAssertFalse(quitAllowed)
         XCTAssertEqual(promptCount, 1)
+        XCTAssertEqual(discardCount, 1)
         XCTAssertFalse(isDirty)
+    }
+
+    func testAppQuitResolutionCannotBeCommittedByConcurrentSelection() async {
+        var isDirty = true
+        var discardCount = 0
+        let gate = AsyncManualHaplotypeDecisionGate()
+        let coordinator = GenotypeManualHaplotypeDraftCoordinator(
+            hasUnsavedChanges: { isDirty },
+            save: {
+                isDirty = false
+                return true
+            },
+            discard: {
+                discardCount += 1
+                isDirty = false
+                return true
+            }
+        )
+        let quitResolution = Task { @MainActor in
+            await coordinator.resolve(for: .appQuit) {
+                await gate.wait()
+            }
+        }
+        await gate.waitUntilPending()
+
+        let selectionAllowed = await coordinator.prepare(
+            for: .selection,
+            decision: { .discard }
+        )
+        XCTAssertFalse(selectionAllowed)
+        XCTAssertTrue(isDirty)
+        XCTAssertEqual(discardCount, 0)
+
+        await gate.resume(with: .discard)
+        let resolution = await quitResolution.value
+        let quitAllowed = await coordinator.commit(resolution)
+        XCTAssertTrue(quitAllowed)
+        XCTAssertFalse(isDirty)
+        XCTAssertEqual(discardCount, 1)
+    }
+
+    func testOutstandingResolutionRetainsOwnershipAfterDraftBecomesClean()
+        async
+    {
+        var isDirty = true
+        var discardCount = 0
+        let coordinator = GenotypeManualHaplotypeDraftCoordinator(
+            hasUnsavedChanges: { isDirty },
+            save: {
+                isDirty = false
+                return true
+            },
+            discard: {
+                discardCount += 1
+                isDirty = false
+                return true
+            }
+        )
+        let quitResolution = await coordinator.resolve(for: .appQuit) {
+            .discard
+        }
+        isDirty = false
+
+        let selectionAllowed = await coordinator.prepare(
+            for: .selection,
+            decision: { .discard }
+        )
+
+        XCTAssertFalse(selectionAllowed)
+        XCTAssertEqual(discardCount, 0)
+        let quitAllowed = await coordinator.commit(quitResolution)
+        XCTAssertTrue(quitAllowed)
+        XCTAssertEqual(discardCount, 1)
     }
 
     func testRepeatedWindowCloseRequestsShareOnePromptAndCancelKeepsWindowOpen()
@@ -165,6 +241,90 @@ final class GenotypeManualHaplotypeTransitionTests: XCTestCase {
 
         XCTAssertEqual(promptCount, 1)
         XCTAssertNotNil(controller.window)
+    }
+
+    func testProjectTransitionBurstRetainsOnlyLatestIntent() async {
+        let controller = MainWindowController()
+        var isDirty = true
+        var applied: [Int] = []
+        let gate = AsyncManualHaplotypeDecisionGate()
+        controller.testingSetManualHaplotypeTransitionState(
+            hasUnsavedDraft: { isDirty },
+            prepare: { transition in
+                XCTAssertEqual(transition, .projectSwitch)
+                let decision = await gate.wait()
+                if decision == .discard {
+                    isDirty = false
+                }
+                return decision != .cancel
+            }
+        )
+
+        XCTAssertTrue(controller.deferManualHaplotypeTransition(
+            .projectSwitch,
+            mutation: { applied.append(0) }
+        ))
+        await gate.waitUntilPending()
+        for index in 1...100 {
+            XCTAssertTrue(controller.deferManualHaplotypeTransition(
+                .projectSwitch,
+                mutation: { applied.append(index) }
+            ))
+        }
+        XCTAssertEqual(
+            controller.testingPendingFallbackManualHaplotypeMutationCount,
+            1
+        )
+
+        await gate.resume(with: .discard)
+        await controller.testingWaitForFallbackManualHaplotypeTransitions()
+
+        XCTAssertEqual(applied, [100])
+        XCTAssertEqual(
+            controller.testingPendingFallbackManualHaplotypeMutationCount,
+            0
+        )
+    }
+
+    func testCleanIntentStillSupersedesWhileProjectTransitionIsBusy()
+        async
+    {
+        let controller = MainWindowController()
+        var isDirty = true
+        var applied: [String] = []
+        let decisionGate = AsyncManualHaplotypeDecisionGate()
+        let completionGate = AsyncManualHaplotypeDecisionGate()
+        controller.testingSetManualHaplotypeTransitionState(
+            hasUnsavedDraft: { isDirty },
+            prepare: { _ in
+                let decision = await decisionGate.wait()
+                isDirty = false
+                _ = await completionGate.wait()
+                return decision != .cancel
+            }
+        )
+
+        XCTAssertTrue(controller.deferManualHaplotypeTransition(
+            .projectSwitch,
+            mutation: { applied.append("older") }
+        ))
+        await decisionGate.waitUntilPending()
+        await decisionGate.resume(with: .discard)
+        await completionGate.waitUntilPending()
+        XCTAssertFalse(isDirty)
+
+        XCTAssertTrue(controller.deferManualHaplotypeTransition(
+            .projectSwitch,
+            mutation: { applied.append("newer") }
+        ))
+        XCTAssertEqual(
+            controller.testingPendingFallbackManualHaplotypeMutationCount,
+            1
+        )
+        await completionGate.resume(with: .discard)
+        await controller.testingWaitForFallbackManualHaplotypeTransitions()
+
+        XCTAssertEqual(applied, ["newer"])
     }
 
     func testAppQuitChecksEveryDirtyWindowAndAnyCancelVetoesTermination()
@@ -248,6 +408,112 @@ final class GenotypeManualHaplotypeTransitionTests: XCTestCase {
                 drafts,
                 ["first-draft", "middle-draft", "last-draft"]
             )
+        }
+    }
+
+    func testAppQuitPreflightsEverySaveBeforeAnyDiscardForAllFailureOrders()
+        async
+    {
+        for failingSaveIndex in [0, 2] {
+            let controllers = (0..<4).map { _ in MainWindowController() }
+            let decisions: [GenotypeManualHaplotypeDraftDecision] = [
+                .save,
+                .discard,
+                .save,
+                .discard,
+            ]
+            var drafts = (0..<4).map { "draft-\($0)" }
+            var prepared: [Int] = []
+            var finalized: [Int] = []
+            for (index, controller) in controllers.enumerated() {
+                controller.testingSetManualHaplotypeTransactionalTransitionState(
+                    hasUnsavedDraft: { true },
+                    decide: { transition in
+                        XCTAssertEqual(transition, .appQuit)
+                        return decisions[index]
+                    },
+                    prepare: { decision in
+                        guard decision == .save else {
+                            return true
+                        }
+                        prepared.append(index)
+                        return index != failingSaveIndex
+                    },
+                    commit: { decision in
+                        finalized.append(index)
+                        drafts[index] =
+                            decision == .save ? "saved" : "discarded"
+                        return true
+                    }
+                )
+            }
+
+            let allowed = await AppDelegate()
+                .testingPrepareForManualHaplotypeTermination(
+                    in: controllers
+                )
+
+            XCTAssertFalse(allowed)
+            XCTAssertEqual(
+                prepared,
+                failingSaveIndex == 0 ? [0] : [0, 2]
+            )
+            XCTAssertTrue(finalized.isEmpty)
+            XCTAssertEqual(drafts, (0..<4).map { "draft-\($0)" })
+        }
+    }
+
+    func testAppQuitFinalizesSavesBeforeDiscardsRegardlessOfWindowOrder()
+        async
+    {
+        for decisions in [
+            [
+                GenotypeManualHaplotypeDraftDecision.discard,
+                .save,
+                .discard,
+                .save,
+            ],
+            [.save, .discard, .save, .discard],
+        ] {
+            let controllers = (0..<4).map { _ in MainWindowController() }
+            var events: [String] = []
+            for (index, controller) in controllers.enumerated() {
+                controller.testingSetManualHaplotypeTransactionalTransitionState(
+                    hasUnsavedDraft: { true },
+                    decide: { _ in decisions[index] },
+                    prepare: { decision in
+                        if decision == .save {
+                            events.append("prepare-save-\(index)")
+                        }
+                        return true
+                    },
+                    commit: { decision in
+                        events.append(
+                            "\(decision == .save ? "save" : "discard")-\(index)"
+                        )
+                        return true
+                    }
+                )
+            }
+
+            let allowed = await AppDelegate()
+                .testingPrepareForManualHaplotypeTermination(
+                    in: controllers
+                )
+            XCTAssertTrue(
+                allowed
+            )
+            let firstDiscard = try? XCTUnwrap(
+                events.firstIndex { $0.hasPrefix("discard-") }
+            )
+            let lastSave = try? XCTUnwrap(
+                events.lastIndex { $0.hasPrefix("save-") }
+            )
+            XCTAssertNotNil(firstDiscard)
+            XCTAssertNotNil(lastSave)
+            if let firstDiscard, let lastSave {
+                XCTAssertLessThan(lastSave, firstDiscard)
+            }
         }
     }
 

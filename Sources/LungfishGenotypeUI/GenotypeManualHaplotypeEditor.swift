@@ -186,6 +186,7 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
     private let onReload: () throws -> Snapshot
     private let onExport: () -> Void
     private let announcementPoster: any AccessibilityAnnouncementPosting
+    private var preparedSavedDraft: GenotypeManualHaplotypeDraft?
 
     private(set) var copyCandidatePresentationBuildCount: Int
     private(set) var copyFilterEvaluationCount = 1
@@ -329,21 +330,40 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
     }
 
     func save() {
-        guard canSave else { return }
+        guard prepareSave() else { return }
+        finalizePreparedSave()
+    }
+
+    @discardableResult
+    func prepareSave() -> Bool {
+        guard canSave else { return false }
         do {
-            replaceDraft(try onSave(draft))
+            preparedSavedDraft = try onSave(draft)
             persistenceErrorMessage = nil
-            announcementPoster.post(
-                "Saved haplotype assignments for \(draft.sample).",
-                priority: .high
-            )
+            return true
         } catch {
+            preparedSavedDraft = nil
             persistenceErrorMessage = error.localizedDescription
             announcementPoster.post(
                 "Could not save haplotype assignments for \(draft.sample). \(error.localizedDescription)",
                 priority: .high
             )
+            return false
         }
+    }
+
+    func finalizePreparedSave() {
+        guard let preparedSavedDraft else { return }
+        self.preparedSavedDraft = nil
+        replaceDraft(preparedSavedDraft)
+        announcementPoster.post(
+            "Saved haplotype assignments for \(draft.sample).",
+            priority: .high
+        )
+    }
+
+    func cancelPreparedSave() {
+        preparedSavedDraft = nil
     }
 
     func retry() {

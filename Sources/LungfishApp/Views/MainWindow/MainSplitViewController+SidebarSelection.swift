@@ -19,31 +19,16 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         commit: @escaping @MainActor () -> Void
     ) -> Bool {
         guard let genotypeController =
-                viewerController.genotypeResultViewController,
-              genotypeController.hasUnsavedManualHaplotypeDraft else {
+                viewerController.genotypeResultViewController else {
             return false
         }
-        manualHaplotypeContentTransitionGeneration &+= 1
-        let generation =
-            manualHaplotypeContentTransitionGeneration
         let draftTransition:
             GenotypeManualHaplotypeDraftCoordinator.Transition =
                 transition == .refresh ? .reload : .bundleSwitch
-        Task { @MainActor [weak self, weak genotypeController] in
-            guard let self, let genotypeController else { return }
-            let allowed =
-                await genotypeController
-                    .prepareForManualHaplotypeTransition(
-                        draftTransition
-                    )
-            guard allowed,
-                  self.manualHaplotypeContentTransitionGeneration
-                    == generation else {
-                return
-            }
-            commit()
-        }
-        return true
+        return genotypeController.deferManualHaplotypeTransition(
+            draftTransition,
+            mutation: commit
+        )
     }
 
     func recordUITestEvent(_ event: String) {

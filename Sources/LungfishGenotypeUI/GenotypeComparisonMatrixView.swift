@@ -644,6 +644,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     func applyFilters(allowedSampleIDs: Set<String>?, text: String) {
+        let previousSamples = activeSampleNames()
         self.allowedSampleIDs = allowedSampleIDs
         quickSearchRowIDs = nil
         let filterState = NativeFilterState(
@@ -656,8 +657,10 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         filterText = text
         restoreNativeFilterState(filterState)
         committedNativeFilterState = filterState
-        rebuildColumns()
-        applyDefaultSortDescriptor()
+        if activeSampleNames() != previousSamples {
+            rebuildColumns()
+            applyDefaultSortDescriptor()
+        }
         applyFilterAndSort()
     }
 
@@ -2382,23 +2385,20 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 
     func tableViewSelectionDidChange(_ notification: Notification) {
         guard !suppressSelectionClearedCallback else { return }
+        // AppKit also emits selection notifications after row reloads and
+        // programmatic restoration. Only a delegate-approved native selection
+        // gesture owns a snapshot and may change the semantic matrix selection.
+        guard let nativeState = pendingNativeTableSelectionState else { return }
+        pendingNativeTableSelectionState = nil
         let sourceTable = notification.object as? NSTableView
         let selectedRows = IndexSet((sourceTable ?? tableView).selectedRowIndexes.filter { $0 >= 0 && $0 < visibleRows.count })
         let selectedRowIDs = selectedRows.map {
             visibleRows[$0].id
         }
         let preferredSample = selectedSampleName
-        let nativeState = pendingNativeTableSelectionState
-        pendingNativeTableSelectionState = nil
-        let semanticPreviousRows = rowIndexes(
-            for: selectedMatrixTargets
-        )
-        let previousPinnedRows = nativeState?.pinnedRows
-            ?? semanticPreviousRows
-        let previousSampleRows = nativeState?.sampleRows
-            ?? semanticPreviousRows
-        let scrollOrigins = nativeState?.scrollOrigins
-            ?? matrixContentScrollOrigins
+        let previousPinnedRows = nativeState.pinnedRows
+        let previousSampleRows = nativeState.sampleRows
+        let scrollOrigins = nativeState.scrollOrigins
         if deferManualHaplotypeTransition(.selection, mutation: {
             [weak self] in
             guard let self else { return }
@@ -2460,6 +2460,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         let indexes = IndexSet(rowIDs.compactMap { rowID in
             visibleRows.firstIndex(where: { $0.id == rowID })
         })
+        guard rowIDs.isEmpty || !indexes.isEmpty else { return }
         applyNativeTableSelection(
             indexes,
             preferredSample: preferredSample

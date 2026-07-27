@@ -80,6 +80,10 @@ public class MainWindowController: NSWindowController {
         ) async -> GenotypeManualHaplotypeDraftDecision)?
     private var manualHaplotypeTransitionCommitOverride:
         ((GenotypeManualHaplotypeDraftDecision) async -> Bool)?
+    private var manualHaplotypeTransitionPrepareCommitOverride:
+        ((GenotypeManualHaplotypeDraftDecision) async -> Bool)?
+    private let fallbackManualHaplotypeMutationCoordinator =
+        GenotypeManualHaplotypeTransitionMutationCoordinator()
 
     enum ManualHaplotypeTransitionResolution {
         case controller(
@@ -88,11 +92,15 @@ public class MainWindowController: NSWindowController {
         case testingOverride(GenotypeManualHaplotypeDraftDecision)
 
         var isCancelled: Bool {
+            decision == .cancel
+        }
+
+        var decision: GenotypeManualHaplotypeDraftDecision? {
             switch self {
             case .controller(let resolution):
-                return resolution.decision == .cancel
+                return resolution.decision
             case .testingOverride(let decision):
-                return decision == .cancel
+                return decision
             }
         }
     }
@@ -512,6 +520,47 @@ public class MainWindowController: NSWindowController {
             .hasUnsavedManualHaplotypeDraft == true
     }
 
+    var requiresManualHaplotypeTransitionCoordination: Bool {
+        if manualHaplotypeDraftPresenceOverride != nil {
+            return hasUnsavedManualHaplotypeDraft
+                || fallbackManualHaplotypeMutationCoordinator
+                    .hasPendingMutation
+        }
+        return mainSplitViewController?.viewerController?
+            .genotypeResultViewController?
+            .requiresManualHaplotypeTransitionCoordination == true
+    }
+
+    @discardableResult
+    func deferManualHaplotypeTransition(
+        _ transition:
+            GenotypeManualHaplotypeDraftCoordinator.Transition,
+        mutation: @escaping @MainActor () -> Void
+    ) -> Bool {
+        if let controller = mainSplitViewController?
+            .viewerController?
+            .genotypeResultViewController {
+            return controller.deferManualHaplotypeTransition(
+                transition,
+                mutation: mutation
+            )
+        }
+        guard requiresManualHaplotypeTransitionCoordination else {
+            return false
+        }
+        fallbackManualHaplotypeMutationCoordinator.enqueue(
+            transition: transition,
+            prepare: { [weak self] transition in
+                guard let self else { return false }
+                return await self.prepareForManualHaplotypeTransition(
+                    transition
+                )
+            },
+            mutation: mutation
+        )
+        return true
+    }
+
     func prepareForManualHaplotypeTransition(
         _ transition:
             GenotypeManualHaplotypeDraftCoordinator.Transition
@@ -584,6 +633,68 @@ public class MainWindowController: NSWindowController {
         }
     }
 
+    func prepareManualHaplotypeTransitionCommit(
+        _ resolution: ManualHaplotypeTransitionResolution
+    ) async -> Bool {
+        switch resolution {
+        case .controller(let coordinatorResolution):
+            guard let controller = mainSplitViewController?
+                .viewerController?
+                .genotypeResultViewController else {
+                return false
+            }
+            return await controller
+                .prepareManualHaplotypeTransitionCommit(
+                    coordinatorResolution
+                )
+        case .testingOverride(let decision):
+            if let manualHaplotypeTransitionPrepareCommitOverride {
+                return await manualHaplotypeTransitionPrepareCommitOverride(
+                    decision
+                )
+            }
+            return decision != .cancel
+        }
+    }
+
+    func finalizeManualHaplotypeTransitionCommit(
+        _ resolution: ManualHaplotypeTransitionResolution
+    ) async -> Bool {
+        switch resolution {
+        case .controller(let coordinatorResolution):
+            guard let controller = mainSplitViewController?
+                .viewerController?
+                .genotypeResultViewController else {
+                return false
+            }
+            return await controller
+                .finalizeManualHaplotypeTransitionCommit(
+                    coordinatorResolution
+                )
+        case .testingOverride(let decision):
+            if let manualHaplotypeTransitionCommitOverride {
+                return await manualHaplotypeTransitionCommitOverride(
+                    decision
+                )
+            }
+            return decision != .cancel
+        }
+    }
+
+    func cancelManualHaplotypeTransitionCommit(
+        _ resolution: ManualHaplotypeTransitionResolution
+    ) {
+        guard case .controller(let coordinatorResolution) = resolution,
+              let controller = mainSplitViewController?
+                .viewerController?
+                .genotypeResultViewController else {
+            return
+        }
+        controller.cancelManualHaplotypeTransitionCommit(
+            coordinatorResolution
+        )
+    }
+
     func abandonManualHaplotypeTransition(
         _ resolution: ManualHaplotypeTransitionResolution
     ) {
@@ -613,17 +724,34 @@ public class MainWindowController: NSWindowController {
         decide: @escaping (
             GenotypeManualHaplotypeDraftCoordinator.Transition
         ) async -> GenotypeManualHaplotypeDraftDecision,
+        prepare: @escaping (
+            GenotypeManualHaplotypeDraftDecision
+        ) async -> Bool = { decision in
+            decision != .cancel
+        },
         commit: @escaping (
             GenotypeManualHaplotypeDraftDecision
         ) async -> Bool
     ) {
         manualHaplotypeDraftPresenceOverride = hasUnsavedDraft
         manualHaplotypeTransitionDecisionOverride = decide
+        manualHaplotypeTransitionPrepareCommitOverride = prepare
         manualHaplotypeTransitionCommitOverride = commit
     }
 
     func testingWaitForManualHaplotypeCloseResolution() async {
         while manualHaplotypeCloseResolutionTask != nil {
+            await Task.yield()
+        }
+    }
+
+    var testingPendingFallbackManualHaplotypeMutationCount: Int {
+        fallbackManualHaplotypeMutationCoordinator.retainedMutationCount
+    }
+
+    func testingWaitForFallbackManualHaplotypeTransitions() async {
+        while fallbackManualHaplotypeMutationCoordinator
+            .hasPendingMutation {
             await Task.yield()
         }
     }
@@ -642,7 +770,7 @@ extension MainWindowController: NSWindowDelegate {
         if manualHaplotypeCloseResolutionTask != nil {
             return false
         }
-        guard hasUnsavedManualHaplotypeDraft else {
+        guard requiresManualHaplotypeTransitionCoordination else {
             return true
         }
         manualHaplotypeCloseResolutionTask =

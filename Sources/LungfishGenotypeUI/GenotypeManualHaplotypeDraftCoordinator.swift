@@ -28,25 +28,33 @@ public final class GenotypeManualHaplotypeDraftCoordinator {
 
     private let hasUnsavedChanges: @MainActor () -> Bool
     private let save: @MainActor () async -> Bool
+    private let prepareSave: @MainActor () async -> Bool
+    private let finalizePreparedSave: @MainActor () -> Void
+    private let cancelPreparedSave: @MainActor () -> Void
     private let discard: @MainActor () async -> Bool
     private var pendingDecision:
         Task<Resolution, Never>?
+    private var pendingDecisionTransition: Transition?
     private var outstandingResolution: Resolution?
     private var pendingCommit:
         Task<(generation: UInt64, allowed: Bool), Never>?
     private var lastCommitted:
         (generation: UInt64, allowed: Bool)?
     private var resolutionGeneration: UInt64 = 0
+    private var preparedSaveGeneration: UInt64?
 
     public struct Resolution: Equatable, Sendable {
         public let decision: GenotypeManualHaplotypeDraftDecision?
+        public let transition: Transition?
         fileprivate let generation: UInt64
 
         fileprivate init(
             decision: GenotypeManualHaplotypeDraftDecision?,
+            transition: Transition?,
             generation: UInt64
         ) {
             self.decision = decision
+            self.transition = transition
             self.generation = generation
         }
     }
@@ -58,6 +66,25 @@ public final class GenotypeManualHaplotypeDraftCoordinator {
     ) {
         self.hasUnsavedChanges = hasUnsavedChanges
         self.save = save
+        self.prepareSave = save
+        self.finalizePreparedSave = {}
+        self.cancelPreparedSave = {}
+        self.discard = discard
+    }
+
+    public init(
+        hasUnsavedChanges: @escaping @MainActor () -> Bool,
+        save: @escaping @MainActor () async -> Bool,
+        prepareSave: @escaping @MainActor () async -> Bool,
+        finalizePreparedSave: @escaping @MainActor () -> Void,
+        cancelPreparedSave: @escaping @MainActor () -> Void,
+        discard: @escaping @MainActor () async -> Bool
+    ) {
+        self.hasUnsavedChanges = hasUnsavedChanges
+        self.save = save
+        self.prepareSave = prepareSave
+        self.finalizePreparedSave = finalizePreparedSave
+        self.cancelPreparedSave = cancelPreparedSave
         self.discard = discard
     }
 
@@ -88,15 +115,33 @@ public final class GenotypeManualHaplotypeDraftCoordinator {
         decision: @escaping @MainActor ()
             async -> GenotypeManualHaplotypeDraftDecision
     ) async -> Resolution {
-        _ = transition
-        guard hasUnsavedChanges() else {
-            return Resolution(decision: nil, generation: 0)
-        }
         if let outstandingResolution {
+            guard outstandingResolution.transition == transition else {
+                return Resolution(
+                    decision: .cancel,
+                    transition: transition,
+                    generation: 0
+                )
+            }
             return outstandingResolution
         }
         if let pendingDecision {
-            return await pendingDecision.value
+            guard pendingDecisionTransition == transition else {
+                return Resolution(
+                    decision: .cancel,
+                    transition: transition,
+                    generation: 0
+                )
+            }
+            let resolution = await pendingDecision.value
+            return resolution
+        }
+        guard hasUnsavedChanges() else {
+            return Resolution(
+                decision: nil,
+                transition: transition,
+                generation: 0
+            )
         }
 
         resolutionGeneration &+= 1
@@ -104,13 +149,16 @@ public final class GenotypeManualHaplotypeDraftCoordinator {
         let task = Task { @MainActor in
             Resolution(
                 decision: await decision(),
+                transition: transition,
                 generation: generation
             )
         }
         pendingDecision = task
+        pendingDecisionTransition = transition
         let resolution = await task.value
         if resolutionGeneration == generation {
             pendingDecision = nil
+            pendingDecisionTransition = nil
             outstandingResolution = resolution
         }
         return resolution
@@ -118,9 +166,15 @@ public final class GenotypeManualHaplotypeDraftCoordinator {
 
     public func commit(_ resolution: Resolution) async -> Bool {
         guard let decision = resolution.decision else { return true }
+        guard resolution.generation != 0 else {
+            return false
+        }
         if let lastCommitted,
            lastCommitted.generation == resolution.generation {
             return lastCommitted.allowed
+        }
+        guard outstandingResolution == resolution else {
+            return false
         }
         if let pendingCommit {
             let committed = await pendingCommit.value
@@ -154,9 +208,65 @@ public final class GenotypeManualHaplotypeDraftCoordinator {
         return committed.allowed
     }
 
+    public func prepareTransactionalCommit(
+        _ resolution: Resolution
+    ) async -> Bool {
+        guard resolution.decision != .cancel else { return false }
+        guard resolution.decision != nil else { return true }
+        guard resolution.generation != 0,
+              outstandingResolution == resolution else {
+            return false
+        }
+        guard resolution.decision == .save else { return true }
+        if preparedSaveGeneration == resolution.generation {
+            return true
+        }
+        guard await prepareSave() else { return false }
+        preparedSaveGeneration = resolution.generation
+        return true
+    }
+
+    public func finalizeTransactionalCommit(
+        _ resolution: Resolution
+    ) async -> Bool {
+        guard let decision = resolution.decision else { return true }
+        guard resolution.generation != 0,
+              outstandingResolution == resolution else {
+            return false
+        }
+        let allowed: Bool
+        switch decision {
+        case .save:
+            guard preparedSaveGeneration == resolution.generation else {
+                return false
+            }
+            finalizePreparedSave()
+            preparedSaveGeneration = nil
+            allowed = true
+        case .discard:
+            allowed = await discard()
+        case .cancel:
+            allowed = false
+        }
+        outstandingResolution = nil
+        lastCommitted = (
+            generation: resolution.generation,
+            allowed: allowed
+        )
+        return allowed
+    }
+
+    public func cancelTransactionalCommit(_ resolution: Resolution) {
+        if preparedSaveGeneration == resolution.generation {
+            cancelPreparedSave()
+            preparedSaveGeneration = nil
+        }
+        abandon(resolution)
+    }
+
     public func abandon(_ resolution: Resolution) {
         guard resolution.generation != 0 else { return }
-        if outstandingResolution?.generation == resolution.generation {
+        if outstandingResolution == resolution {
             outstandingResolution = nil
         }
     }

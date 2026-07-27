@@ -85,8 +85,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     private var debugTempEscapeScanTimer: Timer?
 #endif
     private var isTerminating = false
-    private var manualHaplotypeProjectTransitionGenerations:
-        [ObjectIdentifier: UInt64] = [:]
     private var manualHaplotypeTerminationTask: Task<Void, Never>?
     private var isReenteringManualHaplotypeTermination = false
 
@@ -386,33 +384,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     internal func openProject(_ projectURL: URL, in controller: MainWindowController) {
-        if controller.hasUnsavedManualHaplotypeDraft {
-            let controllerID = ObjectIdentifier(controller)
-            let generation =
-                (manualHaplotypeProjectTransitionGenerations[
-                    controllerID
-                ] ?? 0) &+ 1
-            manualHaplotypeProjectTransitionGenerations[
-                controllerID
-            ] = generation
-            Task { @MainActor [weak self, weak controller] in
+        if controller.deferManualHaplotypeTransition(
+            .projectSwitch,
+            mutation: { [weak self, weak controller] in
                 guard let self, let controller else { return }
-                let allowed =
-                    await controller.prepareForManualHaplotypeTransition(
-                        .projectSwitch
-                    )
-                guard self
-                    .manualHaplotypeProjectTransitionGenerations[
-                        controllerID
-                    ] == generation else {
-                    return
-                }
-                self.manualHaplotypeProjectTransitionGenerations[
-                    controllerID
-                ] = nil
-                guard allowed else { return }
                 self.openProject(projectURL, in: controller)
             }
+        ) {
             return
         }
         // Keep global working directory in sync with most recently activated project.
@@ -590,7 +568,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return .terminateLater
         }
         let dirtyControllers = mainWindowControllers.filter(
-            \.hasUnsavedManualHaplotypeDraft
+            \.requiresManualHaplotypeTransitionCoordination
         )
         guard !dirtyControllers.isEmpty else {
             return .terminateNow
@@ -624,7 +602,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             )
         ] = []
         for controller in controllers
-        where controller.hasUnsavedManualHaplotypeDraft {
+        where controller.requiresManualHaplotypeTransitionCoordination {
             let resolution =
                 await controller.resolveManualHaplotypeTransition(
                     .appQuit
@@ -635,22 +613,50 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             $0.resolution.isCancelled
         }) else {
             for item in resolutions {
-                item.controller.abandonManualHaplotypeTransition(
+                item.controller.cancelManualHaplotypeTransitionCommit(
                     item.resolution
                 )
             }
             return false
         }
 
-        var allAllowed = true
-        for item in resolutions {
-            if !(await item.controller.commitManualHaplotypeTransition(
-                item.resolution
-            )) {
-                allAllowed = false
+        let saves = resolutions.filter {
+            $0.resolution.decision == .save
+        }
+        let discards = resolutions.filter {
+            $0.resolution.decision == .discard
+        }
+        for item in saves {
+            guard await item.controller
+                .prepareManualHaplotypeTransitionCommit(
+                    item.resolution
+                ) else {
+                for pending in resolutions {
+                    pending.controller
+                        .cancelManualHaplotypeTransitionCommit(
+                            pending.resolution
+                        )
+                }
+                return false
             }
         }
-        return allAllowed
+        for item in saves {
+            guard await item.controller
+                .finalizeManualHaplotypeTransitionCommit(
+                    item.resolution
+                ) else {
+                return false
+            }
+        }
+        for item in discards {
+            guard await item.controller
+                .finalizeManualHaplotypeTransitionCommit(
+                    item.resolution
+                ) else {
+                return false
+            }
+        }
+        return true
     }
 
     public func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

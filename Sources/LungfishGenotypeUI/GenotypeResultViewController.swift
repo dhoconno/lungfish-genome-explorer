@@ -277,6 +277,18 @@ public final class GenotypeResultViewController: NSViewController {
                 model.save()
                 return !model.draft.isDirty
             },
+            prepareSave: { [weak self] in
+                guard let model = self?.manualHaplotypeEditorModel else {
+                    return true
+                }
+                return model.prepareSave()
+            },
+            finalizePreparedSave: { [weak self] in
+                self?.manualHaplotypeEditorModel?.finalizePreparedSave()
+            },
+            cancelPreparedSave: { [weak self] in
+                self?.manualHaplotypeEditorModel?.cancelPreparedSave()
+            },
             discard: { [weak self] in
                 guard let model = self?.manualHaplotypeEditorModel else {
                     return true
@@ -505,8 +517,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func applyQuickFilterState(_ state: GenotypeQuickFilterBarView.FilterState) {
-        if hasUnsavedManualHaplotypeDraft,
-           state != quickFilterState {
+        if requiresManualHaplotypeTransitionCoordination {
             quickFilterBar.restoreStateWithoutEmitting(quickFilterState)
             deferManualHaplotypeTransition(.search) { [weak self] in
                 guard let self else { return }
@@ -851,7 +862,8 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     public func configure(result: ONTGenotypeResultBundleData) {
-        if hasUnsavedManualHaplotypeDraft {
+        invalidateCurrentWorkbookResultReload()
+        if requiresManualHaplotypeTransitionCoordination {
             deferManualHaplotypeTransition(.eligibilityChange) {
                 [weak self] in
                 self?.configure(result: result)
@@ -1281,8 +1293,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     public func applyDisplayState(_ state: GenotypeResultDisplayState) {
-        if hasUnsavedManualHaplotypeDraft,
-           state != displayState {
+        if requiresManualHaplotypeTransitionCoordination {
             let transition:
                 GenotypeManualHaplotypeDraftCoordinator.Transition =
                     state.viewportLens != displayState.viewportLens
@@ -2484,15 +2495,13 @@ public final class GenotypeResultViewController: NSViewController {
         }
         comparisonMatrix.onManualHaplotypeTransitionPreflight = {
             [weak self] transition, mutation in
-            guard let self,
-                  self.hasUnsavedManualHaplotypeDraft else {
+            guard let self else {
                 return false
             }
-            self.deferManualHaplotypeTransition(
+            return self.deferManualHaplotypeTransition(
                 transition,
                 mutation: mutation
             )
-            return true
         }
     }
 
@@ -2500,8 +2509,7 @@ public final class GenotypeResultViewController: NSViewController {
         guard sender.selectedSegment >= 0,
               sender.selectedSegment < Lens.allCases.count else { return }
         let lens = Lens.allCases[sender.selectedSegment]
-        if hasUnsavedManualHaplotypeDraft,
-           lens != selectedLens {
+        if requiresManualHaplotypeTransitionCoordination {
             sender.selectedSegment = segmentIndex(for: selectedLens)
             deferManualHaplotypeTransition(.lens) { [weak self] in
                 guard let self else { return }
@@ -2515,8 +2523,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func showLens(_ lens: Lens, autoActivateReviewCohort: Bool = true) {
-        if hasUnsavedManualHaplotypeDraft,
-           lens != selectedLens {
+        if requiresManualHaplotypeTransitionCoordination {
             deferManualHaplotypeTransition(.lens) { [weak self] in
                 self?.showLens(
                     lens,
@@ -4651,7 +4658,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     public func applyAIHaplotypingCompleted(result updatedResult: ONTGenotypeResultBundleData) {
-        if hasUnsavedManualHaplotypeDraft {
+        if requiresManualHaplotypeTransitionCoordination {
             deferManualHaplotypeTransition(.eligibilityChange) {
                 [weak self] in
                 self?.applyAIHaplotypingCompleted(result: updatedResult)
@@ -4891,7 +4898,7 @@ public final class GenotypeResultViewController: NSViewController {
         result updatedResult: ONTGenotypeResultBundleData,
         annotationOnly: Bool = false
     ) {
-        if hasUnsavedManualHaplotypeDraft {
+        if requiresManualHaplotypeTransitionCoordination {
             deferManualHaplotypeTransition(.reload) { [weak self] in
                 self?.applyCurrentWorkbookUpdateCompleted(
                     result: updatedResult,
@@ -4935,7 +4942,7 @@ public final class GenotypeResultViewController: NSViewController {
         from bundleURL: URL,
         annotationOnly: Bool = false
     ) {
-        if hasUnsavedManualHaplotypeDraft {
+        if requiresManualHaplotypeTransitionCoordination {
             deferManualHaplotypeTransition(.reload) { [weak self] in
                 self?.reloadCurrentWorkbookResult(
                     from: bundleURL,
@@ -4994,7 +5001,7 @@ public final class GenotypeResultViewController: NSViewController {
                 == expectedBundleURL else {
             return
         }
-        if hasUnsavedManualHaplotypeDraft {
+        if requiresManualHaplotypeTransitionCoordination {
             deferManualHaplotypeTransition(.reload) { [weak self] in
                 self?.applyReloadedCurrentWorkbookResult(
                     updatedResult,
@@ -6997,6 +7004,13 @@ public final class GenotypeResultViewController: NSViewController {
         manualHaplotypeDraftCoordinator.hasUnsavedDraft
     }
 
+    public var requiresManualHaplotypeTransitionCoordination: Bool {
+        hasUnsavedManualHaplotypeDraft
+            || manualHaplotypeDraftCoordinator.hasPendingResolution
+            || manualHaplotypeTransitionMutationCoordinator
+                .hasPendingMutation
+    }
+
     public func prepareForManualHaplotypeTransition(
         _ transition: GenotypeManualHaplotypeDraftCoordinator.Transition
     ) async -> Bool {
@@ -7035,21 +7049,40 @@ public final class GenotypeResultViewController: NSViewController {
         await manualHaplotypeDraftCoordinator.commit(resolution)
     }
 
+    public func prepareManualHaplotypeTransitionCommit(
+        _ resolution: GenotypeManualHaplotypeDraftCoordinator.Resolution
+    ) async -> Bool {
+        await manualHaplotypeDraftCoordinator
+            .prepareTransactionalCommit(resolution)
+    }
+
+    public func finalizeManualHaplotypeTransitionCommit(
+        _ resolution: GenotypeManualHaplotypeDraftCoordinator.Resolution
+    ) async -> Bool {
+        await manualHaplotypeDraftCoordinator
+            .finalizeTransactionalCommit(resolution)
+    }
+
+    public func cancelManualHaplotypeTransitionCommit(
+        _ resolution: GenotypeManualHaplotypeDraftCoordinator.Resolution
+    ) {
+        manualHaplotypeDraftCoordinator
+            .cancelTransactionalCommit(resolution)
+    }
+
     public func abandonManualHaplotypeTransition(
         _ resolution: GenotypeManualHaplotypeDraftCoordinator.Resolution
     ) {
         manualHaplotypeDraftCoordinator.abandon(resolution)
     }
 
-    private func deferManualHaplotypeTransition(
+    @discardableResult
+    public func deferManualHaplotypeTransition(
         _ transition: GenotypeManualHaplotypeDraftCoordinator.Transition,
         mutation: @escaping @MainActor () -> Void
-    ) {
-        guard hasUnsavedManualHaplotypeDraft
-                || manualHaplotypeTransitionMutationCoordinator
-                    .hasPendingMutation else {
-            mutation()
-            return
+    ) -> Bool {
+        guard requiresManualHaplotypeTransitionCoordination else {
+            return false
         }
         manualHaplotypeTransitionMutationCoordinator.enqueue(
             transition: transition,
@@ -7061,6 +7094,7 @@ public final class GenotypeResultViewController: NSViewController {
             },
             mutation: mutation
         )
+        return true
     }
 
     private func presentManualHaplotypeDraftDecision(

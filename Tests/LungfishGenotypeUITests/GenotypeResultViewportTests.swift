@@ -5767,6 +5767,59 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(controller.testingVisibleMatrixSamples, ["AnimalC"])
     }
 
+    func testPendingLensIntentIsSupersededByRequestForCurrentLens()
+        async throws
+    {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "ManualHaplotypeLatestLens-\(UUID().uuidString).lungfishgenotype",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [
+                makeCall(
+                    sample: "AnimalA",
+                    genotype: "01_Mafa_A1_001_01",
+                    reads: 42
+                ),
+            ]
+        ))
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        controller.testingUpdateManualHaplotypeLabel("Unsaved")
+        let gate = ManualHaplotypeViewportDecisionGate()
+        controller.testingSetManualHaplotypeDraftDecisionProvider {
+            _ in await gate.wait()
+        }
+
+        controller.testingSelectLens(.audit)
+        await gate.waitUntilPending()
+        controller.testingSelectLens(.summary)
+        XCTAssertEqual(
+            controller.testingPendingManualHaplotypeMutationCount,
+            1
+        )
+        await gate.resume(with: .discard)
+        await controller.testingWaitForManualHaplotypeTransitions()
+
+        XCTAssertEqual(
+            controller.testingVisibleLensIdentifier,
+            "summary"
+        )
+        XCTAssertEqual(
+            controller.testingPendingManualHaplotypeMutationCount,
+            0
+        )
+    }
+
     func testDeferredMatrixClickReResolvesMissingRowAfterProjectionChanges()
         async throws
     {
@@ -5828,6 +5881,67 @@ final class GenotypeResultViewportTests: XCTestCase {
             controller.testingVisibleMatrixGenotypes,
             [firstGenotype]
         )
+    }
+
+    func testDeferredNativeSelectionWithNoSurvivingRowsIsExactNoOp()
+        async throws
+    {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "ManualHaplotypeStaleNative-\(UUID().uuidString).lungfishgenotype",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let first = "01_Mafa_A1_001_01"
+        let disappearing = "01_Mafa_A1_002_01"
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [
+                makeCall(sample: "AnimalA", genotype: first, reads: 42),
+                makeCall(
+                    sample: "AnimalA",
+                    genotype: disappearing,
+                    reads: 21
+                ),
+            ]
+        ))
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        controller.testingUpdateManualHaplotypeLabel("Unsaved")
+        let gate = ManualHaplotypeViewportDecisionGate()
+        controller.testingSetManualHaplotypeDraftDecisionProvider {
+            _ in await gate.wait()
+        }
+        let originalSelection =
+            controller.testingCurrentSelectionMatrixTargets
+        XCTAssertEqual(originalSelection, [.column(sample: "AnimalA")])
+
+        controller.testingApplyNativeMatrixRowSelection(
+            IndexSet(integer: 1)
+        )
+        await gate.waitUntilPending()
+        controller.testingComparisonMatrix.applyFilters(
+            allowedSampleIDs: nil,
+            text: first
+        )
+        XCTAssertEqual(
+            controller.testingCurrentSelectionMatrixTargets,
+            originalSelection
+        )
+        await gate.resume(with: .discard)
+        await controller.testingWaitForManualHaplotypeTransitions()
+
+        XCTAssertEqual(
+            controller.testingCurrentSelectionMatrixTargets,
+            originalSelection
+        )
+        XCTAssertEqual(controller.testingVisibleMatrixGenotypes, [first])
     }
 
     func testManualHaplotypeCancelRestoresNativeTableSelectionAndScroll() async throws {
@@ -14908,6 +15022,95 @@ final class GenotypeResultViewportTests: XCTestCase {
         }
 
         XCTAssertEqual(controller.testingResultBundleURL, secondBundleURL.standardizedFileURL)
+        XCTAssertEqual(controller.testingResultTotalInputReads, 2)
+    }
+
+    func testQueuedConfigurationImmediatelyInvalidatesInFlightWorkbookReload()
+        async throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "QueuedConfigureInvalidatesReload-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let firstBundleURL = root.appendingPathComponent(
+            "first.lungfishgenotype",
+            isDirectory: true
+        )
+        let secondBundleURL = root.appendingPathComponent(
+            "second.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: firstBundleURL,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: secondBundleURL,
+            withIntermediateDirectories: true
+        )
+        let call = makeCall(
+            sample: "AnimalA",
+            genotype: "01_Mafa_A1_001_01",
+            reads: 42
+        )
+        let first = makeResult(
+            bundleURL: firstBundleURL,
+            samples: [],
+            calls: [call],
+            stats: ONTGenotypeRunStats(
+                totalInputReads: 1,
+                retainedUniqueReads: 1
+            )
+        )
+        let staleUpdate = makeResult(
+            bundleURL: firstBundleURL,
+            samples: [],
+            calls: [call],
+            stats: ONTGenotypeRunStats(
+                totalInputReads: 99,
+                retainedUniqueReads: 99
+            )
+        )
+        let replacement = makeResult(
+            bundleURL: secondBundleURL,
+            samples: [],
+            calls: [],
+            stats: ONTGenotypeRunStats(
+                totalInputReads: 2,
+                retainedUniqueReads: 2
+            )
+        )
+        let loader = DeferredGenotypeResultLoader()
+        let decisionGate = ManualHaplotypeViewportDecisionGate()
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: first)
+        controller.genotypeResultLoader = { url in
+            await loader.load(url)
+        }
+
+        controller.testingReloadCurrentWorkbookResult()
+        await loader.waitUntilStarted()
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        controller.testingUpdateManualHaplotypeLabel("Unsaved")
+        controller.testingSetManualHaplotypeDraftDecisionProvider {
+            transition in
+            XCTAssertEqual(transition, .eligibilityChange)
+            return await decisionGate.wait()
+        }
+
+        controller.configure(result: replacement)
+        await decisionGate.waitUntilPending()
+        await loader.resume(returning: staleUpdate)
+        await decisionGate.resume(with: .discard)
+        await controller.testingWaitForManualHaplotypeTransitions()
+
+        XCTAssertEqual(
+            controller.testingResultBundleURL,
+            secondBundleURL.standardizedFileURL
+        )
         XCTAssertEqual(controller.testingResultTotalInputReads, 2)
     }
 
