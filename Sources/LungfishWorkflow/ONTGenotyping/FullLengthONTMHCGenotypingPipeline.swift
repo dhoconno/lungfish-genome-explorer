@@ -964,6 +964,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> FullLengthONTMHCGenotypingResult {
         let runStartedAt = Date()
+        let lifecycleRunID = UUID()
+        let lifecycleProcessIdentity = try OwnedProcessIdentity.current()
         let runLock = try DarwinFullLengthONTMHCRunLock.acquire(
             outputDirectoryURL: request.outputDirectory
         )
@@ -973,13 +975,14 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             ".\(finalOutputURL.lastPathComponent).run-staging-\(UUID().uuidString)",
             isDirectory: true
         )
+        let lifecycleProjectRoot = (request.projectURL
+            ?? stagedOutputURL.deletingLastPathComponent()).standardizedFileURL
         var finalExisted = false
         var failureEnvelopeSnapshot: ProvenanceEnvelope?
         var successfulPublicationRecordSnapshot: FullLengthONTMHCResultBundlePublicationRecord?
         var rollbackStepSnapshot: ProvenanceStep?
         var rollbackFailureRecovery: FullLengthONTMHCRollbackFailureRecovery?
         do {
-            try removeStaleFailureReceipts(for: request)
             try metadataPublicationObserver(.runLockAcquired(lockURL: runLock.lockURL))
             try validateInputs(request)
             finalExisted = try FullLengthONTMHCAlignmentSafety().requireOptionalDirectoryEntryNoFollow(
@@ -989,6 +992,24 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             try FileManager.default.createDirectory(
                 at: stagedOutputURL,
                 withIntermediateDirectories: false
+            )
+            try OwnedWorkDirectoryMarkerStore.bindExistingDirectory(
+                stagedOutputURL,
+                request: OwnedWorkDirectoryCreationRequest(
+                    projectURL: lifecycleProjectRoot,
+                    parentDirectoryURL: stagedOutputURL.deletingLastPathComponent(),
+                    prefix: ".full-length-ont-mhc-staging-",
+                    runID: lifecycleRunID,
+                    processIdentity: lifecycleProcessIdentity,
+                    state: .active,
+                    lockRelativePath: projectRelativePath(
+                        runLock.lockURL,
+                        projectRoot: lifecycleProjectRoot
+                    ),
+                    keepIntermediates: request.keepIntermediates,
+                    toolName: "lungfish fastq full-length-ont-mhc-genotype",
+                    toolVersion: WorkflowRun.currentAppVersion
+                )
             )
             if finalExisted, request.reuseCompatibleCheckpoints {
                 try importRequestedCheckpointGeneration(
@@ -1047,6 +1068,17 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                     publicationRecord: publicationRecord
                 )
                 successfulPublicationRecordSnapshot = publicationRecord
+                try OwnedWorkDirectoryMarkerStore.transition(
+                    finalOutputURL,
+                    expectedProjectURL: lifecycleProjectRoot,
+                    expectedRunID: lifecycleRunID,
+                    to: .completed
+                )
+                try FileManager.default.removeItem(
+                    at: finalOutputURL.appendingPathComponent(
+                        OwnedWorkDirectoryMarker.fileName
+                    )
+                )
                 try metadataPublicationObserver(.successManifestPublished(
                     finalManifestURL: finalManifestURL,
                     provenanceURL: finalProvenanceURL
@@ -1107,7 +1139,6 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                     ))
                 }
             }
-            try removeStaleFailureReceipts(for: request)
             return relocatedResult(
                 stagedResult,
                 from: stagedOutputURL,
@@ -1120,9 +1151,13 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 finalOutputURL: finalOutputURL,
                 finalExistedBeforeRun: finalExisted
             )
+            let priorFailureEnvelopeData = try? Data(
+                contentsOf: request.failureProvenanceURL
+            )
             let failedPublicationRecord = (error as? FullLengthONTMHCResultBundlePublicationError)?.record
             var reportedError: Error = error
             var retainedFailureDiagnosticRoots = rollbackFailureRecovery?.retainedRoots ?? []
+            var candidateCleanupDeferred = false
             let candidateWorkDirectory = candidateArtifactWorkDirectory(for: stagedOutputURL)
             if FileManager.default.fileExists(atPath: candidateWorkDirectory.path) {
                 if request.keepIntermediates {
@@ -1139,44 +1174,18 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                     } catch {
                         candidateLogRetentionError = error
                     }
-                    var candidateCleanupError: Error?
-                    do {
-                        try postPublicationWorkDirectoryCleaner.removeWorkDirectory(
-                            at: candidateWorkDirectory
-                        )
-                    } catch {
-                        candidateCleanupError = error
-                        retainedFailureDiagnosticRoots.append(candidateWorkDirectory)
-                    }
-                    if candidateLogRetentionError != nil || candidateCleanupError != nil {
+                    candidateCleanupDeferred = true
+                    if candidateLogRetentionError != nil {
                         var failureDetails: [String] = []
                         if let candidateLogRetentionError {
                             failureDetails.append(
                                 "candidate failure-log retention also failed (\(candidateLogRetentionError.localizedDescription))"
                             )
                         }
-                        if let candidateCleanupError {
-                            failureDetails.append(
-                                "candidate work cleanup also failed (\(candidateCleanupError.localizedDescription))"
-                            )
-                        }
                         reportedError = FullLengthONTMHCGenotypingError.reportFailed(
                             "Run failed (\(error.localizedDescription)); \(failureDetails.joined(separator: "; "))."
                         )
                     }
-                }
-            }
-            let retainedRecoveryPaths = Set(
-                rollbackFailureRecovery?.retainedRoots.map { $0.standardizedFileURL.path } ?? []
-            )
-            if FileManager.default.fileExists(atPath: stagedOutputURL.path),
-               !retainedRecoveryPaths.contains(stagedOutputURL.standardizedFileURL.path) {
-                do {
-                    try FileManager.default.removeItem(at: stagedOutputURL)
-                } catch let cleanupError {
-                    reportedError = FullLengthONTMHCGenotypingError.reportFailed(
-                        "Run failed (\(error.localizedDescription)); staging cleanup also failed (\(cleanupError.localizedDescription))."
-                    )
                 }
             }
             do {
@@ -1192,10 +1201,61 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                     rollbackFailureRecovery: rollbackFailureRecovery,
                     additionalDiagnosticRoots: retainedFailureDiagnosticRoots
                 )
+                let failureData = try Data(contentsOf: request.failureProvenanceURL)
+                var historyPayloads = ["failure-provenance.json": failureData]
+                if let priorFailureEnvelopeData {
+                    historyPayloads["superseded-prior-failure-provenance.json"] =
+                        priorFailureEnvelopeData
+                }
+                _ = try ProjectOperationHistoryWriter(
+                    projectURL: lifecycleProjectRoot
+                ).createOperation(
+                    operationID: lifecycleRunID,
+                    payloads: historyPayloads
+                )
             } catch let provenanceError {
                 throw FullLengthONTMHCGenotypingError.reportFailed(
                     "Run failed (\(reportedError.localizedDescription)); failed-run provenance also could not be written (\(provenanceError.localizedDescription))."
                 )
+            }
+            if candidateCleanupDeferred,
+               FileManager.default.fileExists(atPath: candidateWorkDirectory.path) {
+                do {
+                    try OwnedWorkDirectoryMarkerStore.transition(
+                        candidateWorkDirectory,
+                        expectedProjectURL: lifecycleProjectRoot,
+                        expectedRunID: lifecycleRunID,
+                        to: .failed
+                    )
+                    try postPublicationWorkDirectoryCleaner.removeWorkDirectory(
+                        at: candidateWorkDirectory
+                    )
+                } catch let cleanupError {
+                    reportedError = FullLengthONTMHCGenotypingError.reportFailed(
+                        "Run failed (\(error.localizedDescription)); candidate work cleanup also failed (\(cleanupError.localizedDescription))."
+                    )
+                }
+            }
+            let retainedRecoveryPaths = Set(
+                rollbackFailureRecovery?.retainedRoots.map { $0.standardizedFileURL.path } ?? []
+            )
+            if FileManager.default.fileExists(atPath: stagedOutputURL.path),
+               !retainedRecoveryPaths.contains(stagedOutputURL.standardizedFileURL.path) {
+                do {
+                    try OwnedWorkDirectoryMarkerStore.transition(
+                        stagedOutputURL,
+                        expectedProjectURL: lifecycleProjectRoot,
+                        expectedRunID: lifecycleRunID,
+                        to: .failed
+                    )
+                    if !request.keepIntermediates {
+                        try FileManager.default.removeItem(at: stagedOutputURL)
+                    }
+                } catch let cleanupError {
+                    reportedError = FullLengthONTMHCGenotypingError.reportFailed(
+                        "Run failed (\(error.localizedDescription)); staging cleanup also failed (\(cleanupError.localizedDescription))."
+                    )
+                }
             }
             throw reportedError
         }
@@ -1328,6 +1388,11 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             .deletingLastPathComponent()
             .appendingPathComponent(".\(request.outputDirectory.lastPathComponent).cohort-alignment-work", isDirectory: true)
         try FileManager.default.createDirectory(at: cohortWorkDirectory, withIntermediateDirectories: true)
+        try bindSiblingWorkDirectory(
+            cohortWorkDirectory,
+            stagedOutputURL: request.outputDirectory,
+            request: request
+        )
         let cohortAlignmentResult = try await cohortAlignmentBuilder.build(.init(
             samples: orderedResults.compactMap { result in
                 guard !result.clusterRecords.isEmpty else { return nil }
@@ -1590,6 +1655,11 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             for: request.outputDirectory
         )
         try FileManager.default.createDirectory(at: candidateWorkDirectory, withIntermediateDirectories: true)
+        try bindSiblingWorkDirectory(
+            candidateWorkDirectory,
+            stagedOutputURL: request.outputDirectory,
+            request: request
+        )
         let candidateReferenceAnnotationInputURLs = request.referenceSourceURL.pathExtension.lowercased() == "lungfishref"
             ? try mhcReferenceVisualizationInputURLs(
                 sourceURL: request.referenceSourceURL,
@@ -2070,6 +2140,21 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         }
         var cleanupWarnings = cohortAlignmentResult.cleanupDiagnostics.map(cleanupWarning)
         if request.keepIntermediates {
+            let projectRoot = request.projectURL
+                ?? request.outputDirectory.deletingLastPathComponent()
+            let rootMarker = try OwnedWorkDirectoryMarkerStore.load(
+                from: request.outputDirectory,
+                expectedProjectURL: projectRoot
+            )
+            for retainedRoot in [cohortWorkDirectory, candidateWorkDirectory]
+                where FileManager.default.fileExists(atPath: retainedRoot.path) {
+                try OwnedWorkDirectoryMarkerStore.transition(
+                    retainedRoot,
+                    expectedProjectURL: projectRoot,
+                    expectedRunID: rootMarker.runID,
+                    to: .completed
+                )
+            }
             progress.emit(0.98, "Preserving full-length ONT MHC workflow intermediates.")
         } else {
             progress.emit(0.98, "Removing regenerable full-length ONT MHC workflow intermediates.")
@@ -2081,7 +2166,20 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             } else {
                 do {
                     if FileManager.default.fileExists(atPath: cohortWorkDirectory.path),
-                       try FileManager.default.contentsOfDirectory(atPath: cohortWorkDirectory.path).isEmpty {
+                       try FileManager.default.contentsOfDirectory(atPath: cohortWorkDirectory.path)
+                        .allSatisfy({ $0 == OwnedWorkDirectoryMarker.fileName }) {
+                        let rootMarker = try OwnedWorkDirectoryMarkerStore.load(
+                            from: request.outputDirectory,
+                            expectedProjectURL: request.projectURL
+                                ?? request.outputDirectory.deletingLastPathComponent()
+                        )
+                        try OwnedWorkDirectoryMarkerStore.transition(
+                            cohortWorkDirectory,
+                            expectedProjectURL: request.projectURL
+                                ?? request.outputDirectory.deletingLastPathComponent(),
+                            expectedRunID: rootMarker.runID,
+                            to: .completed
+                        )
                         try postPublicationWorkDirectoryCleaner.removeWorkDirectory(at: cohortWorkDirectory)
                     }
                 } catch {
@@ -2095,6 +2193,18 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             }
             do {
                 if FileManager.default.fileExists(atPath: candidateWorkDirectory.path) {
+                    let rootMarker = try OwnedWorkDirectoryMarkerStore.load(
+                        from: request.outputDirectory,
+                        expectedProjectURL: request.projectURL
+                            ?? request.outputDirectory.deletingLastPathComponent()
+                    )
+                    try OwnedWorkDirectoryMarkerStore.transition(
+                        candidateWorkDirectory,
+                        expectedProjectURL: request.projectURL
+                            ?? request.outputDirectory.deletingLastPathComponent(),
+                        expectedRunID: rootMarker.runID,
+                        to: .completed
+                    )
                     try postPublicationWorkDirectoryCleaner.removeWorkDirectory(at: candidateWorkDirectory)
                 }
             } catch {
@@ -2580,6 +2690,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 )
             }
             if source.lastPathComponent == "full-length-ont-mhc-genotyping-provenance.json" { continue }
+            if source.lastPathComponent == OwnedWorkDirectoryMarker.fileName { continue }
             if source.lastPathComponent.hasPrefix(".\(ONTGenotypeResultBundleManifest.filename).staging-") { continue }
             let relative = source.standardizedFileURL.pathComponents.dropFirst(rootComponents.count)
             let destination = relative.reduce(finalOutputURL) { $0.appendingPathComponent($1) }
@@ -2924,6 +3035,45 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 try FileManager.default.removeItem(at: url)
             }
         }
+    }
+
+    private func projectRelativePath(_ url: URL, projectRoot: URL) -> String? {
+        let rootPath = projectRoot.standardizedFileURL.path
+        let path = url.standardizedFileURL.path
+        guard path.hasPrefix(rootPath + "/") else { return nil }
+        return String(path.dropFirst(rootPath.count + 1))
+    }
+
+    private func bindSiblingWorkDirectory(
+        _ directoryURL: URL,
+        stagedOutputURL: URL,
+        request: FullLengthONTMHCGenotypingRunRequest
+    ) throws {
+        let projectRoot = (request.projectURL
+            ?? stagedOutputURL.deletingLastPathComponent()).standardizedFileURL
+        let rootMarker = try OwnedWorkDirectoryMarkerStore.load(
+            from: stagedOutputURL,
+            expectedProjectURL: projectRoot
+        )
+        try OwnedWorkDirectoryMarkerStore.bindExistingDirectory(
+            directoryURL,
+            request: OwnedWorkDirectoryCreationRequest(
+                projectURL: projectRoot,
+                parentDirectoryURL: directoryURL.deletingLastPathComponent(),
+                prefix: ".full-length-ont-mhc-work-",
+                runID: rootMarker.runID,
+                processIdentity: OwnedProcessIdentity(
+                    processIdentifier: rootMarker.processIdentifier,
+                    processStartTime: rootMarker.processStartTime,
+                    bootSessionID: rootMarker.bootSessionID
+                ),
+                state: .active,
+                lockRelativePath: rootMarker.lockRelativePath,
+                keepIntermediates: rootMarker.keepIntermediates,
+                toolName: rootMarker.toolName,
+                toolVersion: rootMarker.toolVersion
+            )
+        )
     }
 
     private func candidateArtifactWorkDirectory(for outputDirectoryURL: URL) -> URL {
@@ -5919,40 +6069,6 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         )
     }
 
-    private func removeStaleFailureReceipts(
-        for request: FullLengthONTMHCGenotypingRunRequest
-    ) throws {
-        for url in [request.failureProvenanceURL, request.legacyPublicationFailureProvenanceURL]
-            where FileManager.default.fileExists(atPath: url.path) {
-            try FileManager.default.removeItem(at: url)
-        }
-        let failureInputDirectoryURL = URL(
-            fileURLWithPath: request.failureProvenanceURL.path + ".inputs",
-            isDirectory: true
-        )
-        let failureDiagnosticsDirectoryURL = URL(
-            fileURLWithPath: request.failureProvenanceURL.path + ".diagnostics",
-            isDirectory: true
-        )
-        let safety = FullLengthONTMHCAlignmentSafety()
-        for (directoryURL, role) in [
-            (failureInputDirectoryURL, "MHC visualization failure input directory"),
-            (failureDiagnosticsDirectoryURL, "MHC failed-run diagnostics directory"),
-        ] {
-            guard try safety.requireOptionalDirectoryEntryNoFollow(
-                directoryURL,
-                role: role
-            ) else {
-                continue
-            }
-            try safety.requireSafeDirectoryTree(
-                directoryURL,
-                role: role
-            )
-            try FileManager.default.removeItem(at: directoryURL)
-        }
-    }
-
     private func failureInputDescriptors(
         _ request: FullLengthONTMHCGenotypingRunRequest
     ) -> [ProvenanceFileDescriptor] {
@@ -6008,7 +6124,11 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             options: []
         )) ?? []
         var seenRoots = Set<String>()
-        let roots = (contents.filter { $0.lastPathComponent.contains(runToken) } + additionalRoots)
+        let roots = (contents.filter {
+            $0.lastPathComponent.contains(runToken)
+                && $0.standardizedFileURL != stagedOutputURL.standardizedFileURL
+                && !$0.lastPathComponent.contains("candidate-artifact-work")
+        } + additionalRoots)
             .map(\.standardizedFileURL)
             .filter { seenRoots.insert($0.path).inserted }
         var fileURLs: [URL] = []
@@ -6028,7 +6148,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 for case let entry as URL in enumerator {
                     var entryIsDirectory: ObjCBool = false
                     if FileManager.default.fileExists(atPath: entry.path, isDirectory: &entryIsDirectory),
-                       !entryIsDirectory.boolValue {
+                       !entryIsDirectory.boolValue,
+                       entry.lastPathComponent != OwnedWorkDirectoryMarker.fileName {
                         fileURLs.append(entry.standardizedFileURL)
                     }
                 }

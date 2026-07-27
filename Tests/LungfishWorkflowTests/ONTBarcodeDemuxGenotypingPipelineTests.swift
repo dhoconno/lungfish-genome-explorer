@@ -468,7 +468,8 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             outputDirectory: outputDirectory,
             outputName: "barcode11-mhc",
             threads: 2,
-            sortThreads: 1
+            sortThreads: 1,
+            keepIntermediates: true
         )
 
         _ = try await ONTBarcodeDemuxGenotypingPipeline(
@@ -489,6 +490,13 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(barcodes.map { $0["barcodeID"] as? String }, ["DW472"])
         XCTAssertNil(barcodes.first?["readCount"] as? Int)
         XCTAssertEqual(manifest["manifestSource"] as? String, "synthesized-from-fastq-inputs")
+        let workMarker = try OwnedWorkDirectoryMarkerStore.load(
+            from: outputDirectory.appendingPathComponent(".amplicon-genotyping"),
+            expectedProjectURL: root
+        )
+        XCTAssertEqual(workMarker.state, .completed)
+        XCTAssertTrue(workMarker.keepIntermediates)
+        XCTAssertTrue(workMarker.lockRelativePath?.hasSuffix(".lock") == true)
     }
 
     func testRunCreatesDecoratedCurrentWorkbookForMCMHaplotypingAndRecordsProvenance() async throws {
@@ -866,6 +874,23 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertNotNil(manifest.alignmentArtifacts?.genotypingEvidence)
         XCTAssertNil(manifest.alignmentArtifacts?.reciprocalEvidence)
         XCTAssertNil(manifest.provisionalExon2Artifacts)
+        let evidence = try XCTUnwrap(manifest.alignmentArtifacts?.genotypingEvidence)
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: outputDirectory.appendingPathComponent(evidence.bam.path).path
+            )
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: outputDirectory.appendingPathComponent(evidence.bai.path).path
+            )
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: outputDirectory.appendingPathComponent(".amplicon-genotyping").path
+            ),
+            "Default success cleanup must remove the regenerable support root"
+        )
         let reviewCatalog = try XCTUnwrap(manifest.reviewableRowCatalog)
         let reviewCatalogURL = outputDirectory.appendingPathComponent(reviewCatalog.path)
         XCTAssertEqual(
@@ -1215,9 +1240,17 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             }
         )
 
-        let result = try await pipeline.run(request)
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("Cleanup failure must be surfaced after durable outputs are published")
+        } catch {
+            XCTAssertTrue(
+                error.localizedDescription.contains("permission")
+                    || error.localizedDescription.contains("write"),
+                error.localizedDescription
+            )
+        }
 
-        XCTAssertEqual(result.outputDirectory, outputDirectory.standardizedFileURL)
         let manifest = try ONTGenotypeResultBundle.loadManifest(from: outputDirectory)
         XCTAssertNotNil(manifest.alignmentArtifacts?.genotypingEvidence)
         for url in [
@@ -1241,6 +1274,24 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertTrue(
             FileManager.default.fileExists(atPath: request.mappingBAMURL.path),
             "The injected failure should leave only the regenerable intermediate behind"
+        )
+        let historyRoot = root.appendingPathComponent(
+            ProjectOperationHistoryWriter.historyDirectoryName,
+            isDirectory: true
+        )
+        let operations = try FileManager.default.contentsOfDirectory(
+            at: historyRoot,
+            includingPropertiesForKeys: nil
+        )
+        XCTAssertEqual(operations.count, 1)
+        let failureReceipt = operations[0].appendingPathComponent(
+            "failure-provenance.json"
+        )
+        let failure = try jsonObject(at: failureReceipt)
+        XCTAssertEqual(failure["exitStatus"] as? Int, 1)
+        XCTAssertEqual(
+            (failure["resolvedOptions"] as? [String: Any])?["keepIntermediates"] as? Bool,
+            false
         )
     }
 
@@ -1338,6 +1389,7 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             threads: 2,
             sortThreads: 1,
             minSupport: 1,
+            keepIntermediates: true,
             mode: .ontSampleBundles,
             readType: .ont
         )
@@ -1397,6 +1449,7 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             threads: 2,
             sortThreads: 1,
             minSupport: 1,
+            keepIntermediates: true,
             mode: .ontSampleBundles,
             readType: .ont
         )
@@ -1509,6 +1562,7 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             threads: 2,
             sortThreads: 1,
             minSupport: 1,
+            keepIntermediates: true,
             mode: .ontSampleBundles,
             readType: .ont
         )

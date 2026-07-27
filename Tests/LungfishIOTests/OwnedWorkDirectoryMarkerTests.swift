@@ -122,6 +122,73 @@ final class OwnedWorkDirectoryMarkerTests: XCTestCase {
         )
     }
 
+    func testBindExistingDirectoryAndDurablyTransitionItsMarker() throws {
+        let directory = workParent.appendingPathComponent("pipeline-staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        let creation = request(prefix: "unused-")
+
+        try OwnedWorkDirectoryMarkerStore.bindExistingDirectory(
+            directory,
+            request: creation
+        )
+        let active = try OwnedWorkDirectoryMarkerStore.load(
+            from: directory,
+            expectedProjectURL: project
+        )
+        XCTAssertEqual(active.state, .active)
+        XCTAssertEqual(active.runID, creation.runID)
+
+        try OwnedWorkDirectoryMarkerStore.transition(
+            directory,
+            expectedProjectURL: project,
+            expectedRunID: creation.runID,
+            to: .completed
+        )
+        let completed = try OwnedWorkDirectoryMarkerStore.load(
+            from: directory,
+            expectedProjectURL: project
+        )
+        XCTAssertEqual(completed.state, .completed)
+        XCTAssertEqual(completed.directoryIdentity, active.directoryIdentity)
+        XCTAssertEqual(completed.runID, active.runID)
+    }
+
+    func testTransitionRejectsRunMismatchAndTerminalRewrite() throws {
+        let creation = request(prefix: "transition-")
+        let directory = try OwnedWorkDirectoryMarkerStore.createDirectory(creation)
+
+        XCTAssertThrowsError(
+            try OwnedWorkDirectoryMarkerStore.transition(
+                directory,
+                expectedProjectURL: project,
+                expectedRunID: UUID(),
+                to: .failed
+            )
+        )
+        XCTAssertEqual(
+            try OwnedWorkDirectoryMarkerStore.load(
+                from: directory,
+                expectedProjectURL: project
+            ).state,
+            .active
+        )
+
+        try OwnedWorkDirectoryMarkerStore.transition(
+            directory,
+            expectedProjectURL: project,
+            expectedRunID: creation.runID,
+            to: .failed
+        )
+        XCTAssertThrowsError(
+            try OwnedWorkDirectoryMarkerStore.transition(
+                directory,
+                expectedProjectURL: project,
+                expectedRunID: creation.runID,
+                to: .completed
+            )
+        )
+    }
+
     func testLoadRejectsMarkerSymlinkAndSpecialFile() throws {
         let symlinkRequest = request(prefix: "unsafe-")
         let symlinkDirectory = try OwnedWorkDirectoryMarkerStore.createDirectory(symlinkRequest)

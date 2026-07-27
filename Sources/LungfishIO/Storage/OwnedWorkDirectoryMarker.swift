@@ -487,6 +487,181 @@ public enum OwnedWorkDirectoryMarkerStore {
         }
     }
 
+    /// Binds a directory created by a workflow to the same identity-safe marker
+    /// contract used by `createDirectory`. The directory must be the exact child
+    /// of the requested parent and the marker must not already exist.
+    public static func bindExistingDirectory(
+        _ directoryURL: URL,
+        request: OwnedWorkDirectoryCreationRequest,
+        atomicFileStore: DurableAtomicFileStore = .init()
+    ) throws {
+        try validate(request)
+        let directoryURL = directoryURL.standardizedFileURL
+        let parentURL = request.parentDirectoryURL.standardizedFileURL
+        let projectURL = request.projectURL.standardizedFileURL
+        guard directoryURL.deletingLastPathComponent() == parentURL,
+              parentURL.path == projectURL.path
+                || parentURL.path.hasPrefix(projectURL.path + "/") else {
+            throw OwnedWorkDirectoryMarkerError.invalidRequest(
+                "existing directory is not an exact child of the bound parent"
+            )
+        }
+
+        let directoryDescriptor: Int32
+        do {
+            directoryDescriptor = try NoFollowFileSystem.openDirectoryHierarchy(directoryURL)
+        } catch {
+            throw OwnedWorkDirectoryMarkerError.unsafePath(directoryURL.path)
+        }
+        defer { Darwin.close(directoryDescriptor) }
+        let projectDescriptor: Int32
+        do {
+            projectDescriptor = try NoFollowFileSystem.openDirectoryHierarchy(projectURL)
+        } catch {
+            throw OwnedWorkDirectoryMarkerError.unsafePath(projectURL.path)
+        }
+        defer { Darwin.close(projectDescriptor) }
+
+        var directoryInfo = stat()
+        var projectInfo = stat()
+        guard Darwin.fstat(directoryDescriptor, &directoryInfo) == 0,
+              Darwin.fstat(projectDescriptor, &projectInfo) == 0,
+              directoryInfo.st_mode & S_IFMT == S_IFDIR else {
+            throw OwnedWorkDirectoryMarkerError.systemFailure(
+                path: directoryURL.path,
+                operation: "inspect existing owned work directory",
+                code: errno == 0 ? EINVAL : errno
+            )
+        }
+        let marker = OwnedWorkDirectoryMarker(
+            projectIdentity: FileSystemObjectIdentity(projectInfo),
+            directoryIdentity: FileSystemObjectIdentity(directoryInfo),
+            runID: request.runID,
+            processIdentifier: request.processIdentity.processIdentifier,
+            processStartTime: request.processIdentity.processStartTime,
+            bootSessionID: request.processIdentity.bootSessionID,
+            state: request.state,
+            lockRelativePath: request.lockRelativePath,
+            keepIntermediates: request.keepIntermediates,
+            toolName: request.toolName,
+            toolVersion: request.toolVersion
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try atomicFileStore.create(
+            encoder.encode(marker),
+            named: OwnedWorkDirectoryMarker.fileName,
+            inOpenDirectory: directoryDescriptor,
+            displayedAt: directoryURL
+        )
+        guard try load(from: directoryURL, expectedProjectURL: projectURL) == marker else {
+            throw OwnedWorkDirectoryMarkerError.invalidMarker(
+                "published marker changed while binding existing directory"
+            )
+        }
+    }
+
+    /// Atomically moves a marker from active to a terminal state. Terminal
+    /// markers are immutable so a later run cannot rewrite prior disposition.
+    public static func transition(
+        _ directoryURL: URL,
+        expectedProjectURL: URL,
+        expectedRunID: UUID,
+        to state: OwnedWorkDirectoryMarker.State,
+        atomicFileStore: DurableAtomicFileStore = .init()
+    ) throws {
+        guard state != .active else {
+            throw OwnedWorkDirectoryMarkerError.invalidRequest(
+                "marker transition must end in a terminal state"
+            )
+        }
+        let directoryURL = directoryURL.standardizedFileURL
+        let directoryDescriptor: Int32
+        do {
+            directoryDescriptor = try NoFollowFileSystem.openDirectoryHierarchy(directoryURL)
+        } catch {
+            throw OwnedWorkDirectoryMarkerError.unsafePath(directoryURL.path)
+        }
+        defer { Darwin.close(directoryDescriptor) }
+        let current = try load(
+            fromOpenDirectory: directoryDescriptor,
+            displayedAt: directoryURL,
+            expectedProjectURL: expectedProjectURL.standardizedFileURL
+        )
+        guard current.runID == expectedRunID else {
+            throw OwnedWorkDirectoryMarkerError.identityMismatch(directoryURL.path)
+        }
+        guard current.state == .active else {
+            throw OwnedWorkDirectoryMarkerError.invalidMarker(
+                "terminal marker state cannot be rewritten"
+            )
+        }
+        let updated = OwnedWorkDirectoryMarker(
+            projectIdentity: current.projectIdentity,
+            directoryIdentity: current.directoryIdentity,
+            runID: current.runID,
+            processIdentifier: current.processIdentifier,
+            processStartTime: current.processStartTime,
+            bootSessionID: current.bootSessionID,
+            state: state,
+            lockRelativePath: current.lockRelativePath,
+            keepIntermediates: current.keepIntermediates,
+            toolName: current.toolName,
+            toolVersion: current.toolVersion
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let replacementName = ".lungfish-owned-marker-transition-\(UUID().uuidString.lowercased())"
+        try atomicFileStore.create(
+            encoder.encode(updated),
+            named: replacementName,
+            inOpenDirectory: directoryDescriptor,
+            displayedAt: directoryURL
+        )
+        var replacementPublished = false
+        defer {
+            if !replacementPublished {
+                _ = replacementName.withCString {
+                    Darwin.unlinkat(directoryDescriptor, $0, 0)
+                }
+            }
+        }
+        let status = replacementName.withCString { replacement in
+            OwnedWorkDirectoryMarker.fileName.withCString { marker in
+                Darwin.renameat(
+                    directoryDescriptor,
+                    replacement,
+                    directoryDescriptor,
+                    marker
+                )
+            }
+        }
+        guard status == 0 else {
+            throw OwnedWorkDirectoryMarkerError.systemFailure(
+                path: directoryURL.path,
+                operation: "publish terminal owned marker state",
+                code: errno
+            )
+        }
+        replacementPublished = true
+        guard Darwin.fsync(directoryDescriptor) == 0 else {
+            throw OwnedWorkDirectoryMarkerError.systemFailure(
+                path: directoryURL.path,
+                operation: "fsync terminal owned marker state",
+                code: errno
+            )
+        }
+        guard try load(
+            fromOpenDirectory: directoryDescriptor,
+            displayedAt: directoryURL,
+            expectedProjectURL: expectedProjectURL.standardizedFileURL
+        ) == updated else {
+            throw OwnedWorkDirectoryMarkerError.invalidMarker(
+                "terminal marker changed during transition"
+            )
+        }
+    }
+
     public static func load(
         from directoryURL: URL,
         expectedProjectURL: URL

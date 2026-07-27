@@ -1938,7 +1938,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(failureEnvelope.options.resolvedDefaults["outcome"], .string("cancelled"))
     }
 
-    func testSuccessfulRunRemovesStaleAdjacentFailureReceipt() async throws {
+    func testSuccessfulRunDoesNotDeletePriorAdjacentFailureReceipt() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("full-length-ont-mhc-stale-failure-receipt-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1955,11 +1955,11 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
 
         _ = try await pipeline.run(request)
 
-        XCTAssertFalse(FileManager.default.fileExists(atPath: request.failureProvenanceURL.path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: staleInputDirectory.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: request.failureProvenanceURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: staleInputDirectory.path))
     }
 
-    func testSuccessfulRunAfterPriorRenameFailureRemovesEveryAdjacentFailureReceipt() async throws {
+    func testSuccessfulRunAfterPriorRenameFailurePreservesPriorFailureReceipt() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("full-length-ont-mhc-stale-rename-receipt-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1991,7 +1991,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
 
         _ = try await successfulPipeline.run(request)
 
-        XCTAssertFalse(FileManager.default.fileExists(atPath: request.failureProvenanceURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: request.failureProvenanceURL.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: legacyReceipt.path))
     }
 
@@ -3429,6 +3429,21 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(envelope.options.resolvedDefaults["reuseCompatibleCheckpoints"]?.booleanValue, true)
         XCTAssertEqual(envelope.options.explicit["keepIntermediates"]?.booleanValue, true)
         XCTAssertEqual(envelope.options.explicit["reuseCompatibleCheckpoints"]?.booleanValue, true)
+        let retainedSiblingRoots = try FileManager.default.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: nil
+        ).filter {
+            $0.lastPathComponent.contains("cohort-alignment-work")
+                || $0.lastPathComponent.contains("candidate-artifact-work")
+        }
+        XCTAssertEqual(retainedSiblingRoots.count, 2)
+        let markers = try retainedSiblingRoots.map {
+            try OwnedWorkDirectoryMarkerStore.load(from: $0, expectedProjectURL: root)
+        }
+        XCTAssertEqual(Set(markers.map(\.runID)).count, 1)
+        XCTAssertTrue(markers.allSatisfy { $0.state == .completed })
+        XCTAssertTrue(markers.allSatisfy(\.keepIntermediates))
+        XCTAssertTrue(markers.allSatisfy { $0.lockRelativePath?.hasSuffix(".lock") == true })
     }
 
     func testRunUsesManagedBlastForMhcLikeRescueWhenPathDoesNotContainBlastn() async throws {

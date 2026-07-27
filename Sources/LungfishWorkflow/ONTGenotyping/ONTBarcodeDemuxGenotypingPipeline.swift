@@ -57,6 +57,7 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
     public let threads: Int
     public let sortThreads: Int
     public let minSupport: Int
+    public let keepIntermediates: Bool
     public let haplotypeDropoutSampleFraction: Double?
     public let haplotypeDropoutLocusFraction: Double?
     public let haplotypeDropoutLocusFractionOverrides: [String: Double]
@@ -86,6 +87,7 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
         threads: Int = max(1, ProcessInfo.processInfo.activeProcessorCount),
         sortThreads: Int = 4,
         minSupport: Int = 1,
+        keepIntermediates: Bool = false,
         haplotypeDropoutSampleFraction: Double? = nil,
         haplotypeDropoutLocusFraction: Double? = nil,
         haplotypeDropoutLocusFractionOverrides: [String: Double] = [:],
@@ -113,6 +115,7 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
             threads: threads,
             sortThreads: sortThreads,
             minSupport: minSupport,
+            keepIntermediates: keepIntermediates,
             haplotypeDropoutSampleFraction: haplotypeDropoutSampleFraction,
             haplotypeDropoutLocusFraction: haplotypeDropoutLocusFraction,
             haplotypeDropoutLocusFractionOverrides: haplotypeDropoutLocusFractionOverrides,
@@ -144,6 +147,7 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
         threads: Int = max(1, ProcessInfo.processInfo.activeProcessorCount),
         sortThreads: Int = 4,
         minSupport: Int = 1,
+        keepIntermediates: Bool = false,
         haplotypeDropoutSampleFraction: Double? = nil,
         haplotypeDropoutLocusFraction: Double? = nil,
         haplotypeDropoutLocusFractionOverrides: [String: Double] = [:],
@@ -192,6 +196,7 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
         self.threads = max(1, threads)
         self.sortThreads = max(1, sortThreads)
         self.minSupport = max(1, minSupport)
+        self.keepIntermediates = keepIntermediates
         self.haplotypeDropoutSampleFraction = Self.normalizedFraction(haplotypeDropoutSampleFraction)
         self.haplotypeDropoutLocusFraction = Self.normalizedFraction(haplotypeDropoutLocusFraction)
         self.haplotypeDropoutLocusFractionOverrides = Self.normalizedFractionOverrides(haplotypeDropoutLocusFractionOverrides)
@@ -242,6 +247,7 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
             threads: threads,
             sortThreads: sortThreads,
             minSupport: minSupport,
+            keepIntermediates: keepIntermediates,
             haplotypeDropoutSampleFraction: haplotypeDropoutSampleFraction,
             haplotypeDropoutLocusFraction: haplotypeDropoutLocusFraction,
             haplotypeDropoutLocusFractionOverrides: haplotypeDropoutLocusFractionOverrides,
@@ -451,6 +457,9 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
         }
         if let projectURL {
             values += ["--project", projectURL.path]
+        }
+        if keepIntermediates {
+            values += ["--keep-intermediates"]
         }
         if !extraArguments.isEmpty {
             values += ["--extra-args", AdvancedCommandLineOptions.join(extraArguments)]
@@ -793,6 +802,16 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> ONTBarcodeDemuxGenotypingResult {
         let startedAt = Date()
+        let runID = UUID()
+        let processIdentity = try OwnedProcessIdentity.current()
+        let outputParent = request.outputDirectory.deletingLastPathComponent().standardizedFileURL
+        try FileManager.default.createDirectory(at: outputParent, withIntermediateDirectories: true)
+        let projectRoot = (request.projectURL ?? outputParent).standardizedFileURL
+        let lockURL = outputParent.appendingPathComponent(
+            ".\(request.outputDirectory.lastPathComponent).amplicon-genotyping-run.lock"
+        )
+        let runLock = try OwnedRunLock.acquire(at: lockURL)
+        defer { runLock.release() }
         let resolvedMode = try resolveMode(for: request)
         let resolvedReadType = resolveReadType(for: request, mode: resolvedMode)
         progressHandler?(0.01, "Validating amplicon genotyping inputs.")
@@ -819,6 +838,51 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         _ = try copySpecialistPromptSnapshotIfNeeded(for: request)
         let supportDirectory = request.outputDirectory
             .appendingPathComponent(".amplicon-genotyping", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: supportDirectory,
+            withIntermediateDirectories: false
+        )
+        try OwnedWorkDirectoryMarkerStore.bindExistingDirectory(
+            supportDirectory,
+            request: OwnedWorkDirectoryCreationRequest(
+                projectURL: projectRoot,
+                parentDirectoryURL: request.outputDirectory,
+                prefix: ".amplicon-genotyping-",
+                runID: runID,
+                processIdentity: processIdentity,
+                state: .active,
+                lockRelativePath: Self.projectRelativePath(
+                    lockURL,
+                    projectRoot: projectRoot
+                ),
+                keepIntermediates: request.keepIntermediates,
+                toolName: Self.analysisToolName(for: resolvedMode),
+                toolVersion: WorkflowRun.currentAppVersion
+            )
+        )
+        var lifecycleCompleted = false
+        defer {
+            if !lifecycleCompleted,
+               FileManager.default.fileExists(atPath: supportDirectory.path) {
+                // The compact append-only failure receipt is made durable before
+                // any regenerable payload is removed.
+                try? writeCompactFailureHistory(
+                    request: request,
+                    runID: runID,
+                    projectRoot: projectRoot,
+                    startedAt: startedAt
+                )
+                try? OwnedWorkDirectoryMarkerStore.transition(
+                    supportDirectory,
+                    expectedProjectURL: projectRoot,
+                    expectedRunID: runID,
+                    to: .failed
+                )
+                if !request.keepIntermediates {
+                    try? fileRemover(supportDirectory)
+                }
+            }
+        }
         let scriptURL = supportDirectory.appendingPathComponent("filter-demux-retained-bam.py")
         try Self.writeFilterScript(to: scriptURL)
         let reportScriptURL = supportDirectory.appendingPathComponent("write-retained-demux-workbook.py")
@@ -1036,13 +1100,106 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         }
 
         progressHandler?(0.97, "Removing regenerable alignment intermediates.")
-        try? removeGeneratedAlignmentIntermediates(
-            for: request,
-            mapping: mapping,
-            preserveRetainedEvidence: preserveRetainedEvidence
+        if !request.keepIntermediates {
+            try removeGeneratedAlignmentIntermediates(
+                for: request,
+                mapping: mapping,
+                preserveRetainedEvidence: preserveRetainedEvidence
+            )
+        }
+        try OwnedWorkDirectoryMarkerStore.transition(
+            supportDirectory,
+            expectedProjectURL: projectRoot,
+            expectedRunID: runID,
+            to: .completed
         )
+        if !request.keepIntermediates {
+            try fileRemover(supportDirectory)
+        }
+        lifecycleCompleted = true
         progressHandler?(0.98, "Finalizing amplicon genotyping outputs.")
         return finalizedResult
+    }
+
+    private static func projectRelativePath(_ url: URL, projectRoot: URL) -> String? {
+        let rootPath = projectRoot.standardizedFileURL.path
+        let path = url.standardizedFileURL.path
+        guard path.hasPrefix(rootPath + "/") else { return nil }
+        return String(path.dropFirst(rootPath.count + 1))
+    }
+
+    private func writeCompactFailureHistory(
+        request: ONTBarcodeDemuxGenotypingRunRequest,
+        runID: UUID,
+        projectRoot: URL,
+        startedAt: Date
+    ) throws {
+        let completedAt = Date()
+        func descriptor(_ url: URL, role: String) -> [String: Any] {
+            var value: [String: Any] = [
+                "path": url.standardizedFileURL.path,
+                "role": role,
+            ]
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+               !isDirectory.boolValue {
+                value["fileSize"] = try? ProvenanceFileHasher.fileSize(of: url)
+                value["sha256"] = try? ProvenanceFileHasher.sha256(of: url)
+            }
+            return value
+        }
+        let durableOutputURLs = [
+            request.provenanceURL,
+            request.reportCSVURL,
+            request.sampleSummaryCSVURL,
+            request.statsJSONURL,
+            ONTGenotypeResultBundle.manifestURL(in: request.outputDirectory),
+        ].filter { FileManager.default.fileExists(atPath: $0.path) }
+        let payload: [String: Any] = [
+            "schemaVersion": 1,
+            "runID": runID.uuidString.lowercased(),
+            "workflow": "lungfish fastq genotype",
+            "toolVersion": WorkflowRun.currentAppVersion,
+            "argv": request.argv,
+            "reproducibleCommand": request.argv.map(shellEscape).joined(separator: " "),
+            "resolvedOptions": [
+                "keepIntermediates": request.keepIntermediates,
+                "threads": request.threads,
+                "sortThreads": request.sortThreads,
+                "minSupport": request.minSupport,
+                "mode": request.mode.rawValue,
+                "readType": request.readType.rawValue,
+            ],
+            "resolvedDefaults": [
+                "keepIntermediates": false,
+                "sortThreads": 4,
+                "minSupport": 1,
+                "mode": AmpliconGenotypingMode.auto.rawValue,
+                "readType": AmpliconGenotypingReadType.auto.rawValue,
+            ],
+            "runtimeIdentity": [
+                "operatingSystem": ProcessInfo.processInfo.operatingSystemVersionString,
+                "processIdentifier": ProcessInfo.processInfo.processIdentifier,
+                "condaRoot": condaManager.rootPrefix.path,
+            ],
+            "inputs": request.inputFASTQURLs.map { descriptor($0, role: "input") }
+                + [descriptor(request.referenceSourceURL, role: "reference")],
+            "outputs": durableOutputURLs.map { descriptor($0, role: "output") },
+            "output": request.outputDirectory.path,
+            "startedAt": ISO8601DateFormatter().string(from: startedAt),
+            "completedAt": ISO8601DateFormatter().string(from: completedAt),
+            "wallTimeSeconds": completedAt.timeIntervalSince(startedAt),
+            "exitStatus": 1,
+            "stderr": "Amplicon genotyping exited before all lifecycle cleanup completed.",
+        ]
+        let data = try JSONSerialization.data(
+            withJSONObject: payload,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        _ = try ProjectOperationHistoryWriter(projectURL: projectRoot).createOperation(
+            operationID: runID,
+            payloads: ["failure-provenance.json": data]
+        )
     }
 
     public static func resolveInputFASTQURLs(for inputURL: URL) throws -> [URL] {
@@ -3478,6 +3635,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "threads": request.threads,
             "sortThreads": request.sortThreads,
             "minSupport": request.minSupport,
+            "keepIntermediates": request.keepIntermediates,
             "haplotypeDropoutSampleFraction": request.haplotypeDropoutSampleFraction as Any? ?? NSNull(),
             "haplotypeDropoutLocusFraction": request.haplotypeDropoutLocusFraction as Any? ?? NSNull(),
             "haplotypeDropoutLocusFractionOverrides": request.haplotypeDropoutLocusFractionOverrides,
@@ -3510,6 +3668,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "specialistPromptSHA256": NSNull(),
             "sortThreads": 4,
             "minSupport": 1,
+            "keepIntermediates": false,
             "haplotypeDropoutSampleFraction": NSNull(),
             "haplotypeDropoutLocusFraction": NSNull(),
             "haplotypeDropoutLocusFractionOverrides": [:],

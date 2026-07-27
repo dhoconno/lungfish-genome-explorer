@@ -213,12 +213,11 @@ enum FullLengthONTMHCRunLockError: Error, LocalizedError, Sendable, Equatable {
 final class DarwinFullLengthONTMHCRunLock: FullLengthONTMHCRunLock, @unchecked Sendable {
     let lockURL: URL
 
-    private let stateLock = NSLock()
-    private var descriptor: Int32
+    private let ownedLock: OwnedRunLock
 
-    private init(lockURL: URL, descriptor: Int32) {
+    private init(lockURL: URL, ownedLock: OwnedRunLock) {
         self.lockURL = lockURL
-        self.descriptor = descriptor
+        self.ownedLock = ownedLock
     }
 
     static func lockURL(for outputDirectoryURL: URL) -> URL {
@@ -231,33 +230,24 @@ final class DarwinFullLengthONTMHCRunLock: FullLengthONTMHCRunLock, @unchecked S
     static func acquire(outputDirectoryURL: URL) throws -> DarwinFullLengthONTMHCRunLock {
         let outputURL = outputDirectoryURL.standardizedFileURL
         let parentDescriptor = try prepareOutputParentHierarchy(for: outputURL)
-        defer { Darwin.close(parentDescriptor) }
+        Darwin.close(parentDescriptor)
         let lockURL = lockURL(for: outputURL)
-        let flags = O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC
-        let descriptor = lockURL.lastPathComponent.withCString {
-            Darwin.openat(parentDescriptor, $0, flags, S_IRUSR | S_IWUSR)
-        }
-        guard descriptor >= 0 else {
-            if errno == ELOOP {
-                throw FullLengthONTMHCRunLockError.unsafeLockFile(lockURL.path)
-            }
-            throw FullLengthONTMHCRunLockError.systemFailure(path: lockURL.path, code: errno)
-        }
-
-        var info = stat()
-        guard Darwin.fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG else {
-            Darwin.close(descriptor)
+        do {
+            return DarwinFullLengthONTMHCRunLock(
+                lockURL: lockURL,
+                ownedLock: try OwnedRunLock.acquire(at: lockURL)
+            )
+        } catch OwnedRunLockError.lockHeld {
+            throw FullLengthONTMHCRunLockError.lockHeld(lockURL.path)
+        } catch OwnedRunLockError.unsafeLockFile {
             throw FullLengthONTMHCRunLockError.unsafeLockFile(lockURL.path)
-        }
-        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
-            let code = errno
-            Darwin.close(descriptor)
-            if code == EWOULDBLOCK || code == EAGAIN {
-                throw FullLengthONTMHCRunLockError.lockHeld(lockURL.path)
-            }
+        } catch OwnedRunLockError.unsafeParentDirectory {
+            throw FullLengthONTMHCRunLockError.unsafeParentDirectory(
+                lockURL.deletingLastPathComponent().path
+            )
+        } catch OwnedRunLockError.systemFailure(_, let code) {
             throw FullLengthONTMHCRunLockError.systemFailure(path: lockURL.path, code: code)
         }
-        return DarwinFullLengthONTMHCRunLock(lockURL: lockURL, descriptor: descriptor)
     }
 
     private static func prepareOutputParentHierarchy(for outputURL: URL) throws -> Int32 {
@@ -361,14 +351,7 @@ final class DarwinFullLengthONTMHCRunLock: FullLengthONTMHCRunLock, @unchecked S
     }
 
     func release() {
-        let descriptorToClose = stateLock.withLock { () -> Int32 in
-            let current = descriptor
-            descriptor = -1
-            return current
-        }
-        guard descriptorToClose >= 0 else { return }
-        _ = flock(descriptorToClose, LOCK_UN)
-        Darwin.close(descriptorToClose)
+        ownedLock.release()
     }
 
     deinit {
