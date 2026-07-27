@@ -166,7 +166,7 @@ git commit -m "feat: replay manual haplotype assignment edits"
 - Modify: `Tests/LungfishGenotypeUITests/GenotypeAnnotationStoreTests.swift`
 - Modify: `Tests/LungfishGenotypeUITests/GenotypeAnnotationStoreReadOnlyTests.swift`
 
-- [ ] **Step 1: Write failing atomic add/update/remove/copy/no-op tests**
+- [x] **Step 1: Write failing atomic add/update/remove/copy/no-op tests**
 
 Assert one operation ID/timestamp/persist/notification; preserved existing
 diagnostic alleles, notes, and assignment ID; empty metadata for new slots; full
@@ -174,13 +174,13 @@ removed records; copy source; prior hash; replay argv; stale/read-only failure
 with unchanged bytes; and a no-op that writes nothing. Workbook-dirty scheduling
 is a controller responsibility tested in Task 7.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `swift test --filter 'GenotypeAnnotationStoreTests|GenotypeAnnotationStoreReadOnlyTests'`
 
 Expected: compile failure because `replaceManualHaplotypeAssignments` does not exist.
 
-- [ ] **Step 3: Implement one atomic operation**
+- [x] **Step 3: Implement one atomic operation**
 
 ```swift
 func replaceManualHaplotypeAssignments(
@@ -193,13 +193,13 @@ func replaceManualHaplotypeAssignments(
 
 Normalize and validate the complete sample draft, merge preserved metadata for existing slots, compute a semantic diff, early-return on no-op, append structured per-slot and aggregate audit records, publish one replay payload/provenance edit, and persist once.
 
-- [ ] **Step 4: Run tests and verify GREEN**
+- [x] **Step 4: Run tests and verify GREEN**
 
 Run: `swift test --filter 'GenotypeAnnotationStoreTests|GenotypeAnnotationStoreReadOnlyTests'`
 
 Expected: all selected tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/LungfishGenotypeUI/GenotypeAnnotationStore.swift Tests/LungfishGenotypeUITests

@@ -18,7 +18,7 @@
 - Modify: `Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift:210-454`
 - Test: `Tests/LungfishIOTests/ONTGenotypeResultBundleTests.swift`
 
-- [ ] **Step 1: Write failing round-trip and authority-validation tests**
+- [x] **Step 1: Write failing round-trip and authority-validation tests**
 
 Add tests that construct a catalog with two samples, one reference row, and one
 provisional candidate row. Assert distinct authoritative call ID and display
@@ -49,13 +49,13 @@ let catalog = GenotypeReviewableRowCatalog(
 XCTAssertNoThrow(try catalog.validated())
 ```
 
-- [ ] **Step 2: Run the test and verify RED**
+- [x] **Step 2: Run the test and verify RED**
 
 Run: `swift test --filter ONTGenotypeResultBundleTests`
 
 Expected: compile failure because `GenotypeReviewableRowCatalog` and the manifest descriptor do not exist.
 
-- [ ] **Step 3: Implement the typed catalog and manifest field**
+- [x] **Step 3: Implement the typed catalog and manifest field**
 
 Define exact semantic identity by `(kind, canonical locus, authoritative
 callID, stableID)` and keep display label separate; require stable IDs for
@@ -86,13 +86,13 @@ public struct GenotypeReviewableRowCatalog: Codable, Equatable, Sendable {
 }
 ```
 
-- [ ] **Step 4: Run tests and verify GREEN**
+- [x] **Step 4: Run tests and verify GREEN**
 
 Run: `swift test --filter 'ONTGenotypeResultBundleTests|GenotypeAnnotationSidecarTests'`
 
 Expected: all selected tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/LungfishIO/Bundles/GenotypeReviewableRowCatalog.swift Sources/LungfishIO/Bundles/GenotypeReviewableRowResolver.swift Sources/LungfishIO/Bundles/ONTGenotypeResultBundle.swift Tests/LungfishIOTests/ONTGenotypeResultBundleTests.swift
