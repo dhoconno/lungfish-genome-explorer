@@ -132,27 +132,27 @@ git commit -m "feat: canonicalize manual haplotype assignments"
 - Create: `Tests/LungfishCLITests/GenotypeManualHaplotypeReplaySubcommandTests.swift`
 - Modify: `Tests/LungfishCLITests/GenotypeSubcommandsTests.swift`
 
-- [ ] **Step 1: Write failing payload and CLI replay tests**
+- [x] **Step 1: Write failing payload and CLI replay tests**
 
 Assert exact reconstruction, complete before/after records, operation ID, copy source, prior sidecar hash mismatch, target revision mismatch, atomic failure, exact argv, output hash/size, runtime, status, wall time, stderr, and canonical provenance.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `swift test --filter 'GenotypeManualHaplotypeAssignmentReplayPayloadTests|GenotypeManualHaplotypeReplaySubcommandTests'`
 
 Expected: compile failure because replay types do not exist.
 
-- [ ] **Step 3: Implement payload and guarded replay**
+- [x] **Step 3: Implement payload and guarded replay**
 
 Model the payload on `GenotypeMatrixAnnotationReplayPayload`, but carry the complete assignment records and aggregate operation metadata. Register the subcommand and require exact prior sidecar descriptor before atomically publishing the replayed result.
 
-- [ ] **Step 4: Run tests and verify GREEN**
+- [x] **Step 4: Run tests and verify GREEN**
 
 Run: `swift test --filter 'GenotypeManualHaplotypeAssignmentReplayPayloadTests|GenotypeManualHaplotypeReplaySubcommandTests|GenotypeSubcommandsTests/testGenotypeGroupRegistersAllSubcommands'`
 
 Expected: all selected tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/LungfishIO/Bundles/GenotypeManualHaplotypeAssignmentReplayPayload.swift Sources/LungfishCLI/Commands Tests
