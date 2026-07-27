@@ -65,6 +65,10 @@ final class OwnedWorkDirectoryMarkerTests: XCTestCase {
         XCTAssertEqual(identity.processIdentifier, ProcessInfo.processInfo.processIdentifier)
         XCTAssertGreaterThan(identity.processStartTime, 0)
         XCTAssertFalse(identity.bootSessionID.isEmpty)
+        XCTAssertNotNil(
+            UUID(uuidString: identity.bootSessionID),
+            "Boot authority must use the stable macOS boot-session UUID"
+        )
         XCTAssertNil(try OwnedProcessIdentity.inspect(processIdentifier: Int32.max))
     }
 
@@ -209,6 +213,94 @@ final class OwnedWorkDirectoryMarkerTests: XCTestCase {
         XCTAssertTrue(children.isEmpty, "An undurable owned directory must not survive creation")
     }
 
+    func testCreateClosesProjectDescriptorWhenParentOpenFails() throws {
+        let unsafeParent = project.appendingPathComponent("unsafe-parent", isDirectory: true)
+        let outside = root.appendingPathComponent("outside-parent", isDirectory: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: unsafeParent, withDestinationURL: outside)
+        let baseline = openDescriptorCount()
+
+        for _ in 0..<128 {
+            var failing = request(prefix: "leak-")
+            failing = OwnedWorkDirectoryCreationRequest(
+                projectURL: failing.projectURL,
+                parentDirectoryURL: unsafeParent,
+                prefix: failing.prefix,
+                runID: failing.runID,
+                processIdentity: failing.processIdentity,
+                state: failing.state,
+                lockRelativePath: failing.lockRelativePath,
+                keepIntermediates: failing.keepIntermediates,
+                toolName: failing.toolName,
+                toolVersion: failing.toolVersion
+            )
+            XCTAssertThrowsError(try OwnedWorkDirectoryMarkerStore.createDirectory(failing))
+        }
+
+        XCTAssertEqual(openDescriptorCount(), baseline)
+    }
+
+    func testLoadClosesDirectoryDescriptorWhenProjectOpenFails() throws {
+        let directory = try OwnedWorkDirectoryMarkerStore.createDirectory(request(prefix: "load-leak-"))
+        let unsafeProject = root.appendingPathComponent("unsafe-project", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: unsafeProject, withDestinationURL: project)
+        let baseline = openDescriptorCount()
+
+        for _ in 0..<128 {
+            XCTAssertThrowsError(
+                try OwnedWorkDirectoryMarkerStore.load(
+                    from: directory,
+                    expectedProjectURL: unsafeProject
+                )
+            )
+        }
+
+        XCTAssertEqual(openDescriptorCount(), baseline)
+    }
+
+    func testRequestRejectsEmbeddedNULInPrefixAndLockPath() throws {
+        let base = request(prefix: "safe-")
+        let nulPrefix = OwnedWorkDirectoryCreationRequest(
+            projectURL: base.projectURL,
+            parentDirectoryURL: base.parentDirectoryURL,
+            prefix: "unsafe\u{0}prefix",
+            runID: base.runID,
+            processIdentity: base.processIdentity,
+            state: base.state,
+            lockRelativePath: nil,
+            keepIntermediates: base.keepIntermediates,
+            toolName: base.toolName,
+            toolVersion: base.toolVersion
+        )
+        XCTAssertThrowsError(try OwnedWorkDirectoryMarkerStore.createDirectory(nulPrefix))
+
+        let nulLock = OwnedWorkDirectoryCreationRequest(
+            projectURL: base.projectURL,
+            parentDirectoryURL: base.parentDirectoryURL,
+            prefix: base.prefix,
+            runID: base.runID,
+            processIdentity: base.processIdentity,
+            state: base.state,
+            lockRelativePath: "locks/run\u{0}.lock",
+            keepIntermediates: base.keepIntermediates,
+            toolName: base.toolName,
+            toolVersion: base.toolVersion
+        )
+        XCTAssertThrowsError(try OwnedWorkDirectoryMarkerStore.createDirectory(nulLock))
+    }
+
+    func testFileSystemObjectIdentityRejectsSymlinkedAncestor() throws {
+        let real = root.appendingPathComponent("identity-real", isDirectory: true)
+        let child = real.appendingPathComponent("child", isDirectory: true)
+        try FileManager.default.createDirectory(at: child, withIntermediateDirectories: true)
+        let linked = root.appendingPathComponent("identity-linked", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: linked, withDestinationURL: real)
+
+        XCTAssertThrowsError(
+            try FileSystemObjectIdentity.noFollow(linked.appendingPathComponent("child"))
+        )
+    }
+
     private func request(prefix: String) -> OwnedWorkDirectoryCreationRequest {
         OwnedWorkDirectoryCreationRequest(
             projectURL: project,
@@ -242,6 +334,16 @@ final class OwnedWorkDirectoryMarkerTests: XCTestCase {
             toolName: "test",
             toolVersion: "1"
         )
+    }
+}
+
+private func openDescriptorCount() -> Int {
+    let limit = Int(getdtablesize())
+    return (0..<limit).reduce(into: 0) { count, descriptor in
+        errno = 0
+        if fcntl(Int32(descriptor), F_GETFD) != -1 || errno != EBADF {
+            count += 1
+        }
     }
 }
 

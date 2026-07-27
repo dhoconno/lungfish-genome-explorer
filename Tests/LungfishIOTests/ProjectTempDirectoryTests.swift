@@ -370,4 +370,83 @@ final class ProjectTempDirectoryTests: XCTestCase {
             "Age alone must never authorize removal of an unmarked legacy child"
         )
     }
+
+    func testCleanAllDetachesVerifiedTerminalDirectoryAndPreservesSwapReplacement() throws {
+        let projectDir = testRoot.appendingPathComponent("swap.lungfish", isDirectory: true)
+        let tmpRoot = ProjectTempDirectory.tempRoot(for: projectDir)
+        try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
+        let terminal = try OwnedWorkDirectoryMarkerStore.createDirectory(
+            OwnedWorkDirectoryCreationRequest(
+                projectURL: projectDir,
+                parentDirectoryURL: tmpRoot,
+                prefix: "terminal-",
+                runID: UUID(),
+                processIdentity: try .current(),
+                state: .completed,
+                lockRelativePath: nil,
+                keepIntermediates: false,
+                toolName: "test",
+                toolVersion: "1"
+            )
+        )
+        try Data("owned".utf8).write(to: terminal.appendingPathComponent("owned.txt"))
+        let held = tmpRoot.appendingPathComponent("held-original", isDirectory: true)
+
+        try ProjectTempDirectory.cleanAll(in: projectDir) { candidate in
+            guard candidate.lastPathComponent == terminal.lastPathComponent else { return }
+            try FileManager.default.moveItem(at: candidate, to: held)
+            try FileManager.default.createDirectory(at: candidate, withIntermediateDirectories: false)
+            try Data("replacement".utf8).write(
+                to: candidate.appendingPathComponent("replacement.txt")
+            )
+        }
+
+        XCTAssertEqual(
+            try Data(contentsOf: terminal.appendingPathComponent("replacement.txt")),
+            Data("replacement".utf8),
+            "A substituted inode must be restored and must never be removed"
+        )
+        XCTAssertEqual(
+            try Data(contentsOf: held.appendingPathComponent("owned.txt")),
+            Data("owned".utf8)
+        )
+    }
+
+    func testCleanAllRemovesTerminalAttestedDirectoryWithoutFollowingPayloadSymlink() throws {
+        let projectDir = testRoot.appendingPathComponent("terminal.lungfish", isDirectory: true)
+        let tmpRoot = ProjectTempDirectory.tempRoot(for: projectDir)
+        try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
+        let terminal = try OwnedWorkDirectoryMarkerStore.createDirectory(
+            OwnedWorkDirectoryCreationRequest(
+                projectURL: projectDir,
+                parentDirectoryURL: tmpRoot,
+                prefix: "terminal-",
+                runID: UUID(),
+                processIdentity: try .current(),
+                state: .failed,
+                lockRelativePath: nil,
+                keepIntermediates: false,
+                toolName: "test",
+                toolVersion: "1"
+            )
+        )
+        let outside = testRoot.appendingPathComponent("outside.txt")
+        try Data("preserve".utf8).write(to: outside)
+        try FileManager.default.createSymbolicLink(
+            at: terminal.appendingPathComponent("linked.txt"),
+            withDestinationURL: outside
+        )
+
+        try ProjectTempDirectory.cleanAll(in: projectDir)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: terminal.path))
+        XCTAssertEqual(try Data(contentsOf: outside), Data("preserve".utf8))
+        let remaining = try FileManager.default.contentsOfDirectory(
+            at: tmpRoot,
+            includingPropertiesForKeys: nil
+        )
+        XCTAssertFalse(
+            remaining.contains { $0.lastPathComponent.contains("cleanup-pending") }
+        )
+    }
 }

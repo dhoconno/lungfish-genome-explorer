@@ -133,5 +133,119 @@ final class ProjectOperationHistoryWriterTests: XCTestCase {
                 atPath: writer.operationDirectoryURL(for: operationID).path
             )
         )
+        let visibleOperations = try FileManager.default.contentsOfDirectory(
+            at: project.appendingPathComponent(
+                ProjectOperationHistoryWriter.historyDirectoryName,
+                isDirectory: true
+            ),
+            includingPropertiesForKeys: nil
+        ).filter { !$0.lastPathComponent.hasPrefix(".") }
+        XCTAssertTrue(visibleOperations.isEmpty)
     }
+
+    func testInitialPayloadsStayHiddenUntilWholeOperationPublishes() throws {
+        let operationID = UUID()
+        let observation = HistoryPublicationObservation()
+        let writer = ProjectOperationHistoryWriter(
+            projectURL: project,
+            operations: .init(beforePublish: { staging, final in
+                observation.record(
+                    stagingExists: FileManager.default.fileExists(atPath: staging.path),
+                    finalExists: FileManager.default.fileExists(atPath: final.path),
+                    payload: try? Data(contentsOf: staging.appendingPathComponent("failure.json")),
+                    stagingPath: staging.path
+                )
+            })
+        )
+
+        _ = try writer.createOperation(
+            operationID: operationID,
+            payloads: ["failure.json": Data("complete".utf8)]
+        )
+
+        XCTAssertTrue(observation.stagingExists)
+        XCTAssertFalse(observation.finalExists)
+        XCTAssertEqual(observation.payload, Data("complete".utf8))
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: observation.stagingPath ?? "")
+        )
+    }
+
+    func testChildProcessPublicationWinnerAndAppendAreNeverDeleted() throws {
+        let operationID = UUID()
+        let writer = ProjectOperationHistoryWriter(
+            projectURL: project,
+            operations: .init(beforePublish: { _, final in
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+                process.arguments = [
+                    "-c",
+                    "import os,sys; os.mkdir(sys.argv[1]); open(os.path.join(sys.argv[1], 'child.txt'), 'wb').write(b'child-winner')",
+                    final.path,
+                ]
+                try process.run()
+                process.waitUntilExit()
+                guard process.terminationStatus == 0 else {
+                    throw ChildProcessFailure(status: process.terminationStatus)
+                }
+            })
+        )
+
+        XCTAssertThrowsError(
+            try writer.createOperation(
+                operationID: operationID,
+                payloads: ["parent.txt": Data("parent-loser".utf8)]
+            )
+        )
+        let final = writer.operationDirectoryURL(for: operationID)
+        XCTAssertEqual(
+            try Data(contentsOf: final.appendingPathComponent("child.txt")),
+            Data("child-winner".utf8)
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: final.appendingPathComponent("parent.txt").path)
+        )
+        let staging = try FileManager.default.contentsOfDirectory(
+            at: final.deletingLastPathComponent(),
+            includingPropertiesForKeys: nil
+        ).filter {
+            $0.lastPathComponent.hasPrefix(".")
+                && $0.lastPathComponent.contains(operationID.uuidString.lowercased())
+        }
+        XCTAssertTrue(staging.isEmpty)
+    }
+
+    func testRejectsEmbeddedNULInPayloadName() {
+        XCTAssertThrowsError(
+            try ProjectOperationHistoryWriter(projectURL: project).createOperation(
+                operationID: UUID(),
+                payloads: ["bad\u{0}.json": Data()]
+            )
+        )
+    }
+}
+
+private final class HistoryPublicationObservation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: (Bool, Bool, Data?, String?) = (false, true, nil, nil)
+
+    var stagingExists: Bool { lock.withLock { values.0 } }
+    var finalExists: Bool { lock.withLock { values.1 } }
+    var payload: Data? { lock.withLock { values.2 } }
+    var stagingPath: String? { lock.withLock { values.3 } }
+
+    func record(
+        stagingExists: Bool,
+        finalExists: Bool,
+        payload: Data?,
+        stagingPath: String
+    ) {
+        lock.withLock {
+            values = (stagingExists, finalExists, payload, stagingPath)
+        }
+    }
+}
+
+private struct ChildProcessFailure: Error {
+    let status: Int32
 }

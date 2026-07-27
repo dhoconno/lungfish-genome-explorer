@@ -27,8 +27,19 @@ public enum ProjectOperationHistoryWriterError: Error, LocalizedError, Equatable
 public struct ProjectOperationHistoryWriter: Sendable {
     public static let historyDirectoryName = ".lungfish-operation-history"
 
+    struct Operations: Sendable {
+        var beforePublish: @Sendable (URL, URL) throws -> Void
+
+        init(
+            beforePublish: @escaping @Sendable (URL, URL) throws -> Void = { _, _ in }
+        ) {
+            self.beforePublish = beforePublish
+        }
+    }
+
     public let projectURL: URL
     private let atomicFileStore: DurableAtomicFileStore
+    private let operations: Operations
 
     public init(
         projectURL: URL,
@@ -36,6 +47,17 @@ public struct ProjectOperationHistoryWriter: Sendable {
     ) {
         self.projectURL = projectURL.standardizedFileURL
         self.atomicFileStore = atomicFileStore
+        self.operations = .init()
+    }
+
+    init(
+        projectURL: URL,
+        atomicFileStore: DurableAtomicFileStore = .init(),
+        operations: Operations
+    ) {
+        self.projectURL = projectURL.standardizedFileURL
+        self.atomicFileStore = atomicFileStore
+        self.operations = operations
     }
 
     public func operationDirectoryURL(for operationID: UUID) -> URL {
@@ -57,22 +79,24 @@ public struct ProjectOperationHistoryWriter: Sendable {
         }
 
         let operationName = operationID.uuidString.lowercased()
-        let mkdirStatus = operationName.withCString {
+        let stagingName = ".\(operationName).staging-\(UUID().uuidString.lowercased())"
+        let mkdirStatus = stagingName.withCString {
             Darwin.mkdirat(descriptors.history, $0, S_IRWXU)
         }
         guard mkdirStatus == 0 else {
-            if errno == EEXIST {
-                throw ProjectOperationHistoryWriterError.operationAlreadyExists(operationID)
-            }
             throw ProjectOperationHistoryWriterError.systemFailure(
-                path: operationDirectoryURL(for: operationID).path,
-                operation: "create operation-history directory",
+                path: operationDirectoryURL(for: operationID)
+                    .deletingLastPathComponent()
+                    .appendingPathComponent(stagingName).path,
+                operation: "create operation-history staging directory",
                 code: errno
             )
         }
 
         let operationURL = operationDirectoryURL(for: operationID)
-        let operationDescriptor = operationName.withCString {
+        let stagingURL = operationURL.deletingLastPathComponent()
+            .appendingPathComponent(stagingName, isDirectory: true)
+        let operationDescriptor = stagingName.withCString {
             Darwin.openat(
                 descriptors.history,
                 $0,
@@ -80,10 +104,10 @@ public struct ProjectOperationHistoryWriter: Sendable {
             )
         }
         guard operationDescriptor >= 0 else {
-            _ = operationName.withCString {
+            _ = stagingName.withCString {
                 Darwin.unlinkat(descriptors.history, $0, AT_REMOVEDIR)
             }
-            throw ProjectOperationHistoryWriterError.unsafeHistory(operationURL.path)
+            throw ProjectOperationHistoryWriterError.unsafeHistory(stagingURL.path)
         }
         defer { Darwin.close(operationDescriptor) }
         do {
@@ -99,18 +123,68 @@ public struct ProjectOperationHistoryWriter: Sendable {
                     payloads[name]!,
                     named: name,
                     inOpenDirectory: operationDescriptor,
-                    displayedAt: operationURL
+                    displayedAt: stagingURL
+                )
+            }
+            guard Darwin.fsync(operationDescriptor) == 0 else {
+                throw ProjectOperationHistoryWriterError.systemFailure(
+                    path: stagingURL.path,
+                    operation: "fsync operation-history staging directory",
+                    code: errno
+                )
+            }
+            try operations.beforePublish(stagingURL, operationURL)
+            let renameStatus = stagingName.withCString { staging in
+                operationName.withCString { final in
+                    Darwin.renameatx_np(
+                        descriptors.history,
+                        staging,
+                        descriptors.history,
+                        final,
+                        UInt32(RENAME_EXCL)
+                    )
+                }
+            }
+            guard renameStatus == 0 else {
+                if errno == EEXIST {
+                    throw ProjectOperationHistoryWriterError.operationAlreadyExists(operationID)
+                }
+                throw ProjectOperationHistoryWriterError.systemFailure(
+                    path: operationURL.path,
+                    operation: "publish operation-history directory exclusively",
+                    code: errno
+                )
+            }
+            guard Darwin.fsync(descriptors.history) == 0 else {
+                throw ProjectOperationHistoryWriterError.systemFailure(
+                    path: operationURL.deletingLastPathComponent().path,
+                    operation: "fsync published operation-history directory",
+                    code: errno
                 )
             }
             return operationURL
         } catch {
-            for name in payloads.keys {
-                _ = name.withCString { Darwin.unlinkat(operationDescriptor, $0, 0) }
+            // Publication is all-or-nothing. Only this invocation's hidden
+            // staging directory is eligible for rollback; a concurrently
+            // published final directory is never touched.
+            var stagingInfo = stat()
+            let stagingStillExists = stagingName.withCString {
+                Darwin.fstatat(
+                    descriptors.history,
+                    $0,
+                    &stagingInfo,
+                    AT_SYMLINK_NOFOLLOW
+                )
+            } == 0
+            if stagingStillExists {
+                for name in payloads.keys {
+                    _ = name.withCString { Darwin.unlinkat(operationDescriptor, $0, 0) }
+                }
+                _ = stagingName.withCString {
+                    Darwin.unlinkat(descriptors.history, $0, AT_REMOVEDIR)
+                }
+                _ = Darwin.fsync(descriptors.history)
             }
-            _ = operationName.withCString {
-                Darwin.unlinkat(descriptors.history, $0, AT_REMOVEDIR)
-            }
-            _ = Darwin.fsync(descriptors.history)
             throw error
         }
     }
@@ -213,7 +287,11 @@ public struct ProjectOperationHistoryWriter: Sendable {
     }
 
     private func validatePayloadName(_ name: String) throws {
-        guard !name.isEmpty, name != ".", name != "..", !name.contains("/") else {
+        guard !name.isEmpty,
+              name != ".",
+              name != "..",
+              !name.contains("/"),
+              !name.utf8.contains(0) else {
             throw ProjectOperationHistoryWriterError.invalidPayloadName(name)
         }
     }

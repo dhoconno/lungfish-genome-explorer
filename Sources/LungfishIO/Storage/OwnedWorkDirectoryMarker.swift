@@ -11,10 +11,48 @@ public struct FileSystemObjectIdentity: Codable, Equatable, Hashable, Sendable {
     }
 
     public static func noFollow(_ url: URL) throws -> Self {
+        let standardized = url.standardizedFileURL
+        guard standardized.isFileURL, !standardized.path.utf8.contains(0) else {
+            throw OwnedWorkDirectoryMarkerError.unsafePath(url.path)
+        }
+        if standardized.path == "/" {
+            let descriptor: Int32
+            do {
+                descriptor = try NoFollowFileSystem.openDirectoryHierarchy(standardized)
+            } catch {
+                throw OwnedWorkDirectoryMarkerError.unsafePath(standardized.path)
+            }
+            defer { Darwin.close(descriptor) }
+            var info = stat()
+            guard Darwin.fstat(descriptor, &info) == 0 else {
+                throw OwnedWorkDirectoryMarkerError.systemFailure(
+                    path: standardized.path,
+                    operation: "inspect filesystem identity",
+                    code: errno
+                )
+            }
+            return Self(info)
+        }
+
+        let parentURL = standardized.deletingLastPathComponent()
+        let leafName = standardized.lastPathComponent
+        guard DurableAtomicFileStore.isSinglePathComponent(leafName) else {
+            throw OwnedWorkDirectoryMarkerError.unsafePath(standardized.path)
+        }
+        let parentDescriptor: Int32
+        do {
+            parentDescriptor = try NoFollowFileSystem.openDirectoryHierarchy(parentURL)
+        } catch {
+            throw OwnedWorkDirectoryMarkerError.unsafePath(parentURL.path)
+        }
+        defer { Darwin.close(parentDescriptor) }
         var info = stat()
-        guard Darwin.lstat(url.path, &info) == 0 else {
+        let status = leafName.withCString {
+            Darwin.fstatat(parentDescriptor, $0, &info, AT_SYMLINK_NOFOLLOW)
+        }
+        guard status == 0 else {
             throw OwnedWorkDirectoryMarkerError.systemFailure(
-                path: url.path,
+                path: standardized.path,
                 operation: "inspect filesystem identity",
                 code: errno
             )
@@ -81,19 +119,51 @@ public struct OwnedProcessIdentity: Codable, Equatable, Sendable {
             )
         }
 
-        var bootTime = timeval()
-        var bootTimeSize = MemoryLayout<timeval>.size
-        guard sysctlbyname("kern.boottime", &bootTime, &bootTimeSize, nil, 0) == 0 else {
+        var bootSessionSize = 0
+        guard sysctlbyname(
+            "kern.bootsessionuuid",
+            nil,
+            &bootSessionSize,
+            nil,
+            0
+        ) == 0, bootSessionSize > 1 else {
             throw OwnedWorkDirectoryMarkerError.systemFailure(
-                path: "kern.boottime",
+                path: "kern.bootsessionuuid",
                 operation: "read boot session identity",
                 code: errno
+            )
+        }
+        var bootSessionBytes = [UInt8](repeating: 0, count: bootSessionSize)
+        let bootStatus = bootSessionBytes.withUnsafeMutableBytes { bytes in
+            sysctlbyname(
+                "kern.bootsessionuuid",
+                bytes.baseAddress,
+                &bootSessionSize,
+                nil,
+                0
+            )
+        }
+        guard bootStatus == 0 else {
+            throw OwnedWorkDirectoryMarkerError.systemFailure(
+                path: "kern.bootsessionuuid",
+                operation: "read boot session identity",
+                code: errno
+            )
+        }
+        let bootID = String(
+            decoding: bootSessionBytes.prefix { $0 != 0 },
+            as: UTF8.self
+        )
+        guard UUID(uuidString: bootID) != nil else {
+            throw OwnedWorkDirectoryMarkerError.systemFailure(
+                path: "kern.bootsessionuuid",
+                operation: "validate boot session identity",
+                code: EINVAL
             )
         }
 
         let processStart = UInt64(processInfo.pbi_start_tvsec) * 1_000_000
             + UInt64(processInfo.pbi_start_tvusec)
-        let bootID = "\(bootTime.tv_sec):\(bootTime.tv_usec)"
         return Self(
             processIdentifier: pid,
             processStartTime: processStart,
@@ -235,11 +305,16 @@ public enum OwnedWorkDirectoryMarkerStore {
         }
 
         let projectDescriptor: Int32
-        let parentDescriptor: Int32
         do {
             projectDescriptor = try NoFollowFileSystem.openDirectoryHierarchy(projectURL)
+        } catch {
+            throw OwnedWorkDirectoryMarkerError.unsafePath(parentURL.path)
+        }
+        let parentDescriptor: Int32
+        do {
             parentDescriptor = try NoFollowFileSystem.openDirectoryHierarchy(parentURL)
         } catch {
+            Darwin.close(projectDescriptor)
             throw OwnedWorkDirectoryMarkerError.unsafePath(parentURL.path)
         }
         defer {
@@ -356,15 +431,33 @@ public enum OwnedWorkDirectoryMarkerStore {
         expectedProjectURL: URL
     ) throws -> OwnedWorkDirectoryMarker {
         let directoryDescriptor: Int32
-        let projectDescriptor: Int32
         do {
             directoryDescriptor = try NoFollowFileSystem.openDirectoryHierarchy(directoryURL)
+        } catch {
+            throw OwnedWorkDirectoryMarkerError.unsafePath(directoryURL.path)
+        }
+        defer { Darwin.close(directoryDescriptor) }
+        return try load(
+            fromOpenDirectory: directoryDescriptor,
+            displayedAt: directoryURL,
+            expectedProjectURL: expectedProjectURL
+        )
+    }
+
+    /// Loads a marker while remaining bound to a directory descriptor already
+    /// opened by a larger transaction. The caller retains ownership of it.
+    static func load(
+        fromOpenDirectory directoryDescriptor: Int32,
+        displayedAt directoryURL: URL,
+        expectedProjectURL: URL
+    ) throws -> OwnedWorkDirectoryMarker {
+        let projectDescriptor: Int32
+        do {
             projectDescriptor = try NoFollowFileSystem.openDirectoryHierarchy(expectedProjectURL)
         } catch {
             throw OwnedWorkDirectoryMarkerError.unsafePath(directoryURL.path)
         }
         defer {
-            Darwin.close(directoryDescriptor)
             Darwin.close(projectDescriptor)
         }
 
@@ -431,6 +524,7 @@ public enum OwnedWorkDirectoryMarkerStore {
         guard let path else { return }
         let components = NSString(string: path).pathComponents
         guard !path.isEmpty,
+              !path.utf8.contains(0),
               !path.hasPrefix("/"),
               !components.contains(".."),
               !components.contains(".") else {

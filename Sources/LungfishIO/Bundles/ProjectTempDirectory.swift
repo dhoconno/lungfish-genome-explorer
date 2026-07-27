@@ -117,6 +117,10 @@ public enum ProjectTempDirectory {
     ///   - projectURL: The `.lungfish` project directory, or `nil` for system fallback.
     /// - Returns: URL of the newly created directory.
     public static func create(prefix: String, in projectURL: URL?) throws -> URL {
+        guard !prefix.isEmpty,
+              DurableAtomicFileStore.isSinglePathComponent(prefix + "x") else {
+            throw DurableAtomicFileStore.StoreError.invalidFileName(prefix)
+        }
         if let projectURL {
             let base = tempRoot(for: projectURL)
             let projectDescriptor: Int32
@@ -313,27 +317,20 @@ public enum ProjectTempDirectory {
     /// This compatibility entry point intentionally leaves the root, active
     /// work, explicitly retained work, and unmarked legacy children untouched.
     public static func cleanAll(in projectURL: URL) throws {
-        let root = tempRoot(for: projectURL)
-        guard FileManager.default.fileExists(atPath: root.path) else {
-            return
-        }
-        let contents = try FileManager.default.contentsOfDirectory(
-            at: root,
-            includingPropertiesForKeys: nil,
-            options: []
+        try cleanAll(in: projectURL, beforeDetach: { _ in })
+    }
+
+    /// Internal synchronization point used to verify that cleanup remains safe
+    /// when a directory entry is replaced after it has been inspected.
+    static func cleanAll(
+        in projectURL: URL,
+        beforeDetach: (URL) throws -> Void
+    ) throws {
+        try cleanCandidates(
+            in: projectURL,
+            olderThan: nil,
+            beforeDetach: beforeDetach
         )
-        for entry in contents {
-            guard let marker = try? OwnedWorkDirectoryMarkerStore.load(
-                from: entry,
-                expectedProjectURL: projectURL
-            ),
-            marker.state != .active,
-            !marker.keepIntermediates else {
-                continue
-            }
-            try FileManager.default.removeItem(at: entry)
-            logger.info("cleanAll: removed attested terminal child \(entry.path, privacy: .public)")
-        }
     }
 
     // MARK: - cleanStale
@@ -348,32 +345,261 @@ public enum ProjectTempDirectory {
     ///   - projectURL: The `.lungfish` project directory.
     ///   - maxAge: Maximum age in seconds. Entries older than this are removed.
     public static func cleanStale(in projectURL: URL, olderThan maxAge: TimeInterval) throws {
-        let root = tempRoot(for: projectURL)
-        guard FileManager.default.fileExists(atPath: root.path) else {
-            return
-        }
-
-        let contents = try FileManager.default.contentsOfDirectory(
-            at: root,
-            includingPropertiesForKeys: [.contentModificationDateKey],
-            options: .skipsHiddenFiles
+        try cleanCandidates(
+            in: projectURL,
+            olderThan: Date(timeIntervalSinceNow: -maxAge),
+            beforeDetach: { _ in }
         )
+    }
 
-        let cutoff = Date(timeIntervalSinceNow: -maxAge)
-        for entry in contents {
-            let attrs = try? entry.resourceValues(forKeys: [.contentModificationDateKey])
-            guard let modDate = attrs?.contentModificationDate else { continue }
-            guard modDate < cutoff,
-                  let marker = try? OwnedWorkDirectoryMarkerStore.load(
-                    from: entry,
-                    expectedProjectURL: projectURL
-                  ),
-                  marker.state != .active,
-                  !marker.keepIntermediates else {
-                continue
+    /// Opens, attests, and detaches each eligible child while bound to the
+    /// `.tmp` directory descriptor. Deletion is performed only after the
+    /// quarantined entry is proven to have the inode that was inspected.
+    private static func cleanCandidates(
+        in projectURL: URL,
+        olderThan cutoff: Date?,
+        beforeDetach: (URL) throws -> Void
+    ) throws {
+        let root = tempRoot(for: projectURL)
+        guard FileManager.default.fileExists(atPath: root.path) else { return }
+        let rootDescriptor: Int32
+        do {
+            rootDescriptor = try NoFollowFileSystem.openDirectoryHierarchy(root)
+        } catch {
+            throw OwnedWorkDirectoryMarkerError.unsafePath(root.path)
+        }
+        defer { Darwin.close(rootDescriptor) }
+
+        let names = try directoryEntryNames(
+            descriptor: rootDescriptor,
+            displayedAt: root
+        )
+        for name in names {
+            guard DurableAtomicFileStore.isSinglePathComponent(name) else { continue }
+            let entryURL = root.appendingPathComponent(name, isDirectory: true)
+            let candidateDescriptor = name.withCString {
+                Darwin.openat(
+                    rootDescriptor,
+                    $0,
+                    O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+                )
             }
-            try FileManager.default.removeItem(at: entry)
-            logger.info("cleanStale: removed \(entry.lastPathComponent, privacy: .public) (modified \(modDate))")
+            guard candidateDescriptor >= 0 else { continue }
+            do {
+                defer { Darwin.close(candidateDescriptor) }
+
+                var candidateInfo = stat()
+                guard Darwin.fstat(candidateDescriptor, &candidateInfo) == 0,
+                      candidateInfo.st_mode & S_IFMT == S_IFDIR else {
+                    continue
+                }
+                let expectedIdentity = FileSystemObjectIdentity(candidateInfo)
+                guard let marker = try? OwnedWorkDirectoryMarkerStore.load(
+                    fromOpenDirectory: candidateDescriptor,
+                    displayedAt: entryURL,
+                    expectedProjectURL: projectURL
+                ),
+                marker.directoryIdentity == expectedIdentity,
+                marker.state != .active,
+                !marker.keepIntermediates else {
+                    continue
+                }
+                if let cutoff {
+                    let modified = Date(
+                        timeIntervalSince1970: TimeInterval(candidateInfo.st_mtimespec.tv_sec)
+                            + TimeInterval(candidateInfo.st_mtimespec.tv_nsec) / 1_000_000_000
+                    )
+                    guard modified < cutoff else { continue }
+                }
+
+                try beforeDetach(entryURL)
+                let quarantineName = ".lungfish-cleanup-pending-\(UUID().uuidString.lowercased())"
+                let renameStatus = name.withCString { source in
+                    quarantineName.withCString { quarantine in
+                        Darwin.renameatx_np(
+                            rootDescriptor,
+                            source,
+                            rootDescriptor,
+                            quarantine,
+                            UInt32(RENAME_EXCL)
+                        )
+                    }
+                }
+                guard renameStatus == 0 else {
+                    // A missing or replaced source is no longer the object that was
+                    // authorized. Refuse to mutate it.
+                    continue
+                }
+
+                var quarantinedInfo = stat()
+                let inspectStatus = quarantineName.withCString {
+                    Darwin.fstatat(
+                        rootDescriptor,
+                        $0,
+                        &quarantinedInfo,
+                        AT_SYMLINK_NOFOLLOW
+                    )
+                }
+                guard inspectStatus == 0,
+                      FileSystemObjectIdentity(quarantinedInfo) == expectedIdentity else {
+                    // The source name was substituted after validation. Restore
+                    // that unrelated object if the original name remains free.
+                    _ = quarantineName.withCString { quarantine in
+                        name.withCString { destination in
+                            Darwin.renameatx_np(
+                                rootDescriptor,
+                                quarantine,
+                                rootDescriptor,
+                                destination,
+                                UInt32(RENAME_EXCL)
+                            )
+                        }
+                    }
+                    _ = Darwin.fsync(rootDescriptor)
+                    continue
+                }
+                guard Darwin.fsync(rootDescriptor) == 0 else {
+                    // Keep the detached directory recoverable if its rename cannot
+                    // be made durable; never guess which pathname survived.
+                    continue
+                }
+
+                do {
+                    try removeDirectoryContentsNoFollow(
+                        descriptor: candidateDescriptor,
+                        displayedAt: entryURL
+                    )
+                    var finalInfo = stat()
+                    let finalStatus = quarantineName.withCString {
+                        Darwin.fstatat(
+                            rootDescriptor,
+                            $0,
+                            &finalInfo,
+                            AT_SYMLINK_NOFOLLOW
+                        )
+                    }
+                    guard finalStatus == 0,
+                          FileSystemObjectIdentity(finalInfo) == expectedIdentity else {
+                        continue
+                    }
+                    let removeStatus = quarantineName.withCString {
+                        Darwin.unlinkat(rootDescriptor, $0, AT_REMOVEDIR)
+                    }
+                    guard removeStatus == 0 else {
+                        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                    }
+                    guard Darwin.fsync(rootDescriptor) == 0 else {
+                        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                    }
+                    logger.info(
+                        "Removed attested terminal temp child \(entryURL.path, privacy: .public)"
+                    )
+                } catch {
+                    // The quarantine name intentionally remains recoverable if
+                    // descriptor-relative removal cannot complete safely.
+                    throw error
+                }
+            }
+        }
+    }
+
+    private static func directoryEntryNames(
+        descriptor: Int32,
+        displayedAt url: URL
+    ) throws -> [String] {
+        let enumerationDescriptor = Darwin.dup(descriptor)
+        guard enumerationDescriptor >= 0,
+              let stream = Darwin.fdopendir(enumerationDescriptor) else {
+            if enumerationDescriptor >= 0 { Darwin.close(enumerationDescriptor) }
+            throw OwnedWorkDirectoryMarkerError.systemFailure(
+                path: url.path,
+                operation: "enumerate directory",
+                code: errno
+            )
+        }
+        defer { Darwin.closedir(stream) }
+        var names: [String] = []
+        while let entry = Darwin.readdir(stream) {
+            let name = withUnsafePointer(to: &entry.pointee.d_name) { pointer in
+                pointer.withMemoryRebound(
+                    to: CChar.self,
+                    capacity: Int(MAXNAMLEN) + 1
+                ) {
+                    String(cString: $0)
+                }
+            }
+            if name != ".", name != ".." {
+                names.append(name)
+            }
+        }
+        return names
+    }
+
+    /// Recursively unlinks directory entries relative to already-open
+    /// descriptors. Symbolic links and special files are unlinked as entries;
+    /// they are never traversed.
+    private static func removeDirectoryContentsNoFollow(
+        descriptor: Int32,
+        displayedAt url: URL
+    ) throws {
+        for name in try directoryEntryNames(descriptor: descriptor, displayedAt: url) {
+            guard DurableAtomicFileStore.isSinglePathComponent(name) else { continue }
+            var info = stat()
+            let inspectStatus = name.withCString {
+                Darwin.fstatat(descriptor, $0, &info, AT_SYMLINK_NOFOLLOW)
+            }
+            guard inspectStatus == 0 else {
+                if errno == ENOENT { continue }
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+            if info.st_mode & S_IFMT == S_IFDIR {
+                let childDescriptor = name.withCString {
+                    Darwin.openat(
+                        descriptor,
+                        $0,
+                        O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+                    )
+                }
+                guard childDescriptor >= 0 else {
+                    throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                }
+                defer { Darwin.close(childDescriptor) }
+                var openedInfo = stat()
+                guard Darwin.fstat(childDescriptor, &openedInfo) == 0,
+                      FileSystemObjectIdentity(openedInfo) == FileSystemObjectIdentity(info) else {
+                    throw POSIXError(.ESTALE)
+                }
+                try removeDirectoryContentsNoFollow(
+                    descriptor: childDescriptor,
+                    displayedAt: url.appendingPathComponent(name, isDirectory: true)
+                )
+                var currentInfo = stat()
+                let currentStatus = name.withCString {
+                    Darwin.fstatat(
+                        descriptor,
+                        $0,
+                        &currentInfo,
+                        AT_SYMLINK_NOFOLLOW
+                    )
+                }
+                guard currentStatus == 0,
+                      FileSystemObjectIdentity(currentInfo) == FileSystemObjectIdentity(info),
+                      name.withCString({
+                          Darwin.unlinkat(descriptor, $0, AT_REMOVEDIR)
+                      }) == 0 else {
+                    throw POSIXError(.ESTALE)
+                }
+            } else {
+                guard name.withCString({
+                    Darwin.unlinkat(descriptor, $0, 0)
+                }) == 0 else {
+                    if errno == ENOENT { continue }
+                    throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                }
+            }
+        }
+        guard Darwin.fsync(descriptor) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
     }
 

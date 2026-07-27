@@ -26,9 +26,9 @@ final class ProjectTempCleanupTests: XCTestCase {
         try await super.tearDown()
     }
 
-    // MARK: - cleanAll removes .tmp/
+    // MARK: - Cleanup requires terminal ownership authority
 
-    func testCleanAllRemovesTmpDirectory() throws {
+    func testCleanAllPreservesActiveAndUnmarkedWork() throws {
         // Create temp dirs with files inside the project .tmp/
         let dir1 = try ProjectTempDirectory.create(prefix: "classify-", in: projectURL)
         try Data(repeating: 0xAA, count: 512).write(to: dir1.appendingPathComponent("out.txt"))
@@ -42,8 +42,9 @@ final class ProjectTempCleanupTests: XCTestCase {
         try ProjectTempDirectory.cleanAll(in: projectURL)
 
         // Assert
-        XCTAssertFalse(FileManager.default.fileExists(atPath: tmpRoot.path),
-                       ".tmp/ should be completely removed after cleanAll")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: tmpRoot.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: dir1.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: dir2.path))
     }
 
     func testCleanAllIsIdempotentOnEmptyProject() throws {
@@ -72,7 +73,7 @@ final class ProjectTempCleanupTests: XCTestCase {
 
     // MARK: - cleanStale
 
-    func testCleanStaleRemovesOldDirectoriesOnly() throws {
+    func testCleanStalePreservesOldActiveDirectory() throws {
         let recentDir = try ProjectTempDirectory.create(prefix: "recent-", in: projectURL)
         let staleDir = try ProjectTempDirectory.create(prefix: "stale-", in: projectURL)
 
@@ -86,10 +87,38 @@ final class ProjectTempCleanupTests: XCTestCase {
         // Clean entries older than 24 hours
         try ProjectTempDirectory.cleanStale(in: projectURL, olderThan: 24 * 3600)
 
-        XCTAssertFalse(FileManager.default.fileExists(atPath: staleDir.path),
-                       "Stale directory (25 h old) should be removed")
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: staleDir.path),
+            "Age alone does not prove an active owner is dead"
+        )
         XCTAssertTrue(FileManager.default.fileExists(atPath: recentDir.path),
                       "Recent directory should still exist")
+    }
+
+    func testCleanupRemovesTerminalAttestedDirectory() throws {
+        let tmpRoot = ProjectTempDirectory.tempRoot(for: projectURL)
+        try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
+        let terminal = try OwnedWorkDirectoryMarkerStore.createDirectory(
+            OwnedWorkDirectoryCreationRequest(
+                projectURL: projectURL,
+                parentDirectoryURL: tmpRoot,
+                prefix: "terminal-",
+                runID: UUID(),
+                processIdentity: try .current(),
+                state: .completed,
+                lockRelativePath: nil,
+                keepIntermediates: false,
+                toolName: "test",
+                toolVersion: "1"
+            )
+        )
+        try Data(repeating: 0xAA, count: 64).write(
+            to: terminal.appendingPathComponent("payload.bin")
+        )
+
+        try ProjectTempDirectory.cleanAll(in: projectURL)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: terminal.path))
     }
 
     func testCleanStaleKeepsAllRecentDirectories() throws {

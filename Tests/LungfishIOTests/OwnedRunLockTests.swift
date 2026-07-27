@@ -51,4 +51,10 @@ final class OwnedRunLockTests: XCTestCase {
         XCTAssertThrowsError(try OwnedRunLock.acquire(at: lockURL))
         XCTAssertThrowsError(try OwnedRunLock.probe(at: lockURL))
     }
+
+    func testRejectsEmbeddedNULInLockName() {
+        let invalid = root.appendingPathComponent("run\u{0}.lock")
+        XCTAssertThrowsError(try OwnedRunLock.acquire(at: invalid))
+        XCTAssertThrowsError(try OwnedRunLock.probe(at: invalid))
+    }
 }

@@ -48,8 +48,8 @@ public struct DurableAtomicFileStore: Sendable {
     /// Creates `fileName` without replacing any existing filesystem object.
     ///
     /// Publication uses a same-directory temporary regular file, file fsync,
-    /// exclusive rename, and parent-directory fsync. A failure removes this
-    /// invocation's temporary or published file before returning.
+    /// exclusive rename, and parent-directory fsync. A failure removes only a
+    /// filesystem object still proven to be this invocation's own file.
     @discardableResult
     public func create(_ data: Data, named fileName: String, in directoryURL: URL) throws -> URL {
         let directoryDescriptor: Int32
@@ -104,6 +104,7 @@ public struct DurableAtomicFileStore: Sendable {
 
         var descriptorIsOpen = true
         var published = false
+        var publishedIdentity: FileSystemObjectIdentity?
         defer {
             if descriptorIsOpen {
                 Darwin.close(descriptor)
@@ -122,6 +123,16 @@ public struct DurableAtomicFileStore: Sendable {
                     code: errno
                 )
             }
+            var temporaryInfo = stat()
+            guard Darwin.fstat(descriptor, &temporaryInfo) == 0,
+                  temporaryInfo.st_mode & S_IFMT == S_IFREG else {
+                throw StoreError.systemFailure(
+                    path: destinationURL.path,
+                    operation: "inspect durable file identity",
+                    code: errno == 0 ? EIO : errno
+                )
+            }
+            publishedIdentity = FileSystemObjectIdentity(temporaryInfo)
             guard Darwin.close(descriptor) == 0 else {
                 descriptorIsOpen = false
                 throw StoreError.systemFailure(
@@ -157,9 +168,19 @@ public struct DurableAtomicFileStore: Sendable {
 
             guard operations.syncDirectory(directoryDescriptor) == 0 else {
                 let code = errno
-                _ = fileName.withCString { Darwin.unlinkat(directoryDescriptor, $0, 0) }
-                published = false
-                _ = operations.syncDirectory(directoryDescriptor)
+                if let publishedIdentity,
+                   Self.identity(
+                    named: fileName,
+                    inDirectory: directoryDescriptor
+                   ) == publishedIdentity {
+                    let unlinkStatus = fileName.withCString {
+                        Darwin.unlinkat(directoryDescriptor, $0, 0)
+                    }
+                    if unlinkStatus == 0 {
+                        published = false
+                        _ = operations.syncDirectory(directoryDescriptor)
+                    }
+                }
                 throw StoreError.systemFailure(
                     path: directoryURL.path,
                     operation: "fsync durable file parent",
@@ -200,7 +221,23 @@ public struct DurableAtomicFileStore: Sendable {
     }
 
     static func isSinglePathComponent(_ value: String) -> Bool {
-        !value.isEmpty && value != "." && value != ".." && !value.contains("/")
+        !value.isEmpty
+            && value != "."
+            && value != ".."
+            && !value.contains("/")
+            && !value.utf8.contains(0)
+    }
+
+    private static func identity(
+        named fileName: String,
+        inDirectory directoryDescriptor: Int32
+    ) -> FileSystemObjectIdentity? {
+        var info = stat()
+        let status = fileName.withCString {
+            Darwin.fstatat(directoryDescriptor, $0, &info, AT_SYMLINK_NOFOLLOW)
+        }
+        guard status == 0 else { return nil }
+        return FileSystemObjectIdentity(info)
     }
 }
 
