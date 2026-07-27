@@ -4,6 +4,11 @@ import Foundation
 import LungfishCore
 import LungfishIO
 
+private struct FullLengthONTMHCReviewCallKey: Hashable {
+    let locus: String
+    let displayName: String
+}
+
 public enum FullLengthONTPBAAClusterSourceMode: String, Sendable, Codable, Equatable, CaseIterable {
     case useCompatible = "use-compatible"
     case requireExisting = "require-existing"
@@ -1693,6 +1698,34 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             ONTMHCUnnameableClustersDocument.self,
             from: Data(contentsOf: candidateArtifactResult.unnameableJSONURL)
         )
+        let reviewableRowCatalogPublication =
+            try publishReviewableRowCatalogIfNeeded(
+                request: request,
+                referenceRecords: candidateReferenceRecords,
+                referenceCatalogProjectionURL: referenceCatalogProjectionURL,
+                reportRows: reportRows,
+                sampleNames: sampleSummaries.map(\.sample),
+                candidateDocument: candidateDocument,
+                candidateJSONURL: candidateArtifactResult.candidateJSONURL,
+                genotypingEvidenceBAMURL: cohortAlignmentResult.bamURL,
+                genotypingEvidenceBAIURL: cohortAlignmentResult.baiURL
+            )
+        if let publication = reviewableRowCatalogPublication,
+           let step = publication.provenance.steps.first {
+            pipelineSteps.append(FullLengthONTMHCProvenanceStep(
+                toolName: step.toolName,
+                toolVersion: step.toolVersion,
+                argv: step.argv,
+                resolvedOptions: step.resolvedOptions,
+                runtimeIdentity: step.runtimeIdentity ?? ProvenanceRuntimeIdentity(),
+                inputs: step.inputs.map { URL(fileURLWithPath: $0.path) },
+                outputs: [publication.outputURL],
+                exitStatus: Int32(step.exitStatus ?? 0),
+                stderr: step.stderr,
+                startedAt: step.startedAt ?? publication.provenance.createdAt,
+                completedAt: step.completedAt ?? publication.provenance.createdAt
+            ))
+        }
         let referenceVisualizationPublication = try publishMHCReferenceVisualizations(
             referenceBundleURL: request.referenceSourceURL,
             referenceFASTAURL: referenceFASTAURL,
@@ -1918,6 +1951,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 candidateArtifacts: candidateArtifactResult.manifest,
                 referenceVisualizations: referenceVisualizationPublication?.descriptor,
                 referenceRecordStore: referenceRecordStoreSnapshot?.info,
+                reviewableRowCatalog: reviewableRowCatalogPublication?.artifact,
                 createdAt: manifestCreatedAt
             )
             manifestPublicationPlan = plan
@@ -4656,6 +4690,145 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         return FullLengthONTMHCWorkbookCopyResult(revision: revision, step: step)
     }
 
+    private func publishReviewableRowCatalogIfNeeded(
+        request: FullLengthONTMHCGenotypingRunRequest,
+        referenceRecords: [MHCReferenceRecord],
+        referenceCatalogProjectionURL: URL,
+        reportRows: [FullLengthONTMHCReportRow],
+        sampleNames: [String],
+        candidateDocument: ONTMHCCandidateAllelesDocument,
+        candidateJSONURL: URL,
+        genotypingEvidenceBAMURL: URL,
+        genotypingEvidenceBAIURL: URL
+    ) throws -> GenotypeReviewableRowCatalogPublication? {
+        guard request.haplotypeDefinitionSetID == nil else { return nil }
+        let recordsBySequenceID = Dictionary(
+            uniqueKeysWithValues: referenceRecords.map { ($0.sequenceID, $0) }
+        )
+        let recordsByAllele = Dictionary(grouping: referenceRecords, by: \.alleleName)
+        var reportRowsByCall:
+            [FullLengthONTMHCReviewCallKey: [FullLengthONTMHCReportRow]] = [:]
+        for row in reportRows {
+            let reference: MHCReferenceRecord
+            if let exact = recordsBySequenceID[row.genotype] {
+                reference = exact
+            } else if let matches = recordsByAllele[row.genotype],
+                      let first = matches.first,
+                      Set(matches.map(\.locus)).count == 1 {
+                reference = first
+            } else {
+                throw FullLengthONTMHCGenotypingError.reportFailed(
+                    "Authoritative workbook review-row call \(row.genotype) does not resolve to exactly one exact-run reference record."
+                )
+            }
+            let key = FullLengthONTMHCReviewCallKey(
+                locus: GenotypeHaplotypeLocusResolver.canonicalLocusName(
+                    reference.locus
+                ),
+                displayName: reference.alleleName
+            )
+            reportRowsByCall[key, default: []].append(row)
+        }
+        let sharedCalls = reportRowsByCall.map { key, rows in
+                let support = Dictionary(grouping: rows, by: \.sample)
+                    .map { sample, sampleRows in
+                        ONTGenotypeSampleSupport(
+                            sample: sample,
+                            passedAlignments: sampleRows.reduce(0) {
+                                $0 + $1.passedAlignments
+                            },
+                            passedUniqueReads: sampleRows.reduce(0) {
+                                $0 + $1.passedUniqueReads
+                            }
+                        )
+                    }
+                return ONTGenotypeSharedCall(
+                    locus: key.locus,
+                    genotype: key.displayName,
+                    sampleSupport: support
+                )
+            }
+        let outputURL = request.outputDirectory
+            .appendingPathComponent("artifacts", isDirectory: true)
+            .appendingPathComponent("projections", isDirectory: true)
+            .appendingPathComponent("genotype-reviewable-rows.json")
+        let argv = [
+            "lungfish-internal", "publish-genotype-reviewable-rows",
+            "--reference-catalog", referenceCatalogProjectionURL.path,
+            "--sample-roster", request.sampleSummaryCSVURL.path,
+            "--calls", request.reportCSVURL.path,
+            "--candidate-json", candidateJSONURL.path,
+            "--genotyping-bam", genotypingEvidenceBAMURL.path,
+            "--genotyping-bai", genotypingEvidenceBAIURL.path,
+            "--output", outputURL.path,
+            "--support-metric", "passed-unique-reads",
+        ]
+        let descriptors = [
+            try ProvenanceFileDescriptor.file(
+                url: referenceCatalogProjectionURL,
+                format: .json,
+                role: .reference
+            ),
+            try ProvenanceFileDescriptor.file(
+                url: request.sampleSummaryCSVURL,
+                format: .text,
+                role: .input
+            ),
+            try ProvenanceFileDescriptor.file(
+                url: request.reportCSVURL,
+                format: .text,
+                role: .input
+            ),
+            try ProvenanceFileDescriptor.file(
+                url: candidateJSONURL,
+                format: .json,
+                role: .input
+            ),
+            try ProvenanceFileDescriptor.file(
+                url: genotypingEvidenceBAMURL,
+                format: .bam,
+                role: .input
+            ),
+            try ProvenanceFileDescriptor.file(
+                url: genotypingEvidenceBAIURL,
+                role: .index
+            ),
+        ]
+        return try GenotypeReviewableRowCatalogPublisher().publish(
+            GenotypeReviewableRowCatalogInputs(
+                referenceRecords: referenceRecords,
+                authoritativeSamples: sampleNames,
+                calls: sharedCalls,
+                candidates: GenotypeReviewableRowCandidate.fullLengthCandidates(
+                    from: candidateDocument
+                ),
+                inputDescriptors: descriptors,
+                workflowName: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
+                workflowVersion: "1",
+                toolVersion: WorkflowRun.currentAppVersion,
+                argv: argv,
+                userVisibleOptions: [
+                    "workflowMode": .string(GenotypeResultWorkflowMode.genotypeOnly.rawValue),
+                    "candidateDesignation": .string("full-length-candidate"),
+                ],
+                resolvedDefaults: [
+                    "supportMetric": .string("passed-unique-reads"),
+                    "referenceRowScope": .string("all-exact-run-reference-records"),
+                ],
+                runtimeIdentity: ProvenanceRuntimeIdentity(
+                    appVersion: WorkflowRun.currentAppVersion,
+                    executablePath: CommandLine.arguments.first
+                        ?? ProvenanceRuntimeIdentity.currentExecutablePath,
+                    operatingSystemVersion: WorkflowRun.currentHostOS,
+                    user: NSUserName(),
+                    condaEnvironment: "lungfish-managed-tools",
+                    condaPrefix: condaManager.rootPrefix.path
+                )
+            ),
+            to: request.outputDirectory
+        )
+    }
+
     private func publishMHCReferenceVisualizations(
         referenceBundleURL: URL,
         referenceFASTAURL: URL,
@@ -4937,6 +5110,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         candidateArtifacts: ONTMHCCandidateArtifactManifest,
         referenceVisualizations: ONTMHCReferenceVisualizationArtifacts?,
         referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo?,
+        reviewableRowCatalog: ONTMHCArtifactReference?,
         createdAt: Date
     ) throws -> FullLengthONTMHCSuccessManifestPublicationPlan {
         let resolvedHaplotypeDefinitionSet = try resolveHaplotypeDefinitionSet(for: request)
@@ -4965,7 +5139,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             createdAt: ISO8601DateFormatter().string(from: createdAt),
             mhcCandidateArtifacts: candidateArtifacts,
             mhcReferenceVisualizations: referenceVisualizations,
-            referenceRecordStore: referenceRecordStore
+            referenceRecordStore: referenceRecordStore,
+            reviewableRowCatalog: reviewableRowCatalog
         )
         let stagedURL = request.outputDirectory.appendingPathComponent(
             ".\(ONTGenotypeResultBundleManifest.filename).staging-\(UUID().uuidString)"
@@ -7689,6 +7864,8 @@ private struct FullLengthONTMHCProvenanceStep: Sendable, Codable {
             toolName: toolName,
             toolVersion: toolVersion,
             argv: argv,
+            durableReplayArgv: argv,
+            reproducibleCommand: argv.map(shellEscape).joined(separator: " "),
             resolvedOptions: resolvedOptions,
             runtimeIdentity: runtimeIdentity,
             inputs: inputs.map {

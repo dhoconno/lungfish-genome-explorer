@@ -872,6 +872,13 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 fromReferenceBundle: reference.sourceReferenceBundleURL ?? request.referenceSourceURL,
                 toResultBundle: request.outputDirectory
             )
+            let reviewableRowCatalogPublication =
+                try publishReviewableRowCatalogIfNeeded(
+                    request: request,
+                    resolvedMode: resolvedMode,
+                    reference: reference,
+                    scientificArtifactPublication: scientificArtifactPublication
+                )
             let completedAt = Date()
             progressHandler?(0.93, "Writing reproducibility provenance and bundle manifest.")
             let provenanceURL = try writeProvenance(
@@ -897,6 +904,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 haplotypeAnalysis: haplotypeAnalysis,
                 referenceRecordStoreSnapshot: referenceRecordStoreSnapshot,
                 scientificArtifactPublication: scientificArtifactPublication,
+                reviewableRowCatalogPublication: reviewableRowCatalogPublication,
                 startedAt: startedAt,
                 completedAt: completedAt
             )
@@ -907,6 +915,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 workbookRevision: workbookCopy.revision,
                 referenceRecordStore: referenceRecordStoreSnapshot?.info,
                 scientificArtifactPublication: scientificArtifactPublication,
+                reviewableRowCatalogPublication: reviewableRowCatalogPublication,
                 completedAt: completedAt
             )
             preserveRetainedEvidence = scientificArtifactPublication != nil
@@ -2513,6 +2522,166 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         return analysis
     }
 
+    private func publishReviewableRowCatalogIfNeeded(
+        request: ONTBarcodeDemuxGenotypingRunRequest,
+        resolvedMode: AmpliconGenotypingMode,
+        reference: ReferenceResolution,
+        scientificArtifactPublication: AmpliconGenotypeScientificArtifactPublication?
+    ) throws -> GenotypeReviewableRowCatalogPublication? {
+        guard resolvedMode == .illuminaPaired,
+              request.haplotypeDefinitionSetID == nil,
+              let scientificArtifactPublication else {
+            return nil
+        }
+        let projectionManifest = ONTGenotypeResultBundleManifest(
+            kind: GenotypeResultWorkflowKind.miSeqAmpliconMHCGenotype.rawValue,
+            workflowKind: .miSeqAmpliconMHCGenotype,
+            workflowMode: .genotypeOnly,
+            outputName: request.outputName,
+            analysisName: request.analysisName,
+            primaryWorkbookPath: relativePath(
+                from: request.outputDirectory,
+                to: request.workbookURL
+            ),
+            longSummaryCSVPath: relativePath(
+                from: request.outputDirectory,
+                to: request.reportCSVURL
+            ),
+            sampleSummaryCSVPath: relativePath(
+                from: request.outputDirectory,
+                to: request.sampleSummaryCSVURL
+            ),
+            statsJSONPath: relativePath(
+                from: request.outputDirectory,
+                to: request.statsJSONURL
+            ),
+            provenancePath: relativePath(
+                from: request.outputDirectory,
+                to: request.provenanceURL
+            )
+        )
+        let result = try ONTGenotypeResultBundle.loadResult(
+            from: request.outputDirectory,
+            manifest: projectionManifest
+        )
+        let referenceRecords = try reviewableReferenceRecords(
+            reference: reference
+        ).filter {
+            !$0.alleleName.localizedCaseInsensitiveContains("_nov")
+        }
+        let candidates = scientificArtifactPublication.reviewableRowCandidates
+        let outputURL = request.outputDirectory
+            .appendingPathComponent("artifacts", isDirectory: true)
+            .appendingPathComponent("projections", isDirectory: true)
+            .appendingPathComponent("genotype-reviewable-rows.json")
+        let argv = [
+            "lungfish-internal", "publish-genotype-reviewable-rows",
+            "--reference-fasta", reference.referenceFASTAURL.path,
+            "--sample-roster", request.sampleSummaryCSVURL.path,
+            "--calls", request.reportCSVURL.path,
+            "--provisional-exon-2",
+            scientificArtifactPublication.catalogJSONURL?.path ?? "none",
+            "--output", outputURL.path,
+            "--support-metric", "passed-unique-reads",
+        ]
+        var descriptors = [
+            try ProvenanceFileDescriptor.file(
+                url: reference.referenceFASTAURL,
+                format: .fasta,
+                role: .reference
+            ),
+            try ProvenanceFileDescriptor.file(
+                url: request.sampleSummaryCSVURL,
+                format: .text,
+                role: .input
+            ),
+            try ProvenanceFileDescriptor.file(
+                url: request.reportCSVURL,
+                format: .text,
+                role: .input
+            ),
+        ]
+        if let catalogJSONURL = scientificArtifactPublication.catalogJSONURL {
+            descriptors.append(try ProvenanceFileDescriptor.file(
+                url: catalogJSONURL,
+                format: .json,
+                role: .input
+            ))
+        }
+        return try GenotypeReviewableRowCatalogPublisher().publish(
+            GenotypeReviewableRowCatalogInputs(
+                referenceRecords: referenceRecords,
+                authoritativeSamples: result.sampleNames,
+                calls: result.locusSummaries.flatMap(\.sharedCalls),
+                candidates: candidates,
+                inputDescriptors: descriptors,
+                workflowName: Self.workflowName(for: resolvedMode),
+                workflowVersion: "1",
+                toolVersion: WorkflowRun.currentAppVersion,
+                argv: argv,
+                userVisibleOptions: [
+                    "workflowMode": .string(GenotypeResultWorkflowMode.genotypeOnly.rawValue),
+                    "candidateDesignation": .string("provisional-exon-2"),
+                ],
+                resolvedDefaults: [
+                    "supportMetric": .string("passed-unique-reads"),
+                    "referenceRowScope": .string("all-exact-run-reference-records"),
+                    "candidateDatabaseResolution": .boolean(false),
+                ],
+                runtimeIdentity: ProvenanceRuntimeIdentity(
+                    appVersion: WorkflowRun.currentAppVersion,
+                    executablePath: CommandLine.arguments.first
+                        ?? ProvenanceRuntimeIdentity.currentExecutablePath,
+                    operatingSystemVersion: WorkflowRun.currentHostOS,
+                    user: NSUserName(),
+                    condaEnvironment: "lungfish-managed-tools",
+                    condaPrefix: condaManager.rootPrefix.path
+                )
+            ),
+            to: request.outputDirectory
+        )
+    }
+
+    private func reviewableReferenceRecords(
+        reference: ReferenceResolution
+    ) throws -> [MHCReferenceRecord] {
+        let catalogBundleURL: URL?
+        if let source = reference.sourceReferenceBundleURL,
+           MHCAmpliconReferenceBundle.isBundleURL(source) {
+            catalogBundleURL = MHCAmpliconReferenceBundle.referenceBundleURL(in: source)
+        } else if reference.sourceReferenceBundleURL?.pathExtension.lowercased()
+            == "lungfishref" {
+            catalogBundleURL = reference.sourceReferenceBundleURL
+        } else {
+            catalogBundleURL = nil
+        }
+        if let catalogBundleURL {
+            return try MHCReferenceRecordCatalog.load(from: catalogBundleURL).records
+        }
+        return try FASTAReader(url: reference.referenceFASTAURL).readAllSync().map {
+            let locus = ONTGenotypeCall(
+                sample: "catalog-projection",
+                genotype: $0.name,
+                passedAlignments: 0,
+                passedUniqueReads: 0,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                overallInputReads: nil,
+                overallUniqueRetainedReads: nil,
+                overallUniqueRetainedPercent: nil
+            ).locusGroup
+            return MHCReferenceRecord(
+                sequenceID: $0.name,
+                alleleName: $0.name,
+                locus: locus,
+                moleculeClass: .genomicDNA,
+                classEvidence: .lengthThresholdFallback,
+                sequenceLength: $0.length
+            )
+        }
+    }
+
     private func resolveHaplotypeDefinitionSet(
         for request: ONTBarcodeDemuxGenotypingRunRequest
     ) throws -> GenotypeHaplotypeDefinitionSet? {
@@ -2888,6 +3057,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         haplotypeAnalysis: GenotypeHaplotypeAnalysis?,
         referenceRecordStoreSnapshot: GenotypeReferenceRecordStoreSnapshot.PublishedSnapshot?,
         scientificArtifactPublication: AmpliconGenotypeScientificArtifactPublication?,
+        reviewableRowCatalogPublication: GenotypeReviewableRowCatalogPublication?,
         startedAt: Date,
         completedAt: Date
     ) throws -> URL {
@@ -3077,6 +3247,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let scientificArtifactOutputs = scientificArtifactPublication?.outputURLs.map {
             fileDescriptorDictionary(url: $0, role: $0.pathExtension.lowercased() == "json" ? "report" : "output")
         } ?? []
+        let reviewableRowCatalogOutputs = reviewableRowCatalogPublication.map {
+            [fileDescriptorDictionary(url: $0.outputURL, role: "report")]
+        } ?? []
         let durableAlignmentOutputs: [[String: Any]] = scientificArtifactPublication == nil
             ? []
             : [
@@ -3115,6 +3288,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             + recordStoreOutputs
             + durableAlignmentOutputs
             + scientificArtifactOutputs
+            + reviewableRowCatalogOutputs
         let primaryOutput = fileDescriptorDictionary(url: request.outputDirectory, role: "output")
         let provenanceFiles = provenanceInputs + transientAlignmentOutputs + provenanceOutputs
         let statistics: [String: Any] = [
@@ -3202,6 +3376,21 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 "completedAt": ISO8601DateFormatter().string(from: publication.completedAt),
             ]]
         } ?? []
+        let reviewableRowCatalogSteps: [[String: Any]] =
+            reviewableRowCatalogPublication.map { publication in
+                [[
+                    "toolName": publication.provenance.toolName,
+                    "toolVersion": publication.provenance.toolVersion,
+                    "argv": publication.provenance.argv,
+                    "durableReplayArgv": publication.provenance.durableReplayArgv
+                        ?? publication.provenance.argv,
+                    "reproducibleCommand": publication.provenance.reproducibleCommand,
+                    "outputs": reviewableRowCatalogOutputs,
+                    "exitStatus": publication.provenance.exitStatus ?? 0,
+                    "wallTimeSeconds": publication.provenance.wallTimeSeconds ?? 0,
+                    "stderr": publication.provenance.stderr ?? "",
+                ]]
+            } ?? []
         let steps: [[String: Any]] = mappingProcessSteps + mergeStep + [
             [
                 "toolName": "samtools index",
@@ -3219,6 +3408,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 "stderr": filter.stderr,
             ],
         ] + scientificArtifactSteps
+            + reviewableRowCatalogSteps
             + haplotypeSteps
             + currentHaplotypeSteps
             + specialistPromptSteps
@@ -3317,6 +3507,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             haplotypeAnalysis: haplotypeAnalysis,
             referenceRecordStoreSnapshot: referenceRecordStoreSnapshot,
             scientificArtifactPublication: scientificArtifactPublication,
+            reviewableRowCatalogPublication: reviewableRowCatalogPublication,
             legacyProvenanceURL: provenanceURL,
             options: options,
             resolvedDefaults: resolvedDefaults,
@@ -3349,6 +3540,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         haplotypeAnalysis: GenotypeHaplotypeAnalysis?,
         referenceRecordStoreSnapshot: GenotypeReferenceRecordStoreSnapshot.PublishedSnapshot?,
         scientificArtifactPublication: AmpliconGenotypeScientificArtifactPublication?,
+        reviewableRowCatalogPublication: GenotypeReviewableRowCatalogPublication?,
         legacyProvenanceURL: URL,
         options: [String: Any],
         resolvedDefaults: [String: Any],
@@ -3419,6 +3611,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 role: $0.pathExtension.lowercased() == "json" ? .report : .output
             )
         } ?? []
+        let reviewableRowCatalogOutputs =
+            reviewableRowCatalogPublication?.provenance.outputs ?? []
         let durableAlignmentOutputs = scientificArtifactPublication == nil
             ? []
             : [retainedBAM, retainedBAI]
@@ -3436,6 +3630,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 + (recordStoreOutput.map { [$0] } ?? [])
                 + durableAlignmentOutputs
                 + scientificArtifactOutputs
+                + reviewableRowCatalogOutputs
         )
         let outputDirectory = ProvenanceFileDescriptor(
             path: request.outputDirectory.standardizedFileURL.path,
@@ -3473,6 +3668,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 ),
             ]
         }
+        canonicalSteps += reviewableRowCatalogPublication?.provenance.steps ?? []
         if let mergeArguments = mapping.samtoolsMergeArguments {
             canonicalSteps.append(
                 ProvenanceStep(
@@ -3677,6 +3873,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         workbookRevision: ONTGenotypeWorkbookRevision,
         referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo?,
         scientificArtifactPublication: AmpliconGenotypeScientificArtifactPublication?,
+        reviewableRowCatalogPublication: GenotypeReviewableRowCatalogPublication?,
         completedAt: Date
     ) throws {
         let resolvedHaplotypeDefinitionSet = try resolveHaplotypeDefinitionSet(for: request)
@@ -3707,7 +3904,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             createdAt: ISO8601DateFormatter().string(from: completedAt),
             referenceRecordStore: referenceRecordStore,
             alignmentArtifacts: scientificArtifactPublication?.alignmentArtifacts,
-            provisionalExon2Artifacts: scientificArtifactPublication?.provisionalExon2Artifacts
+            provisionalExon2Artifacts: scientificArtifactPublication?.provisionalExon2Artifacts,
+            reviewableRowCatalog: reviewableRowCatalogPublication?.artifact
         )
         try ONTGenotypeResultBundle.writeManifest(manifest, to: request.outputDirectory)
 
@@ -3782,6 +3980,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             ),
             sequenceDirectory.appendingPathComponent(
                 "observed-provisional-exon2.fasta"
+            ),
+            request.outputDirectory.appendingPathComponent(
+                "artifacts/projections/genotype-reviewable-rows.json"
             ),
             request.outputDirectory.appendingPathComponent(
                 ProvenanceWriter.bundleProvenanceDirectoryName,

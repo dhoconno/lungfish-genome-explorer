@@ -1453,6 +1453,20 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(reciprocal.bai.path, "artifacts/alignments/unmatched-to-reference.bam.bai")
         let candidateJSON = try XCTUnwrap(manifest.mhcCandidateArtifacts?.candidateJSON)
         XCTAssertEqual(candidateJSON.path, "candidate-alleles.json")
+        let reviewCatalog = try XCTUnwrap(manifest.reviewableRowCatalog)
+        XCTAssertEqual(
+            reviewCatalog.path,
+            "artifacts/projections/genotype-reviewable-rows.json"
+        )
+        let reviewCatalogURL = outputDirectory.appendingPathComponent(reviewCatalog.path)
+        XCTAssertEqual(
+            reviewCatalog.sha256,
+            try ProvenanceFileHasher.sha256(of: reviewCatalogURL)
+        )
+        XCTAssertEqual(
+            reviewCatalog.sizeBytes,
+            Int64(try ProvenanceFileHasher.fileSize(of: reviewCatalogURL))
+        )
         let rawUnmatchedFASTA = try XCTUnwrap(manifest.mhcCandidateArtifacts?.rawUnmatchedFASTA)
         XCTAssertEqual(
             rawUnmatchedFASTA.path,
@@ -1552,6 +1566,21 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertFalse(publicationStep.argv.contains("--atomic-directory-exchange"))
         XCTAssertTrue(envelope.outputs.contains { $0.path == evidenceBAMURL.path })
         XCTAssertTrue(envelope.outputs.contains { $0.path == evidenceBAIURL.path })
+        let reviewCatalogStep = try XCTUnwrap(envelope.steps.first {
+            $0.toolName == "lungfish genotype reviewable row catalog publisher"
+        })
+        XCTAssertEqual(reviewCatalogStep.argv, reviewCatalogStep.durableReplayArgv)
+        XCTAssertEqual(reviewCatalogStep.exitStatus, 0)
+        XCTAssertTrue(reviewCatalogStep.inputs.contains {
+            $0.path == evidenceBAMURL.path
+                && $0.checksumSHA256 != nil
+                && $0.fileSize != nil
+        })
+        XCTAssertTrue(reviewCatalogStep.outputs.contains {
+            $0.path == reviewCatalogURL.path
+                && $0.checksumSHA256 == reviewCatalog.sha256
+                && $0.fileSize == UInt64(reviewCatalog.sizeBytes)
+        })
         XCTAssertTrue(
             envelope.outputs.contains { $0.path.hasSuffix("/metadata/genbank_records.sqlite") },
             "Embedded reference metadata must be a durable provenance output."

@@ -44,6 +44,16 @@ final class AmpliconGenotypeScientificArtifactPublisherTests: XCTestCase {
         XCTAssertNotNil(publication.alignmentArtifacts.genotypingEvidence)
         XCTAssertNil(publication.alignmentArtifacts.reciprocalEvidence)
         XCTAssertEqual(publication.provisionalExon2Artifacts?.schemaVersion, 1)
+        XCTAssertEqual(publication.reviewableRowCandidates.count, 1)
+        XCTAssertEqual(publication.reviewableRowCandidates[0].kind, .provisionalExon2)
+        XCTAssertEqual(
+            publication.reviewableRowCandidates[0].stableID,
+            "sha256:\(document.records[0].sequenceSHA256)"
+        )
+        XCTAssertEqual(
+            publication.reviewableRowCandidates[0].supportBySample,
+            ["SampleA": 8, "SampleB": 3]
+        )
     }
 
     func testNovelDetectionIsCaseInsensitiveAndSupportRowsAggregatePerSample() throws {

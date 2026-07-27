@@ -422,6 +422,7 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         let primaryWorkbookURL = try ONTGenotypeResultBundle.primaryWorkbookURL(for: outputDirectory)
         let currentWorkbookURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: outputDirectory)
 
+        XCTAssertNil(manifest.reviewableRowCatalog)
         XCTAssertEqual(manifest.primaryWorkbookPath, request.workbookURL.lastPathComponent)
         XCTAssertEqual(manifest.currentWorkbookPath, "artifacts/workbooks/current.xlsx")
         XCTAssertNotEqual(primaryWorkbookURL, currentWorkbookURL)
@@ -679,7 +680,19 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(at: condaRoot)
         let referenceFASTA = root.appendingPathComponent("reference.fa")
         let outputDirectory = root.appendingPathComponent("miseq-mhc.lungfishgenotype", isDirectory: true)
-        try ">allele1\nACGTACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        try """
+        >A1_063_01
+        ACGTACGT
+        >14_M1_DQA1_24_03
+        ACGTACGT
+        >14_M1_DQB1_18_01_01
+        ACGTACGT
+        >14_M2M6_DQB1_06g:14_M_DQB1_06_01_01
+        ACGTACGT
+        >14_M4_DQB1_06_08
+        ACGTACGT
+
+        """.write(to: referenceFASTA, atomically: true, encoding: .utf8)
 
         let sampleA = try makeMergedFASTQBundle(
             root: root,
@@ -766,6 +779,12 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
                 && step.outputs.isEmpty
                 && step.exitStatus == 0
         })
+        let reviewCatalogStep = try XCTUnwrap(canonicalEnvelope.steps.first {
+            $0.toolName == "lungfish genotype reviewable row catalog publisher"
+        })
+        XCTAssertEqual(reviewCatalogStep.argv, reviewCatalogStep.durableReplayArgv)
+        XCTAssertEqual(reviewCatalogStep.exitStatus, 0)
+        XCTAssertNil(reviewCatalogStep.stderr)
 
         let manifest = try ONTGenotypeResultBundle.loadManifest(from: outputDirectory)
         XCTAssertEqual(manifest.workflowKind, .miSeqAmpliconMHCGenotype)
@@ -773,6 +792,16 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertNotNil(manifest.alignmentArtifacts?.genotypingEvidence)
         XCTAssertNil(manifest.alignmentArtifacts?.reciprocalEvidence)
         XCTAssertNil(manifest.provisionalExon2Artifacts)
+        let reviewCatalog = try XCTUnwrap(manifest.reviewableRowCatalog)
+        let reviewCatalogURL = outputDirectory.appendingPathComponent(reviewCatalog.path)
+        XCTAssertEqual(
+            reviewCatalog.sha256,
+            try ProvenanceFileHasher.sha256(of: reviewCatalogURL)
+        )
+        XCTAssertEqual(
+            reviewCatalog.sizeBytes,
+            Int64(try ProvenanceFileHasher.fileSize(of: reviewCatalogURL))
+        )
     }
 
     func testRunIlluminaModePublishesObservedNovelSequenceAsProvisionalExon2() async throws {
@@ -847,6 +876,16 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(result.alignmentArtifactURLs.genotypingBAI, request.retainedBAIURL)
         XCTAssertNil(result.alignmentArtifactURLs.reciprocalBAM)
         XCTAssertNil(result.alignmentArtifactURLs.reciprocalBAI)
+        let reviewCatalog = try XCTUnwrap(result.reviewableRowCatalog)
+        let provisionalReviewRow = try XCTUnwrap(reviewCatalog.rows.first {
+            $0.displayName == provisionalGenotype
+        })
+        XCTAssertEqual(provisionalReviewRow.kind, .provisionalExon2)
+        XCTAssertEqual(provisionalReviewRow.stableID, "sha256:\(provisional.sequenceSHA256)")
+        XCTAssertEqual(
+            provisionalReviewRow.supportBySample,
+            ["DW001": 11, "DW472": 0]
+        )
 
         let canonicalEnvelope = try XCTUnwrap(
             ProvenanceEnvelopeReader.load(from: outputDirectory)
@@ -1049,7 +1088,19 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
         let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(at: condaRoot)
         let referenceFASTA = root.appendingPathComponent("reference.fa")
-        try ">allele1\nAACCGGTT\n".write(
+        try """
+        >A1_063_01
+        AACCGGTT
+        >14_M1_DQA1_24_03
+        AACCGGTT
+        >14_M1_DQB1_18_01_01
+        AACCGGTT
+        >14_M2M6_DQB1_06g:14_M_DQB1_06_01_01
+        AACCGGTT
+        >14_M4_DQB1_06_08
+        AACCGGTT
+
+        """.write(
             to: referenceFASTA,
             atomically: true,
             encoding: .utf8
@@ -1127,7 +1178,19 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         let referenceFASTA = root.appendingPathComponent("reference.fa")
         let outputDirectory = root.appendingPathComponent("miseq-cohort.lungfishgenotype", isDirectory: true)
         let minimap2Log = root.appendingPathComponent("minimap2-invocations.log")
-        try ">allele1\nACGTACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        try """
+        >A1_063_01
+        ACGTACGT
+        >14_M1_DQA1_24_03
+        ACGTACGT
+        >14_M1_DQB1_18_01_01
+        ACGTACGT
+        >14_M2M6_DQB1_06g:14_M_DQB1_06_01_01
+        ACGTACGT
+        >14_M4_DQB1_06_08
+        ACGTACGT
+
+        """.write(to: referenceFASTA, atomically: true, encoding: .utf8)
 
         let samples = try ["DW001", "DW002", "DW003"].map { name in
             try makeMergedFASTQBundle(root: root, name: name, sequence: "ACGTACGT")
