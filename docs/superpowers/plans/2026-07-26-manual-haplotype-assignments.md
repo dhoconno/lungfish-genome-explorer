@@ -259,27 +259,27 @@ git commit -m "feat: model manual haplotype editing drafts"
 - Create: `Tests/LungfishGenotypeUITests/GenotypeManualHaplotypeEditorTests.swift`
 - Modify: `Tests/LungfishAppTests/GenotypeManualHaplotypingSectionTests.swift`
 
-- [ ] **Step 1: Write failing editor/accessibility tests**
+- [x] **Step 1: Write failing editor/accessibility tests**
 
 Assert seven ordered rows, labeled H1/H2 combo boxes, free-form/autocomplete, clear controls, Copy from Sample searchable picker and completeness summary, Save disabled for unchanged/invalid drafts, read-only and empty states, Retry/Reload, export action, locus-plus-slot accessibility labels, and autocomplete announcements.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `swift test --filter GenotypeManualHaplotypeEditorTests`
 
 Expected: compile failure because the editor does not exist.
 
-- [ ] **Step 3: Implement the focused editor and retire eligible bulk creation**
+- [x] **Step 3: Implement the focused editor and retire eligible bulk creation**
 
 Mount the **Haplotype Assignments** card at the top of single-sample Detail Inspector content. Remove the carrier-wide creation callbacks for eligible genotype-only results. Retain Export Manual Definitions, now sourced from the canonical current index.
 
-- [ ] **Step 4: Run tests and verify GREEN**
+- [x] **Step 4: Run tests and verify GREEN**
 
 Run: `swift test --filter 'GenotypeManualHaplotypeEditorTests|GenotypeManualHaplotypingSectionTests'`
 
 Expected: all selected tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/LungfishGenotypeUI Tests/LungfishGenotypeUITests Tests/LungfishAppTests/GenotypeManualHaplotypingSectionTests.swift
