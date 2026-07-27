@@ -111,6 +111,41 @@ final class GenotypeManualHaplotypeDraftTests: XCTestCase {
         XCTAssertEqual(draft[.a, .h1]?.colorTokenIndex, 6)
     }
 
+    func testSaveDraftUsesAnalysisCatalogColorForConflictingKnownLabel() throws {
+        let selectedOlder = assignment(
+            sample: "Animal-1",
+            locus: .a,
+            slot: .h1,
+            label: "Shared Family",
+            color: 2,
+            updatedAt: "2026-07-25T10:00:00Z"
+        )
+        let analysisNewest = assignment(
+            sample: "Animal-2",
+            locus: .a,
+            slot: .h1,
+            label: "SHARED FAMILY",
+            color: 7,
+            updatedAt: "2026-07-25T11:00:00Z"
+        )
+        var draft = makeDraft(
+            sample: "Animal-1",
+            assignments: [selectedOlder, analysisNewest]
+        )
+
+        draft.setLabel("Another Family", locus: .b, slot: .h1)
+
+        XCTAssertTrue(draft.isDirty)
+        let savedKnownLabel = try XCTUnwrap(
+            draft.validatedAssignments().first {
+                $0.locus == GenotypeManualHaplotypeLocus.a.rawValue
+                    && $0.slot == .h1
+            }
+        )
+        XCTAssertEqual(savedKnownLabel.label, "Shared Family")
+        XCTAssertEqual(savedKnownLabel.colorTokenIndex, 7)
+    }
+
     func testNewLabelsReceiveStableDeterministicColors() {
         var first = makeDraft(sample: "Animal-1", assignments: [])
         var second = makeDraft(sample: "Animal-2", assignments: [])

@@ -458,9 +458,7 @@ struct GenotypeManualHaplotypeDraft: Equatable, Sendable {
             HaplotypeColorToken.canonicalPalette.map(\.canonicalIndex)
         )
         let resolvedColor: Int
-        if validColorIndices.contains(assignment.colorTokenIndex) {
-            resolvedColor = assignment.colorTokenIndex
-        } else if let catalogColor = labelCatalog.first(where: {
+        if let catalogColor = labelCatalog.first(where: {
             guard let candidateKey = try?
                 GenotypeManualHaplotypeAssignmentInputValidator
                     .normalizedLabelKey(for: $0.label),
@@ -472,6 +470,8 @@ struct GenotypeManualHaplotypeDraft: Equatable, Sendable {
             return candidateKey == assignmentKey
         })?.colorTokenIndex {
             resolvedColor = catalogColor
+        } else if validColorIndices.contains(assignment.colorTokenIndex) {
+            resolvedColor = assignment.colorTokenIndex
         } else {
             resolvedColor =
                 HaplotypeColorToken.assigned(forName: label).canonicalIndex
