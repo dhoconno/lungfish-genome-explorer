@@ -2,13 +2,13 @@ import CryptoKit
 import Foundation
 import LungfishIO
 
-public struct ProjectStorageClassification: Equatable, Sendable {
-    public enum Disposition: String, Equatable, Sendable {
+public struct ProjectStorageClassification: Codable, Equatable, Sendable {
+    public enum Disposition: String, Codable, Equatable, Sendable {
         case removable
         case notRemovable
     }
 
-    public enum Code: String, Equatable, Sendable {
+    public enum Code: String, Codable, Equatable, Sendable {
         case completedOwnedWork
         case conclusivelyOrphanedOwnedWork
         case retainedWorkbookRevision
@@ -57,7 +57,7 @@ public struct ProjectStorageClassification: Equatable, Sendable {
 }
 
 public struct ProjectStorageEntry: Identifiable, Equatable, Sendable {
-    public enum Category: String, Equatable, Sendable {
+    public enum Category: String, Codable, Equatable, Sendable {
         case workbookArchive
         case workflowStaging
         case temporary
