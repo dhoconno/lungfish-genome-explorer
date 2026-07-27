@@ -163,6 +163,26 @@ final class GenotypeManualHaplotypeDraftTests: XCTestCase {
         )
     }
 
+    func testCaseInsensitiveVariantsShareColorWithinDraftAndPreserveDisplayText() {
+        var draft = makeDraft(sample: "Animal-1", assignments: [])
+
+        draft.setLabel("m2", locus: .a, slot: .h1)
+        draft.setLabel("M2", locus: .a, slot: .h2)
+        draft.setLabel("novel family", locus: .b, slot: .h1)
+        draft.setLabel("Novel Family", locus: .b, slot: .h2)
+
+        XCTAssertEqual(draft[.a, .h1]?.label, "m2")
+        XCTAssertEqual(draft[.a, .h2]?.label, "M2")
+        XCTAssertEqual(draft[.a, .h1]?.colorTokenIndex, 2)
+        XCTAssertEqual(draft[.a, .h2]?.colorTokenIndex, 2)
+        XCTAssertEqual(draft[.b, .h1]?.label, "novel family")
+        XCTAssertEqual(draft[.b, .h2]?.label, "Novel Family")
+        XCTAssertEqual(
+            draft[.b, .h1]?.colorTokenIndex,
+            draft[.b, .h2]?.colorTokenIndex
+        )
+    }
+
     func testClearDirtyDiffAndCompletenessAreValueSemantic() {
         let existing = assignment(
             sample: "Animal-1",

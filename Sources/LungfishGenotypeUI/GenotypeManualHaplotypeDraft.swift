@@ -401,7 +401,39 @@ struct GenotypeManualHaplotypeDraft: Equatable, Sendable {
         if let entry = catalogEntry(for: label) {
             return entry.colorTokenIndex
         }
+        if let draftColor = draftColorTokenIndex(for: label) {
+            return draftColor
+        }
+        if let normalizedLabel = try?
+            GenotypeManualHaplotypeAssignmentInputValidator
+                .normalizedLabelKey(for: label),
+           let canonicalIndex = HaplotypeColorToken.canonicalByName[
+                normalizedLabel.uppercased(
+                    with: Locale(identifier: "en_US_POSIX")
+                )
+           ] {
+            return canonicalIndex
+        }
         return HaplotypeColorToken.assigned(forName: label).canonicalIndex
+    }
+
+    private func draftColorTokenIndex(for label: String) -> Int? {
+        guard let normalizedLabel = try?
+            GenotypeManualHaplotypeAssignmentInputValidator
+                .normalizedLabelKey(for: label) else {
+            return nil
+        }
+        for address in Self.orderedSlotAddresses {
+            guard let candidate = self[address.locus, address.slot],
+                  let candidateLabel = try?
+                    GenotypeManualHaplotypeAssignmentInputValidator
+                        .normalizedLabelKey(for: candidate.label),
+                  candidateLabel == normalizedLabel else {
+                continue
+            }
+            return candidate.colorTokenIndex
+        }
+        return nil
     }
 
     private func catalogEntry(
