@@ -5,6 +5,64 @@ import XCTest
 @testable import LungfishWorkflow
 
 final class GenotypeReviewableRowCatalogPublisherTests: XCTestCase {
+    func testCSVSemanticAuthorityRejectsPreCaptureRosterAndCallReplacement() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let sampleURL = fixture.root.appendingPathComponent("samples.csv")
+        let reportURL = fixture.root.appendingPathComponent("calls.csv")
+        try Data("sample,passed_unique_reads\nS2,9\n".utf8).write(to: sampleURL)
+        try Data(
+            """
+            sample,genotype,passed_alignments,passed_unique_reads
+            S2,Mafa-A1*001:01,9,9
+
+            """.utf8
+        ).write(to: reportURL)
+
+        let authority = try GenotypeReviewCSVSemanticAuthority.capture(
+            sampleSummaryURL: sampleURL,
+            reportURL: reportURL
+        )
+        XCTAssertThrowsError(try authority.requireMatches(
+            expectedRoster: ["S1"],
+            expectedCalls: [
+                ONTGenotypeCall(
+                    sample: "S1",
+                    genotype: "Mafa-A1*001:01",
+                    passedAlignments: 7,
+                    passedUniqueReads: 7,
+                    sampleTotalReads: nil,
+                    sampleUniqueRetainedReads: nil,
+                    sampleUniqueRetainedPercent: nil,
+                    overallInputReads: nil,
+                    overallUniqueRetainedReads: nil,
+                    overallUniqueRetainedPercent: nil
+                ),
+            ]
+        )) { error in
+            XCTAssertTrue(error.localizedDescription.contains("changed"))
+        }
+    }
+
+    func testLargeEvidenceSnapshotHashesPayloadOnlyOnceBeforeMetadataPostcheck() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let evidenceURL = fixture.root.appendingPathComponent("representative.bam")
+        let payload = Data(repeating: 0x5a, count: 8 * 1_024 * 1_024)
+        try payload.write(to: evidenceURL)
+        let counter = LockedByteCounter()
+
+        let snapshot = try GenotypeReviewAuthorityFileSnapshot.capture(
+            evidenceURL,
+            retainingData: false,
+            readObserver: { counter.add($0) }
+        )
+        try snapshot.requireMetadataUnchanged()
+
+        XCTAssertEqual(counter.value, payload.count)
+        XCTAssertEqual(snapshot.fileSize, UInt64(payload.count))
+    }
+
     func testMiSeqReferenceAuthorityDescriptorsCoverManifestAndRecordStoreMutation() throws {
         let fixture = try AnnotatedReferenceFixture()
         defer { fixture.remove() }
@@ -668,6 +726,40 @@ final class GenotypeReviewableRowCatalogPublisherTests: XCTestCase {
         )
     }
 
+    func testValidReplacementCleanupFsyncFailureReportsDurabilityUncertaintyAndOnlyExistingPaths() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let outputURL = fixture.outputDirectory
+            .appendingPathComponent("artifacts/projections/genotype-reviewable-rows.json")
+        _ = try fixture.publisher.publish(fixture.inputs(), to: fixture.outputDirectory)
+        let publisher = GenotypeReviewableRowCatalogPublisher(
+            dateProvider: { fixture.startedAt },
+            rollbackObserver: { phase in
+                if phase == .beforeSyncRecoveryRemoval {
+                    throw FixtureError.rollbackInjected
+                }
+            }
+        )
+
+        XCTAssertThrowsError(
+            try publisher.publish(fixture.inputs(), to: fixture.outputDirectory)
+        ) { error in
+            let recovery = (error as? GenotypeReviewableRowCatalogPublicationFailure)?
+                .underlyingError as? GenotypeReviewableRowCatalogRecoveryError
+            XCTAssertEqual(
+                recovery?.state,
+                .priorGenerationRemovalDurabilityUncertain
+            )
+            XCTAssertEqual(recovery?.recoveryPaths, [outputURL.path])
+        }
+        XCTAssertFalse(
+            try FileManager.default.contentsOfDirectory(
+                at: outputURL.deletingLastPathComponent(),
+                includingPropertiesForKeys: nil
+            ).contains { $0.lastPathComponent.contains(".staging-") }
+        )
+    }
+
     func testPublicationCarriesCompleteCanonicalProvenance() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -819,6 +911,23 @@ private final class LockedDateSequence: @unchecked Sendable {
         let date = dates[min(index, dates.count - 1)]
         index += 1
         return date
+    }
+}
+
+private final class LockedByteCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    func add(_ value: Int) {
+        lock.lock()
+        count += value
+        lock.unlock()
+    }
+
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
     }
 }
 

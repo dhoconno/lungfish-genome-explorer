@@ -6,6 +6,13 @@ import LungfishIO
 struct GenotypeReviewableReferenceAuthority: Sendable {
     let records: [MHCReferenceRecord]
     let descriptors: [ProvenanceFileDescriptor]
+    let snapshots: [GenotypeReviewAuthorityFileSnapshot]
+
+    func requireUnchanged() throws {
+        for snapshot in snapshots {
+            try snapshot.requireUnchanged()
+        }
+    }
 }
 
 enum GenotypeReviewableReferenceAuthorityPhase: Equatable, Sendable {
@@ -2630,9 +2637,34 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 to: request.provenanceURL
             )
         )
+        let csvAuthority = try GenotypeReviewCSVSemanticAuthority.capture(
+            sampleSummaryURL: request.sampleSummaryCSVURL,
+            reportURL: request.reportCSVURL
+        )
         let result = try ONTGenotypeResultBundle.loadResult(
             from: request.outputDirectory,
             manifest: projectionManifest
+        )
+        let expectedCalls = result.locusSummaries.flatMap(\.sharedCalls)
+            .flatMap { call in
+                call.sampleSupport.map { support in
+                    ONTGenotypeCall(
+                        sample: support.sample,
+                        genotype: call.genotype,
+                        passedAlignments: support.passedAlignments,
+                        passedUniqueReads: support.passedUniqueReads,
+                        sampleTotalReads: nil,
+                        sampleUniqueRetainedReads: nil,
+                        sampleUniqueRetainedPercent: nil,
+                        overallInputReads: nil,
+                        overallUniqueRetainedReads: nil,
+                        overallUniqueRetainedPercent: nil
+                    )
+                }
+            }
+        try csvAuthority.requireMatches(
+            expectedRoster: result.sampleNames,
+            expectedCalls: expectedCalls
         )
         let referenceAuthority = try Self.reviewableReferenceAuthority(
             referenceFASTAURL: reference.referenceFASTAURL,
@@ -2641,7 +2673,50 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let referenceRecords = referenceAuthority.records.filter {
             !$0.alleleName.localizedCaseInsensitiveContains("_nov")
         }
-        let candidates = scientificArtifactPublication.reviewableRowCandidates
+        let candidateSnapshot = try scientificArtifactPublication.catalogJSONURL.map {
+            try GenotypeReviewAuthorityFileSnapshot.capture($0)
+        }
+        let exactCandidateDocument = try candidateSnapshot.map {
+            try JSONDecoder().decode(
+                ONTGenotypeProvisionalExon2Document.self,
+                from: $0.data
+            )
+        }
+        guard exactCandidateDocument
+            == scientificArtifactPublication.provisionalExon2Document else {
+            throw GenotypeReviewableRowCatalogPublisherError.authorityChanged(
+                scientificArtifactPublication.catalogJSONURL?.path
+                    ?? "missing provisional exon 2 authority"
+            )
+        }
+        let candidates = exactCandidateDocument?.records.map(
+            GenotypeReviewableRowCandidate.init(provisionalExon2:)
+        ) ?? []
+        struct CallIdentity: Hashable {
+            let locus: String
+            let genotype: String
+        }
+        let exactCalls = Dictionary(
+            grouping: csvAuthority.calls,
+            by: { CallIdentity(locus: $0.locusGroup, genotype: $0.genotype) }
+        ).map { identity, calls in
+            ONTGenotypeSharedCall(
+                locus: identity.locus,
+                genotype: identity.genotype,
+                sampleSupport: Dictionary(grouping: calls, by: \.sample)
+                    .map { sample, rows in
+                        ONTGenotypeSampleSupport(
+                            sample: sample,
+                            passedAlignments: rows.reduce(0) {
+                                $0 + $1.passedAlignments
+                            },
+                            passedUniqueReads: rows.reduce(0) {
+                                $0 + $1.passedUniqueReads
+                            }
+                        )
+                    }
+            )
+        }
         let outputURL = request.outputDirectory
             .appendingPathComponent("artifacts", isDirectory: true)
             .appendingPathComponent("projections", isDirectory: true)
@@ -2657,29 +2732,19 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "--support-metric", "passed-unique-reads",
         ]
         var descriptors = referenceAuthority.descriptors + [
-            try ProvenanceFileDescriptor.file(
-                url: request.sampleSummaryCSVURL,
-                format: .text,
-                role: .input
-            ),
-            try ProvenanceFileDescriptor.file(
-                url: request.reportCSVURL,
-                format: .text,
-                role: .input
-            ),
+            csvAuthority.sampleSnapshot.descriptor(format: .text, role: .input),
+            csvAuthority.reportSnapshot.descriptor(format: .text, role: .input),
         ]
-        if let catalogJSONURL = scientificArtifactPublication.catalogJSONURL {
-            descriptors.append(try ProvenanceFileDescriptor.file(
-                url: catalogJSONURL,
-                format: .json,
-                role: .input
-            ))
+        if let candidateSnapshot {
+            descriptors.append(
+                candidateSnapshot.descriptor(format: .json, role: .input)
+            )
         }
-        return try reviewableRowCatalogPublisher(
+        let publication = try reviewableRowCatalogPublisher(
             GenotypeReviewableRowCatalogInputs(
                 referenceRecords: referenceRecords,
-                authoritativeSamples: result.sampleNames,
-                calls: result.locusSummaries.flatMap(\.sharedCalls),
+                authoritativeSamples: csvAuthority.roster,
+                calls: exactCalls,
                 candidates: candidates,
                 inputDescriptors: descriptors,
                 workflowName: Self.workflowName(for: resolvedMode),
@@ -2707,6 +2772,10 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             ),
             request.outputDirectory
         )
+        try csvAuthority.requireUnchanged()
+        try referenceAuthority.requireUnchanged()
+        try candidateSnapshot?.requireUnchanged()
+        return publication
     }
 
     static func reviewableReferenceAuthority(
@@ -2811,7 +2880,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         }
         return GenotypeReviewableReferenceAuthority(
             records: records,
-            descriptors: descriptors
+            descriptors: descriptors,
+            snapshots: snapshots
         )
     }
 

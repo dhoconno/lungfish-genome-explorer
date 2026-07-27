@@ -72,7 +72,8 @@ struct GenotypeReviewAuthorityFileSnapshot: Equatable, Sendable {
 
     static func capture(
         _ url: URL,
-        retainingData: Bool = true
+        retainingData: Bool = true,
+        readObserver: ((Int) -> Void)? = nil
     ) throws -> Self {
         let standardized = url.standardizedFileURL
         let parentDescriptor = try NoFollowFileSystem.openDirectoryHierarchy(
@@ -124,6 +125,7 @@ struct GenotypeReviewAuthorityFileSnapshot: Equatable, Sendable {
                 data.append(chunk)
             }
             bytesRead += UInt64(count)
+            readObserver?(count)
         }
         var after = stat()
         guard Darwin.fstat(descriptor, &after) == 0,
@@ -161,6 +163,36 @@ struct GenotypeReviewAuthorityFileSnapshot: Equatable, Sendable {
         }
     }
 
+    func requireMetadataUnchanged() throws {
+        let standardized = url.standardizedFileURL
+        let parentDescriptor = try NoFollowFileSystem.openDirectoryHierarchy(
+            standardized.deletingLastPathComponent()
+        )
+        defer { Darwin.close(parentDescriptor) }
+        let descriptor = standardized.lastPathComponent.withCString {
+            Darwin.openat(
+                parentDescriptor,
+                $0,
+                O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC
+            )
+        }
+        guard descriptor >= 0 else {
+            throw GenotypeReviewableRowCatalogPublisherError
+                .authorityChanged(standardized.path)
+        }
+        defer { Darwin.close(descriptor) }
+        var info = stat()
+        guard Darwin.fstat(descriptor, &info) == 0,
+              info.st_mode & S_IFMT == S_IFREG,
+              FileSystemObjectIdentity(from: info) == identity,
+              UInt64(info.st_size) == fileSize,
+              Int64(info.st_mtimespec.tv_sec) == modificationSeconds,
+              Int64(info.st_mtimespec.tv_nsec) == modificationNanoseconds else {
+            throw GenotypeReviewableRowCatalogPublisherError
+                .authorityChanged(standardized.path)
+        }
+    }
+
     func descriptor(
         format: FileFormat?,
         role: FileRole
@@ -175,22 +207,247 @@ struct GenotypeReviewAuthorityFileSnapshot: Equatable, Sendable {
     }
 }
 
+struct GenotypeReviewCSVSemanticAuthority: Sendable {
+    let roster: [String]
+    let calls: [ONTGenotypeCall]
+    let sampleSnapshot: GenotypeReviewAuthorityFileSnapshot
+    let reportSnapshot: GenotypeReviewAuthorityFileSnapshot
+
+    static func capture(
+        sampleSummaryURL: URL,
+        reportURL: URL
+    ) throws -> Self {
+        let sampleSnapshot = try GenotypeReviewAuthorityFileSnapshot.capture(
+            sampleSummaryURL
+        )
+        let reportSnapshot = try GenotypeReviewAuthorityFileSnapshot.capture(
+            reportURL
+        )
+        let sampleRows = try rows(from: sampleSnapshot)
+        let reportRows = try rows(from: reportSnapshot)
+        let calls = try parseCalls(reportRows, path: reportURL.path)
+        var roster = try parseRoster(sampleRows, path: sampleSummaryURL.path)
+        var seenSamples = Set(roster)
+        for call in calls where seenSamples.insert(call.sample).inserted {
+            roster.append(call.sample)
+        }
+        return Self(
+            roster: roster,
+            calls: calls,
+            sampleSnapshot: sampleSnapshot,
+            reportSnapshot: reportSnapshot
+        )
+    }
+
+    func requireMatches(
+        expectedRoster: [String],
+        expectedCalls: [ONTGenotypeCall]
+    ) throws {
+        guard Set(roster) == Set(expectedRoster),
+              roster.count == expectedRoster.count else {
+            throw GenotypeReviewableRowCatalogPublisherError
+                .authorityChanged(
+                    "\(sampleSnapshot.url.path) (captured roster \(roster), expected \(expectedRoster))"
+                )
+        }
+        guard Self.supportProjection(calls)
+            == Self.supportProjection(expectedCalls) else {
+            throw GenotypeReviewableRowCatalogPublisherError
+                .authorityChanged(reportSnapshot.url.path)
+        }
+    }
+
+    func requireUnchanged() throws {
+        try sampleSnapshot.requireUnchanged()
+        try reportSnapshot.requireUnchanged()
+    }
+
+    private struct SupportKey: Hashable {
+        let sample: String
+        let genotype: String
+    }
+
+    private struct SupportValue: Equatable {
+        var alignments: Int
+        var uniqueReads: Int
+    }
+
+    private static func supportProjection(
+        _ calls: [ONTGenotypeCall]
+    ) -> [SupportKey: SupportValue] {
+        calls.reduce(into: [:]) { result, call in
+            let key = SupportKey(sample: call.sample, genotype: call.genotype)
+            var value = result[key] ?? SupportValue(
+                alignments: 0,
+                uniqueReads: 0
+            )
+            value.alignments += call.passedAlignments
+            value.uniqueReads += call.passedUniqueReads
+            result[key] = value
+        }
+    }
+
+    private static func rows(
+        from snapshot: GenotypeReviewAuthorityFileSnapshot
+    ) throws -> [[String: String]] {
+        guard let content = String(data: snapshot.data, encoding: .utf8) else {
+            throw GenotypeReviewableRowCatalogPublisherError
+                .authorityChanged(snapshot.url.path)
+        }
+        let parsed = parseCSV(content)
+        guard let header = parsed.first else { return [] }
+        return parsed.dropFirst().map { row in
+            Dictionary(uniqueKeysWithValues: header.enumerated().map {
+                let value = $0.offset < row.count ? row[$0.offset] : ""
+                return (
+                    $0.element.trimmingCharacters(in: .whitespacesAndNewlines),
+                    value.trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+            })
+        }
+    }
+
+    private static func parseRoster(
+        _ rows: [[String: String]],
+        path: String
+    ) throws -> [String] {
+        var seen = Set<String>()
+        return try rows.compactMap { row in
+            let sample = row["sample", default: ""]
+            guard isAssignedSample(sample) else { return nil }
+            guard seen.insert(sample).inserted else {
+                throw GenotypeReviewableRowCatalogPublisherError
+                    .authorityChanged(path)
+            }
+            return sample
+        }
+    }
+
+    private static func parseCalls(
+        _ rows: [[String: String]],
+        path: String
+    ) throws -> [ONTGenotypeCall] {
+        try rows.compactMap { row in
+            let sample = row["sample", default: ""]
+            let genotype = row["genotype", default: ""]
+            guard isAssignedSample(sample), !genotype.isEmpty else { return nil }
+            guard let alignments = Int(row["passed_alignments", default: ""]),
+                  let uniqueReads = Int(
+                    row["passed_unique_reads", default: ""]
+                  ),
+                  alignments >= 0,
+                  uniqueReads >= 0 else {
+                throw GenotypeReviewableRowCatalogPublisherError
+                    .authorityChanged(path)
+            }
+            func optionalInt(_ key: String) -> Int? {
+                let value = row[key, default: ""]
+                return value.isEmpty ? nil : Int(value)
+            }
+            func optionalDouble(_ key: String) -> Double? {
+                let value = row[key, default: ""]
+                return value.isEmpty ? nil : Double(value)
+            }
+            return ONTGenotypeCall(
+                sample: sample,
+                genotype: genotype,
+                passedAlignments: alignments,
+                passedUniqueReads: uniqueReads,
+                sampleTotalReads: optionalInt("sample_total_reads"),
+                sampleUniqueRetainedReads: optionalInt(
+                    "sample_unique_retained_reads"
+                ),
+                sampleUniqueRetainedPercent: optionalDouble(
+                    "sample_unique_retained_percent"
+                ),
+                overallInputReads: optionalInt("overall_input_reads"),
+                overallUniqueRetainedReads: optionalInt(
+                    "overall_unique_retained_reads"
+                ),
+                overallUniqueRetainedPercent: optionalDouble(
+                    "overall_unique_retained_percent"
+                )
+            )
+        }
+    }
+
+    private static func isAssignedSample(_ sample: String) -> Bool {
+        let normalized = sample
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return !normalized.isEmpty && normalized != "unassigned"
+    }
+
+    private static func parseCSV(_ content: String) -> [[String]] {
+        var rows: [[String]] = []
+        var row: [String] = []
+        var field = ""
+        var inQuotes = false
+        var iterator = content.makeIterator()
+        while let character = iterator.next() {
+            switch character {
+            case "\"":
+                if inQuotes {
+                    var peek = iterator
+                    if peek.next() == "\"" {
+                        field.append("\"")
+                        iterator = peek
+                    } else {
+                        inQuotes = false
+                    }
+                } else {
+                    inQuotes = true
+                }
+            case "," where !inQuotes:
+                row.append(field)
+                field = ""
+            case "\n" where !inQuotes:
+                row.append(field)
+                if row.contains(where: {
+                    !$0.trimmingCharacters(in: .whitespaces).isEmpty
+                }) {
+                    rows.append(row)
+                }
+                row = []
+                field = ""
+            case "\r" where !inQuotes:
+                continue
+            default:
+                field.append(character)
+            }
+        }
+        if !field.isEmpty || !row.isEmpty {
+            row.append(field)
+            rows.append(row)
+        }
+        return rows
+    }
+}
+
 public struct GenotypeReviewableRowCatalogRecoveryError:
     Error,
     LocalizedError,
     Sendable
 {
+    public enum State: String, Equatable, Sendable {
+        case rollbackFailed
+        case priorGenerationRemovalDurabilityUncertain
+    }
+
+    public let state: State
     public let primaryErrorDescription: String
     public let rollbackErrorDescription: String
     public let canonicalOutputPath: String
     public let recoveryPaths: [String]
 
     public init(
+        state: State = .rollbackFailed,
         primaryErrorDescription: String,
         rollbackErrorDescription: String,
         canonicalOutputPath: String,
         recoveryPaths: [String]
     ) {
+        self.state = state
         self.primaryErrorDescription = primaryErrorDescription
         self.rollbackErrorDescription = rollbackErrorDescription
         self.canonicalOutputPath = canonicalOutputPath
@@ -198,8 +455,12 @@ public struct GenotypeReviewableRowCatalogRecoveryError:
     }
 
     public var errorDescription: String? {
-        """
-        \(primaryErrorDescription) Rollback also failed: \(rollbackErrorDescription) \
+        let stateDescription = state
+            == .priorGenerationRemovalDurabilityUncertain
+            ? "Prior-generation removal durability is uncertain."
+            : "Rollback failed."
+        return """
+        \(primaryErrorDescription) \(stateDescription) \(rollbackErrorDescription) \
         Canonical output: \(canonicalOutputPath). Recoverable generations: \
         \(recoveryPaths.joined(separator: ", ")).
         """
@@ -362,6 +623,7 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
         case beforeRestoreExchange
         case beforeDetachNewOutput
         case beforeRemoveRecovery
+        case beforeSyncRecoveryRemoval
     }
 
     private struct DisplayIdentity: Hashable {
@@ -1002,18 +1264,29 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
                     }) == 0 else {
                         throw posixError()
                     }
+                    try rollbackObserver(.beforeSyncRecoveryRemoval)
                     guard Darwin.fsync(projectionsDescriptor) == 0 else {
                         throw posixError()
                     }
                 } catch {
+                    let recoveryURLs = existingRecoveryURLs(
+                        namesAndURLs: [
+                            (outputName, outputURL),
+                            (stagingName, stagingURL),
+                        ],
+                        in: projectionsDescriptor
+                    )
                     throw recoveryError(
                         primary: GenotypeReviewableRowCatalogPublisherError
                             .finalArtifactMismatch(
                                 "Published catalog is valid but the prior generation could not be removed."
-                            ),
+                        ),
                         rollback: error,
                         outputURL: outputURL,
-                        recoveryURLs: [outputURL, stagingURL]
+                        recoveryURLs: recoveryURLs,
+                        state: recoveryURLs.contains(stagingURL)
+                            ? .rollbackFailed
+                            : .priorGenerationRemovalDurabilityUncertain
                     )
                 }
             }
@@ -1185,9 +1458,11 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
         primary: Error,
         rollback: Error,
         outputURL: URL,
-        recoveryURLs: [URL]
+        recoveryURLs: [URL],
+        state: GenotypeReviewableRowCatalogRecoveryError.State = .rollbackFailed
     ) -> GenotypeReviewableRowCatalogRecoveryError {
         GenotypeReviewableRowCatalogRecoveryError(
+            state: state,
             primaryErrorDescription: primary.localizedDescription,
             rollbackErrorDescription: rollback.localizedDescription,
             canonicalOutputPath: outputURL.path,

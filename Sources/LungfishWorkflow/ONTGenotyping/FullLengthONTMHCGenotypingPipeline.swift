@@ -4775,6 +4775,28 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         genotypingEvidenceBAIURL: URL
     ) throws -> GenotypeReviewableRowCatalogPublication? {
         guard request.haplotypeDefinitionSetID == nil else { return nil }
+        let csvAuthority = try GenotypeReviewCSVSemanticAuthority.capture(
+            sampleSummaryURL: request.sampleSummaryCSVURL,
+            reportURL: request.reportCSVURL
+        )
+        let expectedCalls = reportRows.map {
+            ONTGenotypeCall(
+                sample: $0.sample,
+                genotype: $0.genotype,
+                passedAlignments: $0.passedAlignments,
+                passedUniqueReads: $0.passedUniqueReads,
+                sampleTotalReads: $0.sampleTotalReads,
+                sampleUniqueRetainedReads: $0.sampleUniqueRetainedReads,
+                sampleUniqueRetainedPercent: $0.sampleUniqueRetainedPercent,
+                overallInputReads: $0.overallInputReads,
+                overallUniqueRetainedReads: $0.overallUniqueRetainedReads,
+                overallUniqueRetainedPercent: $0.overallUniqueRetainedPercent
+            )
+        }
+        try csvAuthority.requireMatches(
+            expectedRoster: sampleNames,
+            expectedCalls: expectedCalls
+        )
         let reviewAuthority = try Self.reviewableCatalogAuthority(
             expectedReferenceRecords: referenceRecords,
             referenceCatalogURL: referenceCatalogProjectionURL,
@@ -4791,8 +4813,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             by: \.alleleName
         )
         var reportRowsByCall:
-            [FullLengthONTMHCReviewCallKey: [FullLengthONTMHCReportRow]] = [:]
-        for row in reportRows {
+            [FullLengthONTMHCReviewCallKey: [ONTGenotypeCall]] = [:]
+        for row in csvAuthority.calls {
             let reference: MHCReferenceRecord
             if let exact = recordsBySequenceID[row.genotype] {
                 reference = exact
@@ -4847,14 +4869,6 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             "--output", outputURL.path,
             "--support-metric", "passed-unique-reads",
         ]
-        let sampleSnapshot = try GenotypeReviewAuthorityFileSnapshot.capture(
-            request.sampleSummaryCSVURL,
-            retainingData: false
-        )
-        let reportSnapshot = try GenotypeReviewAuthorityFileSnapshot.capture(
-            request.reportCSVURL,
-            retainingData: false
-        )
         let bamSnapshot = try GenotypeReviewAuthorityFileSnapshot.capture(
             genotypingEvidenceBAMURL,
             retainingData: false
@@ -4865,8 +4879,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         )
         let descriptors = [
             reviewAuthority.snapshots[0].descriptor(format: .json, role: .reference),
-            sampleSnapshot.descriptor(format: .text, role: .input),
-            reportSnapshot.descriptor(format: .text, role: .input),
+            csvAuthority.sampleSnapshot.descriptor(format: .text, role: .input),
+            csvAuthority.reportSnapshot.descriptor(format: .text, role: .input),
             reviewAuthority.snapshots[1].descriptor(format: .json, role: .input),
             bamSnapshot.descriptor(format: .bam, role: .input),
             baiSnapshot.descriptor(format: nil, role: .index),
@@ -4874,7 +4888,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         let publication = try reviewableRowCatalogPublisher(
             GenotypeReviewableRowCatalogInputs(
                 referenceRecords: exactReferenceRecords,
-                authoritativeSamples: sampleNames,
+                authoritativeSamples: csvAuthority.roster,
                 calls: sharedCalls,
                 candidates: GenotypeReviewableRowCandidate.fullLengthCandidates(
                     from: exactCandidateDocument
@@ -4905,10 +4919,9 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             request.outputDirectory
         )
         try reviewAuthority.requireUnchanged()
-        try sampleSnapshot.requireUnchanged()
-        try reportSnapshot.requireUnchanged()
-        try bamSnapshot.requireUnchanged()
-        try baiSnapshot.requireUnchanged()
+        try csvAuthority.requireUnchanged()
+        try bamSnapshot.requireMetadataUnchanged()
+        try baiSnapshot.requireMetadataUnchanged()
         return publication
     }
 
