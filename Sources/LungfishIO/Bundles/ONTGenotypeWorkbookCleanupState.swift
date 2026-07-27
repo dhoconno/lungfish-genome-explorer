@@ -110,7 +110,10 @@ enum ONTGenotypeWorkbookCleanupStateStore {
     }
 
     static func states(for bundleURL: URL) throws -> [(URL, ONTGenotypeWorkbookCleanupState)] {
-        let bundle = bundleURL.standardizedFileURL
+        let bundle = URL(
+            fileURLWithPath: lexicalPath(bundleURL),
+            isDirectory: true
+        )
         let parent = bundle.deletingLastPathComponent()
         let prefix = ".\(bundle.lastPathComponent).workbook-cleanup-state-"
         let names = try FileManager.default.contentsOfDirectory(atPath: parent.path)
@@ -467,25 +470,30 @@ enum ONTGenotypeWorkbookCleanupStateStore {
         at stateURL: URL,
         for bundleURL: URL
     ) throws {
-        let bundle = bundleURL.standardizedFileURL
+        let bundle = URL(
+            fileURLWithPath: lexicalPath(bundleURL),
+            isDirectory: true
+        )
         let parent = bundle.deletingLastPathComponent()
         let expectedStateURL = self.stateURL(
             transactionID: state.transactionID,
             bundleURL: bundle
-        ).standardizedFileURL
+        )
         let expectedQuarantine = quarantineURL(
             transactionID: state.transactionID,
             parent: parent
-        ).standardizedFileURL
+        )
         guard state.schemaVersion == 2,
               state.retryState == "cleanup-pending",
               DurableAtomicFileStore.isSinglePathComponent(state.transactionID),
-              URL(fileURLWithPath: state.finalBundlePath).standardizedFileURL == bundle,
-              stateURL.standardizedFileURL == expectedStateURL,
-              URL(fileURLWithPath: state.quarantinePath).standardizedFileURL
-                == expectedQuarantine,
-              URL(fileURLWithPath: state.sourceRootPath).deletingLastPathComponent()
-                .standardizedFileURL == parent,
+              lexicalPath(URL(fileURLWithPath: state.finalBundlePath)) == bundle.path,
+              lexicalPath(stateURL) == lexicalPath(expectedStateURL),
+              lexicalPath(URL(fileURLWithPath: state.quarantinePath))
+                == lexicalPath(expectedQuarantine),
+              lexicalPath(
+                  URL(fileURLWithPath: state.sourceRootPath)
+                      .deletingLastPathComponent()
+              ) == parent.path,
               state.parentIdentity.path == parent.path,
               state.sourceIdentity.path == state.sourceRootPath,
               state.quarantineIdentity.path == state.quarantinePath,
@@ -498,6 +506,10 @@ enum ONTGenotypeWorkbookCleanupStateStore {
                 "Invalid workbook cleanup state: \(stateURL.path)"
             )
         }
+    }
+
+    private static func lexicalPath(_ url: URL) -> String {
+        NSString(string: url.path).standardizingPath
     }
 
     private static func validateSurvivor(

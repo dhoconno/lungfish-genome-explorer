@@ -1948,22 +1948,78 @@ wb.save(path)
             "held-surviving-generation",
             isDirectory: true
         )
+        let warningPathsBefore = Set(
+            try workbookCleanupArtifacts(in: paused.root)
+                .filter { $0.lastPathComponent.contains(".workbook-cleanup-warning-") }
+                .map(\.lastPathComponent)
+        )
         try FileManager.default.moveItem(at: paused.fixture.bundleURL, to: held)
 
+        var reportedWarningURL: URL?
+        var reportedQuarantinePath: String?
         XCTAssertThrowsError(
             try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
                 for: paused.fixture.bundleURL,
                 attestationRootURL: paused.attestationRoot
             )
         ) { error in
+            guard case let ONTGenotypeWorkbookUpdateRecoveryError
+                .cleanupPendingWarning(
+                    quarantinePath,
+                    retryState,
+                    warningPath,
+                    reason
+                ) = error else {
+                return XCTFail(
+                    "Expected structured cleanup warning, got \(error.localizedDescription)"
+                )
+            }
+            XCTAssertEqual(
+                URL(fileURLWithPath: quarantinePath).resolvingSymlinksInPath(),
+                paused.quarantine.resolvingSymlinksInPath()
+            )
+            XCTAssertEqual(retryState, "cleanup-pending")
             XCTAssertTrue(
-                error.localizedDescription.localizedCaseInsensitiveContains(
+                reason.localizedCaseInsensitiveContains(
                     "surviving workbook generation"
                 )
             )
+            reportedWarningURL = URL(fileURLWithPath: warningPath)
+            reportedQuarantinePath = quarantinePath
         }
         XCTAssertTrue(FileManager.default.fileExists(atPath: paused.quarantine.path))
-        XCTAssertFalse(try workbookCleanupArtifacts(in: paused.root).isEmpty)
+        let warningURL = try XCTUnwrap(reportedWarningURL)
+        let expectedWarningPrefix =
+            ".\(paused.fixture.bundleURL.lastPathComponent).workbook-cleanup-warning-"
+        XCTAssertTrue(warningURL.lastPathComponent.hasPrefix(expectedWarningPrefix))
+        XCTAssertTrue(warningURL.lastPathComponent.hasSuffix(".json"))
+        XCTAssertEqual(warningURL.deletingLastPathComponent(), paused.root)
+        let warningPathsAfter = Set(
+            try workbookCleanupArtifacts(in: paused.root)
+                .filter { $0.lastPathComponent.contains(".workbook-cleanup-warning-") }
+                .map(\.lastPathComponent)
+        )
+        XCTAssertEqual(
+            warningPathsAfter.subtracting(warningPathsBefore),
+            Set([warningURL.lastPathComponent])
+        )
+        let warning = try XCTUnwrap(
+            try JSONSerialization.jsonObject(
+                with: Data(contentsOf: warningURL)
+            ) as? [String: Any]
+        )
+        XCTAssertEqual(warning["schemaVersion"] as? Int, 1)
+        XCTAssertEqual(warning["finalBundlePath"] as? String, paused.fixture.bundleURL.path)
+        XCTAssertEqual(
+            warning["quarantinePath"] as? String,
+            try XCTUnwrap(reportedQuarantinePath)
+        )
+        XCTAssertEqual(warning["retryState"] as? String, "cleanup-pending")
+        XCTAssertTrue(
+            (warning["reason"] as? String)?.localizedCaseInsensitiveContains(
+                "surviving workbook generation"
+            ) == true
+        )
     }
 
     func testMarkerlessCleanupRetryRetainsQuarantineWhenSurvivorIsSubstituted() throws {
