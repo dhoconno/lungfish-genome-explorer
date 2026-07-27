@@ -270,8 +270,12 @@ public struct GenotypeManualHaplotypeAssignmentReplayPayload:
             )
         }
 
-        guard beforeAssignments.filter({ $0.sample != operation.sample })
-                == afterAssignments.filter({ $0.sample != operation.sample })
+        let isSelectedSample: (ManualHaplotypeAssignment) -> Bool = {
+            GenotypeManualHaplotypeAssignmentInputValidator
+                .normalizedSampleIdentity($0.sample) == operation.sample
+        }
+        guard beforeAssignments.filter({ !isSelectedSample($0) })
+                == afterAssignments.filter({ !isSelectedSample($0) })
         else {
             throw ReplayError.invalidOperation(
                 "assignments for unrelated samples must remain exact."
@@ -279,10 +283,10 @@ public struct GenotypeManualHaplotypeAssignmentReplayPayload:
         }
 
         let selectedBefore = beforeAssignments.filter {
-            $0.sample == operation.sample
+            isSelectedSample($0)
         }
         let selectedAfter = afterAssignments.filter {
-            $0.sample == operation.sample
+            isSelectedSample($0)
         }
         let selectedBeforeOrphans = selectedBefore.filter {
             GenotypeManualHaplotypeLocus(normalizing: $0.locus) == nil
@@ -313,6 +317,7 @@ public struct GenotypeManualHaplotypeAssignmentReplayPayload:
             }
             let needsCanonicalization =
                 rawRecords.count != 1
+                || effective.sample != operation.sample
                 || effective.locus != key.locus.rawValue
                 || !Self.hasStableAssignmentID(effective)
             return needsCanonicalization ? key : nil
@@ -354,7 +359,9 @@ public struct GenotypeManualHaplotypeAssignmentReplayPayload:
             }
             switch (before, after) {
             case let (.some(before), .some(after)):
-                guard before.sample == after.sample,
+                guard GenotypeManualHaplotypeAssignmentInputValidator
+                        .normalizedSampleIdentity(before.sample)
+                        == after.sample,
                       before.slot == after.slot,
                       before.diagnosticAlleles == after.diagnosticAlleles,
                       before.notes == after.notes else {

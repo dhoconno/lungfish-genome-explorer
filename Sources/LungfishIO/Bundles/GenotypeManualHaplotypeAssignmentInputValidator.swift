@@ -53,4 +53,16 @@ public enum GenotypeManualHaplotypeAssignmentInputValidator {
             )
             .precomposedStringWithCanonicalMapping
     }
+
+    /// Returns the semantic identity used to associate legacy and current
+    /// assignment records with a sample. Historical sidecars may contain
+    /// leading/trailing whitespace or decomposed Unicode even though current
+    /// writes are canonical.
+    public static func normalizedSampleIdentity(
+        _ rawSample: String
+    ) -> String {
+        rawSample
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .precomposedStringWithCanonicalMapping
+    }
 }

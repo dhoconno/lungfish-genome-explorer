@@ -126,7 +126,9 @@ public struct GenotypeManualHaplotypeAssignmentIndex: Sendable {
                 continue
             }
             let key = GenotypeManualHaplotypeAssignmentKey(
-                sample: assignment.sample,
+                sample:
+                    GenotypeManualHaplotypeAssignmentInputValidator
+                        .normalizedSampleIdentity(assignment.sample),
                 locus: locus,
                 slot: assignment.slot
             )
@@ -207,7 +209,9 @@ public struct GenotypeManualHaplotypeAssignmentIndex: Sendable {
     ) -> ManualHaplotypeAssignment? {
         assignmentsByKey[
             GenotypeManualHaplotypeAssignmentKey(
-                sample: sample,
+                sample:
+                    GenotypeManualHaplotypeAssignmentInputValidator
+                        .normalizedSampleIdentity(sample),
                 locus: locus,
                 slot: slot
             )
@@ -217,7 +221,11 @@ public struct GenotypeManualHaplotypeAssignmentIndex: Sendable {
     public func assignment(
         for key: GenotypeManualHaplotypeAssignmentKey
     ) -> ManualHaplotypeAssignment? {
-        assignmentsByKey[key]
+        assignment(
+            sample: key.sample,
+            locus: key.locus,
+            slot: key.slot
+        )
     }
 
     public subscript(

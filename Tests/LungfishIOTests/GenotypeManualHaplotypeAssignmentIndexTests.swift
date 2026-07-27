@@ -28,6 +28,38 @@ final class GenotypeManualHaplotypeAssignmentIndexTests: XCTestCase {
         XCTAssertNil(index.assignment(sample: "AnimalA", locus: .b, slot: .h1))
     }
 
+    func testLookupUsesWhitespaceAndNFCSemanticSampleIdentity() {
+        let legacy = assignment(
+            sample: "  A\u{0301}nimal-1  ",
+            locus: "MHC-A",
+            slot: .h1,
+            label: "Legacy",
+            color: 2
+        )
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: [legacy]
+        )
+
+        XCTAssertEqual(
+            index.assignment(
+                sample: "\u{00C1}nimal-1",
+                locus: .a,
+                slot: .h1
+            ),
+            legacy
+        )
+        XCTAssertEqual(
+            index.assignment(
+                for: .init(
+                    sample: " A\u{0301}nimal-1 ",
+                    locus: .a,
+                    slot: .h1
+                )
+            ),
+            legacy
+        )
+    }
+
     func testNewestStructuredRecordWinsRegardlessOfArrayPosition() {
         let newest = assignment(
             sample: "AnimalA",

@@ -185,6 +185,121 @@ final class GenotypeManualHaplotypeAssignmentReplayPayloadTests: XCTestCase {
         )
     }
 
+    func testReplayCanonicalizesWhitespaceAndDecomposedSelectedSampleIdentityWhilePreservingOrphanAndUnrelatedRecords() throws {
+        let bundleURL = URL(
+            fileURLWithPath:
+                "/tmp/replay-legacy-sample-identity.lungfishgenotype"
+        )
+        let manifestData = Data(#"{"revision":"legacy-sample"}"#.utf8)
+        let canonicalSample = "\u{00C1}nimal-1"
+        let legacySample = "  A\u{0301}nimal-1  "
+        let legacy = assignment(
+            sample: legacySample,
+            locus: "MHC-A",
+            slot: .h1,
+            label: "Legacy-A",
+            color: 2,
+            alleles: ["Mafa-A1*001:01"],
+            notes: "preserve legacy metadata",
+            id: "legacy-a-id",
+            timestamp: "2026-07-26T15:02:00Z",
+            author: "Legacy Analyst"
+        )
+        let selectedOrphan = assignment(
+            sample: legacySample,
+            locus: "MHC-OPAQUE",
+            slot: .h2,
+            label: "Opaque",
+            color: 8,
+            alleles: ["opaque"],
+            notes: "preserve exact orphan",
+            id: nil,
+            timestamp: "not-a-date",
+            author: "Legacy Analyst"
+        )
+        let unrelated = assignment(
+            sample: "Animal-2",
+            locus: "MHC-B",
+            slot: .h1,
+            label: "Other",
+            color: 4,
+            alleles: ["other"],
+            notes: "unrelated exact",
+            id: "other-id",
+            timestamp: "2026-07-26T15:03:00Z",
+            author: "Other Analyst"
+        )
+        var prior = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-26T15:00:00Z"
+        )
+        prior.manualHaplotypeAssignments = [
+            legacy,
+            selectedOrphan,
+            unrelated,
+        ]
+        let priorData = try prior.encoded()
+        let canonical = assignment(
+            sample: canonicalSample,
+            locus: "MHC-A",
+            slot: .h1,
+            label: legacy.label,
+            color: legacy.colorTokenIndex,
+            alleles: legacy.diagnosticAlleles,
+            notes: legacy.notes,
+            id: legacy.assignmentID,
+            timestamp: "2026-07-26T15:04:00Z",
+            author: "Replay Analyst"
+        )
+        let operationID = "legacy-sample-operation"
+        let detail = audit(
+            action: "updateManualHaplotypeAssignment",
+            sample: canonicalSample,
+            locus: "MHC-A",
+            slot: .h1,
+            operationID: operationID,
+            priorSHA256: sha256(priorData),
+            before: legacy,
+            after: canonical,
+            copySource: nil
+        )
+        let aggregate = audit(
+            action: "replaceManualHaplotypeAssignments",
+            sample: canonicalSample,
+            locus: nil,
+            slot: nil,
+            operationID: operationID,
+            priorSHA256: sha256(priorData),
+            before: nil,
+            after: nil,
+            copySource: nil
+        )
+        let after = [unrelated, selectedOrphan, canonical]
+        let payload = makePayload(
+            bundleURL: bundleURL,
+            manifestData: manifestData,
+            priorData: priorData,
+            operationID: operationID,
+            operationSample: canonicalSample,
+            beforeAssignments: prior.manualHaplotypeAssignments,
+            afterAssignments: after,
+            audits: [detail, aggregate],
+            copySource: nil
+        )
+
+        let replayed = try payload.applying(
+            to: priorData,
+            targetBundleURL: bundleURL,
+            targetManifestData: manifestData
+        )
+
+        XCTAssertEqual(replayed.manualHaplotypeAssignments, after)
+        XCTAssertEqual(
+            replayed.manualHaplotypeAssignments[1],
+            selectedOrphan
+        )
+        XCTAssertEqual(replayed.auditLog, [detail, aggregate])
+    }
+
     func testReplayCanonicalizesAliasAndCreatesMissingAssignmentIDWithoutLabelOrColorChange() throws {
         let bundleURL = URL(
             fileURLWithPath: "/tmp/replay-legacy-alias.lungfishgenotype"
@@ -1003,6 +1118,7 @@ final class GenotypeManualHaplotypeAssignmentReplayPayloadTests: XCTestCase {
         manifestData: Data,
         priorData: Data,
         operationID: String,
+        operationSample: String = "Animal-1",
         beforeAssignments: [ManualHaplotypeAssignment],
         afterAssignments: [ManualHaplotypeAssignment],
         audits: [GenotypeAnnotationSidecar.AuditEntry],
@@ -1013,7 +1129,7 @@ final class GenotypeManualHaplotypeAssignmentReplayPayloadTests: XCTestCase {
         return GenotypeManualHaplotypeAssignmentReplayPayload(
             operation: .init(
                 operationID: operationID,
-                sample: "Animal-1",
+                sample: operationSample,
                 author: "Replay Analyst",
                 timestamp: "2026-07-26T15:04:00Z",
                 copySourceSample: copySource

@@ -1145,13 +1145,15 @@ public final class GenotypeAnnotationStore {
 
                 let beforeAssignments = latest.manualHaplotypeAssignments
                 let recognizedBefore = beforeAssignments.filter {
-                    $0.sample == normalizedSample
+                    normalizedManualHaplotypeIdentity($0.sample)
+                        == normalizedSample
                         && GenotypeManualHaplotypeLocus(
                             normalizing: $0.locus
                         ) != nil
                 }
                 let selectedOrphans = beforeAssignments.filter {
-                    $0.sample == normalizedSample
+                    normalizedManualHaplotypeIdentity($0.sample)
+                        == normalizedSample
                         && GenotypeManualHaplotypeLocus(
                             normalizing: $0.locus
                         ) == nil
@@ -1302,7 +1304,8 @@ public final class GenotypeAnnotationStore {
                 ))
 
                 let unrelatedAssignments = beforeAssignments.filter {
-                    $0.sample != normalizedSample
+                    normalizedManualHaplotypeIdentity($0.sample)
+                        != normalizedSample
                 }
                 let orderedAfter = afterByKey
                     .sorted { manualHaplotypeAssignmentKeyPrecedes($0.key, $1.key) }
@@ -1574,8 +1577,8 @@ public final class GenotypeAnnotationStore {
     }
 
     private func normalizedManualHaplotypeIdentity(_ raw: String) -> String {
-        raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            .precomposedStringWithCanonicalMapping
+        GenotypeManualHaplotypeAssignmentInputValidator
+            .normalizedSampleIdentity(raw)
     }
 
     private func validatedManualHaplotypeDraft(
