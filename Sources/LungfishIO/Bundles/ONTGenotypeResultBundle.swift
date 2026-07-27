@@ -3698,18 +3698,84 @@ public enum ONTGenotypeResultBundle {
 
 // MARK: - Annotation sidecar accessors
 
+public enum GenotypeAnnotationSidecarRevision: Equatable, Sendable {
+    case absent
+    case sha256(String)
+}
+
+public struct GenotypeAnnotationSidecarSnapshot: Equatable, Sendable {
+    public let sidecar: GenotypeAnnotationSidecar
+    public let revision: GenotypeAnnotationSidecarRevision
+    public let data: Data?
+
+    public init(
+        sidecar: GenotypeAnnotationSidecar,
+        revision: GenotypeAnnotationSidecarRevision,
+        data: Data?
+    ) {
+        self.sidecar = sidecar
+        self.revision = revision
+        self.data = data
+    }
+}
+
+public enum GenotypeAnnotationSidecarPublicationError:
+    Error,
+    Equatable,
+    LocalizedError,
+    Sendable
+{
+    case staleRevision(
+        expected: GenotypeAnnotationSidecarRevision,
+        actual: GenotypeAnnotationSidecarRevision
+    )
+    case mismatchedPublicationLock(expectedPath: String, actualPath: String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .staleRevision(let expected, let actual):
+            return "The genotype annotation sidecar changed before publication (expected \(expected.description), found \(actual.description))."
+        case .mismatchedPublicationLock(let expectedPath, let actualPath):
+            return "The genotype annotation publication lock belongs to \(actualPath), not \(expectedPath)."
+        }
+    }
+}
+
+private extension GenotypeAnnotationSidecarRevision {
+    var description: String {
+        switch self {
+        case .absent: "no sidecar"
+        case .sha256(let digest): "SHA-256 \(digest)"
+        }
+    }
+}
+
 public extension ONTGenotypeResultBundleData {
     static func annotationSidecarURL(forBundleAt bundleURL: URL) -> URL {
         bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
     }
 
     static func loadOrCreateAnnotationSidecar(forBundleAt bundleURL: URL) throws -> GenotypeAnnotationSidecar {
+        try loadAnnotationSidecarSnapshot(forBundleAt: bundleURL).sidecar
+    }
+
+    static func loadAnnotationSidecarSnapshot(
+        forBundleAt bundleURL: URL
+    ) throws -> GenotypeAnnotationSidecarSnapshot {
         if let data = try readAnnotationSidecarDataIfPresent(forBundleAt: bundleURL) {
-            return try GenotypeAnnotationSidecar.decode(data)
+            return GenotypeAnnotationSidecarSnapshot(
+                sidecar: try GenotypeAnnotationSidecar.decode(data),
+                revision: annotationSidecarRevision(for: data),
+                data: data
+            )
         }
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
-        return GenotypeAnnotationSidecar.empty(generatedAt: formatter.string(from: Date()))
+        return GenotypeAnnotationSidecarSnapshot(
+            sidecar: .empty(generatedAt: formatter.string(from: Date())),
+            revision: .absent,
+            data: nil
+        )
     }
 
     /// Read-only counterpart of `loadOrCreateAnnotationSidecar`. Returns an
@@ -3785,7 +3851,50 @@ public extension ONTGenotypeResultBundleData {
         return data
     }
 
-    static func writeAnnotationSidecar(_ sidecar: GenotypeAnnotationSidecar, forBundleAt bundleURL: URL) throws {
+    static func writeAnnotationSidecar(
+        _ sidecar: GenotypeAnnotationSidecar,
+        forBundleAt bundleURL: URL
+    ) throws {
+        try writeAnnotationSidecar(
+            sidecar,
+            expectedRevision: .absent,
+            forBundleAt: bundleURL
+        )
+    }
+
+    static func writeAnnotationSidecar(
+        _ sidecar: GenotypeAnnotationSidecar,
+        expectedRevision: GenotypeAnnotationSidecarRevision,
+        forBundleAt bundleURL: URL
+    ) throws {
+        let publicationLock = try ONTGenotypeBundlePublicationLock.acquire(
+            for: bundleURL
+        )
+        defer { publicationLock.release() }
+        try writeAnnotationSidecar(
+            sidecar,
+            expectedRevision: expectedRevision,
+            forBundleAt: bundleURL,
+            assuming: publicationLock
+        )
+    }
+
+    static func writeAnnotationSidecar(
+        _ sidecar: GenotypeAnnotationSidecar,
+        expectedRevision: GenotypeAnnotationSidecarRevision,
+        forBundleAt bundleURL: URL,
+        assuming publicationLock: ONTGenotypeBundlePublicationLock
+    ) throws {
+        let expectedLockURL = ONTGenotypeBundlePublicationLock.lockURL(
+            for: bundleURL
+        ).standardizedFileURL
+        guard publicationLock.lockURL.standardizedFileURL == expectedLockURL else {
+            throw GenotypeAnnotationSidecarPublicationError
+                .mismatchedPublicationLock(
+                    expectedPath: expectedLockURL.path,
+                    actualPath: publicationLock.lockURL.standardizedFileURL.path
+                )
+        }
         var sidecar = sidecar
         try sidecar.promoteToCurrentSchema()
         let data = try sidecar.encoded()
@@ -3868,6 +3977,21 @@ public extension ONTGenotypeResultBundleData {
                 path: bundleURL.appendingPathComponent(temporaryName).path
             )
         }
+        let currentData = try readAnnotationSidecarDataIfPresent(
+            forBundleAt: bundleURL
+        )
+        if let currentData {
+            var current = try GenotypeAnnotationSidecar.decode(currentData)
+            try current.promoteToCurrentSchema()
+        }
+        let actualRevision = currentData.map(annotationSidecarRevision(for:))
+            ?? .absent
+        guard actualRevision == expectedRevision else {
+            throw GenotypeAnnotationSidecarPublicationError.staleRevision(
+                expected: expectedRevision,
+                actual: actualRevision
+            )
+        }
         let renameResult = temporaryName.withCString { temporaryCString in
             filename.withCString { filenameCString in
                 Darwin.renameat(directoryFD, temporaryCString, directoryFD, filenameCString)
@@ -3900,6 +4024,16 @@ public extension ONTGenotypeResultBundleData {
                 NSLocalizedDescriptionKey:
                     "Could not \(operation) at \(path): \(String(cString: Darwin.strerror(code)))",
             ]
+        )
+    }
+
+    private static func annotationSidecarRevision(
+        for data: Data
+    ) -> GenotypeAnnotationSidecarRevision {
+        .sha256(
+            SHA256.hash(data: data)
+                .map { String(format: "%02x", $0) }
+                .joined()
         )
     }
 }

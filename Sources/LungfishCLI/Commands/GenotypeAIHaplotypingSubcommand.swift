@@ -207,7 +207,9 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
         let bundleURL = URL(fileURLWithPath: bundle, isDirectory: true).standardizedFileURL
         let result = try ONTGenotypeResultBundle.loadResult(from: bundleURL)
         let sidecarURL = ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: bundleURL)
-        let sidecar = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: bundleURL)
+        let sidecarSnapshot = try ONTGenotypeResultBundleData
+            .loadAnnotationSidecarSnapshot(forBundleAt: bundleURL)
+        let sidecar = sidecarSnapshot.sidecar
         let activeResult = GenotypeHaplotypeAnalysisResolver.resultByResolvingActiveAnalysis(
             for: result,
             bundleURL: bundleURL,
@@ -270,6 +272,7 @@ struct GenotypeAIHaplotypingSubcommand: AsyncParsableCommand {
                 result: activeResult,
                 sidecarURL: sidecarURL,
                 sidecar: sidecar,
+                expectedSidecarRevision: sidecarSnapshot.revision,
                 runnerOutput: runnerOutput,
                 context: context
             )

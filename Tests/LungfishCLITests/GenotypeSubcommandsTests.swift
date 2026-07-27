@@ -890,6 +890,127 @@ final class GenotypeSubcommandsTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: provenanceURL.path))
     }
 
+    func testApplyAnnotationsRejectsFutureSchemaInstalledAfterSnapshot() async throws {
+        try await assertApplyAnnotationsRejectsConcurrentReplacement(
+            replacementSchemaVersion:
+                GenotypeAnnotationSidecar.currentSchemaVersion + 1,
+            expectedError: { replacement, _ in
+                .unsupportedFutureSchemaVersion(
+                    found: replacement.schemaVersion,
+                    current: GenotypeAnnotationSidecar.currentSchemaVersion
+                )
+            }
+        )
+    }
+
+    func testApplyAnnotationsRejectsSupportedConcurrentChangeAfterSnapshot() async throws {
+        try await assertApplyAnnotationsRejectsConcurrentReplacement(
+            replacementSchemaVersion:
+                GenotypeAnnotationSidecar.currentSchemaVersion,
+            expectedError: nil
+        )
+    }
+
+    private func assertApplyAnnotationsRejectsConcurrentReplacement(
+        replacementSchemaVersion: Int,
+        expectedError: ((
+            GenotypeAnnotationSidecar,
+            GenotypeAnnotationSidecarRevision
+        ) -> GenotypeAnnotationSidecar.SchemaMutationError)?
+    ) async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "GenotypeApplyAnnotationsConcurrent-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent(
+            "test.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let annotationURL = bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
+        let initial = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-01T00:00:00Z"
+        )
+        try initial.encoded().write(to: annotationURL, options: .atomic)
+        var replacement = initial
+        replacement.schemaVersion = replacementSchemaVersion
+        replacement.sampleNotes = [
+            .init(
+                sample: "Concurrent",
+                body: "must survive",
+                author: "other",
+                timestamp: "2026-07-01T10:00:00Z"
+            ),
+        ]
+        let replacementData = try replacement.encoded()
+        let replacementRevision = GenotypeAnnotationSidecarRevision.sha256(
+            SHA256.hash(data: replacementData)
+                .map { String(format: "%02x", $0) }
+                .joined()
+        )
+        var patch = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-01T11:00:00Z"
+        )
+        patch.sampleNotes = [
+            .init(
+                sample: "Patch",
+                body: "stale",
+                author: "analyst",
+                timestamp: "2026-07-01T11:00:00Z"
+            ),
+        ]
+        let patchURL = root.appendingPathComponent("patch.json")
+        try patch.encoded().write(to: patchURL)
+
+        do {
+            _ = try await GenotypeApplyAnnotationsSubcommand.apply(
+                bundleURL: bundleURL,
+                patchURL: patchURL,
+                beforePublication: {
+                    try replacementData.write(
+                        to: annotationURL,
+                        options: .atomic
+                    )
+                }
+            )
+            XCTFail("Expected concurrent annotation publication rejection")
+        } catch {
+            if let expectedError {
+                XCTAssertEqual(
+                    error as? GenotypeAnnotationSidecar.SchemaMutationError,
+                    expectedError(replacement, replacementRevision)
+                )
+            } else {
+                let stale = try XCTUnwrap(
+                    error as? GenotypeAnnotationSidecarPublicationError
+                )
+                guard case .staleRevision(_, let actual) = stale else {
+                    return XCTFail("Expected stale revision, got \(stale)")
+                }
+                XCTAssertEqual(actual, replacementRevision)
+            }
+        }
+
+        XCTAssertEqual(try Data(contentsOf: annotationURL), replacementData)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: provenanceURL.path))
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: bundleURL
+                    .appendingPathComponent(
+                        ProvenanceRecorder.provenanceFilename
+                    ).path
+            )
+        )
+    }
+
     func testApplyAnnotationsReplacesMatrixCommentsByExactTarget() throws {
         let firstTarget = GenotypeAnnotationSidecar.MatrixTarget.row(
             locus: "MHC-A1",

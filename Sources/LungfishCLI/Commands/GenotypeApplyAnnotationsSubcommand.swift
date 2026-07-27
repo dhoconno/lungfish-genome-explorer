@@ -41,34 +41,13 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
         let startedAt = Date()
         let bundleURL = URL(fileURLWithPath: bundle, isDirectory: true)
         let patchURL = URL(fileURLWithPath: patch)
-        let sidecarURL = ONTGenotypeResultBundleData.annotationSidecarURL(
-            forBundleAt: bundleURL
-        )
-        let priorSidecarInput = FileManager.default.fileExists(atPath: sidecarURL.path)
-            ? ProvenanceRecorder.fileRecord(url: sidecarURL, format: .json, role: .input)
-            : nil
-
-        let patchData = try Data(contentsOf: patchURL)
-        let patchSidecar = try GenotypeAnnotationSidecar.decode(patchData)
-
-        var sidecar = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(
-            forBundleAt: bundleURL
-        )
-
-        let merge = try Self.merge(existing: sidecar, patch: patchSidecar)
-        sidecar = merge.sidecar
-
-        try ONTGenotypeResultBundleData.writeAnnotationSidecar(
-            sidecar,
-            forBundleAt: bundleURL
-        )
-        try await recordApplyAnnotationsProvenance(
+        let merge = try await Self.apply(
             bundleURL: bundleURL,
             patchURL: patchURL,
-            sidecarURL: sidecarURL,
-            priorSidecarInput: priorSidecarInput,
-            merge: merge,
             startedAt: startedAt
+        )
+        let sidecarURL = ONTGenotypeResultBundleData.annotationSidecarURL(
+            forBundleAt: bundleURL
         )
 
         let summary = MergeSummary(
@@ -84,7 +63,54 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
         FileHandle.standardOutput.write(Data("\n".utf8))
     }
 
-    private func recordApplyAnnotationsProvenance(
+    static func apply(
+        bundleURL: URL,
+        patchURL: URL,
+        startedAt: Date = Date(),
+        beforePublication: () throws -> Void = {}
+    ) async throws -> MergeResult {
+        let patchData = try Data(contentsOf: patchURL)
+        let patchSidecar = try GenotypeAnnotationSidecar.decode(patchData)
+        let publicationLock = try ONTGenotypeBundlePublicationLock.acquire(
+            for: bundleURL
+        )
+        defer { publicationLock.release() }
+
+        let snapshot = try ONTGenotypeResultBundleData
+            .loadAnnotationSidecarSnapshot(forBundleAt: bundleURL)
+        let sidecarURL = ONTGenotypeResultBundleData.annotationSidecarURL(
+            forBundleAt: bundleURL
+        )
+        let priorSidecarInput = snapshot.data.map { _ in
+            ProvenanceRecorder.fileRecord(
+                url: sidecarURL,
+                format: .json,
+                role: .input
+            )
+        }
+        let merge = try Self.merge(
+            existing: snapshot.sidecar,
+            patch: patchSidecar
+        )
+        try beforePublication()
+        try ONTGenotypeResultBundleData.writeAnnotationSidecar(
+            merge.sidecar,
+            expectedRevision: snapshot.revision,
+            forBundleAt: bundleURL,
+            assuming: publicationLock
+        )
+        try await recordApplyAnnotationsProvenance(
+            bundleURL: bundleURL,
+            patchURL: patchURL,
+            sidecarURL: sidecarURL,
+            priorSidecarInput: priorSidecarInput,
+            merge: merge,
+            startedAt: startedAt
+        )
+        return merge
+    }
+
+    private static func recordApplyAnnotationsProvenance(
         bundleURL: URL,
         patchURL: URL,
         sidecarURL: URL,

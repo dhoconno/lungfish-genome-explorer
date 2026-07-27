@@ -18,6 +18,7 @@ final class AIHaplotypingRevisionPublisherTests: XCTestCase {
                 result: fixture.result,
                 sidecarURL: fixture.sidecarURL,
                 sidecar: fixture.sidecar,
+                expectedSidecarRevision: fixture.sidecarRevision,
                 runnerOutput: fixture.runnerOutput,
                 context: makeContext(bundleURL: fixture.bundleURL)
             )
@@ -91,6 +92,7 @@ final class AIHaplotypingRevisionPublisherTests: XCTestCase {
                 result: malformedResult,
                 sidecarURL: fixture.sidecarURL,
                 sidecar: fixture.sidecar,
+                expectedSidecarRevision: fixture.sidecarRevision,
                 runnerOutput: fixture.runnerOutput,
                 context: makeContext(bundleURL: fixture.bundleURL)
             )
@@ -130,6 +132,7 @@ final class AIHaplotypingRevisionPublisherTests: XCTestCase {
                 result: fixture.result,
                 sidecarURL: fixture.sidecarURL,
                 sidecar: fixture.sidecar,
+                expectedSidecarRevision: fixture.sidecarRevision,
                 runnerOutput: fixture.runnerOutput,
                 context: makeContext(bundleURL: fixture.bundleURL)
             )
@@ -261,6 +264,7 @@ final class AIHaplotypingRevisionPublisherTests: XCTestCase {
                 result: fixture.result,
                 sidecarURL: fixture.sidecarURL,
                 sidecar: fixture.sidecar,
+                expectedSidecarRevision: fixture.sidecarRevision,
                 runnerOutput: fixture.runnerOutput,
                 context: makeContext(bundleURL: fixture.bundleURL)
             )
@@ -271,6 +275,122 @@ final class AIHaplotypingRevisionPublisherTests: XCTestCase {
         let revisionDirectory = fixture.bundleURL
             .appendingPathComponent("artifacts/ai-haplotyping/revisions/haprev-ai-failing", isDirectory: true)
         XCTAssertFalse(FileManager.default.fileExists(atPath: revisionDirectory.path))
+    }
+
+    func testPublishRejectsFutureSidecarInstalledAfterRequestCreationBeforeArtifacts() throws {
+        let fixture = try makeFixture()
+        let originalData = try Data(contentsOf: fixture.sidecarURL)
+        let request = AIHaplotypingRevisionPublishRequest(
+            bundleURL: fixture.bundleURL,
+            result: fixture.result,
+            sidecarURL: fixture.sidecarURL,
+            sidecar: fixture.sidecar,
+            expectedSidecarRevision: .sha256(sha256(originalData)),
+            runnerOutput: fixture.runnerOutput,
+            context: makeContext(bundleURL: fixture.bundleURL)
+        )
+        var future = fixture.sidecar
+        future.schemaVersion = GenotypeAnnotationSidecar.currentSchemaVersion + 1
+        let concurrentData = try future.encoded()
+        try concurrentData.write(to: fixture.sidecarURL, options: .atomic)
+        let publisher = AIHaplotypingRevisionPublisher(
+            dateProvider: { Self.fixedDate },
+            revisionIDProvider: { "haprev-ai-future-race" }
+        )
+
+        XCTAssertThrowsError(try publisher.publish(request)) { error in
+            XCTAssertEqual(
+                error as? GenotypeAnnotationSidecar.SchemaMutationError,
+                .unsupportedFutureSchemaVersion(
+                    found: future.schemaVersion,
+                    current: GenotypeAnnotationSidecar.currentSchemaVersion
+                )
+            )
+        }
+
+        XCTAssertEqual(try Data(contentsOf: fixture.sidecarURL), concurrentData)
+        assertNoAttemptArtifacts(
+            bundleURL: fixture.bundleURL,
+            revisionID: "haprev-ai-future-race"
+        )
+    }
+
+    func testPublishRejectsSupportedConcurrentSidecarBeforeArtifacts() throws {
+        let fixture = try makeFixture()
+        let originalData = try Data(contentsOf: fixture.sidecarURL)
+        let expectedRevision = GenotypeAnnotationSidecarRevision.sha256(
+            sha256(originalData)
+        )
+        let request = AIHaplotypingRevisionPublishRequest(
+            bundleURL: fixture.bundleURL,
+            result: fixture.result,
+            sidecarURL: fixture.sidecarURL,
+            sidecar: fixture.sidecar,
+            expectedSidecarRevision: expectedRevision,
+            runnerOutput: fixture.runnerOutput,
+            context: makeContext(bundleURL: fixture.bundleURL)
+        )
+        var concurrent = fixture.sidecar
+        concurrent.sampleNotes = [
+            .init(
+                sample: "DW473",
+                body: "concurrent review",
+                author: "other",
+                timestamp: "2026-06-14T17:06:00Z"
+            ),
+        ]
+        let concurrentData = try concurrent.encoded()
+        try concurrentData.write(to: fixture.sidecarURL, options: .atomic)
+        let actualRevision = GenotypeAnnotationSidecarRevision.sha256(
+            sha256(concurrentData)
+        )
+        let publisher = AIHaplotypingRevisionPublisher(
+            dateProvider: { Self.fixedDate },
+            revisionIDProvider: { "haprev-ai-stale-race" }
+        )
+
+        XCTAssertThrowsError(try publisher.publish(request)) { error in
+            XCTAssertEqual(
+                error as? GenotypeAnnotationSidecarPublicationError,
+                .staleRevision(
+                    expected: expectedRevision,
+                    actual: actualRevision
+                )
+            )
+        }
+
+        XCTAssertEqual(try Data(contentsOf: fixture.sidecarURL), concurrentData)
+        assertNoAttemptArtifacts(
+            bundleURL: fixture.bundleURL,
+            revisionID: "haprev-ai-stale-race"
+        )
+    }
+
+    func testPublishAcceptsUnchangedAbsentSidecarAcrossSyntheticTimestampChange() throws {
+        let fixture = try makeFixture()
+        try FileManager.default.removeItem(at: fixture.sidecarURL)
+        let requestSidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-06-14T16:00:00Z"
+        )
+        let publisher = AIHaplotypingRevisionPublisher(
+            dateProvider: { Self.fixedDate },
+            revisionIDProvider: { "haprev-ai-absent-sidecar" }
+        )
+
+        let published = try publisher.publish(
+            AIHaplotypingRevisionPublishRequest(
+                bundleURL: fixture.bundleURL,
+                result: fixture.result,
+                sidecarURL: fixture.sidecarURL,
+                sidecar: requestSidecar,
+                expectedSidecarRevision: .absent,
+                runnerOutput: fixture.runnerOutput,
+                context: makeContext(bundleURL: fixture.bundleURL)
+            )
+        )
+
+        XCTAssertEqual(published.sidecar?.aiHaplotypeReviews.count, 1)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.sidecarURL.path))
     }
 
     func testPublishDoesNotEmitMHCLPlaceholderHaplotypeCalls() throws {
@@ -286,6 +406,7 @@ final class AIHaplotypingRevisionPublisherTests: XCTestCase {
                 result: fixture.result,
                 sidecarURL: fixture.sidecarURL,
                 sidecar: fixture.sidecar,
+                expectedSidecarRevision: fixture.sidecarRevision,
                 runnerOutput: fixture.runnerOutput,
                 context: makeContext(bundleURL: fixture.bundleURL)
             )
@@ -313,6 +434,7 @@ final class AIHaplotypingRevisionPublisherTests: XCTestCase {
                 result: fixture.result,
                 sidecarURL: fixture.sidecarURL,
                 sidecar: fixture.sidecar,
+                expectedSidecarRevision: fixture.sidecarRevision,
                 runnerOutput: fixture.runnerOutput,
                 context: makeContext(bundleURL: fixture.bundleURL)
             )
@@ -354,11 +476,24 @@ private extension AIHaplotypingRevisionPublisherTests {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
+    func assertNoAttemptArtifacts(bundleURL: URL, revisionID: String) {
+        let revisionDirectory = bundleURL
+            .appendingPathComponent(
+                "artifacts/ai-haplotyping/revisions",
+                isDirectory: true
+            )
+            .appendingPathComponent(revisionID, isDirectory: true)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: revisionDirectory.path)
+        )
+    }
+
     struct Fixture {
         let root: URL
         let bundleURL: URL
         let sidecarURL: URL
         let sidecar: GenotypeAnnotationSidecar
+        let sidecarRevision: GenotypeAnnotationSidecarRevision
         let result: ONTGenotypeResultBundleData
         let runnerOutput: AIHaplotypingRunnerOutput
     }
@@ -507,7 +642,8 @@ private extension AIHaplotypingRevisionPublisherTests {
             auditLog: []
         )
         let sidecarURL = bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
-        try sidecar.encoded().write(to: sidecarURL)
+        let sidecarData = try sidecar.encoded()
+        try sidecarData.write(to: sidecarURL)
 
         let artifacts = ONTGenotypeResultArtifacts(
             workbookURL: workbookURL,
@@ -534,6 +670,7 @@ private extension AIHaplotypingRevisionPublisherTests {
             bundleURL: bundleURL,
             sidecarURL: sidecarURL,
             sidecar: sidecar,
+            sidecarRevision: .sha256(sha256(sidecarData)),
             result: result,
             runnerOutput: runnerOutput ?? makeRunnerOutput()
         )
