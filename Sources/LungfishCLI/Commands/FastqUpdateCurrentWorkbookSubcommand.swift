@@ -6,6 +6,12 @@ import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
+extension GenotypeWorkbookHaplotypeProjectionMode: ExpressibleByArgument {
+    public init?(argument: String) {
+        self.init(rawValue: argument)
+    }
+}
+
 struct FastqUpdateCurrentWorkbookAttestation {
     let inputFingerprint: GenotypeCurrentWorkbookInputFingerprint?
     let syncIntent: GenotypeCurrentWorkbookSyncIntent?
@@ -47,6 +53,14 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
 
     @Flag(name: .customLong("annotation-only"), help: "Apply annotations while preserving the manifest-attested scientific workbook projection")
     var annotationOnly = false
+
+    @Option(
+        name: .customLong("haplotype-projection-mode"),
+        help:
+            "Typed haplotype source: haplotyped or manual-genotype-only"
+    )
+    var haplotypeProjectionMode:
+        GenotypeWorkbookHaplotypeProjectionMode = .haplotyped
 
     @Option(name: .customLong("input-fingerprint"), help: "Lowercase SHA-256 fingerprint of the immutable current-workbook inputs")
     var inputFingerprint: String?
@@ -131,7 +145,8 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
                 annotationOnly: annotationOnly,
                 includedLoci: callInputs.mutationIncludedLoci,
                 fingerprintInputs: callInputs.fingerprintInputs,
-                provenanceContext: provenanceContext
+                provenanceContext: provenanceContext,
+                projectionMode: haplotypeProjectionMode
             )
         FileHandle.standardError.write(Data("[100%] Updated current.xlsx\n".utf8))
 
@@ -155,7 +170,9 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
                 mutationIncludedLoci: [],
                 fingerprintInputs: GenotypeWorkbookFingerprintInputs(
                     calls: displayedCalls,
-                    includedLoci: includedLocus
+                    includedLoci: includedLocus,
+                    haplotypeProjectionMode:
+                        haplotypeProjectionMode
                 )
             )
         }
@@ -230,6 +247,8 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
             bundleURL.path,
             "--calls-json",
             callsURL.path,
+            "--haplotype-projection-mode",
+            haplotypeProjectionMode.rawValue,
         ]
         if let annotationURL {
             arguments += ["--annotations", annotationURL.path]

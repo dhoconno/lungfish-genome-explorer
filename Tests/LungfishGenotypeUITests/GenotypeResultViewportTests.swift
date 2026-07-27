@@ -4279,7 +4279,15 @@ final class GenotypeResultViewportTests: XCTestCase {
 
         XCTAssertEqual(result.callCount, 0)
         XCTAssertTrue(result.locusSummaries.isEmpty)
-        XCTAssertTrue(controller.testingCurrentWorkbookHaplotypeCalls().isEmpty)
+        let workbookCalls = controller.testingCurrentWorkbookHaplotypeCalls()
+        XCTAssertEqual(workbookCalls.count, 14)
+        XCTAssertTrue(
+            workbookCalls.allSatisfy {
+                $0.haplotype1.isEmpty
+                    && $0.haplotype2.isEmpty
+                    && !$0.locus.contains("Candidate")
+            }
+        )
         XCTAssertFalse(controller.testingHaplotypeMatrixText.contains("Candidate_nov"))
     }
     func testMHCCandidateMatrixKeepsCollidingLabelsAsStableRowsAndShowsAllPopulationsByDefault() throws {
@@ -11745,6 +11753,138 @@ final class GenotypeResultViewportTests: XCTestCase {
                 notes: "curated in GUI"
             )
         ])
+    }
+
+    func testCurrentWorkbookSnapshotIncludesGenotypeOnlyManualAssignmentsForONTAndMiSeq()
+        throws
+    {
+        for kind in [
+            GenotypeResultWorkflowKind.fullLengthONTMHCGenotype,
+            .miSeqAmpliconMHCGenotype,
+        ] {
+            let bundleURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent(
+                    "GenotypeOnlyManualWorkbook-\(kind.rawValue)-\(UUID().uuidString).lungfishgenotype",
+                    isDirectory: true
+                )
+            defer { try? FileManager.default.removeItem(at: bundleURL) }
+            try FileManager.default.createDirectory(
+                at: bundleURL,
+                withIntermediateDirectories: true
+            )
+
+            var sidecar = GenotypeAnnotationSidecar.empty(
+                generatedAt: "2026-07-27T00:00:00Z"
+            )
+            sidecar.manualHaplotypeAssignments = [
+                ManualHaplotypeAssignment(
+                    sample: "Sample-A",
+                    locus: "MHC-A",
+                    slot: .h1,
+                    label: "Newest-A",
+                    colorTokenIndex: 2,
+                    diagnosticAlleles: [],
+                    notes: "newest note",
+                    assignmentID: "newest",
+                    updatedAt: "2026-07-27T12:00:00Z",
+                    author: "analyst"
+                ),
+                ManualHaplotypeAssignment(
+                    sample: "Sample-A",
+                    locus: "MHC-A",
+                    slot: .h1,
+                    label: "Older-A",
+                    colorTokenIndex: 1,
+                    diagnosticAlleles: [],
+                    notes: "older note",
+                    assignmentID: "older",
+                    updatedAt: "2026-07-26T12:00:00Z",
+                    author: "analyst"
+                ),
+                ManualHaplotypeAssignment(
+                    sample: "Sample-A",
+                    locus: "MHC-DRB",
+                    slot: .h2,
+                    label: "=DRB_FORMULA_LIKE",
+                    colorTokenIndex: 3,
+                    diagnosticAlleles: [],
+                    notes: "literal label"
+                ),
+            ]
+            try ONTGenotypeResultBundleData.writeAnnotationSidecar(
+                sidecar,
+                forBundleAt: bundleURL
+            )
+            let samples = ["Sample-A", "Sample-B"].map {
+                ONTGenotypeSampleResult(
+                    sample: $0,
+                    passedAlignments: 0,
+                    passedUniqueReads: 0,
+                    sampleTotalReads: nil,
+                    sampleUniqueRetainedPercent: nil,
+                    calls: []
+                )
+            }
+            let controller = GenotypeResultViewController()
+            _ = controller.view
+            controller.configure(
+                result: makeResult(
+                    bundleURL: bundleURL,
+                    samples: samples,
+                    calls: [],
+                    kind: kind.rawValue
+                )
+            )
+
+            let calls = controller.testingCurrentWorkbookHaplotypeCalls()
+            XCTAssertEqual(
+                controller.testingCurrentWorkbookHaplotypeProjectionMode(),
+                .manualGenotypeOnly,
+                kind.rawValue
+            )
+            XCTAssertEqual(calls.count, 14, kind.rawValue)
+            XCTAssertEqual(
+                calls.map(\.sample),
+                Array(repeating: "Sample-A", count: 7)
+                    + Array(repeating: "Sample-B", count: 7),
+                kind.rawValue
+            )
+            XCTAssertEqual(
+                Array(calls.prefix(7)).map(\.locus),
+                GenotypeManualHaplotypeLocus.allCases.map(\.rawValue),
+                kind.rawValue
+            )
+            XCTAssertTrue(
+                calls.allSatisfy {
+                    $0.status == GenotypeHaplotypeCallStatus.called.rawValue
+                },
+                kind.rawValue
+            )
+            let a = try XCTUnwrap(
+                calls.first {
+                    $0.sample == "Sample-A" && $0.locus == "MHC-A"
+                }
+            )
+            XCTAssertEqual(a.haplotype1, "Newest-A", kind.rawValue)
+            XCTAssertEqual(a.haplotype2, "", kind.rawValue)
+            XCTAssertEqual(a.notes, "newest note", kind.rawValue)
+            let drb = try XCTUnwrap(
+                calls.first {
+                    $0.sample == "Sample-A" && $0.locus == "MHC-DRB"
+                }
+            )
+            XCTAssertEqual(drb.haplotype1, "", kind.rawValue)
+            XCTAssertEqual(drb.haplotype2, "=DRB_FORMULA_LIKE", kind.rawValue)
+            XCTAssertEqual(drb.notes, "literal label", kind.rawValue)
+            XCTAssertTrue(
+                calls.filter { $0.sample == "Sample-B" }.allSatisfy {
+                    $0.haplotype1.isEmpty
+                        && $0.haplotype2.isEmpty
+                        && $0.notes.isEmpty
+                },
+                kind.rawValue
+            )
+        }
     }
 
     func testConfigureUsesPersistedHaplotypeAnalysisWhenSavedDropoutThresholdsExist() throws {

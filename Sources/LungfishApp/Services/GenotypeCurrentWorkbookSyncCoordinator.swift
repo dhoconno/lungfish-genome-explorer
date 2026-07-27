@@ -26,6 +26,8 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
         let annotationSidecarURL: URL?
         let annotationSidecarData: Data?
         let annotationOnly: Bool
+        let haplotypeProjectionMode:
+            GenotypeWorkbookHaplotypeProjectionMode
         let fingerprint: GenotypeCurrentWorkbookInputFingerprint
         let routeContext: OperationRouteContext?
         let mayUpdate: Bool
@@ -38,6 +40,8 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
             annotationSidecarURL: URL?,
             annotationSidecarData: Data? = nil,
             annotationOnly: Bool,
+            haplotypeProjectionMode:
+                GenotypeWorkbookHaplotypeProjectionMode = .haplotyped,
             fingerprint: GenotypeCurrentWorkbookInputFingerprint,
             routeContext: OperationRouteContext?,
             mayUpdate: Bool = true,
@@ -51,6 +55,7 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
             self.annotationSidecarURL = annotationSidecarURL?.standardizedFileURL
             self.annotationSidecarData = annotationSidecarData
             self.annotationOnly = annotationOnly
+            self.haplotypeProjectionMode = haplotypeProjectionMode
             self.fingerprint = fingerprint
             self.routeContext = routeContext
             self.mayUpdate = mayUpdate
@@ -176,6 +181,8 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
                 annotationSidecarURL: request.annotationSidecarURL,
                 annotationSidecarData: request.annotationSidecarData,
                 annotationOnly: request.annotationOnly,
+                haplotypeProjectionMode:
+                    request.haplotypeProjectionMode,
                 inputFingerprint: request.fingerprint,
                 syncIntent: intent,
                 routeContext: request.routeContext

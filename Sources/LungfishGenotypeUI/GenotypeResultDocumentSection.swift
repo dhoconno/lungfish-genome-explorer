@@ -77,6 +77,8 @@ public struct GenotypeCurrentWorkbookUISnapshot: Sendable {
     public let reviewableRowCatalogSchemaVersion: Int?
     public let annotationOnly: Bool
     public let isReadOnly: Bool
+    public let haplotypeProjectionMode:
+        GenotypeWorkbookHaplotypeProjectionMode
 
     public init(
         bundleURL: URL,
@@ -89,7 +91,9 @@ public struct GenotypeCurrentWorkbookUISnapshot: Sendable {
         reviewableRowCatalog: ONTMHCArtifactReference? = nil,
         reviewableRowCatalogSchemaVersion: Int? = nil,
         annotationOnly: Bool,
-        isReadOnly: Bool
+        isReadOnly: Bool,
+        haplotypeProjectionMode:
+            GenotypeWorkbookHaplotypeProjectionMode = .haplotyped
     ) {
         self.bundleURL = bundleURL.standardizedFileURL
         self.calls = calls
@@ -103,6 +107,7 @@ public struct GenotypeCurrentWorkbookUISnapshot: Sendable {
             reviewableRowCatalogSchemaVersion
         self.annotationOnly = annotationOnly
         self.isReadOnly = isReadOnly
+        self.haplotypeProjectionMode = haplotypeProjectionMode
     }
 
     public static func encodingAnnotationSidecar(
@@ -116,6 +121,8 @@ public struct GenotypeCurrentWorkbookUISnapshot: Sendable {
         reviewableRowCatalogSchemaVersion: Int? = nil,
         annotationOnly: Bool,
         isReadOnly: Bool,
+        haplotypeProjectionMode:
+            GenotypeWorkbookHaplotypeProjectionMode = .haplotyped,
         encoder: @Sendable (GenotypeAnnotationSidecar) throws -> Data = {
             try $0.encoded()
         }
@@ -132,7 +139,8 @@ public struct GenotypeCurrentWorkbookUISnapshot: Sendable {
             reviewableRowCatalogSchemaVersion:
                 reviewableRowCatalogSchemaVersion,
             annotationOnly: annotationOnly,
-            isReadOnly: isReadOnly
+            isReadOnly: isReadOnly,
+            haplotypeProjectionMode: haplotypeProjectionMode
         )
     }
 }

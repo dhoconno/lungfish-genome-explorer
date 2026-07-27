@@ -1,6 +1,66 @@
 import CryptoKit
 import Foundation
+import LungfishCore
 import LungfishIO
+
+struct FullLengthONTMHCManualHaplotypeWorkbookRow: Codable, Equatable, Sendable {
+    let locus: String
+    let slot: HaplotypeSlot
+    let rowLabel: String
+
+    private enum CodingKeys: String, CodingKey {
+        case locus
+        case slot
+        case rowLabel = "row_label"
+    }
+}
+
+struct FullLengthONTMHCManualHaplotypeCombinedWorkbookRow:
+    Codable, Equatable, Sendable
+{
+    let componentLoci: [String]
+    let slot: HaplotypeSlot
+    let rowLabel: String
+    let compositionPolicy: String
+
+    private enum CodingKeys: String, CodingKey {
+        case componentLoci = "component_loci"
+        case slot
+        case rowLabel = "row_label"
+        case compositionPolicy = "composition_policy"
+    }
+}
+
+enum FullLengthONTMHCManualHaplotypeWorkbookMapping {
+    static let rows: [FullLengthONTMHCManualHaplotypeWorkbookRow] =
+        GenotypeManualHaplotypeLocus.allCases.flatMap { locus in
+            HaplotypeSlot.allCases.map { slot in
+                FullLengthONTMHCManualHaplotypeWorkbookRow(
+                    locus: locus.rawValue,
+                    slot: slot,
+                    rowLabel:
+                        "\(locus.rawValue) Haplotype \(slot == .h1 ? "1" : "2")"
+                )
+            }
+        }
+
+    static let legacyCombinedRows:
+        [FullLengthONTMHCManualHaplotypeCombinedWorkbookRow] = [
+            ("MHC-DQA/B", ["MHC-DQA", "MHC-DQB"]),
+            ("MHC-DPA/B", ["MHC-DPA", "MHC-DPB"]),
+        ].flatMap { label, componentLoci in
+            HaplotypeSlot.allCases.map { slot in
+                FullLengthONTMHCManualHaplotypeCombinedWorkbookRow(
+                    componentLoci: componentLoci,
+                    slot: slot,
+                    rowLabel:
+                        "\(label) Haplotype \(slot == .h1 ? "1" : "2")",
+                    compositionPolicy:
+                        "collapse-identical-otherwise-locus-tagged"
+                )
+            }
+        }
+}
 
 enum FullLengthONTMHCWorkbookTintCategory: String, CaseIterable, Codable, Equatable, Sendable {
     case sharedNovel

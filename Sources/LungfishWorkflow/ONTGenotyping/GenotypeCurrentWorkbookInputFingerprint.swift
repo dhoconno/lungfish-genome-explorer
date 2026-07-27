@@ -4,7 +4,7 @@ import Foundation
 import LungfishIO
 
 public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Sendable {
-    public static let schemaVersion = 2
+    public static let schemaVersion = 3
     private static let maximumProvenanceBytes = 16 * 1024 * 1024
 
     public let schemaVersion: Int
@@ -16,6 +16,7 @@ public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Senda
 
     private struct CanonicalInput: Encodable {
         let schemaVersion: Int
+        let haplotypeProjectionMode: String
         let calls: [CanonicalCall]
         let includedLoci: [String]
         let annotationSidecar: GenotypeAnnotationSidecar?
@@ -172,7 +173,9 @@ public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Senda
         annotationSidecar: GenotypeAnnotationSidecar?,
         candidateArtifacts: ONTMHCCandidateArtifactManifest?,
         reviewableRowCatalog: ONTMHCArtifactReference? = nil,
-        reviewableRowCatalogSchemaVersion: Int? = nil
+        reviewableRowCatalogSchemaVersion: Int? = nil,
+        haplotypeProjectionMode:
+            GenotypeWorkbookHaplotypeProjectionMode = .haplotyped
     ) throws -> Self {
         let canonicalReviewableRowCatalog: CanonicalReviewableRowCatalog?
         if let reviewableRowCatalog {
@@ -201,10 +204,24 @@ public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Senda
         var callsByKey: [CanonicalCallKey: CanonicalCall] = [:]
         for call in calls {
             let sample = clean(call.sample)
-            let locus = GenotypeWorkbookHaplotypeCall.canonicalCurrentWorkbookLocus(call.locus)
+            let locus: String
+            switch haplotypeProjectionMode {
+            case .haplotyped:
+                locus = GenotypeWorkbookHaplotypeCall
+                    .canonicalCurrentWorkbookLocus(call.locus)
+            case .manualGenotypeOnly:
+                locus =
+                    GenotypeManualHaplotypeLocus(
+                        normalizing: call.locus
+                    )?.rawValue ?? ""
+            }
             guard !sample.isEmpty,
                   !locus.isEmpty,
-                  GenotypeWorkbookHaplotypeCall.isWritableCurrentWorkbookLocus(locus) else {
+                  (
+                    haplotypeProjectionMode == .manualGenotypeOnly
+                        || GenotypeWorkbookHaplotypeCall
+                            .isWritableCurrentWorkbookLocus(locus)
+                  ) else {
                 continue
             }
             callsByKey[CanonicalCallKey(sample: sample, locus: locus)] = CanonicalCall(
@@ -219,11 +236,20 @@ public struct GenotypeCurrentWorkbookInputFingerprint: Codable, Equatable, Senda
         let canonicalCalls = callsByKey.values.sorted {
             $0.sortFields.lexicographicallyPrecedes($1.sortFields)
         }
-        let canonicalIncludedLoci = includedLoci.map {
-            GenotypeWorkbookHaplotypeCall.canonicalCurrentWorkbookLocus($0)
+        let canonicalIncludedLoci = includedLoci.compactMap {
+            switch haplotypeProjectionMode {
+            case .haplotyped:
+                return GenotypeWorkbookHaplotypeCall
+                    .canonicalCurrentWorkbookLocus($0)
+            case .manualGenotypeOnly:
+                return GenotypeManualHaplotypeLocus(
+                    normalizing: $0
+                )?.rawValue
+            }
         }
         let input = CanonicalInput(
             schemaVersion: schemaVersion,
+            haplotypeProjectionMode: haplotypeProjectionMode.rawValue,
             calls: canonicalCalls,
             includedLoci: Array(Set(canonicalIncludedLoci)).sorted(),
             annotationSidecar: annotationSidecar,

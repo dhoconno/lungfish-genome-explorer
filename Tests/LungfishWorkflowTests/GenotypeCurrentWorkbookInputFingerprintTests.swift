@@ -5,6 +5,46 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class GenotypeCurrentWorkbookInputFingerprintTests: XCTestCase {
+    func testManualProjectionFingerprintPreservesExactLociAndMode() throws {
+        let dqa = call(
+            sample: "Animal",
+            locus: "MHC-DQA",
+            haplotype1: "DQA-manual",
+            haplotype2: ""
+        )
+        let dqb = call(
+            sample: "Animal",
+            locus: "MHC-DQB",
+            haplotype1: "DQB-manual",
+            haplotype2: ""
+        )
+        let manual = try GenotypeCurrentWorkbookInputFingerprint.make(
+            calls: [dqa, dqb],
+            includedLoci: ["MHC-DQA", "MHC-DQB"],
+            annotationSidecar: nil,
+            candidateArtifacts: nil,
+            haplotypeProjectionMode: .manualGenotypeOnly
+        )
+        let manualWithoutDQA =
+            try GenotypeCurrentWorkbookInputFingerprint.make(
+                calls: [dqb],
+                includedLoci: ["MHC-DQA", "MHC-DQB"],
+                annotationSidecar: nil,
+                candidateArtifacts: nil,
+                haplotypeProjectionMode: .manualGenotypeOnly
+            )
+        let haplotyped = try GenotypeCurrentWorkbookInputFingerprint.make(
+            calls: [dqa, dqb],
+            includedLoci: ["MHC-DQA", "MHC-DQB"],
+            annotationSidecar: nil,
+            candidateArtifacts: nil,
+            haplotypeProjectionMode: .haplotyped
+        )
+
+        XCTAssertNotEqual(manual, manualWithoutDQA)
+        XCTAssertNotEqual(manual, haplotyped)
+    }
+
     func testMakeUsesLastCallForDuplicateCanonicalSampleLocusKey() throws {
         let first = call(
             sample: "Animal",
@@ -211,7 +251,7 @@ final class GenotypeCurrentWorkbookInputFingerprintTests: XCTestCase {
 
         XCTAssertEqual(
             fingerprint.sha256,
-            "9122786611d9edfbb03956faef3518b4ba47deb888b62afa4c720c68bc38bd0b"
+            "92585608e5451261e34c95e3b5ee1657979c3e9e3249d769eb0963bad98de7cc"
         )
     }
 
@@ -425,8 +465,8 @@ final class GenotypeCurrentWorkbookInputFingerprintTests: XCTestCase {
             candidateArtifacts: nil
         )
 
-        XCTAssertEqual(GenotypeCurrentWorkbookInputFingerprint.schemaVersion, 2)
-        XCTAssertEqual(fingerprint.schemaVersion, 2)
+        XCTAssertEqual(GenotypeCurrentWorkbookInputFingerprint.schemaVersion, 3)
+        XCTAssertEqual(fingerprint.schemaVersion, 3)
         XCTAssertEqual(fingerprint.sha256.count, 64)
         XCTAssertNotNil(fingerprint.sha256.range(of: #"^[0-9a-f]{64}$"#, options: .regularExpression))
         XCTAssertEqual(
@@ -446,7 +486,10 @@ final class GenotypeCurrentWorkbookInputFingerprintTests: XCTestCase {
             sha256: digest
         )
 
-        XCTAssertEqual(fingerprint.schemaVersion, 2)
+        XCTAssertEqual(
+            fingerprint.schemaVersion,
+            GenotypeCurrentWorkbookInputFingerprint.schemaVersion
+        )
         XCTAssertEqual(fingerprint.sha256, digest)
     }
 

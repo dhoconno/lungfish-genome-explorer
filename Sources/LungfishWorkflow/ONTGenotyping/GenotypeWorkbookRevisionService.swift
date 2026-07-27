@@ -69,6 +69,17 @@ public struct GenotypeWorkbookHaplotypeCall: Codable, Equatable, Sendable {
     }
 }
 
+public enum GenotypeWorkbookHaplotypeProjectionMode:
+    String,
+    Codable,
+    CaseIterable,
+    Equatable,
+    Sendable
+{
+    case haplotyped
+    case manualGenotypeOnly = "manual-genotype-only"
+}
+
 public enum GenotypeCurrentWorkbookSyncIntent: String, Codable, CaseIterable, Equatable, Sendable {
     case automaticIdle = "automatic-idle"
     case bundleSwitch = "bundle-switch"
@@ -78,13 +89,18 @@ public enum GenotypeCurrentWorkbookSyncIntent: String, Codable, CaseIterable, Eq
 public struct GenotypeWorkbookFingerprintInputs: Equatable, Sendable {
     public let calls: [GenotypeWorkbookHaplotypeCall]
     public let includedLoci: [String]
+    public let haplotypeProjectionMode:
+        GenotypeWorkbookHaplotypeProjectionMode
 
     public init(
         calls: [GenotypeWorkbookHaplotypeCall],
-        includedLoci: [String]
+        includedLoci: [String],
+        haplotypeProjectionMode:
+            GenotypeWorkbookHaplotypeProjectionMode = .haplotyped
     ) {
         self.calls = calls
         self.includedLoci = includedLoci
+        self.haplotypeProjectionMode = haplotypeProjectionMode
     }
 }
 
@@ -135,6 +151,15 @@ public struct GenotypeWorkbookRevisionService {
         let data: Data
         let witness: SourceWorkbookWitness
         let document: GenotypeReviewableRowCatalog
+    }
+
+    private struct ValidatedWorkbookCSVProjectionInput {
+        let longSummaryURL: URL
+        let longSummaryWitness: SourceWorkbookWitness
+        let sampleSummaryURL: URL
+        let sampleSummaryWitness: SourceWorkbookWitness
+        let samples: [WorkbookCandidateUpdateConfiguration.Sample]
+        let knownCalls: [WorkbookCandidateUpdateConfiguration.KnownCall]
     }
 
     private struct WorkbookOverrideExecutionRecord: Codable {
@@ -201,6 +226,11 @@ public struct GenotypeWorkbookRevisionService {
         let usesTwoSheetMHCContract: Bool
         let preserveExistingWorkbookProjection: Bool
         let normalizedUnmatchedRows: [FullLengthONTMHCNormalizedUnmatchedRow]
+        let manualHaplotypeRows: [FullLengthONTMHCManualHaplotypeWorkbookRow]
+        let manualHaplotypeLegacyCombinedRows:
+            [FullLengthONTMHCManualHaplotypeCombinedWorkbookRow]
+        let haplotypeProjectionMode:
+            GenotypeWorkbookHaplotypeProjectionMode
         let knownAlleleDisplayNames: [String: String]
         let samples: [Sample]
         let knownCalls: [KnownCall]
@@ -219,6 +249,11 @@ public struct GenotypeWorkbookRevisionService {
             case usesTwoSheetMHCContract = "uses_two_sheet_mhc_contract"
             case preserveExistingWorkbookProjection = "preserve_existing_workbook_projection"
             case normalizedUnmatchedRows = "normalized_unmatched_rows"
+            case manualHaplotypeRows = "manual_haplotype_rows"
+            case manualHaplotypeLegacyCombinedRows =
+                "manual_haplotype_legacy_combined_rows"
+            case haplotypeProjectionMode =
+                "haplotype_projection_mode"
             case knownAlleleDisplayNames = "known_allele_display_names"
             case samples
             case knownCalls = "known_calls"
@@ -333,11 +368,19 @@ public struct GenotypeWorkbookRevisionService {
         annotationOnly: Bool = false,
         includedLoci: [String] = [],
         fingerprintInputs: GenotypeWorkbookFingerprintInputs? = nil,
-        provenanceContext: GenotypeWorkbookRevisionProvenanceContext? = nil
+        provenanceContext: GenotypeWorkbookRevisionProvenanceContext? = nil,
+        projectionMode:
+            GenotypeWorkbookHaplotypeProjectionMode = .haplotyped
     ) throws -> ONTGenotypeResultBundleManifest {
         if fingerprintInputs != nil, !annotationOnly {
             throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
                 "Semantic fingerprint input overrides are only valid for annotation-only workbook updates."
+            )
+        }
+        if let fingerprintInputs,
+           fingerprintInputs.haplotypeProjectionMode != projectionMode {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Semantic fingerprint haplotype projection mode does not match the workbook update."
             )
         }
         if annotationOnly,
@@ -361,6 +404,32 @@ public struct GenotypeWorkbookRevisionService {
         try recoverWorkbookRollbackFailureIfNeeded(for: bundle)
         try validateSourceBundleTree(bundle)
         let manifest = try ONTGenotypeResultBundle.loadManifest(from: bundle)
+        if projectionMode == .manualGenotypeOnly {
+            if case .ineligible(let reason) =
+                GenotypeManualHaplotypeAuthority.evaluate(manifest) {
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "Manual genotype-only haplotype projection is not authorized: \(reason)"
+                )
+            }
+        }
+        let workbookCSVProjectionInput:
+            ValidatedWorkbookCSVProjectionInput?
+        if projectionMode == .manualGenotypeOnly
+            || manifest.mhcCandidateArtifacts != nil {
+            workbookCSVProjectionInput = try loadWorkbookCSVProjection(
+                manifest: manifest,
+                bundleURL: bundle
+            )
+        } else {
+            workbookCSVProjectionInput = nil
+        }
+        if projectionMode == .manualGenotypeOnly {
+            try validateManualHaplotypeSnapshot(
+                annotationOnly ? (fingerprintInputs?.calls ?? []) : calls,
+                authoritativeSamples:
+                    workbookCSVProjectionInput?.samples.map(\.sample) ?? []
+            )
+        }
         let originalManifestData = try Data(contentsOf: ONTGenotypeResultBundle.manifestURL(in: bundle))
         let sourceWorkbookURL: URL
         if let currentPath = manifest.currentWorkbookPath {
@@ -390,7 +459,19 @@ public struct GenotypeWorkbookRevisionService {
         } else {
             annotationOnlyWorkbookRevision = nil
         }
-        let candidateInputs = try candidateArtifactInputURLs(from: manifest, in: bundle)
+        var workbookScientificInputs = try candidateArtifactInputURLs(
+            from: manifest,
+            in: bundle
+        )
+        if let workbookCSVProjectionInput {
+            workbookScientificInputs += [
+                workbookCSVProjectionInput.longSummaryURL,
+                workbookCSVProjectionInput.sampleSummaryURL,
+            ]
+        }
+        workbookScientificInputs = uniqueStandardizedURLs(
+            workbookScientificInputs
+        )
         let annotationSidecarData: Data?
         let annotationSidecarWitness: SourceWorkbookWitness?
         if let annotationSidecarURL, fileManager.fileExists(atPath: annotationSidecarURL.path) {
@@ -455,7 +536,8 @@ public struct GenotypeWorkbookRevisionService {
                 candidateArtifacts: manifest.mhcCandidateArtifacts,
                 reviewableRowCatalog: reviewableRowCatalogInput?.reference,
                 reviewableRowCatalogSchemaVersion:
-                    reviewableRowCatalogInput?.document.schemaVersion
+                    reviewableRowCatalogInput?.document.schemaVersion,
+                haplotypeProjectionMode: projectionMode
             )
             guard suppliedFingerprint == verifiedFingerprint else {
                 throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
@@ -472,6 +554,9 @@ public struct GenotypeWorkbookRevisionService {
             bundleURL: bundle,
             sidecar: sidecar,
             preserveExistingWorkbookProjection: annotationOnly,
+            haplotypeProjectionMode: projectionMode,
+            workbookCSVProjectionInput:
+                workbookCSVProjectionInput,
             expectedManagedStateAuthority: expectedManagedStateAuthority,
             newManagedStateAuthority:
                 expectedManagedStateAuthority ?? UUID().uuidString.lowercased()
@@ -525,6 +610,17 @@ public struct GenotypeWorkbookRevisionService {
             try requireUnchangedRegularFileNoFollow(
                 input.url,
                 witness: input.witness
+            )
+        }
+        func requireWorkbookCSVProjectionUnchanged() throws {
+            guard let input = workbookCSVProjectionInput else { return }
+            try requireUnchangedRegularFileNoFollow(
+                input.longSummaryURL,
+                witness: input.longSummaryWitness
+            )
+            try requireUnchangedRegularFileNoFollow(
+                input.sampleSummaryURL,
+                witness: input.sampleSummaryWitness
             )
         }
         let encoder = JSONEncoder()
@@ -589,12 +685,14 @@ public struct GenotypeWorkbookRevisionService {
             try requireCLIInputDescriptorsUnchanged()
             try requireAnnotationSidecarUnchanged()
             try requireReviewableRowCatalogUnchanged()
+            try requireWorkbookCSVProjectionUnchanged()
             return manifest
         }
         try publicationFailureInjector?("after-python-before-source-conflict-check")
         try requireCLIInputDescriptorsUnchanged()
         try requireAnnotationSidecarUnchanged()
         try requireReviewableRowCatalogUnchanged()
+        try requireWorkbookCSVProjectionUnchanged()
         try checkCancellation()
 
         let cloneBundleURL = stageDirectory.appendingPathComponent(bundle.lastPathComponent, isDirectory: true)
@@ -628,14 +726,14 @@ public struct GenotypeWorkbookRevisionService {
         try fileManager.copyItem(at: stagedSourceWorkbookURL, to: cloneSourceWorkbookURL)
         try fileManager.copyItem(at: patchedURL, to: clonePatchedWorkbookURL)
 
-        let cloneCandidateInputs = candidateInputs.map { input in
+        let cloneScientificInputs = workbookScientificInputs.map { input in
             ONTGenotypeResultBundle.resolvedURL(for: relativePath(from: bundle, to: input), in: cloneBundleURL)
         }
-        var additionalInputs = [cloneCallsURL, cloneConfigurationURL, cloneRuntimeURL, cloneScriptURL] + cloneCandidateInputs
+        var additionalInputs = [cloneCallsURL, cloneConfigurationURL, cloneRuntimeURL, cloneScriptURL] + cloneScientificInputs
         if retainFingerprintCalls {
             additionalInputs.append(cloneFingerprintCallsURL)
         }
-        var pythonInputURLs = [cloneScriptURL, cloneCallsURL, cloneConfigurationURL] + cloneCandidateInputs
+        var pythonInputURLs = [cloneScriptURL, cloneCallsURL, cloneConfigurationURL] + cloneScientificInputs
         var durableReviewableRowCatalogPath = ""
         if reviewableRowCatalogInput != nil {
             try fileManager.copyItem(
@@ -684,7 +782,8 @@ public struct GenotypeWorkbookRevisionService {
             inputURLs: pythonInputURLs,
             durableReplayArgv: durableReplayArgv,
             annotationSidecarRevisionSHA256: annotationSidecarWitness?.sha256,
-            reviewableRowCatalogInput: reviewableRowCatalogInput
+            reviewableRowCatalogInput: reviewableRowCatalogInput,
+            haplotypeProjectionMode: projectionMode
         )
         let cloneManifest = try importRevisedWorkbook(
             from: clonePatchedWorkbookURL,
@@ -716,6 +815,7 @@ public struct GenotypeWorkbookRevisionService {
         try requireCLIInputDescriptorsUnchanged()
         try requireAnnotationSidecarUnchanged()
         try requireReviewableRowCatalogUnchanged()
+        try requireWorkbookCSVProjectionUnchanged()
 
         let oldCurrentPath = manifest.currentWorkbookPath ?? manifest.primaryWorkbookPath
         let newCurrentPath = cloneManifest.currentWorkbookPath ?? cloneManifest.primaryWorkbookPath
@@ -747,6 +847,7 @@ public struct GenotypeWorkbookRevisionService {
                     } ?? "none",
                 "candidateVisibilityFiltersApplied": "false",
                 "haplotypeCallCount": String(calls.count),
+                "haplotypeProjectionMode": projectionMode.rawValue,
                 "mhcCandidateTints": configuration.tints.keys.sorted().map { key in
                     let tint = configuration.tints[key]!
                     return "\(key)=\(tint.red),\(tint.green),\(tint.blue),\(tint.alpha)"
@@ -806,6 +907,7 @@ public struct GenotypeWorkbookRevisionService {
         try requireCLIInputDescriptorsUnchanged()
         try requireAnnotationSidecarUnchanged()
         try requireReviewableRowCatalogUnchanged()
+        try requireWorkbookCSVProjectionUnchanged()
         workbookTransaction = try ONTGenotypeWorkbookUpdateRecovery.createAttestation(
             for: workbookTransaction,
             attestationRootURL: workbookAttestationRootURL
@@ -851,6 +953,7 @@ public struct GenotypeWorkbookRevisionService {
             try requireCLIInputDescriptorsUnchanged()
             try requireAnnotationSidecarUnchanged()
             try requireReviewableRowCatalogUnchanged()
+            try requireWorkbookCSVProjectionUnchanged()
         } catch {
             try ONTGenotypeWorkbookUpdateRecovery.discardPreparedTransactionAssumingLock(
                 workbookTransaction,
@@ -1222,6 +1325,10 @@ public struct GenotypeWorkbookRevisionService {
         bundleURL: URL,
         sidecar: GenotypeAnnotationSidecar?,
         preserveExistingWorkbookProjection: Bool = false,
+        haplotypeProjectionMode:
+            GenotypeWorkbookHaplotypeProjectionMode,
+        workbookCSVProjectionInput:
+            ValidatedWorkbookCSVProjectionInput?,
         expectedManagedStateAuthority: String?,
         newManagedStateAuthority: String
     ) throws -> WorkbookCandidateUpdateConfiguration {
@@ -1233,13 +1340,17 @@ public struct GenotypeWorkbookRevisionService {
             from: manifest.mhcReferenceVisualizations,
             in: bundleURL
         )
+        if let workbookCSVProjectionInput {
+            workbookSamples = workbookCSVProjectionInput.samples
+            workbookKnownCalls = workbookCSVProjectionInput.knownCalls
+        }
         if let artifacts {
-            let workbookProjection = try loadWorkbookCSVProjection(
-                manifest: manifest,
-                bundleURL: bundleURL
-            )
-            workbookSamples = workbookProjection.samples
-            workbookKnownCalls = workbookProjection.knownCalls
+            guard workbookCSVProjectionInput != nil else {
+                throw GenotypeWorkbookRevisionError
+                    .workbookOverrideFailed(
+                        "MHC workbook candidate projection requires an immutable workbook CSV snapshot."
+                    )
+            }
             guard (1 ... 2).contains(artifacts.schemaVersion) else {
                 throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
                     "Unsupported MHC candidate artifact schema \(artifacts.schemaVersion)."
@@ -1373,6 +1484,12 @@ public struct GenotypeWorkbookRevisionService {
             usesTwoSheetMHCContract: artifacts != nil,
             preserveExistingWorkbookProjection: preserveExistingWorkbookProjection,
             normalizedUnmatchedRows: normalizedUnmatchedRows,
+            manualHaplotypeRows:
+                FullLengthONTMHCManualHaplotypeWorkbookMapping.rows,
+            manualHaplotypeLegacyCombinedRows:
+                FullLengthONTMHCManualHaplotypeWorkbookMapping
+                    .legacyCombinedRows,
+            haplotypeProjectionMode: haplotypeProjectionMode,
             knownAlleleDisplayNames: knownAlleleDisplayNames,
             samples: workbookSamples,
             knownCalls: workbookKnownCalls,
@@ -1387,13 +1504,73 @@ public struct GenotypeWorkbookRevisionService {
         values.allSatisfy { $0 == nil } || values.allSatisfy { $0 != nil }
     }
 
+    private func validateManualHaplotypeSnapshot(
+        _ calls: [GenotypeWorkbookHaplotypeCall],
+        authoritativeSamples: [String]
+    ) throws {
+        let expectedSamples = Set(
+            authoritativeSamples.map {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        )
+        guard !expectedSamples.isEmpty,
+              !expectedSamples.contains("") else {
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Manual genotype-only haplotype projection requires at least one authoritative workbook sample."
+            )
+        }
+
+        let expectedLoci = Set(
+            GenotypeManualHaplotypeLocus.allCases.map(\.rawValue)
+        )
+        var lociBySample: [String: Set<String>] = [:]
+        for call in calls {
+            let sample = call.sample.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            guard expectedSamples.contains(sample) else {
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "Manual genotype-only haplotype snapshot contains a non-authoritative sample: \(sample)."
+                )
+            }
+            let suppliedLocus = call.locus.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            guard let locus = GenotypeManualHaplotypeLocus(
+                rawValue: suppliedLocus
+            )?.rawValue else {
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "Manual genotype-only haplotype snapshot contains a noncanonical or unsupported locus for \(sample): \(call.locus)."
+                )
+            }
+            guard lociBySample[sample, default: []].insert(locus)
+                .inserted else {
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "Manual genotype-only haplotype snapshot contains a duplicate locus for \(sample): \(locus)."
+                )
+            }
+        }
+
+        guard Set(lociBySample.keys) == expectedSamples else {
+            let expected = expectedSamples.sorted().joined(separator: ", ")
+            let actual = lociBySample.keys.sorted().joined(separator: ", ")
+            throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                "Manual genotype-only haplotype snapshot sample set does not match the authoritative workbook sample set (expected: \(expected); received: \(actual))."
+            )
+        }
+        for sample in expectedSamples {
+            guard lociBySample[sample] == expectedLoci else {
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "Manual genotype-only haplotype snapshot must contain exactly seven loci and both slots, including blank values, for \(sample)."
+                )
+            }
+        }
+    }
+
     private func loadWorkbookCSVProjection(
         manifest: ONTGenotypeResultBundleManifest,
         bundleURL: URL
-    ) throws -> (
-        samples: [WorkbookCandidateUpdateConfiguration.Sample],
-        knownCalls: [WorkbookCandidateUpdateConfiguration.KnownCall]
-    ) {
+    ) throws -> ValidatedWorkbookCSVProjectionInput {
         let longURL = try validatedWorkbookCSVURL(
             manifest.longSummaryCSVPath,
             field: "long_summary_csv_path",
@@ -1404,11 +1581,21 @@ public struct GenotypeWorkbookRevisionService {
             field: "sample_summary_csv_path",
             in: bundleURL
         )
+        let longSnapshot = try readRegularFileNoFollow(
+            longURL,
+            role: "workbook long-summary CSV"
+        )
+        let sampleSnapshot = try readRegularFileNoFollow(
+            sampleURL,
+            role: "workbook sample-summary CSV"
+        )
         let longRows = try workbookCSVRows(
+            data: longSnapshot.data,
             at: longURL,
             requiredHeaders: ["sample", "genotype", "passed_unique_reads"]
         )
         let sampleRows = try workbookCSVRows(
+            data: sampleSnapshot.data,
             at: sampleURL,
             requiredHeaders: ["sample"]
         )
@@ -1480,7 +1667,14 @@ public struct GenotypeWorkbookRevisionService {
                 readsBySample: knownReads[$0] ?? [:]
             )
         }
-        return (samples, knownCalls)
+        return ValidatedWorkbookCSVProjectionInput(
+            longSummaryURL: longURL,
+            longSummaryWitness: longSnapshot.witness,
+            sampleSummaryURL: sampleURL,
+            sampleSummaryWitness: sampleSnapshot.witness,
+            samples: samples,
+            knownCalls: knownCalls
+        )
     }
 
     private func validatedWorkbookCSVURL(
@@ -1499,15 +1693,16 @@ public struct GenotypeWorkbookRevisionService {
     }
 
     private func workbookCSVRows(
+        data: Data,
         at url: URL,
         requiredHeaders: Set<String>
     ) throws -> [[String: String]] {
         let content: String
-        do {
-            content = try String(contentsOf: url, encoding: .utf8)
-        } catch {
+        if let decoded = String(data: data, encoding: .utf8) {
+            content = decoded
+        } else {
             throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
-                "Could not read workbook CSV input \(url.path): \(error.localizedDescription)"
+                "Workbook CSV input is not valid UTF-8: \(url.path)"
             )
         }
         let lines = content.split(whereSeparator: { $0.isNewline }).map(String.init)
@@ -1625,6 +1820,17 @@ public struct GenotypeWorkbookRevisionService {
         }
         return references.map { ONTGenotypeResultBundle.resolvedURL(for: $0.path, in: bundleURL) }
             + csvURLs
+    }
+
+    private func uniqueStandardizedURLs(_ urls: [URL]) -> [URL] {
+        var seen = Set<String>()
+        return urls.compactMap { url in
+            let standardized = url.standardizedFileURL
+            guard seen.insert(standardized.path).inserted else {
+                return nil
+            }
+            return standardized
+        }
     }
 
     private func decodeAndValidate<T: Decodable>(
@@ -1957,6 +2163,30 @@ public struct GenotypeWorkbookRevisionService {
                 configuration.preserveExistingWorkbookProjection
             ),
             "mhcNormalizedUnmatchedRowCount": .integer(configuration.normalizedUnmatchedRows.count),
+            "manualHaplotypeWorkbookRows": .array(
+                configuration.manualHaplotypeRows.map { row in
+                    .dictionary([
+                        "locus": .string(row.locus),
+                        "slot": .string(row.slot.rawValue),
+                        "rowLabel": .string(row.rowLabel),
+                    ])
+                }
+            ),
+            "manualHaplotypeLegacyCombinedWorkbookRows": .array(
+                configuration.manualHaplotypeLegacyCombinedRows.map { row in
+                    .dictionary([
+                        "componentLoci": .array(
+                            row.componentLoci.map { .string($0) }
+                        ),
+                        "slot": .string(row.slot.rawValue),
+                        "rowLabel": .string(row.rowLabel),
+                        "compositionPolicy":
+                            .string(row.compositionPolicy),
+                    ])
+                }
+            ),
+            "haplotypeProjectionMode":
+                .string(configuration.haplotypeProjectionMode.rawValue),
             "mhcKnownAlleleDisplayNameCount": .integer(configuration.knownAlleleDisplayNames.count),
             "mhcWorkbookSampleCount": .integer(configuration.samples.count),
             "mhcWorkbookKnownCallCount": .integer(configuration.knownCalls.count),
@@ -2000,7 +2230,9 @@ public struct GenotypeWorkbookRevisionService {
         inputURLs: [URL],
         durableReplayArgv: [String],
         annotationSidecarRevisionSHA256: String?,
-        reviewableRowCatalogInput: ValidatedReviewableRowCatalogInput?
+        reviewableRowCatalogInput: ValidatedReviewableRowCatalogInput?,
+        haplotypeProjectionMode:
+            GenotypeWorkbookHaplotypeProjectionMode
     ) throws -> ProvenanceStep {
         let metadataObject = try JSONSerialization.jsonObject(
             with: Data(executionRecord.stdout.utf8)
@@ -2056,6 +2288,8 @@ public struct GenotypeWorkbookRevisionService {
             "falseNegativeTargetCellDecisions": try parameterValue(
                 fromJSONObject: targetCellDecisions
             ),
+            "haplotypeProjectionMode":
+                .string(haplotypeProjectionMode.rawValue),
         ]
         if let annotationSidecarRevisionSHA256 {
             resolvedOptions["annotationSidecarRevisionSHA256"] = .string(
@@ -2758,19 +2992,20 @@ public struct GenotypeWorkbookRevisionService {
     }
 
     private func readRegularFileNoFollow(
-        _ sourceURL: URL
+        _ sourceURL: URL,
+        role: String = "annotation sidecar"
     ) throws -> (data: Data, witness: SourceWorkbookWitness) {
         let descriptor = Darwin.open(sourceURL.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
         guard descriptor >= 0 else {
             throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
-                "Could not open annotation sidecar without following links: \(sourceURL.path) (errno \(errno))."
+                "Could not open \(role) without following links: \(sourceURL.path) (errno \(errno))."
             )
         }
         defer { Darwin.close(descriptor) }
         return try readRegularFile(
             descriptor: descriptor,
             sourceURL: sourceURL,
-            role: "annotation sidecar"
+            role: role
         )
     }
 

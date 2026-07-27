@@ -49,6 +49,8 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
         annotationSidecarURL: URL?,
         annotationSidecarData: Data? = nil,
         annotationOnly: Bool = false,
+        haplotypeProjectionMode:
+            GenotypeWorkbookHaplotypeProjectionMode = .haplotyped,
         inputFingerprint: GenotypeCurrentWorkbookInputFingerprint? = nil,
         syncIntent: GenotypeCurrentWorkbookSyncIntent? = nil,
         routeContext: OperationRouteContext? = nil
@@ -72,6 +74,7 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
             includedLoci: includedLoci,
             annotationSidecarURL: snapshot.annotationSidecarURL,
             annotationOnly: annotationOnly,
+            haplotypeProjectionMode: haplotypeProjectionMode,
             inputFingerprint: inputFingerprint,
             syncIntent: syncIntent
         )
@@ -601,6 +604,8 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
         includedLoci: [String],
         annotationSidecarURL: URL?,
         annotationOnly: Bool,
+        haplotypeProjectionMode:
+            GenotypeWorkbookHaplotypeProjectionMode,
         inputFingerprint: GenotypeCurrentWorkbookInputFingerprint?,
         syncIntent: GenotypeCurrentWorkbookSyncIntent?
     ) -> [String] {
@@ -610,6 +615,8 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
             bundleURL.path,
             "--calls-json",
             callsURL.path,
+            "--haplotype-projection-mode",
+            haplotypeProjectionMode.rawValue,
         ]
         for locus in includedLoci {
             arguments += ["--included-locus", locus]

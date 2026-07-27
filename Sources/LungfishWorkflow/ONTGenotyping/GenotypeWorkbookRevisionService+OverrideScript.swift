@@ -45,6 +45,13 @@ preserve_existing_workbook_projection = bool(
     candidate_configuration.get("preserve_existing_workbook_projection")
 )
 normalized_unmatched_rows = candidate_configuration.get("normalized_unmatched_rows") or []
+manual_haplotype_rows = candidate_configuration.get("manual_haplotype_rows") or []
+manual_haplotype_legacy_combined_rows = (
+    candidate_configuration.get("manual_haplotype_legacy_combined_rows") or []
+)
+haplotype_projection_mode = str(
+    candidate_configuration.get("haplotype_projection_mode") or ""
+).strip()
 known_allele_display_names = candidate_configuration.get("known_allele_display_names") or {}
 workbook_samples = candidate_configuration.get("samples") or []
 workbook_known_calls = candidate_configuration.get("known_calls") or []
@@ -226,20 +233,99 @@ def canonical_locus(locus):
     return text
 
 
+manual_haplotype_row_by_key = {}
+manual_haplotype_loci = []
+for row in manual_haplotype_rows:
+    locus = clean(row.get("locus"))
+    slot = clean(row.get("slot"))
+    label = clean(row.get("row_label"))
+    if not locus or slot not in ("h1", "h2") or not label:
+        raise ValueError("Malformed manual haplotype workbook row mapping")
+    key = (locus, slot)
+    if key in manual_haplotype_row_by_key:
+        raise ValueError(f"Duplicate manual haplotype workbook row mapping: {locus}/{slot}")
+    manual_haplotype_row_by_key[key] = label
+    if locus not in manual_haplotype_loci:
+        manual_haplotype_loci.append(locus)
+if len(manual_haplotype_loci) != 7 or len(manual_haplotype_row_by_key) != 14:
+    raise ValueError("Manual haplotype workbook mapping must contain seven loci and two slots per locus")
+for locus in manual_haplotype_loci:
+    if (locus, "h1") not in manual_haplotype_row_by_key or (locus, "h2") not in manual_haplotype_row_by_key:
+        raise ValueError(f"Manual haplotype workbook mapping is incomplete for {locus}")
+
+manual_haplotype_locus_set = set(manual_haplotype_loci)
+legacy_combined_row_by_key = {}
+for row in manual_haplotype_legacy_combined_rows:
+    component_loci = [
+        clean(locus) for locus in (row.get("component_loci") or [])
+    ]
+    slot = clean(row.get("slot"))
+    label = clean(row.get("row_label"))
+    composition_policy = clean(row.get("composition_policy"))
+    if (
+        len(component_loci) != 2
+        or any(locus not in manual_haplotype_locus_set for locus in component_loci)
+        or slot not in ("h1", "h2")
+        or not label
+        or composition_policy
+            != "collapse-identical-otherwise-locus-tagged"
+    ):
+        raise ValueError(
+            "Malformed legacy combined manual haplotype workbook row mapping"
+        )
+    key = (tuple(component_loci), slot)
+    if key in legacy_combined_row_by_key:
+        raise ValueError(
+            "Duplicate legacy combined manual haplotype workbook row mapping"
+        )
+    legacy_combined_row_by_key[key] = label
+if len(legacy_combined_row_by_key) != 4:
+    raise ValueError(
+        "Legacy combined manual haplotype workbook mapping must contain four rows"
+    )
+
+if haplotype_projection_mode not in ("haplotyped", "manual-genotype-only"):
+    raise ValueError(
+        f"Unknown haplotype projection mode: {haplotype_projection_mode}"
+    )
+
 calls_by_sample_locus = {}
+exact_calls_by_sample_locus = {}
 for call in call_rows:
     sample = clean(call.get("sample"))
-    locus = canonical_locus(call.get("locus"))
-    if not sample or not locus:
+    exact_locus = clean(call.get("locus"))
+    if not sample or not exact_locus:
         continue
-    if locus not in WRITABLE_LOCI:
-        continue
-    calls_by_sample_locus.setdefault(sample, {})[locus] = {
+    call_payload = {
         "haplotype1": clean(call.get("haplotype1")),
         "haplotype2": clean(call.get("haplotype2")),
         "status": clean(call.get("status")),
         "notes": clean(call.get("notes")),
     }
+    if haplotype_projection_mode == "manual-genotype-only":
+        if exact_locus not in manual_haplotype_locus_set:
+            raise ValueError(
+                f"Noncanonical or unsupported exact haplotype locus for {sample}: {exact_locus}"
+            )
+        exact_sample_calls = exact_calls_by_sample_locus.setdefault(sample, {})
+        if exact_locus in exact_sample_calls:
+            raise ValueError(f"Duplicate exact haplotype call for {sample}/{exact_locus}")
+        exact_sample_calls[exact_locus] = call_payload
+    locus = canonical_locus(exact_locus)
+    if locus not in WRITABLE_LOCI:
+        continue
+    calls_by_sample_locus.setdefault(sample, {})[locus] = call_payload
+
+manual_snapshot_samples = (
+    set(exact_calls_by_sample_locus)
+    if haplotype_projection_mode == "manual-genotype-only"
+    else set()
+)
+for sample in manual_snapshot_samples:
+    if set(exact_calls_by_sample_locus[sample]) != manual_haplotype_locus_set:
+        raise ValueError(
+            f"Manual genotype-only snapshot is incomplete for {sample}"
+        )
 
 call_overrides = sidecar.get("callOverrides") or []
 audit_entries = sidecar.get("auditLog") or []
@@ -250,6 +336,34 @@ matrix_reviews = sidecar.get("matrixReviews") or []
 
 def call_for(sample, locus):
     return calls_by_sample_locus.get(sample, {}).get(canonical_locus(locus), {})
+
+
+def exact_call_for(sample, locus):
+    return exact_calls_by_sample_locus.get(sample, {}).get(clean(locus), {})
+
+
+def exact_call_value(sample, locus, slot):
+    return exact_call_for(sample, locus).get(
+        "haplotype1" if slot == "h1" else "haplotype2",
+        "",
+    )
+
+
+def combined_manual_value(sample, loci, slot):
+    values = [
+        (locus, exact_call_value(sample, locus, slot))
+        for locus in loci
+    ]
+    populated = [(locus, value) for locus, value in values if value]
+    if not populated:
+        return ""
+    unique = []
+    for _locus, value in populated:
+        if value not in unique:
+            unique.append(value)
+    if len(unique) == 1 and len(populated) == len(loci):
+        return unique[0]
+    return "; ".join(f"{locus}: {value}" for locus, value in populated)
 
 
 def call_value(sample, locus, index):
@@ -303,8 +417,13 @@ def whole_animal(sample, index):
 
 def comments(sample):
     values = []
-    for locus in sorted(calls_by_sample_locus.get(sample, {})):
-        call = call_for(sample, locus)
+    source_calls = (
+        exact_calls_by_sample_locus.get(sample, {})
+        if sample in manual_snapshot_samples
+        else calls_by_sample_locus.get(sample, {})
+    )
+    for locus in sorted(source_calls):
+        call = source_calls[locus]
         status = call.get("status", "")
         note = call.get("notes", "")
         h1 = call.get("haplotype1", "")
@@ -371,6 +490,13 @@ def set_cell(cell, value):
     style_haplotype(cell, value)
 
 
+def set_literal_cell(cell, value):
+    cell.value = value
+    if isinstance(value, str):
+        cell.data_type = "s"
+    style_haplotype(cell, value)
+
+
 def patch_summary_sheet(sheet_name):
     if sheet_name not in wb.sheetnames:
         return
@@ -379,6 +505,43 @@ def patch_summary_sheet(sheet_name):
     for sample in calls_by_sample_locus:
         row = sample_row(ws, sample)
         if row is None:
+            continue
+        if sample in manual_snapshot_samples:
+            for mapping in manual_haplotype_rows:
+                header = clean(mapping.get("row_label"))
+                if header in headers:
+                    set_literal_cell(
+                        ws.cell(row, headers[header]),
+                        exact_call_value(
+                            sample,
+                            clean(mapping.get("locus")),
+                            clean(mapping.get("slot")),
+                        ),
+                    )
+            for mapping in manual_haplotype_legacy_combined_rows:
+                header = clean(mapping.get("row_label"))
+                loci = tuple(
+                    clean(locus)
+                    for locus in (mapping.get("component_loci") or [])
+                )
+                slot = clean(mapping.get("slot"))
+                composition_policy = clean(
+                    mapping.get("composition_policy")
+                )
+                if header in headers:
+                    if (
+                        composition_policy
+                        != "collapse-identical-otherwise-locus-tagged"
+                    ):
+                        raise ValueError(
+                            "Unsupported legacy combined manual haplotype composition policy"
+                        )
+                    set_literal_cell(
+                        ws.cell(row, headers[header]),
+                        combined_manual_value(sample, loci, slot),
+                    )
+            if "Comments" in headers:
+                ws.cell(row, headers["Comments"]).value = comments(sample)
             continue
         if "Haplotype 1" in headers:
             set_cell(ws.cell(row, headers["Haplotype 1"]), whole_animal(sample, 1))
@@ -399,9 +562,27 @@ def patch_full_sheet():
     if "Full Sequencing Results 1" not in wb.sheetnames:
         return
     ws = wb["Full Sequencing Results 1"]
-    for sample in calls_by_sample_locus:
+    samples = list(calls_by_sample_locus)
+    samples.extend(
+        sample for sample in manual_snapshot_samples if sample not in calls_by_sample_locus
+    )
+    for sample in samples:
         col = sample_col(ws, sample)
         if col is None:
+            continue
+        if sample in manual_snapshot_samples:
+            for mapping in manual_haplotype_rows:
+                locus = clean(mapping.get("locus"))
+                slot = clean(mapping.get("slot"))
+                row = row_for(ws, clean(mapping.get("row_label")))
+                if row is not None:
+                    set_literal_cell(
+                        ws.cell(row, col),
+                        exact_call_value(sample, locus, slot),
+                    )
+            comment_row = row_for(ws, "Comments")
+            if comment_row is not None:
+                ws.cell(comment_row, col).value = comments(sample)
             continue
         for locus in FULL_LOCI:
             for index in (1, 2):
@@ -3384,11 +3565,14 @@ def write_two_sheet_mhc_contract():
             if sample not in seen_sample_names:
                 sample_names.append(sample)
                 seen_sample_names.add(sample)
+    for sample in sorted(manual_snapshot_samples):
+        if sample not in seen_sample_names:
+            sample_names.append(sample)
+            seen_sample_names.add(sample)
 
     analyst_labels = [
-        f"{locus} Haplotype {index}"
-        for locus in ["MHC-A", "MHC-B", "MHC-DRB", "MHC-DQA", "MHC-DQB", "MHC-DPA", "MHC-DPB"]
-        for index in (1, 2)
+        clean(mapping.get("row_label"))
+        for mapping in manual_haplotype_rows
     ] + ["Comments"]
     source_sample_columns = {
         clean(source_unified.cell(1, col).value): col
@@ -3430,19 +3614,34 @@ def write_two_sheet_mhc_contract():
         for sample in sample_names
     ])
 
-    def generated_haplotype(sample, locus, index):
+    def generated_haplotype(sample, locus, slot):
+        if sample in manual_snapshot_samples:
+            return exact_call_value(sample, locus, slot)
         call = call_for(sample, locus)
-        key = "haplotype1" if index == 1 else "haplotype2"
+        key = "haplotype1" if slot == "h1" else "haplotype2"
         return clean(call.get(key))
 
-    for locus in ["MHC-A", "MHC-B", "MHC-DRB", "MHC-DQA", "MHC-DQB", "MHC-DPA", "MHC-DPB"]:
-        for index in (1, 2):
-            label = f"{locus} Haplotype {index}"
-            values = []
-            for sample in sample_names:
-                preserved = preserved_analyst_values.get((label, sample))
-                values.append(preserved if clean(preserved) else generated_haplotype(sample, locus, index))
-            unified.append([label, "", ""] + metadata_blanks + values)
+    for mapping in manual_haplotype_rows:
+        locus = clean(mapping.get("locus"))
+        slot = clean(mapping.get("slot"))
+        label = clean(mapping.get("row_label"))
+        values = []
+        for sample in sample_names:
+            generated = generated_haplotype(sample, locus, slot)
+            preserved = preserved_analyst_values.get((label, sample))
+            values.append(
+                generated
+                if sample in manual_snapshot_samples
+                else (preserved if clean(preserved) else generated)
+            )
+        unified.append([label, "", ""] + metadata_blanks + values)
+        analyst_row = unified.max_row
+        for sample_index, sample in enumerate(sample_names):
+            if sample in manual_snapshot_samples:
+                set_literal_cell(
+                    unified.cell(analyst_row, 13 + sample_index),
+                    generated_haplotype(sample, locus, slot),
+                )
     comment_values = []
     for sample in sample_names:
         preserved = preserved_analyst_values.get(("Comments", sample))

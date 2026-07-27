@@ -4600,6 +4600,901 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         XCTAssertTrue(provenance.contains("update-current-workbook"))
     }
 
+    func testApplyManualHaplotypeSnapshotWritesFourteenLiteralValuesAndSidecarRevisionProvenance()
+        throws
+    {
+        XCTAssertTrue(
+            pythonCanImportOpenpyxl(),
+            "The managed test runtime must provide openpyxl"
+        )
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(
+            in: root,
+            outputName: "manual-fourteen",
+            workflowKind: .fullLengthONTMHCGenotype
+        )
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.lastEditedAt = "2026-07-27T12:00:00Z"
+        sidecar.lastEditor = "manual-curator"
+        sidecar.manualHaplotypeAssignments = [
+            ManualHaplotypeAssignment(
+                sample: "DW472",
+                locus: "MHC-A",
+                slot: .h1,
+                label: "=LITERAL_NOT_FORMULA",
+                colorTokenIndex: 1,
+                diagnosticAlleles: [],
+                notes: "manual workbook snapshot"
+            ),
+        ]
+        let sidecarData = try sidecar.encoded()
+        try sidecarData.write(to: annotationURL)
+        let sidecarSHA256 = try ProvenanceFileHasher.sha256(
+            of: annotationURL
+        )
+        let authoritativeCSVURLs = [
+            ONTGenotypeResultBundle.resolvedURL(
+                for: fixture.manifest.longSummaryCSVPath,
+                in: fixture.bundleURL
+            ),
+            ONTGenotypeResultBundle.resolvedURL(
+                for: fixture.manifest.sampleSummaryCSVPath,
+                in: fixture.bundleURL
+            ),
+        ]
+        let authoritativeCSVDescriptors = try authoritativeCSVURLs.map {
+            (
+                url: $0,
+                sha256: try ProvenanceFileHasher.sha256(of: $0),
+                size: try ProvenanceFileHasher.fileSize(of: $0)
+            )
+        }
+        let calls = [
+            GenotypeWorkbookHaplotypeCall(
+                sample: "DW472",
+                locus: "MHC-A",
+                haplotype1: "=LITERAL_NOT_FORMULA",
+                haplotype2: "+PLUS_LITERAL",
+                status: "called",
+                notes: "manual workbook snapshot"
+            ),
+            GenotypeWorkbookHaplotypeCall(
+                sample: "DW472",
+                locus: "MHC-B",
+                haplotype1: "-MINUS_LITERAL",
+                haplotype2: "@AT_LITERAL",
+                status: "called",
+                notes: ""
+            ),
+            GenotypeWorkbookHaplotypeCall(
+                sample: "DW472",
+                locus: "MHC-DRB",
+                haplotype1: "Manual-DRB-1",
+                haplotype2: "Manual-DRB-2",
+                status: "called",
+                notes: ""
+            ),
+            GenotypeWorkbookHaplotypeCall(
+                sample: "DW472",
+                locus: "MHC-DQA",
+                haplotype1: "Manual-DQA-1",
+                haplotype2: "Manual-DQA-2",
+                status: "called",
+                notes: ""
+            ),
+            GenotypeWorkbookHaplotypeCall(
+                sample: "DW472",
+                locus: "MHC-DQB",
+                haplotype1: "Manual-DQB-1",
+                haplotype2: "Manual-DQB-2",
+                status: "called",
+                notes: ""
+            ),
+            GenotypeWorkbookHaplotypeCall(
+                sample: "DW472",
+                locus: "MHC-DPA",
+                haplotype1: "Manual-DPA-1",
+                haplotype2: "Manual-DPA-2",
+                status: "called",
+                notes: ""
+            ),
+            GenotypeWorkbookHaplotypeCall(
+                sample: "DW472",
+                locus: "MHC-DPB",
+                haplotype1: "Manual-DPB-1",
+                haplotype2: "Manual-DPB-2",
+                status: "called",
+                notes: ""
+            ),
+        ]
+
+        let updated = try GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 5_050) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL: root.appendingPathComponent(
+                "attestations"
+            )
+        ).applyHaplotypeOverrides(
+            calls,
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL,
+            projectionMode: .manualGenotypeOnly
+        )
+
+        let inspection = try inspectMCMWorkbook(
+            try ONTGenotypeResultBundle.currentWorkbookURL(
+                for: fixture.bundleURL
+            )
+        )
+        XCTAssertEqual(
+            inspection["fullAHaplotype1"],
+            "=LITERAL_NOT_FORMULA"
+        )
+        XCTAssertEqual(inspection["fullAHaplotype1Type"], "s")
+        XCTAssertEqual(inspection["fullAHaplotype2"], "+PLUS_LITERAL")
+        XCTAssertEqual(inspection["fullAHaplotype2Type"], "s")
+        XCTAssertEqual(inspection["fullBHaplotype1"], "-MINUS_LITERAL")
+        XCTAssertEqual(inspection["fullBHaplotype1Type"], "s")
+        XCTAssertEqual(inspection["fullBHaplotype2"], "@AT_LITERAL")
+        XCTAssertEqual(inspection["fullBHaplotype2Type"], "s")
+        XCTAssertEqual(inspection["fullDRBHaplotype1"], "Manual-DRB-1")
+        XCTAssertEqual(inspection["fullDRBHaplotype2"], "Manual-DRB-2")
+        XCTAssertEqual(inspection["fullDQAHaplotype1"], "Manual-DQA-1")
+        XCTAssertEqual(inspection["fullDQAHaplotype2"], "Manual-DQA-2")
+        XCTAssertEqual(inspection["fullDQBHaplotype1"], "Manual-DQB-1")
+        XCTAssertEqual(inspection["fullDQBHaplotype2"], "Manual-DQB-2")
+        XCTAssertEqual(inspection["fullDPAHaplotype1"], "Manual-DPA-1")
+        XCTAssertEqual(inspection["fullDPAHaplotype2"], "Manual-DPA-2")
+        XCTAssertEqual(inspection["fullDPBHaplotype1"], "Manual-DPB-1")
+        XCTAssertEqual(inspection["fullDPBHaplotype2"], "Manual-DPB-2")
+        XCTAssertEqual(
+            inspection["abbreviatedDQHaplotype1"],
+            "MHC-DQA: Manual-DQA-1; MHC-DQB: Manual-DQB-1"
+        )
+        XCTAssertEqual(
+            inspection["abbreviatedDQHaplotype2"],
+            "MHC-DQA: Manual-DQA-2; MHC-DQB: Manual-DQB-2"
+        )
+        XCTAssertEqual(
+            inspection["abbreviatedDPHaplotype1"],
+            "MHC-DPA: Manual-DPA-1; MHC-DPB: Manual-DPB-1"
+        )
+        XCTAssertEqual(
+            inspection["abbreviatedDPHaplotype2"],
+            "MHC-DPA: Manual-DPA-2; MHC-DPB: Manual-DPB-2"
+        )
+        XCTAssertEqual(
+            inspection["customDQHaplotype1"],
+            "MHC-DQA: Manual-DQA-1; MHC-DQB: Manual-DQB-1"
+        )
+        XCTAssertEqual(
+            inspection["customDPHaplotype1"],
+            "MHC-DPA: Manual-DPA-1; MHC-DPB: Manual-DPB-1"
+        )
+
+        let provenanceURL = ONTGenotypeResultBundle.resolvedURL(
+            for: try XCTUnwrap(
+                updated.workbookRevisions?.last?.provenancePath
+            ),
+            in: fixture.bundleURL
+        )
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: provenanceURL)
+        )
+        let pythonStep = try XCTUnwrap(
+            envelope.steps.first {
+                $0.toolName == "python openpyxl workbook candidate update"
+            }
+        )
+        XCTAssertEqual(
+            pythonStep.resolvedOptions[
+                "annotationSidecarRevisionSHA256"
+            ],
+            .string(sidecarSHA256)
+        )
+        XCTAssertEqual(
+            pythonStep.resolvedOptions["haplotypeProjectionMode"],
+            .string("manual-genotype-only")
+        )
+        XCTAssertTrue(
+            pythonStep.inputs.contains {
+                URL(fileURLWithPath: $0.path).lastPathComponent
+                    == GenotypeAnnotationSidecar.filename
+                    && $0.checksumSHA256 == sidecarSHA256
+                    && $0.fileSize == UInt64(sidecarData.count)
+                }
+        )
+        for expected in authoritativeCSVDescriptors {
+            XCTAssertTrue(
+                pythonStep.inputs.contains {
+                    $0.path == expected.url.path
+                        && $0.checksumSHA256 == expected.sha256
+                        && $0.fileSize == expected.size
+                },
+                expected.url.lastPathComponent
+            )
+            XCTAssertTrue(
+                envelope.files.contains {
+                    $0.role == .input
+                        && $0.path == expected.url.path
+                        && $0.checksumSHA256 == expected.sha256
+                        && $0.fileSize == expected.size
+                },
+                expected.url.lastPathComponent
+            )
+        }
+
+        let twoSheetFixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "manual-fourteen-two-sheet",
+            workflowKind: .fullLengthONTMHCGenotype
+        )
+        try installCandidateArtifacts(in: twoSheetFixture.bundleURL)
+        try installMinimalUnifiedPivot(in: twoSheetFixture.bundleURL)
+        let twoSheetCalls = calls.map {
+            GenotypeWorkbookHaplotypeCall(
+                sample: "sample-a",
+                locus: $0.locus,
+                haplotype1: $0.haplotype1,
+                haplotype2: $0.haplotype2,
+                status: $0.status,
+                notes: $0.notes
+            )
+        } + GenotypeManualHaplotypeLocus.allCases.map {
+            GenotypeWorkbookHaplotypeCall(
+                sample: "sample-b",
+                locus: $0.rawValue,
+                haplotype1: "",
+                haplotype2: "",
+                status: "called",
+                notes: ""
+            )
+        }
+        _ = try GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 5_051) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL: root.appendingPathComponent(
+                "attestations"
+            )
+        ).applyHaplotypeOverrides(
+            twoSheetCalls,
+            annotationSidecarURL: nil,
+            into: twoSheetFixture.bundleURL,
+            projectionMode: .manualGenotypeOnly
+        )
+        let twoSheetInspection = try inspectTwoSheetCandidateWorkbook(
+            try ONTGenotypeResultBundle.currentWorkbookURL(
+                for: twoSheetFixture.bundleURL
+            )
+        )
+        XCTAssertEqual(
+            twoSheetInspection["analystHaplotype"],
+            "=LITERAL_NOT_FORMULA"
+        )
+        XCTAssertEqual(twoSheetInspection["analystHaplotypeType"], "s")
+        XCTAssertEqual(
+            twoSheetInspection["analystHaplotype2"],
+            "+PLUS_LITERAL"
+        )
+        XCTAssertEqual(twoSheetInspection["analystHaplotype2Type"], "s")
+        XCTAssertEqual(
+            twoSheetInspection["sampleABHaplotype1"],
+            "-MINUS_LITERAL"
+        )
+        XCTAssertEqual(twoSheetInspection["sampleABHaplotype1Type"], "s")
+        XCTAssertEqual(
+            twoSheetInspection["sampleABHaplotype2"],
+            "@AT_LITERAL"
+        )
+        XCTAssertEqual(twoSheetInspection["sampleABHaplotype2Type"], "s")
+        XCTAssertEqual(
+            twoSheetInspection["sampleADRBHaplotype1"],
+            "Manual-DRB-1"
+        )
+        XCTAssertEqual(
+            twoSheetInspection["sampleADRBHaplotype2"],
+            "Manual-DRB-2"
+        )
+        XCTAssertEqual(
+            twoSheetInspection["sampleADQAHaplotype1"],
+            "Manual-DQA-1"
+        )
+        XCTAssertEqual(
+            twoSheetInspection["sampleADQAHaplotype2"],
+            "Manual-DQA-2"
+        )
+        XCTAssertEqual(
+            twoSheetInspection["sampleADQBHaplotype1"],
+            "Manual-DQB-1"
+        )
+        XCTAssertEqual(
+            twoSheetInspection["sampleADQBHaplotype2"],
+            "Manual-DQB-2"
+        )
+        XCTAssertEqual(
+            twoSheetInspection["sampleADPAHaplotype1"],
+            "Manual-DPA-1"
+        )
+        XCTAssertEqual(
+            twoSheetInspection["sampleADPAHaplotype2"],
+            "Manual-DPA-2"
+        )
+        XCTAssertEqual(
+            twoSheetInspection["sampleADPBHaplotype1"],
+            "Manual-DPB-1"
+        )
+        XCTAssertEqual(
+            twoSheetInspection["sampleADPBHaplotype2"],
+            "Manual-DPB-2"
+        )
+    }
+
+    func testCompleteSevenLocusHaplotypedSnapshotIsNeverInferredAsManual()
+        throws
+    {
+        XCTAssertTrue(pythonCanImportOpenpyxl())
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(
+            in: root,
+            outputName: "seven-locus-haplotyped"
+        )
+        let calls = [
+            ("MHC-A", "HAP-A-1", "HAP-A-2"),
+            ("MHC-B", "HAP-B-1", "HAP-B-2"),
+            ("MHC-DRB", "HAP-DRB-1", "HAP-DRB-2"),
+            ("MHC-DQA", "HAP-DQA-1", "HAP-DQA-2"),
+            ("MHC-DQB", "HAP-DQB-1", "HAP-DQB-2"),
+            ("MHC-DPA", "HAP-DPA-1", "HAP-DPA-2"),
+            ("MHC-DPB", "HAP-DPB-1", "HAP-DPB-2"),
+        ].map {
+            GenotypeWorkbookHaplotypeCall(
+                sample: "DW472",
+                locus: $0.0,
+                haplotype1: $0.1,
+                haplotype2: $0.2,
+                status: "called",
+                notes: ""
+            )
+        }
+
+        _ = try GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 5_052) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL: root.appendingPathComponent(
+                "attestations"
+            )
+        ).applyHaplotypeOverrides(
+            calls,
+            annotationSidecarURL: nil,
+            into: fixture.bundleURL,
+            projectionMode: .haplotyped
+        )
+
+        let inspection = try inspectMCMWorkbook(
+            try ONTGenotypeResultBundle.currentWorkbookURL(
+                for: fixture.bundleURL
+            )
+        )
+        XCTAssertEqual(inspection["fullAHaplotype1"], "HAP-A-1")
+        // Haplotyped mode intentionally preserves the established canonical
+        // DQ/DP projection: the last canonical call supplies both split rows.
+        XCTAssertEqual(inspection["fullDQAHaplotype1"], "HAP-DQB-1")
+        XCTAssertEqual(inspection["fullDQBHaplotype1"], "HAP-DQB-1")
+        XCTAssertEqual(inspection["fullDPAHaplotype1"], "HAP-DPB-1")
+        XCTAssertEqual(inspection["fullDPBHaplotype1"], "HAP-DPB-1")
+        XCTAssertEqual(
+            inspection["abbreviatedDQHaplotype1"],
+            "HAP-DQB-1"
+        )
+        XCTAssertEqual(
+            inspection["abbreviatedDPHaplotype1"],
+            "HAP-DPB-1"
+        )
+    }
+
+    func testHaplotypedDuplicateExactLocusPreservesEstablishedLastWinsBehavior()
+        throws
+    {
+        XCTAssertTrue(pythonCanImportOpenpyxl())
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(
+            in: root,
+            outputName: "haplotyped-duplicate-last-wins"
+        )
+        let calls = [
+            GenotypeWorkbookHaplotypeCall(
+                sample: "DW472",
+                locus: "MHC-DQA",
+                haplotype1: "First-DQ",
+                haplotype2: "",
+                status: "called",
+                notes: ""
+            ),
+            GenotypeWorkbookHaplotypeCall(
+                sample: "DW472",
+                locus: "MHC-DQA",
+                haplotype1: "Last-DQ",
+                haplotype2: "",
+                status: "called",
+                notes: ""
+            ),
+        ]
+
+        _ = try GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 5_052.5) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL: root.appendingPathComponent(
+                "attestations"
+            )
+        ).applyHaplotypeOverrides(
+            calls,
+            annotationSidecarURL: nil,
+            into: fixture.bundleURL,
+            projectionMode: .haplotyped
+        )
+
+        let inspection = try inspectMCMWorkbook(
+            try ONTGenotypeResultBundle.currentWorkbookURL(
+                for: fixture.bundleURL
+            )
+        )
+        XCTAssertEqual(inspection["fullDQAHaplotype1"], "Last-DQ")
+        XCTAssertEqual(inspection["fullDQBHaplotype1"], "Last-DQ")
+        XCTAssertEqual(
+            inspection["abbreviatedDQHaplotype1"],
+            "Last-DQ"
+        )
+    }
+
+    func testTypedONTAndMiSeqGenotypeOnlyBundlesMaterializeManualSnapshots()
+        throws
+    {
+        XCTAssertTrue(pythonCanImportOpenpyxl())
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        for kind in GenotypeResultWorkflowKind.allCases {
+            let fixture = try makeMCMWorkbookBundle(
+                in: root,
+                outputName: "typed-\(kind.rawValue)",
+                workflowKind: kind
+            )
+            let calls = GenotypeManualHaplotypeLocus.allCases.map {
+                GenotypeWorkbookHaplotypeCall(
+                    sample: "DW472",
+                    locus: $0.rawValue,
+                    haplotype1:
+                        $0 == .a ? "=typed-\(kind.rawValue)" : "",
+                    haplotype2: "",
+                    status: "called",
+                    notes: ""
+                )
+            }
+            let updated = try GenotypeWorkbookRevisionService(
+                dateProvider: { Date(timeIntervalSince1970: 5_053) },
+                userProvider: { "tester" },
+                pythonExecutableURL: testPythonExecutableURL,
+                workbookAttestationRootURL: root.appendingPathComponent(
+                    "attestations"
+                )
+            ).applyHaplotypeOverrides(
+                calls,
+                annotationSidecarURL: nil,
+                into: fixture.bundleURL,
+                projectionMode: .manualGenotypeOnly
+            )
+            let inspection = try inspectMCMWorkbook(
+                try ONTGenotypeResultBundle.currentWorkbookURL(
+                    for: fixture.bundleURL
+                )
+            )
+            XCTAssertEqual(
+                inspection["fullAHaplotype1"],
+                "=typed-\(kind.rawValue)"
+            )
+            XCTAssertEqual(inspection["fullAHaplotype1Type"], "s")
+            XCTAssertEqual(updated.workflowKind, kind)
+            XCTAssertEqual(updated.workflowMode, .genotypeOnly)
+        }
+    }
+
+    func testLegacyCombinedManualRowsComposeEmptySingleSameAndDistinctValues()
+        throws
+    {
+        XCTAssertTrue(pythonCanImportOpenpyxl())
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cases = [
+            (
+                name: "empty",
+                first: "",
+                second: "",
+                expectedDQ: "",
+                expectedDP: ""
+            ),
+            (
+                name: "single",
+                first: "Only",
+                second: "",
+                expectedDQ: "MHC-DQA: DQ-Only",
+                expectedDP: "MHC-DPA: DP-Only"
+            ),
+            (
+                name: "same",
+                first: "Same",
+                second: "Same",
+                expectedDQ: "DQ-Same",
+                expectedDP: "DP-Same"
+            ),
+            (
+                name: "distinct",
+                first: "First",
+                second: "Second",
+                expectedDQ:
+                    "MHC-DQA: DQ-First; MHC-DQB: DQ-Second",
+                expectedDP:
+                    "MHC-DPA: DP-First; MHC-DPB: DP-Second"
+            ),
+        ]
+        for item in cases {
+            let fixture = try makeMCMWorkbookBundle(
+                in: root,
+                outputName: "legacy-composition-\(item.name)",
+                workflowKind: .fullLengthONTMHCGenotype
+            )
+            let calls = GenotypeManualHaplotypeLocus.allCases.map { locus in
+                let value: String
+                switch locus {
+                case .dqa:
+                    value =
+                        item.first.isEmpty ? "" : "DQ-\(item.first)"
+                case .dqb:
+                    value =
+                        item.second.isEmpty ? "" : "DQ-\(item.second)"
+                case .dpa:
+                    value =
+                        item.first.isEmpty ? "" : "DP-\(item.first)"
+                case .dpb:
+                    value =
+                        item.second.isEmpty ? "" : "DP-\(item.second)"
+                default:
+                    value = ""
+                }
+                return GenotypeWorkbookHaplotypeCall(
+                    sample: "DW472",
+                    locus: locus.rawValue,
+                    haplotype1: value,
+                    haplotype2: "",
+                    status: "called",
+                    notes: ""
+                )
+            }
+            _ = try GenotypeWorkbookRevisionService(
+                dateProvider: { Date(timeIntervalSince1970: 5_055) },
+                userProvider: { "tester" },
+                pythonExecutableURL: testPythonExecutableURL,
+                workbookAttestationRootURL: root.appendingPathComponent(
+                    "attestations"
+                )
+            ).applyHaplotypeOverrides(
+                calls,
+                annotationSidecarURL: nil,
+                into: fixture.bundleURL,
+                projectionMode: .manualGenotypeOnly
+            )
+            let inspection = try inspectMCMWorkbook(
+                try ONTGenotypeResultBundle.currentWorkbookURL(
+                    for: fixture.bundleURL
+                )
+            )
+            for key in [
+                "abbreviatedDQHaplotype1",
+                "customDQHaplotype1",
+            ] {
+                XCTAssertEqual(inspection[key], item.expectedDQ, key)
+            }
+            for key in [
+                "abbreviatedDPHaplotype1",
+                "customDPHaplotype1",
+            ] {
+                XCTAssertEqual(inspection[key], item.expectedDP, key)
+            }
+            XCTAssertEqual(inspection["abbreviatedDQHaplotype2"], "")
+            XCTAssertEqual(inspection["abbreviatedDPHaplotype2"], "")
+        }
+
+        let script = GenotypeWorkbookRevisionService(
+            workbookAttestationRootURL: root.appendingPathComponent(
+                "attestations"
+            )
+        ).workbookOverrideScript
+        XCTAssertTrue(
+            script.contains("manual_haplotype_legacy_combined_rows")
+        )
+        XCTAssertFalse(script.contains("MHC-DQA/B Haplotype"))
+        XCTAssertFalse(script.contains("MHC-DPA/B Haplotype"))
+    }
+
+    func testRecognizedLegacyGenotypeOnlyKindsUseSharedManualAuthority()
+        throws
+    {
+        XCTAssertTrue(pythonCanImportOpenpyxl())
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        for kind in GenotypeResultWorkflowKind.allCases {
+            let fixture = try makeMCMWorkbookBundle(
+                in: root,
+                outputName: "recognized-legacy-\(kind.rawValue)",
+                manifestKind: kind.rawValue
+            )
+            let calls = GenotypeManualHaplotypeLocus.allCases.map {
+                GenotypeWorkbookHaplotypeCall(
+                    sample: "DW472",
+                    locus: $0.rawValue,
+                    haplotype1: $0 == .a ? "Legacy-Manual-A" : "",
+                    haplotype2: "",
+                    status: "called",
+                    notes: ""
+                )
+            }
+            _ = try GenotypeWorkbookRevisionService(
+                dateProvider: { Date(timeIntervalSince1970: 5_056) },
+                userProvider: { "tester" },
+                pythonExecutableURL: testPythonExecutableURL,
+                workbookAttestationRootURL: root.appendingPathComponent(
+                    "attestations"
+                )
+            ).applyHaplotypeOverrides(
+                calls,
+                annotationSidecarURL: nil,
+                into: fixture.bundleURL,
+                projectionMode: .manualGenotypeOnly
+            )
+            let inspection = try inspectMCMWorkbook(
+                try ONTGenotypeResultBundle.currentWorkbookURL(
+                    for: fixture.bundleURL
+                )
+            )
+            XCTAssertEqual(
+                inspection["fullAHaplotype1"],
+                "Legacy-Manual-A"
+            )
+        }
+    }
+
+    func testManualProjectionRejectsUnauthorizedManifestBeforeWorkbookMutation()
+        throws
+    {
+        XCTAssertTrue(pythonCanImportOpenpyxl())
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixtures = [
+            try makeMCMWorkbookBundle(
+                in: root,
+                outputName: "ambiguous-legacy-manual"
+            ),
+            try makeMCMWorkbookBundle(
+                in: root,
+                outputName: "typed-haplotyped-manual",
+                workflowKind: .fullLengthONTMHCGenotype,
+                workflowMode: .haplotyped
+            ),
+            try makeMCMWorkbookBundle(
+                in: root,
+                outputName: "contradictory-kind-manual",
+                manifestKind:
+                    GenotypeResultWorkflowKind
+                        .miSeqAmpliconMHCGenotype.rawValue,
+                workflowKind: .fullLengthONTMHCGenotype
+            ),
+            try makeMCMWorkbookBundle(
+                in: root,
+                outputName: "contradictory-authority-manual",
+                workflowKind: .fullLengthONTMHCGenotype,
+                haplotypeAnalysisPath: "haplotypes/current.json"
+            ),
+        ]
+        let calls = GenotypeManualHaplotypeLocus.allCases.map {
+            GenotypeWorkbookHaplotypeCall(
+                sample: "DW472",
+                locus: $0.rawValue,
+                haplotype1: "Manual-\($0.rawValue)",
+                haplotype2: "",
+                status: "called",
+                notes: ""
+            )
+        }
+
+        for fixture in fixtures {
+            let bundleBefore = try directorySnapshot(fixture.bundleURL)
+            XCTAssertThrowsError(
+                try GenotypeWorkbookRevisionService(
+                    dateProvider: { Date(timeIntervalSince1970: 5_054) },
+                    userProvider: { "tester" },
+                    pythonExecutableURL: testPythonExecutableURL,
+                    workbookAttestationRootURL: root.appendingPathComponent(
+                        "attestations"
+                    )
+                ).applyHaplotypeOverrides(
+                    calls,
+                    annotationSidecarURL: nil,
+                    into: fixture.bundleURL,
+                    projectionMode: .manualGenotypeOnly
+                )
+            ) { error in
+                XCTAssertTrue(
+                    error.localizedDescription.localizedCaseInsensitiveContains(
+                        "not authorized"
+                    )
+                )
+            }
+            XCTAssertEqual(
+                try directorySnapshot(fixture.bundleURL),
+                bundleBefore
+            )
+        }
+    }
+
+    func testManualProjectionRequiresCompleteAuthoritativeSampleSetBeforeMutation()
+        throws
+    {
+        XCTAssertTrue(pythonCanImportOpenpyxl())
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let completeDW472 = GenotypeManualHaplotypeLocus.allCases.map {
+            GenotypeWorkbookHaplotypeCall(
+                sample: "DW472",
+                locus: $0.rawValue,
+                haplotype1: "",
+                haplotype2: "",
+                status: "called",
+                notes: ""
+            )
+        }
+        let cases: [(String, [GenotypeWorkbookHaplotypeCall], Bool)] = [
+            ("empty", [], false),
+            ("incomplete", Array(completeDW472.prefix(6)), false),
+            (
+                "extra",
+                completeDW472
+                    + completeDW472.map {
+                        GenotypeWorkbookHaplotypeCall(
+                            sample: "Extra",
+                            locus: $0.locus,
+                            haplotype1: $0.haplotype1,
+                            haplotype2: $0.haplotype2,
+                            status: $0.status,
+                            notes: $0.notes
+                        )
+                    },
+                false
+            ),
+            ("omitted", completeDW472, true),
+            (
+                "noncanonical-loci",
+                completeDW472.map {
+                    GenotypeWorkbookHaplotypeCall(
+                        sample: $0.sample,
+                        locus: String($0.locus.dropFirst("MHC-".count)),
+                        haplotype1: $0.haplotype1,
+                        haplotype2: $0.haplotype2,
+                        status: $0.status,
+                        notes: $0.notes
+                    )
+                },
+                false
+            ),
+        ]
+
+        for (name, calls, addOmittedAuthoritativeSample) in cases {
+            let fixture = try makeMCMWorkbookBundle(
+                in: root,
+                outputName: "manual-authority-\(name)",
+                workflowKind: .fullLengthONTMHCGenotype
+            )
+            if addOmittedAuthoritativeSample {
+                let sampleURL = ONTGenotypeResultBundle.resolvedURL(
+                    for: fixture.manifest.sampleSummaryCSVPath,
+                    in: fixture.bundleURL
+                )
+                try """
+                sample,passed_alignments,passed_unique_reads
+                DW472,1,1
+                Missing,0,0
+                """.write(
+                    to: sampleURL,
+                    atomically: true,
+                    encoding: .utf8
+                )
+            }
+            let before = try directorySnapshot(fixture.bundleURL)
+            XCTAssertThrowsError(
+                try GenotypeWorkbookRevisionService(
+                    dateProvider: { Date(timeIntervalSince1970: 5_057) },
+                    userProvider: { "tester" },
+                    pythonExecutableURL: testPythonExecutableURL,
+                    workbookAttestationRootURL: root.appendingPathComponent(
+                        "attestations"
+                    )
+                ).applyHaplotypeOverrides(
+                    calls,
+                    annotationSidecarURL: nil,
+                    into: fixture.bundleURL,
+                    projectionMode: .manualGenotypeOnly
+                )
+            )
+            XCTAssertEqual(
+                try directorySnapshot(fixture.bundleURL),
+                before,
+                name
+            )
+        }
+    }
+
+    func testManualAnnotationOnlyUsesCompleteSemanticFingerprintSnapshot()
+        throws
+    {
+        XCTAssertTrue(pythonCanImportOpenpyxl())
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(
+            in: root,
+            outputName: "manual-annotation-only",
+            workflowKind: .fullLengthONTMHCGenotype
+        )
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        try GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        ).encoded().write(to: annotationURL)
+        let semanticCalls = GenotypeManualHaplotypeLocus.allCases.map {
+            GenotypeWorkbookHaplotypeCall(
+                sample: "DW472",
+                locus: $0.rawValue,
+                haplotype1: "",
+                haplotype2: "",
+                status: "called",
+                notes: ""
+            )
+        }
+
+        XCTAssertNoThrow(
+            try GenotypeWorkbookRevisionService(
+                dateProvider: { Date(timeIntervalSince1970: 5_058) },
+                userProvider: { "tester" },
+                pythonExecutableURL: testPythonExecutableURL,
+                workbookAttestationRootURL: root.appendingPathComponent(
+                    "attestations"
+                )
+            ).applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: annotationURL,
+                into: fixture.bundleURL,
+                annotationOnly: true,
+                fingerprintInputs: GenotypeWorkbookFingerprintInputs(
+                    calls: semanticCalls,
+                    includedLoci:
+                        GenotypeManualHaplotypeLocus.allCases.map(\.rawValue),
+                    haplotypeProjectionMode: .manualGenotypeOnly
+                ),
+                projectionMode: .manualGenotypeOnly
+            )
+        )
+    }
+
     func testApplyHaplotypeOverridesAttestsInputFingerprintAndSyncIntentInPublishedRevision() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()
@@ -8979,7 +9874,8 @@ wb.save(path)
 
     private func writeMinimalNativeArtifacts(
         in bundleURL: URL,
-        outputName: String
+        outputName: String,
+        sample: String = "SampleA"
     ) throws -> (genotypeCSV: URL, sampleCSV: URL, statsJSON: URL, provenance: URL) {
         let genotypeCSVURL = bundleURL.appendingPathComponent("\(outputName).retained-demux-genotypes.csv")
         let sampleCSVURL = bundleURL.appendingPathComponent("\(outputName).retained-demux-samples.csv")
@@ -8988,11 +9884,11 @@ wb.save(path)
         try Data("{}".utf8).write(to: provenanceURL)
         try """
         sample,genotype,passed_alignments,passed_unique_reads
-        SampleA,allele1,1,1
+        \(sample),allele1,1,1
         """.write(to: genotypeCSVURL, atomically: true, encoding: .utf8)
         try """
         sample,passed_alignments,passed_unique_reads
-        SampleA,1,1
+        \(sample),1,1
         """.write(to: sampleCSVURL, atomically: true, encoding: .utf8)
         try """
         {
@@ -9010,7 +9906,11 @@ wb.save(path)
 
     private func makeMCMWorkbookBundle(
         in root: URL,
-        outputName: String
+        outputName: String,
+        manifestKind: String? = nil,
+        workflowKind: GenotypeResultWorkflowKind? = nil,
+        workflowMode: GenotypeResultWorkflowMode? = nil,
+        haplotypeAnalysisPath: String? = nil
     ) throws -> (bundleURL: URL, manifest: ONTGenotypeResultBundleManifest) {
         let bundleURL = root.appendingPathComponent("\(outputName).lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
@@ -9021,7 +9921,11 @@ wb.save(path)
         try FileManager.default.createDirectory(at: currentURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try makeMinimalMCMWorkbook(at: primaryWorkbookURL)
         try FileManager.default.copyItem(at: primaryWorkbookURL, to: currentURL)
-        let artifacts = try writeMinimalNativeArtifacts(in: bundleURL, outputName: outputName)
+        let artifacts = try writeMinimalNativeArtifacts(
+            in: bundleURL,
+            outputName: outputName,
+            sample: "DW472"
+        )
         let currentRevision = ONTGenotypeWorkbookRevision(
             id: "initial-current-copy",
             role: .initialCurrentCopy,
@@ -9051,6 +9955,15 @@ wb.save(path)
         try Data().write(to: referenceGenBankURL)
         try Data().write(to: referenceFASTAURL)
         let manifest = ONTGenotypeResultBundleManifest(
+            kind:
+                manifestKind
+                    ?? workflowKind?.rawValue
+                    ?? "ont-barcode-genotype",
+            workflowKind: workflowKind,
+            workflowMode:
+                workflowKind == nil
+                    ? nil
+                    : (workflowMode ?? .genotypeOnly),
             outputName: outputName,
             analysisName: outputName,
             primaryWorkbookPath: primaryWorkbookURL.lastPathComponent,
@@ -9060,6 +9973,7 @@ wb.save(path)
             sampleSummaryCSVPath: artifacts.sampleCSV.lastPathComponent,
             statsJSONPath: artifacts.statsJSON.lastPathComponent,
             provenancePath: artifacts.provenance.lastPathComponent,
+            haplotypeAnalysisPath: haplotypeAnalysisPath,
             mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifacts(
                 schemaVersion: 1,
                 recordCount: 0,
@@ -9074,7 +9988,8 @@ wb.save(path)
 
     private func makeGenericMatrixWorkbookBundle(
         in root: URL,
-        outputName: String
+        outputName: String,
+        workflowKind: GenotypeResultWorkflowKind? = nil
     ) throws -> (bundleURL: URL, manifest: ONTGenotypeResultBundleManifest) {
         let bundleURL = root.appendingPathComponent("\(outputName).lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
@@ -9085,7 +10000,11 @@ wb.save(path)
         try FileManager.default.createDirectory(at: currentURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try makeMinimalGenericMatrixWorkbook(at: primaryWorkbookURL)
         try FileManager.default.copyItem(at: primaryWorkbookURL, to: currentURL)
-        let artifacts = try writeMinimalNativeArtifacts(in: bundleURL, outputName: outputName)
+        let artifacts = try writeMinimalNativeArtifacts(
+            in: bundleURL,
+            outputName: outputName,
+            sample: "sample-a"
+        )
         let currentRevision = ONTGenotypeWorkbookRevision(
             id: "initial-current-copy",
             role: .initialCurrentCopy,
@@ -9100,6 +10019,9 @@ wb.save(path)
             provenancePath: nil
         )
         let manifest = ONTGenotypeResultBundleManifest(
+            kind: workflowKind?.rawValue ?? "ont-barcode-genotype",
+            workflowKind: workflowKind,
+            workflowMode: workflowKind == nil ? nil : .genotypeOnly,
             outputName: outputName,
             analysisName: outputName,
             primaryWorkbookPath: primaryWorkbookURL.lastPathComponent,
@@ -9723,11 +10645,28 @@ payload = {
     "hasAuditLogSheet": str("Audit Log" in wb.sheetnames).lower(),
     "abbreviatedDPHaplotype1": text(abbr.cell(abbr_row, abbr_headers["MHC-DPA/B Haplotype 1"]).value),
     "abbreviatedDPHaplotype2": text(abbr.cell(abbr_row, abbr_headers["MHC-DPA/B Haplotype 2"]).value),
+    "abbreviatedDQHaplotype1": text(abbr.cell(abbr_row, abbr_headers["MHC-DQA/B Haplotype 1"]).value),
+    "abbreviatedDQHaplotype2": text(abbr.cell(abbr_row, abbr_headers["MHC-DQA/B Haplotype 2"]).value),
     "abbreviatedDRBHaplotype1": text(abbr.cell(abbr_row, abbr_headers["MHC-DRB Haplotype 1"]).value),
     "abbreviatedDRBHaplotype2": text(abbr.cell(abbr_row, abbr_headers["MHC-DRB Haplotype 2"]).value),
     "abbreviatedComments": text(abbr.cell(abbr_row, abbr_headers["Comments"]).value),
     "customDPHaplotype1": text(custom.cell(custom_row, custom_headers["MHC-DPA/B Haplotype 1"]).value),
+    "customDQHaplotype1": text(custom.cell(custom_row, custom_headers["MHC-DQA/B Haplotype 1"]).value),
+    "fullAHaplotype1": text(full.cell(row_for(full, "MHC-A Haplotype 1"), full_col).value),
+    "fullAHaplotype1Type": text(full.cell(row_for(full, "MHC-A Haplotype 1"), full_col).data_type),
+    "fullAHaplotype2": text(full.cell(row_for(full, "MHC-A Haplotype 2"), full_col).value),
+    "fullAHaplotype2Type": text(full.cell(row_for(full, "MHC-A Haplotype 2"), full_col).data_type),
+    "fullBHaplotype1": text(full.cell(row_for(full, "MHC-B Haplotype 1"), full_col).value),
+    "fullBHaplotype1Type": text(full.cell(row_for(full, "MHC-B Haplotype 1"), full_col).data_type),
+    "fullBHaplotype2": text(full.cell(row_for(full, "MHC-B Haplotype 2"), full_col).value),
+    "fullBHaplotype2Type": text(full.cell(row_for(full, "MHC-B Haplotype 2"), full_col).data_type),
+    "fullDQAHaplotype1": text(full.cell(row_for(full, "MHC-DQA Haplotype 1"), full_col).value),
+    "fullDQAHaplotype2": text(full.cell(row_for(full, "MHC-DQA Haplotype 2"), full_col).value),
+    "fullDQBHaplotype1": text(full.cell(row_for(full, "MHC-DQB Haplotype 1"), full_col).value),
+    "fullDQBHaplotype2": text(full.cell(row_for(full, "MHC-DQB Haplotype 2"), full_col).value),
     "fullDPAHaplotype1": text(full.cell(row_for(full, "MHC-DPA Haplotype 1"), full_col).value),
+    "fullDPAHaplotype2": text(full.cell(row_for(full, "MHC-DPA Haplotype 2"), full_col).value),
+    "fullDPBHaplotype1": text(full.cell(row_for(full, "MHC-DPB Haplotype 1"), full_col).value),
     "fullDPBHaplotype2": text(full.cell(row_for(full, "MHC-DPB Haplotype 2"), full_col).value),
     "fullDRBHaplotype1": text(full.cell(row_for(full, "MHC-DRB Haplotype 1"), full_col).value),
     "fullDRBHaplotype2": text(full.cell(row_for(full, "MHC-DRB Haplotype 2"), full_col).value),
@@ -10578,6 +11517,9 @@ payload = {
     "sheetNames": "|".join(wb.sheetnames),
     "tableHeaderRow": str(table_header_row),
     "analystHaplotype": text(unified.cell(row_for_label("MHC-A Haplotype 1"), sample_a_col).value) if row_for_label("MHC-A Haplotype 1") and sample_a_col else "",
+    "analystHaplotypeType": text(unified.cell(row_for_label("MHC-A Haplotype 1"), sample_a_col).data_type) if row_for_label("MHC-A Haplotype 1") and sample_a_col else "",
+    "analystHaplotype2": text(unified.cell(row_for_label("MHC-A Haplotype 2"), sample_a_col).value) if row_for_label("MHC-A Haplotype 2") and sample_a_col else "",
+    "analystHaplotype2Type": text(unified.cell(row_for_label("MHC-A Haplotype 2"), sample_a_col).data_type) if row_for_label("MHC-A Haplotype 2") and sample_a_col else "",
     "analystComment": text(unified.cell(row_for_label("Comments"), sample_a_col).value) if row_for_label("Comments") and sample_a_col else "",
     "mappedTotal": text(unified.cell(row_for_label("Mapped Read Count"), 2).value) if row_for_label("Mapped Read Count") else "",
     "mappedAverage": text(unified.cell(row_for_label("Mapped Read Count"), 3).value) if row_for_label("Mapped Read Count") else "",
@@ -10587,9 +11529,19 @@ payload = {
     "sampleATotalReadType": text(unified.cell(row_for_label("total_read_count"), sample_a_col).data_type) if row_for_label("total_read_count") and sample_a_col else "",
     "sampleAUnmappedPercentType": text(unified.cell(row_for_label("percent_reads_unmapped"), sample_a_col).data_type) if row_for_label("percent_reads_unmapped") and sample_a_col else "",
     "sampleADQAHaplotype1": text(unified.cell(row_for_label("MHC-DQA Haplotype 1"), sample_a_col).value) if row_for_label("MHC-DQA Haplotype 1") and sample_a_col else "",
+    "sampleADQAHaplotype2": text(unified.cell(row_for_label("MHC-DQA Haplotype 2"), sample_a_col).value) if row_for_label("MHC-DQA Haplotype 2") and sample_a_col else "",
+    "sampleADRBHaplotype1": text(unified.cell(row_for_label("MHC-DRB Haplotype 1"), sample_a_col).value) if row_for_label("MHC-DRB Haplotype 1") and sample_a_col else "",
+    "sampleADRBHaplotype2": text(unified.cell(row_for_label("MHC-DRB Haplotype 2"), sample_a_col).value) if row_for_label("MHC-DRB Haplotype 2") and sample_a_col else "",
     "sampleADQBHaplotype1": text(unified.cell(row_for_label("MHC-DQB Haplotype 1"), sample_a_col).value) if row_for_label("MHC-DQB Haplotype 1") and sample_a_col else "",
+    "sampleADQBHaplotype2": text(unified.cell(row_for_label("MHC-DQB Haplotype 2"), sample_a_col).value) if row_for_label("MHC-DQB Haplotype 2") and sample_a_col else "",
     "sampleADPAHaplotype1": text(unified.cell(row_for_label("MHC-DPA Haplotype 1"), sample_a_col).value) if row_for_label("MHC-DPA Haplotype 1") and sample_a_col else "",
+    "sampleADPAHaplotype2": text(unified.cell(row_for_label("MHC-DPA Haplotype 2"), sample_a_col).value) if row_for_label("MHC-DPA Haplotype 2") and sample_a_col else "",
     "sampleADPBHaplotype1": text(unified.cell(row_for_label("MHC-DPB Haplotype 1"), sample_a_col).value) if row_for_label("MHC-DPB Haplotype 1") and sample_a_col else "",
+    "sampleADPBHaplotype2": text(unified.cell(row_for_label("MHC-DPB Haplotype 2"), sample_a_col).value) if row_for_label("MHC-DPB Haplotype 2") and sample_a_col else "",
+    "sampleABHaplotype1": text(unified.cell(row_for_label("MHC-B Haplotype 1"), sample_a_col).value) if row_for_label("MHC-B Haplotype 1") and sample_a_col else "",
+    "sampleABHaplotype1Type": text(unified.cell(row_for_label("MHC-B Haplotype 1"), sample_a_col).data_type) if row_for_label("MHC-B Haplotype 1") and sample_a_col else "",
+    "sampleABHaplotype2": text(unified.cell(row_for_label("MHC-B Haplotype 2"), sample_a_col).value) if row_for_label("MHC-B Haplotype 2") and sample_a_col else "",
+    "sampleABHaplotype2Type": text(unified.cell(row_for_label("MHC-B Haplotype 2"), sample_a_col).data_type) if row_for_label("MHC-B Haplotype 2") and sample_a_col else "",
     "sampleBDQAHaplotype1": text(unified.cell(row_for_label("MHC-DQA Haplotype 1"), sample_b_col).value) if row_for_label("MHC-DQA Haplotype 1") and sample_b_col else "",
     "sampleBDPBHaplotype1": text(unified.cell(row_for_label("MHC-DPB Haplotype 1"), sample_b_col).value) if row_for_label("MHC-DPB Haplotype 1") and sample_b_col else "",
     "knownDisplayName": text(unified.cell(table_header_row + 1, headers["display_name"]).value),

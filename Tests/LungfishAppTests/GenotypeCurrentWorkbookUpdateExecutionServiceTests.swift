@@ -52,6 +52,7 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
             calls: calls,
             includedLoci: ["MHC-A", "MHC-DP"],
             annotationSidecarURL: annotationURL,
+            haplotypeProjectionMode: .manualGenotypeOnly,
             inputFingerprint: fingerprint,
             syncIntent: .updateAndView
         )
@@ -115,6 +116,13 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
             String(fingerprint.schemaVersion)
         )
         XCTAssertEqual(try value(after: "--sync-intent", in: invocation.arguments), "update-and-view")
+        XCTAssertEqual(
+            try value(
+                after: "--haplotype-projection-mode",
+                in: invocation.arguments
+            ),
+            "manual-genotype-only"
+        )
 
         let item = try XCTUnwrap(operationCenter.items.first)
         XCTAssertEqual(item.title, "Update current.xlsx")
@@ -135,6 +143,11 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
             ) == true
         )
         XCTAssertTrue(item.cliCommand?.contains("--sync-intent update-and-view") == true)
+        XCTAssertTrue(
+            item.cliCommand?.contains(
+                "--haplotype-projection-mode manual-genotype-only"
+            ) == true
+        )
         XCTAssertTrue(item.cliCommand?.contains(retainedAnnotationURL.path) == true)
         XCTAssertFalse(item.cliCommand?.contains(annotationURL.path) == true)
         XCTAssertTrue(item.outputURLs.contains(bundleURL.appendingPathComponent("artifacts/workbooks/current.xlsx").standardizedFileURL))

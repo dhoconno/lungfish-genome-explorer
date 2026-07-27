@@ -19,6 +19,7 @@ final class FastqGenotypingCommandTests: XCTestCase {
             "/tmp/barcode11-mhc.lungfishgenotype",
             "--calls-json", "/tmp/barcode11-mhc/artifacts/workbooks/updates/calls.json",
             "--annotations", "/tmp/barcode11-mhc.lungfishgenotype/annotations.json",
+            "--haplotype-projection-mode", "manual-genotype-only",
             "--annotation-only",
         ])
 
@@ -26,6 +27,10 @@ final class FastqGenotypingCommandTests: XCTestCase {
         XCTAssertEqual(command.callsJSON, "/tmp/barcode11-mhc/artifacts/workbooks/updates/calls.json")
         XCTAssertEqual(command.annotations, "/tmp/barcode11-mhc.lungfishgenotype/annotations.json")
         XCTAssertTrue(command.annotationOnly)
+        XCTAssertEqual(
+            command.haplotypeProjectionMode,
+            .manualGenotypeOnly
+        )
         XCTAssertNil(command.inputFingerprint)
         XCTAssertNil(command.inputFingerprintSchema)
         XCTAssertNil(command.syncIntent)
@@ -37,6 +42,12 @@ final class FastqGenotypingCommandTests: XCTestCase {
         XCTAssertFalse(arguments.contains("--input-fingerprint"))
         XCTAssertFalse(arguments.contains("--input-fingerprint-schema"))
         XCTAssertFalse(arguments.contains("--sync-intent"))
+        XCTAssertTrue(
+            zip(arguments, arguments.dropFirst()).contains {
+                $0.0 == "--haplotype-projection-mode"
+                    && $0.1 == "manual-genotype-only"
+            }
+        )
     }
 
     func testUpdateCurrentWorkbookParsesAndValidatesAttestationFlags() throws {
@@ -117,6 +128,13 @@ final class FastqGenotypingCommandTests: XCTestCase {
                 "--sync-intent", "background-ish",
             ])
         )
+        XCTAssertThrowsError(
+            try FastqUpdateCurrentWorkbookSubcommand.parse([
+                "/tmp/barcode11-mhc.lungfishgenotype",
+                "--calls-json", "/tmp/calls.json",
+                "--haplotype-projection-mode", "guessed-from-seven-loci",
+            ])
+        )
     }
 
     func testUpdateCurrentWorkbookAttestationFlagsHaveHelpText() {
@@ -129,6 +147,7 @@ final class FastqGenotypingCommandTests: XCTestCase {
         XCTAssertTrue(help.contains("--reviewable-row-catalog-sha256"))
         XCTAssertTrue(help.contains("--reviewable-row-catalog-schema"))
         XCTAssertTrue(help.contains("--sync-intent"))
+        XCTAssertTrue(help.contains("--haplotype-projection-mode"))
     }
 
     func testAnnotationOnlyUsesDisplayedCallsOnlyForSemanticFingerprint() throws {

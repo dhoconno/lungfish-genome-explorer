@@ -4968,7 +4968,9 @@ public final class GenotypeResultViewController: NSViewController {
                 reviewableRowCatalogSchemaVersion:
                     result.reviewableRowCatalog?.schemaVersion,
                 annotationOnly: !currentWorkbookRequiresFullUpdate,
-                isReadOnly: store.isReadOnly
+                isReadOnly: store.isReadOnly,
+                haplotypeProjectionMode:
+                    currentWorkbookHaplotypeProjectionMode()
             )
         } catch {
             currentWorkbookNeedsRefresh = true
@@ -5131,6 +5133,41 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func currentWorkbookEffectiveHaplotypeCalls() -> [GenotypeWorkbookHaplotypeCall] {
+        if case .eligible = manualHaplotypeEligibility, let result {
+            let index = GenotypeManualHaplotypeAssignmentIndex(
+                assignments:
+                    annotationStore?.sidecar.manualHaplotypeAssignments ?? []
+            )
+            return result.sampleNames.flatMap { sample in
+                GenotypeManualHaplotypeLocus.allCases.map { locus in
+                    let assignments = index.assignments(
+                        sample: sample,
+                        locus: locus
+                    )
+                    let notes = [assignments.h1?.notes, assignments.h2?.notes]
+                        .compactMap {
+                            $0?.trimmingCharacters(
+                                in: .whitespacesAndNewlines
+                            )
+                        }
+                        .filter { !$0.isEmpty }
+                        .reduce(into: [String]()) { values, note in
+                            if !values.contains(note) {
+                                values.append(note)
+                            }
+                        }
+                        .joined(separator: "; ")
+                    return GenotypeWorkbookHaplotypeCall(
+                        sample: sample,
+                        locus: locus.rawValue,
+                        haplotype1: assignments.h1?.label ?? "",
+                        haplotype2: assignments.h2?.label ?? "",
+                        status: GenotypeHaplotypeCallStatus.called.rawValue,
+                        notes: notes
+                    )
+                }
+            }
+        }
         guard let analysis = activeHaplotypeAnalysis() else { return [] }
         let includedLoci = Set(currentWorkbookIncludedLoci())
         return analysis.samples.flatMap { sample in
@@ -5151,6 +5188,15 @@ public final class GenotypeResultViewController: NSViewController {
         }
     }
 
+    private func currentWorkbookHaplotypeProjectionMode()
+        -> GenotypeWorkbookHaplotypeProjectionMode
+    {
+        if case .eligible = manualHaplotypeEligibility {
+            return .manualGenotypeOnly
+        }
+        return .haplotyped
+    }
+
     private func currentWorkbookNotes(sample: String, locus: String, base: String) -> String {
         let assignmentNotes = [HaplotypeSlot.h1, .h2].compactMap { slot in
             manualHaplotypeAssignment(sample: sample, locus: locus, slot: slot)?.notes
@@ -5167,6 +5213,9 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func currentWorkbookIncludedLoci() -> [String] {
+        if case .eligible = manualHaplotypeEligibility {
+            return GenotypeManualHaplotypeLocus.allCases.map(\.rawValue)
+        }
         guard let analysis = activeHaplotypeAnalysis() else { return [] }
         return effectiveIncludedLoci(for: analysis)
             .filter { GenotypeWorkbookHaplotypeCall.isWritableCurrentWorkbookLocus($0) }
@@ -9340,6 +9389,12 @@ extension GenotypeResultViewController {
 
     func testingCurrentWorkbookHaplotypeCalls() -> [GenotypeWorkbookHaplotypeCall] {
         currentWorkbookEffectiveHaplotypeCalls()
+    }
+
+    func testingCurrentWorkbookHaplotypeProjectionMode()
+        -> GenotypeWorkbookHaplotypeProjectionMode
+    {
+        currentWorkbookHaplotypeProjectionMode()
     }
 
     var testingManualHaplotypingCreatorIsAvailable: Bool {
