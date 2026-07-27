@@ -1941,6 +1941,10 @@ public struct GenotypeWorkbookRevisionService {
         let metadata = (try? JSONSerialization.jsonObject(with: Data(executionRecord.stdout.utf8))) as? [String: Any]
         let pythonVersion = metadata?["python_version"] as? String ?? "unknown"
         let openpyxlVersion = metadata?["openpyxl_version"] as? String ?? "unknown"
+        let matrixDescriptorScanCount =
+            (metadata?["matrix_descriptor_scan_count"] as? NSNumber)?.intValue ?? -1
+        let matrixRowSignatureCount =
+            (metadata?["matrix_row_signature_count"] as? NSNumber)?.intValue ?? -1
         let inputs = try ([sourceWorkbookURL] + inputURLs).map {
             try ProvenanceFileDescriptor.file(url: $0, role: .input)
         }
@@ -1961,6 +1965,8 @@ public struct GenotypeWorkbookRevisionService {
             resolvedOptions: [
                 "pythonVersion": .string(pythonVersion),
                 "openpyxlVersion": .string(openpyxlVersion),
+                "matrixDescriptorScanCount": .integer(matrixDescriptorScanCount),
+                "matrixRowSignatureCount": .integer(matrixRowSignatureCount),
             ],
             runtimeIdentity: ProvenanceRuntimeIdentity(
                 executablePath: executionRecord.executable,

@@ -5885,6 +5885,193 @@ wb.save(path)
         XCTAssertEqual(inspection["hasManagedReviewState"], "false")
     }
 
+    func testForeignManagedStateSheetNameCollisionFailsClosedWithoutMutation() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "foreign-managed-state-collision"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installAnnotationOnlyGenericReviewMatrix(in: currentURL)
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+
+path = sys.argv[1]
+wb = load_workbook(path)
+ws = wb.create_sheet("_LGE Matrix Review State")
+ws["A1"] = "Unrelated analyst worksheet"
+ws["A2"] = "This content is not Lungfish-managed state."
+wb.save(path)
+"""#, currentURL.path])
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        try GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        ).encoded().write(to: annotationURL)
+        let before = try ProvenanceFileHasher.sha256(of: currentURL)
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                dateProvider: { Date(timeIntervalSince1970: 8_300) },
+                userProvider: { "tester" },
+                pythonExecutableURL: testPythonExecutableURL
+            ).applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: annotationURL,
+                into: fixture.bundleURL
+            )
+        )
+        XCTAssertEqual(try ProvenanceFileHasher.sha256(of: currentURL), before)
+    }
+
+    func testExactLegacyManagedStateSchemaRestoresAndMigratesSafely() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "legacy-managed-state"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installAnnotationOnlyGenericReviewMatrix(in: currentURL)
+        _ = try runPython(["-c", #"""
+import sys
+from copy import copy
+from openpyxl import load_workbook
+
+path = sys.argv[1]
+wb = load_workbook(path)
+matrix = wb["matrix"]
+original_font = copy(matrix["D7"].font)
+original_border = copy(matrix["D7"].border)
+matrix["D7"] = "[5]"
+managed_font = copy(matrix["D7"].font)
+managed_font.italic = True
+managed_font.color = "FF767676"
+matrix["D7"].font = managed_font
+
+state = wb.create_sheet("_LGE Matrix Review State")
+state.append([
+    "Sheet", "Target Kind", "Locus", "Genotype", "Sample",
+    "Stable Cluster ID", "Coordinate", "Disposition", "Original Value",
+    "Original Font", "Original Border",
+])
+state.append([
+    "matrix", "cell", "", "Mamu-A1*existing", "AR3628",
+    "", "D7", "falsePositive", 5,
+])
+state.cell(2, 10).font = original_font
+state.cell(2, 11).border = original_border
+state.sheet_state = "veryHidden"
+wb.save(path)
+"""#, currentURL.path])
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        try GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        ).encoded().write(to: annotationURL)
+
+        _ = try GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 8_325) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        ).applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+
+        let inspection = try inspectAnnotationOnlyGenericWorkbook(currentURL)
+        XCTAssertEqual(inspection["existingRow"], "Mamu-A1*existing|5|1|5")
+        XCTAssertEqual(inspection["hasManagedReviewState"], "false")
+    }
+
+    func testUnversionedTask4ManagedStateIsAcceptedAndMigrated() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "unversioned-task4-state"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installAnnotationOnlyGenericReviewMatrix(in: currentURL)
+        _ = try installReviewableRowCatalog(
+            annotationOnlyReferenceCatalog(
+                samples: ["AR3628"],
+                displayName: "Mamu-A1*missing"
+            ),
+            in: fixture.bundleURL
+        )
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-A1*missing",
+                    sample: "AR3628"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-27T01:00:00Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        let clock = IncrementingDateProvider(
+            start: Date(timeIntervalSince1970: 8_350),
+            increment: 1
+        )
+        let service = GenotypeWorkbookRevisionService(
+            dateProvider: clock.now,
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        )
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+
+path = sys.argv[1]
+wb = load_workbook(path)
+state = wb["_LGE Matrix Review State"]
+state.delete_cols(23, 2)
+wb.save(path)
+"""#, currentURL.path])
+
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+        let inspection = try inspectAnnotationOnlyGenericWorkbook(currentURL)
+        XCTAssertEqual(
+            inspection["stateSchemaID"],
+            "org.lungfish.matrix-review-state"
+        )
+        XCTAssertEqual(inspection["stateSchemaVersion"], "2")
+        XCTAssertEqual(inspection["syntheticRows"], "1")
+    }
+
     func testLaterRealWorkbookRowSupersedesManagedSyntheticRow() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()
@@ -6060,6 +6247,94 @@ wb.save(path)
         XCTAssertEqual(inspection["syntheticRows"], "2")
         XCTAssertEqual(inspection["tableRef"], "A1:N1")
         XCTAssertEqual(inspection["autoFilterRef"], "A1:N1")
+    }
+
+    func testAnnotationOnlyCachingScalesWithUniqueSheetsAndRows() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "annotation-only-cache-scale"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installAnnotationOnlyUnifiedReviewMatrix(in: currentURL)
+        let displayNames = (1...6).map {
+            "Mamu-A1*cache-\(String(format: "%02d", $0))"
+        }
+        let rows = displayNames.map { displayName in
+            GenotypeReviewableRowCatalog.Row(
+                kind: .reference,
+                callID: "reference:MHC-A:\(displayName)",
+                displayName: displayName,
+                locus: "MHC-A",
+                stableID: nil,
+                section: "reference",
+                sortKey: "MHC-A|\(displayName)",
+                supportBySample: ["Sample-A": 0, "Sample-B": 0]
+            )
+        }
+        _ = try installReviewableRowCatalog(
+            GenotypeReviewableRowCatalog(
+                samples: ["Sample-A", "Sample-B"],
+                rows: rows
+            ),
+            in: fixture.bundleURL
+        )
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixReviews = displayNames.flatMap { displayName in
+            ["Sample-A", "Sample-B"].map { sample in
+                .init(
+                    target: .cell(
+                        locus: "MHC-A",
+                        genotype: displayName,
+                        sample: sample
+                    ),
+                    disposition: .falseNegative,
+                    author: "reviewer",
+                    timestamp: "2026-07-27T01:00:00Z"
+                )
+            }
+        }
+        try sidecar.encoded().write(to: annotationURL)
+
+        let updated = try GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 8_275) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        ).applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+        let provenanceURL = ONTGenotypeResultBundle.resolvedURL(
+            for: try XCTUnwrap(updated.workbookRevisions?.last?.provenancePath),
+            in: fixture.bundleURL
+        )
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: provenanceURL)
+        )
+        let pythonStep = try XCTUnwrap(
+            envelope.steps.first {
+                $0.toolName == "python openpyxl workbook candidate update"
+            }
+        )
+        XCTAssertEqual(
+            pythonStep.resolvedOptions["matrixDescriptorScanCount"],
+            .integer(2)
+        )
+        XCTAssertEqual(
+            pythonStep.resolvedOptions["matrixRowSignatureCount"],
+            .integer(7)
+        )
     }
 
     func testGenericDuplicateAliasesAndUnsupportedLayoutsFailClosed() throws {
@@ -7521,6 +7796,8 @@ payload = {
     "hasManagedReviewState": str(
         "_LGE Matrix Review State" in wb.sheetnames
     ).lower(),
+    "stateSchemaID": "" if state is None else text(state.cell(1, 23).value),
+    "stateSchemaVersion": "" if state is None else text(state.cell(1, 24).value),
 }
 print(json.dumps(payload))
 """#

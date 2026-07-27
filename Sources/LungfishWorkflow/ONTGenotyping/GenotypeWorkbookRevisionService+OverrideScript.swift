@@ -604,6 +604,26 @@ def resolve_current_annotations(entries):
 resolved_matrix_styles = resolve_current_annotations(matrix_styles)
 resolved_matrix_comments = resolve_current_annotations(matrix_comments)
 MANAGED_REVIEW_STATE_SHEET = "_LGE Matrix Review State"
+MANAGED_REVIEW_STATE_SCHEMA_ID = "org.lungfish.matrix-review-state"
+MANAGED_REVIEW_STATE_SCHEMA_VERSION = 2
+LEGACY_MANAGED_REVIEW_STATE_HEADERS = [
+    "Sheet", "Target Kind", "Locus", "Genotype", "Sample",
+    "Stable Cluster ID", "Coordinate", "Disposition", "Original Value",
+    "Original Font", "Original Border",
+]
+UNVERSIONED_MANAGED_REVIEW_STATE_HEADERS = [
+    "Sheet", "Target Kind", "Locus", "Genotype", "Sample",
+    "Stable Cluster ID", "Coordinate", "Disposition", "Original Value",
+    "Original Font", "Original Fill", "Original Border",
+    "Expected Managed Value", "Expected Managed Font",
+    "Expected Managed Fill", "Expected Managed Border", "Synthetic Row",
+    "Adapter", "Synthetic Row Index", "Expected Synthetic Row",
+    "Marker Row Index", "Expected Marker Row",
+]
+VERSIONED_MANAGED_REVIEW_STATE_HEADERS = (
+    UNVERSIONED_MANAGED_REVIEW_STATE_HEADERS
+    + [MANAGED_REVIEW_STATE_SCHEMA_ID, MANAGED_REVIEW_STATE_SCHEMA_VERSION]
+)
 ANNOTATION_ONLY_BLOCK_CALL_TYPE = "analyst-annotation-only-block"
 ANNOTATION_ONLY_CALL_TYPE = "analyst-annotation-only"
 ANNOTATION_ONLY_BLOCK_LABEL = "Analyst annotation-only rows"
@@ -791,6 +811,7 @@ def validation_matrix_samples():
         roster = reviewable_row_catalog.get("samples") or []
         names.update(clean(sample) for sample in roster if clean(sample))
     if MANAGED_REVIEW_STATE_SHEET in wb.sheetnames:
+        managed_review_state_schema()
         state = wb[MANAGED_REVIEW_STATE_SHEET]
         for row in range(2, state.max_row + 1):
             sample = clean(state.cell(row, 5).value)
@@ -1300,9 +1321,18 @@ def prepare_missing_false_negative_rows():
                 "adapter": adapter["kind"],
                 "marker_row": marker_row,
             }
+        invalidate_matrix_descriptor_cache(adapter["ws"])
 
 
-def matrix_row_descriptors(ws):
+matrix_descriptor_cache = {}
+matrix_descriptor_scan_count = 0
+
+
+def invalidate_matrix_descriptor_cache(ws):
+    matrix_descriptor_cache.pop(id(ws), None)
+
+
+def compute_matrix_row_descriptors(ws):
     genotype_aliases = ("genotype", "display_name", "provisional_allele_name", "provisional_name")
     stable_aliases = ("stable_cluster_id", "stable_id")
     layout = None
@@ -1348,6 +1378,15 @@ def matrix_row_descriptors(ws):
                 "stable_id": "",
             })
     return descriptors
+
+
+def matrix_row_descriptors(ws):
+    global matrix_descriptor_scan_count
+    key = id(ws)
+    if key not in matrix_descriptor_cache:
+        matrix_descriptor_cache[key] = compute_matrix_row_descriptors(ws)
+        matrix_descriptor_scan_count += 1
+    return matrix_descriptor_cache[key]
 
 
 def matching_matrix_rows(descriptors, target):
@@ -1530,34 +1569,60 @@ def set_lge_comment(cell, sections):
 
 def managed_review_state_sheet():
     if MANAGED_REVIEW_STATE_SHEET in wb.sheetnames:
+        managed_review_state_schema()
         return wb[MANAGED_REVIEW_STATE_SHEET]
     ws = wb.create_sheet(MANAGED_REVIEW_STATE_SHEET)
-    ws.append([
-        "Sheet",
-        "Target Kind",
-        "Locus",
-        "Genotype",
-        "Sample",
-        "Stable Cluster ID",
-        "Coordinate",
-        "Disposition",
-        "Original Value",
-        "Original Font",
-        "Original Fill",
-        "Original Border",
-        "Expected Managed Value",
-        "Expected Managed Font",
-        "Expected Managed Fill",
-        "Expected Managed Border",
-        "Synthetic Row",
-        "Adapter",
-        "Synthetic Row Index",
-        "Expected Synthetic Row",
-        "Marker Row Index",
-        "Expected Marker Row",
-    ])
+    ws.append(VERSIONED_MANAGED_REVIEW_STATE_HEADERS)
     ws.sheet_state = "veryHidden"
     return ws
+
+
+def managed_review_state_schema():
+    if MANAGED_REVIEW_STATE_SHEET not in wb.sheetnames:
+        return None
+    state = wb[MANAGED_REVIEW_STATE_SHEET]
+    if state.sheet_state != "veryHidden":
+        raise ValueError(
+            "Reserved managed review-state sheet is not Lungfish-owned; "
+            "workbook was not modified"
+        )
+    headers = [
+        clean(state.cell(1, col).value)
+        for col in range(1, state.max_column + 1)
+    ]
+    while headers and not headers[-1]:
+        headers.pop()
+    versioned_headers = [clean(value) for value in VERSIONED_MANAGED_REVIEW_STATE_HEADERS]
+    if headers == versioned_headers:
+        schema = "versioned-current"
+    elif headers == UNVERSIONED_MANAGED_REVIEW_STATE_HEADERS:
+        schema = "unversioned-current"
+    elif headers == LEGACY_MANAGED_REVIEW_STATE_HEADERS:
+        schema = "legacy"
+    else:
+        raise ValueError(
+            "Reserved managed review-state sheet has an unknown schema; "
+            "workbook was not modified"
+        )
+    if state.max_row < 2:
+        raise ValueError(
+            "Reserved managed review-state sheet is empty; workbook was not modified"
+        )
+    for row in range(2, state.max_row + 1):
+        if (
+            not clean(state.cell(row, 1).value)
+            or clean(state.cell(row, 2).value) != "cell"
+            or not clean(state.cell(row, 4).value)
+            or not clean(state.cell(row, 5).value)
+            or not clean(state.cell(row, 7).value)
+            or clean(state.cell(row, 8).value)
+                not in {"falsePositive", "falseNegative"}
+        ):
+            raise ValueError(
+                "Reserved managed review-state sheet contains malformed records; "
+                "workbook was not modified"
+            )
+    return schema
 
 
 def serialize_managed_value(value):
@@ -1610,6 +1675,18 @@ def row_signature(ws, row):
     }, sort_keys=True, separators=(",", ":"))
 
 
+matrix_row_signature_count = 0
+
+
+def cached_row_signature(cache, ws, row):
+    global matrix_row_signature_count
+    key = (id(ws), row)
+    if key not in cache:
+        cache[key] = row_signature(ws, row)
+        matrix_row_signature_count += 1
+    return cache[key]
+
+
 def record_managed_review_state(ws, cell, target, disposition):
     state = managed_review_state_sheet()
     kind, locus, genotype, sample, stable_id = matrix_target_parts(target)
@@ -1650,6 +1727,7 @@ def finalize_managed_synthetic_state():
     if MANAGED_REVIEW_STATE_SHEET not in wb.sheetnames:
         return
     state = wb[MANAGED_REVIEW_STATE_SHEET]
+    signature_cache = {}
     for row in range(2, state.max_row + 1):
         if clean(state.cell(row, 17).value) != "true":
             continue
@@ -1663,8 +1741,12 @@ def finalize_managed_synthetic_state():
         ):
             raise ValueError("Malformed managed synthetic-row state")
         ws = wb[sheet_name]
-        state.cell(row, 20).value = row_signature(ws, synthetic_row)
-        state.cell(row, 22).value = row_signature(ws, marker_row)
+        state.cell(row, 20).value = cached_row_signature(
+            signature_cache, ws, synthetic_row
+        )
+        state.cell(row, 22).value = cached_row_signature(
+            signature_cache, ws, marker_row
+        )
 
 
 def state_destination(state, row):
@@ -1719,6 +1801,7 @@ def delete_managed_end_row(ws, row):
                 f"{get_column_letter(max_col)}{max_row - 1}"
             )
     ws.delete_rows(row, 1)
+    invalidate_matrix_descriptor_cache(ws)
 
 
 def mark_annotation_only_marker_retained(ws, row):
@@ -1733,6 +1816,7 @@ def mark_annotation_only_marker_retained(ws, row):
             replacements += 1
     if replacements == 0:
         raise ValueError("Malformed managed annotation-only block marker")
+    invalidate_matrix_descriptor_cache(ws)
 
 
 def restore_prior_managed_matrix_annotations():
@@ -1747,7 +1831,8 @@ def restore_prior_managed_matrix_annotations():
     if MANAGED_REVIEW_STATE_SHEET not in wb.sheetnames:
         return
     state = wb[MANAGED_REVIEW_STATE_SHEET]
-    legacy_state = clean(state.cell(1, 13).value) != "Expected Managed Value"
+    legacy_state = managed_review_state_schema() == "legacy"
+    signature_cache = {}
     synthetic_safety = {}
     marker_safety = {}
     marker_members = {}
@@ -1771,8 +1856,14 @@ def restore_prior_managed_matrix_annotations():
         ws = wb[sheet_name]
         expected_row = clean(state.cell(row, 20).value)
         expected_marker = clean(state.cell(row, 22).value)
-        row_safe = bool(expected_row) and row_signature(ws, synthetic_row) == expected_row
-        marker_safe = bool(expected_marker) and row_signature(ws, marker_row) == expected_marker
+        row_safe = (
+            bool(expected_row)
+            and cached_row_signature(signature_cache, ws, synthetic_row) == expected_row
+        )
+        marker_safe = (
+            bool(expected_marker)
+            and cached_row_signature(signature_cache, ws, marker_row) == expected_marker
+        )
         synthetic_safety[key] = synthetic_safety.get(key, True) and row_safe
         marker_safety[marker_key] = marker_safety.get(marker_key, True) and marker_safe
         if not row_safe:
@@ -2899,6 +2990,7 @@ def write_two_sheet_mhc_contract():
             del wb[worksheet.title]
 
 
+managed_review_state_schema()
 validate_matrix_sample_header_ambiguity()
 restore_prior_managed_matrix_annotations()
 patch_summary_sheet("Abbreviated Haplotypes")
@@ -2951,6 +3043,8 @@ print(json.dumps({
     "python_version": platform.python_version(),
     "python_executable": sys.executable,
     "openpyxl_version": openpyxl.__version__,
+    "matrix_descriptor_scan_count": matrix_descriptor_scan_count,
+    "matrix_row_signature_count": matrix_row_signature_count,
     "candidate_count": len([row for row in normalized_unmatched_rows if clean(row.get("record_category")) == "candidate"]),
     "unnameable_count": len([row for row in normalized_unmatched_rows if clean(row.get("record_category")) == "un-nameable"]),
     "preserved_existing_workbook_projection": preserve_existing_workbook_projection,
