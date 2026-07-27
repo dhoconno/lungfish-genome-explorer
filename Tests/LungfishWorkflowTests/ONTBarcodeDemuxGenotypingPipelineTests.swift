@@ -228,6 +228,43 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             )
         ).run(request)
 
+        let historyOperations = try FileManager.default.contentsOfDirectory(
+            at: root.appendingPathComponent(
+                ProjectOperationHistoryWriter.historyDirectoryName,
+                isDirectory: true
+            ),
+            includingPropertiesForKeys: nil
+        )
+        let successOperation = try XCTUnwrap(historyOperations.first {
+            FileManager.default.fileExists(
+                atPath: $0.appendingPathComponent("cleanup-disposition.json").path
+            )
+                && !FileManager.default.fileExists(
+                    atPath: $0.appendingPathComponent("failure-provenance.json").path
+                )
+                && !FileManager.default.fileExists(
+                    atPath: $0.appendingPathComponent(
+                        "failure-provenance-preparation-error.json"
+                    ).path
+                )
+        })
+        let successDisposition = try jsonObject(
+            at: successOperation.appendingPathComponent(
+                "cleanup-disposition.json"
+            )
+        )
+        let successEntries = try XCTUnwrap(
+            successDisposition["entries"] as? [[String: Any]]
+        )
+        XCTAssertTrue(successEntries.contains {
+            $0["path"] as? String == request.mappingBAMURL.path
+                && $0["disposition"] as? String == "removed"
+        })
+        XCTAssertTrue(successEntries.contains {
+            ($0["path"] as? String)?.hasSuffix("/.amplicon-genotyping") == true
+                && $0["disposition"] as? String == "removed"
+        })
+
         XCTAssertEqual(result.provenanceURL.lastPathComponent, ProvenanceRecorder.provenanceFilename)
         let genotypeManifest = try ONTGenotypeResultBundle.loadManifest(from: outputDirectory)
         let embeddedRecordStore = try XCTUnwrap(genotypeManifest.referenceRecordStore)
@@ -846,6 +883,41 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             )
         ).run(request)
 
+        let successHistoryOperations =
+            try FileManager.default.contentsOfDirectory(
+                at: root.appendingPathComponent(
+                    ProjectOperationHistoryWriter.historyDirectoryName,
+                    isDirectory: true
+                ),
+                includingPropertiesForKeys: nil
+            )
+        let miSeqSuccessOperation = try XCTUnwrap(
+            successHistoryOperations.first {
+                FileManager.default.fileExists(
+                    atPath: $0.appendingPathComponent(
+                        "cleanup-disposition.json"
+                    ).path
+                )
+                    && !FileManager.default.fileExists(
+                        atPath: $0.appendingPathComponent(
+                            "failure-provenance.json"
+                        ).path
+                    )
+            }
+        )
+        let miSeqSuccessDisposition = try jsonObject(
+            at: miSeqSuccessOperation.appendingPathComponent(
+                "cleanup-disposition.json"
+            )
+        )
+        let miSeqSuccessEntries = try XCTUnwrap(
+            miSeqSuccessDisposition["entries"] as? [[String: Any]]
+        )
+        XCTAssertTrue(miSeqSuccessEntries.contains {
+            $0["path"] as? String == request.mappingBAMURL.path
+                && $0["disposition"] as? String == "removed"
+        })
+
         XCTAssertEqual(result.provenanceURL.lastPathComponent, ProvenanceRecorder.provenanceFilename)
         XCTAssertEqual(Array(request.argv.prefix(3)), ["lungfish-cli", "fastq", "genotype-cohort"])
         XCTAssertEqual(try testValue(after: "--mode", in: request.argv), "illumina-paired")
@@ -1425,6 +1497,11 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             )
         )
         let entries = try XCTUnwrap(disposition["entries"] as? [[String: Any]])
+        XCTAssertTrue(entries.contains {
+            $0["path"] as? String == request.mappingBAMURL.standardizedFileURL.path
+                && $0["disposition"] as? String == "retained-cleanup-failed"
+                && ($0["error"] as? String)?.isEmpty == false
+        })
         let supportPath = outputDirectory
             .appendingPathComponent(".amplicon-genotyping")
             .standardizedFileURL.path
@@ -1507,6 +1584,142 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             ),
             "The support root must remain when no durable failure envelope exists."
         )
+    }
+
+    func testFailureProvenanceSourceDescriptorFailureWritesIncompleteReceiptAndRecordsExactCleanupPath() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
+        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(at: condaRoot)
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        try """
+        >A1_063_01
+        AACCGGTT
+        >14_M1_DQA1_24_03
+        AACCGGTT
+        >14_M1_DQB1_18_01_01
+        AACCGGTT
+        >14_M2M6_DQB1_06g:14_M_DQB1_06_01_01
+        AACCGGTT
+        >14_M4_DQB1_06_08
+        AACCGGTT
+
+        """.write(
+            to: referenceFASTA,
+            atomically: true,
+            encoding: .utf8
+        )
+        let sample = try makeMergedFASTQBundle(
+            root: root,
+            name: "DW001",
+            sequence: "AACCGGTT"
+        )
+        let outputDirectory = root.appendingPathComponent(
+            "miseq-failure-provenance-preparation.lungfishgenotype",
+            isDirectory: true
+        )
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: [sample.bundleURL],
+            referenceSourceURL: referenceFASTA,
+            outputDirectory: outputDirectory,
+            outputName: "miseq-failure-provenance-preparation",
+            analysisName: "MiSeq failure provenance preparation",
+            projectURL: root,
+            threads: 2,
+            sortThreads: 1,
+            minSupport: 1,
+            mode: .illuminaPaired,
+            readType: .illumina
+        )
+        let pipeline = ONTBarcodeDemuxGenotypingPipeline(
+            condaManager: CondaManager(
+                rootPrefix: condaRoot,
+                bundledMicromambaProvider: { bundledMicromamba },
+                bundledMicromambaVersionProvider: { "test-micromamba" }
+            ),
+            fileRemover: { url in
+                if url.standardizedFileURL
+                    == request.mappingBAMURL.standardizedFileURL {
+                    try """
+                    @DW001:1:1:1:1:1:1
+                    TTGGCCAA
+                    +
+                    IIIIIIII
+
+                    """.write(
+                        to: sample.fastqURL,
+                        atomically: true,
+                        encoding: .utf8
+                    )
+                    throw CocoaError(.fileWriteNoPermission)
+                }
+                try FileManager.default.removeItem(at: url)
+            }
+        )
+
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("Expected cleanup and provenance-preparation failure")
+        } catch {
+            XCTAssertTrue(
+                error.localizedDescription.contains(request.mappingBAMURL.path),
+                error.localizedDescription
+            )
+            XCTAssertTrue(
+                error.localizedDescription.contains(sample.fastqURL.path),
+                error.localizedDescription
+            )
+            XCTAssertTrue(
+                error.localizedDescription.contains(
+                    "failure-provenance input preparation"
+                ),
+                error.localizedDescription
+            )
+        }
+
+        let operation = try XCTUnwrap(
+            FileManager.default.contentsOfDirectory(
+                at: root.appendingPathComponent(
+                    ProjectOperationHistoryWriter.historyDirectoryName,
+                    isDirectory: true
+                ),
+                includingPropertiesForKeys: nil
+            ).first
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: operation.appendingPathComponent(
+                    "failure-provenance.json"
+                ).path
+            ),
+            "A source-descriptor failure must not publish a falsely complete failure envelope."
+        )
+        let receipt = try jsonObject(
+            at: operation.appendingPathComponent(
+                "failure-provenance-preparation-error.json"
+            )
+        )
+        XCTAssertEqual(
+            receipt["kind"] as? String,
+            "incomplete-failure-provenance-preparation"
+        )
+        XCTAssertEqual(receipt["inputPath"] as? String, sample.fastqURL.path)
+        XCTAssertEqual(receipt["argv"] as? [String], request.argv)
+        XCTAssertEqual(receipt["exitStatus"] as? Int, 1)
+        XCTAssertTrue(
+            (receipt["originalError"] as? String)?.contains(
+                request.mappingBAMURL.path
+            ) == true
+        )
+        let disposition = try jsonObject(
+            at: operation.appendingPathComponent("cleanup-disposition.json")
+        )
+        let entries = try XCTUnwrap(disposition["entries"] as? [[String: Any]])
+        XCTAssertTrue(entries.contains {
+            $0["path"] as? String == request.mappingBAMURL.path
+                && $0["disposition"] as? String == "retained-cleanup-failed"
+        })
     }
 
     func testMarkerBindingFailureRollsBackSupportRootAndPublishesFailureEnvelope() async throws {

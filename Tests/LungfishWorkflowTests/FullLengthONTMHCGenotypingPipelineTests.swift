@@ -2258,6 +2258,53 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             fileURLWithPath: retainedFailedPublishedPath,
             isDirectory: true
         )
+        let retainedFailedPublishedMarker =
+            try OwnedWorkDirectoryMarkerStore.load(
+                from: retainedFailedPublishedURL,
+                expectedProjectURL: root
+            )
+        XCTAssertEqual(
+            retainedFailedPublishedMarker.state,
+            .failed,
+            "The retained current-run generation must be terminal."
+        )
+        let rollbackOperations =
+            try FileManager.default.contentsOfDirectory(
+                at: root.appendingPathComponent(
+                    ProjectOperationHistoryWriter.historyDirectoryName,
+                    isDirectory: true
+                ),
+                includingPropertiesForKeys: nil
+            )
+        let rollbackDisposition = try XCTUnwrap(
+            rollbackOperations.compactMap { operation -> [String: Any]? in
+                let url = operation.appendingPathComponent(
+                    "cleanup-disposition.json"
+                )
+                guard let data = try? Data(contentsOf: url),
+                      let object = try? JSONSerialization.jsonObject(
+                        with: data
+                      ) as? [String: Any],
+                      let entries = object["entries"] as? [[String: Any]],
+                      entries.contains(where: {
+                          $0["path"] as? String
+                              == retainedFailedPublishedPath
+                      }) else {
+                    return nil
+                }
+                return object
+            }.first
+        )
+        let rollbackEntries = try XCTUnwrap(
+            rollbackDisposition["entries"] as? [[String: Any]]
+        )
+        for retainedPath in [retainedPriorPath, retainedFailedPublishedPath] {
+            XCTAssertTrue(rollbackEntries.contains {
+                $0["path"] as? String == retainedPath
+                    && $0["disposition"] as? String
+                        == "retained-rollback-recovery"
+            })
+        }
         let failedPublishedSnapshot = try directoryFileSnapshot(retainedFailedPublishedURL)
         XCTAssertFalse(failedPublishedSnapshot.isEmpty)
         let retainedRelativePaths = Set(try FileManager.default.subpathsOfDirectory(atPath: retainedPriorPath)
@@ -2333,6 +2380,37 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertNotEqual(rollback.exitStatus, 0)
         XCTAssertTrue(rollback.argv.contains(recoveryPath) || rollback.stderr?.contains("injected-new-run-rollback-failure") == true)
         let recoveryURL = URL(fileURLWithPath: recoveryPath, isDirectory: true)
+        let recoveryMarker = try OwnedWorkDirectoryMarkerStore.load(
+            from: recoveryURL,
+            expectedProjectURL: root
+        )
+        XCTAssertEqual(recoveryMarker.state, .failed)
+        let rollbackOperation = try XCTUnwrap(
+            FileManager.default.contentsOfDirectory(
+                at: root.appendingPathComponent(
+                    ProjectOperationHistoryWriter.historyDirectoryName,
+                    isDirectory: true
+                ),
+                includingPropertiesForKeys: nil
+            ).first
+        )
+        let rollbackDisposition = try XCTUnwrap(
+            try JSONSerialization.jsonObject(
+                with: Data(
+                    contentsOf: rollbackOperation.appendingPathComponent(
+                        "cleanup-disposition.json"
+                    )
+                )
+            ) as? [String: Any]
+        )
+        let rollbackEntries = try XCTUnwrap(
+            rollbackDisposition["entries"] as? [[String: Any]]
+        )
+        XCTAssertTrue(rollbackEntries.contains {
+            $0["path"] as? String == recoveryPath
+                && $0["disposition"] as? String
+                    == "retained-rollback-recovery"
+        })
         let recoverySnapshot = try directoryFileSnapshot(recoveryURL)
         let (_, successfulPipeline) = try makeFakeFullLengthRun(root: root)
 
@@ -3443,6 +3521,32 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             "Cohort cleanup must still complete when workflow cleanup fails."
         )
         try assertSuccessfulPublishedEvidence(result: result, request: request)
+        let operation = try XCTUnwrap(
+            FileManager.default.contentsOfDirectory(
+                at: root.appendingPathComponent(
+                    ProjectOperationHistoryWriter.historyDirectoryName,
+                    isDirectory: true
+                ),
+                includingPropertiesForKeys: nil
+            ).first
+        )
+        let disposition = try XCTUnwrap(
+            try JSONSerialization.jsonObject(
+                with: Data(
+                    contentsOf: operation.appendingPathComponent(
+                        "cleanup-disposition.json"
+                    )
+                )
+            ) as? [String: Any]
+        )
+        let entries = try XCTUnwrap(disposition["entries"] as? [[String: Any]])
+        XCTAssertTrue(entries.contains {
+            $0["path"] as? String == warning.path
+                && $0["disposition"] as? String == "retained-cleanup-failed"
+                && ($0["error"] as? String)?.contains(
+                    "injected workflow intermediates cleanup failure"
+                ) == true
+        })
     }
 
     func testAtomicPublicationFailureWritesCompleteCommandProvenanceReceipt() async throws {
@@ -3650,6 +3754,36 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             "Workflow cleanup must still complete when cohort cleanup fails."
         )
         try assertSuccessfulPublishedEvidence(result: result, request: request)
+        let operation = try XCTUnwrap(
+            FileManager.default.contentsOfDirectory(
+                at: root.appendingPathComponent(
+                    ProjectOperationHistoryWriter.historyDirectoryName,
+                    isDirectory: true
+                ),
+                includingPropertiesForKeys: nil
+            ).first
+        )
+        let disposition = try XCTUnwrap(
+            try JSONSerialization.jsonObject(
+                with: Data(
+                    contentsOf: operation.appendingPathComponent(
+                        "cleanup-disposition.json"
+                    )
+                )
+            ) as? [String: Any]
+        )
+        let entries = try XCTUnwrap(disposition["entries"] as? [[String: Any]])
+        XCTAssertTrue(entries.contains {
+            $0["path"] as? String == warning.path
+                && $0["disposition"] as? String == "retained-cleanup-failed"
+                && ($0["error"] as? String)?.contains(
+                    "injected cohort alignment temporary work directory cleanup failure"
+                ) == true
+        })
+        XCTAssertTrue(entries.contains {
+            ($0["path"] as? String)?.hasSuffix("/workflow") == true
+                && $0["disposition"] as? String == "intermediates-removed"
+        })
     }
 
     func testRunKeepsWorkflowIntermediatesAndRecordsCheckpointOptionsInProvenance() async throws {
