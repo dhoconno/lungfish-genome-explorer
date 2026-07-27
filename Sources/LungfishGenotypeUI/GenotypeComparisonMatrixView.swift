@@ -188,6 +188,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             GenotypeManualHaplotypeDraftCoordinator.Transition,
             @escaping @MainActor () -> Void
         ) -> Bool)?
+    var onManualHaplotypeEditRequested: ((String) -> Void)?
+    var onManualHaplotypeBandExpansionChanged: ((Bool) -> Void)?
     var matrixCommentBodyProvider: ((String?) -> String?)?
     private var contextMenuSnapshotSourceFactory:
         (GenotypeMatrixContextMenuSnapshot) -> any GenotypeMatrixContextMenuSnapshotProviding = {
@@ -211,6 +213,24 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private let paneDivider = GenotypeMatrixPaneDivider()
     private let scrollView = NSScrollView()
     private let tableView = GenotypeMatrixTableView()
+    private let manualHaplotypePinnedBand =
+        GenotypeManualHaplotypePinnedBandView()
+    private let manualHaplotypeSampleBand =
+        GenotypeManualHaplotypeSampleBandView()
+    private var manualHaplotypeBandSnapshot =
+        GenotypeManualHaplotypeAssignmentBandSnapshot(
+            index: GenotypeManualHaplotypeAssignmentIndex(assignments: []),
+            samples: []
+        )
+    private var manualHaplotypeBandAssignments:
+        [ManualHaplotypeAssignment] = []
+    private var manualHaplotypeEditingEligible = false
+#if DEBUG
+    private var testingManualHaplotypeBandInvalidatedSampleSet =
+        Set<String>()
+    private var testingManualHaplotypeBandTypographyScaleOverride: CGFloat?
+    private var testingForcesLegacyBottomChrome = false
+#endif
     private var pinnedWidthConstraint: NSLayoutConstraint?
     private var result: ONTGenotypeResultBundleData?
     private var referenceFields: [GenBankRecordDatabase.FieldDefinition] = []
@@ -395,6 +415,11 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         sidecar: GenotypeAnnotationSidecar? = nil
     ) {
         self.result = result
+        if case .eligible = GenotypeManualHaplotypeEligibility.evaluate(result) {
+            manualHaplotypeEditingEligible = true
+        } else {
+            manualHaplotypeEditingEligible = false
+        }
         self.metadataStore = metadataStore
         provisionalExon2Genotypes = result.haplotypeAnalysis == nil
             ? Set(result.provisionalExon2SequencesByGenotype.keys)
@@ -423,6 +448,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         pendingColumnSelectionCleared = false
         quickSearchRowIDs = nil
         applyAnnotationSidecar(sidecar, reload: false)
+        applyManualHaplotypeBandPresentation()
         rebuildBaseProjection()
         rebuildColumns()
         applyDefaultSortDescriptor()
@@ -440,6 +466,11 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     ) {
         captureStableSampleColumnState()
         self.result = result
+        if case .eligible = GenotypeManualHaplotypeEligibility.evaluate(result) {
+            manualHaplotypeEditingEligible = true
+        } else {
+            manualHaplotypeEditingEligible = false
+        }
         self.metadataStore = metadataStore
         provisionalExon2Genotypes = result.haplotypeAnalysis == nil
             ? Set(result.provisionalExon2SequencesByGenotype.keys)
@@ -463,6 +494,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
         sampleReadTitleByName = sampleReadTitles(from: result)
         applyAnnotationSidecar(sidecar, reload: false)
+        applyManualHaplotypeBandPresentation()
         rebuildBaseProjection()
         rebuildColumns()
         applyFilterAndSort()
@@ -473,6 +505,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         let previousSamples = activeSampleNames()
         let previousEffectiveCandidateSettings = effectiveCandidateDisplaySettings
         displayState = state
+        applyManualHaplotypeBandPresentation()
         let nextEffectiveCandidateSettings = effectiveCandidateDisplaySettings
         let candidateVisibilityDidChange = candidateVisibilityChanged(
             from: previousEffectiveCandidateSettings,
@@ -512,6 +545,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         reloading targets: [GenotypeAnnotationSidecar.MatrixTarget]? = nil
     ) {
         let previousEffectiveCandidateDisplaySettings = effectiveCandidateDisplaySettings
+        updateManualHaplotypeBand(
+            assignments: sidecar?.manualHaplotypeAssignments ?? []
+        )
         candidateDisplaySettings = sidecar?.settings.mhcCandidateDisplay ?? .default
         sidecarCellStyles = [:]
         sidecarRowStyles = [:]
@@ -566,6 +602,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             )] = review
         }
         updateColumnCommentMetadata()
+        updateManualHaplotypeHeaderAccessibility()
         let nextEffectiveCandidateDisplaySettings = effectiveCandidateDisplaySettings
         if reload,
            candidateVisibilityChanged(
@@ -877,6 +914,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         pinnedScrollView.translatesAutoresizingMaskIntoConstraints = false
         pinnedScrollView.hasVerticalScroller = false
         pinnedScrollView.hasHorizontalScroller = true
+        pinnedScrollView.automaticallyAdjustsContentInsets = false
         pinnedScrollView.autohidesScrollers = true
         pinnedScrollView.verticalScrollElasticity = .none
         pinnedScrollView.contentView = VerticallyClampedClipView()
@@ -895,12 +933,23 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
+        scrollView.automaticallyAdjustsContentInsets = false
         scrollView.autohidesScrollers = true
         scrollView.verticalScrollElasticity = .none
         scrollView.contentView = VerticallyClampedClipView()
         scrollView.borderType = .noBorder
         scrollView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         addSubview(scrollView)
+        manualHaplotypePinnedBand.isHidden = true
+        manualHaplotypePinnedBand.onDisclosureChanged = { [weak self] expanded in
+            guard let self else { return }
+            self.displayState.manualHaplotypeBandExpanded = expanded
+            self.applyManualHaplotypeBandPresentation()
+            self.onManualHaplotypeBandExpansionChanged?(expanded)
+        }
+        addSubview(manualHaplotypePinnedBand)
+        manualHaplotypeSampleBand.isHidden = true
+        addSubview(manualHaplotypeSampleBand)
 
         configureTableView(pinnedTableView)
         configureTableView(tableView)
@@ -1100,6 +1149,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         super.layout()
         setPinnedPaneWidth(pinnedWidthConstraint?.constant ?? 360, persist: false)
         synchronizePinnedScrollBottomInset()
+        layoutManualHaplotypeBand()
     }
 
     @objc private func scrollViewBoundsChanged(_ notification: Notification) {
@@ -1112,6 +1162,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         switch sourceContentView {
         case scrollView.contentView:
             destinationContentView = pinnedScrollView.contentView
+            updateManualHaplotypeBandColumnGeometry()
         case pinnedScrollView.contentView:
             destinationContentView = scrollView.contentView
         default:
@@ -1138,11 +1189,27 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     private func sampleMatrixBottomChromeHeight() -> CGFloat {
+#if DEBUG
+        if testingForcesLegacyBottomChrome {
+            return NSScroller.scrollerWidth(
+                for: .regular,
+                scrollerStyle: .legacy
+            )
+        }
+#endif
         guard let horizontalScroller = scrollView.horizontalScroller,
-              !horizontalScroller.isHidden,
               scrollView.scrollerStyle == .legacy else {
             return 0
         }
+        if horizontalScroller.isHidden,
+           scrollView.hasHorizontalScroller,
+           !scrollView.autohidesScrollers {
+            return NSScroller.scrollerWidth(
+                for: .regular,
+                scrollerStyle: .legacy
+            )
+        }
+        guard !horizontalScroller.isHidden else { return 0 }
         return max(0, scrollView.bounds.maxY - horizontalScroller.frame.minY)
     }
 
@@ -1244,6 +1311,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         activeSortDescriptors = preservedSortDescriptors
         syncSortDescriptorsToTables()
         setHeaderViewsNeedDisplay()
+        updateManualHaplotypeBandColumnGeometry()
+        updateManualHaplotypeHeaderAccessibility()
         if let header = tableView.headerView {
             postAccessibilityLayoutChanged(for: header)
         }
@@ -2840,11 +2909,20 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     private func makeContextMenuSnapshot() -> GenotypeMatrixContextMenuSnapshot {
-        GenotypeMatrixContextMenuSnapshot(
+        let manualHaplotypeEditSample: String?
+        if manualHaplotypeEditingEligible,
+           selectedMatrixTargets.count == 1,
+           case let .column(sample) = selectedMatrixTargets[0] {
+            manualHaplotypeEditSample = sample
+        } else {
+            manualHaplotypeEditSample = nil
+        }
+        return GenotypeMatrixContextMenuSnapshot(
             selectionTargets: selectedMatrixTargets,
             capability: matrixReviewCapability,
             visibilityCapability: matrixVisibilityCapability,
-            keyModifierRawValue: NSEvent.ModifierFlags([.command, .option]).rawValue
+            keyModifierRawValue: NSEvent.ModifierFlags([.command, .option]).rawValue,
+            manualHaplotypeEditSample: manualHaplotypeEditSample
         )
     }
 
@@ -2953,6 +3031,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         case .markFalsePositive, .markFalseNegative, .clearReview,
              .editComment, .removeComments, .selectSupportedCells:
             return nil
+        case .editManualHaplotypeAssignments:
+            value = "genotype-matrix-edit-manual-haplotypes"
         }
         return NSUserInterfaceItemIdentifier(value)
     }
@@ -2962,6 +3042,10 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             return
         }
         if payload.command.isSelectionTargetedVisibilityCommand,
+           payload.selectionTargets != Set(selectedMatrixTargets) {
+            return
+        }
+        if payload.command == .editManualHaplotypeAssignments,
            payload.selectionTargets != Set(selectedMatrixTargets) {
             return
         }
@@ -3035,6 +3119,13 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             guard !targets.isEmpty else { return false }
             let supported = supportedCellTargets(from: targets, minimumReads: 1)
             publishMatrixTargetSelection(supported, anchor: supported.last)
+        case .editManualHaplotypeAssignments:
+            guard targets.count == 1,
+                  case let .column(sample) = targets[0],
+                  manualHaplotypeEditingEligible else {
+                return false
+            }
+            onManualHaplotypeEditRequested?(sample)
         }
         return true
     }
@@ -3054,7 +3145,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         case .resetVisibility:
             return matrixVisibilityCapability.canResetVisibility
         case .markFalsePositive, .markFalseNegative, .clearReview,
-             .editComment, .removeComments, .selectSupportedCells:
+             .editComment, .removeComments, .selectSupportedCells,
+             .editManualHaplotypeAssignments:
             return true
         }
     }
@@ -4508,6 +4600,171 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         )
     }
 
+    private func updateManualHaplotypeBand(
+        assignments: [ManualHaplotypeAssignment]
+    ) {
+        guard assignments != manualHaplotypeBandAssignments
+                || Set(manualHaplotypeBandSnapshot.valuesBySample.keys)
+                    != Set(sampleNames) else {
+            return
+        }
+        manualHaplotypeBandAssignments = assignments
+        let next = GenotypeManualHaplotypeAssignmentBandSnapshot(
+            index: GenotypeManualHaplotypeAssignmentIndex(
+                assignments: assignments
+            ),
+            samples: sampleNames
+        )
+        let changedSamples = next.changedSamples(
+            comparedTo: manualHaplotypeBandSnapshot
+        )
+        manualHaplotypeBandSnapshot = next
+        manualHaplotypeSampleBand.snapshot = next
+#if DEBUG
+        testingManualHaplotypeBandInvalidatedSampleSet.formUnion(
+            changedSamples.filter { sample in
+                manualHaplotypeSampleBand.columnFrames[sample]?
+                    .intersects(manualHaplotypeSampleBand.bounds) == true
+            }
+        )
+#endif
+        manualHaplotypeSampleBand.invalidate(samples: changedSamples)
+        updateManualHaplotypeHeaderAccessibility()
+    }
+
+    private var manualHaplotypeBandRowHeight: CGFloat {
+#if DEBUG
+        if let scale = testingManualHaplotypeBandTypographyScaleOverride {
+            return ceil(max(22, 22 * scale))
+        }
+#endif
+        return resolvedContentTypography().tableRowHeight(
+            minimum: 22,
+            verticalPadding: 6
+        )
+    }
+
+    private var manualHaplotypeBandFont: NSFont {
+        let base = resolvedContentTypography().font(for: .body)
+#if DEBUG
+        if let scale = testingManualHaplotypeBandTypographyScaleOverride {
+            return NSFont(
+                descriptor: base.fontDescriptor,
+                size: max(1, base.pointSize * scale)
+            ) ?? base
+        }
+#endif
+        return base
+    }
+
+    private var manualHaplotypeBandHeight: CGFloat {
+        guard manualHaplotypeEditingEligible else { return 0 }
+        return manualHaplotypeBandRowHeight
+            * CGFloat(displayState.manualHaplotypeBandExpanded ? 8 : 1)
+    }
+
+    private func applyManualHaplotypeBandPresentation() {
+        let hidden = !manualHaplotypeEditingEligible
+        manualHaplotypePinnedBand.isHidden = hidden
+        manualHaplotypeSampleBand.isHidden = hidden
+        manualHaplotypePinnedBand.isExpanded =
+            displayState.manualHaplotypeBandExpanded
+        manualHaplotypeSampleBand.isExpanded =
+            displayState.manualHaplotypeBandExpanded
+        manualHaplotypePinnedBand.font = manualHaplotypeBandFont
+        manualHaplotypeSampleBand.font = manualHaplotypeBandFont
+        manualHaplotypePinnedBand.rowHeight =
+            manualHaplotypeBandRowHeight
+        manualHaplotypeSampleBand.rowHeight =
+            manualHaplotypeBandRowHeight
+        manualHaplotypePinnedBand.needsLayout = true
+        manualHaplotypePinnedBand.needsDisplay = true
+        manualHaplotypeSampleBand.needsDisplay = true
+        needsLayout = true
+    }
+
+    private func layoutManualHaplotypeBand() {
+        let height = manualHaplotypeBandHeight
+        if pinnedScrollView.contentInsets.top != height {
+            var pinnedInsets = pinnedScrollView.contentInsets
+            pinnedInsets.top = height
+            pinnedScrollView.contentInsets = pinnedInsets
+        }
+        if scrollView.contentInsets.top != height {
+            var sampleInsets = scrollView.contentInsets
+            sampleInsets.top = height
+            scrollView.contentInsets = sampleInsets
+        }
+
+        guard height > 0 else {
+            manualHaplotypePinnedBand.frame = .zero
+            manualHaplotypeSampleBand.frame = .zero
+            return
+        }
+        let pinnedHeaderHeight =
+            pinnedTableView.headerView?.frame.height ?? 0
+        let sampleHeaderHeight = tableView.headerView?.frame.height ?? 0
+        manualHaplotypePinnedBand.frame = NSRect(
+            x: pinnedScrollView.frame.minX,
+            y: pinnedScrollView.frame.maxY - pinnedHeaderHeight - height,
+            width: pinnedScrollView.frame.width,
+            height: height
+        )
+        manualHaplotypeSampleBand.frame = NSRect(
+            x: scrollView.frame.minX,
+            y: scrollView.frame.maxY - sampleHeaderHeight - height,
+            width: scrollView.frame.width,
+            height: height
+        )
+        updateManualHaplotypeBandColumnGeometry()
+    }
+
+    private func updateManualHaplotypeBandColumnGeometry() {
+        let horizontalOffset = scrollView.contentView.bounds.origin.x
+        let bandBounds = manualHaplotypeSampleBand.bounds
+        manualHaplotypeSampleBand.columnFrames = Dictionary(
+            uniqueKeysWithValues: tableView.tableColumns.enumerated()
+                .compactMap { index, column -> (String, NSRect)? in
+                    guard let sample = sampleColumnLookup[column.identifier]
+                    else { return nil }
+                    let documentRect = tableView.rect(ofColumn: index)
+                    let frame = NSRect(
+                        x: documentRect.minX - horizontalOffset,
+                        y: 0,
+                        width: column.width,
+                        height: manualHaplotypeBandHeight
+                    )
+                    guard frame.intersects(bandBounds) else {
+                        return nil
+                    }
+                    return (
+                        sample,
+                        frame
+                    )
+                }
+        )
+        manualHaplotypeSampleBand.needsDisplay = true
+    }
+
+    private func updateManualHaplotypeHeaderAccessibility() {
+        for column in tableView.tableColumns {
+            guard let sample = sampleColumnLookup[column.identifier] else {
+                continue
+            }
+            let summary = manualHaplotypeBandSnapshot
+                .accessibilitySummaryBySample[sample]
+                ?? "No manual haplotype assignments"
+            let commentCount =
+                sidecarColumnCommentTooltips[sample] == nil ? 0 : 1
+            let commentSuffix =
+                commentCount == 1 ? "comment" : "comments"
+            column.headerCell.setAccessibilityLabel(
+                "Sample column \(sample). \(commentCount) sample column "
+                    + "\(commentSuffix). \(summary)"
+            )
+        }
+    }
+
     private var contentTypographyScale: CGFloat {
         let providerBaseline = max(
             contentPreferredFontProvider.canonicalUnscaledPointSize(for: .body),
@@ -4548,6 +4805,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             15,
             ceil(typography.font(for: .caption).boundingRectForFont.height + 4)
         )
+        applyManualHaplotypeBandPresentation()
         applyColumnTypography()
         for table in [pinnedTableView, tableView] {
             for column in table.tableColumns {
@@ -4556,6 +4814,10 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             table.reloadData()
             table.headerView?.needsDisplay = true
         }
+        // Apply the new band inset before restoring the semantic row anchor.
+        // Otherwise AppKit tiles the clip view after restoration and clamps
+        // the origin against the stale inset.
+        layoutManualHaplotypeBand()
         restoreTypographyScrollAnchor(
             pinnedScrollAnchor,
             scrollView: pinnedScrollView,
@@ -4602,7 +4864,6 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         )
         suppressScrollSync = true
         scrollView.contentView.setBoundsOrigin(origin)
-        scrollView.reflectScrolledClipView(scrollView.contentView)
         suppressScrollSync = false
     }
 
@@ -5879,9 +6140,12 @@ extension GenotypeComparisonMatrixView {
         scrollView.contentView.setBoundsOrigin(origin)
     }
     func testingConfigureSampleMatrixLegacyHorizontalScroller() {
+        testingForcesLegacyBottomChrome = true
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = false
         scrollView.scrollerStyle = .legacy
+        scrollView.tile()
+        scrollView.horizontalScroller?.isHidden = false
         scrollView.tile()
         layoutSubtreeIfNeeded()
     }
@@ -5917,6 +6181,7 @@ extension GenotypeComparisonMatrixView {
         tableView.moveColumn(sourceIndex, toColumn: boundedTarget)
         captureStableSampleColumnState()
         rebuildVisibleColumnIndex()
+        updateManualHaplotypeBandColumnGeometry()
     }
     func testingSetSampleColumnWidth(sample: String, width: CGFloat) {
         guard let column = tableView.tableColumns.first(where: {
@@ -5924,6 +6189,7 @@ extension GenotypeComparisonMatrixView {
         }) else { return }
         column.width = max(column.minWidth, width)
         captureStableSampleColumnState()
+        updateManualHaplotypeBandColumnGeometry()
     }
     func testingSampleColumnWidth(sample: String) -> CGFloat {
         tableView.tableColumns.first(where: {
@@ -5987,6 +6253,61 @@ extension GenotypeComparisonMatrixView {
 
     var testingSelectedMatrixTargets: [GenotypeAnnotationSidecar.MatrixTarget] {
         selectedMatrixTargets
+    }
+
+    func testingSelectMatrixTargets(
+        _ targets: [GenotypeAnnotationSidecar.MatrixTarget]
+    ) {
+        publishMatrixTargetSelection(targets, anchor: targets.last)
+    }
+
+    var testingManualHaplotypeBandLoci: [String] {
+        GenotypeManualHaplotypeAssignmentBandSnapshot.loci
+            .map(\.workbookLabel)
+    }
+
+    func testingManualHaplotypeBandValues(sample: String) -> [String] {
+        manualHaplotypeBandSnapshot.valuesBySample[sample]
+            ?? Array(repeating: "—", count: 7)
+    }
+
+    var testingManualHaplotypeBandPerSampleControlCount: Int {
+        manualHaplotypeSampleBand.subviews.compactMap { $0 as? NSControl }.count
+    }
+
+    var testingManualHaplotypeBandCellsAreFocusable: Bool {
+        manualHaplotypeSampleBand.acceptsFirstResponder
+    }
+
+    var testingManualHaplotypeBandIsExpanded: Bool {
+        displayState.manualHaplotypeBandExpanded
+    }
+
+    var testingManualHaplotypeBandRowHeight: CGFloat {
+        manualHaplotypeBandRowHeight
+    }
+
+    var testingManualHaplotypeBandFontPointSize: CGFloat {
+        manualHaplotypeBandFont.pointSize
+    }
+
+    func testingSetManualHaplotypeBandTypographyScale(_ scale: CGFloat?) {
+        testingManualHaplotypeBandTypographyScaleOverride = scale
+        applyManualHaplotypeBandPresentation()
+        layoutSubtreeIfNeeded()
+    }
+
+    var testingManualHaplotypeBandColumnFrames: [String: NSRect] {
+        updateManualHaplotypeBandColumnGeometry()
+        return manualHaplotypeSampleBand.columnFrames
+    }
+
+    func testingResetManualHaplotypeBandInvalidations() {
+        testingManualHaplotypeBandInvalidatedSampleSet.removeAll()
+    }
+
+    var testingManualHaplotypeBandInvalidatedSamples: [String] {
+        testingManualHaplotypeBandInvalidatedSampleSet.sorted()
     }
 
     var testingVisibilityCapability: GenotypeMatrixVisibilityCapabilitySnapshot {
@@ -6476,10 +6797,9 @@ extension GenotypeComparisonMatrixView {
     }
 
     func testingColumnAccessibilityLabel(sample: String) -> String? {
-        tableView.tableColumns
-            .first(where: { sampleColumnLookup[$0.identifier] == sample })?
-            .headerCell
-            .accessibilityLabel()
+        tableView.tableColumns.first(where: {
+            sampleColumnLookup[$0.identifier] == sample
+        })?.headerCell.accessibilityLabel()
     }
 
     var testingReviewLegendText: String {

@@ -290,6 +290,10 @@ public final class GenotypeResultViewController: NSViewController {
     private var annotationStore: GenotypeAnnotationStore?
     private var manualHaplotypeEditorModel:
         GenotypeManualHaplotypeEditorModel?
+    private weak var manualHaplotypeEditorHostView: NSView?
+#if DEBUG
+    private var testingLastManualHaplotypeFocusIdentifier: String?
+#endif
     private let manualHaplotypeEditorTypographyModel =
         ContentTypographyModel.shared
     private lazy var manualHaplotypeDraftCoordinator =
@@ -2559,6 +2563,16 @@ public final class GenotypeResultViewController: NSViewController {
                 mutation: mutation
             )
         }
+        comparisonMatrix.onManualHaplotypeEditRequested = {
+            [weak self] sample in
+            self?.focusManualHaplotypeEditor(sample: sample)
+        }
+        comparisonMatrix.onManualHaplotypeBandExpansionChanged = {
+            [weak self] expanded in
+            guard let self else { return }
+            self.displayState.manualHaplotypeBandExpanded = expanded
+            self.onDisplayStateChanged?(self.displayState)
+        }
     }
 
     @objc private func lensChanged(_ sender: NSSegmentedControl) {
@@ -3715,6 +3729,7 @@ public final class GenotypeResultViewController: NSViewController {
         currentCandidateRow = nil
         currentSelectedSample = nil
         manualHaplotypeEditorModel = nil
+        manualHaplotypeEditorHostView = nil
         alleleSequenceDetailWidthConstraint?.isActive = false
         alleleSequenceDetailWidthConstraint = nil
         alleleSequenceDetailHeightConstraint?.isActive = false
@@ -3962,6 +3977,7 @@ public final class GenotypeResultViewController: NSViewController {
             return order == .orderedSame ? $0 < $1 : order == .orderedAscending
         }
         manualHaplotypeEditorModel = nil
+        manualHaplotypeEditorHostView = nil
         removeArrangedSubviews(from: detailStack)
         detailStack.addArrangedSubview(sectionTitle(samples.count == 1 ? "Selected Sample" : "Selected Samples"))
         var stateRows: [(String, String)] = [
@@ -5473,7 +5489,59 @@ public final class GenotypeResultViewController: NSViewController {
         NSLayoutConstraint.activate([
             container.heightAnchor.constraint(greaterThanOrEqualToConstant: 590),
         ])
+        manualHaplotypeEditorHostView = container
         return container
+    }
+
+    private func focusManualHaplotypeEditor(sample: String) {
+        let target: GenotypeAnnotationSidecar.MatrixTarget =
+            .column(sample: sample)
+        if currentSelectionState?.matrixTargets != [target] {
+            showMatrixTargetSelection([target])
+        }
+        guard let host = manualHaplotypeEditorHostView else { return }
+        detailScrollView.isHidden = false
+        detailScrollView.contentView.scrollToVisible(
+            host.convert(host.bounds, to: detailDocumentView)
+        )
+        detailScrollView.reflectScrolledClipView(
+            detailScrollView.contentView
+        )
+        view.layoutSubtreeIfNeeded()
+        let identifier = "manual-haplotype-MHC-A-h1"
+#if DEBUG
+        testingLastManualHaplotypeFocusIdentifier = identifier
+#endif
+        DispatchQueue.main.async { [weak self, weak host] in
+            guard let self, let host,
+                  let combo = self.descendantComboBox(
+                      in: host,
+                      accessibilityIdentifier: identifier
+                  ) else {
+                return
+            }
+            self.view.window?.makeFirstResponder(combo)
+        }
+    }
+
+    private func descendantComboBox(
+        in root: NSView,
+        accessibilityIdentifier: String
+    ) -> NSComboBox? {
+        if let combo = root as? NSComboBox,
+           combo.accessibilityIdentifier()
+                == accessibilityIdentifier {
+            return combo
+        }
+        for subview in root.subviews {
+            if let match = descendantComboBox(
+                in: subview,
+                accessibilityIdentifier: accessibilityIdentifier
+            ) {
+                return match
+            }
+        }
+        return nil
     }
 
     private func manualHaplotypeEditorSnapshot(
@@ -9287,6 +9355,10 @@ extension GenotypeResultViewController {
 
     var testingManualHaplotypeEditorSample: String? {
         manualHaplotypeEditorModel?.draft.sample
+    }
+
+    var testingLastManualHaplotypeFocusedFieldIdentifier: String? {
+        testingLastManualHaplotypeFocusIdentifier
     }
 
     var testingManualHaplotypeEditorIsDirty: Bool {

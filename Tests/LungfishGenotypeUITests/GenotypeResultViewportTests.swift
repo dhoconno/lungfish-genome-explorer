@@ -5531,6 +5531,309 @@ final class GenotypeResultViewportTests: XCTestCase {
         }
     }
 
+    func testManualHaplotypeBandShowsSevenRowsH1BeforeH2AndAccessibleHeaderSummary() {
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.frame = NSRect(x: 0, y: 0, width: 760, height: 520)
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.manualHaplotypeAssignments = [
+            ManualHaplotypeAssignment(
+                sample: "AnimalA",
+                locus: "MHC-A",
+                slot: .h2,
+                label: "A-H2",
+                colorTokenIndex: 2,
+                diagnosticAlleles: [],
+                notes: ""
+            ),
+            ManualHaplotypeAssignment(
+                sample: "AnimalA",
+                locus: "MHC-A",
+                slot: .h1,
+                label: "A-H1",
+                colorTokenIndex: 1,
+                diagnosticAlleles: [],
+                notes: ""
+            ),
+        ]
+        matrix.configure(
+            result: makeResult(
+                samples: [],
+                calls: [
+                    makeCall(
+                        sample: "AnimalA",
+                        genotype: "01_Mafa_A1_001_01",
+                        reads: 42
+                    ),
+                ]
+            ),
+            sidecar: sidecar
+        )
+        matrix.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(
+            matrix.testingManualHaplotypeBandLoci,
+            ["MHC-A", "MHC-B", "MHC-DRB", "MHC-DQA", "MHC-DQB", "MHC-DPA", "MHC-DPB"]
+        )
+        XCTAssertEqual(
+            matrix.testingManualHaplotypeBandValues(sample: "AnimalA").first,
+            "A-H1 · A-H2"
+        )
+        XCTAssertEqual(
+            Array(matrix.testingManualHaplotypeBandValues(sample: "AnimalA").dropFirst()),
+            Array(repeating: "—", count: 6)
+        )
+        XCTAssertEqual(matrix.testingManualHaplotypeBandPerSampleControlCount, 0)
+        XCTAssertFalse(matrix.testingManualHaplotypeBandCellsAreFocusable)
+        let accessibility = matrix.testingColumnAccessibilityLabel(sample: "AnimalA") ?? ""
+        XCTAssertTrue(accessibility.contains("MHC-A H1 A-H1, H2 A-H2"))
+    }
+
+    func testManualHaplotypeBandDisclosurePersistsAndUsesContentTypography() {
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.frame = NSRect(x: 0, y: 0, width: 760, height: 520)
+        matrix.configure(
+            result: makeResult(
+                samples: [],
+                calls: [
+                    makeCall(
+                        sample: "AnimalA",
+                        genotype: "01_Mafa_A1_001_01",
+                        reads: 42
+                    ),
+                ]
+            )
+        )
+        matrix.layoutSubtreeIfNeeded()
+        XCTAssertTrue(matrix.testingManualHaplotypeBandIsExpanded)
+        let baselineHeight = matrix.testingManualHaplotypeBandRowHeight
+        let baselineFont = matrix.testingManualHaplotypeBandFontPointSize
+
+        var collapsed = GenotypeResultDisplayState()
+        collapsed.manualHaplotypeBandExpanded = false
+        matrix.applyDisplayState(collapsed)
+        XCTAssertFalse(matrix.testingManualHaplotypeBandIsExpanded)
+
+        var restored = GenotypeResultDisplayState()
+        restored.manualHaplotypeBandExpanded = true
+        matrix.applyDisplayState(restored)
+        matrix.testingSetManualHaplotypeBandTypographyScale(1.8)
+        XCTAssertTrue(matrix.testingManualHaplotypeBandIsExpanded)
+        XCTAssertGreaterThan(
+            matrix.testingManualHaplotypeBandRowHeight,
+            baselineHeight
+        )
+        XCTAssertGreaterThan(
+            matrix.testingManualHaplotypeBandFontPointSize,
+            baselineFont
+        )
+    }
+
+    func testManualHaplotypeBandTracksHorizontalGeometryAcrossScrollReorderResizeAndVisibility() throws {
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.frame = NSRect(x: 0, y: 0, width: 560, height: 520)
+        let calls = ["AnimalA", "AnimalB", "AnimalC"].map {
+            makeCall(
+                sample: $0,
+                genotype: "01_Mafa_A1_001_01",
+                reads: 42
+            )
+        }
+        matrix.configure(result: makeResult(samples: [], calls: calls))
+        matrix.layoutSubtreeIfNeeded()
+
+        let initial = matrix.testingManualHaplotypeBandColumnFrames
+        matrix.testingScrollSampleMatrix(to: NSPoint(x: 24, y: 0))
+        matrix.layoutSubtreeIfNeeded()
+        let scrolled = matrix.testingManualHaplotypeBandColumnFrames
+        let appliedHorizontalOffset =
+            matrix.testingSampleMatrixScrollOffset.x
+        XCTAssertEqual(
+            try XCTUnwrap(scrolled["AnimalA"]?.minX),
+            try XCTUnwrap(initial["AnimalA"]?.minX)
+                - appliedHorizontalOffset,
+            accuracy: 0.5
+        )
+
+        matrix.testingMoveSampleColumn(sample: "AnimalC", to: 0)
+        matrix.testingSetSampleColumnWidth(sample: "AnimalC", width: 120)
+        matrix.layoutSubtreeIfNeeded()
+        let reordered = matrix.testingManualHaplotypeBandColumnFrames
+        XCTAssertLessThan(
+            try XCTUnwrap(reordered["AnimalC"]?.minX),
+            try XCTUnwrap(reordered["AnimalA"]?.minX)
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(reordered["AnimalC"]?.width),
+            matrix.testingSampleColumnWidth(sample: "AnimalC"),
+            accuracy: 0.5
+        )
+
+        matrix.testingSelectMatrixTargets([.column(sample: "AnimalB")])
+        XCTAssertTrue(matrix.testingPerformContextCommand(.hideSelectedColumns))
+        XCTAssertNil(matrix.testingManualHaplotypeBandColumnFrames["AnimalB"])
+    }
+
+    func testManualHaplotypeBandRedrawsOnlyChangedVisibleSampleColumn() {
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.frame = NSRect(x: 0, y: 0, width: 760, height: 520)
+        matrix.configure(
+            result: makeResult(
+                samples: [],
+                calls: ["AnimalA", "AnimalB"].map {
+                    makeCall(
+                        sample: $0,
+                        genotype: "01_Mafa_A1_001_01",
+                        reads: 42
+                    )
+                }
+            )
+        )
+        matrix.testingResetManualHaplotypeBandInvalidations()
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.manualHaplotypeAssignments = [
+            ManualHaplotypeAssignment(
+                sample: "AnimalB",
+                locus: "MHC-B",
+                slot: .h1,
+                label: "B-H1",
+                colorTokenIndex: 3,
+                diagnosticAlleles: [],
+                notes: ""
+            ),
+        ]
+
+        matrix.applyAnnotationSidecar(sidecar, reload: false)
+
+        XCTAssertEqual(
+            matrix.testingManualHaplotypeBandInvalidatedSamples,
+            ["AnimalB"]
+        )
+    }
+
+    func testMatrixContextMenuOffersManualHaplotypeEditForExactlyOneEligibleColumn() throws {
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.configure(
+            result: makeResult(
+                samples: [],
+                calls: ["AnimalA", "AnimalB"].map {
+                    makeCall(
+                        sample: $0,
+                        genotype: "01_Mafa_A1_001_01",
+                        reads: 42
+                    )
+                }
+            )
+        )
+        var requestedSample: String?
+        matrix.onManualHaplotypeEditRequested = { requestedSample = $0 }
+
+        let single = matrix.testingBuildActualContextMenu(
+            for: .column(sample: "AnimalA")
+        )
+        let editItems = single?.items.filter {
+            $0.title == "Edit Haplotype Assignments…"
+        } ?? []
+        XCTAssertEqual(editItems.count, 1)
+        if let item = editItems.first {
+            _ = matrix.testingActivateContextMenuItem(item)
+        }
+        XCTAssertEqual(requestedSample, "AnimalA")
+
+        matrix.testingSelectMatrixTargets([
+            .column(sample: "AnimalA"),
+            .column(sample: "AnimalB"),
+        ])
+        XCTAssertFalse(
+            matrix.testingBuildContextMenu(
+                for: .column(sample: "AnimalA")
+            )?.items.contains {
+                $0.command == .editManualHaplotypeAssignments
+            } ?? true
+        )
+
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "ManualHaplotypeContext-\(UUID().uuidString).lungfishgenotype",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        try ONTGenotypeResultBundleData.writeAnnotationSidecar(
+            .empty(generatedAt: "2026-07-27T00:00:00Z"),
+            forBundleAt: bundleURL
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(
+            result: makeResult(
+                bundleURL: bundleURL,
+                samples: [],
+                calls: [
+                    makeCall(
+                        sample: "AnimalA",
+                        genotype: "01_Mafa_A1_001_01",
+                        reads: 42
+                    ),
+                ]
+            )
+        )
+        let controllerMenu = controller.testingComparisonMatrix
+            .testingBuildActualContextMenu(
+                for: .column(sample: "AnimalA")
+            )
+        if let edit = controllerMenu?.items.first(where: {
+            $0.title == "Edit Haplotype Assignments…"
+        }) {
+            _ = controller.testingComparisonMatrix
+                .testingActivateContextMenuItem(edit)
+        } else {
+            XCTFail("Expected manual haplotype edit command")
+        }
+        XCTAssertEqual(
+            controller.testingManualHaplotypeEditorSample,
+            "AnimalA"
+        )
+        XCTAssertEqual(
+            controller.testingLastManualHaplotypeFocusedFieldIdentifier,
+            "manual-haplotype-MHC-A-h1"
+        )
+
+        let haplotyped = GenotypeComparisonMatrixView()
+        haplotyped.configure(
+            result: makeResult(
+                samples: [],
+                calls: [
+                    makeCall(
+                        sample: "AnimalA",
+                        genotype: "01_Mafa_A1_001_01",
+                        reads: 42
+                    ),
+                ],
+                haplotypeAnalysis: GenotypeHaplotypeAnalysis(
+                    assayID: "MHC-exon2-miSeq",
+                    definitionSetID: "test",
+                    definitionSetName: "Test",
+                    speciesName: "Test",
+                    samples: []
+                )
+            )
+        )
+        XCTAssertFalse(
+            haplotyped.testingBuildActualContextMenu(
+                for: .column(sample: "AnimalA")
+            )?.items.contains {
+                $0.title == "Edit Haplotype Assignments…"
+            } ?? true
+        )
+    }
+
     func testManualHaplotypeSaveMarksWorkbookDirtyOnceWithoutProjectionRebuild() throws {
         let bundleURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(
