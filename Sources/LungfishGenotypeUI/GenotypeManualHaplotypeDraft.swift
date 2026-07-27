@@ -404,6 +404,12 @@ struct GenotypeManualHaplotypeDraft: Equatable, Sendable {
         if let draftColor = draftColorTokenIndex(for: label) {
             return draftColor
         }
+        return Self.deterministicColorTokenIndex(for: label)
+    }
+
+    private static func deterministicColorTokenIndex(
+        for label: String
+    ) -> Int {
         if let normalizedLabel = try?
             GenotypeManualHaplotypeAssignmentInputValidator
                 .normalizedLabelKey(for: label),
@@ -413,6 +419,12 @@ struct GenotypeManualHaplotypeDraft: Equatable, Sendable {
                 )
            ] {
             return canonicalIndex
+        } else if let normalizedLabel = try?
+            GenotypeManualHaplotypeAssignmentInputValidator
+                .normalizedLabelKey(for: label) {
+            return HaplotypeColorToken.assigned(
+                forName: normalizedLabel
+            ).canonicalIndex
         }
         return HaplotypeColorToken.assigned(forName: label).canonicalIndex
     }
@@ -505,8 +517,7 @@ struct GenotypeManualHaplotypeDraft: Equatable, Sendable {
         } else if validColorIndices.contains(assignment.colorTokenIndex) {
             resolvedColor = assignment.colorTokenIndex
         } else {
-            resolvedColor =
-                HaplotypeColorToken.assigned(forName: label).canonicalIndex
+            resolvedColor = deterministicColorTokenIndex(for: label)
         }
         return SlotValue(
             label: label,

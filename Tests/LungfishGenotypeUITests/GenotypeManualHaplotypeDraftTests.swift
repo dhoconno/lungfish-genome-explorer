@@ -149,13 +149,17 @@ final class GenotypeManualHaplotypeDraftTests: XCTestCase {
     func testNewLabelsReceiveStableDeterministicColors() {
         var first = makeDraft(sample: "Animal-1", assignments: [])
         var second = makeDraft(sample: "Animal-2", assignments: [])
+        let normalizedLabel = try! GenotypeManualHaplotypeAssignmentInputValidator
+            .normalizedLabelKey(for: "Novel Family")
 
         first.setLabel("Novel Family", locus: .dqa, slot: .h1)
         second.setLabel("Novel Family", locus: .dpb, slot: .h2)
 
         XCTAssertEqual(
             first[.dqa, .h1]?.colorTokenIndex,
-            HaplotypeColorToken.assigned(forName: "Novel Family").canonicalIndex
+            HaplotypeColorToken.assigned(
+                forName: normalizedLabel
+            ).canonicalIndex
         )
         XCTAssertEqual(
             first[.dqa, .h1]?.colorTokenIndex,
@@ -181,6 +185,49 @@ final class GenotypeManualHaplotypeDraftTests: XCTestCase {
             draft[.b, .h1]?.colorTokenIndex,
             draft[.b, .h2]?.colorTokenIndex
         )
+    }
+
+    func testCaseInsensitiveFallbackIsStableAcrossOppositeDraftEntryOrders() {
+        var titleCaseFirst = makeDraft(
+            sample: "Animal-1",
+            assignments: []
+        )
+        var lowercaseFirst = makeDraft(
+            sample: "Animal-2",
+            assignments: []
+        )
+
+        titleCaseFirst.setLabel(
+            "Novel Family",
+            locus: .a,
+            slot: .h1
+        )
+        titleCaseFirst.setLabel(
+            "novel family",
+            locus: .a,
+            slot: .h2
+        )
+        lowercaseFirst.setLabel(
+            "novel family",
+            locus: .a,
+            slot: .h1
+        )
+        lowercaseFirst.setLabel(
+            "Novel Family",
+            locus: .a,
+            slot: .h2
+        )
+
+        XCTAssertEqual(
+            titleCaseFirst[.a, .h1]?.colorTokenIndex,
+            lowercaseFirst[.a, .h1]?.colorTokenIndex
+        )
+        XCTAssertEqual(
+            titleCaseFirst[.a, .h2]?.colorTokenIndex,
+            lowercaseFirst[.a, .h2]?.colorTokenIndex
+        )
+        XCTAssertEqual(titleCaseFirst[.a, .h1]?.label, "Novel Family")
+        XCTAssertEqual(lowercaseFirst[.a, .h1]?.label, "novel family")
     }
 
     func testClearDirtyDiffAndCompletenessAreValueSemantic() {
