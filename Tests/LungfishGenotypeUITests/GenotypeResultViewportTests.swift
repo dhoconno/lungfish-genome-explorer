@@ -4827,7 +4827,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
     }
 
-    func testGenotypeOnlyResultForcesSummaryMatrixListOverDetailViewport() {
+    func testGenotypeOnlyResultUsesCompactSummaryAuditLensControlAndMatrixLayout() throws {
         let controller = GenotypeResultViewController()
         _ = controller.view
         controller.configure(result: makeResult(samples: [], calls: [
@@ -4848,8 +4848,19 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(controller.testingFirstPaneIsMatrix)
         XCTAssertFalse(controller.testingComparisonMatrixIsHidden)
         XCTAssertFalse(controller.testingDetailScrollViewIsHidden)
-        XCTAssertTrue(controller.testingLensControlIsHidden)
-        XCTAssertEqual(controller.testingContentHostTopInset, 0)
+        XCTAssertFalse(controller.testingLensControlIsHidden)
+        XCTAssertEqual(controller.testingContentHostTopInset, 36)
+        let lensControl = try XCTUnwrap(
+            controller.view.firstDescendant(ofType: NSSegmentedControl.self)
+        )
+        XCTAssertEqual(lensControl.segmentCount, 2)
+        XCTAssertEqual(
+            (0..<lensControl.segmentCount).map {
+                lensControl.label(forSegment: $0)
+            },
+            ["Summary", "Audit"]
+        )
+        XCTAssertEqual(lensControl.controlSize, .small)
     }
 
     func testFullSizeContentKeepsFullLengthCandidateSearchBelowSafeAreaTop() throws {
@@ -4892,7 +4903,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertLessThanOrEqual(searchFrame.maxY, safeAreaTop)
     }
 
-    func testGenotypeOnlyResultDirectLensSelectionCannotEscapeSummary() {
+    func testGenotypeOnlyResultExposesAuditButRejectsHaplotypingReview() {
         let controller = GenotypeResultViewController()
         _ = controller.view
         controller.configure(result: makeResult(samples: [], calls: [
@@ -4905,11 +4916,9 @@ final class GenotypeResultViewportTests: XCTestCase {
         ))
 
         controller.testingSelectLens(.audit)
-        XCTAssertEqual(controller.testingVisibleLensIdentifier, "summary")
+        XCTAssertEqual(controller.testingVisibleLensIdentifier, "audit")
         XCTAssertEqual(controller.testingSummaryViewMode, .matrix)
         XCTAssertEqual(controller.testingPanelLayout, .listTop)
-        XCTAssertFalse(controller.testingSplitIsVertical)
-        XCTAssertTrue(controller.testingFirstPaneIsMatrix)
 
         controller.testingSetUnappliedDisplayState(GenotypeResultDisplayState(
             viewportLens: .review,
@@ -4995,7 +5004,9 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertFalse(controller.testingFirstPaneIsMatrix)
     }
 
-    func testEmptyResultDoesNotUseGenotypeOnlyViewport() {
+    func testEmptyTypedGenotypeOnlyResultKeepsCompactSummaryAuditHeader()
+        throws
+    {
         let controller = GenotypeResultViewController()
         _ = controller.view
         controller.configure(result: makeResult(samples: [], calls: []))
@@ -5004,7 +5015,17 @@ final class GenotypeResultViewportTests: XCTestCase {
 
         XCTAssertEqual(controller.testingVisibleLensIdentifier, "audit")
         XCTAssertFalse(controller.testingLensControlIsHidden)
-        XCTAssertEqual(controller.testingContentHostTopInset, 48)
+        XCTAssertEqual(controller.testingContentHostTopInset, 36)
+        let lensControl = try XCTUnwrap(
+            controller.view.firstDescendant(ofType: NSSegmentedControl.self)
+        )
+        XCTAssertEqual(lensControl.segmentCount, 2)
+        XCTAssertEqual(
+            (0..<lensControl.segmentCount).map {
+                lensControl.label(forSegment: $0)
+            },
+            ["Summary", "Audit"]
+        )
     }
 
     func testReconfigureFromGenotypeOnlyToHaplotypedRestoresLensHeader() {
@@ -5638,6 +5659,66 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
     }
 
+    func testManualHaplotypeBandRealignsAfterContentTextSizeChanges()
+        throws
+    {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+        }
+        settings.contentTextSizePreference = .custom(100)
+        settings.save()
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.frame = NSRect(x: 0, y: 0, width: 760, height: 520)
+        let samples = (0..<20).map {
+            String(format: "Animal%02d", $0)
+        }
+        matrix.configure(
+            result: makeResult(
+                samples: [],
+                calls: samples.map {
+                    makeCall(
+                        sample: $0,
+                        genotype: "01_Mafa_A1_001_01",
+                        reads: 42
+                    )
+                }
+            )
+        )
+        matrix.layoutSubtreeIfNeeded()
+        let fonts = MutableGenotypePreferredFonts(pointSize: 10)
+        matrix.testingSetContentPreferredFontProvider(fonts)
+        matrix.layoutSubtreeIfNeeded()
+        let baselineFrames = matrix.testingManualHaplotypeBandColumnFrames
+
+        fonts.pointSize = 11
+        matrix.testingSetContentPreferredFontProvider(fonts)
+        matrix.layoutSubtreeIfNeeded()
+
+        let enlargedFrames = matrix.testingManualHaplotypeBandColumnFrames
+        for sample in samples.prefix(3) {
+            XCTAssertEqual(
+                try XCTUnwrap(enlargedFrames[sample]?.width),
+                matrix.testingSampleColumnWidth(sample: sample),
+                accuracy: 0.5
+            )
+            XCTAssertGreaterThan(
+                try XCTUnwrap(enlargedFrames[sample]?.width),
+                try XCTUnwrap(baselineFrames[sample]?.width)
+            )
+        }
+        XCTAssertLessThan(
+            try XCTUnwrap(enlargedFrames[samples[0]]?.minX),
+            try XCTUnwrap(enlargedFrames[samples[1]]?.minX)
+        )
+        XCTAssertLessThan(
+            try XCTUnwrap(enlargedFrames[samples[1]]?.minX),
+            try XCTUnwrap(enlargedFrames[samples[2]]?.minX)
+        )
+    }
+
     func testManualHaplotypeBandDisclosurePersistsPerWindowAndBundleAcrossControllerRecreation() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
@@ -5839,6 +5920,59 @@ final class GenotypeResultViewportTests: XCTestCase {
                 locus: "MHC-A"
             ),
             "MHC-A — H1: \(longH1); H2: \(longH2)"
+        )
+    }
+
+    func testManualHaplotypeBandRefreshesRegisteredTooltipHitRegionAfterScroll()
+        throws
+    {
+        let samples = (0..<20).map {
+            String(format: "Animal%02d", $0)
+        }
+        let trailingSample = try XCTUnwrap(samples.last)
+        let longLabel = "Trailing assignment label that requires a tooltip"
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.manualHaplotypeAssignments = [
+            ManualHaplotypeAssignment(
+                sample: trailingSample,
+                locus: "MHC-A",
+                slot: .h1,
+                label: longLabel,
+                colorTokenIndex: 1,
+                diagnosticAlleles: [],
+                notes: ""
+            ),
+        ]
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.frame = NSRect(x: 0, y: 0, width: 560, height: 520)
+        matrix.configure(
+            result: makeResult(
+                samples: [],
+                calls: samples.map {
+                    makeCall(
+                        sample: $0,
+                        genotype: "01_Mafa_A1_001_01",
+                        reads: 42
+                    )
+                }
+            ),
+            sidecar: sidecar
+        )
+        matrix.layoutSubtreeIfNeeded()
+
+        matrix.testingScrollSampleMatrix(
+            to: NSPoint(x: CGFloat.greatestFiniteMagnitude, y: 0)
+        )
+        matrix.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(
+            matrix.testingRegisteredManualHaplotypeBandTooltip(
+                sample: trailingSample,
+                locus: "MHC-A"
+            ),
+            "MHC-A — H1: \(longLabel); H2: unassigned"
         )
     }
 
@@ -10095,7 +10229,11 @@ final class GenotypeResultViewportTests: XCTestCase {
     func testDisplayStateCanMoveListRightAndTop() {
         let controller = GenotypeResultViewController()
         _ = controller.view
-        controller.configure(result: makeResult(samples: [], calls: []))
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: [],
+            haplotypeAnalysis: makeEmptyHaplotypeAnalysis()
+        ))
 
         controller.testingApplyDisplayState(GenotypeResultDisplayState(layout: .listTrailing))
 

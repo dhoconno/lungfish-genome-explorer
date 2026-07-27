@@ -16,6 +16,29 @@ public struct GenotypeResultDesiredConfigurationAuthority:
     }
 }
 
+struct GenotypeManualHaplotypeMultiSamplePresentation: Equatable {
+    static let maximumVisibleSamples = 12
+
+    let visibleSamples: [String]
+    let omittedSampleCount: Int
+
+    init(samples: [String]) {
+        visibleSamples = Array(
+            samples.prefix(Self.maximumVisibleSamples)
+        )
+        omittedSampleCount = max(0, samples.count - visibleSamples.count)
+    }
+
+    var omissionSummary: String? {
+        guard omittedSampleCount > 0 else { return nil }
+        let noun = omittedSampleCount == 1 ? "sample" : "samples"
+        return
+            "\(omittedSampleCount) additional selected \(noun) "
+            + (omittedSampleCount == 1 ? "is" : "are")
+            + " not shown."
+    }
+}
+
 @MainActor
 protocol GenotypeMatrixWorkbookUpdateCancellation: AnyObject {
     func cancel()
@@ -475,6 +498,14 @@ public final class GenotypeResultViewController: NSViewController {
             return false
         }
         return true
+    }
+
+    private var availableLenses: [Lens] {
+        isGenotypeOnlyResult ? [.summary, .audit] : Lens.allCases
+    }
+
+    private var viewportHeaderHeight: CGFloat {
+        isGenotypeOnlyResult ? 36 : 48
     }
 
     private var isFullLengthMHCGenotypeViewport: Bool {
@@ -949,6 +980,7 @@ public final class GenotypeResultViewController: NSViewController {
         candidateSettingsPersistenceGeneration &+= 1
         self.result = result
         manualHaplotypeEligibility = GenotypeManualHaplotypeEligibility.evaluate(result)
+        configureAvailableLensSegments()
         if case .eligible = manualHaplotypeEligibility {
             displayState.manualHaplotypeBandExpanded =
                 manualHaplotypeBandDisclosureStore?
@@ -2305,6 +2337,18 @@ public final class GenotypeResultViewController: NSViewController {
         lensControl.setAccessibilityIdentifier("genotype-result-lens-control")
     }
 
+    private func configureAvailableLensSegments() {
+        guard isViewLoaded else { return }
+        let lenses = availableLenses
+        lensControl.segmentCount = lenses.count
+        for (index, lens) in lenses.enumerated() {
+            lensControl.setLabel(lens.displayName, forSegment: index)
+        }
+        lensControl.controlSize = isGenotypeOnlyResult ? .small : .regular
+        lensControl.selectedSegment = segmentIndex(for: selectedLens)
+        lensControl.invalidateIntrinsicContentSize()
+    }
+
     private func configureContentHost() {
         contentHost.translatesAutoresizingMaskIntoConstraints = false
         contentHost.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -2500,9 +2544,9 @@ public final class GenotypeResultViewController: NSViewController {
 
         contentHostTopConstraint = contentHost.topAnchor.constraint(
             equalTo: view.safeAreaLayoutGuide.topAnchor,
-            constant: isGenotypeOnlyResult ? 0 : 48
+            constant: viewportHeaderHeight
         )
-        lensControl.isHidden = isGenotypeOnlyResult
+        lensControl.isHidden = false
 
         NSLayoutConstraint.activate([
             lensControl.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
@@ -2517,8 +2561,8 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func applyViewportHeaderVisibility() {
         guard isViewLoaded else { return }
-        lensControl.isHidden = isGenotypeOnlyResult
-        contentHostTopConstraint.constant = isGenotypeOnlyResult ? 0 : 48
+        lensControl.isHidden = false
+        contentHostTopConstraint.constant = viewportHeaderHeight
     }
 
     private func wireCallbacks() {
@@ -2588,8 +2632,8 @@ public final class GenotypeResultViewController: NSViewController {
 
     @objc private func lensChanged(_ sender: NSSegmentedControl) {
         guard sender.selectedSegment >= 0,
-              sender.selectedSegment < Lens.allCases.count else { return }
-        let lens = Lens.allCases[sender.selectedSegment]
+              sender.selectedSegment < availableLenses.count else { return }
+        let lens = availableLenses[sender.selectedSegment]
         if requiresManualHaplotypeTransitionCoordination {
             sender.selectedSegment = segmentIndex(for: selectedLens)
             deferManualHaplotypeTransition(.lens) { [weak self] in
@@ -2615,7 +2659,7 @@ public final class GenotypeResultViewController: NSViewController {
             return
         }
         displayState = displayState.normalized(forGenotypeOnlyResult: isGenotypeOnlyResult)
-        let lens: Lens = isGenotypeOnlyResult ? .summary : lens
+        let lens: Lens = availableLenses.contains(lens) ? lens : .summary
         selectedLens = lens
         displayState.viewportLens = lens
         lensControl.selectedSegment = segmentIndex(for: lens)
@@ -3445,7 +3489,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func segmentIndex(for lens: Lens) -> Int {
-        Lens.allCases.firstIndex(of: lens) ?? 0
+        availableLenses.firstIndex(of: lens) ?? 0
     }
 
     private func installContentView(_ contentView: NSView) {
@@ -4000,9 +4044,13 @@ public final class GenotypeResultViewController: NSViewController {
                     annotationStore?.sidecar
                         .manualHaplotypeAssignments ?? []
             )
+        let multiSamplePresentation =
+            GenotypeManualHaplotypeMultiSamplePresentation(
+                samples: samples
+            )
         let boundedSamples = samples.count == 1
             ? samples
-            : Array(samples.prefix(12))
+            : multiSamplePresentation.visibleSamples
         for (index, sample) in boundedSamples.enumerated() {
             detailStack.addArrangedSubview(wrappingText(sample, weight: .medium))
             if samples.count == 1,
@@ -4113,15 +4161,16 @@ public final class GenotypeResultViewController: NSViewController {
                 detailStack.addArrangedSubview(wrappingText(renderedEntries.joined(separator: "\n\n")))
             }
         }
-        if samples.count > boundedSamples.count {
-            let remaining = samples.count - boundedSamples.count
+        if let omissionSummary =
+            multiSamplePresentation.omissionSummary {
             detailStack.addArrangedSubview(
-                caption(
-                    "\(remaining) additional selected sample\(remaining == 1 ? "" : "s") not shown."
-                )
+                caption(omissionSummary)
             )
             stateRows.append(
-                ("Additional Selected Samples", "\(remaining)")
+                (
+                    "Additional Selected Samples",
+                    "\(multiSamplePresentation.omittedSampleCount)"
+                )
             )
         }
         let comments = matrixCommentDetailRows(for: targets)

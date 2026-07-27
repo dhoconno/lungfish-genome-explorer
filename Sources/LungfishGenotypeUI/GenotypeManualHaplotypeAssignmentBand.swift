@@ -91,6 +91,52 @@ struct GenotypeManualHaplotypeAssignmentBandSnapshot: Equatable {
     }
 }
 
+/// The exact visible damage caused by a manual-assignment snapshot change.
+///
+/// Keeping this calculation value-semantic lets the matrix invalidate only
+/// affected, on-screen sample columns without coupling assignment edits to
+/// projection or table reload work.
+struct GenotypeManualHaplotypeBandInvalidationPlan: Equatable {
+    let rects: [NSRect]
+
+    init(
+        samples: Set<String>,
+        columnFrames: [String: NSRect],
+        visibleBounds: NSRect
+    ) {
+        rects = samples.compactMap { sample in
+            guard let frame = columnFrames[sample],
+                  frame.intersects(visibleBounds) else {
+                return nil
+            }
+            return frame.intersection(visibleBounds)
+        }.sorted {
+            if $0.minX != $1.minX { return $0.minX < $1.minX }
+            if $0.minY != $1.minY { return $0.minY < $1.minY }
+            if $0.width != $1.width { return $0.width < $1.width }
+            return $0.height < $1.height
+        }
+    }
+}
+
+@MainActor
+private final class GenotypeManualHaplotypeDisclosureButton: NSButton {
+    override var acceptsFirstResponder: Bool { true }
+
+    override func isAccessibilityExpanded() -> Bool {
+        state == .on
+    }
+
+    override func accessibilityValue() -> Any? {
+        NSNumber(value: state == .on)
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        performClick(nil)
+        return true
+    }
+}
+
 @MainActor
 final class GenotypeManualHaplotypePinnedBandView: NSView {
     var font = NSFont.systemFont(ofSize: 11)
@@ -103,7 +149,7 @@ final class GenotypeManualHaplotypePinnedBandView: NSView {
     }
     var onDisclosureChanged: ((Bool) -> Void)?
 
-    private let disclosureButton = NSButton(
+    private let disclosureButton = GenotypeManualHaplotypeDisclosureButton(
         title: "Haplotype Assignments",
         target: nil,
         action: nil
@@ -120,6 +166,12 @@ final class GenotypeManualHaplotypePinnedBandView: NSView {
         disclosureButton.setButtonType(.pushOnPushOff)
         disclosureButton.bezelStyle = .disclosure
         disclosureButton.state = .on
+        disclosureButton.setAccessibilityElement(true)
+        disclosureButton.setAccessibilityRole(.button)
+        disclosureButton.setAccessibilityLabel("Haplotype Assignments")
+        disclosureButton.setAccessibilityHelp(
+            "Show or hide manual haplotype assignments."
+        )
         disclosureButton.setAccessibilityIdentifier(
             "manual-haplotype-band-disclosure"
         )
@@ -141,7 +193,9 @@ final class GenotypeManualHaplotypePinnedBandView: NSView {
     }
 
     @objc private func toggleDisclosure(_ sender: NSButton) {
-        onDisclosureChanged?(sender.state == .on)
+        let expanded = sender.state == .on
+        isExpanded = expanded
+        onDisclosureChanged?(expanded)
     }
 
     var disclosureLabel: String { disclosureButton.title }
@@ -176,11 +230,20 @@ final class GenotypeManualHaplotypeSampleBandView:
         index: GenotypeManualHaplotypeAssignmentIndex(assignments: []),
         samples: []
     )
-    var columnFrames: [String: NSRect] = [:]
+    var columnFrames: [String: NSRect] = [:] {
+        didSet {
+            refreshToolTipRegistration()
+        }
+    }
     var font = NSFont.systemFont(ofSize: 11)
     var rowHeight: CGFloat = 22
-    var isExpanded = true
+    var isExpanded = true {
+        didSet {
+            refreshToolTipRegistration()
+        }
+    }
     private var tooltipTag: NSView.ToolTipTag?
+    private var tooltipTrackingRect: NSRect?
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { false }
@@ -198,12 +261,21 @@ final class GenotypeManualHaplotypeSampleBandView:
 
     override func layout() {
         super.layout()
+        refreshToolTipRegistration()
+    }
+
+    private func refreshToolTipRegistration() {
         if let tooltipTag {
             removeToolTip(tooltipTag)
         }
-        tooltipTag = isExpanded && !bounds.isEmpty
-            ? addToolTip(bounds, owner: self, userData: nil)
+        tooltipTrackingRect = isExpanded
+            ? columnFrames.values.reduce(nil) { result, frame in
+                result.map { $0.union(frame) } ?? frame
+            }
             : nil
+        tooltipTag = tooltipTrackingRect.map {
+            addToolTip($0, owner: self, userData: nil)
+        }
     }
 
     func view(
@@ -230,13 +302,29 @@ final class GenotypeManualHaplotypeSampleBandView:
         ) ?? ""
     }
 
+#if DEBUG
+    func testingRegisteredToolTip(at point: NSPoint) -> String? {
+        guard let tooltipTag,
+              tooltipTrackingRect?.contains(point) == true else {
+            return nil
+        }
+        return view(
+            self,
+            stringForToolTip: tooltipTag,
+            point: point,
+            userData: nil
+        )
+    }
+#endif
+
     func invalidate(samples: Set<String>) {
-        for sample in samples {
-            guard let frame = columnFrames[sample],
-                  frame.intersects(bounds) else {
-                continue
-            }
-            setNeedsDisplay(frame.intersection(bounds))
+        let plan = GenotypeManualHaplotypeBandInvalidationPlan(
+            samples: samples,
+            columnFrames: columnFrames,
+            visibleBounds: bounds
+        )
+        for rect in plan.rects {
+            setNeedsDisplay(rect)
         }
     }
 

@@ -225,6 +225,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private var manualHaplotypeBandAssignments:
         [ManualHaplotypeAssignment] = []
     private var manualHaplotypeEditingEligible = false
+    private var manualHaplotypeBandGeometryDirty = true
+    private var manualHaplotypeBandHorizontalOffset: CGFloat?
+    private var manualHaplotypeBandBoundsSize = NSSize.zero
 #if DEBUG
     private var testingManualHaplotypeBandInvalidatedSampleSet =
         Set<String>()
@@ -1234,6 +1237,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 #if DEBUG
         testingColumnRebuildCount += 1
 #endif
+        manualHaplotypeBandGeometryDirty = true
         let preservedSortDescriptors = activeSortDescriptors
         suppressSortDescriptorSync = true
         captureStableSampleColumnState()
@@ -2389,6 +2393,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         captureColumnTypographyBaselines(in: resizedTable)
         if resizedTable === tableView {
             captureStableSampleColumnState()
+            manualHaplotypeBandGeometryDirty = true
             return
         }
         var widths = restoredColumnWidths
@@ -3896,6 +3901,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
         captureStableSampleColumnState()
         rebuildVisibleColumnIndex()
+        manualHaplotypeBandGeometryDirty = true
     }
 
     @discardableResult
@@ -4724,29 +4730,92 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     private func updateManualHaplotypeBandColumnGeometry() {
+        guard manualHaplotypeEditingEligible,
+              manualHaplotypeBandHeight > 0,
+              !manualHaplotypeSampleBand.bounds.isEmpty else {
+            if !manualHaplotypeSampleBand.columnFrames.isEmpty {
+                manualHaplotypeSampleBand.columnFrames = [:]
+            }
+            manualHaplotypeSampleBand.setBoundsOrigin(.zero)
+            manualHaplotypeBandGeometryDirty = true
+            manualHaplotypeBandHorizontalOffset = nil
+            manualHaplotypeBandBoundsSize = .zero
+            return
+        }
         let horizontalOffset = scrollView.contentView.bounds.origin.x
+        if manualHaplotypeSampleBand.bounds.origin.x != horizontalOffset {
+            manualHaplotypeSampleBand.setBoundsOrigin(
+                NSPoint(x: horizontalOffset, y: 0)
+            )
+        }
         let bandBounds = manualHaplotypeSampleBand.bounds
-        manualHaplotypeSampleBand.columnFrames = Dictionary(
-            uniqueKeysWithValues: tableView.tableColumns.enumerated()
-                .compactMap { index, column -> (String, NSRect)? in
-                    guard let sample = sampleColumnLookup[column.identifier]
-                    else { return nil }
-                    let documentRect = tableView.rect(ofColumn: index)
-                    let frame = NSRect(
-                        x: documentRect.minX - horizontalOffset,
-                        y: 0,
-                        width: column.width,
-                        height: manualHaplotypeBandHeight
-                    )
-                    guard frame.intersects(bandBounds) else {
-                        return nil
-                    }
-                    return (
-                        sample,
-                        frame
-                    )
-                }
+        if !manualHaplotypeBandGeometryDirty,
+           manualHaplotypeBandHorizontalOffset != nil,
+           manualHaplotypeBandBoundsSize == bandBounds.size,
+           !manualHaplotypeSampleBand.columnFrames.isEmpty {
+            let coveredMinimumX =
+                manualHaplotypeSampleBand.columnFrames.values.lazy
+                    .map(\.minX).min() ?? .infinity
+            let coveredMaximumX =
+                manualHaplotypeSampleBand.columnFrames.values.lazy
+                    .map(\.maxX).max() ?? -.infinity
+            if coveredMinimumX <= bandBounds.minX,
+               coveredMaximumX >= bandBounds.maxX {
+                manualHaplotypeBandHorizontalOffset = horizontalOffset
+                return
+            }
+        }
+        let visibleDocumentRect = NSRect(
+            x: horizontalOffset,
+            y: 0,
+            width: bandBounds.width,
+            height: max(1, tableView.bounds.height)
         )
+        let overscanWidth =
+            (tableView.tableColumns.lazy.map(\.width).max() ?? 68) * 4
+        let cachedDocumentRect = visibleDocumentRect.insetBy(
+            dx: -overscanWidth,
+            dy: 0
+        )
+        var nextFrames: [String: NSRect] = [:]
+        nextFrames.reserveCapacity(
+            min(tableView.numberOfColumns, 32)
+        )
+        let horizontalSpacing = tableView.intercellSpacing.width
+        var documentX = tableView.numberOfColumns > 0
+            ? tableView.rect(ofColumn: 0).minX
+            : 0
+        for column in tableView.tableColumns {
+            defer {
+                documentX += column.width + horizontalSpacing
+            }
+            guard let sample = sampleColumnLookup[column.identifier] else {
+                continue
+            }
+            let documentRect = NSRect(
+                x: documentX,
+                y: 0,
+                width: column.width,
+                height: cachedDocumentRect.height
+            )
+            guard documentRect.intersects(cachedDocumentRect) else {
+                continue
+            }
+            let frame = NSRect(
+                x: documentRect.minX,
+                y: 0,
+                width: column.width,
+                height: manualHaplotypeBandHeight
+            )
+            nextFrames[sample] = frame
+        }
+        manualHaplotypeBandGeometryDirty = false
+        manualHaplotypeBandHorizontalOffset = horizontalOffset
+        manualHaplotypeBandBoundsSize = bandBounds.size
+        guard nextFrames != manualHaplotypeSampleBand.columnFrames else {
+            return
+        }
+        manualHaplotypeSampleBand.columnFrames = nextFrames
         manualHaplotypeSampleBand.needsDisplay = true
     }
 
@@ -4934,6 +5003,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 }
             }
         }
+        manualHaplotypeBandGeometryDirty = true
     }
 
     private func backgroundColor(
@@ -6315,6 +6385,29 @@ extension GenotypeComparisonMatrixView {
         )
     }
 
+    func testingRegisteredManualHaplotypeBandTooltip(
+        sample: String,
+        locus: String
+    ) -> String? {
+        guard let locus = GenotypeManualHaplotypeLocus(
+            normalizing: locus
+        ),
+        let locusIndex =
+            GenotypeManualHaplotypeAssignmentBandSnapshot.loci
+                .firstIndex(of: locus),
+        let frame = manualHaplotypeSampleBand.columnFrames[sample]
+        else {
+            return nil
+        }
+        return manualHaplotypeSampleBand.testingRegisteredToolTip(
+            at: NSPoint(
+                x: frame.midX,
+                y: manualHaplotypeBandRowHeight
+                    * (CGFloat(locusIndex) + 1.5)
+            )
+        )
+    }
+
     var testingManualHaplotypeBandTopInsets: [CGFloat] {
         [
             pinnedScrollView.contentInsets.top,
@@ -6345,7 +6438,11 @@ extension GenotypeComparisonMatrixView {
 
     var testingManualHaplotypeBandColumnFrames: [String: NSRect] {
         updateManualHaplotypeBandColumnGeometry()
-        return manualHaplotypeSampleBand.columnFrames
+        let horizontalOffset =
+            manualHaplotypeSampleBand.bounds.origin.x
+        return manualHaplotypeSampleBand.columnFrames.mapValues {
+            $0.offsetBy(dx: -horizontalOffset, dy: 0)
+        }
     }
 
     func testingResetManualHaplotypeBandInvalidations() {
