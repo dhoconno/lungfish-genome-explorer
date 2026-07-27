@@ -175,17 +175,17 @@ git commit -m "feat: publish authoritative workbook review rows"
 - Test: `Tests/LungfishWorkflowTests/GenotypeCurrentWorkbookInputFingerprintTests.swift`
 - Test: `Tests/LungfishAppTests/GenotypeCurrentWorkbookSyncCoordinatorTests.swift`
 
-- [ ] **Step 1: Write failing preservation and fingerprint tests**
+- [x] **Step 1: Write failing preservation and fingerprint tests**
 
 Assert that workbook and AI revisions retain the exact catalog descriptor; changing catalog size/hash/schema dirties the workbook; and a false-negative update without an attested catalog fails closed before mutation.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `swift test --filter 'GenotypeCurrentWorkbookInputFingerprintTests|GenotypeCurrentWorkbookSyncCoordinatorTests'`
 
 Expected: assertions fail because catalog identity is absent from the fingerprint.
 
-- [ ] **Step 3: Thread the validated descriptor through snapshots and staging**
+- [x] **Step 3: Thread the validated descriptor through snapshots and staging**
 
 Bump fingerprint schema and add:
 
@@ -198,13 +198,13 @@ public let reviewableRowCatalogSchemaVersion: Int?
 
 Stage the verified catalog as a durable workbook-revision input, include it in replay argv and provenance, and reject false-negative processing when it is absent or invalid.
 
-- [ ] **Step 4: Run tests and verify GREEN**
+- [x] **Step 4: Run tests and verify GREEN**
 
 Run: `swift test --filter 'GenotypeCurrentWorkbookInputFingerprintTests|GenotypeCurrentWorkbookSyncCoordinatorTests|GenotypeWorkbookRevisionServiceTests'`
 
 Expected: all selected tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/LungfishWorkflow/ONTGenotyping/AIHaplotypingRevisionPublisher.swift Sources/LungfishWorkflow/ONTGenotyping/GenotypeWorkbookRevisionService.swift Sources/LungfishWorkflow/ONTGenotyping/GenotypeCurrentWorkbookInputFingerprint.swift Sources/LungfishGenotypeUI/GenotypeResultDocumentSection.swift Sources/LungfishGenotypeUI/GenotypeResultViewController.swift Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ContentDisplay.swift Tests
