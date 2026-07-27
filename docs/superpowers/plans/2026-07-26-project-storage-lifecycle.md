@@ -240,7 +240,7 @@ git commit -m "feat: classify reclaimable project storage"
 - Create: `Sources/LungfishWorkflow/Storage/ProjectStorageCleanupReceiptWriter.swift`
 - Create: `Tests/LungfishWorkflowTests/ProjectStorageCleanupProvenanceTests.swift`
 
-- [ ] **Step 1: Write failing inventory/provenance tests**
+- [x] **Step 1: Write failing inventory/provenance tests**
 
 Assert sorted file inventory, relative path, logical/allocated size, SHA-256 reuse from attested descriptors, hashing only after confirmation, deterministic tree digest, complete argv/options/defaults/runtime/status/wall/errors, fsynced journal/receipt, and zero mutation on cancellation or durability failure.
 
@@ -261,23 +261,23 @@ public struct ProjectStorageCleanupInventoryEntry: Codable, Equatable, Sendable 
 Add encode/decode tests for both the cleanup journal and canonical provenance
 resolved-parameter representation.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `swift test --filter ProjectStorageCleanupProvenanceTests`
 
 Expected: compile failure because journal and receipt writers do not exist.
 
-- [ ] **Step 3: Implement preparation under operation history**
+- [x] **Step 3: Implement preparation under operation history**
 
 Write `<project>/.lungfish-operation-history/storage-cleanups/<UUID>/journal.json` and canonical provenance with exclusive atomic publication and directory fsync. Inventory regular files without following links, reuse exact attested hashes, hash remaining files cancellably, and compute an aggregate digest over canonical sorted descriptors.
 
-- [ ] **Step 4: Run tests and verify GREEN**
+- [x] **Step 4: Run tests and verify GREEN**
 
 Run: `swift test --filter ProjectStorageCleanupProvenanceTests`
 
 Expected: all provenance tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/LungfishWorkflow/Storage Tests/LungfishWorkflowTests/ProjectStorageCleanupProvenanceTests.swift
