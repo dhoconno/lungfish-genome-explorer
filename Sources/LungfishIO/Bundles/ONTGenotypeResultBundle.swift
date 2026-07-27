@@ -3786,6 +3786,8 @@ public extension ONTGenotypeResultBundleData {
     }
 
     static func writeAnnotationSidecar(_ sidecar: GenotypeAnnotationSidecar, forBundleAt bundleURL: URL) throws {
+        var sidecar = sidecar
+        try sidecar.promoteToCurrentSchema()
         let data = try sidecar.encoded()
         let directoryFD = bundleURL.path.withCString {
             Darwin.open($0, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)

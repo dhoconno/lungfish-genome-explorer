@@ -55,7 +55,7 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
             forBundleAt: bundleURL
         )
 
-        let merge = Self.merge(existing: sidecar, patch: patchSidecar)
+        let merge = try Self.merge(existing: sidecar, patch: patchSidecar)
         sidecar = merge.sidecar
 
         try ONTGenotypeResultBundleData.writeAnnotationSidecar(
@@ -165,73 +165,72 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
     static func merge(
         existing: GenotypeAnnotationSidecar,
         patch: GenotypeAnnotationSidecar
-    ) -> MergeResult {
+    ) throws -> MergeResult {
         var merged = existing
-        merged.schemaVersion = max(
-            merged.schemaVersion,
-            GenotypeAnnotationSidecar.currentSchemaVersion
-        )
+        try merged.promoteToCurrentSchema()
+        var validatedPatch = patch
+        try validatedPatch.promoteToCurrentSchema()
         var appended = AnnotationCategoryCounts()
         var skipped = AnnotationCategoryCounts()
 
-        Self.mergeArray(into: &merged.callOverrides, from: patch.callOverrides,
+        Self.mergeArray(into: &merged.callOverrides, from: validatedPatch.callOverrides,
                         key: callOverrideKey,
                         appended: &appended.callOverrides,
                         skipped: &skipped.callOverrides)
-        Self.mergeArray(into: &merged.cellHighlights, from: patch.cellHighlights,
+        Self.mergeArray(into: &merged.cellHighlights, from: validatedPatch.cellHighlights,
                         key: cellHighlightKey,
                         appended: &appended.cellHighlights,
                         skipped: &skipped.cellHighlights)
-        Self.mergeArray(into: &merged.rowHighlights, from: patch.rowHighlights,
+        Self.mergeArray(into: &merged.rowHighlights, from: validatedPatch.rowHighlights,
                         key: rowHighlightKey,
                         appended: &appended.rowHighlights,
                         skipped: &skipped.rowHighlights)
-        Self.mergeArray(into: &merged.sampleNotes, from: patch.sampleNotes,
+        Self.mergeArray(into: &merged.sampleNotes, from: validatedPatch.sampleNotes,
                         key: sampleNoteKey,
                         appended: &appended.sampleNotes,
                         skipped: &skipped.sampleNotes)
-        Self.mergeArray(into: &merged.cellComments, from: patch.cellComments,
+        Self.mergeArray(into: &merged.cellComments, from: validatedPatch.cellComments,
                         key: cellCommentKey,
                         appended: &appended.cellComments,
                         skipped: &skipped.cellComments)
-        Self.mergeArray(into: &merged.sampleStatusFlags, from: patch.sampleStatusFlags,
+        Self.mergeArray(into: &merged.sampleStatusFlags, from: validatedPatch.sampleStatusFlags,
                         key: sampleStatusFlagKey,
                         appended: &appended.sampleStatusFlags,
                         skipped: &skipped.sampleStatusFlags)
-        Self.mergeArray(into: &merged.callStatusFlags, from: patch.callStatusFlags,
+        Self.mergeArray(into: &merged.callStatusFlags, from: validatedPatch.callStatusFlags,
                         key: callStatusFlagKey,
                         appended: &appended.callStatusFlags,
                         skipped: &skipped.callStatusFlags)
-        Self.mergeArray(into: &merged.smartCohorts, from: patch.smartCohorts,
+        Self.mergeArray(into: &merged.smartCohorts, from: validatedPatch.smartCohorts,
                         key: { $0.name + "|" + $0.scope },
                         appended: &appended.smartCohorts,
                         skipped: &skipped.smartCohorts)
         Self.mergeMatrixStyles(
             into: &merged.matrixStyles,
-            from: patch.matrixStyles,
+            from: validatedPatch.matrixStyles,
             changed: &appended.matrixStyles,
             skipped: &skipped.matrixStyles
         )
         Self.mergeCurrentMatrixEntries(
             into: &merged.matrixComments,
-            from: patch.matrixComments,
+            from: validatedPatch.matrixComments,
             target: { $0.target },
             changed: &appended.matrixComments,
             skipped: &skipped.matrixComments
         )
         Self.mergeCurrentMatrixEntries(
             into: &merged.matrixReviews,
-            from: patch.matrixReviews,
+            from: validatedPatch.matrixReviews,
             target: { $0.target },
             changed: &appended.matrixReviews,
             skipped: &skipped.matrixReviews
         )
         Self.mergeArray(into: &merged.manualHaplotypeAssignments,
-                        from: patch.manualHaplotypeAssignments,
+                        from: validatedPatch.manualHaplotypeAssignments,
                         key: manualHaplotypeKey,
                         appended: &appended.manualHaplotypeAssignments,
                         skipped: &skipped.manualHaplotypeAssignments)
-        Self.mergeArray(into: &merged.auditLog, from: patch.auditLog,
+        Self.mergeArray(into: &merged.auditLog, from: validatedPatch.auditLog,
                         key: auditEntryKey,
                         appended: &appended.auditLog,
                         skipped: &skipped.auditLog)

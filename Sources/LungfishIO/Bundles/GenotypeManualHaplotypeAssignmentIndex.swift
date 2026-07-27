@@ -64,10 +64,11 @@ public struct GenotypeManualHaplotypeLabelCatalogEntry: Equatable, Sendable {
 
 /// Immutable lookup state for rendering and editing manual haplotype assignments.
 ///
-/// Construction examines the source assignment array once to resolve semantic
-/// assignment keys and label/color conflicts. It then sorts only the bounded
-/// result dictionaries to provide deterministic current-assignment and catalog
-/// order. Key and catalog lookups are dictionary-backed and constant-time.
+/// Construction makes one O(n) source pass to resolve semantic assignment keys
+/// and label/color conflicts, then sorts the resolved key and catalog sets for
+/// deterministic output (O(k log k), where k is the number of resolved keys
+/// plus valid unique labels). Key and catalog lookups are dictionary-backed
+/// and constant-time.
 public struct GenotypeManualHaplotypeAssignmentIndex: Sendable {
     public typealias LabelCatalogEntry = GenotypeManualHaplotypeLabelCatalogEntry
 
@@ -85,56 +86,84 @@ public struct GenotypeManualHaplotypeAssignmentIndex: Sendable {
             let updatedAt: Date?
             let position: Int
         }
+        struct CatalogCandidate {
+            let ranked: RankedAssignment
+            let displayLabel: String
+        }
 
         var assignmentsByKey: [
             GenotypeManualHaplotypeAssignmentKey: RankedAssignment
         ] = [:]
-        var catalogByNormalizedLabel: [String: RankedAssignment] = [:]
+        var catalogByNormalizedLabel: [String: CatalogCandidate] = [:]
         assignmentsByKey.reserveCapacity(assignments.count)
         catalogByNormalizedLabel.reserveCapacity(assignments.count)
 
+        let fractionalTimestampFormatter = ISO8601DateFormatter()
+        fractionalTimestampFormatter.formatOptions = [
+            .withInternetDateTime,
+            .withFractionalSeconds,
+        ]
+        let timestampFormatter = ISO8601DateFormatter()
+        timestampFormatter.formatOptions = [.withInternetDateTime]
+        let canonicalColorIndices = Set(
+            HaplotypeColorToken.canonicalPalette.map(\.canonicalIndex)
+        )
+
         for (position, assignment) in assignments.enumerated() {
-            let updatedAt = Self.parseISO8601Date(assignment.updatedAt)
+            let updatedAt = assignment.updatedAt.flatMap {
+                fractionalTimestampFormatter.date(from: $0)
+                    ?? timestampFormatter.date(from: $0)
+            }
             let ranked = RankedAssignment(
                 assignment: assignment,
                 updatedAt: updatedAt,
                 position: position
             )
 
-            if let locus = GenotypeManualHaplotypeLocus(normalizing: assignment.locus) {
-                let key = GenotypeManualHaplotypeAssignmentKey(
-                    sample: assignment.sample,
-                    locus: locus,
-                    slot: assignment.slot
-                )
-                if let existing = assignmentsByKey[key] {
-                    if Self.shouldReplace(
-                        existingDate: existing.updatedAt,
-                        existingPosition: existing.position,
-                        candidateDate: updatedAt,
-                        candidatePosition: position
-                    ) {
-                        assignmentsByKey[key] = ranked
-                    }
-                } else {
-                    assignmentsByKey[key] = ranked
-                }
+            guard let locus = GenotypeManualHaplotypeLocus(
+                normalizing: assignment.locus
+            ) else {
+                continue
             }
-
-            let displayLabel = Self.displayLabel(assignment.label)
-            let normalizedLabel = Self.normalizedLabel(displayLabel)
-            guard !normalizedLabel.isEmpty else { continue }
-            if let existing = catalogByNormalizedLabel[normalizedLabel] {
+            let key = GenotypeManualHaplotypeAssignmentKey(
+                sample: assignment.sample,
+                locus: locus,
+                slot: assignment.slot
+            )
+            if let existing = assignmentsByKey[key] {
                 if Self.shouldReplace(
                     existingDate: existing.updatedAt,
                     existingPosition: existing.position,
                     candidateDate: updatedAt,
                     candidatePosition: position
                 ) {
-                    catalogByNormalizedLabel[normalizedLabel] = ranked
+                    assignmentsByKey[key] = ranked
                 }
             } else {
-                catalogByNormalizedLabel[normalizedLabel] = ranked
+                assignmentsByKey[key] = ranked
+            }
+
+            guard let displayLabel = try? GenotypeManualHaplotypeAssignmentInputValidator
+                .validatedLabel(assignment.label),
+                  let normalizedLabel = try? GenotypeManualHaplotypeAssignmentInputValidator
+                .normalizedLabelKey(for: displayLabel) else {
+                continue
+            }
+            let candidate = CatalogCandidate(
+                ranked: ranked,
+                displayLabel: displayLabel
+            )
+            if let existing = catalogByNormalizedLabel[normalizedLabel] {
+                if Self.shouldReplace(
+                    existingDate: existing.ranked.updatedAt,
+                    existingPosition: existing.ranked.position,
+                    candidateDate: updatedAt,
+                    candidatePosition: position
+                ) {
+                    catalogByNormalizedLabel[normalizedLabel] = candidate
+                }
+            } else {
+                catalogByNormalizedLabel[normalizedLabel] = candidate
             }
         }
 
@@ -146,12 +175,18 @@ public struct GenotypeManualHaplotypeAssignmentIndex: Sendable {
 
         let orderedCatalog = catalogByNormalizedLabel
             .sorted { $0.key < $1.key }
-            .map { normalizedLabel, ranked in
-                (
+            .map { normalizedLabel, candidate in
+                let storedColorIndex = candidate.ranked.assignment.colorTokenIndex
+                let resolvedColorIndex = canonicalColorIndices.contains(storedColorIndex)
+                    ? storedColorIndex
+                    : HaplotypeColorToken.assigned(
+                        forName: normalizedLabel
+                    ).canonicalIndex
+                return (
                     normalizedLabel,
                     LabelCatalogEntry(
-                        label: Self.displayLabel(ranked.assignment.label),
-                        colorTokenIndex: ranked.assignment.colorTokenIndex
+                        label: candidate.displayLabel,
+                        colorTokenIndex: resolvedColorIndex
                     )
                 )
             }
@@ -204,7 +239,11 @@ public struct GenotypeManualHaplotypeAssignmentIndex: Sendable {
     }
 
     public func catalogEntry(for label: String) -> LabelCatalogEntry? {
-        catalogByNormalizedLabel[Self.normalizedLabel(Self.displayLabel(label))]
+        guard let key = try? GenotypeManualHaplotypeAssignmentInputValidator
+            .normalizedLabelKey(for: label) else {
+            return nil
+        }
+        return catalogByNormalizedLabel[key]
     }
 
     public var labels: [String] {
@@ -228,32 +267,6 @@ public struct GenotypeManualHaplotypeAssignmentIndex: Sendable {
         case (.none, .none):
             return candidatePosition > existingPosition
         }
-    }
-
-    private static func displayLabel(_ label: String) -> String {
-        label
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .precomposedStringWithCanonicalMapping
-    }
-
-    private static func normalizedLabel(_ label: String) -> String {
-        label
-            .folding(
-                options: [.caseInsensitive],
-                locale: Locale(identifier: "en_US_POSIX")
-            )
-            .precomposedStringWithCanonicalMapping
-    }
-
-    private static func parseISO8601Date(_ timestamp: String?) -> Date? {
-        guard let timestamp else { return nil }
-        let fractionalFormatter = ISO8601DateFormatter()
-        fractionalFormatter.formatOptions = [
-            .withInternetDateTime,
-            .withFractionalSeconds,
-        ]
-        return fractionalFormatter.date(from: timestamp)
-            ?? ISO8601DateFormatter().date(from: timestamp)
     }
 
     private static func assignmentSortKey(

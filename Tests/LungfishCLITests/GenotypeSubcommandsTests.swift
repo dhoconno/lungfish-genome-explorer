@@ -681,7 +681,7 @@ final class GenotypeSubcommandsTests: XCTestCase {
             settings: .default, auditLog: []
         )
 
-        let result = GenotypeApplyAnnotationsSubcommand.merge(existing: existing, patch: patch)
+        let result = try GenotypeApplyAnnotationsSubcommand.merge(existing: existing, patch: patch)
         XCTAssertEqual(result.sidecar.callOverrides.count, 2)
         XCTAssertEqual(result.appendedCounts.callOverrides, 1)
         XCTAssertEqual(result.skippedDuplicateCounts.callOverrides, 1)
@@ -722,7 +722,7 @@ final class GenotypeSubcommandsTests: XCTestCase {
             .init(target: .row(locus: "MHC-B", genotype: "Mamu-I*expected"), body: "Review row.", author: "bob", timestamp: later),
         ]
 
-        let result = GenotypeApplyAnnotationsSubcommand.merge(existing: existing, patch: patch)
+        let result = try GenotypeApplyAnnotationsSubcommand.merge(existing: existing, patch: patch)
 
         XCTAssertEqual(result.sidecar.matrixStyles.count, 1)
         XCTAssertEqual(result.sidecar.matrixStyles.first?.style.fillColor, "#D9EAD3")
@@ -734,7 +734,7 @@ final class GenotypeSubcommandsTests: XCTestCase {
         XCTAssertEqual(result.skippedDuplicateCounts.matrixComments, 1)
     }
 
-    func testApplyAnnotationsMergesMatrixReviewsByExactTarget() {
+    func testApplyAnnotationsMergesMatrixReviewsByExactTarget() throws {
         let firstTarget = GenotypeAnnotationSidecar.MatrixTarget.cell(
             locus: "MHC-A1",
             genotype: "Mafa-A1*018:01:01:01_5nt_nov",
@@ -763,7 +763,7 @@ final class GenotypeSubcommandsTests: XCTestCase {
             .init(target: firstTarget, disposition: .falseNegative, author: "bob", timestamp: "2026-07-01T11:00:00Z"),
         ]
 
-        let result = GenotypeApplyAnnotationsSubcommand.merge(existing: existing, patch: patch)
+        let result = try GenotypeApplyAnnotationsSubcommand.merge(existing: existing, patch: patch)
 
         XCTAssertEqual(result.sidecar.matrixReviews.count, 2)
         XCTAssertEqual(result.sidecar.matrixReviews.first { $0.target == firstTarget }?.disposition, .falseNegative)
@@ -816,13 +816,81 @@ final class GenotypeSubcommandsTests: XCTestCase {
 
         var newerExisting = stored
         newerExisting.schemaVersion = GenotypeAnnotationSidecar.currentSchemaVersion + 1
-        XCTAssertEqual(
-            GenotypeApplyAnnotationsSubcommand.merge(existing: newerExisting, patch: patch).sidecar.schemaVersion,
-            newerExisting.schemaVersion
-        )
+        XCTAssertThrowsError(
+            try GenotypeApplyAnnotationsSubcommand.merge(
+                existing: newerExisting,
+                patch: patch
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? GenotypeAnnotationSidecar.SchemaMutationError,
+                .unsupportedFutureSchemaVersion(
+                    found: newerExisting.schemaVersion,
+                    current: GenotypeAnnotationSidecar.currentSchemaVersion
+                )
+            )
+        }
     }
 
-    func testApplyAnnotationsReplacesMatrixCommentsByExactTarget() {
+    func testApplyAnnotationsRejectsFutureSchemaBeforeDiskOrProvenanceWrite() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "GenotypeApplyAnnotationsFutureSchema-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent(
+            "test.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let annotationURL = bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
+        var future = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-01T00:00:00Z"
+        )
+        future.schemaVersion = GenotypeAnnotationSidecar.currentSchemaVersion + 1
+        let originalData = try future.encoded()
+        try originalData.write(to: annotationURL, options: .atomic)
+        let originalHash = try ProvenanceFileHasher.sha256(of: annotationURL)
+
+        let patch = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-01T11:00:00Z"
+        )
+        let patchURL = root.appendingPathComponent("patch.json")
+        try patch.encoded().write(to: patchURL)
+        let command = try GenotypeApplyAnnotationsSubcommand.parse([
+            "--bundle", bundleURL.path,
+            "--patch", patchURL.path,
+        ])
+
+        do {
+            try await command.run()
+            XCTFail("Expected a future-schema mutation error")
+        } catch {
+            XCTAssertEqual(
+                error as? GenotypeAnnotationSidecar.SchemaMutationError,
+                .unsupportedFutureSchemaVersion(
+                    found: future.schemaVersion,
+                    current: GenotypeAnnotationSidecar.currentSchemaVersion
+                )
+            )
+        }
+
+        XCTAssertEqual(try Data(contentsOf: annotationURL), originalData)
+        XCTAssertEqual(
+            try ProvenanceFileHasher.sha256(of: annotationURL),
+            originalHash
+        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: provenanceURL.path))
+    }
+
+    func testApplyAnnotationsReplacesMatrixCommentsByExactTarget() throws {
         let firstTarget = GenotypeAnnotationSidecar.MatrixTarget.row(
             locus: "MHC-A1",
             genotype: "Mafa-A1*018:01:01:01_5nt_nov",
@@ -844,7 +912,7 @@ final class GenotypeSubcommandsTests: XCTestCase {
             .init(target: firstTarget, body: "Replacement.", author: "bob", timestamp: "2026-07-01T11:00:00Z"),
         ]
 
-        let result = GenotypeApplyAnnotationsSubcommand.merge(existing: existing, patch: patch)
+        let result = try GenotypeApplyAnnotationsSubcommand.merge(existing: existing, patch: patch)
 
         XCTAssertEqual(result.sidecar.matrixComments.count, 3)
         XCTAssertEqual(result.sidecar.resolvedMatrixComments[firstTarget]?.body, "Replacement.")

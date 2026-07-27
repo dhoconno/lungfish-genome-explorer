@@ -116,7 +116,19 @@ public struct ONTMHCCandidateDisplaySettings: Codable, Equatable, Sendable {
 
 public struct GenotypeAnnotationSidecar: Codable, Equatable, Sendable {
     public static let filename = "annotations.json"
+    public static let oldestSupportedSchemaVersion = 1
     public static let currentSchemaVersion = 3
+
+    public enum SchemaMutationError: Error, Equatable, LocalizedError, Sendable {
+        case unsupportedFutureSchemaVersion(found: Int, current: Int)
+
+        public var errorDescription: String? {
+            switch self {
+            case .unsupportedFutureSchemaVersion(let found, let current):
+                return "Cannot modify genotype annotation schema version \(found); this version of Lungfish supports mutations through version \(current)."
+            }
+        }
+    }
 
     public var schemaVersion: Int
     public var generatedAt: String
@@ -220,7 +232,10 @@ public struct GenotypeAnnotationSidecar: Codable, Equatable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? Self.currentSchemaVersion
+        self.schemaVersion = try container.decodeIfPresent(
+            Int.self,
+            forKey: .schemaVersion
+        ) ?? Self.oldestSupportedSchemaVersion
         self.generatedAt = try container.decode(String.self, forKey: .generatedAt)
         self.lastEditedAt = try container.decodeIfPresent(String.self, forKey: .lastEditedAt)
         self.lastEditor = try container.decodeIfPresent(String.self, forKey: .lastEditor)
@@ -265,7 +280,13 @@ public struct GenotypeAnnotationSidecar: Codable, Equatable, Sendable {
         )
     }
 
-    public mutating func promoteToCurrentSchema() {
+    public mutating func promoteToCurrentSchema() throws {
+        guard schemaVersion <= Self.currentSchemaVersion else {
+            throw SchemaMutationError.unsupportedFutureSchemaVersion(
+                found: schemaVersion,
+                current: Self.currentSchemaVersion
+            )
+        }
         if schemaVersion < Self.currentSchemaVersion {
             schemaVersion = Self.currentSchemaVersion
         }

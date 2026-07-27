@@ -122,6 +122,9 @@ public struct AIHaplotypingRevisionPublisher {
         guard request.runnerOutput.validationReports.contains(where: \.accepted) else {
             throw AIHaplotypingRevisionPublisherError.noAcceptedValidationReports
         }
+        if var sidecar = request.sidecar {
+            try sidecar.promoteToCurrentSchema()
+        }
 
         let bundleURL = request.bundleURL.standardizedFileURL
         let originalManifest = try Data(contentsOf: ONTGenotypeResultBundle.manifestURL(in: bundleURL))
@@ -479,6 +482,7 @@ public struct AIHaplotypingRevisionPublisher {
         guard let sidecarURL = request.sidecarURL, var sidecar = request.sidecar else {
             return nil
         }
+        try sidecar.promoteToCurrentSchema()
         let callReviews = try calls.map { call -> GenotypeAnnotationSidecar.AIHaplotypeCallReview in
             guard let slot = HaplotypeSlot(rawValue: call.slot) else {
                 throw AIHaplotypingRevisionPublisherError.invalidSlot(call.slot)

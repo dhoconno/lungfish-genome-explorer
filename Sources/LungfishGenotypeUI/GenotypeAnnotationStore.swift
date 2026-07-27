@@ -1202,7 +1202,7 @@ public final class GenotypeAnnotationStore {
                 guard latest == lastPersistedSidecar else {
                     throw GenotypeAnnotationStorePersistenceError.staleRevision
                 }
-                latest.promoteToCurrentSchema()
+                try latest.promoteToCurrentSchema()
                 let timestamp = now()
                 let editContext = try mutate(&latest, timestamp)
                 let payload = try annotationPublicationPayload(
@@ -1336,16 +1336,23 @@ public final class GenotypeAnnotationStore {
     private func persist(action: String, editContext: ProvenanceEditContext? = nil) throws {
         guard !isReadOnly else { return }
         let startedAt = Date()
-        let desiredSidecar = sidecar
+        var desiredSidecar = sidecar
+        do {
+            try desiredSidecar.promoteToCurrentSchema()
+        } catch {
+            sidecar = lastPersistedSidecar
+            throw error
+        }
         var latestForRollback = lastPersistedSidecar
         let coordinator = annotationPublicationCoordinator()
         do {
             _ = try coordinator.transact { snapshot in
-                let latest = try decodedLatestSidecar(from: snapshot.annotationData)
+                var latest = try decodedLatestSidecar(from: snapshot.annotationData)
                 latestForRollback = latest
                 guard latest == lastPersistedSidecar else {
                     throw GenotypeAnnotationStorePersistenceError.staleRevision
                 }
+                try latest.promoteToCurrentSchema()
                 return try annotationPublicationPayload(
                     sidecar: desiredSidecar,
                     action: action,

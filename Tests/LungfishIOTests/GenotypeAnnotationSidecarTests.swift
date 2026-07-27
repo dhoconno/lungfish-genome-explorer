@@ -158,6 +158,70 @@ final class GenotypeAnnotationSidecarTests: XCTestCase {
         XCTAssertTrue(decoded.matrixReviews.isEmpty)
     }
 
+    func testMissingSchemaVersionDecodesAsOldestSupportedLegacyVersion() throws {
+        let json = Data(
+            """
+            {
+              "generatedAt": "2026-06-30T00:00:00Z"
+            }
+            """.utf8
+        )
+
+        let decoded = try GenotypeAnnotationSidecar.decode(json)
+
+        XCTAssertEqual(
+            GenotypeAnnotationSidecar.oldestSupportedSchemaVersion,
+            1
+        )
+        XCTAssertEqual(
+            decoded.schemaVersion,
+            GenotypeAnnotationSidecar.oldestSupportedSchemaVersion
+        )
+    }
+
+    func testVersionOneAndTwoPromoteToCurrentSchemaForMutation() throws {
+        for legacyVersion in [1, 2] {
+            var sidecar = GenotypeAnnotationSidecar.empty(
+                generatedAt: "2026-06-30T00:00:00Z"
+            )
+            sidecar.schemaVersion = legacyVersion
+
+            try sidecar.promoteToCurrentSchema()
+
+            XCTAssertEqual(
+                sidecar.schemaVersion,
+                GenotypeAnnotationSidecar.currentSchemaVersion
+            )
+        }
+    }
+
+    func testFutureSchemaDecodesForReadingButRejectsMutationPromotion() throws {
+        let futureVersion = GenotypeAnnotationSidecar.currentSchemaVersion + 1
+        let json = Data(
+            """
+            {
+              "schemaVersion": \(futureVersion),
+              "generatedAt": "2026-06-30T00:00:00Z",
+              "futureField": {"mustRemain": true}
+            }
+            """.utf8
+        )
+        var decoded = try GenotypeAnnotationSidecar.decode(json)
+
+        XCTAssertEqual(decoded.schemaVersion, futureVersion)
+        XCTAssertThrowsError(try decoded.promoteToCurrentSchema()) { error in
+            XCTAssertEqual(
+                error as? GenotypeAnnotationSidecar.SchemaMutationError,
+                .unsupportedFutureSchemaVersion(
+                    found: futureVersion,
+                    current: GenotypeAnnotationSidecar.currentSchemaVersion
+                )
+            )
+            XCTAssertNotNil((error as? LocalizedError)?.errorDescription)
+        }
+        XCTAssertEqual(decoded.schemaVersion, futureVersion)
+    }
+
     func testVersionThreeSidecarRoundTripsStableIdentityReview() throws {
         var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-01T00:00:00Z")
         let review = GenotypeAnnotationSidecar.MatrixReviewAnnotation(

@@ -155,6 +155,78 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         XCTAssertEqual(replayed.matrixReviews, [review])
     }
 
+    func testSemanticMatrixReplayRejectsFutureSchemaWithoutChangingInput() throws {
+        var prior = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-24T00:00:00Z"
+        )
+        prior.schemaVersion = GenotypeAnnotationSidecar.currentSchemaVersion + 1
+        let original = prior
+        let replay = GenotypeMatrixAnnotationReplayPayload(
+            action: .setMatrixReview,
+            author: "reviewer",
+            timestamp: "2026-07-24T00:01:00Z",
+            targetMutations: []
+        )
+
+        XCTAssertThrowsError(try replay.applying(to: prior)) { error in
+            XCTAssertEqual(
+                error as? GenotypeAnnotationSidecar.SchemaMutationError,
+                .unsupportedFutureSchemaVersion(
+                    found: prior.schemaVersion,
+                    current: GenotypeAnnotationSidecar.currentSchemaVersion
+                )
+            )
+        }
+        XCTAssertEqual(prior, original)
+    }
+
+    func testStoreRejectsFutureSchemaBeforeAnnotationOrProvenanceWrite() throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let annotationURL = dir.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
+        var future = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-24T00:00:00Z"
+        )
+        future.schemaVersion = GenotypeAnnotationSidecar.currentSchemaVersion + 1
+        let originalData = try future.encoded()
+        try originalData.write(to: annotationURL, options: .atomic)
+        let originalHash = SHA256.hash(data: originalData)
+        let store = try GenotypeAnnotationStore(
+            bundleURL: dir,
+            author: "reviewer",
+            seedBuiltInSmartCohorts: false
+        )
+
+        XCTAssertThrowsError(
+            try store.applyOverride(
+                sample: "Animal-1",
+                locus: "MHC-A",
+                slot: .h1,
+                originalCall: "M1",
+                overrideCall: "M2",
+                reasonTag: .misCall,
+                rationale: "review"
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? GenotypeAnnotationSidecar.SchemaMutationError,
+                .unsupportedFutureSchemaVersion(
+                    found: future.schemaVersion,
+                    current: GenotypeAnnotationSidecar.currentSchemaVersion
+                )
+            )
+        }
+
+        let storedData = try Data(contentsOf: annotationURL)
+        XCTAssertEqual(storedData, originalData)
+        XCTAssertEqual(SHA256.hash(data: storedData), originalHash)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: provenanceURL.path))
+        XCTAssertEqual(store.sidecar, future)
+    }
+
     private func makeBundleURL() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString + ".lungfishgenotype")
