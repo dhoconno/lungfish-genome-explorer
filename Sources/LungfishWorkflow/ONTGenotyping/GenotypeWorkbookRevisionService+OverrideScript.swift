@@ -1071,6 +1071,8 @@ def adapter_owned_column_bounds(adapter):
 
 
 def adapter_matrix_end(adapter):
+    if isinstance(adapter.get("managed_end"), int):
+        return adapter["managed_end"]
     owned_table = adapter_owned_table(adapter)
     if owned_table is not None:
         return owned_table[4]
@@ -1252,6 +1254,7 @@ def append_annotation_only_row(adapter, catalog_row):
         ws.cell(row, col).value = None
     if adapter.get("extend_owned_range"):
         set_adapter_range_end(adapter, row)
+    adapter["managed_end"] = row
     return row
 
 
@@ -1305,6 +1308,7 @@ def append_annotation_only_marker(adapter):
     ws.cell(row, marker_col).font = font
     if adapter["extend_owned_range"]:
         set_adapter_range_end(adapter, row)
+    adapter["managed_end"] = row
     return row
 
 
@@ -1351,8 +1355,8 @@ def prepare_missing_false_negative_rows():
             if matches:
                 resolved_somewhere = True
                 continue
-            if match_error == (
-                "The workbook target is ambiguous at the available semantic identity."
+            if match_error and not matrix_match_error_is_legitimate_absence(
+                match_error
             ):
                 raise ValueError(f"{match_error} Workbook was not modified.")
             if stable_id and adapter["stable_col"] is None:
@@ -1491,10 +1495,16 @@ def matching_matrix_rows(descriptors, target):
         return [], "The target omits a stable cluster ID required to disambiguate workbook rows."
 
     if len(matches) > 1:
-        identities = {(item["locus"], item["genotype"], item["stable_id"]) for item in matches}
-        if len(identities) > 1 or not stable_id:
-            return [], "The workbook target is ambiguous at the available semantic identity."
+        return [], "The workbook target is ambiguous at the available semantic identity."
     return matches, ""
+
+
+def matrix_match_error_is_legitimate_absence(error):
+    return error in {
+        "No workbook row matches the exact genotype.",
+        "No workbook row matches the exact locus and genotype.",
+        "No workbook row matches the exact stable cluster ID.",
+    }
 
 
 def numeric_review_evidence(value):
@@ -1999,74 +2009,50 @@ def style_matches(left, right):
     return copy(left) == copy(right)
 
 
-def delete_managed_end_row(ws, row):
-    owned_tables = []
-    for table in ws.tables.values():
-        min_col, min_row, max_col, max_row = range_boundaries(table.ref)
-        if min_row < row <= max_row:
-            owned_tables.append((table, min_col, min_row, max_col, max_row))
-    if len(owned_tables) > 1:
+def delete_managed_adapter_row(adapter, row):
+    ws = adapter["ws"]
+    min_col, max_col = adapter_owned_column_bounds(adapter)
+    matrix_end = adapter_matrix_end(adapter)
+    if not isinstance(row, int) or not (adapter["header_row"] < row <= matrix_end):
         raise ValueError(
-            "Managed annotation-only row intersects multiple workbook tables; "
+            "Managed annotation-only row is outside its exact matrix ownership; "
             "workbook was not modified"
         )
-    if owned_tables:
-        table, min_col, min_row, max_col, max_row = owned_tables[0]
-        for merged_range in ws.merged_cells.ranges:
-            if (
-                merged_range.min_row <= max_row
-                and merged_range.max_row >= row
-                and merged_range.min_col <= max_col
-                and merged_range.max_col >= min_col
-            ):
-                raise ValueError(
-                    "Managed annotation-only row compaction intersects merged cells; "
-                    "workbook was not modified"
-                )
-        for source_row in range(row + 1, max_row + 1):
-            for col in range(min_col, max_col + 1):
-                source = ws.cell(source_row, col)
-                destination = ws.cell(source_row - 1, col)
-                destination._value = source._value
-                destination.data_type = source.data_type
-                destination._style = (
-                    copy(source._style) if source.has_style else None
-                )
-                destination.comment = (
-                    copy(source.comment) if source.comment is not None else None
-                )
-                destination._hyperlink = (
-                    copy(source.hyperlink) if source.hyperlink is not None else None
-                )
-        for col in range(min_col, max_col + 1):
-            cell = ws.cell(max_row, col)
-            cell.value = None
-            cell.comment = None
-            cell._hyperlink = None
-            cell._style = None
-        updated_ref = (
-            f"{get_column_letter(min_col)}{min_row}:"
-            f"{get_column_letter(max_col)}{max_row - 1}"
-        )
-        table.ref = updated_ref
-        if table.autoFilter is not None:
-            table.autoFilter.ref = updated_ref
-    if owned_tables and ws.auto_filter.ref:
-        filter_min_col, filter_min_row, filter_max_col, filter_max_row = (
-            range_boundaries(ws.auto_filter.ref)
-        )
+    for merged_range in ws.merged_cells.ranges:
         if (
-            filter_min_col == min_col
-            and filter_min_row == min_row
-            and filter_max_col == max_col
-            and filter_min_row < row <= filter_max_row
+            merged_range.min_row <= matrix_end
+            and merged_range.max_row >= row
+            and merged_range.min_col <= max_col
+            and merged_range.max_col >= min_col
         ):
-            ws.auto_filter.ref = (
-                f"{get_column_letter(filter_min_col)}{filter_min_row}:"
-                f"{get_column_letter(filter_max_col)}{filter_max_row - 1}"
+            raise ValueError(
+                "Managed annotation-only row compaction intersects merged cells; "
+                "workbook was not modified"
             )
-    if not owned_tables:
-        ws.delete_rows(row, 1)
+    for source_row in range(row + 1, matrix_end + 1):
+        for col in range(min_col, max_col + 1):
+            source = ws.cell(source_row, col)
+            destination = ws.cell(source_row - 1, col)
+            destination._value = source._value
+            destination.data_type = source.data_type
+            destination._style = (
+                copy(source._style) if source.has_style else None
+            )
+            destination.comment = (
+                copy(source.comment) if source.comment is not None else None
+            )
+            destination._hyperlink = (
+                copy(source.hyperlink) if source.hyperlink is not None else None
+            )
+    for col in range(min_col, max_col + 1):
+        cell = ws.cell(matrix_end, col)
+        cell.value = None
+        cell.comment = None
+        cell._hyperlink = None
+        cell._style = None
+    updated_end = matrix_end - 1
+    set_adapter_range_end(adapter, updated_end)
+    adapter["managed_end"] = updated_end
     invalidate_matrix_descriptor_cache(ws)
 
 
@@ -2242,10 +2228,64 @@ def restore_prior_managed_matrix_annotations():
     deletions_by_sheet = {}
     for sheet_name, row in rows_to_delete + markers_to_delete:
         deletions_by_sheet.setdefault(sheet_name, set()).add(row)
+    cleanup_adapters = {}
+    all_cleanup_samples = known_matrix_samples()
+    all_cleanup_samples.update(
+        clean(state.cell(state_row, 5).value)
+        for state_row in range(2, state.max_row + 1)
+        if clean(state.cell(state_row, 5).value)
+    )
     for sheet_name, rows in deletions_by_sheet.items():
         ws = wb[sheet_name]
+        state_rows = [
+            state_row for state_row in range(2, state.max_row + 1)
+            if (
+                clean(state.cell(state_row, 17).value) == "true"
+                and clean(state.cell(state_row, 1).value) == sheet_name
+            )
+        ]
+        adapter_kinds = {
+            clean(state.cell(state_row, 18).value)
+            for state_row in state_rows
+        }
+        state_sample_names = {
+            clean(state.cell(state_row, 5).value)
+            for state_row in state_rows
+            if clean(state.cell(state_row, 5).value)
+        }
+        if len(adapter_kinds) != 1:
+            raise ValueError(
+                "Managed annotation-only state has ambiguous adapter ownership; "
+                "workbook was not modified"
+            )
+        adapter = matrix_layout_adapter(
+            ws, all_cleanup_samples, requires_synthesis=True
+        )
+        if (
+            adapter is None
+            or adapter["kind"] not in adapter_kinds
+            or not state_sample_names.issubset(adapter["sample_columns"])
+        ):
+            raise ValueError(
+                "Managed annotation-only state no longer matches its exact "
+                "workbook adapter; workbook was not modified"
+            )
+        adapter_owned_column_bounds(adapter)
+        adapter_owned_table(adapter)
+        matrix_end = adapter_matrix_end(adapter)
+        if any(
+            not (adapter["header_row"] < row <= matrix_end)
+            for row in rows
+        ):
+            raise ValueError(
+                "Managed annotation-only state is outside its exact matrix "
+                "ownership; workbook was not modified"
+            )
+        cleanup_adapters[sheet_name] = adapter
+    for sheet_name, rows in deletions_by_sheet.items():
+        adapter = cleanup_adapters[sheet_name]
         for row in sorted(rows, reverse=True):
-            delete_managed_end_row(ws, row)
+            delete_managed_adapter_row(adapter, row)
     del wb[MANAGED_REVIEW_STATE_SHEET]
 
 
