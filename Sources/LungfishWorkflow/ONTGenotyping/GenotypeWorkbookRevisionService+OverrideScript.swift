@@ -817,11 +817,16 @@ def known_matrix_samples():
     return names
 
 
-def validation_matrix_samples():
+def authoritative_matrix_samples():
     names = known_matrix_samples()
     if reviewable_row_catalog:
         roster = reviewable_row_catalog.get("samples") or []
         names.update(clean(sample) for sample in roster if clean(sample))
+    return names
+
+
+def validation_matrix_samples():
+    names = authoritative_matrix_samples()
     if MANAGED_REVIEW_STATE_SHEET in wb.sheetnames:
         managed_review_state_schema()
         state = wb[MANAGED_REVIEW_STATE_SHEET]
@@ -1325,7 +1330,7 @@ def prepare_missing_false_negative_rows():
     ]
     if not false_negatives:
         return
-    sample_names = known_matrix_samples()
+    sample_names = authoritative_matrix_samples()
     adapters = []
     for ws in wb.worksheets:
         if ws.title in {
@@ -2229,7 +2234,7 @@ def restore_prior_managed_matrix_annotations():
     for sheet_name, row in rows_to_delete + markers_to_delete:
         deletions_by_sheet.setdefault(sheet_name, set()).add(row)
     cleanup_adapters = {}
-    all_cleanup_samples = known_matrix_samples()
+    all_cleanup_samples = authoritative_matrix_samples()
     all_cleanup_samples.update(
         clean(state.cell(state_row, 5).value)
         for state_row in range(2, state.max_row + 1)

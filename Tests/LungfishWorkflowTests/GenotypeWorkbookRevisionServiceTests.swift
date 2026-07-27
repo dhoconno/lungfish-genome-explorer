@@ -5603,7 +5603,7 @@ wb.save(path)
         XCTAssertEqual(inspection["hasManagedReviewState"], "false")
     }
 
-    func testTablelessGenericClearCompactsOnlyOwnedMatrixColumns() throws {
+    func testTablelessGenericClearCompactsCompleteCatalogRosterWithLaterRealRow() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -5623,13 +5623,15 @@ path = sys.argv[1]
 wb = load_workbook(path)
 ws = wb["matrix"]
 del ws.tables["GenericGenotypeTable"]
-ws["F8"] = "outside-marker-row"
-ws["G9"] = "outside-synthetic-row"
+ws["E6"] = "AR9999"
+ws.auto_filter.ref = "A6:E7"
+ws["G8"] = "outside-marker-row"
+ws["H9"] = "outside-synthetic-row"
 wb.save(path)
 """#, currentURL.path])
         _ = try installReviewableRowCatalog(
             annotationOnlyReferenceCatalog(
-                samples: ["AR3628"],
+                samples: ["AR3628", "AR9999"],
                 displayName: "Mamu-A1*missing"
             ),
             in: fixture.bundleURL
@@ -5663,6 +5665,17 @@ wb.save(path)
             annotationSidecarURL: annotationURL,
             into: fixture.bundleURL
         )
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+
+path = sys.argv[1]
+wb = load_workbook(path)
+ws = wb["matrix"]
+ws.append(["Mamu-A1*later-real", 9, 1, None, 9])
+ws.auto_filter.ref = "A6:E10"
+wb.save(path)
+"""#, currentURL.path])
         sidecar.matrixReviews = []
         try sidecar.encoded().write(to: annotationURL)
         _ = try service.applyHaplotypeOverrides(
@@ -5688,9 +5701,10 @@ print(json.dumps({
         1 for row in range(7, ws.max_row + 1)
         if text(ws.cell(row, 1).value) == "Mamu-A1*missing"
     )),
-    "existingRow": "|".join(text(ws.cell(7, col).value) for col in range(1, 5)),
-    "outsideMarker": text(ws["F8"].value),
-    "outsideSynthetic": text(ws["G9"].value),
+    "existingRow": "|".join(text(ws.cell(7, col).value) for col in range(1, 6)),
+    "realRow": "|".join(text(ws.cell(8, col).value) for col in range(1, 6)),
+    "outsideMarker": text(ws["G8"].value),
+    "outsideSynthetic": text(ws["H9"].value),
     "autoFilterRef": text(ws.auto_filter.ref),
     "tableCount": str(len(ws.tables)),
     "hasManagedReviewState": str(
@@ -5702,12 +5716,102 @@ print(json.dumps({
         let inspection = try XCTUnwrap(object as? [String: String])
         XCTAssertEqual(inspection["markerRows"], "0")
         XCTAssertEqual(inspection["syntheticRows"], "0")
-        XCTAssertEqual(inspection["existingRow"], "Mamu-A1*existing|5|1|5")
+        XCTAssertEqual(inspection["existingRow"], "Mamu-A1*existing|5|1|5|")
+        XCTAssertEqual(inspection["realRow"], "Mamu-A1*later-real|9|1||9")
         XCTAssertEqual(inspection["outsideMarker"], "outside-marker-row")
         XCTAssertEqual(inspection["outsideSynthetic"], "outside-synthetic-row")
-        XCTAssertEqual(inspection["autoFilterRef"], "A6:D7")
+        XCTAssertEqual(inspection["autoFilterRef"], "A6:E8")
         XCTAssertEqual(inspection["tableCount"], "0")
         XCTAssertEqual(inspection["hasManagedReviewState"], "false")
+    }
+
+    func testTablelessClearFailsClosedForDuplicateUnannotatedCatalogSample() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "tableless-duplicate-unannotated-sample"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installAnnotationOnlyGenericReviewMatrix(in: currentURL)
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+
+path = sys.argv[1]
+wb = load_workbook(path)
+ws = wb["matrix"]
+del ws.tables["GenericGenotypeTable"]
+ws["E6"] = "AR9999"
+ws.auto_filter.ref = "A6:E7"
+wb.save(path)
+"""#, currentURL.path])
+        _ = try installReviewableRowCatalog(
+            annotationOnlyReferenceCatalog(
+                samples: ["AR3628", "AR9999"],
+                displayName: "Mamu-A1*missing"
+            ),
+            in: fixture.bundleURL
+        )
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-A1*missing",
+                    sample: "AR3628"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-27T01:05:30Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        let service = GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 8_126.5) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        )
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+
+path = sys.argv[1]
+wb = load_workbook(path)
+wb["matrix"]["F6"] = "AR9999"
+wb.save(path)
+"""#, currentURL.path])
+        sidecar.matrixReviews = []
+        try sidecar.encoded().write(to: annotationURL)
+        let before = try ProvenanceFileHasher.sha256(of: currentURL)
+
+        XCTAssertThrowsError(
+            try service.applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: annotationURL,
+                into: fixture.bundleURL
+            )
+        ) { error in
+            XCTAssertTrue(
+                error.localizedDescription.localizedCaseInsensitiveContains(
+                    "AR9999"
+                )
+            )
+        }
+        XCTAssertEqual(try ProvenanceFileHasher.sha256(of: currentURL), before)
     }
 
     func testGenericClearIgnoresUnrelatedTableSpanningManagedRows() throws {
