@@ -79,6 +79,17 @@ final class GenotypeManualHaplotypeAssignmentReplayPayloadTests: XCTestCase {
             after: after,
             copySource: "Animal-Source"
         )
+        let additionAudit = audit(
+            action: "addManualHaplotypeAssignment",
+            sample: "Animal-1",
+            locus: "MHC-DPB",
+            slot: .h2,
+            operationID: operationID,
+            priorSHA256: sha256(priorData),
+            before: nil,
+            after: added,
+            copySource: "Animal-Source"
+        )
         let aggregateAudit = audit(
             action: "replaceManualHaplotypeAssignments",
             sample: "Animal-1",
@@ -97,7 +108,7 @@ final class GenotypeManualHaplotypeAssignmentReplayPayloadTests: XCTestCase {
             operationID: operationID,
             beforeAssignments: [before, unrelated],
             afterAssignments: [after, unrelated, added],
-            audits: [mutationAudit, aggregateAudit],
+            audits: [mutationAudit, additionAudit, aggregateAudit],
             copySource: "Animal-Source"
         )
 
@@ -109,12 +120,16 @@ final class GenotypeManualHaplotypeAssignmentReplayPayloadTests: XCTestCase {
 
         XCTAssertEqual(replayed.manualHaplotypeAssignments, [after, unrelated, added])
         XCTAssertEqual(replayed.sampleNotes, prior.sampleNotes)
-        XCTAssertEqual(replayed.auditLog, [mutationAudit, aggregateAudit])
+        XCTAssertEqual(
+            replayed.auditLog,
+            [mutationAudit, additionAudit, aggregateAudit]
+        )
         XCTAssertEqual(replayed.lastEditor, "Replay Analyst")
         XCTAssertEqual(replayed.lastEditedAt, "2026-07-26T15:04:00Z")
         var expected = prior
         expected.manualHaplotypeAssignments = [after, unrelated, added]
         expected.append(audit: mutationAudit)
+        expected.append(audit: additionAudit)
         expected.append(audit: aggregateAudit)
         XCTAssertEqual(replayed, expected)
         XCTAssertEqual(try replayed.encoded(), try expected.encoded())
@@ -130,6 +145,198 @@ final class GenotypeManualHaplotypeAssignmentReplayPayloadTests: XCTestCase {
             sha256(priorData)
         )
         XCTAssertEqual(payload.priorSidecar.revisionSHA256, sha256(priorData))
+    }
+
+    func testReplayRejectsContradictoryAggregateOperationPayloads() throws {
+        let fixture = try coherentValidationFixture()
+        let cases: [(
+            name: String,
+            mutate: (inout [String: Any]) -> Void
+        )] = [
+            ("empty operation ID", { object in
+                Self.mutateDictionary("operation", in: &object) {
+                    $0["operationID"] = "   "
+                }
+            }),
+            ("repeated operation ID", { object in
+                Self.mutateDictionary("operation", in: &object) {
+                    $0["operationID"] = "existing-operation"
+                }
+                Self.mutateAuditPayloads(in: &object) {
+                    $0["operationID"] = "existing-operation"
+                }
+            }),
+            ("unrelated sample changed", { object in
+                Self.mutateArray("afterAssignments", in: &object) { records in
+                    var record = records[2] as! [String: Any]
+                    record["label"] = "tampered unrelated"
+                    records[2] = record
+                }
+            }),
+            ("duplicate canonical key", { object in
+                Self.mutateArray("afterAssignments", in: &object) { records in
+                    records.append(records[0])
+                }
+            }),
+            ("invalid changed label", { object in
+                Self.mutateArray("afterAssignments", in: &object) { records in
+                    var record = records[0] as! [String: Any]
+                    record["label"] = "\u{0001}"
+                    records[0] = record
+                }
+            }),
+            ("missing detailed audit", { object in
+                Self.mutateArray("auditEntries", in: &object) { audits in
+                    audits.removeFirst()
+                }
+            }),
+            ("duplicate detailed audit", { object in
+                Self.mutateArray("auditEntries", in: &object) { audits in
+                    audits.insert(audits[0], at: 0)
+                }
+            }),
+            ("wrong detailed action", { object in
+                Self.mutateArray("auditEntries", in: &object) { audits in
+                    var audit = audits[0] as! [String: Any]
+                    audit["action"] = "removeManualHaplotypeAssignment"
+                    audits[0] = audit
+                }
+            }),
+            ("wrong detailed author", { object in
+                Self.mutateArray("auditEntries", in: &object) { audits in
+                    var audit = audits[0] as! [String: Any]
+                    audit["author"] = "Other Analyst"
+                    audits[0] = audit
+                }
+            }),
+            ("no-op operation", { object in
+                object["afterAssignments"] = object["beforeAssignments"]
+            }),
+        ]
+
+        for testCase in cases {
+            let payload = try mutatedPayload(
+                fixture.payload,
+                mutation: testCase.mutate
+            )
+            XCTAssertThrowsError(
+                try payload.applying(
+                    to: fixture.priorData,
+                    targetBundleURL: fixture.bundleURL,
+                    targetManifestData: fixture.manifestData
+                ),
+                testCase.name
+            )
+        }
+    }
+
+    func testReplayRejectsAssignmentMetadataThatViolatesReplacementRules() throws {
+        let fixture = try coherentValidationFixture()
+        let cases: [(
+            name: String,
+            assignmentIndex: Int,
+            field: String,
+            value: Any
+        )] = [
+            ("update changes diagnostic alleles", 0, "diagnosticAlleles", ["other"]),
+            ("update changes notes", 0, "notes", "changed note"),
+            ("update changes assignment ID", 0, "assignmentID", "different-id"),
+            ("update author differs from operation", 0, "author", "Other Analyst"),
+            ("update timestamp differs from operation", 0, "updatedAt", "2026-07-26T16:00:00Z"),
+            ("new assignment has diagnostic alleles", 1, "diagnosticAlleles", ["not-empty"]),
+            ("new assignment has notes", 1, "notes", "not empty"),
+        ]
+
+        for testCase in cases {
+            let payload = try mutatedPayload(fixture.payload) { object in
+                Self.mutateArray("afterAssignments", in: &object) { records in
+                    var record = records[testCase.assignmentIndex] as! [String: Any]
+                    record[testCase.field] = testCase.value
+                    records[testCase.assignmentIndex] = record
+                }
+                Self.mutateArray("auditEntries", in: &object) { audits in
+                    var audit = audits[testCase.assignmentIndex] as! [String: Any]
+                    var structured = audit["manualHaplotypeAssignment"] as! [String: Any]
+                    var after = structured["after"] as! [String: Any]
+                    after[testCase.field] = testCase.value
+                    structured["after"] = after
+                    audit["manualHaplotypeAssignment"] = structured
+                    audits[testCase.assignmentIndex] = audit
+                }
+            }
+            XCTAssertThrowsError(
+                try payload.applying(
+                    to: fixture.priorData,
+                    targetBundleURL: fixture.bundleURL,
+                    targetManifestData: fixture.manifestData
+                ),
+                testCase.name
+            )
+        }
+    }
+
+    func testReplayRejectsEmptyOrUnnormalizedAggregateMetadata() throws {
+        let fixture = try coherentValidationFixture()
+        let cases: [(
+            name: String,
+            field: String,
+            value: String
+        )] = [
+            ("empty author", "author", "   "),
+            ("invalid timestamp", "timestamp", "not-a-timestamp"),
+            ("empty copy source", "copySourceSample", "   "),
+        ]
+
+        for testCase in cases {
+            let payload = try mutatedPayload(fixture.payload) { object in
+                Self.mutateDictionary("operation", in: &object) {
+                    $0[testCase.field] = testCase.value
+                }
+                if testCase.field == "author" || testCase.field == "timestamp" {
+                    Self.mutateArray("afterAssignments", in: &object) { records in
+                        for index in records.indices {
+                            var record = records[index] as! [String: Any]
+                            guard record["sample"] as? String == "Animal-1" else {
+                                continue
+                            }
+                            let assignmentField =
+                                testCase.field == "timestamp" ? "updatedAt" : "author"
+                            record[assignmentField] = testCase.value
+                            records[index] = record
+                        }
+                    }
+                    Self.mutateArray("auditEntries", in: &object) { audits in
+                        for index in audits.indices {
+                            var audit = audits[index] as! [String: Any]
+                            audit[testCase.field] = testCase.value
+                            if var structured =
+                                audit["manualHaplotypeAssignment"] as? [String: Any],
+                               var after = structured["after"] as? [String: Any] {
+                                let assignmentField =
+                                    testCase.field == "timestamp"
+                                    ? "updatedAt" : "author"
+                                after[assignmentField] = testCase.value
+                                structured["after"] = after
+                                audit["manualHaplotypeAssignment"] = structured
+                            }
+                            audits[index] = audit
+                        }
+                    }
+                } else {
+                    Self.mutateAuditPayloads(in: &object) {
+                        $0["copySourceSample"] = testCase.value
+                    }
+                }
+            }
+            XCTAssertThrowsError(
+                try payload.applying(
+                    to: fixture.priorData,
+                    targetBundleURL: fixture.bundleURL,
+                    targetManifestData: fixture.manifestData
+                ),
+                testCase.name
+            )
+        }
     }
 
     func testReplayRejectsPriorSidecarHashMismatch() throws {
@@ -304,6 +511,183 @@ final class GenotypeManualHaplotypeAssignmentReplayPayloadTests: XCTestCase {
             copySource: nil
         )
         return (payload, bundleURL, manifestData, prior, priorData)
+    }
+
+    private func coherentValidationFixture() throws -> (
+        payload: GenotypeManualHaplotypeAssignmentReplayPayload,
+        bundleURL: URL,
+        manifestData: Data,
+        priorData: Data
+    ) {
+        let bundleURL = URL(fileURLWithPath: "/tmp/replay-validation.lungfishgenotype")
+        let manifestData = Data(#"{"revision":"revision-validation"}"#.utf8)
+        let updateBefore = assignment(
+            sample: "Animal-1",
+            locus: "MHC-A",
+            slot: .h1,
+            label: "before",
+            color: 1,
+            alleles: ["Mafa-A1*001:01"],
+            notes: "preserved",
+            id: "assignment-update",
+            timestamp: "2026-07-26T15:00:00Z",
+            author: "First Analyst"
+        )
+        let updateAfter = assignment(
+            sample: "Animal-1",
+            locus: "MHC-A",
+            slot: .h1,
+            label: "after",
+            color: 2,
+            alleles: ["Mafa-A1*001:01"],
+            notes: "preserved",
+            id: "assignment-update",
+            timestamp: "2026-07-26T15:04:00Z",
+            author: "Replay Analyst"
+        )
+        let addition = assignment(
+            sample: "Animal-1",
+            locus: "MHC-DPB",
+            slot: .h2,
+            label: "new",
+            color: 3,
+            alleles: [],
+            notes: "",
+            id: "assignment-new",
+            timestamp: "2026-07-26T15:04:00Z",
+            author: "Replay Analyst"
+        )
+        let unrelated = assignment(
+            sample: "Animal-2",
+            locus: "MHC-B",
+            slot: .h2,
+            label: "unrelated",
+            color: 4,
+            alleles: ["Mafa-B*001:01"],
+            notes: "other",
+            id: "assignment-other",
+            timestamp: "2026-07-26T14:00:00Z",
+            author: "Other Analyst"
+        )
+        var prior = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-26T14:00:00Z"
+        )
+        prior.manualHaplotypeAssignments = [updateBefore, unrelated]
+        prior.auditLog = [
+            audit(
+                action: "replaceManualHaplotypeAssignments",
+                sample: "Animal-9",
+                locus: nil,
+                slot: nil,
+                operationID: "existing-operation",
+                priorSHA256: String(repeating: "e", count: 64),
+                before: nil,
+                after: nil,
+                copySource: nil
+            ),
+        ]
+        let priorData = try prior.encoded()
+        let operationID = "validation-operation"
+        let audits = [
+            audit(
+                action: "updateManualHaplotypeAssignment",
+                sample: "Animal-1",
+                locus: "MHC-A",
+                slot: .h1,
+                operationID: operationID,
+                priorSHA256: sha256(priorData),
+                before: updateBefore,
+                after: updateAfter,
+                copySource: "Animal-Source"
+            ),
+            audit(
+                action: "addManualHaplotypeAssignment",
+                sample: "Animal-1",
+                locus: "MHC-DPB",
+                slot: .h2,
+                operationID: operationID,
+                priorSHA256: sha256(priorData),
+                before: nil,
+                after: addition,
+                copySource: "Animal-Source"
+            ),
+            audit(
+                action: "replaceManualHaplotypeAssignments",
+                sample: "Animal-1",
+                locus: nil,
+                slot: nil,
+                operationID: operationID,
+                priorSHA256: sha256(priorData),
+                before: nil,
+                after: nil,
+                copySource: "Animal-Source"
+            ),
+        ]
+        return (
+            makePayload(
+                bundleURL: bundleURL,
+                manifestData: manifestData,
+                priorData: priorData,
+                operationID: operationID,
+                beforeAssignments: [updateBefore, unrelated],
+                afterAssignments: [updateAfter, addition, unrelated],
+                audits: audits,
+                copySource: "Animal-Source"
+            ),
+            bundleURL,
+            manifestData,
+            priorData
+        )
+    }
+
+    private func mutatedPayload(
+        _ payload: GenotypeManualHaplotypeAssignmentReplayPayload,
+        mutation: (inout [String: Any]) -> Void
+    ) throws -> GenotypeManualHaplotypeAssignmentReplayPayload {
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try payload.encoded())
+                as? [String: Any]
+        )
+        mutation(&object)
+        return try GenotypeManualHaplotypeAssignmentReplayPayload.decode(
+            JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        )
+    }
+
+    private static func mutateDictionary(
+        _ key: String,
+        in object: inout [String: Any],
+        mutation: (inout [String: Any]) -> Void
+    ) {
+        var dictionary = object[key] as! [String: Any]
+        mutation(&dictionary)
+        object[key] = dictionary
+    }
+
+    private static func mutateArray(
+        _ key: String,
+        in object: inout [String: Any],
+        mutation: (inout [Any]) -> Void
+    ) {
+        var array = object[key] as! [Any]
+        mutation(&array)
+        object[key] = array
+    }
+
+    private static func mutateAuditPayloads(
+        in object: inout [String: Any],
+        mutation: (inout [String: Any]) -> Void
+    ) {
+        mutateArray("auditEntries", in: &object) { audits in
+            for index in audits.indices {
+                var audit = audits[index] as! [String: Any]
+                var structured =
+                    audit["manualHaplotypeAssignment"] as! [String: Any]
+                mutation(&structured)
+                audit["manualHaplotypeAssignment"] = structured
+                audits[index] = audit
+            }
+        }
     }
 
     private func makePayload(

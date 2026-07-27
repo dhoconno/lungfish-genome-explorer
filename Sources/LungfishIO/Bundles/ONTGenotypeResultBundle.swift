@@ -2038,6 +2038,17 @@ public enum ONTGenotypeResultBundle {
         return try JSONDecoder().decode(ONTGenotypeResultBundleManifest.self, from: data)
     }
 
+    /// Reads the durable bundle manifest through a regular-file descriptor
+    /// without following symbolic links and verifies that the file remains
+    /// stable for the full read.
+    public static func readManifestDataNoFollow(
+        from bundleURL: URL
+    ) throws -> Data {
+        try readManifestSnapshotNoFollow(
+            from: bundleURL.standardizedFileURL
+        ).data
+    }
+
     public static func writeManifest(
         _ manifest: ONTGenotypeResultBundleManifest,
         to bundleURL: URL

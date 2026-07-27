@@ -102,6 +102,236 @@ final class GenotypeManualHaplotypeReplaySubcommandTests: XCTestCase {
         })
     }
 
+    func testDefaultOutputProvenanceIsResolvedButNotRecordedAsExplicit() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let outputProvenanceURL =
+            GenotypeManualHaplotypeAssignmentReplayPayload.replayOutputProvenanceURL(
+                forBundleAt: fixture.bundleURL
+            )
+        let command = try GenotypeReplayManualHaplotypeAssignmentsSubcommand.parse([
+            "--provenance", fixture.sourceProvenanceURL.path,
+            "--bundle", fixture.bundleURL.path,
+        ])
+
+        try await command.run()
+
+        let envelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: outputProvenanceURL)
+        )
+        XCTAssertNil(envelope.options.explicit["outputProvenance"])
+        XCTAssertEqual(
+            envelope.options.defaults["outputProvenance"]?.fileValue?.path,
+            outputProvenanceURL.path
+        )
+        XCTAssertEqual(
+            envelope.options.resolvedDefaults["outputProvenance"]?.fileValue?.path,
+            outputProvenanceURL.path
+        )
+        XCTAssertEqual(
+            envelope.argv,
+            [
+                "lungfish-cli",
+                "genotype",
+                "replay-manual-haplotype-assignments",
+                "--provenance", fixture.sourceProvenanceURL.path,
+                "--bundle", fixture.bundleURL.path,
+            ]
+        )
+    }
+
+    func testOutputProvenanceCannotCollideWithProtectedPublicationPaths() throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let lockURL = ONTGenotypeBundlePublicationLock.lockURL(
+            for: fixture.bundleURL
+        )
+        let protectedURLs = [
+            lockURL,
+            fixture.manifestURL,
+            fixture.sidecarURL,
+        ]
+            + ProvenancePublicationArtifacts.sidecarArtifacts(
+                for: fixture.sourceProvenanceURL
+            )
+            + ProvenancePublicationArtifacts.fileSidecarArtifacts(
+                for: fixture.manifestURL
+            )
+            + ProvenancePublicationArtifacts.fileSidecarArtifacts(
+                for: fixture.sidecarURL
+            )
+
+        for protectedURL in protectedURLs {
+            var command = GenotypeReplayManualHaplotypeAssignmentsSubcommand()
+            command.provenance = fixture.sourceProvenanceURL.path
+            command.bundle = fixture.bundleURL.path
+            command.outputProvenance = protectedURL.path
+
+            XCTAssertThrowsError(
+                try command.validate(),
+                "expected collision for \(protectedURL.path)"
+            ) { error in
+                XCTAssertEqual(
+                    error as? GenotypeReplayManualHaplotypeAssignmentsError,
+                    .pathCollision(protectedURL.path)
+                )
+            }
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: lockURL.path))
+    }
+
+    func testSourceProvenanceCannotCollideWithScientificSidecar() throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        var command = GenotypeReplayManualHaplotypeAssignmentsSubcommand()
+        command.provenance = fixture.sidecarURL.path
+        command.bundle = fixture.bundleURL.path
+        command.outputProvenance = nil
+
+        XCTAssertThrowsError(try command.validate()) { error in
+            XCTAssertEqual(
+                error as? GenotypeReplayManualHaplotypeAssignmentsError,
+                .pathCollision(fixture.sidecarURL.path)
+            )
+        }
+    }
+
+    func testOutputArtifactCreatedAfterPrecheckIsRejectedUnderLock() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let priorBytes = try Data(contentsOf: fixture.sidecarURL)
+        let outputProvenanceURL =
+            GenotypeManualHaplotypeAssignmentReplayPayload.replayOutputProvenanceURL(
+                forBundleAt: fixture.bundleURL
+            )
+        let sentinel = Data("racing provenance".utf8)
+        var command = try GenotypeReplayManualHaplotypeAssignmentsSubcommand.parse([
+            "--provenance", fixture.sourceProvenanceURL.path,
+            "--bundle", fixture.bundleURL.path,
+        ])
+        command.publicationPreparationHook = {
+            try sentinel.write(to: outputProvenanceURL)
+        }
+
+        await XCTAssertThrowsErrorAsync(try await command.run()) { error in
+            XCTAssertEqual(
+                error as? GenotypeReplayManualHaplotypeAssignmentsError,
+                .outputExists(outputProvenanceURL.path)
+            )
+        }
+
+        XCTAssertEqual(try Data(contentsOf: fixture.sidecarURL), priorBytes)
+        XCTAssertEqual(try Data(contentsOf: outputProvenanceURL), sentinel)
+        let reacquired = try ONTGenotypeBundlePublicationLock.acquire(
+            for: fixture.bundleURL
+        )
+        reacquired.release()
+    }
+
+    func testManifestSymlinkIsRejectedWithoutPublishing() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let priorBytes = try Data(contentsOf: fixture.sidecarURL)
+        let followedTarget = fixture.root.appendingPathComponent("followed-manifest.json")
+        try fixture.manifestData.write(to: followedTarget)
+        try FileManager.default.removeItem(at: fixture.manifestURL)
+        try FileManager.default.createSymbolicLink(
+            at: fixture.manifestURL,
+            withDestinationURL: followedTarget
+        )
+        let outputProvenanceURL =
+            GenotypeManualHaplotypeAssignmentReplayPayload.replayOutputProvenanceURL(
+                forBundleAt: fixture.bundleURL
+            )
+        let command = try GenotypeReplayManualHaplotypeAssignmentsSubcommand.parse([
+            "--provenance", fixture.sourceProvenanceURL.path,
+            "--bundle", fixture.bundleURL.path,
+        ])
+
+        await XCTAssertThrowsErrorAsync(try await command.run())
+
+        XCTAssertEqual(try Data(contentsOf: fixture.sidecarURL), priorBytes)
+        XCTAssertEqual(try Data(contentsOf: followedTarget), fixture.manifestData)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputProvenanceURL.path))
+    }
+
+    func testProvenancePublicationFailureRestoresExactPriorSidecarAndReleasesLock() async throws {
+        enum InjectedFailure: Error {
+            case provenance
+        }
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let priorBytes = try Data(contentsOf: fixture.sidecarURL)
+        let priorHash = sha256(priorBytes)
+        let sourceBytes = try Data(contentsOf: fixture.sourceProvenanceURL)
+        let outputProvenanceURL =
+            GenotypeManualHaplotypeAssignmentReplayPayload.replayOutputProvenanceURL(
+                forBundleAt: fixture.bundleURL
+            )
+        var command = try GenotypeReplayManualHaplotypeAssignmentsSubcommand.parse([
+            "--provenance", fixture.sourceProvenanceURL.path,
+            "--bundle", fixture.bundleURL.path,
+        ])
+        command.provenancePublisher = { _, _ in
+            throw InjectedFailure.provenance
+        }
+
+        await XCTAssertThrowsErrorAsync(try await command.run()) { error in
+            XCTAssertTrue(error is InjectedFailure)
+        }
+
+        let restoredBytes = try Data(contentsOf: fixture.sidecarURL)
+        XCTAssertEqual(restoredBytes, priorBytes)
+        XCTAssertEqual(sha256(restoredBytes), priorHash)
+        XCTAssertEqual(
+            try Data(contentsOf: fixture.sourceProvenanceURL),
+            sourceBytes
+        )
+        for artifact in ProvenancePublicationArtifacts.sidecarArtifacts(
+            for: outputProvenanceURL
+        ) {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: artifact.path))
+        }
+        let reacquired = try ONTGenotypeBundlePublicationLock.acquire(
+            for: fixture.bundleURL
+        )
+        reacquired.release()
+    }
+
+    func testContradictoryAuditPayloadFailsBeforePublication() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let priorBytes = try Data(contentsOf: fixture.sidecarURL)
+        var payloadObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(
+                with: try replayPayloadData(from: fixture.sourceProvenanceURL)
+            ) as? [String: Any]
+        )
+        var audits = payloadObject["auditEntries"] as! [[String: Any]]
+        audits.removeFirst()
+        payloadObject["auditEntries"] = audits
+        let contradictory = try GenotypeManualHaplotypeAssignmentReplayPayload.decode(
+            JSONSerialization.data(withJSONObject: payloadObject)
+        )
+        try writeSourceProvenance(
+            payload: contradictory,
+            to: fixture.sourceProvenanceURL
+        )
+        let outputProvenanceURL =
+            GenotypeManualHaplotypeAssignmentReplayPayload.replayOutputProvenanceURL(
+                forBundleAt: fixture.bundleURL
+            )
+        let command = try GenotypeReplayManualHaplotypeAssignmentsSubcommand.parse([
+            "--provenance", fixture.sourceProvenanceURL.path,
+            "--bundle", fixture.bundleURL.path,
+        ])
+
+        await XCTAssertThrowsErrorAsync(try await command.run())
+
+        XCTAssertEqual(try Data(contentsOf: fixture.sidecarURL), priorBytes)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputProvenanceURL.path))
+    }
+
     func testPriorHashMismatchIsAtomicAndPublishesNoReplayProvenance() async throws {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -267,7 +497,7 @@ final class GenotypeManualHaplotypeReplaySubcommandTests: XCTestCase {
         let priorData = try prior.encoded()
         try priorData.write(to: sidecarURL)
         let audit = GenotypeAnnotationSidecar.AuditEntry(
-            action: "replaceManualHaplotypeAssignments",
+            action: "updateManualHaplotypeAssignment",
             sample: "Animal-1",
             locus: "MHC-A",
             slot: .h1,
@@ -283,6 +513,26 @@ final class GenotypeManualHaplotypeReplaySubcommandTests: XCTestCase {
                 priorSidecarSHA256: sha256(priorData),
                 before: before,
                 after: after,
+                copySourceSample: "Animal-Source"
+            )
+        )
+        let aggregateAudit = GenotypeAnnotationSidecar.AuditEntry(
+            action: "replaceManualHaplotypeAssignments",
+            sample: "Animal-1",
+            locus: nil,
+            slot: nil,
+            before: nil,
+            after: nil,
+            color: nil,
+            reason: "manual-haplotype-assignment",
+            rationale: "replay fixture",
+            author: "Replay Analyst",
+            timestamp: "2026-07-26T15:04:00Z",
+            manualHaplotypeAssignment: .init(
+                operationID: "manual-operation-001",
+                priorSidecarSHA256: sha256(priorData),
+                before: nil,
+                after: nil,
                 copySourceSample: "Animal-Source"
             )
         )
@@ -312,14 +562,29 @@ final class GenotypeManualHaplotypeReplaySubcommandTests: XCTestCase {
             ),
             beforeAssignments: [before],
             afterAssignments: [after],
-            auditEntries: [audit]
+            auditEntries: [audit, aggregateAudit]
         )
         let sourceProvenanceURL = root.appendingPathComponent("manual-edit.provenance.json")
         try writeSourceProvenance(payload: payload, to: sourceProvenanceURL)
         let sourceProvenanceData = try Data(contentsOf: sourceProvenanceURL)
         return (
             root, bundleURL, manifestURL, manifestData, sidecarURL, prior, priorData,
-            [after], [audit], sourceProvenanceURL, sourceProvenanceData
+            [after], [audit, aggregateAudit], sourceProvenanceURL,
+            sourceProvenanceData
+        )
+    }
+
+    private func replayPayloadData(from sourceProvenanceURL: URL) throws -> Data {
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: sourceProvenanceURL)
+        )
+        return try XCTUnwrap(
+            Data(
+                base64Encoded: try XCTUnwrap(
+                    envelope.options.explicit["replayPayloadBase64"]?.stringValue
+                )
+            )
         )
     }
 

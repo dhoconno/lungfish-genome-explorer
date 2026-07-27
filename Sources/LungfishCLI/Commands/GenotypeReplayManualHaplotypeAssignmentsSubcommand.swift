@@ -43,6 +43,11 @@ enum GenotypeReplayManualHaplotypeAssignmentsError:
 struct GenotypeReplayManualHaplotypeAssignmentsSubcommand:
     AsyncParsableCommand
 {
+    typealias ProvenancePublisher = @Sendable (
+        _ envelope: ProvenanceEnvelope,
+        _ outputURL: URL
+    ) throws -> Void
+
     static let configuration = CommandConfiguration(
         commandName:
             GenotypeManualHaplotypeAssignmentReplayPayload.cliSubcommandName,
@@ -67,6 +72,28 @@ struct GenotypeReplayManualHaplotypeAssignmentsSubcommand:
         help: "Replay provenance path; defaults to a replay-specific peer of annotations.json"
     )
     var outputProvenance: String?
+
+    var publicationPreparationHook: (@Sendable () throws -> Void)? = nil
+    var provenancePublisher: ProvenancePublisher? = nil
+
+    private enum CodingKeys: String, CodingKey {
+        case provenance
+        case bundle
+        case outputProvenance
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        self.init()
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        provenance = try container.decode(String.self, forKey: .provenance)
+        bundle = try container.decode(String.self, forKey: .bundle)
+        outputProvenance = try container.decodeIfPresent(
+            String.self,
+            forKey: .outputProvenance
+        )
+    }
 
     func validate() throws {
         if provenance.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -125,7 +152,10 @@ struct GenotypeReplayManualHaplotypeAssignmentsSubcommand:
         )
         defer { publicationLock.release() }
 
-        let manifestData = try Data(contentsOf: manifestURL)
+        try publicationPreparationHook?()
+        try validateOutputAvailability(outputProvenanceURL)
+        let manifestData = try ONTGenotypeResultBundle
+            .readManifestDataNoFollow(from: bundleURL)
         let priorSnapshot =
             try ONTGenotypeResultBundleData.loadAnnotationSidecarSnapshot(
                 forBundleAt: bundleURL
@@ -185,11 +215,15 @@ struct GenotypeReplayManualHaplotypeAssignmentsSubcommand:
                 url: annotationURL,
                 role: .output
             )
-            let explicitOptions: [String: ParameterValue] = [
+            var explicitOptions: [String: ParameterValue] = [
                 "provenance": .file(sourceProvenanceURL),
                 "bundle": .file(bundleURL),
-                "outputProvenance": .file(outputProvenanceURL),
             ]
+            if outputProvenance != nil {
+                explicitOptions["outputProvenance"] = .file(
+                    outputProvenanceURL
+                )
+            }
             let defaultOptions: [String: ParameterValue] = [
                 "outputProvenance": .file(defaultOutputProvenanceURL),
                 "replayFormat": .string(
@@ -278,10 +312,14 @@ struct GenotypeReplayManualHaplotypeAssignmentsSubcommand:
                 exitStatus: 0,
                 stderr: ""
             )
-            try ProvenanceWriter().write(
-                envelope,
-                toSidecar: outputProvenanceURL
-            )
+            if let provenancePublisher {
+                try provenancePublisher(envelope, outputProvenanceURL)
+            } else {
+                try ProvenanceWriter().write(
+                    envelope,
+                    toSidecar: outputProvenanceURL
+                )
+            }
         } catch {
             try throwAfterProvenancePublicationFailure(error) {
                 try publicationSnapshot.restore()
@@ -297,24 +335,48 @@ struct GenotypeReplayManualHaplotypeAssignmentsSubcommand:
             ONTGenotypeResultBundleData.annotationSidecarURL(
                 forBundleAt: bundleURL
             ).standardizedFileURL
+        let manifestURL = bundleURL.appendingPathComponent(
+            ONTGenotypeResultBundleManifest.filename
+        ).standardizedFileURL
+        let lockURL = ONTGenotypeBundlePublicationLock.lockURL(
+            for: bundleURL
+        ).standardizedFileURL
         let outputProvenanceURL =
             outputProvenance.map {
                 URL(fileURLWithPath: $0).standardizedFileURL
             } ?? GenotypeManualHaplotypeAssignmentReplayPayload
                 .replayOutputProvenanceURL(forBundleAt: bundleURL)
                 .standardizedFileURL
-        let protectedSourceArtifacts =
-            ProvenancePublicationArtifacts.sidecarArtifacts(
+        let protectedArtifacts = [
+            lockURL,
+            manifestURL,
+        ]
+            + ProvenancePublicationArtifacts.sidecarArtifacts(
                 for: sourceProvenanceURL
             )
+            + ProvenancePublicationArtifacts.fileSidecarArtifacts(
+                for: manifestURL
+            )
+            + ProvenancePublicationArtifacts.fileSidecarArtifacts(
+                for: annotationURL
+            )
+        var protectedPaths = Set<String>()
+        for url in protectedArtifacts {
+            let path = url.standardizedFileURL.path
+            guard protectedPaths.insert(path).inserted else {
+                throw GenotypeReplayManualHaplotypeAssignmentsError
+                    .pathCollision(path)
+            }
+        }
         let writableArtifacts = [annotationURL]
             + ProvenancePublicationArtifacts.sidecarArtifacts(
                 for: outputProvenanceURL
             )
-        var seen = Set<String>()
-        for url in protectedSourceArtifacts + writableArtifacts {
+        var seenWritablePaths = Set<String>()
+        for url in writableArtifacts {
             let path = url.standardizedFileURL.path
-            guard seen.insert(path).inserted else {
+            guard seenWritablePaths.insert(path).inserted,
+                  !protectedPaths.contains(path) else {
                 throw GenotypeReplayManualHaplotypeAssignmentsError
                     .pathCollision(path)
             }
