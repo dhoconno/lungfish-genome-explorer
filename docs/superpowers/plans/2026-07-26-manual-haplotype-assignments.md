@@ -398,27 +398,27 @@ git commit -m "feat: show manual haplotypes beneath sample headers"
 - Test: `Tests/LungfishWorkflowTests/GenotypeWorkbookRevisionServiceTests.swift`
 - Test: `Tests/LungfishGenotypeUITests/GenotypeResultViewportTests.swift`
 
-- [ ] **Step 1: Write failing genotype-only snapshot and workbook tests**
+- [x] **Step 1: Write failing genotype-only snapshot and workbook tests**
 
 Assert ONT and miSeq results without active haplotype analysis emit all seven loci/two slots, cleared values are explicit blanks, DRB is included, formula-leading labels are literal, sidecar revision/hash is provenance input, and haplotyped behavior is unchanged.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `swift test --filter 'GenotypeResultViewportTests/testCurrentWorkbookSnapshotIncludesGenotypeOnlyManualAssignments|GenotypeWorkbookRevisionServiceTests/test.*ManualHaplotype'`
 
 Expected: snapshot is empty because `activeHaplotypeAnalysis()` is nil.
 
-- [ ] **Step 3: Build the snapshot from the canonical manual index**
+- [x] **Step 3: Build the snapshot from the canonical manual index**
 
 When eligibility is true, enumerate authoritative samples × canonical loci and emit both slots, including blanks. Serialize the canonical workbook mapping to the openpyxl updater; write values as literal strings. Continue using analyzed effective calls for ineligible/haplotyped results.
 
-- [ ] **Step 4: Run tests and verify GREEN**
+- [x] **Step 4: Run tests and verify GREEN**
 
 Run: `swift test --filter 'FullLengthONTMHCWorkbookProjectionTests|GenotypeWorkbookRevisionServiceTests|GenotypeResultViewportTests/testCurrentWorkbook'`
 
 Expected: all selected tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/LungfishGenotypeUI/GenotypeResultViewController.swift Sources/LungfishWorkflow/ONTGenotyping Tests
