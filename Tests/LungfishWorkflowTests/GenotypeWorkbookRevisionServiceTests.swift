@@ -2661,6 +2661,84 @@ print(wb[wb.sheetnames[0]]["Z94"].value or "")
         )
     }
 
+    func testCleanupAttestationRehydrationRejectsMissingOriginalMarker()
+        throws
+    {
+        let paused = try pausedBeforeCleanupAttestation(
+            outputName: "cleanup-attestation-missing-original-marker"
+        )
+        defer {
+            paused.lock.release()
+            try? FileManager.default.removeItem(at: paused.root)
+        }
+        let stateBefore = try Data(contentsOf: paused.stateURL)
+        let attestationBefore = try Data(
+            contentsOf: paused.transactionAttestationURL
+        )
+        try FileManager.default.removeItem(at: paused.markerURL)
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: paused.fixture.bundleURL,
+                attestationRootURL: paused.attestationRoot
+            )
+        )
+
+        XCTAssertEqual(try? Data(contentsOf: paused.stateURL), stateBefore)
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: paused.quarantine.path)
+        )
+        XCTAssertEqual(
+            try? Data(contentsOf: paused.transactionAttestationURL),
+            attestationBefore
+        )
+        XCTAssertFalse(
+            try workbookRecoveryReceiptActions(in: paused.root).contains(
+                "workbook-cleanup-authorized"
+            )
+        )
+    }
+
+    func testCleanupAttestationRehydrationRejectsMalformedOriginalMarker()
+        throws
+    {
+        let paused = try pausedBeforeCleanupAttestation(
+            outputName: "cleanup-attestation-malformed-original-marker"
+        )
+        defer {
+            paused.lock.release()
+            try? FileManager.default.removeItem(at: paused.root)
+        }
+        let stateBefore = try Data(contentsOf: paused.stateURL)
+        let attestationBefore = try Data(
+            contentsOf: paused.transactionAttestationURL
+        )
+        let malformedMarker = Data(#"{"transactionID":"truncated""#.utf8)
+        try malformedMarker.write(to: paused.markerURL, options: .atomic)
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: paused.fixture.bundleURL,
+                attestationRootURL: paused.attestationRoot
+            )
+        )
+
+        XCTAssertEqual(try? Data(contentsOf: paused.markerURL), malformedMarker)
+        XCTAssertEqual(try? Data(contentsOf: paused.stateURL), stateBefore)
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: paused.quarantine.path)
+        )
+        XCTAssertEqual(
+            try? Data(contentsOf: paused.transactionAttestationURL),
+            attestationBefore
+        )
+        XCTAssertFalse(
+            try workbookRecoveryReceiptActions(in: paused.root).contains(
+                "workbook-cleanup-authorized"
+            )
+        )
+    }
+
     func testPostReceiptCleanupStateRejectsEveryForgedDerivedAuthority() throws {
         let paused = try pausedCommittedWorkbookCleanup(
             outputName: "cleanup-state-derived-authority-tamper"
@@ -7516,6 +7594,102 @@ wb.save(path)
                     ).path
                 ))
                 return (root, fixture, attestationRoot, quarantine, lock)
+            } catch {
+                lock.release()
+                throw error
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: root)
+            throw error
+        }
+    }
+
+    private func pausedBeforeCleanupAttestation(
+        outputName: String
+    ) throws -> (
+        root: URL,
+        fixture: (bundleURL: URL, manifest: ONTGenotypeResultBundleManifest),
+        attestationRoot: URL,
+        stateURL: URL,
+        quarantine: URL,
+        markerURL: URL,
+        transactionAttestationURL: URL,
+        lock: ONTGenotypeBundlePublicationLock
+    ) {
+        let root = try temporaryDirectory()
+        do {
+            let fixture = try makeMCMWorkbookBundle(
+                in: root,
+                outputName: outputName
+            )
+            let attestationRoot = root.appendingPathComponent(
+                "attestations",
+                isDirectory: true
+            )
+            try interruptCommittedWorkbookCleanup(
+                fixture: fixture,
+                attestationRoot: attestationRoot
+            )
+            let lock = try ONTGenotypeBundlePublicationLock.acquire(
+                for: fixture.bundleURL,
+                blocking: true,
+                createIfMissing: false
+            )
+            do {
+                XCTAssertThrowsError(
+                    try ONTGenotypeWorkbookUpdateRecovery
+                        .recoverIfNeededAssumingLock(
+                            for: fixture.bundleURL,
+                            attestationRootURL: attestationRoot,
+                            cleanupFailureInjector: { checkpoint in
+                                guard checkpoint
+                                    == "after-workbook-cleanup-state-write-before-attestation-hard-stop" else {
+                                    return
+                                }
+                                throw NSError(
+                                    domain:
+                                        "InjectedCleanupAttestationPublicationCrash",
+                                    code: 9
+                                )
+                            }
+                        )
+                )
+                let stateURL = try workbookCleanupStateURL(in: root)
+                let quarantine = try XCTUnwrap(
+                    try workbookCleanupArtifacts(in: root).first {
+                        $0.lastPathComponent.hasPrefix(
+                            ".lungfish-workbook-cleanup-pending-"
+                        )
+                    }
+                )
+                let markerURL = ONTGenotypeWorkbookUpdateRecovery.markerURL(
+                    for: fixture.bundleURL
+                )
+                let attestations = try FileManager.default
+                    .contentsOfDirectory(
+                        at: attestationRoot,
+                        includingPropertiesForKeys: nil
+                    )
+                    .filter {
+                        $0.pathExtension == "json"
+                            && !$0.lastPathComponent.hasSuffix(
+                                ".workbook-cleanup.json"
+                            )
+                    }
+                let transactionAttestationURL = try XCTUnwrap(
+                    attestations.first
+                )
+                XCTAssertEqual(attestations.count, 1)
+                return (
+                    root,
+                    fixture,
+                    attestationRoot,
+                    stateURL,
+                    quarantine,
+                    markerURL,
+                    transactionAttestationURL,
+                    lock
+                )
             } catch {
                 lock.release()
                 throw error

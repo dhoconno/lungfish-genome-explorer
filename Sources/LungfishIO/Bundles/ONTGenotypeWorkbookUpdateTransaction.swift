@@ -2247,20 +2247,11 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         // the cleanup state became durable but before its detached attestation
         // was published. The original marker + detached transaction
         // attestation remain the sole authority for that reconstruction.
-        let authority = try loadRecoveryAuthority(
+        let authority = try loadCleanupAttestationRehydrationAuthority(
+            state: state,
             for: bundleURL,
             attestationRootURL: attestationRootURL
         )
-        guard authority.transaction == state.transaction,
-              ONTGenotypeWorkbookCleanupStateStore
-                .transactionSemanticsMatch(
-                    authority.transaction,
-                    state.transaction
-                ) else {
-            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
-                "Workbook cleanup state does not exactly match the authenticated recovery authority."
-            )
-        }
 
         let stateBefore = try readFileWithWitness(stateURL)
         let decoder = JSONDecoder()
@@ -2314,6 +2305,88 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             attestationRootURL: attestationRootURL
         )
         return (requiredAttestation, authority)
+    }
+
+    private static func loadCleanupAttestationRehydrationAuthority(
+        state: ONTGenotypeWorkbookCleanupState,
+        for bundleURL: URL,
+        attestationRootURL: URL?
+    ) throws -> RecoveryAuthority {
+        do {
+            let markerURLs = try discoveredMarkerURLs(for: bundleURL)
+            guard markerURLs.count == 1,
+                  let observedMarkerURL = markerURLs.first else {
+                throw ONTGenotypeWorkbookUpdateRecoveryError
+                    .ambiguousTransaction(
+                        "Cleanup attestation reconstruction requires exactly one original workbook transaction marker."
+                    )
+            }
+            let markerRead = try readFileWithWitness(observedMarkerURL)
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            guard let transaction = try? decoder.decode(
+                ONTGenotypeWorkbookUpdateTransaction.self,
+                from: markerRead.0
+            ) else {
+                throw ONTGenotypeWorkbookUpdateRecoveryError
+                    .ambiguousTransaction(
+                        "The original workbook transaction marker is malformed; cleanup attestation reconstruction was refused."
+                    )
+            }
+            try validate(transaction, for: bundleURL)
+            let expectedMarkerURL = markerURL(
+                for: transaction,
+                bundleURL: bundleURL
+            )
+            guard observedMarkerURL.standardizedFileURL
+                    == expectedMarkerURL.standardizedFileURL,
+                  transaction == state.transaction,
+                  ONTGenotypeWorkbookCleanupStateStore
+                    .transactionSemanticsMatch(
+                        transaction,
+                        state.transaction
+                    ) else {
+                throw ONTGenotypeWorkbookUpdateRecoveryError
+                    .ambiguousTransaction(
+                        "The original workbook transaction marker does not exactly match the durable cleanup state."
+                    )
+            }
+
+            let exactAttestationWitness = try requireAttestationRecord(
+                transaction,
+                attestationRootURL: attestationRootURL
+            )
+            let candidates = try matchingAttestationCandidates(
+                for: bundleURL,
+                attestationRootURL: attestationRootURL
+            )
+            guard candidates.count == 1,
+                  let candidate = candidates.first,
+                  candidate.transaction == transaction,
+                  candidate.witness == exactAttestationWitness else {
+                throw ONTGenotypeWorkbookUpdateRecoveryError
+                    .ambiguousTransaction(
+                        "The original workbook transaction marker is not paired with exactly one matching detached attestation."
+                    )
+            }
+            return RecoveryAuthority(
+                transaction: transaction,
+                markerURL: observedMarkerURL,
+                markerWitness: markerRead.1,
+                attestationWitness: exactAttestationWitness
+            )
+        } catch let error as ONTGenotypeWorkbookUpdateRecoveryError {
+            if case .ambiguousTransaction = error { throw error }
+            throw ONTGenotypeWorkbookUpdateRecoveryError
+                .ambiguousTransaction(
+                    "The original workbook transaction pair could not authorize cleanup attestation reconstruction; no recovery action was taken. \(error.localizedDescription)"
+                )
+        } catch {
+            throw ONTGenotypeWorkbookUpdateRecoveryError
+                .ambiguousTransaction(
+                    "The original workbook transaction pair could not authorize cleanup attestation reconstruction; no recovery action was taken."
+                )
+        }
     }
 
     private static func retireCleanupAttestation(
