@@ -27,6 +27,7 @@ public final class GenotypeManualHaplotypeDraftCoordinator {
     }
 
     private let hasUnsavedChanges: @MainActor () -> Bool
+    private let currentDraftRevisionToken: @MainActor () -> UUID?
     private let save: @MainActor () async -> Bool
     private let prepareSave: @MainActor () async -> Bool
     private let finalizePreparedSave: @MainActor () -> Void
@@ -46,25 +47,30 @@ public final class GenotypeManualHaplotypeDraftCoordinator {
     public struct Resolution: Equatable, Sendable {
         public let decision: GenotypeManualHaplotypeDraftDecision?
         public let transition: Transition?
+        fileprivate let draftRevisionToken: UUID?
         fileprivate let generation: UInt64
 
         fileprivate init(
             decision: GenotypeManualHaplotypeDraftDecision?,
             transition: Transition?,
+            draftRevisionToken: UUID?,
             generation: UInt64
         ) {
             self.decision = decision
             self.transition = transition
+            self.draftRevisionToken = draftRevisionToken
             self.generation = generation
         }
     }
 
     public init(
         hasUnsavedChanges: @escaping @MainActor () -> Bool,
+        revisionToken: @escaping @MainActor () -> UUID? = { nil },
         save: @escaping @MainActor () async -> Bool,
         discard: @escaping @MainActor () async -> Bool
     ) {
         self.hasUnsavedChanges = hasUnsavedChanges
+        self.currentDraftRevisionToken = revisionToken
         self.save = save
         self.prepareSave = save
         self.finalizePreparedSave = {}
@@ -74,6 +80,7 @@ public final class GenotypeManualHaplotypeDraftCoordinator {
 
     public init(
         hasUnsavedChanges: @escaping @MainActor () -> Bool,
+        revisionToken: @escaping @MainActor () -> UUID? = { nil },
         save: @escaping @MainActor () async -> Bool,
         prepareSave: @escaping @MainActor () async -> Bool,
         finalizePreparedSave: @escaping @MainActor () -> Void,
@@ -81,6 +88,7 @@ public final class GenotypeManualHaplotypeDraftCoordinator {
         discard: @escaping @MainActor () async -> Bool
     ) {
         self.hasUnsavedChanges = hasUnsavedChanges
+        self.currentDraftRevisionToken = revisionToken
         self.save = save
         self.prepareSave = prepareSave
         self.finalizePreparedSave = finalizePreparedSave
@@ -96,6 +104,10 @@ public final class GenotypeManualHaplotypeDraftCoordinator {
 
     public var hasUnsavedDraft: Bool {
         hasUnsavedChanges()
+    }
+
+    public func isCurrent(_ resolution: Resolution) -> Bool {
+        resolution.draftRevisionToken == currentDraftRevisionToken()
     }
 
     public func prepare(
@@ -116,20 +128,30 @@ public final class GenotypeManualHaplotypeDraftCoordinator {
             async -> GenotypeManualHaplotypeDraftDecision
     ) async -> Resolution {
         if let outstandingResolution {
-            guard outstandingResolution.transition == transition else {
+            if !isCurrent(outstandingResolution) {
+                if preparedSaveGeneration
+                    == outstandingResolution.generation {
+                    cancelPreparedSave()
+                    preparedSaveGeneration = nil
+                }
+                self.outstandingResolution = nil
+            } else if outstandingResolution.transition != transition {
                 return Resolution(
                     decision: .cancel,
                     transition: transition,
+                    draftRevisionToken: currentDraftRevisionToken(),
                     generation: 0
                 )
+            } else {
+                return outstandingResolution
             }
-            return outstandingResolution
         }
         if let pendingDecision {
             guard pendingDecisionTransition == transition else {
                 return Resolution(
                     decision: .cancel,
                     transition: transition,
+                    draftRevisionToken: currentDraftRevisionToken(),
                     generation: 0
                 )
             }
@@ -140,16 +162,19 @@ public final class GenotypeManualHaplotypeDraftCoordinator {
             return Resolution(
                 decision: nil,
                 transition: transition,
+                draftRevisionToken: currentDraftRevisionToken(),
                 generation: 0
             )
         }
 
         resolutionGeneration &+= 1
         let generation = resolutionGeneration
+        let draftRevisionToken = currentDraftRevisionToken()
         let task = Task { @MainActor in
             Resolution(
                 decision: await decision(),
                 transition: transition,
+                draftRevisionToken: draftRevisionToken,
                 generation: generation
             )
         }
@@ -167,6 +192,10 @@ public final class GenotypeManualHaplotypeDraftCoordinator {
     public func commit(_ resolution: Resolution) async -> Bool {
         guard let decision = resolution.decision else { return true }
         guard resolution.generation != 0 else {
+            return false
+        }
+        guard isCurrent(resolution) else {
+            abandon(resolution)
             return false
         }
         if let lastCommitted,
@@ -214,7 +243,8 @@ public final class GenotypeManualHaplotypeDraftCoordinator {
         guard resolution.decision != .cancel else { return false }
         guard resolution.decision != nil else { return true }
         guard resolution.generation != 0,
-              outstandingResolution == resolution else {
+              outstandingResolution == resolution,
+              isCurrent(resolution) else {
             return false
         }
         guard resolution.decision == .save else { return true }
@@ -222,6 +252,10 @@ public final class GenotypeManualHaplotypeDraftCoordinator {
             return true
         }
         guard await prepareSave() else { return false }
+        guard isCurrent(resolution) else {
+            cancelPreparedSave()
+            return false
+        }
         preparedSaveGeneration = resolution.generation
         return true
     }
@@ -231,7 +265,8 @@ public final class GenotypeManualHaplotypeDraftCoordinator {
     ) async -> Bool {
         guard let decision = resolution.decision else { return true }
         guard resolution.generation != 0,
-              outstandingResolution == resolution else {
+              outstandingResolution == resolution,
+              isCurrent(resolution) else {
             return false
         }
         let allowed: Bool

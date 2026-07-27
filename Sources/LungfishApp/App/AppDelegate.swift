@@ -579,7 +579,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 let allowed =
                     await self
                         .prepareForManualHaplotypeTermination(
-                            in: dirtyControllers
+                            controllers: { [weak self] in
+                                self?.mainWindowControllers ?? []
+                            }
                         )
                 self.manualHaplotypeTerminationTask = nil
                 if allowed {
@@ -591,72 +593,197 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     private func prepareForManualHaplotypeTermination(
-        in controllers: [MainWindowController]
+        controllers controllerSnapshot:
+            @escaping @MainActor () -> [MainWindowController]
     ) async -> Bool {
-        var resolutions: [
-            (
-                controller: MainWindowController,
-                resolution:
-                    MainWindowController
-                        .ManualHaplotypeTransitionResolution
-            )
-        ] = []
-        for controller in controllers
-        where controller.requiresManualHaplotypeTransitionCoordination {
-            let resolution =
-                await controller.resolveManualHaplotypeTransition(
-                    .appQuit
-                )
-            resolutions.append((controller, resolution))
-        }
-        guard !resolutions.contains(where: {
-            $0.resolution.isCancelled
-        }) else {
-            for item in resolutions {
+        typealias PendingResolution = (
+            controller: MainWindowController,
+            resolution:
+                MainWindowController
+                    .ManualHaplotypeTransitionResolution
+        )
+        var resolutions: [ObjectIdentifier: PendingResolution] = [:]
+
+        func cancelAllResolutions() {
+            for item in resolutions.values {
                 item.controller.cancelManualHaplotypeTransitionCommit(
                     item.resolution
                 )
             }
-            return false
+            resolutions.removeAll()
         }
 
-        let saves = resolutions.filter {
-            $0.resolution.decision == .save
-        }
-        let discards = resolutions.filter {
-            $0.resolution.decision == .discard
-        }
-        for item in saves {
-            guard await item.controller
-                .prepareManualHaplotypeTransitionCommit(
-                    item.resolution
-                ) else {
-                for pending in resolutions {
-                    pending.controller
-                        .cancelManualHaplotypeTransitionCommit(
-                            pending.resolution
-                        )
+        func pruneInvalidResolutions(
+            currentControllerIDs: Set<ObjectIdentifier>
+        ) {
+            let invalid = resolutions.compactMap {
+                identifier, item -> ObjectIdentifier? in
+                guard currentControllerIDs.contains(identifier),
+                      item.controller
+                        .isManualHaplotypeTransitionResolutionCurrent(
+                            item.resolution
+                        ) else {
+                    return identifier
                 }
-                return false
+                return nil
             }
-        }
-        for item in saves {
-            guard await item.controller
-                .finalizeManualHaplotypeTransitionCommit(
-                    item.resolution
+            for identifier in invalid {
+                guard let item = resolutions.removeValue(
+                    forKey: identifier
                 ) else {
-                return false
-            }
-        }
-        for item in discards {
-            guard await item.controller
-                .finalizeManualHaplotypeTransitionCommit(
+                    continue
+                }
+                item.controller.cancelManualHaplotypeTransitionCommit(
                     item.resolution
-                ) else {
-                return false
+                )
             }
         }
-        return true
+
+        func hasStableSnapshot(
+            _ controllers: [MainWindowController]
+        ) -> Bool {
+            let currentControllers = controllerSnapshot()
+            guard Set(currentControllers.map(ObjectIdentifier.init))
+                == Set(controllers.map(ObjectIdentifier.init)) else {
+                return false
+            }
+            for controller in currentControllers {
+                let identifier = ObjectIdentifier(controller)
+                if controller.requiresManualHaplotypeTransitionCoordination,
+                   resolutions[identifier] == nil {
+                    return false
+                }
+            }
+            return resolutions.values.allSatisfy {
+                $0.controller
+                    .isManualHaplotypeTransitionResolutionCurrent(
+                        $0.resolution
+                    )
+            }
+        }
+
+        // A continuously mutating draft must veto termination rather than
+        // spin forever or commit a stale decision.
+        let maximumResolutionPasses = 32
+        for _ in 0..<maximumResolutionPasses {
+            let controllers = controllerSnapshot()
+            let controllerIDs = Set(
+                controllers.map(ObjectIdentifier.init)
+            )
+            pruneInvalidResolutions(
+                currentControllerIDs: controllerIDs
+            )
+
+            var sawCancellation = false
+            for controller in controllers {
+                let identifier = ObjectIdentifier(controller)
+                guard controller
+                    .requiresManualHaplotypeTransitionCoordination,
+                      resolutions[identifier] == nil else {
+                    continue
+                }
+                let resolution =
+                    await controller.resolveManualHaplotypeTransition(
+                        .appQuit
+                    )
+                if resolution.isCancelled {
+                    controller.cancelManualHaplotypeTransitionCommit(
+                        resolution
+                    )
+                    sawCancellation = true
+                    continue
+                }
+                resolutions[identifier] = (controller, resolution)
+            }
+            if sawCancellation {
+                cancelAllResolutions()
+                return false
+            }
+
+            guard hasStableSnapshot(controllers) else {
+                pruneInvalidResolutions(
+                    currentControllerIDs: Set(
+                        controllerSnapshot().map(
+                            ObjectIdentifier.init
+                        )
+                    )
+                )
+                await Task.yield()
+                continue
+            }
+            guard !resolutions.isEmpty else {
+                return true
+            }
+
+            let ordered = controllers.compactMap {
+                resolutions[ObjectIdentifier($0)]
+            }
+            let saves = ordered.filter {
+                $0.resolution.decision == .save
+            }
+            let discards = ordered.filter {
+                $0.resolution.decision == .discard
+            }
+            var savePreflightFailed = false
+            var draftChangedDuringSavePreflight = false
+            for item in saves {
+                guard item.controller
+                    .isManualHaplotypeTransitionResolutionCurrent(
+                        item.resolution
+                    ) else {
+                    draftChangedDuringSavePreflight = true
+                    break
+                }
+                let prepared = await item.controller
+                    .prepareManualHaplotypeTransitionCommit(
+                        item.resolution
+                    )
+                guard item.controller
+                    .isManualHaplotypeTransitionResolutionCurrent(
+                        item.resolution
+                    ) else {
+                    draftChangedDuringSavePreflight = true
+                    break
+                }
+                guard prepared else {
+                    savePreflightFailed = true
+                    break
+                }
+            }
+            if draftChangedDuringSavePreflight {
+                cancelAllResolutions()
+                await Task.yield()
+                continue
+            }
+            if savePreflightFailed {
+                cancelAllResolutions()
+                return false
+            }
+
+            guard hasStableSnapshot(controllerSnapshot()) else {
+                cancelAllResolutions()
+                await Task.yield()
+                continue
+            }
+
+            for item in saves + discards {
+                guard item.controller
+                    .isManualHaplotypeTransitionResolutionCurrent(
+                        item.resolution
+                    ),
+                      await item.controller
+                        .finalizeManualHaplotypeTransitionCommit(
+                            item.resolution
+                        ) else {
+                    cancelAllResolutions()
+                    return false
+                }
+                resolutions[ObjectIdentifier(item.controller)] = nil
+            }
+            return true
+        }
+        cancelAllResolutions()
+        return false
     }
 
     public func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -1209,7 +1336,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         in controllers: [MainWindowController]
     ) async -> Bool {
         await prepareForManualHaplotypeTermination(
-            in: controllers
+            controllers: { controllers }
         )
     }
 

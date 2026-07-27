@@ -98,6 +98,24 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
         )
     }
 
+    func testDraftRevisionTokenChangesOnlyWhenDraftContentChanges() {
+        let model = makeModel(sample: "Animal-1")
+        let initial = model.draftRevisionToken
+
+        model.updateCopySearch("other sample")
+        XCTAssertEqual(model.draftRevisionToken, initial)
+
+        model.updateLabel("M2", locus: .a, slot: .h1)
+        let edited = model.draftRevisionToken
+        XCTAssertNotEqual(edited, initial)
+
+        model.updateLabel("M2", locus: .a, slot: .h1)
+        XCTAssertEqual(model.draftRevisionToken, edited)
+
+        model.clear(locus: .a, slot: .h1)
+        XCTAssertNotEqual(model.draftRevisionToken, edited)
+    }
+
     func testCopyPickerSearchesOtherSamplesAndReportsCompleteness() {
         let assignments = [
             assignment(

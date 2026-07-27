@@ -215,6 +215,41 @@ final class GenotypeManualHaplotypeTransitionTests: XCTestCase {
         XCTAssertEqual(discardCount, 1)
     }
 
+    func testTransactionalCommitRejectsChangedDraftRevision() async {
+        var isDirty = true
+        var revision = UUID()
+        var discardCount = 0
+        let coordinator = GenotypeManualHaplotypeDraftCoordinator(
+            hasUnsavedChanges: { isDirty },
+            revisionToken: { revision },
+            save: {
+                isDirty = false
+                return true
+            },
+            discard: {
+                discardCount += 1
+                isDirty = false
+                return true
+            }
+        )
+        let resolution = await coordinator.resolve(for: .appQuit) {
+            .discard
+        }
+
+        revision = UUID()
+
+        let prepared = await coordinator.prepareTransactionalCommit(
+            resolution
+        )
+        let finalized = await coordinator.finalizeTransactionalCommit(
+            resolution
+        )
+        XCTAssertFalse(prepared)
+        XCTAssertFalse(finalized)
+        XCTAssertEqual(discardCount, 0)
+        XCTAssertTrue(isDirty)
+    }
+
     func testRepeatedWindowCloseRequestsShareOnePromptAndCancelKeepsWindowOpen()
         async throws
     {
@@ -515,6 +550,177 @@ final class GenotypeManualHaplotypeTransitionTests: XCTestCase {
                 XCTAssertLessThan(lastSave, firstDiscard)
             }
         }
+    }
+
+    func testAppQuitRepromptsChangedDiscardWhileLaterSheetIsOpen()
+        async
+    {
+        let first = MainWindowController()
+        let second = MainWindowController()
+        var firstDraft = "first-original"
+        var firstRevision = UUID()
+        var firstPromptCount = 0
+        var finalized: [String] = []
+        let secondGate = AsyncManualHaplotypeDecisionGate()
+        first.testingSetManualHaplotypeTransactionalTransitionState(
+            hasUnsavedDraft: { true },
+            revision: { firstRevision },
+            decide: { _ in
+                firstPromptCount += 1
+                return firstPromptCount == 1 ? .discard : .cancel
+            },
+            commit: { decision in
+                finalized.append("first-\(decision)")
+                firstDraft = "discarded"
+                return true
+            }
+        )
+        second.testingSetManualHaplotypeTransactionalTransitionState(
+            hasUnsavedDraft: { true },
+            revision: { UUID(uuidString: "00000000-0000-0000-0000-000000000002") },
+            decide: { _ in await secondGate.wait() },
+            commit: { decision in
+                finalized.append("second-\(decision)")
+                return true
+            }
+        )
+
+        let termination = Task { @MainActor in
+            await AppDelegate()
+                .testingPrepareForManualHaplotypeTermination(
+                    in: [first, second]
+                )
+        }
+        await secondGate.waitUntilPending()
+        firstDraft = "edited-after-discard"
+        firstRevision = UUID()
+        await secondGate.resume(with: .discard)
+
+        let allowed = await termination.value
+        XCTAssertFalse(allowed)
+        XCTAssertEqual(firstPromptCount, 2)
+        XCTAssertEqual(firstDraft, "edited-after-discard")
+        XCTAssertTrue(finalized.isEmpty)
+    }
+
+    func testAppQuitIncludesWindowThatBecomesDirtyWhileAnotherSheetIsOpen()
+        async
+    {
+        let first = MainWindowController()
+        let second = MainWindowController()
+        var firstDirty = true
+        var secondDirty = false
+        var secondRevision = UUID()
+        var secondPromptCount = 0
+        let firstGate = AsyncManualHaplotypeDecisionGate()
+        first.testingSetManualHaplotypeTransactionalTransitionState(
+            hasUnsavedDraft: { firstDirty },
+            revision: { UUID(uuidString: "00000000-0000-0000-0000-000000000001") },
+            decide: { _ in await firstGate.wait() },
+            commit: { _ in
+                firstDirty = false
+                return true
+            }
+        )
+        second.testingSetManualHaplotypeTransactionalTransitionState(
+            hasUnsavedDraft: { secondDirty },
+            revision: { secondRevision },
+            decide: { _ in
+                secondPromptCount += 1
+                return .discard
+            },
+            commit: { _ in
+                secondDirty = false
+                return true
+            }
+        )
+
+        let termination = Task { @MainActor in
+            await AppDelegate()
+                .testingPrepareForManualHaplotypeTermination(
+                    in: [first, second]
+                )
+        }
+        await firstGate.waitUntilPending()
+        secondDirty = true
+        secondRevision = UUID()
+        await firstGate.resume(with: .discard)
+
+        let allowed = await termination.value
+        XCTAssertTrue(allowed)
+        XCTAssertEqual(secondPromptCount, 1)
+        XCTAssertFalse(firstDirty)
+        XCTAssertFalse(secondDirty)
+    }
+
+    func testAppQuitRepromptsDraftChangedDuringSavePreflight() async {
+        let controller = MainWindowController()
+        var revision = UUID()
+        var promptCount = 0
+        var commitCount = 0
+        let preflightGate = AsyncManualHaplotypeDecisionGate()
+        controller.testingSetManualHaplotypeTransactionalTransitionState(
+            hasUnsavedDraft: { true },
+            revision: { revision },
+            decide: { _ in
+                promptCount += 1
+                return promptCount == 1 ? .save : .cancel
+            },
+            prepare: { _ in
+                await preflightGate.wait() != .cancel
+            },
+            commit: { _ in
+                commitCount += 1
+                return true
+            }
+        )
+
+        let termination = Task { @MainActor in
+            await AppDelegate()
+                .testingPrepareForManualHaplotypeTermination(
+                    in: [controller]
+                )
+        }
+        await preflightGate.waitUntilPending()
+        revision = UUID()
+        await preflightGate.resume(with: .save)
+
+        let allowed = await termination.value
+        XCTAssertFalse(allowed)
+        XCTAssertEqual(promptCount, 2)
+        XCTAssertEqual(commitCount, 0)
+    }
+
+    func testAppQuitRevisionRetriesAreBoundedAndNeverCommitStaleDraft()
+        async
+    {
+        let controller = MainWindowController()
+        var revision = UUID()
+        var promptCount = 0
+        var commitCount = 0
+        controller.testingSetManualHaplotypeTransactionalTransitionState(
+            hasUnsavedDraft: { true },
+            revision: { revision },
+            decide: { _ in
+                promptCount += 1
+                revision = UUID()
+                return .discard
+            },
+            commit: { _ in
+                commitCount += 1
+                return true
+            }
+        )
+
+        let allowed = await AppDelegate()
+            .testingPrepareForManualHaplotypeTermination(
+                in: [controller]
+            )
+
+        XCTAssertFalse(allowed)
+        XCTAssertGreaterThan(promptCount, 1)
+        XCTAssertLessThanOrEqual(promptCount, 64)
+        XCTAssertEqual(commitCount, 0)
     }
 
     func testAppQuitAwaitsEveryDirtyWindowWhenFirstVetoesAndRepeatedRequestsStaySingleFlight()

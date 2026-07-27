@@ -187,6 +187,7 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
     private let onExport: () -> Void
     private let announcementPoster: any AccessibilityAnnouncementPosting
     private var preparedSavedDraft: GenotypeManualHaplotypeDraft?
+    private(set) var draftRevisionToken = UUID()
 
     private(set) var copyCandidatePresentationBuildCount: Int
     private(set) var copyFilterEvaluationCount = 1
@@ -380,6 +381,7 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
                 query: query,
                 candidateCount: reloadedSnapshot.copyCandidateCount
             )
+            let draftChanged = reloadedSnapshot.draft != draft
             editorState = EditorState(
                 snapshot: reloadedSnapshot,
                 filteredCopyCandidates:
@@ -387,6 +389,9 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
                         matching: query
                     )
             )
+            if draftChanged {
+                draftRevisionToken = UUID()
+            }
             persistenceErrorMessage = nil
             announcementPoster.post(
                 "Reloaded haplotype assignments for \(draft.sample).",
@@ -501,10 +506,12 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
     }
 
     private func replaceDraft(_ draft: GenotypeManualHaplotypeDraft) {
+        guard draft != self.draft else { return }
         editorState = EditorState(
             snapshot: snapshot.replacingDraft(draft),
             filteredCopyCandidates: filteredCopyCandidates
         )
+        draftRevisionToken = UUID()
     }
 
     private func recordFilterEvaluation(

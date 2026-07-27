@@ -270,6 +270,9 @@ public final class GenotypeResultViewController: NSViewController {
             hasUnsavedChanges: { [weak self] in
                 self?.manualHaplotypeEditorModel?.draft.isDirty == true
             },
+            revisionToken: { [weak self] in
+                self?.manualHaplotypeEditorModel?.draftRevisionToken
+            },
             save: { [weak self] in
                 guard let model = self?.manualHaplotypeEditorModel else {
                     return true
@@ -7068,6 +7071,12 @@ public final class GenotypeResultViewController: NSViewController {
     ) {
         manualHaplotypeDraftCoordinator
             .cancelTransactionalCommit(resolution)
+    }
+
+    public func isManualHaplotypeTransitionResolutionCurrent(
+        _ resolution: GenotypeManualHaplotypeDraftCoordinator.Resolution
+    ) -> Bool {
+        manualHaplotypeDraftCoordinator.isCurrent(resolution)
     }
 
     public func abandonManualHaplotypeTransition(
