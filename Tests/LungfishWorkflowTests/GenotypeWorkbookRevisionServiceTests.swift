@@ -1878,6 +1878,260 @@ wb.save(path)
         }
     }
 
+    func testWorkbookCleanupTraversalFailurePreservesEveryDecisionWinnerAndRetries()
+        throws
+    {
+        let cases = [
+            (
+                branch: "committed",
+                decision: "committed",
+                terminalAction: "finished-committed-cleanup"
+            ),
+            (
+                branch: "prepared-discard",
+                decision: "prepared-discard",
+                terminalAction: "finished-prepared-discard-cleanup"
+            ),
+            (
+                branch: "rollback",
+                decision: "rollback",
+                terminalAction: "finished-rollback-cleanup"
+            ),
+            (
+                branch: "manual-save-winner",
+                decision: "manual-save-winner",
+                terminalAction: "finished-manual-save-winner-cleanup"
+            ),
+        ]
+
+        for testCase in cases {
+            let root = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let fixture = try makeMCMWorkbookBundle(
+                in: root,
+                outputName: "cleanup-traversal-\(testCase.branch)"
+            )
+            let attestationRoot = root.appendingPathComponent(
+                "attestations",
+                isDirectory: true
+            )
+            let initialWorkbook = try ONTGenotypeResultBundle
+                .currentWorkbookURL(for: fixture.bundleURL)
+            let initialWorkbookSHA = try ProvenanceFileHasher.sha256(
+                of: initialWorkbook
+            )
+
+            try interruptWorkbookCleanup(
+                branch: testCase.branch,
+                fixture: fixture,
+                attestationRoot: attestationRoot
+            )
+
+            let lock = try ONTGenotypeBundlePublicationLock.acquire(
+                for: fixture.bundleURL,
+                blocking: true,
+                createIfMissing: false
+            )
+            defer { lock.release() }
+            XCTAssertThrowsError(
+                try ONTGenotypeWorkbookUpdateRecovery
+                    .recoverIfNeededAssumingLock(
+                        for: fixture.bundleURL,
+                        attestationRootURL: attestationRoot,
+                        cleanupFailureInjector: { checkpoint in
+                            guard checkpoint
+                                == "during-workbook-cleanup-traversal" else {
+                                return
+                            }
+                            throw NSError(
+                                domain:
+                                    "InjectedWorkbookCleanupTraversalMatrix",
+                                code: 5
+                            )
+                        }
+                    ),
+                testCase.branch
+            ) { error in
+                XCTAssertTrue(
+                    error.localizedDescription.contains("cleanup-pending"),
+                    "\(testCase.branch): \(error.localizedDescription)"
+                )
+                XCTAssertTrue(
+                    error.localizedDescription
+                        .localizedCaseInsensitiveContains("retry"),
+                    "\(testCase.branch): \(error.localizedDescription)"
+                )
+            }
+
+            let pendingArtifacts = try workbookCleanupArtifacts(in: root)
+            let quarantine = try XCTUnwrap(
+                pendingArtifacts.first {
+                    $0.lastPathComponent.hasPrefix(
+                        ".lungfish-workbook-cleanup-pending-"
+                    )
+                },
+                testCase.branch
+            )
+            let stateURL = try XCTUnwrap(
+                pendingArtifacts.first {
+                    $0.lastPathComponent.contains(
+                        ".workbook-cleanup-state-"
+                    )
+                },
+                testCase.branch
+            )
+            let warningURL = try XCTUnwrap(
+                pendingArtifacts.first {
+                    $0.lastPathComponent.contains(
+                        ".workbook-cleanup-warning-"
+                    )
+                },
+                testCase.branch
+            )
+            let warning = try XCTUnwrap(
+                try JSONSerialization.jsonObject(
+                    with: Data(contentsOf: warningURL)
+                ) as? [String: Any]
+            )
+            XCTAssertEqual(
+                warning["decision"] as? String,
+                testCase.decision,
+                testCase.branch
+            )
+            XCTAssertEqual(
+                warning["retryState"] as? String,
+                "cleanup-pending",
+                testCase.branch
+            )
+            XCTAssertEqual(
+                (warning["quarantinePath"] as? String).map {
+                    URL(fileURLWithPath: $0).resolvingSymlinksInPath().path
+                },
+                quarantine.resolvingSymlinksInPath().path,
+                testCase.branch
+            )
+            XCTAssertEqual(
+                (warning["statePath"] as? String).map {
+                    URL(fileURLWithPath: $0).resolvingSymlinksInPath().path
+                },
+                stateURL.resolvingSymlinksInPath().path,
+                testCase.branch
+            )
+            XCTAssertFalse(
+                try FileManager.default.contentsOfDirectory(
+                    atPath: quarantine.path
+                ).isEmpty,
+                testCase.branch
+            )
+            XCTAssertFalse(
+                FileManager.default.fileExists(
+                    atPath: ONTGenotypeWorkbookUpdateRecovery.markerURL(
+                        for: fixture.bundleURL
+                    ).path
+                ),
+                testCase.branch
+            )
+            let pendingActions = try workbookRecoveryReceiptActions(in: root)
+            XCTAssertTrue(
+                pendingActions.contains("workbook-cleanup-authorized"),
+                testCase.branch
+            )
+            XCTAssertFalse(
+                pendingActions.contains(testCase.terminalAction),
+                testCase.branch
+            )
+
+            let survivingWorkbook = try ONTGenotypeResultBundle
+                .currentWorkbookURL(for: fixture.bundleURL)
+            let survivingWorkbookSHA = try ProvenanceFileHasher.sha256(
+                of: survivingWorkbook
+            )
+            switch testCase.branch {
+            case "committed":
+                XCTAssertNotEqual(
+                    survivingWorkbookSHA,
+                    initialWorkbookSHA,
+                    testCase.branch
+                )
+            case "prepared-discard", "rollback":
+                XCTAssertEqual(
+                    survivingWorkbookSHA,
+                    initialWorkbookSHA,
+                    testCase.branch
+                )
+            case "manual-save-winner":
+                XCTAssertEqual(
+                    try runPython([
+                        "-c",
+                        #"""
+import sys
+from openpyxl import load_workbook
+wb = load_workbook(sys.argv[1], data_only=False)
+print(wb[wb.sheetnames[0]]["Z94"].value or "")
+"""#,
+                        survivingWorkbook.path,
+                    ]).trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    ),
+                    "manual-cleanup-winner",
+                    testCase.branch
+                )
+            default:
+                XCTFail("Unhandled cleanup decision \(testCase.branch)")
+            }
+
+            try ONTGenotypeWorkbookUpdateRecovery
+                .recoverIfNeededAssumingLock(
+                    for: fixture.bundleURL,
+                    attestationRootURL: attestationRoot
+                )
+
+            XCTAssertNoThrow(
+                try ONTGenotypeResultBundle.loadResult(
+                    from: fixture.bundleURL
+                ),
+                testCase.branch
+            )
+            XCTAssertEqual(
+                try ProvenanceFileHasher.sha256(
+                    of: ONTGenotypeResultBundle.currentWorkbookURL(
+                        for: fixture.bundleURL
+                    )
+                ),
+                survivingWorkbookSHA,
+                testCase.branch
+            )
+            let completedArtifacts = try workbookCleanupArtifacts(in: root)
+            XCTAssertFalse(
+                completedArtifacts.contains {
+                    $0.lastPathComponent.hasPrefix(
+                        ".lungfish-workbook-cleanup-pending-"
+                    )
+                        || $0.lastPathComponent.contains(
+                            ".workbook-cleanup-state-"
+                        )
+                },
+                testCase.branch
+            )
+            XCTAssertEqual(
+                completedArtifacts.filter {
+                    $0.lastPathComponent.contains(
+                        ".workbook-cleanup-warning-"
+                    )
+                }.map(\.standardizedFileURL),
+                [warningURL.standardizedFileURL],
+                testCase.branch
+            )
+            XCTAssertTrue(
+                try workbookRecoveryReceiptActions(in: root).contains(
+                    testCase.terminalAction
+                ),
+                testCase.branch
+            )
+            try assertNoRetiredWorkbookGeneration(in: root)
+        }
+    }
+
     func testWorkbookCleanupTraversalFailureRecordsRetryWarning() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
