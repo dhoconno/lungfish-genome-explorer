@@ -601,35 +601,55 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                 error.localizedDescription.contains("Could not open the MHC reference record store"),
                 error.localizedDescription
             )
+            XCTAssertTrue(
+                error.localizedDescription.contains(reference.databaseURL.path),
+                error.localizedDescription
+            )
+            XCTAssertTrue(
+                error.localizedDescription.contains("failure-provenance input preparation"),
+                error.localizedDescription
+            )
         }
 
-        let envelope = try XCTUnwrap(
-            ProvenanceEnvelopeReader.load(fromSidecar: request.failureProvenanceURL)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: request.failureProvenanceURL.path),
+            "Missing required catalog inputs must not be omitted from a complete envelope."
+        )
+        let historyRoot = root.appendingPathComponent(
+            ProjectOperationHistoryWriter.historyDirectoryName,
+            isDirectory: true
+        )
+        let operations = try FileManager.default.contentsOfDirectory(
+            at: historyRoot,
+            includingPropertiesForKeys: nil
+        )
+        XCTAssertEqual(operations.count, 1)
+        let operation = try XCTUnwrap(operations.first)
+        let receipt = try XCTUnwrap(
+            try JSONSerialization.jsonObject(
+                with: Data(
+                    contentsOf: operation.appendingPathComponent(
+                        "failure-provenance-preparation-error.json"
+                    )
+                )
+            ) as? [String: Any]
+        )
+        XCTAssertEqual(receipt["inputPath"] as? String, reference.databaseURL.path)
+        XCTAssertTrue(
+            (receipt["originalError"] as? String ?? "").contains(
+                "Could not open the MHC reference record store"
+            )
         )
         XCTAssertTrue(
-            envelope.stderr?.contains("Could not open the MHC reference record store") == true,
-            envelope.stderr ?? "missing root stderr"
+            (receipt["preparationError"] as? String ?? "").contains(
+                reference.databaseURL.path
+            )
         )
-        let step = try XCTUnwrap(envelope.steps.first {
-            $0.toolName == "lungfish-in-process:extract-mhc-reference-visualizations"
-        })
         XCTAssertTrue(
-            step.stderr?.contains("Could not open the MHC reference record store") == true,
-            step.stderr ?? "missing extraction stderr"
+            FileManager.default.fileExists(
+                atPath: operation.appendingPathComponent("cleanup-disposition.json").path
+            )
         )
-        XCTAssertFalse(step.inputs.contains { $0.path == reference.databaseURL.path })
-        XCTAssertTrue(step.inputs.contains { $0.path == reference.fastaURL.path })
-        XCTAssertTrue(step.inputs.contains { $0.path == reference.fastaIndexURL.path })
-        XCTAssertTrue(step.inputs.contains { $0.path == reference.manifestURL.path })
-        XCTAssertFalse(step.argv.contains { $0.contains(".run-staging-") })
-        for input in step.inputs {
-            XCTAssertFalse(input.path.contains(".run-staging-"), input.path)
-            XCTAssertTrue(FileManager.default.fileExists(atPath: input.path), input.path)
-            let inputURL = URL(fileURLWithPath: input.path)
-            XCTAssertEqual(input.checksumSHA256, try ProvenanceFileHasher.sha256(of: inputURL))
-            XCTAssertEqual(input.fileSize, UInt64(try ProvenanceFileHasher.fileSize(of: inputURL)))
-        }
-        XCTAssertTrue(step.outputs.isEmpty)
         XCTAssertFalse(FileManager.default.fileExists(atPath: request.outputDirectory.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: request.manifestURL.path))
     }
@@ -3475,6 +3495,17 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             .integer(envelope.outputs.count)
         )
         XCTAssertTrue(envelope.files.allSatisfy { $0.checksumSHA256 != nil && $0.fileSize != nil })
+        for sourceURL in request.inputFASTQURLs + [request.referenceSourceURL] {
+            let source = try XCTUnwrap(
+                envelope.files.first {
+                    $0.path == sourceURL.standardizedFileURL.path
+                        && ($0.role == .input || $0.role == .reference)
+                },
+                "Missing strict source descriptor for \(sourceURL.path)"
+            )
+            XCTAssertNotNil(source.checksumSHA256)
+            XCTAssertNotNil(source.fileSize)
+        }
         for output in envelope.outputs {
             var information = stat()
             XCTAssertEqual(Darwin.lstat(output.path, &information), 0, output.path)
@@ -3489,6 +3520,107 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             ".\(request.outputDirectory.lastPathComponent).publication-failure.json"
         )
         XCTAssertFalse(FileManager.default.fileExists(atPath: legacyReceipt.path))
+    }
+
+    func testFailureProvenanceSourceDescriptorFailureWritesIncompleteReceiptAndCleansCurrentRunRoots() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "full-length-ont-mhc-failure-provenance-preparation-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sourceFASTQ = root.appendingPathComponent("DL46.fastq")
+        let (request, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            metadataPublicationObserver: { event in
+                guard case .provenanceFinalizedBeforeManifestPublication = event else {
+                    return
+                }
+                try FileManager.default.removeItem(at: sourceFASTQ)
+                throw NSError(
+                    domain: "injected-failure-provenance-preparation-boundary",
+                    code: 37,
+                    userInfo: [
+                        NSLocalizedDescriptionKey:
+                            "injected failure after deleting the scientific FASTQ source",
+                    ]
+                )
+            }
+        )
+
+        do {
+            _ = try await pipeline.run(request)
+            XCTFail("Expected final provenance boundary failure")
+        } catch {
+            XCTAssertTrue(
+                error.localizedDescription.contains(
+                    "injected failure after deleting the scientific FASTQ source"
+                ),
+                error.localizedDescription
+            )
+            XCTAssertTrue(
+                error.localizedDescription.contains(sourceFASTQ.path),
+                error.localizedDescription
+            )
+            XCTAssertTrue(
+                error.localizedDescription.contains("failure-provenance input preparation"),
+                error.localizedDescription
+            )
+        }
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: request.failureProvenanceURL.path),
+            "A source-descriptor failure must not publish a falsely complete provenance envelope."
+        )
+        let historyRoot = root.appendingPathComponent(
+            ProjectOperationHistoryWriter.historyDirectoryName,
+            isDirectory: true
+        )
+        let operations = try FileManager.default.contentsOfDirectory(
+            at: historyRoot,
+            includingPropertiesForKeys: nil
+        )
+        XCTAssertEqual(operations.count, 1)
+        let operation = try XCTUnwrap(operations.first)
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: operation.appendingPathComponent("failure-provenance.json").path
+            )
+        )
+        let preparationReceiptURL = operation.appendingPathComponent(
+            "failure-provenance-preparation-error.json"
+        )
+        let receipt = try XCTUnwrap(
+            try JSONSerialization.jsonObject(
+                with: Data(contentsOf: preparationReceiptURL)
+            ) as? [String: Any]
+        )
+        XCTAssertEqual(receipt["kind"] as? String, "incomplete-failure-provenance-preparation")
+        XCTAssertEqual(receipt["inputPath"] as? String, sourceFASTQ.path)
+        XCTAssertEqual(receipt["argv"] as? [String], request.argv)
+        XCTAssertFalse((receipt["reproducibleCommand"] as? String ?? "").isEmpty)
+        XCTAssertEqual(receipt["exitStatus"] as? Int, 1)
+        XCTAssertTrue(
+            (receipt["preparationError"] as? String ?? "").contains(sourceFASTQ.path)
+        )
+        XCTAssertTrue(
+            (receipt["originalError"] as? String ?? "").contains(
+                "injected failure after deleting the scientific FASTQ source"
+            )
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: operation.appendingPathComponent("cleanup-disposition.json").path
+            )
+        )
+        let siblingRoots = try FileManager.default.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: nil
+        ).filter {
+            $0.lastPathComponent.contains("cohort-alignment-work")
+                || $0.lastPathComponent.contains("candidate-artifact-work")
+        }
+        XCTAssertTrue(siblingRoots.isEmpty, "Current-run work roots must still be cleaned.")
     }
 
     func testPostPublicationCohortCleanupFailureStillRemovesWorkflowIntermediates() async throws {

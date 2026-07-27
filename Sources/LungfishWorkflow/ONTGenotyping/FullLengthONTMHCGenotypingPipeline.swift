@@ -417,6 +417,55 @@ private struct GenotypingWorkDirectoryDispositionEnvelope: Codable, Sendable {
     let entries: [GenotypingWorkDirectoryDisposition]
 }
 
+private struct FullLengthFailureProvenancePreparationError: Error, LocalizedError {
+    let inputPath: String
+    let operation: String
+    let underlyingDescription: String
+    let initiatingFailureDescription: String?
+
+    init(
+        inputURL: URL,
+        operation: String,
+        underlyingError: Error,
+        initiatingError: Error? = nil
+    ) {
+        self.inputPath = inputURL.standardizedFileURL.path
+        self.operation = operation
+        self.underlyingDescription = underlyingError.localizedDescription
+        self.initiatingFailureDescription = initiatingError?.localizedDescription
+    }
+
+    var errorDescription: String? {
+        let initiating = initiatingFailureDescription.map {
+            " after initiating failure (\($0))"
+        } ?? ""
+        return "failure-provenance input preparation failed for \(inputPath) while \(operation)\(initiating): \(underlyingDescription)"
+    }
+}
+
+private struct FullLengthFailureProvenancePreparationReceipt: Codable {
+    let schemaVersion: Int
+    let kind: String
+    let runID: UUID
+    let workflowName: String
+    let workflowVersion: String
+    let toolName: String
+    let toolVersion: String
+    let argv: [String]
+    let durableReplayArgv: [String]
+    let reproducibleCommand: String
+    let options: ProvenanceOptions
+    let runtimeIdentity: ProvenanceRuntimeIdentity
+    let inputPath: String
+    let preparationError: String
+    let originalError: String
+    let startedAt: Date
+    let completedAt: Date
+    let wallTimeSeconds: TimeInterval
+    let exitStatus: Int
+    let stderr: String
+}
+
 extension FullLengthONTMHCGenotypingResult {
     private enum CodingKeys: String, CodingKey {
         case outputDirectory
@@ -1224,6 +1273,49 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                     operationID: lifecycleRunID,
                     payloads: historyPayloads
                 )
+            } catch let preparationError as FullLengthFailureProvenancePreparationError {
+                let originalFailure = reportedError
+                reportedError = FullLengthONTMHCGenotypingError.reportFailed(
+                    "Run failed (\(originalFailure.localizedDescription)); \(preparationError.localizedDescription)."
+                )
+                do {
+                    let receiptData = try failureProvenancePreparationReceiptData(
+                        request: request,
+                        runID: lifecycleRunID,
+                        startedAt: runStartedAt,
+                        originalError: originalFailure,
+                        preparationError: preparationError,
+                        rollbackFailureRecovery: rollbackFailureRecovery
+                    )
+                    var historyPayloads = [
+                        "failure-provenance-preparation-error.json": receiptData,
+                    ]
+                    if let priorFailureEnvelopeData {
+                        historyPayloads["prior-failure-provenance.json"] =
+                            priorFailureEnvelopeData
+                    }
+                    _ = try historyWriter.createOperation(
+                        operationID: lifecycleRunID,
+                        payloads: historyPayloads
+                    )
+                    if FileManager.default.fileExists(
+                        atPath: request.failureProvenanceURL.path
+                    ) {
+                        do {
+                            try FileManager.default.removeItem(
+                                at: request.failureProvenanceURL
+                            )
+                        } catch {
+                            reportedError = FullLengthONTMHCGenotypingError.reportFailed(
+                                "Run failed (\(reportedError.localizedDescription)); stale failed-run provenance could not be retired (\(error.localizedDescription))."
+                            )
+                        }
+                    }
+                } catch let receiptError {
+                    throw FullLengthONTMHCGenotypingError.reportFailed(
+                        "Run failed (\(reportedError.localizedDescription)); incomplete failure-provenance preparation receipt also could not be written (\(receiptError.localizedDescription))."
+                    )
+                }
             } catch let provenanceError {
                 throw FullLengthONTMHCGenotypingError.reportFailed(
                     "Run failed (\(reportedError.localizedDescription)); failed-run provenance also could not be written (\(provenanceError.localizedDescription))."
@@ -5420,6 +5512,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             return publication
         } catch {
             let completedAt = Date()
+            let visualizationFailure = error
             let failureInputDirectoryURL = URL(
                 fileURLWithPath: finalOutputDirectoryURL.standardizedFileURL.path
                     + ".failed.lungfish-provenance.json.inputs",
@@ -5476,18 +5569,28 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 outputURLs: finalOutputURLs
             )
             var seenInputPaths = Set<String>()
-            let failedInputs = (sourceReferenceURLs + [
+            var failedInputs: [ProvenanceFileDescriptor] = []
+            for url in sourceReferenceURLs + [
                 retainedCandidateJSONURL,
                 retainedUnnameableJSONURL,
                 retainedExactCallInputURL,
-            ].compactMap { $0 }).compactMap { url -> ProvenanceFileDescriptor? in
+            ].compactMap({ $0 }) {
                 let path = url.standardizedFileURL.path
-                guard seenInputPaths.insert(path).inserted else { return nil }
-                return try? ProvenanceFileDescriptor.file(
-                    url: url,
-                    format: failureFileFormat(url),
-                    role: .input
-                )
+                guard seenInputPaths.insert(path).inserted else { continue }
+                do {
+                    failedInputs.append(try ProvenanceFileDescriptor.file(
+                        url: url,
+                        format: failureFileFormat(url),
+                        role: .input
+                    ))
+                } catch {
+                    throw FullLengthFailureProvenancePreparationError(
+                        inputURL: url,
+                        operation: "describing a reference-visualization scientific input",
+                        underlyingError: error,
+                        initiatingError: visualizationFailure
+                    )
+                }
             }
             let failedStep = ProvenanceStep(
                 toolName: "lungfish-in-process:extract-mhc-reference-visualizations",
@@ -6090,7 +6193,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         let stderrText = cancelled
             ? "Full-length ONT MHC genotyping was cancelled: \(error.localizedDescription)"
             : error.localizedDescription
-        let inputs = failureInputDescriptors(request)
+        let inputs = try failureInputDescriptors(request)
         let outputs = try failureDiagnosticDescriptors(
             stagedOutputURL: stagedOutputURL,
             additionalRoots: additionalDiagnosticRoots
@@ -6115,8 +6218,15 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         }
         if let cohortError = error as? FullLengthONTMHCCohortAlignmentBuildError {
             for record in cohortError.toolVersionDiscoveryRecords + cohortError.commandRecords {
-                if let step = try? provenanceStep(for: record) {
-                    steps.append(step)
+                do {
+                    steps.append(try provenanceStep(for: record))
+                } catch {
+                    let sourceURL = record.inputs.first ?? record.executableURL
+                    throw FullLengthFailureProvenancePreparationError(
+                        inputURL: sourceURL,
+                        operation: "rehydrating a failed cohort command provenance step",
+                        underlyingError: error
+                    )
                 }
             }
             steps.append(contentsOf: cohortError.transformationRecords.map { $0.provenanceStep() })
@@ -6197,45 +6307,123 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
 
     private func failureInputDescriptors(
         _ request: FullLengthONTMHCGenotypingRunRequest
-    ) -> [ProvenanceFileDescriptor] {
+    ) throws -> [ProvenanceFileDescriptor] {
         var descriptors: [ProvenanceFileDescriptor] = []
         for inputURL in request.inputFASTQURLs {
-            if let sourceDescriptors = try? FullLengthONTMHCFASTQMaterializer
-                .provenanceSourceDescriptors(for: inputURL) {
+            do {
+                let sourceDescriptors = try FullLengthONTMHCFASTQMaterializer
+                    .provenanceSourceDescriptors(for: inputURL)
                 descriptors.append(contentsOf: sourceDescriptors)
+            } catch {
+                throw FullLengthFailureProvenancePreparationError(
+                    inputURL: inputURL,
+                    operation: "describing a FASTQ scientific source",
+                    underlyingError: error
+                )
             }
         }
-        var supplementalURLs: [URL] = [
-            request.referenceSourceURL,
+        let referenceFASTA: URL
+        do {
+            referenceFASTA = try resolveMHCReferenceFASTA(request.referenceSourceURL)
+        } catch {
+            throw FullLengthFailureProvenancePreparationError(
+                inputURL: request.referenceSourceURL,
+                operation: "resolving the MHC reference source",
+                underlyingError: error
+            )
+        }
+        let catalogInputs: FullLengthONTMHCReferenceCatalogInputs
+        do {
+            catalogInputs = try mhcReferenceCatalogInputs(
+                sourceURL: request.referenceSourceURL,
+                fastaURL: referenceFASTA
+            )
+        } catch {
+            throw FullLengthFailureProvenancePreparationError(
+                inputURL: request.referenceSourceURL,
+                operation: "resolving MHC reference catalog inputs",
+                underlyingError: error
+            )
+        }
+        let referencePaths = Set(catalogInputs.allURLs.map {
+            $0.standardizedFileURL.path
+        })
+        let supplementalURLs: [URL] = catalogInputs.allURLs + [
             request.orientReferenceURL,
             request.forwardPrimerURL,
             request.reversePrimerURL,
         ].compactMap { $0 }
-        if let referenceFASTA = try? resolveMHCReferenceFASTA(request.referenceSourceURL) {
-            supplementalURLs.append(referenceFASTA)
-            if let catalogInputs = try? mhcReferenceCatalogInputs(
-                sourceURL: request.referenceSourceURL,
-                fastaURL: referenceFASTA
-            ) {
-                supplementalURLs.append(contentsOf: catalogInputs.allURLs)
-            }
-        }
         var seen = Set<String>()
         for url in supplementalURLs.map(\.standardizedFileURL) where seen.insert(url.path).inserted {
-            var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
-                  !isDirectory.boolValue,
-                  let descriptor = try? ProvenanceFileDescriptor.file(
+            do {
+                descriptors.append(try ProvenanceFileDescriptor.file(
                     url: url,
                     format: failureFileFormat(url),
-                    role: url == request.referenceSourceURL ? .reference : .input
-                  ) else { continue }
-            descriptors.append(descriptor)
+                    role: referencePaths.contains(url.path) ? .reference : .input
+                ))
+            } catch {
+                throw FullLengthFailureProvenancePreparationError(
+                    inputURL: url,
+                    operation: referencePaths.contains(url.path)
+                        ? "describing an MHC reference or catalog source"
+                        : "describing a configured scientific input",
+                    underlyingError: error
+                )
+            }
         }
         var seenDescriptors = Set<String>()
         return descriptors.filter {
             seenDescriptors.insert("\($0.role.rawValue)\u{0}\($0.path)").inserted
         }
+    }
+
+    private func failureProvenancePreparationReceiptData(
+        request: FullLengthONTMHCGenotypingRunRequest,
+        runID: UUID,
+        startedAt: Date,
+        originalError: Error,
+        preparationError: FullLengthFailureProvenancePreparationError,
+        rollbackFailureRecovery: FullLengthONTMHCRollbackFailureRecovery?
+    ) throws -> Data {
+        let completedAt = Date()
+        let exitStatus = isCancellation(originalError) ? 130 : 1
+        let stderr = [
+            originalError.localizedDescription,
+            preparationError.localizedDescription,
+        ].joined(separator: "\n")
+        let receipt = FullLengthFailureProvenancePreparationReceipt(
+            schemaVersion: 1,
+            kind: "incomplete-failure-provenance-preparation",
+            runID: runID,
+            workflowName: "lungfish fastq full-length-ont-mhc-genotype",
+            workflowVersion: WorkflowRun.currentAppVersion,
+            toolName: CLICommandIdentity.executableName,
+            toolVersion: WorkflowRun.currentAppVersion,
+            argv: request.argv,
+            durableReplayArgv: request.argv,
+            reproducibleCommand: request.argv.map(shellEscape).joined(separator: " "),
+            options: failureProvenanceOptions(
+                request: request,
+                outcome: isCancellation(originalError)
+                    ? "cancelled-provenance-incomplete"
+                    : "failed-provenance-incomplete",
+                retainedDiagnosticCount: 0,
+                rollbackFailureRecovery: rollbackFailureRecovery
+            ),
+            runtimeIdentity: ProvenanceRuntimeIdentity(),
+            inputPath: preparationError.inputPath,
+            preparationError: preparationError.localizedDescription,
+            originalError: originalError.localizedDescription,
+            startedAt: startedAt,
+            completedAt: completedAt,
+            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            exitStatus: exitStatus,
+            stderr: stderr
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        encoder.dateEncodingStrategy = .iso8601
+        return try encoder.encode(receipt)
     }
 
     private func failureDiagnosticDescriptors(

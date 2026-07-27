@@ -278,6 +278,11 @@ public enum OwnedWorkDirectoryMarkerError: Error, LocalizedError, Equatable {
     case identityMismatch(String)
     case rollbackQuarantineRetained(path: String, operation: String, code: Int32)
     case rollbackRemovalDurabilityUncertain(path: String, operation: String, code: Int32)
+    case creationAndRollbackFailed(
+        path: String,
+        initiatingError: String,
+        rollbackError: String
+    )
     case cleanupQuarantineRetained(path: String, operation: String, code: Int32)
     case cleanupQuarantineLocationUncertain(
         lastKnownPath: String,
@@ -298,6 +303,12 @@ public enum OwnedWorkDirectoryMarkerError: Error, LocalizedError, Equatable {
             return "Owned work-directory rollback retained a recoverable quarantine at \(path) after \(operation) failed (errno \(code))."
         case .rollbackRemovalDurabilityUncertain(let path, let operation, let code):
             return "Owned work-directory rollback removal at \(path) has uncertain durability after \(operation) failed (errno \(code))."
+        case .creationAndRollbackFailed(
+            let path,
+            let initiatingError,
+            let rollbackError
+        ):
+            return "Owned work-directory creation or binding failed at \(path): \(initiatingError) Rollback also failed and retained or left an uncertain disposition: \(rollbackError)"
         case .cleanupQuarantineRetained(let path, let operation, let code):
             return "Temporary cleanup retained recoverable or partially cleaned data at \(path) after \(operation) failed (errno \(code))."
         case .cleanupQuarantineLocationUncertain(let path, let operation, let code):
@@ -314,10 +325,12 @@ public enum OwnedWorkDirectoryMarkerStore {
     public struct RollbackOperations: Sendable {
         public typealias Synchronizer = @Sendable (Int32) -> Int32
         public typealias EntryRemover = @Sendable (Int32, String) -> Int32
+        public typealias ChildOpener = @Sendable (Int32, String) -> Int32
 
         public var syncParent: Synchronizer
         public var removeMarker: EntryRemover
         public var removeDirectory: EntryRemover
+        public var openChild: ChildOpener
 
         public init(
             syncParent: @escaping Synchronizer = { Darwin.fsync($0) },
@@ -331,6 +344,15 @@ public enum OwnedWorkDirectoryMarkerStore {
             self.syncParent = syncParent
             self.removeMarker = removeMarker
             self.removeDirectory = removeDirectory
+            self.openChild = { descriptor, name in
+                name.withCString {
+                    Darwin.openat(
+                        descriptor,
+                        $0,
+                        O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+                    )
+                }
+            }
         }
     }
 
@@ -393,35 +415,55 @@ public enum OwnedWorkDirectoryMarkerStore {
         }
         let childURL = parentURL.appendingPathComponent(childName, isDirectory: true)
 
-        let childDescriptor = childName.withCString {
-            Darwin.openat(
+        var createdInfo = stat()
+        let inspectCreatedStatus = childName.withCString {
+            Darwin.fstatat(
                 parentDescriptor,
                 $0,
-                O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+                &createdInfo,
+                AT_SYMLINK_NOFOLLOW
             )
         }
-        guard childDescriptor >= 0 else {
-            // Without an open descriptor there is no authoritative inode to
-            // bind rollback to. Leave the entry recoverable.
+        guard inspectCreatedStatus == 0,
+              createdInfo.st_mode & S_IFMT == S_IFDIR else {
             throw OwnedWorkDirectoryMarkerError.systemFailure(
+                path: childURL.path,
+                operation: "inspect newly created owned work directory",
+                code: errno == 0 ? EINVAL : errno
+            )
+        }
+        let childIdentity = FileSystemObjectIdentity(createdInfo)
+        let childDescriptor = rollbackOperations.openChild(
+            parentDescriptor,
+            childName
+        )
+        guard childDescriptor >= 0 else {
+            let openingError = OwnedWorkDirectoryMarkerError.systemFailure(
                 path: childURL.path,
                 operation: "open owned work directory",
                 code: errno
+            )
+            try rethrowAfterRollback(
+                openingError,
+                named: childName,
+                parentDescriptor: parentDescriptor,
+                childDescriptor: nil,
+                expectedIdentity: childIdentity,
+                displayedAt: childURL,
+                operations: rollbackOperations
             )
         }
         defer { Darwin.close(childDescriptor) }
 
         var childInfo = stat()
         guard Darwin.fstat(childDescriptor, &childInfo) == 0 else {
-            throw OwnedWorkDirectoryMarkerError.systemFailure(
+            let inspectionError = OwnedWorkDirectoryMarkerError.systemFailure(
                 path: childURL.path,
                 operation: "inspect owned work directory",
                 code: errno
             )
-        }
-        let childIdentity = FileSystemObjectIdentity(childInfo)
-        guard childInfo.st_mode & S_IFMT == S_IFDIR else {
-            try rollbackNewDirectory(
+            try rethrowAfterRollback(
+                inspectionError,
                 named: childName,
                 parentDescriptor: parentDescriptor,
                 childDescriptor: childDescriptor,
@@ -429,7 +471,18 @@ public enum OwnedWorkDirectoryMarkerStore {
                 displayedAt: childURL,
                 operations: rollbackOperations
             )
-            throw OwnedWorkDirectoryMarkerError.unsafePath(childURL.path)
+        }
+        guard childInfo.st_mode & S_IFMT == S_IFDIR,
+              FileSystemObjectIdentity(childInfo) == childIdentity else {
+            try rethrowAfterRollback(
+                OwnedWorkDirectoryMarkerError.unsafePath(childURL.path),
+                named: childName,
+                parentDescriptor: parentDescriptor,
+                childDescriptor: childDescriptor,
+                expectedIdentity: childIdentity,
+                displayedAt: childURL,
+                operations: rollbackOperations
+            )
         }
 
         let marker = OwnedWorkDirectoryMarker(
@@ -471,19 +524,15 @@ public enum OwnedWorkDirectoryMarkerStore {
             }
             return childURL
         } catch {
-            do {
-                try rollbackNewDirectory(
-                    named: childName,
-                    parentDescriptor: parentDescriptor,
-                    childDescriptor: childDescriptor,
-                    expectedIdentity: childIdentity,
-                    displayedAt: childURL,
-                    operations: rollbackOperations
-                )
-            } catch {
-                throw error
-            }
-            throw error
+            try rethrowAfterRollback(
+                error,
+                named: childName,
+                parentDescriptor: parentDescriptor,
+                childDescriptor: childDescriptor,
+                expectedIdentity: childIdentity,
+                displayedAt: childURL,
+                operations: rollbackOperations
+            )
         }
     }
 
@@ -508,13 +557,6 @@ public enum OwnedWorkDirectoryMarkerStore {
             )
         }
 
-        let directoryDescriptor: Int32
-        do {
-            directoryDescriptor = try NoFollowFileSystem.openDirectoryHierarchy(directoryURL)
-        } catch {
-            throw OwnedWorkDirectoryMarkerError.unsafePath(directoryURL.path)
-        }
-        defer { Darwin.close(directoryDescriptor) }
         let parentDescriptor: Int32
         do {
             parentDescriptor = try NoFollowFileSystem.openDirectoryHierarchy(parentURL)
@@ -522,23 +564,79 @@ public enum OwnedWorkDirectoryMarkerStore {
             throw OwnedWorkDirectoryMarkerError.unsafePath(parentURL.path)
         }
         defer { Darwin.close(parentDescriptor) }
+        let directoryName = directoryURL.lastPathComponent
+        var expectedDirectoryInfo = stat()
+        let inspectStatus = directoryName.withCString {
+            Darwin.fstatat(
+                parentDescriptor,
+                $0,
+                &expectedDirectoryInfo,
+                AT_SYMLINK_NOFOLLOW
+            )
+        }
+        guard inspectStatus == 0,
+              expectedDirectoryInfo.st_mode & S_IFMT == S_IFDIR else {
+            throw OwnedWorkDirectoryMarkerError.unsafePath(directoryURL.path)
+        }
+        let expectedDirectoryIdentity = FileSystemObjectIdentity(
+            expectedDirectoryInfo
+        )
         let projectDescriptor: Int32
         do {
             projectDescriptor = try NoFollowFileSystem.openDirectoryHierarchy(projectURL)
         } catch {
-            throw OwnedWorkDirectoryMarkerError.unsafePath(projectURL.path)
+            try rethrowAfterRollback(
+                OwnedWorkDirectoryMarkerError.unsafePath(projectURL.path),
+                named: directoryName,
+                parentDescriptor: parentDescriptor,
+                childDescriptor: nil,
+                expectedIdentity: expectedDirectoryIdentity,
+                displayedAt: directoryURL,
+                operations: rollbackOperations
+            )
         }
         defer { Darwin.close(projectDescriptor) }
+        let directoryDescriptor = rollbackOperations.openChild(
+            parentDescriptor,
+            directoryName
+        )
+        guard directoryDescriptor >= 0 else {
+            let openingError = OwnedWorkDirectoryMarkerError.systemFailure(
+                path: directoryURL.path,
+                operation: "open owned work directory for binding",
+                code: errno
+            )
+            try rethrowAfterRollback(
+                openingError,
+                named: directoryName,
+                parentDescriptor: parentDescriptor,
+                childDescriptor: nil,
+                expectedIdentity: expectedDirectoryIdentity,
+                displayedAt: directoryURL,
+                operations: rollbackOperations
+            )
+        }
+        defer { Darwin.close(directoryDescriptor) }
 
         var directoryInfo = stat()
         var projectInfo = stat()
         guard Darwin.fstat(directoryDescriptor, &directoryInfo) == 0,
               Darwin.fstat(projectDescriptor, &projectInfo) == 0,
-              directoryInfo.st_mode & S_IFMT == S_IFDIR else {
-            throw OwnedWorkDirectoryMarkerError.systemFailure(
-                path: directoryURL.path,
-                operation: "inspect existing owned work directory",
-                code: errno == 0 ? EINVAL : errno
+              directoryInfo.st_mode & S_IFMT == S_IFDIR,
+              FileSystemObjectIdentity(directoryInfo)
+                == expectedDirectoryIdentity else {
+            try rethrowAfterRollback(
+                OwnedWorkDirectoryMarkerError.systemFailure(
+                    path: directoryURL.path,
+                    operation: "inspect existing owned work directory",
+                    code: errno == 0 ? ESTALE : errno
+                ),
+                named: directoryName,
+                parentDescriptor: parentDescriptor,
+                childDescriptor: directoryDescriptor,
+                expectedIdentity: expectedDirectoryIdentity,
+                displayedAt: directoryURL,
+                operations: rollbackOperations
             )
         }
         let marker = OwnedWorkDirectoryMarker(
@@ -576,19 +674,15 @@ public enum OwnedWorkDirectoryMarkerStore {
                 )
             }
         } catch {
-            do {
-                try rollbackNewDirectory(
-                    named: directoryURL.lastPathComponent,
-                    parentDescriptor: parentDescriptor,
-                    childDescriptor: directoryDescriptor,
-                    expectedIdentity: FileSystemObjectIdentity(directoryInfo),
-                    displayedAt: directoryURL,
-                    operations: rollbackOperations
-                )
-            } catch {
-                throw error
-            }
-            throw error
+            try rethrowAfterRollback(
+                error,
+                named: directoryName,
+                parentDescriptor: parentDescriptor,
+                childDescriptor: directoryDescriptor,
+                expectedIdentity: expectedDirectoryIdentity,
+                displayedAt: directoryURL,
+                operations: rollbackOperations
+            )
         }
     }
 
@@ -801,10 +895,38 @@ public enum OwnedWorkDirectoryMarkerStore {
         }
     }
 
+    private static func rethrowAfterRollback(
+        _ initiatingError: Error,
+        named childName: String,
+        parentDescriptor: Int32,
+        childDescriptor: Int32?,
+        expectedIdentity: FileSystemObjectIdentity,
+        displayedAt childURL: URL,
+        operations: RollbackOperations
+    ) throws -> Never {
+        do {
+            try rollbackNewDirectory(
+                named: childName,
+                parentDescriptor: parentDescriptor,
+                childDescriptor: childDescriptor,
+                expectedIdentity: expectedIdentity,
+                displayedAt: childURL,
+                operations: operations
+            )
+        } catch let rollbackError {
+            throw OwnedWorkDirectoryMarkerError.creationAndRollbackFailed(
+                path: childURL.standardizedFileURL.path,
+                initiatingError: initiatingError.localizedDescription,
+                rollbackError: rollbackError.localizedDescription
+            )
+        }
+        throw initiatingError
+    }
+
     private static func rollbackNewDirectory(
         named childName: String,
         parentDescriptor: Int32,
-        childDescriptor: Int32,
+        childDescriptor: Int32?,
         expectedIdentity: FileSystemObjectIdentity,
         displayedAt childURL: URL,
         operations: RollbackOperations
@@ -879,16 +1001,18 @@ public enum OwnedWorkDirectoryMarkerStore {
                 code: errno
             )
         }
-        let markerStatus = operations.removeMarker(
-            childDescriptor,
-            OwnedWorkDirectoryMarker.fileName
-        )
-        if markerStatus != 0, errno != ENOENT {
-            throw OwnedWorkDirectoryMarkerError.rollbackQuarantineRetained(
-                path: quarantineURL.path,
-                operation: "remove marker from owned rollback quarantine",
-                code: errno
+        if let childDescriptor {
+            let markerStatus = operations.removeMarker(
+                childDescriptor,
+                OwnedWorkDirectoryMarker.fileName
             )
+            if markerStatus != 0, errno != ENOENT {
+                throw OwnedWorkDirectoryMarkerError.rollbackQuarantineRetained(
+                    path: quarantineURL.path,
+                    operation: "remove marker from owned rollback quarantine",
+                    code: errno
+                )
+            }
         }
         var finalInfo = stat()
         let finalStatus = quarantineName.withCString {

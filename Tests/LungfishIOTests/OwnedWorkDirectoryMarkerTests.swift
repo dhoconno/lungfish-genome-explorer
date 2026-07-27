@@ -183,6 +183,124 @@ final class OwnedWorkDirectoryMarkerTests: XCTestCase {
         )
     }
 
+    func testCreateDirectoryChildOpenFailureRollsBackUnmarkedRoot() throws {
+        var operations = OwnedWorkDirectoryMarkerStore.RollbackOperations()
+        operations.openChild = { _, _ in
+            errno = EACCES
+            return -1
+        }
+
+        XCTAssertThrowsError(
+            try OwnedWorkDirectoryMarkerStore.createDirectory(
+                request(prefix: "open-failure-"),
+                rollbackOperations: operations
+            )
+        ) { error in
+            XCTAssertTrue(
+                error.localizedDescription.contains(
+                    "open owned work directory"
+                ),
+                error.localizedDescription
+            )
+        }
+        XCTAssertTrue(
+            try FileManager.default.contentsOfDirectory(
+                at: workParent,
+                includingPropertiesForKeys: nil
+            ).isEmpty,
+            "A child-open failure must not leave an unmarked root."
+        )
+    }
+
+    func testBindExistingDirectoryChildOpenFailureRollsBackUnmarkedRoot() throws {
+        let directory = workParent.appendingPathComponent(
+            "bind-open-failure",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: false
+        )
+        var operations = OwnedWorkDirectoryMarkerStore.RollbackOperations()
+        operations.openChild = { _, _ in
+            errno = EACCES
+            return -1
+        }
+
+        XCTAssertThrowsError(
+            try OwnedWorkDirectoryMarkerStore.bindExistingDirectory(
+                directory,
+                request: request(prefix: "unused-"),
+                rollbackOperations: operations
+            )
+        ) { error in
+            XCTAssertTrue(
+                error.localizedDescription.contains(directory.path),
+                error.localizedDescription
+            )
+        }
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: directory.path),
+            "Binding failure must remove the exact newly created root."
+        )
+    }
+
+    func testChildOpenAndRollbackFailureReportsPrimaryAndRetainedQuarantine() throws {
+        let directory = workParent.appendingPathComponent(
+            "combined-open-rollback-failure",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: false
+        )
+        var operations = OwnedWorkDirectoryMarkerStore.RollbackOperations(
+            removeDirectory: { _, _ in
+                errno = EPERM
+                return -1
+            }
+        )
+        operations.openChild = { _, _ in
+            errno = EACCES
+            return -1
+        }
+
+        XCTAssertThrowsError(
+            try OwnedWorkDirectoryMarkerStore.bindExistingDirectory(
+                directory,
+                request: request(prefix: "unused-"),
+                rollbackOperations: operations
+            )
+        ) { error in
+            let description = error.localizedDescription
+            XCTAssertTrue(description.contains(directory.path), description)
+            XCTAssertTrue(
+                description.contains("open owned work directory"),
+                description
+            )
+            XCTAssertTrue(
+                description.contains(
+                    ".lungfish-owned-rollback-pending-"
+                ),
+                description
+            )
+            XCTAssertTrue(description.contains("retained"), description)
+            XCTAssertTrue(description.contains("errno 13"), description)
+            XCTAssertTrue(description.contains("errno 1"), description)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+        let retained = try FileManager.default.contentsOfDirectory(
+            at: workParent,
+            includingPropertiesForKeys: nil
+        )
+        XCTAssertEqual(retained.count, 1)
+        XCTAssertTrue(
+            retained[0].lastPathComponent.hasPrefix(
+                ".lungfish-owned-rollback-pending-"
+            )
+        )
+    }
+
     func testTransitionRejectsRunMismatchAndTerminalRewrite() throws {
         let creation = request(prefix: "transition-")
         let directory = try OwnedWorkDirectoryMarkerStore.createDirectory(creation)
@@ -369,16 +487,19 @@ final class OwnedWorkDirectoryMarkerTests: XCTestCase {
                 )
             )
         ) { error in
-            guard case let OwnedWorkDirectoryMarkerError.rollbackQuarantineRetained(
+            guard case let OwnedWorkDirectoryMarkerError.creationAndRollbackFailed(
                 path,
-                operation,
-                code
+                initiatingError,
+                rollbackError
             ) = error else {
                 return XCTFail("Unexpected error: \(error)")
             }
-            XCTAssertTrue(path.contains(".lungfish-owned-rollback-pending-"))
-            XCTAssertEqual(operation, "fsync owned rollback quarantine parent")
-            XCTAssertEqual(code, EIO)
+            XCTAssertTrue(path.contains("rollback-sync-"))
+            XCTAssertTrue(initiatingError.contains("fsync durable file"))
+            XCTAssertTrue(initiatingError.contains("errno \(EIO)"))
+            XCTAssertTrue(rollbackError.contains(".lungfish-owned-rollback-pending-"))
+            XCTAssertTrue(rollbackError.contains("fsync owned rollback quarantine parent"))
+            XCTAssertTrue(rollbackError.contains("errno \(EIO)"))
         }
         XCTAssertTrue(
             try FileManager.default.contentsOfDirectory(
@@ -408,16 +529,19 @@ final class OwnedWorkDirectoryMarkerTests: XCTestCase {
                 )
             )
         ) { error in
-            guard case let OwnedWorkDirectoryMarkerError.rollbackQuarantineRetained(
+            guard case let OwnedWorkDirectoryMarkerError.creationAndRollbackFailed(
                 path,
-                operation,
-                code
+                initiatingError,
+                rollbackError
             ) = error else {
                 return XCTFail("Unexpected error: \(error)")
             }
-            XCTAssertTrue(path.contains(".lungfish-owned-rollback-pending-"))
-            XCTAssertEqual(operation, "remove owned rollback quarantine")
-            XCTAssertEqual(code, EACCES)
+            XCTAssertTrue(path.contains("rollback-rmdir-"))
+            XCTAssertTrue(initiatingError.contains("fsync durable file"))
+            XCTAssertTrue(initiatingError.contains("errno \(EIO)"))
+            XCTAssertTrue(rollbackError.contains(".lungfish-owned-rollback-pending-"))
+            XCTAssertTrue(rollbackError.contains("remove owned rollback quarantine"))
+            XCTAssertTrue(rollbackError.contains("errno \(EACCES)"))
         }
         XCTAssertTrue(
             try FileManager.default.contentsOfDirectory(
@@ -443,16 +567,19 @@ final class OwnedWorkDirectoryMarkerTests: XCTestCase {
                 rollbackOperations: .init(syncParent: { sync.sync($0) })
             )
         ) { error in
-            guard case let OwnedWorkDirectoryMarkerError.rollbackRemovalDurabilityUncertain(
+            guard case let OwnedWorkDirectoryMarkerError.creationAndRollbackFailed(
                 path,
-                operation,
-                code
+                initiatingError,
+                rollbackError
             ) = error else {
                 return XCTFail("Unexpected error: \(error)")
             }
-            XCTAssertTrue(path.contains(".lungfish-owned-rollback-pending-"))
-            XCTAssertEqual(operation, "fsync owned rollback quarantine removal")
-            XCTAssertEqual(code, EIO)
+            XCTAssertTrue(path.contains("rollback-final-sync-"))
+            XCTAssertTrue(initiatingError.contains("fsync durable file"))
+            XCTAssertTrue(initiatingError.contains("errno \(EIO)"))
+            XCTAssertTrue(rollbackError.contains(".lungfish-owned-rollback-pending-"))
+            XCTAssertTrue(rollbackError.contains("fsync owned rollback quarantine removal"))
+            XCTAssertTrue(rollbackError.contains("errno \(EIO)"))
         }
     }
 
