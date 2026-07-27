@@ -785,6 +785,49 @@ def known_matrix_samples():
     return names
 
 
+def validation_matrix_samples():
+    names = known_matrix_samples()
+    if reviewable_row_catalog:
+        roster = reviewable_row_catalog.get("samples") or []
+        names.update(clean(sample) for sample in roster if clean(sample))
+    if MANAGED_REVIEW_STATE_SHEET in wb.sheetnames:
+        state = wb[MANAGED_REVIEW_STATE_SHEET]
+        for row in range(2, state.max_row + 1):
+            sample = clean(state.cell(row, 5).value)
+            if sample:
+                names.add(sample)
+    return names
+
+
+def validate_matrix_sample_header_ambiguity():
+    sample_names = validation_matrix_samples()
+    if not sample_names:
+        return
+    for ws in wb.worksheets:
+        if ws.title in {
+            "Matrix Annotations", "Overrides", "Audit Log", MANAGED_REVIEW_STATE_SHEET
+        }:
+            continue
+        for row in range(1, min(ws.max_row, 60) + 1):
+            columns = header_columns(ws, row)
+            is_unified = "call_type" in columns
+            is_generic = any(
+                alias in columns for alias in GENOTYPE_HEADER_ALIASES
+            )
+            if not is_unified and not is_generic:
+                continue
+            for sample in sample_names:
+                exact = [
+                    col for col in range(1, ws.max_column + 1)
+                    if clean(ws.cell(row, col).value) == sample
+                ]
+                if len(exact) > 1:
+                    raise ValueError(
+                        f"Ambiguous workbook layout repeats sample column "
+                        f"'{sample}'; workbook was not modified"
+                    )
+
+
 def sample_columns_for_matrix(ws, sample_names):
     columns = {}
     if sample_names:
@@ -979,10 +1022,13 @@ def set_adapter_range_end(adapter, end_row):
     for table in ws.tables.values():
         min_col, min_row, max_col, _max_row = range_boundaries(table.ref)
         if min_row == header_row and min_col <= adapter["genotype_col"] <= max_col:
-            table.ref = (
+            updated_ref = (
                 f"{get_column_letter(min_col)}{min_row}:"
                 f"{get_column_letter(max_col)}{end_row}"
             )
+            table.ref = updated_ref
+            if table.autoFilter is not None:
+                table.autoFilter.ref = updated_ref
     if ws.auto_filter.ref:
         min_col, min_row, max_col, _max_row = range_boundaries(ws.auto_filter.ref)
         if min_row == header_row and min_col <= adapter["genotype_col"] <= max_col:
@@ -1658,10 +1704,13 @@ def delete_managed_end_row(ws, row):
     for table in ws.tables.values():
         min_col, min_row, max_col, max_row = range_boundaries(table.ref)
         if min_row < row <= max_row:
-            table.ref = (
+            updated_ref = (
                 f"{get_column_letter(min_col)}{min_row}:"
                 f"{get_column_letter(max_col)}{max_row - 1}"
             )
+            table.ref = updated_ref
+            if table.autoFilter is not None:
+                table.autoFilter.ref = updated_ref
     if ws.auto_filter.ref:
         min_col, min_row, max_col, max_row = range_boundaries(ws.auto_filter.ref)
         if min_row < row <= max_row:
@@ -1740,11 +1789,20 @@ def restore_prior_managed_matrix_annotations():
                 "Retained a user-edited analyst annotation-only row."
             )
 
+    retained_marker_keys = set()
+    retained_member_keys = set()
     for marker_key, members in marker_members.items():
+        retain_block = (
+            not marker_safety.get(marker_key, False)
+            or any(not synthetic_safety.get(member, False) for member in members)
+        )
+        if retain_block:
+            retained_marker_keys.add(marker_key)
+            retained_member_keys.update(members)
         if (
-            marker_key[0] in wb.sheetnames
+            retain_block
+            and marker_key[0] in wb.sheetnames
             and isinstance(marker_key[1], int)
-            and any(not synthetic_safety.get(member, False) for member in members)
         ):
             mark_annotation_only_marker_retained(
                 wb[marker_key[0]],
@@ -1807,12 +1865,18 @@ def restore_prior_managed_matrix_annotations():
 
     rows_to_delete = [
         key for key, is_safe in synthetic_safety.items()
-        if is_safe and key[0] in wb.sheetnames and isinstance(key[1], int)
+        if (
+            is_safe
+            and key not in retained_member_keys
+            and key[0] in wb.sheetnames
+            and isinstance(key[1], int)
+        )
     ]
     markers_to_delete = []
     for marker_key, members in marker_members.items():
         if (
-            marker_safety.get(marker_key, False)
+            marker_key not in retained_marker_keys
+            and marker_safety.get(marker_key, False)
             and all(synthetic_safety.get(member, False) for member in members)
             and marker_key[0] in wb.sheetnames
             and isinstance(marker_key[1], int)
@@ -2835,6 +2899,7 @@ def write_two_sheet_mhc_contract():
             del wb[worksheet.title]
 
 
+validate_matrix_sample_header_ambiguity()
 restore_prior_managed_matrix_annotations()
 patch_summary_sheet("Abbreviated Haplotypes")
 patch_summary_sheet("Custom Sort")
