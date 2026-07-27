@@ -194,6 +194,59 @@ struct ProvenanceSigningTests {
         #expect(FileManager.default.fileExists(atPath: directory.appendingPathComponent(reference.publicKeyPath ?? "").path))
     }
 
+    @Test("Writer reports signing mutations even when the provider throws")
+    func testWriterReportsPartialSigningMutationBeforeFailure() throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let provenanceURL = directory.appendingPathComponent(
+            ProvenanceRecorder.provenanceFilename
+        )
+        let plannedArtifact =
+            FailingAfterArtifactWriteSigningProvider()
+                .artifactLocations(for: provenanceURL)
+        let signatureURL = plannedArtifact.signatureURL
+        let publicKeyURL = plannedArtifact.publicKeyURL
+        let recorder = ProvenanceMutationRecorder()
+        let writer = ProvenanceWriter(
+            publicationMutationDidOccur: { mutation in
+                recorder.record(
+                    mutation,
+                    signatureExists: FileManager.default.fileExists(
+                        atPath: signatureURL.path
+                    ),
+                    publicKeyExists: FileManager.default.fileExists(
+                        atPath: publicKeyURL.path
+                    )
+                )
+            },
+            signingProvider: FailingAfterArtifactWriteSigningProvider()
+        )
+
+        #expect(throws: (any Error).self) {
+            try writer.write(
+                ProvenanceEnvelope.fixture(),
+                toSidecar: provenanceURL
+            )
+        }
+        let signingObservations = recorder.observations.filter {
+            $0.mutation.kind == .signingArtifactsMayHaveChanged
+        }
+        #expect(
+            Set(
+                signingObservations.flatMap {
+                    $0.mutation.affectedURLs.map(
+                        \.standardizedFileURL
+                    )
+                }
+            ) == Set([
+                signatureURL.standardizedFileURL,
+                publicKeyURL.standardizedFileURL,
+            ])
+        )
+        #expect(signingObservations.last?.signatureExists == true)
+        #expect(signingObservations.last?.publicKeyExists == true)
+    }
+
     @Test("Writer rejects signing providers that change artifact URLs")
     func testWriterRejectsUnstableSigningProviderArtifacts() throws {
         let directory = try makeTempDirectory()
@@ -207,6 +260,76 @@ struct ProvenanceSigningTests {
             #expect(error.localizedDescription.contains("unstable-provider"))
             #expect(error.localizedDescription.contains("changed signature artifact URLs"))
         }
+    }
+
+    @Test("Rollback tracks declared signer writes before rejecting returned URLs")
+    func testTransactionalSignerURLMismatchCanRollbackDeclaredWrites() throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let provenanceURL = directory.appendingPathComponent(
+            ProvenanceRecorder.provenanceFilename
+        )
+        let provider = TransactionalUnstableSigningProvider()
+        let plannedArtifact = provider.artifactLocations(
+            for: provenanceURL
+        )
+        let originalProvenance = Data("prior provenance".utf8)
+        let originalSignature = Data("prior signature".utf8)
+        let originalPublicKey = Data("prior public key".utf8)
+        try originalProvenance.write(to: provenanceURL)
+        try originalSignature.write(to: plannedArtifact.signatureURL)
+        try originalPublicKey.write(to: plannedArtifact.publicKeyURL)
+
+        let rollback = try PublicationRollbackHarness(
+            urls: [
+                provenanceURL,
+                plannedArtifact.signatureURL,
+                plannedArtifact.publicKeyURL,
+            ]
+        )
+        let writer = ProvenanceWriter(
+            publicationMutationDidOccur: rollback.accept,
+            signingProvider: provider
+        )
+
+        do {
+            _ = try writer.write(
+                ProvenanceEnvelope.fixture(),
+                toSidecar: provenanceURL
+            )
+            #expect(Bool(false), "Expected unstable signing artifact error")
+        } catch {
+            #expect(
+                error.localizedDescription.contains(
+                    "changed signature artifact URLs"
+                )
+            )
+            try rollback.restore()
+        }
+
+        #expect(try Data(contentsOf: provenanceURL) == originalProvenance)
+        #expect(
+            try Data(contentsOf: plannedArtifact.signatureURL)
+                == originalSignature
+        )
+        #expect(
+            try Data(contentsOf: plannedArtifact.publicKeyURL)
+                == originalPublicKey
+        )
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: provider.returnedArtifact(
+                    for: provenanceURL
+                ).signatureURL.path
+            )
+        )
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: provider.returnedArtifact(
+                    for: provenanceURL
+                ).publicKeyURL.path
+            )
+        )
     }
 
     @Test("Exclusive writer publishes signed artifacts with valid final references")
@@ -652,14 +775,128 @@ struct ProvenanceSigningTests {
 private struct CustomSigningProvider: ProvenanceSigningProvider {
     let providerIdentifier = "custom-provider"
 
+    func artifactLocations(
+        for provenanceURL: URL
+    ) -> ProvenanceSignatureArtifact {
+        let directory = provenanceURL.deletingLastPathComponent()
+        return ProvenanceSignatureArtifact(
+            signatureURL: directory.appendingPathComponent(
+                "\(provenanceURL.lastPathComponent).custom.signature"
+            ),
+            publicKeyURL: directory.appendingPathComponent(
+                "\(provenanceURL.lastPathComponent).custom.pub"
+            )
+        )
+    }
+
     func sign(provenanceURL: URL) throws -> ProvenanceSignatureArtifact {
-        let signatureURL = provenanceURL.deletingLastPathComponent()
-            .appendingPathComponent("\(provenanceURL.lastPathComponent).custom.signature")
-        let publicKeyURL = provenanceURL.deletingLastPathComponent()
-            .appendingPathComponent("\(provenanceURL.lastPathComponent).custom.pub")
-        try Data("custom-signature".utf8).write(to: signatureURL, options: .atomic)
-        try Data("custom-public-key".utf8).write(to: publicKeyURL, options: .atomic)
-        return ProvenanceSignatureArtifact(signatureURL: signatureURL, publicKeyURL: publicKeyURL)
+        let artifact = artifactLocations(for: provenanceURL)
+        try Data("custom-signature".utf8).write(
+            to: artifact.signatureURL,
+            options: .atomic
+        )
+        try Data("custom-public-key".utf8).write(
+            to: artifact.publicKeyURL,
+            options: .atomic
+        )
+        return artifact
+    }
+}
+
+private struct FailingAfterArtifactWriteSigningProvider:
+    TransactionalProvenanceSigningProvider
+{
+    let providerIdentifier = "failing-after-write-provider"
+
+    func artifactLocations(
+        for provenanceURL: URL
+    ) -> ProvenanceSignatureArtifact {
+        let directory = provenanceURL.deletingLastPathComponent()
+        return ProvenanceSignatureArtifact(
+            signatureURL: directory.appendingPathComponent(
+                "custom-partial.signature"
+            ),
+            publicKeyURL: directory.appendingPathComponent(
+                "custom-partial.public-key"
+            )
+        )
+    }
+
+    func sign(
+        provenanceURL: URL
+    ) throws -> ProvenanceSignatureArtifact {
+        let artifact = artifactLocations(for: provenanceURL)
+        try Data("partial signature".utf8).write(
+            to: artifact.signatureURL,
+            options: .atomic
+        )
+        try Data("partial public key".utf8).write(
+            to: artifact.publicKeyURL,
+            options: .atomic
+        )
+        throw NSError(
+            domain: "ProvenanceSigningTests",
+            code: 91,
+            userInfo: [
+                NSLocalizedDescriptionKey:
+                    "Injected signer failure after artifact writes",
+            ]
+        )
+    }
+
+    func sign(
+        provenanceURL: URL,
+        publishArtifact:
+            (_ data: Data, _ destinationURL: URL) throws -> Void
+    ) throws -> ProvenanceSignatureArtifact {
+        let artifact = artifactLocations(for: provenanceURL)
+        try publishArtifact(
+            Data("partial signature".utf8),
+            artifact.signatureURL
+        )
+        try publishArtifact(
+            Data("partial public key".utf8),
+            artifact.publicKeyURL
+        )
+        throw NSError(
+            domain: "ProvenanceSigningTests",
+            code: 91,
+            userInfo: [
+                NSLocalizedDescriptionKey:
+                    "Injected signer failure after artifact writes",
+            ]
+        )
+    }
+}
+
+private final class ProvenanceMutationRecorder: @unchecked Sendable {
+    struct Observation {
+        let mutation: ProvenanceWriterMutation
+        let signatureExists: Bool
+        let publicKeyExists: Bool
+    }
+
+    private let lock = NSLock()
+    private var storedObservations: [Observation] = []
+
+    var observations: [Observation] {
+        lock.withLock { storedObservations }
+    }
+
+    func record(
+        _ mutation: ProvenanceWriterMutation,
+        signatureExists: Bool,
+        publicKeyExists: Bool
+    ) {
+        lock.withLock {
+            storedObservations.append(
+                Observation(
+                    mutation: mutation,
+                    signatureExists: signatureExists,
+                    publicKeyExists: publicKeyExists
+                )
+            )
+        }
     }
 }
 
@@ -667,6 +904,20 @@ private final class UnstableSigningProvider: ProvenanceSigningProvider, @uncheck
     let providerIdentifier = "unstable-provider"
     private let lock = NSLock()
     private var callCount = 0
+
+    func artifactLocations(
+        for provenanceURL: URL
+    ) -> ProvenanceSignatureArtifact {
+        let directory = provenanceURL.deletingLastPathComponent()
+        return ProvenanceSignatureArtifact(
+            signatureURL: directory.appendingPathComponent(
+                "\(provenanceURL.lastPathComponent).unstable.1.signature"
+            ),
+            publicKeyURL: directory.appendingPathComponent(
+                "\(provenanceURL.lastPathComponent).unstable.1.pub"
+            )
+        )
+    }
 
     func sign(provenanceURL: URL) throws -> ProvenanceSignatureArtifact {
         lock.lock()
@@ -681,6 +932,98 @@ private final class UnstableSigningProvider: ProvenanceSigningProvider, @uncheck
         try Data("unstable-signature-\(callNumber)".utf8).write(to: signatureURL, options: .atomic)
         try Data("unstable-public-key-\(callNumber)".utf8).write(to: publicKeyURL, options: .atomic)
         return ProvenanceSignatureArtifact(signatureURL: signatureURL, publicKeyURL: publicKeyURL)
+    }
+}
+
+private struct TransactionalUnstableSigningProvider:
+    TransactionalProvenanceSigningProvider
+{
+    let providerIdentifier = "transactional-unstable-provider"
+
+    func artifactLocations(
+        for provenanceURL: URL
+    ) -> ProvenanceSignatureArtifact {
+        let directory = provenanceURL.deletingLastPathComponent()
+        return ProvenanceSignatureArtifact(
+            signatureURL: directory.appendingPathComponent(
+                "\(provenanceURL.lastPathComponent).declared.signature"
+            ),
+            publicKeyURL: directory.appendingPathComponent(
+                "\(provenanceURL.lastPathComponent).declared.pub"
+            )
+        )
+    }
+
+    func returnedArtifact(
+        for provenanceURL: URL
+    ) -> ProvenanceSignatureArtifact {
+        let directory = provenanceURL.deletingLastPathComponent()
+        return ProvenanceSignatureArtifact(
+            signatureURL: directory.appendingPathComponent(
+                "\(provenanceURL.lastPathComponent).returned.signature"
+            ),
+            publicKeyURL: directory.appendingPathComponent(
+                "\(provenanceURL.lastPathComponent).returned.pub"
+            )
+        )
+    }
+
+    func sign(
+        provenanceURL: URL
+    ) throws -> ProvenanceSignatureArtifact {
+        let planned = artifactLocations(for: provenanceURL)
+        try Data("new signature".utf8).write(to: planned.signatureURL)
+        try Data("new public key".utf8).write(to: planned.publicKeyURL)
+        return returnedArtifact(for: provenanceURL)
+    }
+
+    func sign(
+        provenanceURL: URL,
+        publishArtifact:
+            (_ data: Data, _ destinationURL: URL) throws -> Void
+    ) throws -> ProvenanceSignatureArtifact {
+        let planned = artifactLocations(for: provenanceURL)
+        try publishArtifact(
+            Data("new signature".utf8),
+            planned.signatureURL
+        )
+        try publishArtifact(
+            Data("new public key".utf8),
+            planned.publicKeyURL
+        )
+        return returnedArtifact(for: provenanceURL)
+    }
+}
+
+private final class PublicationRollbackHarness: @unchecked Sendable {
+    private let lock = NSLock()
+    private let snapshot: ProvenancePublicationSnapshot
+    private var witness: ProvenancePublicationRollbackWitness
+
+    init(urls: [URL]) throws {
+        snapshot = try ProvenancePublicationSnapshot(urls: urls)
+        witness = try snapshot.captureRollbackWitness()
+    }
+
+    func accept(_ mutation: ProvenanceWriterMutation) throws {
+        try lock.withLock {
+            witness = try snapshot.refreshingRollbackWitness(
+                witness,
+                after: mutation
+            )
+        }
+    }
+
+    func restore() throws {
+        let capturedWitness = lock.withLock { witness }
+        let preserved = try snapshot.restore(
+            ifCurrentMatches: capturedWitness
+        )
+        guard preserved.isEmpty else {
+            throw ProvenancePublicationPreservedChangesError(
+                urls: preserved
+            )
+        }
     }
 }
 
@@ -701,6 +1044,20 @@ private struct RacingSigningProvider: ProvenanceSigningProvider {
             .appendingPathComponent(
                 "\(finalProvenanceURL.lastPathComponent).racing.pub"
             )
+    }
+
+    func artifactLocations(
+        for provenanceURL: URL
+    ) -> ProvenanceSignatureArtifact {
+        let directory = provenanceURL.deletingLastPathComponent()
+        return ProvenanceSignatureArtifact(
+            signatureURL: directory.appendingPathComponent(
+                "\(provenanceURL.lastPathComponent).racing.signature"
+            ),
+            publicKeyURL: directory.appendingPathComponent(
+                "\(provenanceURL.lastPathComponent).racing.pub"
+            )
+        )
     }
 
     func sign(provenanceURL: URL) throws -> ProvenanceSignatureArtifact {
@@ -732,6 +1089,20 @@ private struct DirectoryArtifactSigningProvider:
     ProvenanceSigningProvider
 {
     let providerIdentifier = "directory-artifact-provider"
+
+    func artifactLocations(
+        for provenanceURL: URL
+    ) -> ProvenanceSignatureArtifact {
+        let directory = provenanceURL.deletingLastPathComponent()
+        return ProvenanceSignatureArtifact(
+            signatureURL: directory.appendingPathComponent(
+                "\(provenanceURL.lastPathComponent).directory.signature"
+            ),
+            publicKeyURL: directory.appendingPathComponent(
+                "\(provenanceURL.lastPathComponent).directory.pub"
+            )
+        )
+    }
 
     func sign(
         provenanceURL: URL
@@ -772,6 +1143,20 @@ private final class FIFOArtifactSigningProvider:
         if keeperDescriptor >= 0 {
             Darwin.close(keeperDescriptor)
         }
+    }
+
+    func artifactLocations(
+        for provenanceURL: URL
+    ) -> ProvenanceSignatureArtifact {
+        let directory = provenanceURL.deletingLastPathComponent()
+        return ProvenanceSignatureArtifact(
+            signatureURL: directory.appendingPathComponent(
+                "\(provenanceURL.lastPathComponent).fifo.signature"
+            ),
+            publicKeyURL: directory.appendingPathComponent(
+                "\(provenanceURL.lastPathComponent).fifo.pub"
+            )
+        )
     }
 
     func sign(

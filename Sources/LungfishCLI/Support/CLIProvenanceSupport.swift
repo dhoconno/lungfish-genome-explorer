@@ -121,7 +121,9 @@ enum CLIProvenanceSupport {
         stderr: String?,
         status: RunStatus,
         outputDirectory: URL,
-        writeFileSidecars: Bool = true
+        writeFileSidecars: Bool = true,
+        publicationArtifactDidWrite:
+            (@Sendable (ProvenanceWriterMutation) throws -> Void)? = nil
     ) async throws -> ProvenanceEnvelope {
         let startedAt = Date().addingTimeInterval(-wallTime)
         let completedAt = Date()
@@ -207,7 +209,9 @@ enum CLIProvenanceSupport {
             legacyWorkflowRun: compatibilityRun
         )
 
-        let writer = ProvenanceWriter()
+        let writer = publicationArtifactDidWrite.map {
+            ProvenanceWriter(publicationMutationDidOccur: $0)
+        } ?? ProvenanceWriter()
         try writer.write(envelope, to: outputDirectory)
 
         guard writeFileSidecars else { return envelope }

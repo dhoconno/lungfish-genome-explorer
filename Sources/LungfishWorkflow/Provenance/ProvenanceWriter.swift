@@ -27,6 +27,8 @@ public enum ProvenanceWriterError: Error, LocalizedError, Sendable, Equatable {
         cleanupErrors: [String],
         preservedQuarantinePaths: [String]
     )
+    case directoryPreparationFailed(path: String, code: Int32)
+    case transactionalSigningRequired(provider: String)
     case durabilitySyncFailed(path: String, code: Int32)
 
     public var errorDescription: String? {
@@ -67,9 +69,73 @@ public enum ProvenanceWriterError: Error, LocalizedError, Sendable, Equatable {
                 ? ""
                 : " Preserved filesystem objects: \(preservedQuarantinePaths.joined(separator: ", "))."
             return "Provenance publication failed (\(originalError)), and rollback was incomplete: \(cleanupErrors.joined(separator: "; ")).\(preservedDescription)"
+        case .directoryPreparationFailed(let path, let code):
+            return "Could not prepare provenance directory at \(path): "
+                + POSIXError(
+                    .init(rawValue: code) ?? .EIO
+                ).localizedDescription
+        case .transactionalSigningRequired(let provider):
+            return "Provenance signing provider '\(provider)' does not support operation-derived publication receipts."
         case .durabilitySyncFailed(let path, let code):
             return "Could not durably synchronize provenance artifact \(path): \(POSIXError(.init(rawValue: code) ?? .EIO).localizedDescription)"
         }
+    }
+}
+
+/// A filesystem mutation boundary reached while provenance is published.
+///
+/// Observers can use these boundaries to refresh a compare-and-swap rollback
+/// witness before allowing publication to continue. A signing-provider event
+/// is emitted after the provider returns or throws because providers may
+/// create signature artifacts before reporting a failure.
+public struct ProvenanceWriterMutation: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        case directoryPrepared
+        case provenanceDocumentWritten
+        case signingArtifactsMayHaveChanged
+        case artifactRemoved
+    }
+
+    public let kind: Kind
+    public let affectedURLs: [URL]
+    let requiredPriorStates:
+        [String: ProvenancePublicationArtifactState]
+    let resultingStates:
+        [String: ProvenancePublicationArtifactState]
+
+    init(
+        kind: Kind,
+        affectedURLs: [URL],
+        requiredPriorStates:
+            [String: ProvenancePublicationArtifactState] = [:],
+        resultingStates:
+            [String: ProvenancePublicationArtifactState] = [:]
+    ) {
+        self.kind = kind
+        self.affectedURLs = affectedURLs
+        self.requiredPriorStates = requiredPriorStates
+        self.resultingStates = resultingStates
+    }
+
+    public var url: URL {
+        affectedURLs[0]
+    }
+}
+
+/// Signals that a mutation receipt was accepted before a downstream observer
+/// requested publication to stop. The writer must not undo the accepted
+/// mutation; the enclosing transaction owns rollback from this point.
+public struct ProvenanceWriterMutationAcceptedError:
+    Error, LocalizedError, Sendable
+{
+    public let underlyingDescription: String
+
+    public init(_ error: Error) {
+        underlyingDescription = String(reflecting: error)
+    }
+
+    public var errorDescription: String? {
+        underlyingDescription
     }
 }
 
@@ -88,9 +154,29 @@ public struct ProvenanceWriter: Sendable {
         (@Sendable (URL) throws -> Void)?
     private let exclusivePublicationPreQuarantineRestoreHook:
         (@Sendable (URL, URL) throws -> Void)?
+    private let publicationMutationDidOccur:
+        (@Sendable (ProvenanceWriterMutation) throws -> Void)?
 
-    public init(signingProvider: (any ProvenanceSigningProvider)? = ProvenanceSigningConfiguration.defaultProvider()) {
+    public init(
+        signingProvider: (any ProvenanceSigningProvider)? =
+            ProvenanceSigningConfiguration.defaultProvider()
+    ) {
         self.signingProvider = signingProvider
+        publicationMutationDidOccur = nil
+        exclusivePublicationPreRenameHook = nil
+        exclusivePublicationPreMismatchCleanupHook = nil
+        exclusivePublicationPreRollbackCleanupHook = nil
+        exclusivePublicationPreQuarantineRestoreHook = nil
+    }
+
+    public init(
+        publicationMutationDidOccur:
+            @escaping @Sendable (ProvenanceWriterMutation) throws -> Void,
+        signingProvider: (any ProvenanceSigningProvider)? =
+            ProvenanceSigningConfiguration.defaultProvider()
+    ) {
+        self.signingProvider = signingProvider
+        self.publicationMutationDidOccur = publicationMutationDidOccur
         exclusivePublicationPreRenameHook = nil
         exclusivePublicationPreMismatchCleanupHook = nil
         exclusivePublicationPreRollbackCleanupHook = nil
@@ -106,9 +192,12 @@ public struct ProvenanceWriter: Sendable {
         exclusivePublicationPreRollbackCleanupHook:
             (@Sendable (URL) throws -> Void)? = nil,
         exclusivePublicationPreQuarantineRestoreHook:
-            (@Sendable (URL, URL) throws -> Void)? = nil
+            (@Sendable (URL, URL) throws -> Void)? = nil,
+        publicationMutationDidOccur:
+            (@Sendable (ProvenanceWriterMutation) throws -> Void)? = nil
     ) {
         self.signingProvider = signingProvider
+        self.publicationMutationDidOccur = publicationMutationDidOccur
         self.exclusivePublicationPreRenameHook =
             exclusivePublicationPreRenameHook
         self.exclusivePublicationPreMismatchCleanupHook =
@@ -126,7 +215,7 @@ public struct ProvenanceWriter: Sendable {
 
     @discardableResult
     public func write(_ envelope: ProvenanceEnvelope, to directory: URL, bundleLayoutRoot: URL) throws -> URL {
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try prepareDirectory(directory, withIntermediateDirectories: true)
         let provenanceURL = directory.appendingPathComponent(Self.provenanceFilename)
         let writtenURL = try write(envelope, toSidecar: provenanceURL)
         if Self.isBundleDirectory(bundleLayoutRoot) {
@@ -142,7 +231,7 @@ public struct ProvenanceWriter: Sendable {
     @discardableResult
     public func write(_ envelope: ProvenanceEnvelope, toSidecar provenanceURL: URL) throws -> URL {
         let directory = provenanceURL.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try prepareDirectory(directory, withIntermediateDirectories: true)
 
         try writeUnsigned(envelope, toSidecar: provenanceURL)
 
@@ -153,7 +242,10 @@ public struct ProvenanceWriter: Sendable {
             return provenanceURL
         }
 
-        let initialArtifact = try signingProvider.sign(provenanceURL: provenanceURL)
+        let initialArtifact = try sign(
+            with: signingProvider,
+            provenanceURL: provenanceURL
+        )
         let placeholderReference = signatureReference(
             provider: signingProvider.providerIdentifier,
             artifact: initialArtifact,
@@ -163,7 +255,10 @@ public struct ProvenanceWriter: Sendable {
         let envelopeWithSignaturePaths = envelope.upsertingSignatureReference(placeholderReference)
         try writeUnsigned(envelopeWithSignaturePaths, toSidecar: provenanceURL)
 
-        let signaturePathArtifact = try signingProvider.sign(provenanceURL: provenanceURL)
+        let signaturePathArtifact = try sign(
+            with: signingProvider,
+            provenanceURL: provenanceURL
+        )
         try validateStableArtifact(
             signaturePathArtifact,
             matches: initialArtifact,
@@ -182,7 +277,10 @@ public struct ProvenanceWriter: Sendable {
         )
         let signedEnvelope = envelope.upsertingSignatureReference(finalReference)
         try writeUnsigned(signedEnvelope, toSidecar: provenanceURL)
-        let finalArtifact = try signingProvider.sign(provenanceURL: provenanceURL)
+        let finalArtifact = try sign(
+            with: signingProvider,
+            provenanceURL: provenanceURL
+        )
         try validateStableArtifact(
             finalArtifact,
             matches: initialArtifact,
@@ -420,7 +518,10 @@ public struct ProvenanceWriter: Sendable {
             Self.bundleProvenanceDirectoryName,
             isDirectory: true
         )
-        try FileManager.default.createDirectory(at: provenanceDirectory, withIntermediateDirectories: true)
+        try prepareDirectory(
+            provenanceDirectory,
+            withIntermediateDirectories: true
+        )
 
         let outputEntries = bundleOutputEntries(from: envelope, relativeTo: descriptorBundleRoot)
         let rollupEnvelope = outputEntries.isEmpty
@@ -484,7 +585,10 @@ public struct ProvenanceWriter: Sendable {
                 continue
             }
             try removeSigningArtifacts(for: standardizedCandidate)
-            try fileManager.removeItem(at: standardizedCandidate)
+            try removeArtifact(
+                at: standardizedCandidate,
+                mutationKind: .artifactRemoved
+            )
         }
     }
 
@@ -543,17 +647,519 @@ public struct ProvenanceWriter: Sendable {
 
     private func writeUnsigned(_ envelope: ProvenanceEnvelope, toSidecar provenanceURL: URL) throws {
         let data = try ProvenanceJSON.encoder.encode(envelope)
-        try data.write(to: provenanceURL, options: .atomic)
+        let temporaryURL = provenanceURL.deletingLastPathComponent()
+            .appendingPathComponent(
+                ".\(provenanceURL.lastPathComponent)"
+                    + ".provenance-write-\(UUID().uuidString)"
+            )
+        defer {
+            try? FileManager.default.removeItem(at: temporaryURL)
+        }
+        try data.write(to: temporaryURL, options: .atomic)
+        try publishStagedArtifact(
+            at: temporaryURL,
+            to: provenanceURL,
+            kind: .provenanceDocumentWritten,
+            replacingExisting: true
+        )
     }
 
     private func removeSigningArtifacts(for provenanceURL: URL) throws {
-        let fileManager = FileManager.default
         for artifactURL in [
             ProvenanceSigningConfiguration.signatureURL(for: provenanceURL),
             ProvenanceSigningConfiguration.publicKeyURL(for: provenanceURL),
-        ] where fileManager.fileExists(atPath: artifactURL.path) {
-            try fileManager.removeItem(at: artifactURL)
+        ] {
+            try removeArtifact(
+                at: artifactURL,
+                mutationKind: .artifactRemoved
+            )
         }
+    }
+
+    private func prepareDirectory(
+        _ directory: URL,
+        withIntermediateDirectories: Bool
+    ) throws {
+        let standardized = directory.standardizedFileURL
+        if !withIntermediateDirectories {
+            try createDirectoryComponentIfNeeded(standardized)
+            return
+        }
+
+        var missingComponents: [URL] = []
+        var cursor = standardized
+        while !Self.isDirectoryFollowingSymbolicLinks(cursor) {
+            var information = stat()
+            let status = cursor.path.withCString {
+                Darwin.lstat($0, &information)
+            }
+            if status == 0 {
+                throw ProvenanceWriterError.directoryPreparationFailed(
+                    path: cursor.path,
+                    code: ENOTDIR
+                )
+            }
+            let code = errno
+            guard code == ENOENT else {
+                throw ProvenanceWriterError.directoryPreparationFailed(
+                    path: cursor.path,
+                    code: code
+                )
+            }
+            missingComponents.append(cursor)
+            let parent = cursor.deletingLastPathComponent()
+            guard parent.path != cursor.path else {
+                throw ProvenanceWriterError.directoryPreparationFailed(
+                    path: cursor.path,
+                    code: ENOENT
+                )
+            }
+            cursor = parent
+        }
+        for component in missingComponents.reversed() {
+            try createDirectoryComponentIfNeeded(component)
+        }
+    }
+
+    private func sign(
+        with provider: any ProvenanceSigningProvider,
+        provenanceURL: URL
+    ) throws -> ProvenanceSignatureArtifact {
+        let plannedArtifact = provider.artifactLocations(
+            for: provenanceURL
+        )
+        guard publicationMutationDidOccur != nil else {
+            let artifact = try provider.sign(
+                provenanceURL: provenanceURL
+            )
+            try validateStableArtifact(
+                artifact,
+                matches: plannedArtifact,
+                provider: provider.providerIdentifier
+            )
+            return artifact
+        }
+        guard let transactionalProvider =
+                provider as? any TransactionalProvenanceSigningProvider else {
+            throw ProvenanceWriterError.transactionalSigningRequired(
+                provider: provider.providerIdentifier
+            )
+        }
+        let allowedPaths = Set([
+            plannedArtifact.signatureURL.standardizedFileURL.path,
+            plannedArtifact.publicKeyURL.standardizedFileURL.path,
+        ])
+        let artifact = try transactionalProvider.sign(
+            provenanceURL: provenanceURL
+        ) { data, destinationURL in
+            let destination = destinationURL.standardizedFileURL
+            guard allowedPaths.contains(destination.path) else {
+                throw ProvenanceWriterError.unstableSignatureArtifact(
+                    provider: provider.providerIdentifier,
+                    expectedSignaturePath:
+                        plannedArtifact.signatureURL.path,
+                    actualSignaturePath: destination.path,
+                    expectedPublicKeyPath:
+                        plannedArtifact.publicKeyURL.path,
+                    actualPublicKeyPath: destination.path
+                )
+            }
+            try publishDataArtifact(
+                data,
+                to: destination,
+                kind: .signingArtifactsMayHaveChanged
+            )
+        }
+        try validateStableArtifact(
+            artifact,
+            matches: plannedArtifact,
+            provider: provider.providerIdentifier
+        )
+        return artifact
+    }
+
+    private func publishDataArtifact(
+        _ data: Data,
+        to destinationURL: URL,
+        kind: ProvenanceWriterMutation.Kind
+    ) throws {
+        let temporaryURL = destinationURL.deletingLastPathComponent()
+            .appendingPathComponent(
+                ".\(destinationURL.lastPathComponent)"
+                    + ".provenance-artifact-\(UUID().uuidString)"
+            )
+        defer {
+            try? FileManager.default.removeItem(at: temporaryURL)
+        }
+        try data.write(to: temporaryURL, options: .atomic)
+        try publishStagedArtifact(
+            at: temporaryURL,
+            to: destinationURL,
+            kind: kind,
+            replacingExisting: true
+        )
+    }
+
+    private func createDirectoryComponentIfNeeded(
+        _ directory: URL
+    ) throws {
+        if Self.isDirectoryFollowingSymbolicLinks(directory) {
+            return
+        }
+        let temporaryDirectory = directory.deletingLastPathComponent()
+            .appendingPathComponent(
+                ".\(directory.lastPathComponent)"
+                    + ".provenance-directory-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer {
+            try? FileManager.default.removeItem(at: temporaryDirectory)
+        }
+        let creationResult = temporaryDirectory.path.withCString {
+            Darwin.mkdir($0, mode_t(0o777))
+        }
+        guard creationResult == 0 else {
+            let code = errno
+            throw ProvenanceWriterError.directoryPreparationFailed(
+                path: temporaryDirectory.path,
+                code: code
+            )
+        }
+        do {
+            try publishStagedArtifact(
+                at: temporaryDirectory,
+                to: directory,
+                kind: .directoryPrepared,
+                replacingExisting: false
+            )
+            return
+        } catch let error as ProvenanceWriterError {
+            if case .exclusivePublicationFailed(_, let code) = error,
+               code == EEXIST,
+               Self.isDirectoryFollowingSymbolicLinks(directory) {
+                return
+            }
+            throw error
+        }
+    }
+
+    private func removeArtifact(
+        at artifactURL: URL,
+        mutationKind: ProvenanceWriterMutation.Kind
+    ) throws {
+        let detachedURL = artifactURL.deletingLastPathComponent()
+            .appendingPathComponent(
+                ".\(artifactURL.lastPathComponent)"
+                    + ".provenance-remove-\(UUID().uuidString)"
+            )
+        let detached = try Self.renameExclusivelyIfPresent(
+            from: artifactURL,
+            to: detachedURL
+        )
+        guard detached else { return }
+        let priorState: ProvenancePublicationArtifactState
+        do {
+            priorState = try ProvenancePublicationSnapshot.artifactState(
+                at: detachedURL,
+                fileManager: .default
+            )
+        } catch {
+            try Self.restoreDetachedAfterFailure(
+                detachedURL,
+                to: artifactURL,
+                originalError: error
+            )
+        }
+        let mutation = ProvenanceWriterMutation(
+            kind: mutationKind,
+            affectedURLs: [artifactURL],
+            requiredPriorStates: [artifactURL.standardizedFileURL.path: priorState],
+            resultingStates: [artifactURL.standardizedFileURL.path: .missing]
+        )
+        do {
+            try reportMutation(mutation)
+        } catch {
+            if error is ProvenanceWriterMutationAcceptedError {
+                throw error
+            }
+            try Self.restoreDetachedArtifact(
+                detachedURL,
+                to: artifactURL
+            )
+            throw error
+        }
+        do {
+            try FileManager.default.removeItem(at: detachedURL)
+        } catch {
+            throw ProvenanceWriterError.exclusivePublicationCleanupFailed(
+                path: artifactURL.path,
+                quarantinePath: detachedURL.path,
+                reason: error.localizedDescription
+            )
+        }
+    }
+
+    private func publishStagedArtifact(
+        at stagedURL: URL,
+        to destinationURL: URL,
+        kind: ProvenanceWriterMutation.Kind,
+        replacingExisting: Bool
+    ) throws {
+        let standardizedDestination =
+            destinationURL.standardizedFileURL
+        let stagedState = try ProvenancePublicationSnapshot.artifactState(
+            at: stagedURL,
+            fileManager: .default
+        )
+        guard stagedState != .missing else {
+            throw ProvenanceWriterError.unsafeStagedArtifact(
+                path: stagedURL.path,
+                reason: "the staged artifact is missing"
+            )
+        }
+
+        let displacedURL = destinationURL.deletingLastPathComponent()
+            .appendingPathComponent(
+                ".\(destinationURL.lastPathComponent)"
+                    + ".provenance-displaced-\(UUID().uuidString)"
+            )
+        var priorState: ProvenancePublicationArtifactState = .missing
+        var displaced = false
+        if replacingExisting {
+            displaced = try Self.renameExclusivelyIfPresent(
+                from: destinationURL,
+                to: displacedURL
+            )
+            if displaced {
+                do {
+                    priorState =
+                        try ProvenancePublicationSnapshot.artifactState(
+                            at: displacedURL,
+                            fileManager: .default
+                        )
+                } catch {
+                    try Self.restoreDetachedAfterFailure(
+                        displacedURL,
+                        to: destinationURL,
+                        originalError: error
+                    )
+                }
+            }
+        }
+
+        do {
+            try Self.renameExclusively(
+                from: stagedURL,
+                to: destinationURL
+            )
+        } catch {
+            if displaced {
+                do {
+                    try Self.restoreDetachedArtifact(
+                        displacedURL,
+                        to: destinationURL
+                    )
+                } catch let cleanupError {
+                    throw ProvenanceWriterError
+                        .exclusivePublicationRollbackFailed(
+                            originalError: error.localizedDescription,
+                            cleanupErrors: [
+                                cleanupError.localizedDescription,
+                            ],
+                            preservedQuarantinePaths: [
+                                displacedURL.path,
+                            ]
+                        )
+                }
+            }
+            throw error
+        }
+
+        let mutation = ProvenanceWriterMutation(
+            kind: kind,
+            affectedURLs: [standardizedDestination],
+            requiredPriorStates: [
+                standardizedDestination.path: priorState,
+            ],
+            resultingStates: [
+                standardizedDestination.path: stagedState,
+            ]
+        )
+        do {
+            try reportMutation(mutation)
+        } catch {
+            if error is ProvenanceWriterMutationAcceptedError {
+                throw error
+            }
+            let observationError = error
+            try rollbackUnacceptedReplacement(
+                at: destinationURL,
+                expectedPublishedState: stagedState,
+                displacedURL: displaced ? displacedURL : nil
+            )
+            throw observationError
+        }
+
+        if displaced {
+            do {
+                try FileManager.default.removeItem(at: displacedURL)
+            } catch {
+                throw ProvenanceWriterError
+                    .exclusivePublicationCleanupFailed(
+                        path: destinationURL.path,
+                        quarantinePath: displacedURL.path,
+                        reason: error.localizedDescription
+                    )
+            }
+        }
+    }
+
+    private func rollbackUnacceptedReplacement(
+        at destinationURL: URL,
+        expectedPublishedState:
+            ProvenancePublicationArtifactState,
+        displacedURL: URL?
+    ) throws {
+        let rejectedURL = destinationURL.deletingLastPathComponent()
+            .appendingPathComponent(
+                ".\(destinationURL.lastPathComponent)"
+                    + ".provenance-rejected-\(UUID().uuidString)"
+            )
+        let detached = try Self.renameExclusivelyIfPresent(
+            from: destinationURL,
+            to: rejectedURL
+        )
+        if detached {
+            let detachedState =
+                try ProvenancePublicationSnapshot.artifactState(
+                    at: rejectedURL,
+                    fileManager: .default
+                )
+            guard ProvenancePublicationSnapshot.statesMatch(
+                detachedState,
+                expectedPublishedState
+            ) else {
+                try Self.restoreDetachedArtifact(
+                    rejectedURL,
+                    to: destinationURL
+                )
+                throw ProvenanceWriterError
+                    .exclusivePublicationCleanupFailed(
+                        path: destinationURL.path,
+                        quarantinePath: displacedURL?.path,
+                        reason:
+                            "a later writer replaced the rejected transaction artifact"
+                    )
+            }
+            try FileManager.default.removeItem(at: rejectedURL)
+        }
+        if let displacedURL {
+            try Self.restoreDetachedArtifact(
+                displacedURL,
+                to: destinationURL
+            )
+        }
+    }
+
+    private static func renameExclusively(
+        from sourceURL: URL,
+        to destinationURL: URL
+    ) throws {
+        let result = sourceURL.path.withCString { sourcePath in
+            destinationURL.path.withCString { destinationPath in
+                Darwin.renameatx_np(
+                    AT_FDCWD,
+                    sourcePath,
+                    AT_FDCWD,
+                    destinationPath,
+                    UInt32(RENAME_EXCL)
+                )
+            }
+        }
+        guard result == 0 else {
+            throw ProvenanceWriterError.exclusivePublicationFailed(
+                path: destinationURL.path,
+                code: errno
+            )
+        }
+    }
+
+    private static func renameExclusivelyIfPresent(
+        from sourceURL: URL,
+        to destinationURL: URL
+    ) throws -> Bool {
+        do {
+            try renameExclusively(
+                from: sourceURL,
+                to: destinationURL
+            )
+            return true
+        } catch let error as ProvenanceWriterError {
+            if case .exclusivePublicationFailed(_, let code) = error,
+               code == ENOENT {
+                return false
+            }
+            throw error
+        }
+    }
+
+    private static func restoreDetachedArtifact(
+        _ detachedURL: URL,
+        to destinationURL: URL
+    ) throws {
+        do {
+            try renameExclusively(
+                from: detachedURL,
+                to: destinationURL
+            )
+        } catch {
+            throw ProvenanceWriterError
+                .exclusivePublicationCleanupFailed(
+                    path: destinationURL.path,
+                    quarantinePath: detachedURL.path,
+                    reason: error.localizedDescription
+                )
+        }
+    }
+
+    private static func restoreDetachedAfterFailure(
+        _ detachedURL: URL,
+        to destinationURL: URL,
+        originalError: Error
+    ) throws -> Never {
+        do {
+            try restoreDetachedArtifact(
+                detachedURL,
+                to: destinationURL
+            )
+        } catch {
+            throw ProvenanceWriterError
+                .exclusivePublicationRollbackFailed(
+                    originalError:
+                        originalError.localizedDescription,
+                    cleanupErrors: [error.localizedDescription],
+                    preservedQuarantinePaths: [
+                        detachedURL.path,
+                    ]
+                )
+        }
+        throw originalError
+    }
+
+    private static func isDirectoryFollowingSymbolicLinks(
+        _ url: URL
+    ) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(
+            atPath: url.path,
+            isDirectory: &isDirectory
+        ) && isDirectory.boolValue
+    }
+
+    private func reportMutation(
+        _ mutation: ProvenanceWriterMutation
+    ) throws {
+        try publicationMutationDidOccur?(mutation)
     }
 
     private func validateStableArtifact(

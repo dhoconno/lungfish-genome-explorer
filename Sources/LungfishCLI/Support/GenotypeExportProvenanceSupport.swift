@@ -16,7 +16,9 @@ enum GenotypeExportProvenanceSupport {
         additionalInputURLs: [URL] = [],
         additionalInputRecords: [FileRecord] = [],
         excludedInputURLs: [URL] = [],
-        startedAt: Date
+        startedAt: Date,
+        publicationArtifactDidWrite:
+            (@Sendable (ProvenanceWriterMutation) throws -> Void)? = nil
     ) async throws {
         guard !outputURLs.isEmpty else { return }
         var parameters = optionPaths.mapValues { ParameterValue.file($0) }
@@ -58,7 +60,8 @@ enum GenotypeExportProvenanceSupport {
             stderr: nil,
             status: .completed,
             outputDirectory: outputDirectory,
-            writeFileSidecars: true
+            writeFileSidecars: true,
+            publicationArtifactDidWrite: publicationArtifactDidWrite
         )
     }
 

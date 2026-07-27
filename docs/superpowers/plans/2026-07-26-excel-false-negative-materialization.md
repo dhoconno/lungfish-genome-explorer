@@ -349,13 +349,36 @@ Run: `swift test --filter 'GenotypeExportSubcommandTests|GenotypeWorkbookRevisio
 
 Expected: all selected tests pass.
 
-Verified on 2026-07-27: all 24 `GenotypeExportSubcommandTests`, all 32 tests
-selected by `GenotypeExport`, all 103 `ONTGenotypeResultBundleTests`, and the
+Verified on 2026-07-27: all 30 `GenotypeExportSubcommandTests`, all 45 tests
+selected across genotype export, LabKey export, and viewport Excel export, all
+21 `ProvenanceSigningTests`, all 103 `ONTGenotypeResultBundleTests`, and the
 consumed-input-snapshot provenance builder test pass. The Task 5
 portable-presentation service test also passes. A deterministic concurrent
 publication test verifies that the output-directory lock serializes payload,
 root-provenance, and sidecar publication and that one failed export cannot
-roll back another export's committed provenance. The broader revision-service
+roll back another export's committed provenance. A separate noncooperating
+writer regression verifies CAS-aware rollback witnesses preserve atomic
+workbook replacement plus same-inode root-provenance, sidecar, and provenance
+generation-tree edits. Regular-file witnesses bind no-follow identity, size,
+and SHA-256; directory witnesses bind the exact recursive tree. Rollback first
+claims each pathname by atomic same-parent exclusive detachment, validates the
+detached artifact, and uses exclusive restoration so a writer arriving during
+rollback is never overwritten. Mutation callbacks refresh only the exact
+affected path or directory branch; unrelated sibling state remains bound to
+the transaction-start witness, preventing external edits from being adopted
+and avoiding repeated workbook hashing. `ProvenanceWriter` emits mutation-level
+operation receipts after each atomically claimed provenance document write,
+bundle directory preparation, managed-artifact removal, and transactional
+signature/public-key publication (including a provider that publishes both
+artifacts and then throws). Genotype export refreshes its witness from those
+receipts without re-reading a public pathname after mutation. Signing providers
+declare their exact artifact locations; mutation-aware publication requires a
+transactional provider and rejects a successful result whose returned paths
+differ from the declaration. A rollback regression covers that successful
+mismatch path and restores all declared artifacts. Injected failures
+after root provenance, a true `.lungfish*` bundle rollup, its focused output
+sidecar, the external output sidecar, and stale signature/public-key removal
+each restore the prior payload and provenance generation. The broader revision-service
 class cannot run as a whole in the managed sandbox because its pre-existing
 publication-attestation fixtures write to the user Application Support
 directory; Task 6 does not modify that service.

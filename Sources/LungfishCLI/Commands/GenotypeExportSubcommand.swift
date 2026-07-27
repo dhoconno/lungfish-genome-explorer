@@ -109,6 +109,70 @@ private final class GenotypeExportDirectoryPublicationLock:
     deinit { release() }
 }
 
+private final class GenotypeExportRollbackWitnessTracker:
+    @unchecked Sendable
+{
+    private let lock = NSLock()
+    private let snapshot: ProvenancePublicationSnapshot
+    private let afterMutation:
+        ((ProvenanceWriterMutation) throws -> Void)?
+    private let beforeObservation:
+        ((ProvenanceWriterMutation) throws -> Void)?
+    private var witness: ProvenancePublicationRollbackWitness
+
+    init(
+        snapshot: ProvenancePublicationSnapshot,
+        beforeObservation:
+            ((ProvenanceWriterMutation) throws -> Void)?,
+        afterMutation:
+            ((ProvenanceWriterMutation) throws -> Void)?
+    ) throws {
+        self.snapshot = snapshot
+        self.beforeObservation = beforeObservation
+        self.afterMutation = afterMutation
+        witness = try snapshot.captureRollbackWitness()
+    }
+
+    var currentWitness: ProvenancePublicationRollbackWitness {
+        lock.withLock { witness }
+    }
+
+    func observe(
+        _ mutation: ProvenanceWriterMutation
+    ) throws {
+        try beforeObservation?(mutation)
+        try lock.withLock {
+            witness = try snapshot.refreshingRollbackWitness(
+                witness,
+                after: mutation
+            )
+        }
+        do {
+            try afterMutation?(mutation)
+        } catch {
+            throw ProvenanceWriterMutationAcceptedError(error)
+        }
+    }
+
+    func publishReplacement(
+        from stagedURL: URL,
+        to destinationURL: URL,
+        replacingExisting: Bool,
+        beforeExistingArtifactClaim: (() throws -> Void)?
+    ) throws -> URL? {
+        let publication = try snapshot.publishReplacement(
+            from: stagedURL,
+            to: destinationURL,
+            replacingExisting: replacingExisting,
+            witness: currentWitness,
+            beforeExistingArtifactClaim:
+                beforeExistingArtifactClaim
+        )
+        lock.withLock { witness = publication.witness }
+        return publication.displacedURL
+    }
+}
+
 /// Unified genotype-bundle export.
 ///
 /// Where `export-xlsx` / `export-pivot-xlsx` / `export-labkey` are each
@@ -206,7 +270,13 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
     func runReturningResolvedColumns(
         beforeAnnotationSnapshot: (() throws -> Void)? = nil,
         beforeOutputPublication: (() throws -> Void)? = nil,
-        beforeProvenancePublication: (() throws -> Void)? = nil
+        beforeOutputReplacementClaim: (() throws -> Void)? = nil,
+        beforeProvenancePublication: (() throws -> Void)? = nil,
+        beforeProvenanceArtifactObservation:
+            ((ProvenanceWriterMutation) throws -> Void)? = nil,
+        afterProvenanceArtifactPublication:
+            ((ProvenanceWriterMutation) throws -> Void)? = nil,
+        afterRollbackArtifactDetached: ((URL) throws -> Void)? = nil
     ) async throws -> [String] {
         let startedAt = Date()
         let bundleURL = URL(fileURLWithPath: bundle, isDirectory: true)
@@ -321,8 +391,15 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
         try beforeOutputPublication?()
         try await publishStagedOutputAndProvenance(
             stagedOutputURL: stagedOutputURL,
-            outputURL: outputURL
-        ) {
+            outputURL: outputURL,
+            beforeOutputReplacementClaim:
+                beforeOutputReplacementClaim,
+            beforeProvenanceArtifactObservation:
+                beforeProvenanceArtifactObservation,
+            afterProvenanceArtifactPublication:
+                afterProvenanceArtifactPublication,
+            afterRollbackArtifactDetached: afterRollbackArtifactDetached
+        ) { publicationArtifactDidWrite in
             try beforeProvenancePublication?()
             try await recordProvenance(
                 bundleURL: bundleURL,
@@ -332,7 +409,8 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
                 loadedAnnotation: loadedAnnotation,
                 loadedProjection: loadedProjection,
                 nativeWriteReport: nativeWriteReport,
-                startedAt: startedAt
+                startedAt: startedAt,
+                publicationArtifactDidWrite: publicationArtifactDidWrite
             )
         }
 
@@ -343,7 +421,16 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
     private func publishStagedOutputAndProvenance(
         stagedOutputURL: URL,
         outputURL: URL,
-        recordProvenance: () async throws -> Void
+        beforeOutputReplacementClaim: (() throws -> Void)?,
+        beforeProvenanceArtifactObservation:
+            ((ProvenanceWriterMutation) throws -> Void)?,
+        afterProvenanceArtifactPublication:
+            ((ProvenanceWriterMutation) throws -> Void)?,
+        afterRollbackArtifactDetached: ((URL) throws -> Void)?,
+        recordProvenance: (
+            _ publicationArtifactDidWrite:
+                @escaping @Sendable (ProvenanceWriterMutation) throws -> Void
+        ) async throws -> Void
     ) async throws {
         let fileManager = FileManager.default
         let outputDirectory = outputURL.deletingLastPathComponent()
@@ -372,54 +459,78 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
         defer { snapshot.discard() }
 
         var publicationMutated = false
+        let rollbackWitnessTracker = try GenotypeExportRollbackWitnessTracker(
+            snapshot: snapshot,
+            beforeObservation:
+                beforeProvenanceArtifactObservation,
+            afterMutation: afterProvenanceArtifactPublication
+        )
+        var displacedOutputURL: URL?
         do {
-            if force, fileManager.fileExists(atPath: outputURL.path) {
-                publicationMutated = true
-                try fileManager.removeItem(at: outputURL)
-            }
-            if force {
-                try fileManager.moveItem(at: stagedOutputURL, to: outputURL)
-            } else {
-                try moveItemExclusively(
+            displacedOutputURL =
+                try rollbackWitnessTracker.publishReplacement(
                     from: stagedOutputURL,
-                    to: outputURL
+                    to: outputURL,
+                    replacingExisting: force,
+                    beforeExistingArtifactClaim:
+                        beforeOutputReplacementClaim
                 )
-            }
             publicationMutated = true
-            try await recordProvenance()
+            try await recordProvenance { mutation in
+                try rollbackWitnessTracker.observe(mutation)
+            }
+            if let displaced = displacedOutputURL {
+                try fileManager.removeItem(at: displaced)
+                displacedOutputURL = nil
+            }
         } catch {
             guard publicationMutated else {
                 throw error
             }
             try throwAfterProvenancePublicationFailure(error) {
-                try snapshot.restore()
+                let preserved: [URL]
+                do {
+                    preserved = try snapshot.restore(
+                        ifCurrentMatches:
+                            rollbackWitnessTracker.currentWitness,
+                        afterArtifactDetached:
+                            afterRollbackArtifactDetached
+                    )
+                } catch {
+                    guard let displacedOutputURL else {
+                        throw error
+                    }
+                    throw ProvenancePublicationRollbackError(
+                        originalError: error,
+                        rollbackError:
+                            ProvenancePublicationPreservedChangesError(
+                                urls: [displacedOutputURL]
+                            )
+                    )
+                }
+                if !preserved.isEmpty {
+                    let preservedURLs = preserved
+                        + (displacedOutputURL.map { [$0] } ?? [])
+                    throw ProvenancePublicationPreservedChangesError(
+                        urls: preservedURLs
+                    )
+                }
+                if let displacedOutputURL {
+                    do {
+                        try fileManager.removeItem(
+                            at: displacedOutputURL
+                        )
+                    } catch {
+                        throw ProvenancePublicationRollbackError(
+                            originalError: error,
+                            rollbackError:
+                                ProvenancePublicationPreservedChangesError(
+                                    urls: [displacedOutputURL]
+                                )
+                        )
+                    }
+                }
             }
-        }
-    }
-
-    private func moveItemExclusively(
-        from sourceURL: URL,
-        to destinationURL: URL
-    ) throws {
-        let result = sourceURL.path.withCString { sourcePath in
-            destinationURL.path.withCString { destinationPath in
-                Darwin.renameatx_np(
-                    AT_FDCWD,
-                    sourcePath,
-                    AT_FDCWD,
-                    destinationPath,
-                    UInt32(RENAME_EXCL)
-                )
-            }
-        }
-        guard result == 0 else {
-            let code = errno
-            if code == EEXIST {
-                throw ValidationError(
-                    "Output file already exists: \(destinationURL.path). Use --force to overwrite."
-                )
-            }
-            throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO)
         }
     }
 
@@ -561,7 +672,9 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
         loadedAnnotation: LoadedAnnotationSidecar,
         loadedProjection: LoadedViewProjection?,
         nativeWriteReport: GenotypeXlsxWorkbookWriter.ViewProjectionWriteReport?,
-        startedAt: Date
+        startedAt: Date,
+        publicationArtifactDidWrite:
+            (@Sendable (ProvenanceWriterMutation) throws -> Void)? = nil
     ) async throws {
         var command = [
             CLICommandIdentity.executableName, "genotype", "export",
@@ -723,7 +836,8 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
                     forBundleAt: bundleURL
                 ),
             ],
-            startedAt: startedAt
+            startedAt: startedAt,
+            publicationArtifactDidWrite: publicationArtifactDidWrite
         )
     }
 

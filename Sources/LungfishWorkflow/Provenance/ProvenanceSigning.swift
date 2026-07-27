@@ -7,7 +7,42 @@ import Foundation
 
 public protocol ProvenanceSigningProvider: Sendable {
     var providerIdentifier: String { get }
+    /// Declares every artifact path that `sign(provenanceURL:)` may mutate,
+    /// including when signing throws after a partial write.
+    func artifactLocations(
+        for provenanceURL: URL
+    ) -> ProvenanceSignatureArtifact
     func sign(provenanceURL: URL) throws -> ProvenanceSignatureArtifact
+}
+
+/// A signing provider that lets the provenance writer atomically publish the
+/// exact bytes it produced. This is required when a caller needs
+/// operation-derived rollback receipts.
+public protocol TransactionalProvenanceSigningProvider:
+    ProvenanceSigningProvider
+{
+    func sign(
+        provenanceURL: URL,
+        publishArtifact:
+            (_ data: Data, _ destinationURL: URL) throws -> Void
+    ) throws -> ProvenanceSignatureArtifact
+}
+
+public extension ProvenanceSigningProvider {
+    func artifactLocations(
+        for provenanceURL: URL
+    ) -> ProvenanceSignatureArtifact {
+        ProvenanceSignatureArtifact(
+            signatureURL:
+                ProvenanceSigningConfiguration.signatureURL(
+                    for: provenanceURL
+                ),
+            publicKeyURL:
+                ProvenanceSigningConfiguration.publicKeyURL(
+                    for: provenanceURL
+                )
+        )
+    }
 }
 
 public struct ProvenanceSignatureArtifact: Sendable, Equatable {
@@ -91,7 +126,9 @@ public enum ProvenanceSigningConfiguration {
     }
 }
 
-public struct LocalProvenanceSigningProvider: ProvenanceSigningProvider {
+public struct LocalProvenanceSigningProvider:
+    TransactionalProvenanceSigningProvider
+{
     public let providerIdentifier = ProvenanceSigningConfiguration.localProviderID
     private let privateKey: String
 
@@ -100,6 +137,46 @@ public struct LocalProvenanceSigningProvider: ProvenanceSigningProvider {
     }
 
     public func sign(provenanceURL: URL) throws -> ProvenanceSignatureArtifact {
+        let prepared = try preparedSignature(
+            provenanceURL: provenanceURL
+        )
+        try prepared.signatureData.write(
+            to: prepared.artifact.signatureURL,
+            options: .atomic
+        )
+        try prepared.publicKeyData.write(
+            to: prepared.artifact.publicKeyURL,
+            options: .atomic
+        )
+        return prepared.artifact
+    }
+
+    public func sign(
+        provenanceURL: URL,
+        publishArtifact:
+            (_ data: Data, _ destinationURL: URL) throws -> Void
+    ) throws -> ProvenanceSignatureArtifact {
+        let prepared = try preparedSignature(
+            provenanceURL: provenanceURL
+        )
+        try publishArtifact(
+            prepared.signatureData,
+            prepared.artifact.signatureURL
+        )
+        try publishArtifact(
+            prepared.publicKeyData,
+            prepared.artifact.publicKeyURL
+        )
+        return prepared.artifact
+    }
+
+    private func preparedSignature(
+        provenanceURL: URL
+    ) throws -> (
+        artifact: ProvenanceSignatureArtifact,
+        signatureData: Data,
+        publicKeyData: Data
+    ) {
         guard FileManager.default.fileExists(atPath: provenanceURL.path) else {
             throw ProvenanceSignatureVerificationError.provenanceMissing(provenanceURL.path)
         }
@@ -127,9 +204,14 @@ public struct LocalProvenanceSigningProvider: ProvenanceSigningProvider {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(envelope).write(to: signatureURL, options: .atomic)
-        try (publicKey + "\n").write(to: publicKeyURL, atomically: true, encoding: .utf8)
-        return ProvenanceSignatureArtifact(signatureURL: signatureURL, publicKeyURL: publicKeyURL)
+        return (
+            ProvenanceSignatureArtifact(
+                signatureURL: signatureURL,
+                publicKeyURL: publicKeyURL
+            ),
+            try encoder.encode(envelope),
+            Data((publicKey + "\n").utf8)
+        )
     }
 
     fileprivate static func signingKey(for privateKey: String) throws -> Curve25519.Signing.PrivateKey {
