@@ -142,6 +142,66 @@ final class GenotypeReviewableRowCatalogPublisherTests: XCTestCase {
         }
     }
 
+    func testMiSeqCSVSemanticAuthorityRejectsDuplicateHeadersWithoutTrapping() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let sampleURL = fixture.root.appendingPathComponent("duplicate-samples.csv")
+        let reportURL = fixture.root.appendingPathComponent("duplicate-calls.csv")
+        try Data("sample,sample,passed_unique_reads\nS1,S1,9\n".utf8)
+            .write(to: sampleURL)
+        try Data(
+            """
+            sample,genotype,passed_alignments,passed_unique_reads
+            S1,Mafa-A1*001:01,9,9
+
+            """.utf8
+        ).write(to: reportURL)
+
+        XCTAssertThrowsError(
+            try GenotypeReviewCSVSemanticAuthority.capture(
+                sampleSummaryURL: sampleURL,
+                reportURL: reportURL
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? GenotypeReviewableRowCatalogPublisherError,
+                .authorityChanged(sampleURL.path)
+            )
+        }
+    }
+
+    func testMiSeqCSVSemanticAuthorityRejectsSupportOverflowWithoutTrapping() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let sampleURL = fixture.root.appendingPathComponent("overflow-samples.csv")
+        let reportURL = fixture.root.appendingPathComponent("overflow-calls.csv")
+        try Data("sample,passed_unique_reads\nS1,9\n".utf8).write(to: sampleURL)
+        try Data(
+            """
+            sample,genotype,passed_alignments,passed_unique_reads
+            S1,Mafa-A1*001:01,\(Int.max),\(Int.max)
+            S1,Mafa-A1*001:01,1,1
+
+            """.utf8
+        ).write(to: reportURL)
+        let authority = try GenotypeReviewCSVSemanticAuthority.capture(
+            sampleSummaryURL: sampleURL,
+            reportURL: reportURL
+        )
+
+        XCTAssertThrowsError(
+            try authority.requireMatches(
+                expectedRoster: ["S1"],
+                expectedCalls: []
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? GenotypeReviewableRowCatalogPublisherError,
+                .invalidSupport(sample: "S1", value: Int.max)
+            )
+        }
+    }
+
     func testMiSeqReferenceAuthorityDescriptorsCoverManifestAndRecordStoreMutation() throws {
         let fixture = try AnnotatedReferenceFixture()
         defer { fixture.remove() }
@@ -197,6 +257,29 @@ final class GenotypeReviewableRowCatalogPublisherTests: XCTestCase {
         ) { error in
             XCTAssertTrue(error.localizedDescription.contains("changed"))
             XCTAssertTrue(error.localizedDescription.contains(fixture.databaseURL.path))
+        }
+    }
+
+    func testMiSeqReferenceAuthorityParsesRetainedSnapshotInsteadOfReopeningLiveFiles() throws {
+        let fixture = try AnnotatedReferenceFixture()
+        defer { fixture.remove() }
+
+        XCTAssertThrowsError(
+            try ONTBarcodeDemuxGenotypingPipeline.reviewableReferenceAuthority(
+                referenceFASTAURL: fixture.fastaURL,
+                sourceReferenceBundleURL: fixture.bundleURL,
+                authorityObserver: { phase in
+                    switch phase {
+                    case .afterSnapshotBeforeSemanticLoad:
+                        try Data("not a sqlite database".utf8)
+                            .write(to: fixture.databaseURL, options: .atomic)
+                    case .beforeFinalVerification:
+                        throw FixtureError.injected
+                    }
+                }
+            )
+        ) { error in
+            XCTAssertEqual(error as? FixtureError, .injected)
         }
     }
 
@@ -496,6 +579,133 @@ final class GenotypeReviewableRowCatalogPublisherTests: XCTestCase {
         )
     }
 
+    func testAuthorityFailureAfterFinalHashRestoresPriorCatalogBeforeRetirement() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let outputURL = fixture.outputDirectory
+            .appendingPathComponent("artifacts/projections/genotype-reviewable-rows.json")
+        try FileManager.default.createDirectory(
+            at: outputURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let original = Data("prior-authoritative-catalog".utf8)
+        try original.write(to: outputURL)
+
+        XCTAssertThrowsError(
+            try fixture.publisher.publish(
+                fixture.inputs(),
+                to: fixture.outputDirectory,
+                postPublicationAuthorityCheck: {
+                    throw GenotypeReviewableRowCatalogPublisherError
+                        .authorityChanged("calls.csv")
+                }
+            )
+        ) { error in
+            let failure = error as? GenotypeReviewableRowCatalogPublicationFailure
+            XCTAssertEqual(failure?.provenance.exitStatus, 1)
+            XCTAssertTrue(
+                failure?.provenance.stderr?.contains("authority changed")
+                    == true
+            )
+        }
+        XCTAssertEqual(try Data(contentsOf: outputURL), original)
+    }
+
+    func testCleanupNeverDeletesEntrySubstitutedAfterAtomicDetach() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let outputURL = fixture.outputDirectory
+            .appendingPathComponent("artifacts/projections/genotype-reviewable-rows.json")
+        let projectionsURL = outputURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(
+            at: projectionsURL,
+            withIntermediateDirectories: true
+        )
+        let original = Data("prior-catalog-for-detach-race".utf8)
+        try original.write(to: outputURL)
+        let substitution = LockedURLBox()
+        let publisher = GenotypeReviewableRowCatalogPublisher(
+            dateProvider: { fixture.startedAt },
+            rollbackObserver: { phase in
+                guard phase == .beforeRemoveRecovery else { return }
+                let recoveryURL = try XCTUnwrap(
+                    FileManager.default.contentsOfDirectory(
+                        at: projectionsURL,
+                        includingPropertiesForKeys: nil
+                    ).first {
+                        $0.lastPathComponent != outputURL.lastPathComponent
+                            && !$0.lastPathComponent.contains("preserved-prior")
+                    }
+                )
+                let preserved = projectionsURL.appendingPathComponent(
+                    "preserved-prior-\(UUID().uuidString)"
+                )
+                try FileManager.default.moveItem(
+                    at: recoveryURL,
+                    to: preserved
+                )
+                let sentinel = Data("substituted-entry-must-survive".utf8)
+                try sentinel.write(to: recoveryURL)
+                substitution.set(recoveryURL)
+            }
+        )
+
+        XCTAssertThrowsError(
+            try publisher.publish(
+                fixture.inputs(),
+                to: fixture.outputDirectory
+            )
+        )
+        let substitutedURL = try XCTUnwrap(substitution.value)
+        XCTAssertEqual(
+            try Data(contentsOf: substitutedURL),
+            Data("substituted-entry-must-survive".utf8)
+        )
+    }
+
+    func testProvisionalCandidateSupportOverflowBecomesAuditedCatalogFailure() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let record = ONTGenotypeProvisionalExon2Record(
+            genotype: "Mafa-A1*999:99_nov",
+            locus: "MHC-A",
+            fastaRecordID: "novel",
+            sequenceLength: 4,
+            sequenceSHA256: String(repeating: "a", count: 64),
+            sampleSupport: [
+                .init(
+                    sample: "S1",
+                    passedAlignments: Int.max,
+                    passedUniqueReads: Int.max
+                ),
+                .init(
+                    sample: "S1",
+                    passedAlignments: 1,
+                    passedUniqueReads: 1
+                ),
+            ]
+        )
+        let candidate = GenotypeReviewableRowCandidate(
+            provisionalExon2: record
+        )
+
+        XCTAssertThrowsError(
+            try fixture.publisher.publish(
+                fixture.inputs(candidates: [candidate]),
+                to: fixture.outputDirectory
+            )
+        ) { error in
+            let failure = error as? GenotypeReviewableRowCatalogPublicationFailure
+            XCTAssertEqual(failure?.provenance.exitStatus, 1)
+            XCTAssertNil(failure?.provenance.output?.checksumSHA256)
+            XCTAssertEqual(
+                failure?.underlyingError
+                    as? GenotypeReviewableRowCatalogPublisherError,
+                .invalidSupport(sample: "S1", value: Int.max)
+            )
+        }
+    }
+
     func testFinalHashFailureRestoresExistingCatalog() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -605,7 +815,7 @@ final class GenotypeReviewableRowCatalogPublisherTests: XCTestCase {
             includingPropertiesForKeys: nil
         )
         let recoveryURL = try XCTUnwrap(entries.first {
-            $0.lastPathComponent.contains(".staging-")
+            $0.lastPathComponent.contains(".retired-")
         })
         XCTAssertNotEqual(try Data(contentsOf: recoveryURL), original)
     }
@@ -665,7 +875,7 @@ final class GenotypeReviewableRowCatalogPublisherTests: XCTestCase {
             XCTAssertEqual(recovery?.canonicalOutputPath, outputURL.path)
             XCTAssertEqual(recovery?.recoveryPaths.count, 1)
             XCTAssertTrue(
-                recovery?.recoveryPaths.first?.contains(".staging-") == true
+                recovery?.recoveryPaths.first?.contains(".retired-") == true
             )
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
@@ -673,7 +883,7 @@ final class GenotypeReviewableRowCatalogPublisherTests: XCTestCase {
             FileManager.default.contentsOfDirectory(
                 at: outputURL.deletingLastPathComponent(),
                 includingPropertiesForKeys: nil
-            ).first { $0.lastPathComponent.contains(".staging-") }
+            ).first { $0.lastPathComponent.contains(".retired-") }
         )
         _ = try JSONDecoder().decode(
             GenotypeReviewableRowCatalog.self,

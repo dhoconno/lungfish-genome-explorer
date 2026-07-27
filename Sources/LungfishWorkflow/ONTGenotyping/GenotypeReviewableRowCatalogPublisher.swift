@@ -263,7 +263,7 @@ struct GenotypeReviewCSVSemanticAuthority: Sendable {
                     "\(sampleSnapshot.url.path) (captured roster \(roster), expected \(expectedRoster))"
                 )
         }
-        guard Self.supportProjection(calls)
+        guard try Self.supportProjection(calls)
             == Self.supportProjection(expectedCalls) else {
             throw GenotypeReviewableRowCatalogPublisherError
                 .authorityChanged(reportSnapshot.url.path)
@@ -287,17 +287,31 @@ struct GenotypeReviewCSVSemanticAuthority: Sendable {
 
     private static func supportProjection(
         _ calls: [ONTGenotypeCall]
-    ) -> [SupportKey: SupportValue] {
-        calls.reduce(into: [:]) { result, call in
+    ) throws -> [SupportKey: SupportValue] {
+        var result: [SupportKey: SupportValue] = [:]
+        for call in calls {
             let key = SupportKey(sample: call.sample, genotype: call.genotype)
             var value = result[key] ?? SupportValue(
                 alignments: 0,
                 uniqueReads: 0
             )
-            value.alignments += call.passedAlignments
-            value.uniqueReads += call.passedUniqueReads
+            let alignments = value.alignments.addingReportingOverflow(
+                call.passedAlignments
+            )
+            let uniqueReads = value.uniqueReads.addingReportingOverflow(
+                call.passedUniqueReads
+            )
+            guard !alignments.overflow, !uniqueReads.overflow else {
+                throw GenotypeReviewableRowCatalogPublisherError.invalidSupport(
+                    sample: call.sample,
+                    value: Int.max
+                )
+            }
+            value.alignments = alignments.partialValue
+            value.uniqueReads = uniqueReads.partialValue
             result[key] = value
         }
+        return result
     }
 
     private static func rows(
@@ -309,11 +323,21 @@ struct GenotypeReviewCSVSemanticAuthority: Sendable {
         }
         let parsed = parseCSV(content)
         guard let header = parsed.first else { return [] }
+        let normalizedHeader = header.map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        var seenHeaders = Set<String>()
+        guard normalizedHeader.allSatisfy({
+            !$0.isEmpty && seenHeaders.insert($0).inserted
+        }) else {
+            throw GenotypeReviewableRowCatalogPublisherError
+                .authorityChanged(snapshot.url.path)
+        }
         return parsed.dropFirst().map { row in
-            Dictionary(uniqueKeysWithValues: header.enumerated().map {
+            Dictionary(uniqueKeysWithValues: normalizedHeader.enumerated().map {
                 let value = $0.offset < row.count ? row[$0.offset] : ""
                 return (
-                    $0.element.trimmingCharacters(in: .whitespacesAndNewlines),
+                    $0.element,
                     value.trimmingCharacters(in: .whitespacesAndNewlines)
                 )
             })
@@ -514,6 +538,7 @@ public struct GenotypeReviewableRowCandidate: Equatable, Sendable {
     public let displayName: String
     public let locus: String
     public let supportBySample: [String: Int]
+    fileprivate let validationError: GenotypeReviewableRowCatalogPublisherError?
 
     public init(
         kind: GenotypeReviewableRowCatalog.RowKind,
@@ -527,30 +552,61 @@ public struct GenotypeReviewableRowCandidate: Equatable, Sendable {
         self.displayName = displayName
         self.locus = locus
         self.supportBySample = supportBySample
+        self.validationError = nil
     }
 
     public init(provisionalExon2 record: ONTGenotypeProvisionalExon2Record) {
-        self.init(
-            kind: .provisionalExon2,
-            stableID: "sha256:\(record.sequenceSHA256)",
-            displayName: record.genotype,
-            locus: record.locus,
-            supportBySample: Dictionary(
-                record.sampleSupport.map { ($0.sample, $0.passedUniqueReads) },
-                uniquingKeysWith: +
+        var supportBySample: [String: Int] = [:]
+        var validationError:
+            GenotypeReviewableRowCatalogPublisherError?
+        for support in record.sampleSupport {
+            let current = supportBySample[support.sample, default: 0]
+            let addition = current.addingReportingOverflow(
+                support.passedUniqueReads
             )
-        )
+            if addition.overflow {
+                validationError = .invalidSupport(
+                    sample: support.sample,
+                    value: Int.max
+                )
+                break
+            }
+            supportBySample[support.sample] = addition.partialValue
+        }
+        self.kind = .provisionalExon2
+        self.stableID = "sha256:\(record.sequenceSHA256)"
+        self.displayName = record.genotype
+        self.locus = record.locus
+        self.supportBySample = supportBySample
+        self.validationError = validationError
     }
 
     public static func fullLengthCandidates(
         from document: ONTMHCCandidateAllelesDocument
     ) -> [Self] {
         var supportByStableID: [String: [String: Int]] = [:]
+        var validationErrorByStableID:
+            [String: GenotypeReviewableRowCatalogPublisherError] = [:]
         for observation in document.observations {
-            supportByStableID[
+            let current = supportByStableID[
                 observation.stableClusterID,
                 default: [:]
-            ][observation.sampleID, default: 0] += observation.aggregatedSampleReadCount
+            ][observation.sampleID, default: 0]
+            let addition = current.addingReportingOverflow(
+                observation.aggregatedSampleReadCount
+            )
+            if addition.overflow {
+                validationErrorByStableID[observation.stableClusterID] =
+                    .invalidSupport(
+                        sample: observation.sampleID,
+                        value: Int.max
+                    )
+            } else {
+                supportByStableID[
+                    observation.stableClusterID,
+                    default: [:]
+                ][observation.sampleID] = addition.partialValue
+            }
         }
         return document.candidates.map { candidate in
             Self(
@@ -558,9 +614,28 @@ public struct GenotypeReviewableRowCandidate: Equatable, Sendable {
                 stableID: candidate.stableClusterID,
                 displayName: candidate.provisionalName,
                 locus: candidate.locus,
-                supportBySample: supportByStableID[candidate.stableClusterID] ?? [:]
+                supportBySample:
+                    supportByStableID[candidate.stableClusterID] ?? [:],
+                validationError:
+                    validationErrorByStableID[candidate.stableClusterID]
             )
         }
+    }
+
+    private init(
+        kind: GenotypeReviewableRowCatalog.RowKind,
+        stableID: String,
+        displayName: String,
+        locus: String,
+        supportBySample: [String: Int],
+        validationError: GenotypeReviewableRowCatalogPublisherError?
+    ) {
+        self.kind = kind
+        self.stableID = stableID
+        self.displayName = displayName
+        self.locus = locus
+        self.supportBySample = supportBySample
+        self.validationError = validationError
     }
 }
 
@@ -625,89 +700,18 @@ public struct GenotypeReviewableRowCatalogPublication: Sendable {
         self.provenance = provenance
     }
 
-    func failedPostPublicationAuthorityCheck(
-        _ error: Error,
-        rollbackPaths: [URL],
-        completedAt: Date = Date()
-    ) -> GenotypeReviewableRowCatalogPublicationFailure {
-        let rollbackPathText = rollbackPaths
-            .map { $0.standardizedFileURL.path }
-            .joined(separator: ", ")
-        let stderr = "\(error.localizedDescription) Rollback paths: \(rollbackPathText)"
-        let successfulStep = provenance.steps.last
-        let intendedOutput = ProvenanceFileDescriptor(
-            path: outputURL.standardizedFileURL.path,
-            format: .json,
-            role: .report
-        )
-        let startedAt = successfulStep?.startedAt ?? provenance.createdAt
-        let wallTime = completedAt.timeIntervalSince(startedAt)
-        let failedStep = ProvenanceStep(
-            id: successfulStep?.id ?? UUID(),
-            toolName: successfulStep?.toolName ?? provenance.toolName,
-            toolVersion: successfulStep?.toolVersion ?? provenance.toolVersion,
-            githubReleaseVersion:
-                successfulStep?.githubReleaseVersion
-                ?? provenance.githubReleaseVersion,
-            argv: successfulStep?.argv ?? provenance.argv,
-            durableReplayArgv:
-                successfulStep?.durableReplayArgv
-                ?? provenance.durableReplayArgv,
-            reproducibleCommand:
-                successfulStep?.reproducibleCommand
-                ?? provenance.reproducibleCommand,
-            resolvedOptions:
-                successfulStep?.resolvedOptions
-                ?? provenance.options.explicit.merging(
-                    provenance.options.resolvedDefaults
-                ) { explicit, _ in explicit },
-            runtimeIdentity:
-                successfulStep?.runtimeIdentity
-                ?? provenance.runtimeIdentity,
-            inputs: successfulStep?.inputs
-                ?? provenance.files.filter { $0.role != .report },
-            outputs: [intendedOutput],
-            exitStatus: 1,
-            wallTimeSeconds: wallTime,
-            peakMemoryBytes: successfulStep?.peakMemoryBytes,
-            stderr: stderr,
-            dependsOn: successfulStep?.dependsOn ?? [],
-            startedAt: startedAt,
-            completedAt: completedAt
-        )
-        let failedProvenance = ProvenanceEnvelope(
-            schemaVersion: provenance.schemaVersion,
-            id: provenance.id,
-            createdAt: completedAt,
-            workflowName: provenance.workflowName,
-            workflowVersion: provenance.workflowVersion,
-            toolName: provenance.toolName,
-            toolVersion: provenance.toolVersion,
-            githubReleaseVersion: provenance.githubReleaseVersion,
-            tool: provenance.tool,
-            argv: provenance.argv,
-            durableReplayArgv: provenance.durableReplayArgv,
-            reproducibleCommand: provenance.reproducibleCommand,
-            options: provenance.options,
-            runtimeIdentity: provenance.runtimeIdentity,
-            files: failedStep.inputs + [intendedOutput],
-            output: intendedOutput,
-            outputs: [intendedOutput],
-            steps: [failedStep],
-            wallTimeSeconds: wallTime,
-            exitStatus: 1,
-            stderr: stderr,
-            legacyWorkflowRun: provenance.legacyRun
-        )
-        return GenotypeReviewableRowCatalogPublicationFailure(
-            message: stderr,
-            provenance: failedProvenance,
-            underlyingError: error
-        )
-    }
 }
 
 public struct GenotypeReviewableRowCatalogPublisher: Sendable {
+    private struct PostPublicationAuthorityFailure: LocalizedError {
+        let underlying: Error
+        let rollbackPath: String
+
+        var errorDescription: String? {
+            "\(underlying.localizedDescription) Rollback paths: \(rollbackPath)"
+        }
+    }
+
     public enum PublicationPhase: Equatable, Sendable {
         case staged
         case published
@@ -777,14 +781,17 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
 
     public func publish(
         _ inputs: GenotypeReviewableRowCatalogInputs,
-        to bundleDirectoryURL: URL
+        to bundleDirectoryURL: URL,
+        postPublicationAuthorityCheck:
+            @escaping @Sendable () throws -> Void = {}
     ) throws -> GenotypeReviewableRowCatalogPublication {
         let startedAt = dateProvider()
         do {
             return try publish(
                 inputs,
                 to: bundleDirectoryURL,
-                startedAt: startedAt
+                startedAt: startedAt,
+                postPublicationAuthorityCheck: postPublicationAuthorityCheck
             )
         } catch let failure as GenotypeReviewableRowCatalogPublicationFailure {
             throw failure
@@ -807,7 +814,9 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
     private func publish(
         _ inputs: GenotypeReviewableRowCatalogInputs,
         to bundleDirectoryURL: URL,
-        startedAt: Date
+        startedAt: Date,
+        postPublicationAuthorityCheck:
+            @escaping @Sendable () throws -> Void
     ) throws -> GenotypeReviewableRowCatalogPublication {
         let roster = try validatedRoster(inputs.authoritativeSamples)
         try validateInputDescriptors(inputs.inputDescriptors)
@@ -866,7 +875,8 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
         let finalDescriptor = try publishCatalogData(
             encoded,
             bundleDirectoryURL: bundleDirectoryURL,
-            outputURL: outputURL
+            outputURL: outputURL,
+            postPublicationAuthorityCheck: postPublicationAuthorityCheck
         )
 
         let outputHash = finalDescriptor.sha256
@@ -1034,6 +1044,9 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
         stableIDs.reserveCapacity(candidates.count)
         identitiesByDisplay.reserveCapacity(candidates.count)
         for candidate in candidates {
+            if let validationError = candidate.validationError {
+                throw validationError
+            }
             let locus = GenotypeHaplotypeLocusResolver.canonicalLocusName(candidate.locus)
             guard candidate.kind.requiresStableID,
                   locus != "Unknown",
@@ -1226,7 +1239,9 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
     private func publishCatalogData(
         _ data: Data,
         bundleDirectoryURL: URL,
-        outputURL: URL
+        outputURL: URL,
+        postPublicationAuthorityCheck:
+            @escaping @Sendable () throws -> Void
     ) throws -> CatalogPayloadAttestation {
         let bundleDescriptor = try NoFollowFileSystem.openDirectoryHierarchy(
             bundleDirectoryURL
@@ -1374,6 +1389,14 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
                         .finalArtifactMismatch(outputURL.path)
                 }
             }
+            do {
+                try postPublicationAuthorityCheck()
+            } catch {
+                throw PostPublicationAuthorityFailure(
+                    underlying: error,
+                    rollbackPath: outputURL.path
+                )
+            }
             if previousIdentity != nil {
                 do {
                     guard try regularFileIdentityIfPresent(
@@ -1386,22 +1409,26 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
                                 "The retained prior catalog identity changed before cleanup."
                             )
                     }
-                    try rollbackObserver(.beforeRemoveRecovery)
-                    guard stagingName.withCString({
-                        Darwin.unlinkat(projectionsDescriptor, $0, 0)
-                    }) == 0 else {
-                        throw posixError()
-                    }
-                    try rollbackObserver(.beforeSyncRecoveryRemoval)
-                    guard Darwin.fsync(projectionsDescriptor) == 0 else {
-                        throw posixError()
-                    }
+                    let retiredName =
+                        ".\(outputName).retired-\(UUID().uuidString.lowercased())"
+                    let retiredURL = projectionsURL
+                        .appendingPathComponent(retiredName)
+                    try detachVerifyAndRemove(
+                        sourceName: stagingName,
+                        detachedName: retiredName,
+                        expectedIdentity: previousIdentity!,
+                        directoryDescriptor: projectionsDescriptor,
+                        displayedAt: retiredURL
+                    )
                 } catch {
                     let recoveryURLs = existingRecoveryURLs(
                         namesAndURLs: [
                             (outputName, outputURL),
                             (stagingName, stagingURL),
-                        ],
+                        ] + recoveryEntries(
+                            prefix: ".\(outputName).retired-",
+                            in: projectionsURL
+                        ),
                         in: projectionsDescriptor
                     )
                     throw recoveryError(
@@ -1495,15 +1522,16 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
                             "Publication identities changed during rollback."
                         )
                 }
-                try rollbackObserver(.beforeRemoveRecovery)
-                guard stagingName.withCString({
-                    Darwin.unlinkat(directoryDescriptor, $0, 0)
-                }) == 0 else {
-                    throw posixError()
-                }
-                guard Darwin.fsync(directoryDescriptor) == 0 else {
-                    throw posixError()
-                }
+                let retiredName =
+                    ".\(outputName).retired-\(UUID().uuidString.lowercased())"
+                try detachVerifyAndRemove(
+                    sourceName: stagingName,
+                    detachedName: retiredName,
+                    expectedIdentity: stagedIdentity,
+                    directoryDescriptor: directoryDescriptor,
+                    displayedAt:
+                        directoryURL.appendingPathComponent(retiredName)
+                )
             } catch {
                 throw recoveryError(
                     primary: primaryError,
@@ -1513,7 +1541,10 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
                         namesAndURLs: [
                             (outputName, outputURL),
                             (stagingName, stagingURL),
-                        ],
+                        ] + recoveryEntries(
+                            prefix: ".\(outputName).retired-",
+                            in: directoryURL
+                        ),
                         in: directoryDescriptor
                     )
                 )
@@ -1556,15 +1587,16 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
                             "Published catalog identity changed during rollback."
                         )
                 }
-                try rollbackObserver(.beforeRemoveRecovery)
-                guard stagingName.withCString({
-                    Darwin.unlinkat(directoryDescriptor, $0, 0)
-                }) == 0 else {
-                    throw posixError()
-                }
-                guard Darwin.fsync(directoryDescriptor) == 0 else {
-                    throw posixError()
-                }
+                let retiredName =
+                    ".\(outputName).retired-\(UUID().uuidString.lowercased())"
+                try detachVerifyAndRemove(
+                    sourceName: stagingName,
+                    detachedName: retiredName,
+                    expectedIdentity: stagedIdentity,
+                    directoryDescriptor: directoryDescriptor,
+                    displayedAt:
+                        directoryURL.appendingPathComponent(retiredName)
+                )
             } catch {
                 throw recoveryError(
                     primary: primaryError,
@@ -1574,11 +1606,70 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
                         namesAndURLs: [
                             (outputName, outputURL),
                             (stagingName, stagingURL),
-                        ],
+                        ] + recoveryEntries(
+                            prefix: ".\(outputName).retired-",
+                            in: directoryURL
+                        ),
                         in: directoryDescriptor
                     )
                 )
             }
+        }
+    }
+
+    private func detachVerifyAndRemove(
+        sourceName: String,
+        detachedName: String,
+        expectedIdentity: FileSystemObjectIdentity,
+        directoryDescriptor: Int32,
+        displayedAt detachedURL: URL
+    ) throws {
+        let status = sourceName.withCString { source in
+            detachedName.withCString { detached in
+                Darwin.renameatx_np(
+                    directoryDescriptor,
+                    source,
+                    directoryDescriptor,
+                    detached,
+                    UInt32(RENAME_EXCL)
+                )
+            }
+        }
+        guard status == 0 else { throw posixError() }
+        guard Darwin.fsync(directoryDescriptor) == 0 else {
+            throw posixError()
+        }
+        try rollbackObserver(.beforeRemoveRecovery)
+        guard try regularFileIdentityIfPresent(
+            named: detachedName,
+            in: directoryDescriptor,
+            displayedAt: detachedURL
+        ) == expectedIdentity else {
+            throw GenotypeReviewableRowCatalogPublisherError
+                .finalArtifactMismatch(
+                    "Detached catalog generation identity changed before removal."
+                )
+        }
+        guard detachedName.withCString({
+            Darwin.unlinkat(directoryDescriptor, $0, 0)
+        }) == 0 else {
+            throw posixError()
+        }
+        try rollbackObserver(.beforeSyncRecoveryRemoval)
+        guard Darwin.fsync(directoryDescriptor) == 0 else {
+            throw posixError()
+        }
+    }
+
+    private func recoveryEntries(
+        prefix: String,
+        in directoryURL: URL
+    ) -> [(String, URL)] {
+        let names = (try? FileManager.default.contentsOfDirectory(
+            atPath: directoryURL.path
+        )) ?? []
+        return names.filter { $0.hasPrefix(prefix) }.map {
+            ($0, directoryURL.appendingPathComponent($0))
         }
     }
 

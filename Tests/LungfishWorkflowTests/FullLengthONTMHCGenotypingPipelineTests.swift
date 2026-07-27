@@ -1418,6 +1418,8 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             minimumLength: 4,
             maximumLength: 12
         )
+        let priorCatalog = Data("prior-reviewable-row-catalog".utf8)
+        let restoredPriorCatalog = LockedBooleanBox()
         let failingPipeline = FullLengthONTMHCGenotypingPipeline(
             nativeToolRunner: NativeToolRunner(
                 toolsDirectory: nil,
@@ -1431,9 +1433,8 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
             postPublicationWorkDirectoryCleaner:
                 DefaultFullLengthONTMHCWorkDirectoryCleaner(),
             metadataPublicationObserver: { _ in },
-            reviewableRowCatalogPublisher: { inputs, outputDirectory in
-                let publication = try GenotypeReviewableRowCatalogPublisher()
-                    .publish(inputs, to: outputDirectory)
+            reviewableRowCatalogPublisher: {
+                inputs, outputDirectory, authorityCheck in
                 guard let rosterIndex = inputs.argv.firstIndex(
                     of: "--sample-roster"
                 ),
@@ -1446,8 +1447,34 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                 )
                 var changedRoster = try Data(contentsOf: rosterURL)
                 changedRoster.append(0x0a)
-                try changedRoster.write(to: rosterURL, options: .atomic)
-                return publication
+                let changedRosterData = changedRoster
+                let catalogURL = outputDirectory.appendingPathComponent(
+                    "artifacts/projections/genotype-reviewable-rows.json"
+                )
+                try FileManager.default.createDirectory(
+                    at: catalogURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try priorCatalog.write(to: catalogURL)
+                do {
+                    return try GenotypeReviewableRowCatalogPublisher()
+                        .publish(
+                            inputs,
+                            to: outputDirectory,
+                            postPublicationAuthorityCheck: {
+                                try changedRosterData.write(
+                                    to: rosterURL,
+                                    options: .atomic
+                                )
+                                try authorityCheck()
+                            }
+                        )
+                } catch {
+                    restoredPriorCatalog.set(
+                        (try? Data(contentsOf: catalogURL)) == priorCatalog
+                    )
+                    throw error
+                }
             }
         )
         do {
@@ -1481,6 +1508,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
                 ) == true
             )
             XCTAssertFalse(FileManager.default.fileExists(atPath: catalogPath))
+            XCTAssertTrue(restoredPriorCatalog.value)
         }
         let pipeline = FullLengthONTMHCGenotypingPipeline(
             nativeToolRunner: NativeToolRunner(toolsDirectory: nil, homeDirectory: homeDirectory),

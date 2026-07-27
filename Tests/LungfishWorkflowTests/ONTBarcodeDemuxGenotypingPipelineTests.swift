@@ -717,6 +717,15 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             mode: .illuminaPaired,
             readType: .illumina
         )
+        let catalogURL = outputDirectory.appendingPathComponent(
+            "artifacts/projections/genotype-reviewable-rows.json"
+        )
+        let priorCatalog = Data("prior-reviewable-row-catalog".utf8)
+        try FileManager.default.createDirectory(
+            at: catalogURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try priorCatalog.write(to: catalogURL)
 
         let failingPipeline = ONTBarcodeDemuxGenotypingPipeline(
             condaManager: CondaManager(
@@ -724,9 +733,8 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
                 bundledMicromambaProvider: { bundledMicromamba },
                 bundledMicromambaVersionProvider: { "test-micromamba" }
             ),
-            reviewableRowCatalogPublisher: { inputs, outputDirectory in
-                let publication = try GenotypeReviewableRowCatalogPublisher()
-                    .publish(inputs, to: outputDirectory)
+            reviewableRowCatalogPublisher: {
+                inputs, outputDirectory, authorityCheck in
                 guard let rosterIndex = inputs.argv.firstIndex(
                     of: "--sample-roster"
                 ),
@@ -739,8 +747,19 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
                 )
                 var changedRoster = try Data(contentsOf: rosterURL)
                 changedRoster.append(0x0a)
-                try changedRoster.write(to: rosterURL, options: .atomic)
-                return publication
+                let changedRosterData = changedRoster
+                return try GenotypeReviewableRowCatalogPublisher()
+                    .publish(
+                        inputs,
+                        to: outputDirectory,
+                        postPublicationAuthorityCheck: {
+                            try changedRosterData.write(
+                                to: rosterURL,
+                                options: .atomic
+                            )
+                            try authorityCheck()
+                        }
+                    )
             }
         )
         do {
@@ -764,16 +783,13 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
                     == true
             )
             XCTAssertFalse(failedStep.inputs.isEmpty)
-            let catalogURL = outputDirectory.appendingPathComponent(
-                "artifacts/projections/genotype-reviewable-rows.json"
-            )
             XCTAssertEqual(failedStep.outputs.first?.path, catalogURL.path)
             XCTAssertTrue(
                 failure.provenance.stderr?.contains(
                     "Rollback paths: \(catalogURL.path)"
                 ) == true
             )
-            XCTAssertFalse(FileManager.default.fileExists(atPath: catalogURL.path))
+            XCTAssertEqual(try Data(contentsOf: catalogURL), priorCatalog)
         }
 
         let result = try await ONTBarcodeDemuxGenotypingPipeline(

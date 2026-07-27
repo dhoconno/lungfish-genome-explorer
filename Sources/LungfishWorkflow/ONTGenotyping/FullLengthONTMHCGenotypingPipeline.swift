@@ -866,7 +866,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
     private let reviewableRowCatalogPublisher:
         @Sendable (
             GenotypeReviewableRowCatalogInputs,
-            URL
+            URL,
+            @escaping @Sendable () throws -> Void
         ) throws -> GenotypeReviewableRowCatalogPublication
 
     static func reviewableCatalogAuthority(
@@ -919,10 +920,12 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         self.metadataPublicationObserver = { _ in }
         self.rollbackOperationObserver = {}
         self.exclusivePublicationFailureInjector = { _ in nil }
-        self.reviewableRowCatalogPublisher = { inputs, outputDirectory in
+        self.reviewableRowCatalogPublisher = {
+            inputs, outputDirectory, authorityCheck in
             try GenotypeReviewableRowCatalogPublisher().publish(
                 inputs,
-                to: outputDirectory
+                to: outputDirectory,
+                postPublicationAuthorityCheck: authorityCheck
             )
         }
     }
@@ -937,11 +940,13 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         reviewableRowCatalogPublisher:
             @escaping @Sendable (
                 GenotypeReviewableRowCatalogInputs,
-                URL
+                URL,
+                @escaping @Sendable () throws -> Void
             ) throws -> GenotypeReviewableRowCatalogPublication = {
                 try GenotypeReviewableRowCatalogPublisher().publish(
                     $0,
-                    to: $1
+                    to: $1,
+                    postPublicationAuthorityCheck: $2
                 )
             }
     ) {
@@ -4916,19 +4921,14 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                     condaPrefix: condaManager.rootPrefix.path
                 )
             ),
-            request.outputDirectory
+            request.outputDirectory,
+            {
+                try reviewAuthority.requireUnchanged()
+                try csvAuthority.requireUnchanged()
+                try bamSnapshot.requireMetadataUnchanged()
+                try baiSnapshot.requireMetadataUnchanged()
+            }
         )
-        do {
-            try reviewAuthority.requireUnchanged()
-            try csvAuthority.requireUnchanged()
-            try bamSnapshot.requireMetadataUnchanged()
-            try baiSnapshot.requireMetadataUnchanged()
-        } catch {
-            throw publication.failedPostPublicationAuthorityCheck(
-                error,
-                rollbackPaths: [publication.outputURL]
-            )
-        }
         return publication
     }
 

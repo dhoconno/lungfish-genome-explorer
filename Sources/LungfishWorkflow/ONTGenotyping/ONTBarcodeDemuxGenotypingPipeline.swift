@@ -16,6 +16,7 @@ struct GenotypeReviewableReferenceAuthority: Sendable {
 }
 
 enum GenotypeReviewableReferenceAuthorityPhase: Equatable, Sendable {
+    case afterSnapshotBeforeSemanticLoad
     case beforeFinalVerification
 }
 
@@ -738,7 +739,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     private let reviewableRowCatalogPublisher:
         @Sendable (
             GenotypeReviewableRowCatalogInputs,
-            URL
+            URL,
+            @escaping @Sendable () throws -> Void
         ) throws -> GenotypeReviewableRowCatalogPublication
     private static let mappingProcessTimeout: TimeInterval = 86_400
 
@@ -751,10 +753,12 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         self.fileRemover = { url in
             try FileManager.default.removeItem(at: url)
         }
-        self.reviewableRowCatalogPublisher = { inputs, outputDirectory in
+        self.reviewableRowCatalogPublisher = {
+            inputs, outputDirectory, authorityCheck in
             try GenotypeReviewableRowCatalogPublisher().publish(
                 inputs,
-                to: outputDirectory
+                to: outputDirectory,
+                postPublicationAuthorityCheck: authorityCheck
             )
         }
     }
@@ -768,11 +772,13 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         reviewableRowCatalogPublisher:
             @escaping @Sendable (
                 GenotypeReviewableRowCatalogInputs,
-                URL
+                URL,
+                @escaping @Sendable () throws -> Void
             ) throws -> GenotypeReviewableRowCatalogPublication = {
                 try GenotypeReviewableRowCatalogPublisher().publish(
                     $0,
-                    to: $1
+                    to: $1,
+                    postPublicationAuthorityCheck: $2
                 )
             }
     ) {
@@ -1006,7 +1012,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             if resolvedMode == .illuminaPaired {
                 rollbackScientificOutputsAfterFinalizationFailure(
                     request: request,
-                    mapping: mapping
+                    mapping: mapping,
+                    preserveReviewableRowCatalog:
+                        error is GenotypeReviewableRowCatalogPublicationFailure
                 )
             }
             if let failure =
@@ -2696,23 +2704,26 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             let locus: String
             let genotype: String
         }
-        let exactCalls = Dictionary(
+        let groupedCalls = Dictionary(
             grouping: csvAuthority.calls,
             by: { CallIdentity(locus: $0.locusGroup, genotype: $0.genotype) }
-        ).map { identity, calls in
+        )
+        let exactCalls = try groupedCalls.map { identity, calls in
             ONTGenotypeSharedCall(
                 locus: identity.locus,
                 genotype: identity.genotype,
-                sampleSupport: Dictionary(grouping: calls, by: \.sample)
+                sampleSupport: try Dictionary(grouping: calls, by: \.sample)
                     .map { sample, rows in
                         ONTGenotypeSampleSupport(
                             sample: sample,
-                            passedAlignments: rows.reduce(0) {
-                                $0 + $1.passedAlignments
-                            },
-                            passedUniqueReads: rows.reduce(0) {
-                                $0 + $1.passedUniqueReads
-                            }
+                            passedAlignments: try checkedSupportSum(
+                                rows.map(\.passedAlignments),
+                                sample: sample
+                            ),
+                            passedUniqueReads: try checkedSupportSum(
+                                rows.map(\.passedUniqueReads),
+                                sample: sample
+                            )
                         )
                     }
             )
@@ -2770,19 +2781,30 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                     condaPrefix: condaManager.rootPrefix.path
                 )
             ),
-            request.outputDirectory
+            request.outputDirectory,
+            {
+                try csvAuthority.requireUnchanged()
+                try referenceAuthority.requireUnchanged()
+                try candidateSnapshot?.requireUnchanged()
+            }
         )
-        do {
-            try csvAuthority.requireUnchanged()
-            try referenceAuthority.requireUnchanged()
-            try candidateSnapshot?.requireUnchanged()
-        } catch {
-            throw publication.failedPostPublicationAuthorityCheck(
-                error,
-                rollbackPaths: [publication.outputURL]
-            )
-        }
         return publication
+    }
+
+    private func checkedSupportSum(
+        _ values: [Int],
+        sample: String
+    ) throws -> Int {
+        var result = 0
+        for value in values {
+            let addition = result.addingReportingOverflow(value)
+            guard !addition.overflow else {
+                throw GenotypeReviewableRowCatalogPublisherError
+                    .invalidSupport(sample: sample, value: Int.max)
+            }
+            result = addition.partialValue
+        }
+        return result
     }
 
     static func reviewableReferenceAuthority(
@@ -2846,11 +2868,93 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 }
                 return try GenotypeReviewAuthorityFileSnapshot.capture($0)
             }
+        try authorityObserver(.afterSnapshotBeforeSemanticLoad)
         let records: [MHCReferenceRecord]
         if let catalogBundleURL {
-            records = try MHCReferenceRecordCatalog.load(from: catalogBundleURL).records
+            records = try recordsFromRetainedCatalogSnapshots(
+                snapshots,
+                catalogBundleURL: catalogBundleURL
+            )
         } else {
-            records = try FASTAReader(url: referenceFASTAURL).readAllSync().map {
+            guard let fastaSnapshot = snapshots.first(where: {
+                $0.url.standardizedFileURL
+                    == referenceFASTAURL.standardizedFileURL
+            }) else {
+                throw GenotypeReviewableRowCatalogPublisherError
+                    .invalidInputDescriptor(referenceFASTAURL.path)
+            }
+            records = try recordsFromRetainedFASTASnapshot(fastaSnapshot)
+        }
+        try authorityObserver(.beforeFinalVerification)
+        for snapshot in snapshots {
+            try snapshot.requireUnchanged()
+        }
+        let descriptors = snapshots.map {
+            $0.descriptor(
+                    format: $0.url.pathExtension.lowercased() == "json"
+                        ? .json
+                        : ($0.url.pathExtension.lowercased().contains("fa") ? .fasta : nil),
+                    role: .reference
+                )
+        }
+        return GenotypeReviewableReferenceAuthority(
+            records: records,
+            descriptors: descriptors,
+            snapshots: snapshots
+        )
+    }
+
+    private static func recordsFromRetainedCatalogSnapshots(
+        _ snapshots: [GenotypeReviewAuthorityFileSnapshot],
+        catalogBundleURL: URL
+    ) throws -> [MHCReferenceRecord] {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(
+            "lungfish-review-reference-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(
+            at: temporaryRoot,
+            withIntermediateDirectories: true
+        )
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        let bundleRoot = catalogBundleURL.standardizedFileURL
+        let bundlePrefix = bundleRoot.path.hasSuffix("/")
+            ? bundleRoot.path
+            : bundleRoot.path + "/"
+        for snapshot in snapshots {
+            let sourcePath = snapshot.url.standardizedFileURL.path
+            guard sourcePath.hasPrefix(bundlePrefix) else { continue }
+            let relativePath = String(sourcePath.dropFirst(bundlePrefix.count))
+            guard !relativePath.isEmpty else { continue }
+            let destination = temporaryRoot.appendingPathComponent(relativePath)
+            try fileManager.createDirectory(
+                at: destination.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try snapshot.data.write(to: destination, options: .atomic)
+        }
+        return try MHCReferenceRecordCatalog.load(from: temporaryRoot).records
+    }
+
+    private static func recordsFromRetainedFASTASnapshot(
+        _ snapshot: GenotypeReviewAuthorityFileSnapshot
+    ) throws -> [MHCReferenceRecord] {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(
+            "lungfish-review-fasta-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(
+            at: temporaryRoot,
+            withIntermediateDirectories: true
+        )
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        let fastaURL = temporaryRoot.appendingPathComponent(
+            snapshot.url.lastPathComponent
+        )
+        try snapshot.data.write(to: fastaURL, options: .atomic)
+        return try FASTAReader(url: fastaURL).readAllSync().map {
                 let locus = ONTGenotypeCall(
                     sample: "catalog-projection",
                     genotype: $0.name,
@@ -2872,24 +2976,6 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                     sequenceLength: $0.length
                 )
             }
-        }
-        try authorityObserver(.beforeFinalVerification)
-        for snapshot in snapshots {
-            try snapshot.requireUnchanged()
-        }
-        let descriptors = snapshots.map {
-            $0.descriptor(
-                    format: $0.url.pathExtension.lowercased() == "json"
-                        ? .json
-                        : ($0.url.pathExtension.lowercased().contains("fa") ? .fasta : nil),
-                    role: .reference
-                )
-        }
-        return GenotypeReviewableReferenceAuthority(
-            records: records,
-            descriptors: descriptors,
-            snapshots: snapshots
-        )
     }
 
     private func resolveHaplotypeDefinitionSet(
@@ -4154,7 +4240,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
 
     private func rollbackScientificOutputsAfterFinalizationFailure(
         request: ONTBarcodeDemuxGenotypingRunRequest,
-        mapping: MappingStepResult
+        mapping: MappingStepResult,
+        preserveReviewableRowCatalog: Bool
     ) {
         let alignmentURLs = [
             request.mappingBAMURL,
@@ -4166,7 +4253,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             .appendingPathComponent("artifacts/sequences", isDirectory: true)
         let canonicalProvenanceURL = request.outputDirectory
             .appendingPathComponent(ProvenanceWriter.provenanceFilename)
-        let removableURLs = alignmentURLs + [
+        var removableURLs = alignmentURLs + [
             request.reportCSVURL,
             request.sampleSummaryCSVURL,
             request.statsJSONURL,
@@ -4192,13 +4279,17 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 "observed-provisional-exon2.fasta"
             ),
             request.outputDirectory.appendingPathComponent(
-                "artifacts/projections/genotype-reviewable-rows.json"
-            ),
-            request.outputDirectory.appendingPathComponent(
                 ProvenanceWriter.bundleProvenanceDirectoryName,
                 isDirectory: true
             ),
         ]
+        if !preserveReviewableRowCatalog {
+            removableURLs.append(
+                request.outputDirectory.appendingPathComponent(
+                    "artifacts/projections/genotype-reviewable-rows.json"
+                )
+            )
+        }
         for url in removableURLs where FileManager.default.fileExists(atPath: url.path) {
             try? fileRemover(url)
         }
