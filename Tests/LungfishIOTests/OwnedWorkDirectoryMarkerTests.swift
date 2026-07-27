@@ -213,6 +213,45 @@ final class OwnedWorkDirectoryMarkerTests: XCTestCase {
         XCTAssertTrue(children.isEmpty, "An undurable owned directory must not survive creation")
     }
 
+    func testMarkerRollbackNeverMutatesAReplacementOrMovedOriginal() throws {
+        let heldOriginal = workParent.appendingPathComponent(
+            "held-original",
+            isDirectory: true
+        )
+        let swap = MarkerRollbackSwap(
+            parent: workParent,
+            heldOriginal: heldOriginal
+        )
+        let store = DurableAtomicFileStore(operations: .init(
+            syncFile: { Darwin.fsync($0) },
+            syncDirectory: { descriptor in
+                swap.replaceCreatedChild()
+                return Darwin.fsync(descriptor)
+            }
+        ))
+
+        XCTAssertThrowsError(
+            try OwnedWorkDirectoryMarkerStore.createDirectory(
+                request(prefix: "rollback-swap-"),
+                atomicFileStore: store
+            )
+        )
+
+        XCTAssertNil(swap.mutationFailure)
+        let replacement = try XCTUnwrap(swap.replacementURL)
+        XCTAssertEqual(
+            try Data(contentsOf: replacement.appendingPathComponent("replacement.txt")),
+            Data("replacement".utf8)
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: heldOriginal
+                    .appendingPathComponent(OwnedWorkDirectoryMarker.fileName).path
+            ),
+            "Rollback must leave the moved original complete and recoverable"
+        )
+    }
+
     func testCreateClosesProjectDescriptorWhenParentOpenFails() throws {
         let unsafeParent = project.appendingPathComponent("unsafe-parent", isDirectory: true)
         let outside = root.appendingPathComponent("outside-parent", isDirectory: true)
@@ -334,6 +373,47 @@ final class OwnedWorkDirectoryMarkerTests: XCTestCase {
             toolName: "test",
             toolVersion: "1"
         )
+    }
+}
+
+private final class MarkerRollbackSwap: @unchecked Sendable {
+    private let lock = NSLock()
+    private let parent: URL
+    private let heldOriginal: URL
+    private var replacement: URL?
+    private var failure: Error?
+
+    var replacementURL: URL? { lock.withLock { replacement } }
+    var mutationFailure: Error? { lock.withLock { failure } }
+
+    init(parent: URL, heldOriginal: URL) {
+        self.parent = parent
+        self.heldOriginal = heldOriginal
+    }
+
+    func replaceCreatedChild() {
+        lock.withLock {
+            guard replacement == nil,
+                  let child = try? FileManager.default.contentsOfDirectory(
+                    at: parent,
+                    includingPropertiesForKeys: nil
+                  ).first(where: { $0.lastPathComponent.hasPrefix("rollback-swap-") }) else {
+                return
+            }
+            do {
+                try FileManager.default.moveItem(at: child, to: heldOriginal)
+                try FileManager.default.createDirectory(
+                    at: child,
+                    withIntermediateDirectories: false
+                )
+                try Data("replacement".utf8).write(
+                    to: child.appendingPathComponent("replacement.txt")
+                )
+                replacement = child
+            } catch {
+                failure = error
+            }
+        }
     }
 }
 

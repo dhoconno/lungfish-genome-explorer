@@ -43,6 +43,36 @@ final class DurableAtomicFileStoreTests: XCTestCase {
         )
     }
 
+    func testRollbackDetachRevalidatesAfterIdentityCheckBeforeRemovingAnything() throws {
+        let destination = root.appendingPathComponent("record.json")
+        let recoveredOriginal = root.appendingPathComponent("record.recovery.json")
+        let swap = RollbackDetachSwap(
+            destination: destination,
+            recoveredOriginal: recoveredOriginal
+        )
+        let store = DurableAtomicFileStore(operations: .init(
+            syncFile: { Darwin.fsync($0) },
+            syncDirectory: { _ in
+                errno = EIO
+                return -1
+            },
+            beforeRollbackDetach: {
+                swap.installSubstitute()
+            }
+        ))
+
+        XCTAssertThrowsError(
+            try store.create(Data("published".utf8), named: "record.json", in: root)
+        )
+        XCTAssertNil(swap.mutationFailure)
+        XCTAssertEqual(try Data(contentsOf: destination), Data("substitute".utf8))
+        XCTAssertEqual(try Data(contentsOf: recoveredOriginal), Data("published".utf8))
+        XCTAssertFalse(
+            try FileManager.default.contentsOfDirectory(atPath: root.path)
+                .contains { $0.contains("rollback-pending") }
+        )
+    }
+
     func testRejectsEmbeddedNULBeforeAnyFilesystemMutation() throws {
         XCTAssertThrowsError(
             try DurableAtomicFileStore().create(
@@ -52,6 +82,34 @@ final class DurableAtomicFileStoreTests: XCTestCase {
             )
         )
         XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: root.path).isEmpty)
+    }
+}
+
+private final class RollbackDetachSwap: @unchecked Sendable {
+    private let lock = NSLock()
+    private let destination: URL
+    private let recoveredOriginal: URL
+    private var swapped = false
+    private var failure: Error?
+
+    var mutationFailure: Error? { lock.withLock { failure } }
+
+    init(destination: URL, recoveredOriginal: URL) {
+        self.destination = destination
+        self.recoveredOriginal = recoveredOriginal
+    }
+
+    func installSubstitute() {
+        lock.withLock {
+            guard !swapped else { return }
+            swapped = true
+            do {
+                try FileManager.default.moveItem(at: destination, to: recoveredOriginal)
+                try Data("substitute".utf8).write(to: destination)
+            } catch {
+                failure = error
+            }
+        }
     }
 }
 

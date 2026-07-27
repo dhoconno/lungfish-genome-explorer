@@ -104,12 +104,17 @@ public struct ProjectOperationHistoryWriter: Sendable {
             )
         }
         guard operationDescriptor >= 0 else {
-            _ = stagingName.withCString {
-                Darwin.unlinkat(descriptors.history, $0, AT_REMOVEDIR)
-            }
+            // Without an open descriptor there is no inode authority for
+            // rollback. Leave the hidden staging entry recoverable.
             throw ProjectOperationHistoryWriterError.unsafeHistory(stagingURL.path)
         }
         defer { Darwin.close(operationDescriptor) }
+        var stagingInfo = stat()
+        guard Darwin.fstat(operationDescriptor, &stagingInfo) == 0,
+              stagingInfo.st_mode & S_IFMT == S_IFDIR else {
+            throw ProjectOperationHistoryWriterError.unsafeHistory(stagingURL.path)
+        }
+        let stagingIdentity = FileSystemObjectIdentity(from: stagingInfo)
         do {
             guard Darwin.fsync(descriptors.history) == 0 else {
                 throw ProjectOperationHistoryWriterError.systemFailure(
@@ -167,24 +172,13 @@ public struct ProjectOperationHistoryWriter: Sendable {
             // Publication is all-or-nothing. Only this invocation's hidden
             // staging directory is eligible for rollback; a concurrently
             // published final directory is never touched.
-            var stagingInfo = stat()
-            let stagingStillExists = stagingName.withCString {
-                Darwin.fstatat(
-                    descriptors.history,
-                    $0,
-                    &stagingInfo,
-                    AT_SYMLINK_NOFOLLOW
-                )
-            } == 0
-            if stagingStillExists {
-                for name in payloads.keys {
-                    _ = name.withCString { Darwin.unlinkat(operationDescriptor, $0, 0) }
-                }
-                _ = stagingName.withCString {
-                    Darwin.unlinkat(descriptors.history, $0, AT_REMOVEDIR)
-                }
-                _ = Darwin.fsync(descriptors.history)
-            }
+            rollbackStagingDirectory(
+                named: stagingName,
+                payloadNames: Array(payloads.keys),
+                expectedIdentity: stagingIdentity,
+                historyDescriptor: descriptors.history,
+                stagingDescriptor: operationDescriptor
+            )
             throw error
         }
     }
@@ -294,5 +288,75 @@ public struct ProjectOperationHistoryWriter: Sendable {
               !name.utf8.contains(0) else {
             throw ProjectOperationHistoryWriterError.invalidPayloadName(name)
         }
+    }
+
+    private func rollbackStagingDirectory(
+        named stagingName: String,
+        payloadNames: [String],
+        expectedIdentity: FileSystemObjectIdentity,
+        historyDescriptor: Int32,
+        stagingDescriptor: Int32
+    ) {
+        let quarantineName =
+            ".lungfish-history-rollback-pending-\(UUID().uuidString.lowercased())"
+        let detachStatus = stagingName.withCString { staging in
+            quarantineName.withCString { quarantine in
+                Darwin.renameatx_np(
+                    historyDescriptor,
+                    staging,
+                    historyDescriptor,
+                    quarantine,
+                    UInt32(RENAME_EXCL)
+                )
+            }
+        }
+        guard detachStatus == 0 else { return }
+
+        var quarantineInfo = stat()
+        let inspectStatus = quarantineName.withCString {
+            Darwin.fstatat(
+                historyDescriptor,
+                $0,
+                &quarantineInfo,
+                AT_SYMLINK_NOFOLLOW
+            )
+        }
+        guard inspectStatus == 0,
+              FileSystemObjectIdentity(from: quarantineInfo) == expectedIdentity else {
+            _ = quarantineName.withCString { quarantine in
+                stagingName.withCString { staging in
+                    Darwin.renameatx_np(
+                        historyDescriptor,
+                        quarantine,
+                        historyDescriptor,
+                        staging,
+                        UInt32(RENAME_EXCL)
+                    )
+                }
+            }
+            _ = Darwin.fsync(historyDescriptor)
+            return
+        }
+
+        for name in payloadNames {
+            _ = name.withCString { Darwin.unlinkat(stagingDescriptor, $0, 0) }
+        }
+        var finalInfo = stat()
+        let finalStatus = quarantineName.withCString {
+            Darwin.fstatat(
+                historyDescriptor,
+                $0,
+                &finalInfo,
+                AT_SYMLINK_NOFOLLOW
+            )
+        }
+        guard finalStatus == 0,
+              FileSystemObjectIdentity(from: finalInfo) == expectedIdentity else {
+            return
+        }
+        _ = quarantineName.withCString {
+            Darwin.unlinkat(historyDescriptor, $0, AT_REMOVEDIR)
+        }
+        _ = Darwin.fsync(historyDescriptor)
     }
 }

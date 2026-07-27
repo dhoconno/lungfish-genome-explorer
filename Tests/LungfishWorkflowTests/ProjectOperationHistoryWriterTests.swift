@@ -215,6 +215,40 @@ final class ProjectOperationHistoryWriterTests: XCTestCase {
         XCTAssertTrue(staging.isEmpty)
     }
 
+    func testStagingRollbackNeverMutatesAReplacementOrMovedOriginal() throws {
+        let operationID = UUID()
+        let held = project.appendingPathComponent(
+            ProjectOperationHistoryWriter.historyDirectoryName,
+            isDirectory: true
+        ).appendingPathComponent(".held-original", isDirectory: true)
+        let observation = HistoryRollbackSwap(heldOriginal: held)
+        let writer = ProjectOperationHistoryWriter(
+            projectURL: project,
+            operations: .init(beforePublish: { staging, _ in
+                try observation.replace(staging: staging)
+                throw ForcedHistoryFailure()
+            })
+        )
+
+        XCTAssertThrowsError(
+            try writer.createOperation(
+                operationID: operationID,
+                payloads: ["parent.txt": Data("parent-original".utf8)]
+            )
+        )
+
+        let replacement = try XCTUnwrap(observation.replacementURL)
+        XCTAssertEqual(
+            try Data(contentsOf: replacement.appendingPathComponent("replacement.txt")),
+            Data("replacement".utf8)
+        )
+        XCTAssertEqual(
+            try Data(contentsOf: held.appendingPathComponent("parent.txt")),
+            Data("parent-original".utf8),
+            "Rollback must leave the moved staging directory complete and recoverable"
+        )
+    }
+
     func testRejectsEmbeddedNULInPayloadName() {
         XCTAssertThrowsError(
             try ProjectOperationHistoryWriter(projectURL: project).createOperation(
@@ -248,4 +282,32 @@ private final class HistoryPublicationObservation: @unchecked Sendable {
 
 private struct ChildProcessFailure: Error {
     let status: Int32
+}
+
+private struct ForcedHistoryFailure: Error {}
+
+private final class HistoryRollbackSwap: @unchecked Sendable {
+    private let lock = NSLock()
+    private let heldOriginal: URL
+    private var replacement: URL?
+
+    var replacementURL: URL? { lock.withLock { replacement } }
+
+    init(heldOriginal: URL) {
+        self.heldOriginal = heldOriginal
+    }
+
+    func replace(staging: URL) throws {
+        try lock.withLock {
+            try FileManager.default.moveItem(at: staging, to: heldOriginal)
+            try FileManager.default.createDirectory(
+                at: staging,
+                withIntermediateDirectories: false
+            )
+            try Data("replacement".utf8).write(
+                to: staging.appendingPathComponent("replacement.txt")
+            )
+            replacement = staging
+        }
+    }
 }

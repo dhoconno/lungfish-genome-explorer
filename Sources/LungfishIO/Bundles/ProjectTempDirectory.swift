@@ -64,6 +64,36 @@ public enum ProjectTempError: Error, LocalizedError {
 /// ```
 public enum ProjectTempDirectory {
 
+    struct CleanupOperations: Sendable {
+        typealias Detacher = @Sendable (Int32, String, String) -> Int32
+        typealias Synchronizer = @Sendable (Int32) -> Int32
+
+        static let defaultDetach: Detacher = { descriptor, source, destination in
+            source.withCString { sourcePointer in
+                destination.withCString { destinationPointer in
+                    Darwin.renameatx_np(
+                        descriptor,
+                        sourcePointer,
+                        descriptor,
+                        destinationPointer,
+                        UInt32(RENAME_EXCL)
+                    )
+                }
+            }
+        }
+
+        var detach: Detacher
+        var syncParent: Synchronizer
+
+        init(
+            detach: @escaping Detacher = Self.defaultDetach,
+            syncParent: @escaping Synchronizer = { Darwin.fsync($0) }
+        ) {
+            self.detach = detach
+            self.syncParent = syncParent
+        }
+    }
+
     // MARK: - Private Constants
 
     private static let tmpDirName = ".tmp"
@@ -326,10 +356,23 @@ public enum ProjectTempDirectory {
         in projectURL: URL,
         beforeDetach: (URL) throws -> Void
     ) throws {
+        try cleanAll(
+            in: projectURL,
+            beforeDetach: beforeDetach,
+            operations: .init()
+        )
+    }
+
+    static func cleanAll(
+        in projectURL: URL,
+        beforeDetach: (URL) throws -> Void,
+        operations: CleanupOperations
+    ) throws {
         try cleanCandidates(
             in: projectURL,
             olderThan: nil,
-            beforeDetach: beforeDetach
+            beforeDetach: beforeDetach,
+            operations: operations
         )
     }
 
@@ -348,7 +391,8 @@ public enum ProjectTempDirectory {
         try cleanCandidates(
             in: projectURL,
             olderThan: Date(timeIntervalSinceNow: -maxAge),
-            beforeDetach: { _ in }
+            beforeDetach: { _ in },
+            operations: .init()
         )
     }
 
@@ -358,7 +402,8 @@ public enum ProjectTempDirectory {
     private static func cleanCandidates(
         in projectURL: URL,
         olderThan cutoff: Date?,
-        beforeDetach: (URL) throws -> Void
+        beforeDetach: (URL) throws -> Void,
+        operations: CleanupOperations
     ) throws {
         let root = tempRoot(for: projectURL)
         guard FileManager.default.fileExists(atPath: root.path) else { return }
@@ -414,21 +459,27 @@ public enum ProjectTempDirectory {
 
                 try beforeDetach(entryURL)
                 let quarantineName = ".lungfish-cleanup-pending-\(UUID().uuidString.lowercased())"
-                let renameStatus = name.withCString { source in
-                    quarantineName.withCString { quarantine in
-                        Darwin.renameatx_np(
-                            rootDescriptor,
-                            source,
-                            rootDescriptor,
-                            quarantine,
-                            UInt32(RENAME_EXCL)
-                        )
-                    }
-                }
+                let quarantineURL = root.appendingPathComponent(
+                    quarantineName,
+                    isDirectory: true
+                )
+                let renameStatus = operations.detach(
+                    rootDescriptor,
+                    name,
+                    quarantineName
+                )
                 guard renameStatus == 0 else {
-                    // A missing or replaced source is no longer the object that was
-                    // authorized. Refuse to mutate it.
-                    continue
+                    let code = errno
+                    if code == ENOENT {
+                        // A missing source is benign substitution: it is no
+                        // longer the object that was authorized.
+                        continue
+                    }
+                    throw OwnedWorkDirectoryMarkerError.systemFailure(
+                        path: entryURL.path,
+                        operation: "detach owned temp directory for cleanup",
+                        code: code
+                    )
                 }
 
                 var quarantinedInfo = stat()
@@ -444,24 +495,35 @@ public enum ProjectTempDirectory {
                       FileSystemObjectIdentity(quarantinedInfo) == expectedIdentity else {
                     // The source name was substituted after validation. Restore
                     // that unrelated object if the original name remains free.
-                    _ = quarantineName.withCString { quarantine in
-                        name.withCString { destination in
-                            Darwin.renameatx_np(
-                                rootDescriptor,
-                                quarantine,
-                                rootDescriptor,
-                                destination,
-                                UInt32(RENAME_EXCL)
-                            )
-                        }
+                    let restoreStatus = CleanupOperations.defaultDetach(
+                        rootDescriptor,
+                        quarantineName,
+                        name
+                    )
+                    guard restoreStatus == 0 else {
+                        throw OwnedWorkDirectoryMarkerError.systemFailure(
+                            path: quarantineURL.path,
+                            operation: "restore substituted temp cleanup entry",
+                            code: errno
+                        )
                     }
-                    _ = Darwin.fsync(rootDescriptor)
+                    guard Darwin.fsync(rootDescriptor) == 0 else {
+                        throw OwnedWorkDirectoryMarkerError.systemFailure(
+                            path: entryURL.path,
+                            operation: "fsync restored temp cleanup entry",
+                            code: errno
+                        )
+                    }
                     continue
                 }
-                guard Darwin.fsync(rootDescriptor) == 0 else {
+                guard operations.syncParent(rootDescriptor) == 0 else {
                     // Keep the detached directory recoverable if its rename cannot
                     // be made durable; never guess which pathname survived.
-                    continue
+                    throw OwnedWorkDirectoryMarkerError.systemFailure(
+                        path: quarantineURL.path,
+                        operation: "fsync cleanup quarantine parent",
+                        code: errno
+                    )
                 }
 
                 do {
@@ -488,8 +550,12 @@ public enum ProjectTempDirectory {
                     guard removeStatus == 0 else {
                         throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
                     }
-                    guard Darwin.fsync(rootDescriptor) == 0 else {
-                        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                    guard operations.syncParent(rootDescriptor) == 0 else {
+                        throw OwnedWorkDirectoryMarkerError.systemFailure(
+                            path: root.path,
+                            operation: "fsync removed temp cleanup entry",
+                            code: errno
+                        )
                     }
                     logger.info(
                         "Removed attested terminal temp child \(entryURL.path, privacy: .public)"

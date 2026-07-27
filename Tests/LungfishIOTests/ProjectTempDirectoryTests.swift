@@ -449,4 +449,101 @@ final class ProjectTempDirectoryTests: XCTestCase {
             remaining.contains { $0.lastPathComponent.contains("cleanup-pending") }
         )
     }
+
+    func testCleanAllSurfacesUnexpectedDetachFailureAtExactCandidatePath() throws {
+        let projectDir = testRoot.appendingPathComponent("detach-error.lungfish", isDirectory: true)
+        let tmpRoot = ProjectTempDirectory.tempRoot(for: projectDir)
+        try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
+        let terminal = try makeTerminalDirectory(project: projectDir, parent: tmpRoot)
+
+        for expectedCode in [EACCES, EIO] {
+            XCTAssertThrowsError(
+                try ProjectTempDirectory.cleanAll(
+                    in: projectDir,
+                    beforeDetach: { _ in },
+                    operations: .init(
+                        detach: { _, _, _ in
+                            errno = expectedCode
+                            return -1
+                        },
+                        syncParent: { Darwin.fsync($0) }
+                    )
+                )
+            ) { error in
+                XCTAssertEqual(
+                    error as? OwnedWorkDirectoryMarkerError,
+                    .systemFailure(
+                        path: terminal.path,
+                        operation: "detach owned temp directory for cleanup",
+                        code: expectedCode
+                    )
+                )
+            }
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: terminal.path))
+    }
+
+    func testCleanAllParentSyncFailureLeavesNamedRecoverableQuarantine() throws {
+        let projectDir = testRoot.appendingPathComponent("sync-error.lungfish", isDirectory: true)
+        let tmpRoot = ProjectTempDirectory.tempRoot(for: projectDir)
+        try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
+        let terminal = try makeTerminalDirectory(project: projectDir, parent: tmpRoot)
+        try Data("recoverable".utf8).write(
+            to: terminal.appendingPathComponent("payload.txt")
+        )
+
+        XCTAssertThrowsError(
+            try ProjectTempDirectory.cleanAll(
+                in: projectDir,
+                beforeDetach: { _ in },
+                operations: .init(
+                    detach: ProjectTempDirectory.CleanupOperations.defaultDetach,
+                    syncParent: { _ in
+                        errno = EIO
+                        return -1
+                    }
+                )
+            )
+        ) { error in
+            guard case let OwnedWorkDirectoryMarkerError.systemFailure(
+                path,
+                operation,
+                code
+            ) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertTrue(path.contains(".lungfish-cleanup-pending-"))
+            XCTAssertEqual(operation, "fsync cleanup quarantine parent")
+            XCTAssertEqual(code, EIO)
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: terminal.path))
+        let quarantine = try XCTUnwrap(
+            FileManager.default.contentsOfDirectory(
+                at: tmpRoot,
+                includingPropertiesForKeys: nil
+            ).first { $0.lastPathComponent.hasPrefix(".lungfish-cleanup-pending-") }
+        )
+        XCTAssertEqual(
+            try Data(contentsOf: quarantine.appendingPathComponent("payload.txt")),
+            Data("recoverable".utf8)
+        )
+    }
+
+    private func makeTerminalDirectory(project: URL, parent: URL) throws -> URL {
+        try OwnedWorkDirectoryMarkerStore.createDirectory(
+            OwnedWorkDirectoryCreationRequest(
+                projectURL: project,
+                parentDirectoryURL: parent,
+                prefix: "terminal-",
+                runID: UUID(),
+                processIdentity: try .current(),
+                state: .completed,
+                lockRelativePath: nil,
+                keepIntermediates: false,
+                toolName: "test",
+                toolVersion: "1"
+            )
+        )
+    }
 }

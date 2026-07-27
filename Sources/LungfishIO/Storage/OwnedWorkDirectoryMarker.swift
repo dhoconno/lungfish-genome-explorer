@@ -63,6 +63,10 @@ public struct FileSystemObjectIdentity: Codable, Equatable, Hashable, Sendable {
     init(_ info: stat) {
         self.init(device: UInt64(info.st_dev), inode: UInt64(info.st_ino))
     }
+
+    public init(from info: stat) {
+        self.init(info)
+    }
 }
 
 public struct OwnedProcessIdentity: Codable, Equatable, Sendable {
@@ -354,9 +358,8 @@ public enum OwnedWorkDirectoryMarkerStore {
             )
         }
         guard childDescriptor >= 0 else {
-            _ = childName.withCString {
-                Darwin.unlinkat(parentDescriptor, $0, AT_REMOVEDIR)
-            }
+            // Without an open descriptor there is no authoritative inode to
+            // bind rollback to. Leave the entry recoverable.
             throw OwnedWorkDirectoryMarkerError.systemFailure(
                 path: childURL.path,
                 operation: "open owned work directory",
@@ -366,16 +369,23 @@ public enum OwnedWorkDirectoryMarkerStore {
         defer { Darwin.close(childDescriptor) }
 
         var childInfo = stat()
-        guard Darwin.fstat(childDescriptor, &childInfo) == 0,
-              childInfo.st_mode & S_IFMT == S_IFDIR else {
+        guard Darwin.fstat(childDescriptor, &childInfo) == 0 else {
+            throw OwnedWorkDirectoryMarkerError.systemFailure(
+                path: childURL.path,
+                operation: "inspect owned work directory",
+                code: errno
+            )
+        }
+        let childIdentity = FileSystemObjectIdentity(childInfo)
+        guard childInfo.st_mode & S_IFMT == S_IFDIR else {
             rollbackNewDirectory(
                 named: childName,
                 parentDescriptor: parentDescriptor,
-                childDescriptor: childDescriptor
+                childDescriptor: childDescriptor,
+                expectedIdentity: childIdentity
             )
             throw OwnedWorkDirectoryMarkerError.unsafePath(childURL.path)
         }
-        let childIdentity = FileSystemObjectIdentity(childInfo)
 
         let marker = OwnedWorkDirectoryMarker(
             projectIdentity: projectIdentity,
@@ -419,7 +429,8 @@ public enum OwnedWorkDirectoryMarkerStore {
             rollbackNewDirectory(
                 named: childName,
                 parentDescriptor: parentDescriptor,
-                childDescriptor: childDescriptor
+                childDescriptor: childDescriptor,
+                expectedIdentity: childIdentity
             )
             _ = Darwin.fsync(parentDescriptor)
             throw error
@@ -537,13 +548,69 @@ public enum OwnedWorkDirectoryMarkerStore {
     private static func rollbackNewDirectory(
         named childName: String,
         parentDescriptor: Int32,
-        childDescriptor: Int32
+        childDescriptor: Int32,
+        expectedIdentity: FileSystemObjectIdentity
     ) {
+        let quarantineName =
+            ".lungfish-owned-rollback-pending-\(UUID().uuidString.lowercased())"
+        let detachStatus = childName.withCString { source in
+            quarantineName.withCString { quarantine in
+                Darwin.renameatx_np(
+                    parentDescriptor,
+                    source,
+                    parentDescriptor,
+                    quarantine,
+                    UInt32(RENAME_EXCL)
+                )
+            }
+        }
+        guard detachStatus == 0 else { return }
+
+        var quarantineInfo = stat()
+        let inspectStatus = quarantineName.withCString {
+            Darwin.fstatat(
+                parentDescriptor,
+                $0,
+                &quarantineInfo,
+                AT_SYMLINK_NOFOLLOW
+            )
+        }
+        guard inspectStatus == 0,
+              FileSystemObjectIdentity(quarantineInfo) == expectedIdentity else {
+            _ = quarantineName.withCString { quarantine in
+                childName.withCString { destination in
+                    Darwin.renameatx_np(
+                        parentDescriptor,
+                        quarantine,
+                        parentDescriptor,
+                        destination,
+                        UInt32(RENAME_EXCL)
+                    )
+                }
+            }
+            _ = Darwin.fsync(parentDescriptor)
+            return
+        }
+
         _ = OwnedWorkDirectoryMarker.fileName.withCString {
             Darwin.unlinkat(childDescriptor, $0, 0)
         }
-        _ = childName.withCString {
+        var finalInfo = stat()
+        let finalStatus = quarantineName.withCString {
+            Darwin.fstatat(
+                parentDescriptor,
+                $0,
+                &finalInfo,
+                AT_SYMLINK_NOFOLLOW
+            )
+        }
+        guard finalStatus == 0,
+              FileSystemObjectIdentity(finalInfo) == expectedIdentity else {
+            return
+        }
+        _ = quarantineName.withCString {
             Darwin.unlinkat(parentDescriptor, $0, AT_REMOVEDIR)
         }
+        _ = Darwin.fsync(parentDescriptor)
     }
 }

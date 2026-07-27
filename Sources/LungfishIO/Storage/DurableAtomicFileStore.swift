@@ -29,13 +29,16 @@ public struct DurableAtomicFileStore: Sendable {
 
         public var syncFile: Synchronizer
         public var syncDirectory: Synchronizer
+        public var beforeRollbackDetach: @Sendable () -> Void
 
         public init(
             syncFile: @escaping Synchronizer = { Darwin.fsync($0) },
-            syncDirectory: @escaping Synchronizer = { Darwin.fsync($0) }
+            syncDirectory: @escaping Synchronizer = { Darwin.fsync($0) },
+            beforeRollbackDetach: @escaping @Sendable () -> Void = {}
         ) {
             self.syncFile = syncFile
             self.syncDirectory = syncDirectory
+            self.beforeRollbackDetach = beforeRollbackDetach
         }
     }
 
@@ -169,17 +172,12 @@ public struct DurableAtomicFileStore: Sendable {
             guard operations.syncDirectory(directoryDescriptor) == 0 else {
                 let code = errno
                 if let publishedIdentity,
-                   Self.identity(
-                    named: fileName,
-                    inDirectory: directoryDescriptor
-                   ) == publishedIdentity {
-                    let unlinkStatus = fileName.withCString {
-                        Darwin.unlinkat(directoryDescriptor, $0, 0)
-                    }
-                    if unlinkStatus == 0 {
-                        published = false
-                        _ = operations.syncDirectory(directoryDescriptor)
-                    }
+                   rollbackPublishedFile(
+                       named: fileName,
+                       expectedIdentity: publishedIdentity,
+                       inDirectory: directoryDescriptor
+                   ) {
+                    published = false
                 }
                 throw StoreError.systemFailure(
                     path: directoryURL.path,
@@ -238,6 +236,67 @@ public struct DurableAtomicFileStore: Sendable {
         }
         guard status == 0 else { return nil }
         return FileSystemObjectIdentity(info)
+    }
+
+    /// Rollback never unlinks the destination pathname directly. It first
+    /// detaches that entry exclusively, then proves the quarantined inode is
+    /// the file published by this invocation.
+    private func rollbackPublishedFile(
+        named fileName: String,
+        expectedIdentity: FileSystemObjectIdentity,
+        inDirectory directoryDescriptor: Int32
+    ) -> Bool {
+        guard Self.identity(
+            named: fileName,
+            inDirectory: directoryDescriptor
+        ) == expectedIdentity else {
+            return false
+        }
+
+        operations.beforeRollbackDetach()
+        let quarantineName =
+            ".\(fileName).rollback-pending-\(UUID().uuidString.lowercased())"
+        let renameStatus = fileName.withCString { source in
+            quarantineName.withCString { quarantine in
+                Darwin.renameatx_np(
+                    directoryDescriptor,
+                    source,
+                    directoryDescriptor,
+                    quarantine,
+                    UInt32(RENAME_EXCL)
+                )
+            }
+        }
+        guard renameStatus == 0 else { return false }
+
+        guard Self.identity(
+            named: quarantineName,
+            inDirectory: directoryDescriptor
+        ) == expectedIdentity else {
+            // A substitution won the race after the first identity check.
+            // Restore it only if its original name is still unoccupied;
+            // otherwise leave the quarantine as recoverable evidence.
+            _ = quarantineName.withCString { quarantine in
+                fileName.withCString { destination in
+                    Darwin.renameatx_np(
+                        directoryDescriptor,
+                        quarantine,
+                        directoryDescriptor,
+                        destination,
+                        UInt32(RENAME_EXCL)
+                    )
+                }
+            }
+            _ = operations.syncDirectory(directoryDescriptor)
+            return false
+        }
+
+        let unlinkStatus = quarantineName.withCString {
+            Darwin.unlinkat(directoryDescriptor, $0, 0)
+        }
+        guard unlinkStatus == 0 else { return false }
+        _ = operations.syncDirectory(directoryDescriptor)
+        return true
     }
 }
 
