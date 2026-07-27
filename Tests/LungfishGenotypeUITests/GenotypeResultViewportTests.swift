@@ -15193,7 +15193,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         bundleURL: URL = URL(fileURLWithPath: "/tmp/example.lungfishgenotype"),
         samples: [ONTGenotypeSampleResult],
         calls: [ONTGenotypeCall],
-        kind: String = "ont-barcode-genotype",
+        kind: String = GenotypeResultWorkflowKind.miSeqAmpliconMHCGenotype.rawValue,
         haplotypeAnalysis: GenotypeHaplotypeAnalysis? = nil,
         haplotypeDefinitionSetID: String? = nil,
         mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest? = nil,
@@ -15211,6 +15211,10 @@ final class GenotypeResultViewportTests: XCTestCase {
             bundleURL: bundleURL,
             manifest: ONTGenotypeResultBundleManifest(
                 kind: kind,
+                workflowKind: GenotypeResultWorkflowKind(rawValue: kind),
+                workflowMode: haplotypeAnalysis == nil && haplotypeDefinitionSetID == nil
+                    ? .genotypeOnly
+                    : .haplotyped,
                 outputName: "example",
                 analysisName: "Example",
                 primaryWorkbookPath: "example.xlsx",

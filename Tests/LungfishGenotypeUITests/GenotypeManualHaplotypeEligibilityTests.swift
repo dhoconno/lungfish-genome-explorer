@@ -106,7 +106,30 @@ final class GenotypeManualHaplotypeEligibilityTests: XCTestCase {
         }
     }
 
-    func testRecognizedLegacyGenotypeOnlySchemasRemainEligible() {
+    func testUnknownAndWrongTypeTypedDeclarationsFailClosedWithActionableReasons() throws {
+        let unknownKind = try decodeManifest(
+            workflowKindJSON: #""future-mhc-workflow""#,
+            workflowModeJSON: #""genotypeOnly""#
+        )
+        let wrongTypeMode = try decodeManifest(
+            workflowKindJSON: #""full-length-ont-mhc-genotype""#,
+            workflowModeJSON: #"{"unexpected":true}"#
+        )
+
+        guard case .ineligible(let unknownReason) =
+            GenotypeManualHaplotypeEligibility.evaluate(makeResult(manifest: unknownKind)) else {
+            return XCTFail("Unknown workflow kind must fail closed")
+        }
+        XCTAssertTrue(unknownReason.localizedCaseInsensitiveContains("future-mhc-workflow"))
+
+        guard case .ineligible(let wrongTypeReason) =
+            GenotypeManualHaplotypeEligibility.evaluate(makeResult(manifest: wrongTypeMode)) else {
+            return XCTFail("Wrong-type workflow mode must fail closed")
+        }
+        XCTAssertTrue(wrongTypeReason.localizedCaseInsensitiveContains("string"))
+    }
+
+    func testConclusiveLegacyGenotypeOnlySchemasRemainEligible() {
         for kind in GenotypeResultWorkflowKind.allCases {
             let result = makeResult(
                 legacyKind: kind.rawValue,
@@ -118,12 +141,35 @@ final class GenotypeManualHaplotypeEligibilityTests: XCTestCase {
                 .eligible(resultKind: kind)
             )
         }
-        XCTAssertEqual(
-            GenotypeManualHaplotypeEligibility.evaluate(
-                makeResult(legacyKind: "ont-barcode-genotype", workflowKind: nil, workflowMode: nil)
-            ),
-            .eligible(resultKind: .miSeqAmpliconMHCGenotype)
+    }
+
+    func testAmbiguousLegacyONTBarcodeKindFailsClosed() {
+        let eligibility = GenotypeManualHaplotypeEligibility.evaluate(
+            makeResult(legacyKind: "ont-barcode-genotype", workflowKind: nil, workflowMode: nil)
         )
+
+        guard case .ineligible(let reason) = eligibility else {
+            return XCTFail("Ambiguous legacy ONT/Illumina kind must fail closed")
+        }
+        XCTAssertTrue(reason.localizedCaseInsensitiveContains("recognized"))
+    }
+
+    @MainActor
+    func testViewportControllerExposesEligibilityAndDisabledReason() {
+        let controller = GenotypeResultViewController()
+        let result = makeResult(
+            legacyKind: "ont-barcode-genotype",
+            workflowKind: nil,
+            workflowMode: nil
+        )
+
+        controller.configure(result: result)
+
+        guard case .ineligible(let reason) = controller.manualHaplotypeEligibility else {
+            return XCTFail("Expected the controller to preserve ineligibility")
+        }
+        XCTAssertEqual(controller.manualHaplotypeDisabledReason, reason)
+        XCTAssertTrue(reason.localizedCaseInsensitiveContains("recognized"))
     }
 
     private func makeResult(
@@ -156,6 +202,20 @@ final class GenotypeManualHaplotypeEligibilityTests: XCTestCase {
             activeHaplotypeAnalysisRevisionID: activeRevisionID,
             haplotypeAnalysisRevisions: revisions
         )
+        return makeResult(
+            manifest: manifest,
+            haplotypeAnalysis: haplotypeAnalysis,
+            artifactHaplotypeAnalysisURL: artifactHaplotypeAnalysisURL,
+            referenceMetadata: referenceMetadata
+        )
+    }
+
+    private func makeResult(
+        manifest: ONTGenotypeResultBundleManifest,
+        haplotypeAnalysis: GenotypeHaplotypeAnalysis? = nil,
+        artifactHaplotypeAnalysisURL: URL? = nil,
+        referenceMetadata: ONTGenotypeReferenceMetadata? = nil
+    ) -> ONTGenotypeResultBundleData {
         return ONTGenotypeResultBundleData(
             bundleURL: URL(fileURLWithPath: "/tmp/result.lungfishgenotype"),
             manifest: manifest,
@@ -177,6 +237,30 @@ final class GenotypeManualHaplotypeEligibilityTests: XCTestCase {
             mhcReferenceVisualizations: nil,
             integrityWarnings: [],
             referenceMetadata: referenceMetadata
+        )
+    }
+
+    private func decodeManifest(
+        workflowKindJSON: String,
+        workflowModeJSON: String
+    ) throws -> ONTGenotypeResultBundleManifest {
+        try JSONDecoder().decode(
+            ONTGenotypeResultBundleManifest.self,
+            from: Data(#"""
+            {
+              "schemaVersion": 1,
+              "kind": "full-length-ont-mhc-genotype",
+              "workflowKind": \#(workflowKindJSON),
+              "workflowMode": \#(workflowModeJSON),
+              "outputName": "result",
+              "analysisName": "Result",
+              "primaryWorkbookPath": "result.xlsx",
+              "longSummaryCSVPath": "calls.csv",
+              "sampleSummaryCSVPath": "samples.csv",
+              "statsJSONPath": "stats.json",
+              "provenancePath": "provenance.json"
+            }
+            """#.utf8)
         )
     }
 }

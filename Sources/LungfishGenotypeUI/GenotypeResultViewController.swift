@@ -242,6 +242,14 @@ public final class GenotypeResultViewController: NSViewController {
     private let splitCoordinator = TwoPaneTrackedSplitCoordinator()
 
     private var result: ONTGenotypeResultBundleData?
+    public private(set) var manualHaplotypeEligibility:
+        GenotypeManualHaplotypeEligibility = .ineligible(
+            reason: "No genotype result is loaded."
+        )
+    public var manualHaplotypeDisabledReason: String? {
+        guard case .ineligible(let reason) = manualHaplotypeEligibility else { return nil }
+        return reason
+    }
     private var hasHaplotypingResult = false
     private var sampleMetadataStore: SampleMetadataStore?
     private var annotationStore: GenotypeAnnotationStore?
@@ -373,16 +381,14 @@ public final class GenotypeResultViewController: NSViewController {
     private var outlineRowOrder: [String] = []
 
     private var isGenotypeOnlyResult: Bool {
-        guard let result else { return false }
-        guard case .eligible = GenotypeManualHaplotypeEligibility.evaluate(result) else {
+        guard case .eligible = manualHaplotypeEligibility else {
             return false
         }
         return true
     }
 
     private var isFullLengthMHCGenotypeViewport: Bool {
-        guard let result,
-              case .eligible(let resultKind) = GenotypeManualHaplotypeEligibility.evaluate(result) else {
+        guard case .eligible(let resultKind) = manualHaplotypeEligibility else {
             return false
         }
         return resultKind == .fullLengthONTMHCGenotype
@@ -813,6 +819,7 @@ public final class GenotypeResultViewController: NSViewController {
         pendingCandidateSettingsRequest = nil
         candidateSettingsPersistenceGeneration &+= 1
         self.result = result
+        manualHaplotypeEligibility = GenotypeManualHaplotypeEligibility.evaluate(result)
         hasHaplotypingResult = result.haplotypeAnalysis != nil
         quickFilterBar.configureSearchCapability(
             hasHaplotypingResult: hasHaplotypingResult
@@ -4458,6 +4465,8 @@ public final class GenotypeResultViewController: NSViewController {
 
     public func applyAIHaplotypingCompleted(result updatedResult: ONTGenotypeResultBundleData) {
         result = updatedResult
+        manualHaplotypeEligibility =
+            GenotypeManualHaplotypeEligibility.evaluate(updatedResult)
         hasHaplotypingResult = updatedResult.haplotypeAnalysis != nil
         if hasHaplotypingResult {
             provisionalExon2SequenceRecordsByGenotype = [:]
@@ -4769,6 +4778,8 @@ public final class GenotypeResultViewController: NSViewController {
     private func applyCurrentWorkbookUpdatedResult(_ updatedResult: ONTGenotypeResultBundleData) {
         let matrixWasConfigured = comparisonMatrixConfigured
         result = updatedResult
+        manualHaplotypeEligibility =
+            GenotypeManualHaplotypeEligibility.evaluate(updatedResult)
         rebuildResultIndexes(for: updatedResult)
         publishMatrixReviewCapability(for: currentSelectionState?.matrixTargets ?? [])
         rebuildActiveHaplotypeAnalysisIndexes()

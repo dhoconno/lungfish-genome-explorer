@@ -50,6 +50,116 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         XCTAssertNil(manifest.workflowMode)
     }
 
+    func testUnknownWorkflowKindRemainsLoadableAndRoundTripsLosslessly() throws {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("unknown-workflow-\(UUID().uuidString).lungfishgenotype", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let workbookURL = bundleURL.appendingPathComponent("unknown.xlsx")
+        try Data("workbook".utf8).write(to: workbookURL)
+        let artifacts = try writeMinimalNativeArtifacts(in: bundleURL, outputName: "unknown")
+        let manifestData = Data(#"""
+        {
+          "schemaVersion": 1,
+          "kind": "full-length-ont-mhc-genotype",
+          "workflowKind": "future-mhc-workflow",
+          "workflowMode": "genotypeOnly",
+          "outputName": "unknown",
+          "analysisName": "Unknown workflow fixture",
+          "primaryWorkbookPath": "unknown.xlsx",
+          "longSummaryCSVPath": "\#(artifacts.genotypeCSV.lastPathComponent)",
+          "sampleSummaryCSVPath": "\#(artifacts.sampleCSV.lastPathComponent)",
+          "statsJSONPath": "\#(artifacts.statsJSON.lastPathComponent)",
+          "provenancePath": "\#(artifacts.provenance.lastPathComponent)"
+        }
+        """#.utf8)
+        try manifestData.write(
+            to: bundleURL.appendingPathComponent(ONTGenotypeResultBundleManifest.filename)
+        )
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: bundleURL)
+
+        XCTAssertEqual(result.manifest.analysisName, "Unknown workflow fixture")
+        XCTAssertNil(result.manifest.workflowKind)
+        XCTAssertEqual(
+            result.manifest.workflowKindDeclaration.originalValue,
+            .string("future-mhc-workflow")
+        )
+        XCTAssertTrue(
+            try XCTUnwrap(result.manifest.workflowKindDeclaration.issue)
+                .localizedCaseInsensitiveContains("future-mhc-workflow")
+        )
+        let roundTripped = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(result.manifest)
+        ) as? [String: Any]
+        XCTAssertEqual(roundTripped?["workflowKind"] as? String, "future-mhc-workflow")
+    }
+
+    func testWrongJSONTypeWorkflowModeRemainsLoadableAndIsNotCoerced() throws {
+        let data = Data(#"""
+        {
+          "schemaVersion": 1,
+          "kind": "full-length-ont-mhc-genotype",
+          "workflowKind": "full-length-ont-mhc-genotype",
+          "workflowMode": {"unexpected": true},
+          "outputName": "malformed",
+          "analysisName": "Malformed",
+          "primaryWorkbookPath": "malformed.xlsx",
+          "longSummaryCSVPath": "calls.csv",
+          "sampleSummaryCSVPath": "samples.csv",
+          "statsJSONPath": "stats.json",
+          "provenancePath": "provenance.json"
+        }
+        """#.utf8)
+
+        let manifest = try JSONDecoder().decode(ONTGenotypeResultBundleManifest.self, from: data)
+
+        XCTAssertNil(manifest.workflowMode)
+        XCTAssertEqual(
+            manifest.workflowModeDeclaration.originalValue,
+            .object(["unexpected": .bool(true)])
+        )
+        XCTAssertTrue(
+            try XCTUnwrap(manifest.workflowModeDeclaration.issue)
+                .localizedCaseInsensitiveContains("string")
+        )
+        let roundTripped = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: JSONEncoder().encode(manifest)) as? [String: Any]
+        )
+        XCTAssertEqual((roundTripped["workflowMode"] as? [String: Bool])?["unexpected"], true)
+    }
+
+    func testNullWorkflowModeRemainsLoadableAndRoundTripsLosslessly() throws {
+        let data = Data(#"""
+        {
+          "schemaVersion": 1,
+          "kind": "full-length-ont-mhc-genotype",
+          "workflowKind": "full-length-ont-mhc-genotype",
+          "workflowMode": null,
+          "outputName": "null-mode",
+          "analysisName": "Null mode",
+          "primaryWorkbookPath": "null-mode.xlsx",
+          "longSummaryCSVPath": "calls.csv",
+          "sampleSummaryCSVPath": "samples.csv",
+          "statsJSONPath": "stats.json",
+          "provenancePath": "provenance.json"
+        }
+        """#.utf8)
+
+        let manifest = try JSONDecoder().decode(ONTGenotypeResultBundleManifest.self, from: data)
+
+        XCTAssertNil(manifest.workflowMode)
+        XCTAssertEqual(manifest.workflowModeDeclaration.originalValue, .null)
+        XCTAssertTrue(
+            try XCTUnwrap(manifest.workflowModeDeclaration.issue)
+                .localizedCaseInsensitiveContains("string")
+        )
+        let roundTripped = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: JSONEncoder().encode(manifest)) as? [String: Any]
+        )
+        XCTAssertTrue(roundTripped["workflowMode"] is NSNull)
+    }
+
     func testMHCCandidateDisplaySettingsDefaultToAllVisibleAndFourCanonicalTints() {
         let settings = ONTMHCCandidateDisplaySettings.default
 

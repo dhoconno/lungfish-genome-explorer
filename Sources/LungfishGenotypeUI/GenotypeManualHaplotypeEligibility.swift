@@ -13,10 +13,17 @@ public enum GenotypeManualHaplotypeEligibility: Equatable, Sendable {
         switch manifest.kind {
         case GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue:
             legacyKind = .fullLengthONTMHCGenotype
-        case GenotypeResultWorkflowKind.miSeqAmpliconMHCGenotype.rawValue, "ont-barcode-genotype":
+        case GenotypeResultWorkflowKind.miSeqAmpliconMHCGenotype.rawValue:
             legacyKind = .miSeqAmpliconMHCGenotype
         default:
             legacyKind = nil
+        }
+
+        if let issue = manifest.workflowKindDeclaration.issue {
+            return .ineligible(reason: issue)
+        }
+        if let issue = manifest.workflowModeDeclaration.issue {
+            return .ineligible(reason: issue)
         }
 
         let resultKind: GenotypeResultWorkflowKind

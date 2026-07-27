@@ -222,8 +222,12 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
 
     public let schemaVersion: Int
     public let kind: String
-    public let workflowKind: GenotypeResultWorkflowKind?
-    public let workflowMode: GenotypeResultWorkflowMode?
+    @GenotypeResultWorkflowKindField public private(set) var workflowKind:
+        GenotypeResultWorkflowKind?
+    @GenotypeResultWorkflowModeField public private(set) var workflowMode:
+        GenotypeResultWorkflowMode?
+    public var workflowKindDeclaration: GenotypeResultWorkflowDeclaration { $workflowKind }
+    public var workflowModeDeclaration: GenotypeResultWorkflowDeclaration { $workflowMode }
     public let outputName: String
     public let analysisName: String
     public let primaryWorkbookPath: String
