@@ -691,6 +691,100 @@ final class GenotypeManualHaplotypeTransitionTests: XCTestCase {
         XCTAssertEqual(commitCount, 0)
     }
 
+    func testAppQuitRechecksFinalizedAndNewDirtyWindowsAfterLaterFinalizer()
+        async
+    {
+        let first = MainWindowController()
+        let second = MainWindowController()
+        let added = MainWindowController()
+        var liveControllers = [first, second]
+        var firstDirty = true
+        var secondDirty = true
+        var addedDirty = false
+        var firstRevision = UUID()
+        var secondRevision = UUID()
+        var addedRevision = UUID()
+        var firstPrompts = 0
+        var secondPrompts = 0
+        var addedPrompts = 0
+        var firstFinalizers = 0
+        var secondFinalizers = 0
+        var addedFinalizers = 0
+        let secondFinalizerGate = AsyncManualHaplotypeDecisionGate()
+
+        first.testingSetManualHaplotypeTransactionalTransitionState(
+            hasUnsavedDraft: { firstDirty },
+            revision: { firstRevision },
+            decide: { _ in
+                firstPrompts += 1
+                return .discard
+            },
+            commit: { _ in
+                firstFinalizers += 1
+                firstDirty = false
+                firstRevision = UUID()
+                return true
+            }
+        )
+        second.testingSetManualHaplotypeTransactionalTransitionState(
+            hasUnsavedDraft: { secondDirty },
+            revision: { secondRevision },
+            decide: { _ in
+                secondPrompts += 1
+                return .discard
+            },
+            commit: { _ in
+                if secondFinalizers == 0 {
+                    _ = await secondFinalizerGate.wait()
+                }
+                secondFinalizers += 1
+                secondDirty = false
+                secondRevision = UUID()
+                return true
+            }
+        )
+        added.testingSetManualHaplotypeTransactionalTransitionState(
+            hasUnsavedDraft: { addedDirty },
+            revision: { addedRevision },
+            decide: { _ in
+                addedPrompts += 1
+                return .discard
+            },
+            commit: { _ in
+                addedFinalizers += 1
+                addedDirty = false
+                addedRevision = UUID()
+                return true
+            }
+        )
+
+        let termination = Task { @MainActor in
+            await AppDelegate()
+                .testingPrepareForManualHaplotypeTermination(
+                    controllers: { liveControllers }
+                )
+        }
+        await secondFinalizerGate.waitUntilPending()
+        firstDirty = true
+        firstRevision = UUID()
+        addedDirty = true
+        addedRevision = UUID()
+        liveControllers.append(added)
+        await secondFinalizerGate.resume(with: .discard)
+
+        let allowed = await termination.value
+        XCTAssertTrue(allowed)
+        XCTAssertEqual(firstPrompts, 2)
+        XCTAssertEqual(secondPrompts, 1)
+        XCTAssertEqual(addedPrompts, 1)
+        XCTAssertEqual(firstFinalizers, 2)
+        XCTAssertEqual(secondFinalizers, 1)
+        XCTAssertEqual(addedFinalizers, 1)
+        XCTAssertFalse(firstDirty)
+        XCTAssertFalse(secondDirty)
+        XCTAssertFalse(addedDirty)
+    }
+
     func testAppQuitRevisionRetriesAreBoundedAndNeverCommitStaleDraft()
         async
     {

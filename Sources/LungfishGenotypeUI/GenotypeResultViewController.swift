@@ -5,6 +5,16 @@ import LungfishIO
 import LungfishWorkflow
 import LungfishKit
 
+public struct GenotypeResultConfigurationAuthority: Equatable, Sendable {
+    public let bundleURL: URL?
+    fileprivate let generation: UInt64
+
+    fileprivate init(bundleURL: URL?, generation: UInt64) {
+        self.bundleURL = bundleURL
+        self.generation = generation
+    }
+}
+
 @MainActor
 protocol GenotypeMatrixWorkbookUpdateCancellation: AnyObject {
     func cancel()
@@ -172,6 +182,22 @@ public final class GenotypeResultViewController: NSViewController {
         result?.bundleURL
     }
 
+    public var currentResultConfigurationAuthority:
+        GenotypeResultConfigurationAuthority {
+        GenotypeResultConfigurationAuthority(
+            bundleURL: result?.bundleURL.standardizedFileURL,
+            generation: resultConfigurationGeneration
+        )
+    }
+
+    public func ownsCurrentResultConfiguration(
+        _ authority: GenotypeResultConfigurationAuthority
+    ) -> Bool {
+        resultConfigurationGeneration == authority.generation
+            && result?.bundleURL.standardizedFileURL
+                == authority.bundleURL?.standardizedFileURL
+    }
+
     public var currentResultBundleIsReadOnly: Bool {
         annotationStore?.isReadOnly ?? true
     }
@@ -287,7 +313,10 @@ public final class GenotypeResultViewController: NSViewController {
                 return model.prepareSave()
             },
             finalizePreparedSave: { [weak self] in
-                self?.manualHaplotypeEditorModel?.finalizePreparedSave()
+                guard let model = self?.manualHaplotypeEditorModel else {
+                    return true
+                }
+                return model.finalizePreparedSave()
             },
             cancelPreparedSave: { [weak self] in
                 self?.manualHaplotypeEditorModel?.cancelPreparedSave()
@@ -7077,6 +7106,10 @@ public final class GenotypeResultViewController: NSViewController {
         _ resolution: GenotypeManualHaplotypeDraftCoordinator.Resolution
     ) -> Bool {
         manualHaplotypeDraftCoordinator.isCurrent(resolution)
+    }
+
+    public var manualHaplotypeDraftRevisionToken: UUID? {
+        manualHaplotypeDraftCoordinator.draftRevisionToken
     }
 
     public func abandonManualHaplotypeTransition(

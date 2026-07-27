@@ -2461,9 +2461,12 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             visibleRows.firstIndex(where: { $0.id == rowID })
         })
         guard rowIDs.isEmpty || !indexes.isEmpty else { return }
+        let visiblePreferredSample = preferredSample.flatMap { sample in
+            visibleSampleNames.contains(sample) ? sample : nil
+        }
         applyNativeTableSelection(
             indexes,
-            preferredSample: preferredSample
+            preferredSample: visiblePreferredSample
         )
     }
 

@@ -116,6 +116,71 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
         XCTAssertNotEqual(model.draftRevisionToken, edited)
     }
 
+    func testPreparedThenCancelledSaveDoesNotPublishSidecarOrAudit()
+        throws
+    {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "PreparedManualHaplotype-\(UUID().uuidString).lungfishgenotype",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        try Data(#"{"schema":"prepared-save-test"}"#.utf8).write(
+            to: bundleURL.appendingPathComponent(
+                ONTGenotypeResultBundleManifest.filename
+            )
+        )
+        let store = try GenotypeAnnotationStore(
+            bundleURL: bundleURL,
+            author: "Analyst"
+        )
+        let model = GenotypeManualHaplotypeEditorModel(
+            snapshot: .init(
+                draft: makeDraft(
+                    sample: "Animal-1",
+                    assignments: []
+                ),
+                copyCandidates: [],
+                isReadOnly: false
+            ),
+            onSave: { draft in
+                _ = try store.replaceManualHaplotypeAssignments(
+                    for: draft.sample,
+                    with: try draft.validatedAssignments(),
+                    copySource: draft.copySource,
+                    author: "Analyst"
+                )
+                return self.cleanDraft(from: draft)
+            },
+            onReload: {
+                XCTFail("Cancellation must not reload the store.")
+                throw CocoaError(.fileReadUnknown)
+            },
+            onExport: {}
+        )
+        model.updateLabel("Haplotype A", locus: .a, slot: .h1)
+        let annotationURL = bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        let annotationBefore = try Data(contentsOf: annotationURL)
+        let sidecarBefore = store.sidecar
+
+        XCTAssertTrue(model.prepareSave())
+        model.cancelPreparedSave()
+
+        XCTAssertEqual(
+            try Data(contentsOf: annotationURL),
+            annotationBefore
+        )
+        XCTAssertEqual(store.sidecar, sidecarBefore)
+        XCTAssertTrue(store.sidecar.auditLog.isEmpty)
+        XCTAssertTrue(model.draft.isDirty)
+    }
+
     func testCopyPickerSearchesOtherSamplesAndReportsCompleteness() {
         let assignments = [
             assignment(

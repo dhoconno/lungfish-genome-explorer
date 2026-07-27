@@ -186,7 +186,7 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
     private let onReload: () throws -> Snapshot
     private let onExport: () -> Void
     private let announcementPoster: any AccessibilityAnnouncementPosting
-    private var preparedSavedDraft: GenotypeManualHaplotypeDraft?
+    private var preparedDraft: GenotypeManualHaplotypeDraft?
     private(set) var draftRevisionToken = UUID()
 
     private(set) var copyCandidatePresentationBuildCount: Int
@@ -332,18 +332,22 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
 
     func save() {
         guard prepareSave() else { return }
-        finalizePreparedSave()
+        _ = finalizePreparedSave()
     }
 
     @discardableResult
     func prepareSave() -> Bool {
         guard canSave else { return false }
         do {
-            preparedSavedDraft = try onSave(draft)
+            // Validate and retain only the value-semantic draft. Durable
+            // sidecar/audit publication belongs to finalization after every
+            // quitting window has passed preflight.
+            _ = try draft.validatedAssignments()
+            preparedDraft = draft
             persistenceErrorMessage = nil
             return true
         } catch {
-            preparedSavedDraft = nil
+            preparedDraft = nil
             persistenceErrorMessage = error.localizedDescription
             announcementPoster.post(
                 "Could not save haplotype assignments for \(draft.sample). \(error.localizedDescription)",
@@ -353,18 +357,32 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
         }
     }
 
-    func finalizePreparedSave() {
-        guard let preparedSavedDraft else { return }
-        self.preparedSavedDraft = nil
-        replaceDraft(preparedSavedDraft)
-        announcementPoster.post(
-            "Saved haplotype assignments for \(draft.sample).",
-            priority: .high
-        )
+    @discardableResult
+    func finalizePreparedSave() -> Bool {
+        guard let preparedDraft else { return false }
+        do {
+            let savedDraft = try onSave(preparedDraft)
+            self.preparedDraft = nil
+            replaceDraft(savedDraft)
+            persistenceErrorMessage = nil
+            announcementPoster.post(
+                "Saved haplotype assignments for \(draft.sample).",
+                priority: .high
+            )
+            return true
+        } catch {
+            self.preparedDraft = nil
+            persistenceErrorMessage = error.localizedDescription
+            announcementPoster.post(
+                "Could not save haplotype assignments for \(draft.sample). \(error.localizedDescription)",
+                priority: .high
+            )
+            return false
+        }
     }
 
     func cancelPreparedSave() {
-        preparedSavedDraft = nil
+        preparedDraft = nil
     }
 
     func retry() {

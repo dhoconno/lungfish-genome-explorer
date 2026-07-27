@@ -725,6 +725,15 @@ public class MainWindowController: NSWindowController {
         }
     }
 
+    var manualHaplotypeDraftRevisionToken: UUID? {
+        if manualHaplotypeDraftPresenceOverride != nil {
+            return manualHaplotypeDraftRevisionOverride?()
+        }
+        return mainSplitViewController?.viewerController?
+            .genotypeResultViewController?
+            .manualHaplotypeDraftRevisionToken
+    }
+
     func abandonManualHaplotypeTransition(
         _ resolution: ManualHaplotypeTransitionResolution
     ) {

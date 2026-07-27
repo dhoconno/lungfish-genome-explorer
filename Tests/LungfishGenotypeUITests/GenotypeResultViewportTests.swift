@@ -5944,6 +5944,63 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(controller.testingVisibleMatrixGenotypes, [first])
     }
 
+    func testDeferredNativeRowSelectionDropsPreferredSampleWhenItsColumnIsHidden()
+        throws
+    {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "ManualHaplotypeHiddenNativeSample-\(UUID().uuidString).lungfishgenotype",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let genotype = "01_Mafa_A1_001_01"
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [
+                makeCall(sample: "AnimalA", genotype: genotype, reads: 42),
+                makeCall(sample: "AnimalB", genotype: genotype, reads: 21),
+            ]
+        ))
+        controller.testingSelectMatrixCell(
+            genotype: genotype,
+            sample: "AnimalA"
+        )
+        var deferredMutation: (@MainActor () -> Void)?
+        controller.testingComparisonMatrix
+            .onManualHaplotypeTransitionPreflight = { _, mutation in
+                deferredMutation = mutation
+                return true
+            }
+
+        controller.testingApplyNativeMatrixRowSelection(
+            IndexSet(integer: 0)
+        )
+        XCTAssertNotNil(deferredMutation)
+        controller.testingComparisonMatrix.applyFilters(
+            allowedSampleIDs: ["AnimalB"],
+            text: ""
+        )
+        XCTAssertEqual(controller.testingVisibleMatrixSamples, ["AnimalB"])
+        try XCTUnwrap(deferredMutation)()
+
+        XCTAssertEqual(
+            controller.testingCurrentSelectionMatrixTargets,
+            [.row(locus: "MHC-A", genotype: genotype)]
+        )
+        XCTAssertFalse(
+            controller.testingCurrentSelectionDetailRows.contains {
+                $0 == ("Sample", "AnimalA")
+            }
+        )
+    }
+
     func testManualHaplotypeCancelRestoresNativeTableSelectionAndScroll() async throws {
         let bundleURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(

@@ -30,7 +30,7 @@ public final class GenotypeManualHaplotypeDraftCoordinator {
     private let currentDraftRevisionToken: @MainActor () -> UUID?
     private let save: @MainActor () async -> Bool
     private let prepareSave: @MainActor () async -> Bool
-    private let finalizePreparedSave: @MainActor () -> Void
+    private let finalizePreparedSave: @MainActor () -> Bool
     private let cancelPreparedSave: @MainActor () -> Void
     private let discard: @MainActor () async -> Bool
     private var pendingDecision:
@@ -73,7 +73,7 @@ public final class GenotypeManualHaplotypeDraftCoordinator {
         self.currentDraftRevisionToken = revisionToken
         self.save = save
         self.prepareSave = save
-        self.finalizePreparedSave = {}
+        self.finalizePreparedSave = { true }
         self.cancelPreparedSave = {}
         self.discard = discard
     }
@@ -83,7 +83,7 @@ public final class GenotypeManualHaplotypeDraftCoordinator {
         revisionToken: @escaping @MainActor () -> UUID? = { nil },
         save: @escaping @MainActor () async -> Bool,
         prepareSave: @escaping @MainActor () async -> Bool,
-        finalizePreparedSave: @escaping @MainActor () -> Void,
+        finalizePreparedSave: @escaping @MainActor () -> Bool,
         cancelPreparedSave: @escaping @MainActor () -> Void,
         discard: @escaping @MainActor () async -> Bool
     ) {
@@ -104,6 +104,10 @@ public final class GenotypeManualHaplotypeDraftCoordinator {
 
     public var hasUnsavedDraft: Bool {
         hasUnsavedChanges()
+    }
+
+    public var draftRevisionToken: UUID? {
+        currentDraftRevisionToken()
     }
 
     public func isCurrent(_ resolution: Resolution) -> Bool {
@@ -275,9 +279,8 @@ public final class GenotypeManualHaplotypeDraftCoordinator {
             guard preparedSaveGeneration == resolution.generation else {
                 return false
             }
-            finalizePreparedSave()
+            allowed = finalizePreparedSave()
             preparedSaveGeneration = nil
-            allowed = true
         case .discard:
             allowed = await discard()
         case .cancel:

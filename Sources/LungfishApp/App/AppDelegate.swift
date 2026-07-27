@@ -602,7 +602,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 MainWindowController
                     .ManualHaplotypeTransitionResolution
         )
+        struct FinalizedDraftState {
+            let revisionToken: UUID?
+        }
         var resolutions: [ObjectIdentifier: PendingResolution] = [:]
+        var finalizedDrafts:
+            [ObjectIdentifier: FinalizedDraftState] = [:]
 
         func cancelAllResolutions() {
             for item in resolutions.values {
@@ -639,6 +644,28 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             }
         }
 
+        func pruneInvalidFinalizedDrafts(
+            controllers: [MainWindowController]
+        ) {
+            let currentByID = Dictionary(
+                uniqueKeysWithValues: controllers.map {
+                    (ObjectIdentifier($0), $0)
+                }
+            )
+            let invalid = finalizedDrafts.compactMap {
+                identifier, finalized -> ObjectIdentifier? in
+                guard let controller = currentByID[identifier],
+                      controller.manualHaplotypeDraftRevisionToken
+                        == finalized.revisionToken else {
+                    return identifier
+                }
+                return nil
+            }
+            for identifier in invalid {
+                finalizedDrafts[identifier] = nil
+            }
+        }
+
         func hasStableSnapshot(
             _ controllers: [MainWindowController]
         ) -> Bool {
@@ -650,15 +677,28 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             for controller in currentControllers {
                 let identifier = ObjectIdentifier(controller)
                 if controller.requiresManualHaplotypeTransitionCoordination,
-                   resolutions[identifier] == nil {
+                   resolutions[identifier] == nil,
+                   finalizedDrafts[identifier] == nil {
                     return false
                 }
             }
-            return resolutions.values.allSatisfy {
+            guard resolutions.values.allSatisfy({
                 $0.controller
                     .isManualHaplotypeTransitionResolutionCurrent(
                         $0.resolution
                     )
+            }) else {
+                return false
+            }
+            return finalizedDrafts.allSatisfy {
+                identifier, finalized in
+                guard let controller = currentControllers.first(where: {
+                    ObjectIdentifier($0) == identifier
+                }) else {
+                    return false
+                }
+                return controller.manualHaplotypeDraftRevisionToken
+                    == finalized.revisionToken
             }
         }
 
@@ -673,13 +713,17 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             pruneInvalidResolutions(
                 currentControllerIDs: controllerIDs
             )
+            pruneInvalidFinalizedDrafts(
+                controllers: controllers
+            )
 
             var sawCancellation = false
             for controller in controllers {
                 let identifier = ObjectIdentifier(controller)
                 guard controller
                     .requiresManualHaplotypeTransitionCoordination,
-                      resolutions[identifier] == nil else {
+                      resolutions[identifier] == nil,
+                      finalizedDrafts[identifier] == nil else {
                     continue
                 }
                 let resolution =
@@ -779,8 +823,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     return false
                 }
                 resolutions[ObjectIdentifier(item.controller)] = nil
+                finalizedDrafts[ObjectIdentifier(item.controller)] =
+                    FinalizedDraftState(
+                        revisionToken:
+                            item.controller
+                                .manualHaplotypeDraftRevisionToken
+                    )
             }
-            return true
         }
         cancelAllResolutions()
         return false
@@ -1337,6 +1386,15 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     ) async -> Bool {
         await prepareForManualHaplotypeTermination(
             controllers: { controllers }
+        )
+    }
+
+    func testingPrepareForManualHaplotypeTermination(
+        controllers:
+            @escaping @MainActor () -> [MainWindowController]
+    ) async -> Bool {
+        await prepareForManualHaplotypeTermination(
+            controllers: controllers
         )
     }
 
