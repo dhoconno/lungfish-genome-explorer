@@ -5681,6 +5681,155 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
     }
 
+    func testManualHaplotypePromptCoalescesMixedMutationsToLatestConfiguration()
+        async throws
+    {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "ManualHaplotypeCoalescing-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let originalBundle = root.appendingPathComponent(
+            "original.lungfishgenotype",
+            isDirectory: true
+        )
+        let replacementBundle = root.appendingPathComponent(
+            "replacement.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: originalBundle,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: replacementBundle,
+            withIntermediateDirectories: true
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: originalBundle,
+            samples: [],
+            calls: [
+                makeCall(
+                    sample: "AnimalA",
+                    genotype: "01_Mafa_A1_001_01",
+                    reads: 42
+                ),
+                makeCall(
+                    sample: "AnimalB",
+                    genotype: "01_Mafa_A1_002_01",
+                    reads: 21
+                ),
+            ]
+        ))
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        controller.testingUpdateManualHaplotypeLabel("Unsaved")
+        let gate = ManualHaplotypeViewportDecisionGate()
+        controller.testingSetManualHaplotypeDraftDecisionProvider {
+            _ in await gate.wait()
+        }
+
+        controller.testingSelectMatrixColumn(sample: "AnimalB")
+        await gate.waitUntilPending()
+        for index in 0..<100 {
+            controller.testingSetComparisonFilter(
+                index == 99 ? "AnimalB" : "queued-\(index)"
+            )
+        }
+        controller.configure(result: makeResult(
+            bundleURL: replacementBundle,
+            samples: [],
+            calls: [
+                makeCall(
+                    sample: "AnimalC",
+                    genotype: "01_Mafa_A1_003_01",
+                    reads: 7
+                ),
+            ]
+        ))
+
+        XCTAssertEqual(
+            controller.testingPendingManualHaplotypeMutationCount,
+            1
+        )
+        await gate.resume(with: .discard)
+        await controller.testingWaitForManualHaplotypeTransitions()
+
+        XCTAssertEqual(
+            controller.testingResultBundleURL,
+            replacementBundle.standardizedFileURL
+        )
+        XCTAssertEqual(
+            controller.testingPendingManualHaplotypeMutationCount,
+            0
+        )
+        XCTAssertEqual(controller.testingVisibleMatrixSamples, ["AnimalC"])
+    }
+
+    func testDeferredMatrixClickReResolvesMissingRowAfterProjectionChanges()
+        async throws
+    {
+        let bundleURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "ManualHaplotypeStaleRow-\(UUID().uuidString).lungfishgenotype",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let firstGenotype = "01_Mafa_A1_001_01"
+        let staleGenotype = "01_Mafa_A1_002_01"
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [
+                makeCall(
+                    sample: "AnimalA",
+                    genotype: firstGenotype,
+                    reads: 42
+                ),
+                makeCall(
+                    sample: "AnimalA",
+                    genotype: staleGenotype,
+                    reads: 21
+                ),
+            ]
+        ))
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        controller.testingUpdateManualHaplotypeLabel("Unsaved")
+        let gate = ManualHaplotypeViewportDecisionGate()
+        controller.testingSetManualHaplotypeDraftDecisionProvider {
+            _ in await gate.wait()
+        }
+        let originalSelection =
+            controller.testingCurrentSelectionMatrixTargets
+
+        controller.testingClickMatrixCell(
+            genotype: staleGenotype,
+            sample: "AnimalA"
+        )
+        await gate.waitUntilPending()
+        controller.testingComparisonMatrix.applyFilters(
+            allowedSampleIDs: nil,
+            text: firstGenotype
+        )
+        await gate.resume(with: .discard)
+        await controller.testingWaitForManualHaplotypeTransitions()
+
+        XCTAssertEqual(
+            controller.testingCurrentSelectionMatrixTargets,
+            originalSelection
+        )
+        XCTAssertEqual(
+            controller.testingVisibleMatrixGenotypes,
+            [firstGenotype]
+        )
+    }
+
     func testManualHaplotypeCancelRestoresNativeTableSelectionAndScroll() async throws {
         let bundleURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(
@@ -16981,6 +17130,28 @@ private actor KnownSelectionResultLoaderSpy {
 
     func currentInvocationCount() -> Int {
         invocationCount
+    }
+}
+
+private actor ManualHaplotypeViewportDecisionGate {
+    private var continuation:
+        CheckedContinuation<GenotypeManualHaplotypeDraftDecision, Never>?
+
+    func wait() async -> GenotypeManualHaplotypeDraftDecision {
+        await withCheckedContinuation { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func waitUntilPending() async {
+        while continuation == nil {
+            await Task.yield()
+        }
+    }
+
+    func resume(with decision: GenotypeManualHaplotypeDraftDecision) {
+        continuation?.resume(returning: decision)
+        continuation = nil
     }
 }
 

@@ -615,11 +615,38 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     private func prepareForManualHaplotypeTermination(
         in controllers: [MainWindowController]
     ) async -> Bool {
-        var allAllowed = true
+        var resolutions: [
+            (
+                controller: MainWindowController,
+                resolution:
+                    MainWindowController
+                        .ManualHaplotypeTransitionResolution
+            )
+        ] = []
         for controller in controllers
         where controller.hasUnsavedManualHaplotypeDraft {
-            if !(await controller
-                .prepareForManualHaplotypeTransition(.appQuit)) {
+            let resolution =
+                await controller.resolveManualHaplotypeTransition(
+                    .appQuit
+                )
+            resolutions.append((controller, resolution))
+        }
+        guard !resolutions.contains(where: {
+            $0.resolution.isCancelled
+        }) else {
+            for item in resolutions {
+                item.controller.abandonManualHaplotypeTransition(
+                    item.resolution
+                )
+            }
+            return false
+        }
+
+        var allAllowed = true
+        for item in resolutions {
+            if !(await item.controller.commitManualHaplotypeTransition(
+                item.resolution
+            )) {
                 allAllowed = false
             }
         }

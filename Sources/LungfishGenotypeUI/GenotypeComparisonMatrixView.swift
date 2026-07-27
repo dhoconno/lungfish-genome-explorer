@@ -2384,6 +2384,10 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         guard !suppressSelectionClearedCallback else { return }
         let sourceTable = notification.object as? NSTableView
         let selectedRows = IndexSet((sourceTable ?? tableView).selectedRowIndexes.filter { $0 >= 0 && $0 < visibleRows.count })
+        let selectedRowIDs = selectedRows.map {
+            visibleRows[$0].id
+        }
+        let preferredSample = selectedSampleName
         let nativeState = pendingNativeTableSelectionState
         pendingNativeTableSelectionState = nil
         let semanticPreviousRows = rowIndexes(
@@ -2399,8 +2403,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             [weak self] in
             guard let self else { return }
             self.applyNativeTableSelection(
-                selectedRows,
-                preferredSample: self.selectedSampleName
+                rowIDs: selectedRowIDs,
+                preferredSample: preferredSample
             )
         }) {
             restoreNativeTableSelection(
@@ -2447,6 +2451,19 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
         let selectedRow = selectedRows[selectedRows.startIndex]
         selectVisibleRow(selectedRow, sample: preferredSample)
+    }
+
+    private func applyNativeTableSelection(
+        rowIDs: [GenotypeCandidateMatrixRowID],
+        preferredSample: String?
+    ) {
+        let indexes = IndexSet(rowIDs.compactMap { rowID in
+            visibleRows.firstIndex(where: { $0.id == rowID })
+        })
+        applyNativeTableSelection(
+            indexes,
+            preferredSample: preferredSample
+        )
     }
 
     private var matrixContentScrollOrigins:
@@ -3096,9 +3113,14 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     private func selectRowFromDirectClick(_ row: Int, modifiers: NSEvent.ModifierFlags) {
+        guard row >= 0, row < visibleRows.count else { return }
+        let rowID = visibleRows[row].id
         if deferManualHaplotypeTransition(.selection, mutation: {
             [weak self] in
-            self?.selectRowFromDirectClick(row, modifiers: modifiers)
+            _ = self?.selectRowFromSelector(
+                rowID,
+                modifiers: modifiers
+            )
         }) {
             return
         }
@@ -3128,10 +3150,12 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     private func selectCellFromDirectClick(_ row: Int, sample: String, modifiers: NSEvent.ModifierFlags) {
+        guard row >= 0, row < visibleRows.count else { return }
+        let rowID = visibleRows[row].id
         if deferManualHaplotypeTransition(.selection, mutation: {
             [weak self] in
-            self?.selectCellFromDirectClick(
-                row,
+            self?.selectCellFromSelector(
+                rowID,
                 sample: sample,
                 modifiers: modifiers
             )
@@ -3150,6 +3174,23 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         directSelectionAnchor = target
         selectVisibleRow(row, sample: sample)
+    }
+
+    private func selectCellFromSelector(
+        _ rowID: GenotypeCandidateMatrixRowID,
+        sample: String,
+        modifiers: NSEvent.ModifierFlags
+    ) {
+        guard let row = visibleRows.firstIndex(where: {
+            $0.id == rowID
+        }), visibleSampleNames.contains(sample) else {
+            return
+        }
+        selectCellFromDirectClick(
+            row,
+            sample: sample,
+            modifiers: modifiers
+        )
     }
 
     private func handleHeaderChicletClick(column: Int, modifiers: NSEvent.ModifierFlags) -> Bool {

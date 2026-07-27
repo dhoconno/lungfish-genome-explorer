@@ -201,6 +201,56 @@ final class GenotypeManualHaplotypeTransitionTests: XCTestCase {
         XCTAssertEqual(secondTransitions, [.appQuit])
     }
 
+    func testAppQuitCancelIsTransactionalForEveryWindowRegardlessOfVetoOrder()
+        async
+    {
+        for cancellingIndex in [0, 2] {
+            let controllers = [
+                MainWindowController(),
+                MainWindowController(),
+                MainWindowController(),
+            ]
+            var drafts = ["first-draft", "middle-draft", "last-draft"]
+            var decisions: [Int] = []
+            var commits: [Int] = []
+            for (index, controller) in controllers.enumerated() {
+                controller.testingSetManualHaplotypeTransactionalTransitionState(
+                    hasUnsavedDraft: { true },
+                    decide: { transition in
+                        XCTAssertEqual(transition, .appQuit)
+                        decisions.append(index)
+                        return index == cancellingIndex ? .cancel : .discard
+                    },
+                    commit: { decision in
+                        commits.append(index)
+                        switch decision {
+                        case .save:
+                            drafts[index] = "saved"
+                        case .discard:
+                            drafts[index] = "discarded"
+                        case .cancel:
+                            XCTFail("Cancel must never enter the commit phase.")
+                        }
+                        return true
+                    }
+                )
+            }
+
+            let allowed = await AppDelegate()
+                .testingPrepareForManualHaplotypeTermination(
+                    in: controllers
+                )
+
+            XCTAssertFalse(allowed)
+            XCTAssertEqual(decisions, [0, 1, 2])
+            XCTAssertTrue(commits.isEmpty)
+            XCTAssertEqual(
+                drafts,
+                ["first-draft", "middle-draft", "last-draft"]
+            )
+        }
+    }
+
     func testAppQuitAwaitsEveryDirtyWindowWhenFirstVetoesAndRepeatedRequestsStaySingleFlight()
         async
     {

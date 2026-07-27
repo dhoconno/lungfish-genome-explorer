@@ -288,7 +288,8 @@ public final class GenotypeResultViewController: NSViewController {
     private var manualHaplotypeDraftDecisionProvider:
         ((GenotypeManualHaplotypeDraftCoordinator.Transition) async
             -> GenotypeManualHaplotypeDraftDecision)?
-    private var pendingManualHaplotypeTransitionCount = 0
+    private let manualHaplotypeTransitionMutationCoordinator =
+        GenotypeManualHaplotypeTransitionMutationCoordinator()
     private var manualHaplotypingSelection: Set<String> = []
     private var manualHaplotypingDraftLabel: String = ""
     private var manualHaplotypingDraftColorTokenIndex: Int = 1
@@ -7012,25 +7013,54 @@ public final class GenotypeResultViewController: NSViewController {
         }
     }
 
+    public func resolveManualHaplotypeTransition(
+        _ transition: GenotypeManualHaplotypeDraftCoordinator.Transition
+    ) async -> GenotypeManualHaplotypeDraftCoordinator.Resolution {
+        await manualHaplotypeDraftCoordinator.resolve(
+            for: transition
+        ) { [weak self] in
+            guard let self else { return .cancel }
+            if let manualHaplotypeDraftDecisionProvider {
+                return await manualHaplotypeDraftDecisionProvider(transition)
+            }
+            return await presentManualHaplotypeDraftDecision(
+                for: transition
+            )
+        }
+    }
+
+    public func commitManualHaplotypeTransition(
+        _ resolution: GenotypeManualHaplotypeDraftCoordinator.Resolution
+    ) async -> Bool {
+        await manualHaplotypeDraftCoordinator.commit(resolution)
+    }
+
+    public func abandonManualHaplotypeTransition(
+        _ resolution: GenotypeManualHaplotypeDraftCoordinator.Resolution
+    ) {
+        manualHaplotypeDraftCoordinator.abandon(resolution)
+    }
+
     private func deferManualHaplotypeTransition(
         _ transition: GenotypeManualHaplotypeDraftCoordinator.Transition,
         mutation: @escaping @MainActor () -> Void
     ) {
-        guard hasUnsavedManualHaplotypeDraft else {
+        guard hasUnsavedManualHaplotypeDraft
+                || manualHaplotypeTransitionMutationCoordinator
+                    .hasPendingMutation else {
             mutation()
             return
         }
-        pendingManualHaplotypeTransitionCount += 1
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            let allowed = await prepareForManualHaplotypeTransition(
-                transition
-            )
-            pendingManualHaplotypeTransitionCount -= 1
-            if allowed {
-                mutation()
-            }
-        }
+        manualHaplotypeTransitionMutationCoordinator.enqueue(
+            transition: transition,
+            prepare: { [weak self] transition in
+                guard let self else { return false }
+                return await self.prepareForManualHaplotypeTransition(
+                    transition
+                )
+            },
+            mutation: mutation
+        )
     }
 
     private func presentManualHaplotypeDraftDecision(
@@ -9195,10 +9225,14 @@ extension GenotypeResultViewController {
     }
 
     func testingWaitForManualHaplotypeTransitions() async {
-        while pendingManualHaplotypeTransitionCount > 0
+        while manualHaplotypeTransitionMutationCoordinator.hasPendingMutation
             || manualHaplotypeDraftCoordinator.hasPendingResolution {
             await Task.yield()
         }
+    }
+
+    var testingPendingManualHaplotypeMutationCount: Int {
+        manualHaplotypeTransitionMutationCoordinator.retainedMutationCount
     }
 
     var testingManualHaplotypeAssignments: [ManualHaplotypeAssignment] {
