@@ -212,17 +212,17 @@ git commit -m "feat: save sample haplotype assignments atomically"
 - Create: `Sources/LungfishGenotypeUI/GenotypeManualHaplotypeDraft.swift`
 - Create: `Tests/LungfishGenotypeUITests/GenotypeManualHaplotypeDraftTests.swift`
 
-- [ ] **Step 1: Write failing draft tests**
+- [x] **Step 1: Write failing draft tests**
 
 Cover fourteen ordered slots, trim/NFC normalization, 128-scalar limit, control-character rejection, same H1/H2 labels, case-insensitive autocomplete, deterministic colors, clear, dirty diff, completeness, copy-label/color-only behavior, preserved target metadata, and no persistence.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `swift test --filter GenotypeManualHaplotypeDraftTests`
 
 Expected: compile failure because the draft type does not exist.
 
-- [ ] **Step 3: Implement the value-semantic draft**
+- [x] **Step 3: Implement the value-semantic draft**
 
 ```swift
 struct GenotypeManualHaplotypeDraft: Equatable, Sendable {
@@ -237,13 +237,13 @@ struct GenotypeManualHaplotypeDraft: Equatable, Sendable {
 
 Workbook formula-leading labels remain accepted strings; formula prevention belongs to the writer.
 
-- [ ] **Step 4: Run tests and verify GREEN**
+- [x] **Step 4: Run tests and verify GREEN**
 
 Run: `swift test --filter GenotypeManualHaplotypeDraftTests`
 
 Expected: all draft tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/LungfishGenotypeUI/GenotypeManualHaplotypeDraft.swift Tests/LungfishGenotypeUITests/GenotypeManualHaplotypeDraftTests.swift
