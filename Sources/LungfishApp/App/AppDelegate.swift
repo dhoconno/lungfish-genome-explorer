@@ -85,6 +85,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     private var debugTempEscapeScanTimer: Timer?
 #endif
     private var isTerminating = false
+    private var manualHaplotypeProjectTransitionGenerations:
+        [ObjectIdentifier: UInt64] = [:]
+    private var manualHaplotypeTerminationTask: Task<Void, Never>?
+    private var isReenteringManualHaplotypeTermination = false
 
     /// Temporary storage for download URL while sheet is dismissing
     /// (relocated from the Direct-Launch Classification section; extensions cannot hold stored properties).
@@ -382,6 +386,35 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     internal func openProject(_ projectURL: URL, in controller: MainWindowController) {
+        if controller.hasUnsavedManualHaplotypeDraft {
+            let controllerID = ObjectIdentifier(controller)
+            let generation =
+                (manualHaplotypeProjectTransitionGenerations[
+                    controllerID
+                ] ?? 0) &+ 1
+            manualHaplotypeProjectTransitionGenerations[
+                controllerID
+            ] = generation
+            Task { @MainActor [weak self, weak controller] in
+                guard let self, let controller else { return }
+                let allowed =
+                    await controller.prepareForManualHaplotypeTransition(
+                        .projectSwitch
+                    )
+                guard self
+                    .manualHaplotypeProjectTransitionGenerations[
+                        controllerID
+                    ] == generation else {
+                    return
+                }
+                self.manualHaplotypeProjectTransitionGenerations[
+                    controllerID
+                ] = nil
+                guard allowed else { return }
+                self.openProject(projectURL, in: controller)
+            }
+            return
+        }
         // Keep global working directory in sync with most recently activated project.
         workingDirectoryURL = projectURL
         mainWindowController = controller
@@ -533,6 +566,54 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         Task {
             await TempFileManager.shared.cleanupSessionFiles()
         }
+    }
+
+    public func applicationShouldTerminate(
+        _ sender: NSApplication
+    ) -> NSApplication.TerminateReply {
+        if isReenteringManualHaplotypeTermination {
+            isReenteringManualHaplotypeTermination = false
+            return .terminateNow
+        }
+        if manualHaplotypeTerminationTask != nil {
+            return .terminateLater
+        }
+        let dirtyControllers = mainWindowControllers.filter(
+            \.hasUnsavedManualHaplotypeDraft
+        )
+        guard !dirtyControllers.isEmpty else {
+            return .terminateNow
+        }
+        manualHaplotypeTerminationTask =
+            Task { @MainActor [weak self, weak sender] in
+                guard let self else { return }
+                let allowed =
+                    await self
+                        .prepareForManualHaplotypeTermination(
+                            in: dirtyControllers
+                        )
+                self.manualHaplotypeTerminationTask = nil
+                if allowed {
+                    self.isReenteringManualHaplotypeTermination = true
+                }
+                sender?.reply(
+                    toApplicationShouldTerminate: allowed
+                )
+            }
+        return .terminateLater
+    }
+
+    private func prepareForManualHaplotypeTermination(
+        in controllers: [MainWindowController]
+    ) async -> Bool {
+        for controller in controllers
+        where controller.hasUnsavedManualHaplotypeDraft {
+            guard await controller
+                .prepareForManualHaplotypeTransition(.appQuit) else {
+                return false
+            }
+        }
+        return true
     }
 
     public func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -1079,6 +1160,14 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     var testingMainWindowControllers: [MainWindowController] {
         mainWindowControllers
+    }
+
+    func testingPrepareForManualHaplotypeTermination(
+        in controllers: [MainWindowController]
+    ) async -> Bool {
+        await prepareForManualHaplotypeTermination(
+            in: controllers
+        )
     }
 
     @discardableResult

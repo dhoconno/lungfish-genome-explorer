@@ -178,6 +178,11 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     var onSearchProjectionChanged: (() -> Void)?
     var onMatrixVisibilityCapabilityChanged:
         ((GenotypeMatrixVisibilityCapabilitySnapshot) -> Void)?
+    var onManualHaplotypeTransitionPreflight:
+        ((
+            GenotypeManualHaplotypeDraftCoordinator.Transition,
+            @escaping @MainActor () -> Void
+        ) -> Bool)?
     var matrixCommentBodyProvider: ((String?) -> String?)?
     private var contextMenuSnapshotSourceFactory:
         (GenotypeMatrixContextMenuSnapshot) -> any GenotypeMatrixContextMenuSnapshotProviding = {
@@ -303,6 +308,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private weak var accessibilityFocusedSelectorButton:
         GenotypeMatrixSelectorButton?
     private var filterText = ""
+    private var isApplyingApprovedManualHaplotypeTransition = false
     private var supportSelectionPreviewMinimumReads = 1
     /// Set of sample IDs allowed by the active Smart Cohort + Quick Filter.
     /// `nil` means no cohort restriction is active and every sample is allowed.
@@ -583,6 +589,12 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     func setFilterText(_ text: String) {
+        if deferManualHaplotypeTransition(.search, mutation: {
+            [weak self] in
+            self?.setFilterText(text)
+        }) {
+            return
+        }
         let previousSamples = activeSampleNames()
         filterField.stringValue = text
         filterText = text
@@ -1452,6 +1464,23 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         setPinnedPaneWidth(pinnedWidthConstraint?.constant ?? 360, persist: false)
     }
 
+    private func deferManualHaplotypeTransition(
+        _ transition: GenotypeManualHaplotypeDraftCoordinator.Transition,
+        mutation: @escaping @MainActor () -> Void
+    ) -> Bool {
+        guard !isApplyingApprovedManualHaplotypeTransition,
+              let onManualHaplotypeTransitionPreflight else {
+            return false
+        }
+        return onManualHaplotypeTransitionPreflight(transition) {
+            [weak self] in
+            guard let self else { return }
+            isApplyingApprovedManualHaplotypeTransition = true
+            mutation()
+            isApplyingApprovedManualHaplotypeTransition = false
+        }
+    }
+
     private func setPinnedPaneWidth(_ width: CGFloat, persist: Bool) {
         let maximum = bounds.width >= 427 ? bounds.width - 240 - 7 : CGFloat.greatestFiniteMagnitude
         let constrained = min(maximum, max(180, width))
@@ -1466,8 +1495,32 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     @objc private func locusChanged(_ sender: NSPopUpButton) {
-        selectedFilterLocus = sender.selectedItem?.representedObject as? String
+        let requestedLocus =
+            sender.selectedItem?.representedObject as? String
+        let previousLocus = selectedFilterLocus
+        if deferManualHaplotypeTransition(.filter, mutation: {
+            [weak self] in
+            self?.applyLocusFilter(requestedLocus)
+        }) {
+            selectLocusPopupItem(previousLocus)
+            return
+        }
+        selectedFilterLocus = requestedLocus
         applyFilterAndSort()
+    }
+
+    private func applyLocusFilter(_ locus: String?) {
+        selectedFilterLocus = locus
+        selectLocusPopupItem(locus)
+        applyFilterAndSort()
+    }
+
+    private func selectLocusPopupItem(_ locus: String?) {
+        if let index = locusPopup.itemArray.firstIndex(where: {
+            ($0.representedObject as? String) == locus
+        }) {
+            locusPopup.selectItem(at: index)
+        }
     }
 
     private func rebuildBaseProjection() {
@@ -2823,6 +2876,12 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     private func selectRowFromDirectClick(_ row: Int, modifiers: NSEvent.ModifierFlags) {
+        if deferManualHaplotypeTransition(.selection, mutation: {
+            [weak self] in
+            self?.selectRowFromDirectClick(row, modifiers: modifiers)
+        }) {
+            return
+        }
         let target = matrixTarget(row: visibleRows[row], sample: nil)
         if modifiers.contains(.shift) {
             publishMatrixTargetSelection(rowRangeTargets(to: row), anchor: target)
@@ -2849,6 +2908,16 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     private func selectCellFromDirectClick(_ row: Int, sample: String, modifiers: NSEvent.ModifierFlags) {
+        if deferManualHaplotypeTransition(.selection, mutation: {
+            [weak self] in
+            self?.selectCellFromDirectClick(
+                row,
+                sample: sample,
+                modifiers: modifiers
+            )
+        }) {
+            return
+        }
         let target = matrixTarget(row: visibleRows[row], sample: sample)
         if modifiers.contains(.shift) {
             publishMatrixTargetSelection(cellRangeTargets(toRow: row, sample: sample), anchor: target)
@@ -2909,6 +2978,15 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     private func selectSampleColumn(clicked sample: String, modifiers: NSEvent.ModifierFlags) {
+        if deferManualHaplotypeTransition(.selection, mutation: {
+            [weak self] in
+            self?.selectSampleColumn(
+                clicked: sample,
+                modifiers: modifiers
+            )
+        }) {
+            return
+        }
         let command = modifiers.contains(.command)
         let shift = modifiers.contains(.shift)
         var samples: [String]
@@ -2938,6 +3016,11 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     private func clearSelectionAfterColumnToggle() {
+        if deferManualHaplotypeTransition(.selection, mutation: {
+            [weak self] in self?.clearSelectionAfterColumnToggle()
+        }) {
+            return
+        }
         let previousTargets = selectedMatrixTargets
         selectedColumnSamples = []
         selectedMatrixTargets = []
@@ -2956,6 +3039,11 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     private func publishColumnSelection(_ samples: [String]) {
+        if deferManualHaplotypeTransition(.selection, mutation: {
+            [weak self] in self?.publishColumnSelection(samples)
+        }) {
+            return
+        }
         let visible = samples.filter { visibleSampleNames.contains($0) }
         guard !visible.isEmpty else {
             clearSelectionAfterColumnToggle()
@@ -3019,6 +3107,12 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     private func selectVisibleRow(_ rowIndex: Int, sample: String?) {
+        if deferManualHaplotypeTransition(.selection, mutation: {
+            [weak self] in
+            self?.selectVisibleRow(rowIndex, sample: sample)
+        }) {
+            return
+        }
         guard rowIndex >= 0, rowIndex < visibleRows.count else {
             onSelectionCleared?()
             return
@@ -3043,6 +3137,12 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     private func selectVisibleRows(_ rowIndexes: [Int], sample: String?) {
+        if deferManualHaplotypeTransition(.selection, mutation: {
+            [weak self] in
+            self?.selectVisibleRows(rowIndexes, sample: sample)
+        }) {
+            return
+        }
         let validIndexes = rowIndexes.filter { $0 >= 0 && $0 < visibleRows.count }
         guard let firstIndex = validIndexes.first else {
             onSelectionCleared?()
@@ -3071,6 +3171,12 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         _ targets: [GenotypeAnnotationSidecar.MatrixTarget],
         anchor: GenotypeAnnotationSidecar.MatrixTarget?
     ) {
+        if deferManualHaplotypeTransition(.selection, mutation: {
+            [weak self] in
+            self?.publishMatrixTargetSelection(targets, anchor: anchor)
+        }) {
+            return
+        }
         let uniqueTargets = uniqueMatrixTargets(targets)
         guard !uniqueTargets.isEmpty else {
             clearSelectionAfterColumnToggle()
@@ -3510,6 +3616,15 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         _ next: GenotypeMatrixVisibilityState,
         announcement: String
     ) -> Bool {
+        if deferManualHaplotypeTransition(.visibility, mutation: {
+            [weak self] in
+            _ = self?.applyVisibilityState(
+                next,
+                announcement: announcement
+            )
+        }) {
+            return false
+        }
         guard next != visibilityState else { return false }
 #if DEBUG
         testingDidFallBackAccessibilityFocusToMatrix = false

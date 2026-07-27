@@ -5,6 +5,7 @@
 import AppKit
 import SwiftUI
 import LungfishCore
+import LungfishGenotypeUI
 import LungfishIO
 import os.log
 import LungfishKit
@@ -65,6 +66,14 @@ public class MainWindowController: NSWindowController {
 
     /// Current viewport content mode for toolbar adaptation.
     private var currentContentMode: ViewportContentMode = .empty
+
+    private var manualHaplotypeCloseResolutionTask: Task<Void, Never>?
+    private var isReenteringManualHaplotypeWindowClose = false
+    private var manualHaplotypeDraftPresenceOverride: (() -> Bool)?
+    private var manualHaplotypeTransitionPreparationOverride:
+        ((
+            GenotypeManualHaplotypeDraftCoordinator.Transition
+        ) async -> Bool)?
 
     // MARK: - Initialization
 
@@ -472,11 +481,81 @@ public class MainWindowController: NSWindowController {
         mainSplitViewController.viewerController?.zoomToFit()
     }
 
+    var hasUnsavedManualHaplotypeDraft: Bool {
+        if let manualHaplotypeDraftPresenceOverride {
+            return manualHaplotypeDraftPresenceOverride()
+        }
+        return mainSplitViewController?.viewerController?
+            .genotypeResultViewController?
+            .hasUnsavedManualHaplotypeDraft == true
+    }
+
+    func prepareForManualHaplotypeTransition(
+        _ transition:
+            GenotypeManualHaplotypeDraftCoordinator.Transition
+    ) async -> Bool {
+        if let manualHaplotypeTransitionPreparationOverride {
+            return await manualHaplotypeTransitionPreparationOverride(
+                transition
+            )
+        }
+        guard let controller = mainSplitViewController?
+            .viewerController?
+            .genotypeResultViewController else {
+            return true
+        }
+        return await controller.prepareForManualHaplotypeTransition(
+            transition
+        )
+    }
+
+    func testingSetManualHaplotypeTransitionState(
+        hasUnsavedDraft: @escaping () -> Bool,
+        prepare: @escaping (
+            GenotypeManualHaplotypeDraftCoordinator.Transition
+        ) async -> Bool
+    ) {
+        manualHaplotypeDraftPresenceOverride = hasUnsavedDraft
+        manualHaplotypeTransitionPreparationOverride = prepare
+    }
+
+    func testingWaitForManualHaplotypeCloseResolution() async {
+        while manualHaplotypeCloseResolutionTask != nil {
+            await Task.yield()
+        }
+    }
+
 }
 
 // MARK: - NSWindowDelegate
 
 extension MainWindowController: NSWindowDelegate {
+
+    public func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if isReenteringManualHaplotypeWindowClose {
+            isReenteringManualHaplotypeWindowClose = false
+            return true
+        }
+        if manualHaplotypeCloseResolutionTask != nil {
+            return false
+        }
+        guard hasUnsavedManualHaplotypeDraft else {
+            return true
+        }
+        manualHaplotypeCloseResolutionTask =
+            Task { @MainActor [weak self, weak sender] in
+                guard let self else { return }
+                let allowed =
+                    await self.prepareForManualHaplotypeTransition(
+                        .windowClose
+                    )
+                self.manualHaplotypeCloseResolutionTask = nil
+                guard allowed, let sender else { return }
+                self.isReenteringManualHaplotypeWindowClose = true
+                sender.performClose(nil)
+            }
+        return false
+    }
 
     public func windowWillEnterFullScreen(_ notification: Notification) {
         // Invalidate the annotation tile before the transition so it doesn't

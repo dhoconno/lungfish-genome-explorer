@@ -14,6 +14,28 @@ import os.log
 
 extension MainSplitViewController {
     func displayContent(for item: SidebarItem) {
+        if let genotypeController =
+            viewerController.genotypeResultViewController,
+           genotypeController.hasUnsavedManualHaplotypeDraft {
+            manualHaplotypeContentTransitionGeneration &+= 1
+            let generation =
+                manualHaplotypeContentTransitionGeneration
+            Task { @MainActor [weak self, weak genotypeController] in
+                guard let self, let genotypeController else { return }
+                let allowed =
+                    await genotypeController
+                        .prepareForManualHaplotypeTransition(
+                            .bundleSwitch
+                        )
+                guard allowed,
+                      self.manualHaplotypeContentTransitionGeneration
+                        == generation else {
+                    return
+                }
+                self.displayContent(for: item)
+            }
+            return
+        }
         mainSplitLogger.info("displayContent: Selected '\(item.title, privacy: .public)' type=\(String(describing: item.type))")
         let displayIdentity = contentSelectionIdentity(for: item)
         let displayToken = beginDisplayRequest(identity: displayIdentity)

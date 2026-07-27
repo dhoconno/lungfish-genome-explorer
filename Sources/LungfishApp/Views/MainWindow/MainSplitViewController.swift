@@ -238,6 +238,7 @@ public class MainSplitViewController: NSSplitViewController {
         [String: GenotypeCurrentWorkbookReloadTask] = [:]
     var retainedDeferredGenotypeResultControllers:
         [ObjectIdentifier: GenotypeResultViewController] = [:]
+    var manualHaplotypeContentTransitionGeneration: UInt64 = 0
 
     var windowStateScope: WindowStateScope {
         projectSession.windowStateScope
