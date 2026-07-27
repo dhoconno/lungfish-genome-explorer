@@ -39,7 +39,9 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         try ONTGenotypeResultBundle.writeManifest(
             ONTGenotypeResultBundleManifest(
                 schemaVersion: beforeScientificArtifacts.schemaVersion,
-                kind: beforeScientificArtifacts.kind,
+                kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
+                workflowKind: .fullLengthONTMHCGenotype,
+                workflowMode: .genotypeOnly,
                 outputName: beforeScientificArtifacts.outputName,
                 analysisName: beforeScientificArtifacts.analysisName,
                 primaryWorkbookPath: beforeScientificArtifacts.primaryWorkbookPath,
@@ -73,8 +75,8 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
             userProvider: { "tester" },
             pythonExecutableURL: testPythonExecutableURL
         ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
-        XCTAssertEqual(updatedManifest.workflowKind, beforeScientificArtifacts.workflowKind)
-        XCTAssertEqual(updatedManifest.workflowMode, beforeScientificArtifacts.workflowMode)
+        XCTAssertEqual(updatedManifest.workflowKind, .fullLengthONTMHCGenotype)
+        XCTAssertEqual(updatedManifest.workflowMode, .genotypeOnly)
 
         XCTAssertNotNil(updatedManifest.mhcCandidateArtifacts?.candidateJSON)
         XCTAssertNotNil(updatedManifest.mhcCandidateArtifacts?.unnameableJSON)
@@ -2921,6 +2923,8 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         let manifest = ONTGenotypeResultBundleManifest(
             schemaVersion: fixture.manifest.schemaVersion,
             kind: fixture.manifest.kind,
+            workflowKind: .fullLengthONTMHCGenotype,
+            workflowMode: .genotypeOnly,
             outputName: fixture.manifest.outputName,
             analysisName: fixture.manifest.analysisName,
             primaryWorkbookPath: fixture.manifest.primaryWorkbookPath,
@@ -2944,6 +2948,53 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         XCTAssertEqual(updated.mhcCandidateArtifacts, candidateArtifacts)
         XCTAssertEqual(updated.deduplicatedUnmatchedClustersFASTAPath, unmatchedClustersPath)
         XCTAssertEqual(updated.referenceRecordStore, fixture.manifest.referenceRecordStore)
+        XCTAssertEqual(updated.workflowKind, .fullLengthONTMHCGenotype)
+        XCTAssertEqual(updated.workflowMode, .genotypeOnly)
+    }
+
+    func testWorkbookRevisionPreservesMalformedWorkflowDeclarations() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeBundle(
+            in: root,
+            outputName: "malformed-workflow-preservation",
+            includeCurrent: true
+        )
+        let manifestURL = ONTGenotypeResultBundle.manifestURL(in: fixture.bundleURL)
+        var object = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any]
+        )
+        object["workflowKind"] = ["future": "mhc-workflow"]
+        object["workflowMode"] = NSNull()
+        try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+            .write(to: manifestURL, options: .atomic)
+        let malformed = try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
+        let originalKind = malformed.workflowKindDeclaration.originalValue
+        let originalMode = malformed.workflowModeDeclaration.originalValue
+        XCTAssertNil(malformed.workflowKind)
+        XCTAssertNil(malformed.workflowMode)
+        XCTAssertNotNil(malformed.workflowKindDeclaration.issue)
+        XCTAssertNotNil(malformed.workflowModeDeclaration.issue)
+
+        let replacement = root.appendingPathComponent("replacement.xlsx")
+        try workbookData("replacement").write(to: replacement)
+        let updated = try GenotypeWorkbookRevisionService()
+            .importRevisedWorkbook(from: replacement, into: fixture.bundleURL)
+
+        XCTAssertEqual(updated.workflowKindDeclaration.originalValue, originalKind)
+        XCTAssertEqual(updated.workflowModeDeclaration.originalValue, originalMode)
+        XCTAssertNil(updated.workflowKind)
+        XCTAssertNil(updated.workflowMode)
+        XCTAssertNotNil(updated.workflowKindDeclaration.issue)
+        XCTAssertNotNil(updated.workflowModeDeclaration.issue)
+        let reencoded = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: JSONEncoder().encode(updated)) as? [String: Any]
+        )
+        XCTAssertEqual(
+            (reencoded["workflowKind"] as? [String: String])?["future"],
+            "mhc-workflow"
+        )
+        XCTAssertTrue(reencoded["workflowMode"] is NSNull)
     }
 
     func testApplyHaplotypeOverridesPatchesCurrentWorkbookAndRecordsSidecarProvenance() throws {

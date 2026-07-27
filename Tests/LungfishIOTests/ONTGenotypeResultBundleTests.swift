@@ -160,6 +160,39 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         XCTAssertTrue(roundTripped["workflowMode"] is NSNull)
     }
 
+    func testOverflowSizedIntegerWorkflowModeRoundTripsWithoutPrecisionLoss() throws {
+        let exactInteger = Decimal(string: "9223372036854775809")!
+        let data = Data(#"""
+        {
+          "schemaVersion": 1,
+          "kind": "full-length-ont-mhc-genotype",
+          "workflowKind": "full-length-ont-mhc-genotype",
+          "workflowMode": 9223372036854775809,
+          "outputName": "overflow-mode",
+          "analysisName": "Overflow mode",
+          "primaryWorkbookPath": "overflow-mode.xlsx",
+          "longSummaryCSVPath": "calls.csv",
+          "sampleSummaryCSVPath": "samples.csv",
+          "statsJSONPath": "stats.json",
+          "provenancePath": "provenance.json"
+        }
+        """#.utf8)
+
+        let manifest = try JSONDecoder().decode(ONTGenotypeResultBundleManifest.self, from: data)
+        let encoded = try JSONEncoder().encode(manifest)
+        let decodedNumber = try JSONDecoder().decode(
+            WorkflowModeDecimalEnvelope.self,
+            from: encoded
+        )
+
+        XCTAssertEqual(decodedNumber.workflowMode, exactInteger)
+        XCTAssertNil(manifest.workflowMode)
+        XCTAssertTrue(
+            try XCTUnwrap(manifest.workflowModeDeclaration.issue)
+                .localizedCaseInsensitiveContains("string")
+        )
+    }
+
     func testMHCCandidateDisplaySettingsDefaultToAllVisibleAndFourCanonicalTints() {
         let settings = ONTMHCCandidateDisplaySettings.default
 
@@ -3195,4 +3228,8 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
             SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
         }
     }
+}
+
+private struct WorkflowModeDecimalEnvelope: Decodable {
+    let workflowMode: Decimal
 }

@@ -49,6 +49,72 @@ final class AIHaplotypingRevisionPublisherTests: XCTestCase {
         )
     }
 
+    func testPublishPreservesMalformedWorkflowKindWhileReplacingMode() throws {
+        let fixture = try makeFixture()
+        let manifestURL = ONTGenotypeResultBundle.manifestURL(in: fixture.bundleURL)
+        var object = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any]
+        )
+        object["workflowKind"] = ["future": "mhc-workflow"]
+        object["workflowMode"] = NSNull()
+        try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+            .write(to: manifestURL, options: .atomic)
+        let malformedManifest = try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
+        let malformedResult = ONTGenotypeResultBundleData(
+            bundleURL: fixture.result.bundleURL,
+            manifest: malformedManifest,
+            artifacts: fixture.result.artifacts,
+            stats: fixture.result.stats,
+            calls: fixture.result.calls,
+            samples: fixture.result.samples,
+            haplotypeAnalysis: fixture.result.haplotypeAnalysis,
+            mhcCandidates: fixture.result.mhcCandidates,
+            mhcUnnameableClusters: fixture.result.mhcUnnameableClusters,
+            mhcCandidateSequencesByStableClusterID:
+                fixture.result.mhcCandidateSequencesByStableClusterID,
+            mhcCandidateGenBankArtifactURLs: fixture.result.mhcCandidateGenBankArtifactURLs,
+            mhcAlignmentArtifactURLs: fixture.result.mhcAlignmentArtifactURLs,
+            mhcReferenceVisualizations: fixture.result.mhcReferenceVisualizations,
+            integrityWarnings: fixture.result.integrityWarnings,
+            referenceMetadata: fixture.result.referenceMetadata,
+            provisionalExon2SequencesByGenotype:
+                fixture.result.provisionalExon2SequencesByGenotype,
+            provisionalExon2ArtifactURLs: fixture.result.provisionalExon2ArtifactURLs
+        )
+
+        _ = try AIHaplotypingRevisionPublisher(
+            dateProvider: { Self.fixedDate },
+            revisionIDProvider: { "haprev-ai-malformed-workflow" }
+        ).publish(
+            AIHaplotypingRevisionPublishRequest(
+                bundleURL: fixture.bundleURL,
+                result: malformedResult,
+                sidecarURL: fixture.sidecarURL,
+                sidecar: fixture.sidecar,
+                runnerOutput: fixture.runnerOutput,
+                context: makeContext(bundleURL: fixture.bundleURL)
+            )
+        )
+
+        let published = try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
+        XCTAssertEqual(
+            published.workflowKindDeclaration.originalValue,
+            .object(["future": .string("mhc-workflow")])
+        )
+        XCTAssertNil(published.workflowKind)
+        XCTAssertNotNil(published.workflowKindDeclaration.issue)
+        XCTAssertEqual(published.workflowMode, .haplotyped)
+        XCTAssertNil(published.workflowModeDeclaration.issue)
+        let reencoded = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: JSONEncoder().encode(published)) as? [String: Any]
+        )
+        XCTAssertEqual(
+            (reencoded["workflowKind"] as? [String: String])?["future"],
+            "mhc-workflow"
+        )
+        XCTAssertEqual(reencoded["workflowMode"] as? String, "haplotyped")
+    }
+
     func testPublishWritesActiveRevisionFinalProvenanceAndSidecarReview() throws {
         let fixture = try makeFixture()
         let originalManifestData = try Data(contentsOf: ONTGenotypeResultBundle.manifestURL(in: fixture.bundleURL))

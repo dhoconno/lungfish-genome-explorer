@@ -4391,7 +4391,21 @@ public final class GenotypeResultViewController: NSViewController {
         addAuditSection(title: "Bundle Artifacts", contents: artifactRows)
 
         if manualHaplotypingIsAvailable(result: result) {
-            addAuditSection(title: "Manual Haplotyping", contents: [makeManualHaplotypingHost()])
+            addAuditSection(
+                title: "Manual Haplotyping",
+                contents: [makeManualHaplotypingHost(allowsCreation: true)]
+            )
+        } else if result.haplotypeAnalysis == nil,
+                  let reason = manualHaplotypeDisabledReason {
+            addAuditSection(
+                title: "Manual Haplotyping",
+                contents: [caption(reason)]
+            )
+        } else if !(annotationStore?.sidecar.manualHaplotypeAssignments.isEmpty ?? true) {
+            addAuditSection(
+                title: "Manual Haplotyping",
+                contents: [makeManualHaplotypingHost(allowsCreation: false)]
+            )
         }
         addAuditSection(title: "Haplotype Thresholds", contents: [makeRunHaplotypeThresholdSummaryHost()])
         addAuditSection(title: "Haplotype Definition", contents: [makeActiveHaplotypeDefinitionRow()])
@@ -5065,14 +5079,17 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func manualHaplotypingIsAvailable(result: ONTGenotypeResultBundleData) -> Bool {
-        // Surface the manual-haplotyping section when there is no built-in
-        // analysis or when the bundle already carries manual assignments.
-        if result.haplotypeAnalysis == nil { return true }
-        return !(annotationStore?.sidecar.manualHaplotypeAssignments.isEmpty ?? true)
+        guard result.haplotypeAnalysis == nil,
+              case .eligible = manualHaplotypeEligibility else {
+            return false
+        }
+        return true
     }
 
-    private func makeManualHaplotypingHost() -> NSView {
-        let container = NSHostingView(rootView: manualHaplotypingSectionBody())
+    private func makeManualHaplotypingHost(allowsCreation: Bool) -> NSView {
+        let container = NSHostingView(
+            rootView: manualHaplotypingSectionBody(allowsCreation: allowsCreation)
+        )
         container.identifier = Self.generatedContentHostingViewIdentifier
         container.translatesAutoresizingMaskIntoConstraints = false
         container.frame.size.height = 240
@@ -5082,7 +5099,7 @@ public final class GenotypeResultViewController: NSViewController {
         return container
     }
 
-    private func manualHaplotypingSectionBody() -> some View {
+    private func manualHaplotypingSectionBody(allowsCreation: Bool) -> some View {
         let rows = manualHaplotypingRows()
         let assignments = annotationStore?.sidecar.manualHaplotypeAssignments ?? []
         return GenotypeManualHaplotypingSection(
@@ -5100,6 +5117,7 @@ public final class GenotypeResultViewController: NSViewController {
                 get: { [weak self] in self?.manualHaplotypingDraftColorTokenIndex ?? 1 },
                 set: { [weak self] newValue in self?.manualHaplotypingDraftColorTokenIndex = newValue }
             ),
+            allowsCreation: allowsCreation,
             onCreateHaplotype: { [weak self] in self?.commitManualHaplotype() },
             onDeleteAssignment: { [weak self] assignment in
                 self?.deleteManualHaplotype(matching: assignment)
@@ -5122,7 +5140,11 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func commitManualHaplotype() {
-        guard let result, let store = annotationStore else { return }
+        guard case .eligible = manualHaplotypeEligibility,
+              let result,
+              let store = annotationStore else {
+            return
+        }
         let author = annotationAuthorProvider()
         let label = manualHaplotypingDraftLabel.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !label.isEmpty, !manualHaplotypingSelection.isEmpty else { return }
@@ -8557,6 +8579,24 @@ extension GenotypeResultViewController {
 
     func testingCurrentWorkbookHaplotypeCalls() -> [GenotypeWorkbookHaplotypeCall] {
         currentWorkbookEffectiveHaplotypeCalls()
+    }
+
+    var testingManualHaplotypingCreatorIsAvailable: Bool {
+        guard let result else { return false }
+        return manualHaplotypingIsAvailable(result: result)
+    }
+
+    var testingManualHaplotypeAssignments: [ManualHaplotypeAssignment] {
+        annotationStore?.sidecar.manualHaplotypeAssignments ?? []
+    }
+
+    func testingAttemptManualHaplotypeCreation(
+        selectedGenotypeIDs: Set<String>,
+        label: String
+    ) {
+        manualHaplotypingSelection = selectedGenotypeIDs
+        manualHaplotypingDraftLabel = label
+        commitManualHaplotype()
     }
 
     func testingReloadCurrentWorkbookResult() {

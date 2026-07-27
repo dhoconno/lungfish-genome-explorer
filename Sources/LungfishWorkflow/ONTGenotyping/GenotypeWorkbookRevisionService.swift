@@ -2968,34 +2968,9 @@ public struct GenotypeWorkbookRevisionService {
         currentWorkbookPath: String,
         revisions: [ONTGenotypeWorkbookRevision]
     ) -> ONTGenotypeResultBundleManifest {
-        ONTGenotypeResultBundleManifest(
-            schemaVersion: manifest.schemaVersion,
-            kind: manifest.kind,
-            workflowKind: manifest.workflowKind,
-            workflowMode: manifest.workflowMode,
-            outputName: manifest.outputName,
-            analysisName: manifest.analysisName,
-            primaryWorkbookPath: manifest.primaryWorkbookPath,
+        manifest.replacingWorkbookFields(
             currentWorkbookPath: currentWorkbookPath,
-            workbookRevisions: revisions,
-            longSummaryCSVPath: manifest.longSummaryCSVPath,
-            sampleSummaryCSVPath: manifest.sampleSummaryCSVPath,
-            statsJSONPath: manifest.statsJSONPath,
-            provenancePath: manifest.provenancePath,
-            deduplicatedUnmatchedClustersFASTAPath: manifest.deduplicatedUnmatchedClustersFASTAPath,
-            haplotypeAnalysisPath: manifest.haplotypeAnalysisPath,
-            haplotypeDefinitionSetID: manifest.haplotypeDefinitionSetID,
-            haplotypeAssayID: manifest.haplotypeAssayID,
-            presetID: manifest.presetID,
-            presetVersion: manifest.presetVersion,
-            createdAt: manifest.createdAt,
-            activeHaplotypeAnalysisRevisionID: manifest.activeHaplotypeAnalysisRevisionID,
-            haplotypeAnalysisRevisions: manifest.haplotypeAnalysisRevisions,
-            mhcCandidateArtifacts: manifest.mhcCandidateArtifacts,
-            mhcReferenceVisualizations: manifest.mhcReferenceVisualizations,
-            referenceRecordStore: manifest.referenceRecordStore,
-            alignmentArtifacts: manifest.alignmentArtifacts,
-            provisionalExon2Artifacts: manifest.provisionalExon2Artifacts
+            workbookRevisions: revisions
         )
     }
 

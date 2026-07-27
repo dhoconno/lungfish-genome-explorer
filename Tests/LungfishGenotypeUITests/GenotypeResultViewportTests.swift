@@ -5058,6 +5058,159 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(controller.testingVisibleLensIdentifier, "audit")
     }
 
+    func testManualHaplotypeCreatorRequiresSharedEligibilityAndShowsDisabledReason() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "ManualHaplotypeEligibility-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let malformed = try JSONDecoder().decode(
+            ONTGenotypeResultBundleManifest.self,
+            from: Data(#"""
+            {
+              "schemaVersion": 1,
+              "kind": "full-length-ont-mhc-genotype",
+              "workflowKind": {"future": "mhc-workflow"},
+              "workflowMode": "genotypeOnly",
+              "outputName": "malformed",
+              "analysisName": "Malformed",
+              "primaryWorkbookPath": "malformed.xlsx",
+              "longSummaryCSVPath": "calls.csv",
+              "sampleSummaryCSVPath": "samples.csv",
+              "statsJSONPath": "stats.json",
+              "provenancePath": "provenance.json"
+            }
+            """#.utf8)
+        )
+        let partial = ONTGenotypeResultBundleManifest(
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
+            workflowKind: .fullLengthONTMHCGenotype,
+            workflowMode: nil,
+            outputName: "partial",
+            analysisName: "Partial",
+            primaryWorkbookPath: "partial.xlsx",
+            longSummaryCSVPath: "calls.csv",
+            sampleSummaryCSVPath: "samples.csv",
+            statsJSONPath: "stats.json",
+            provenancePath: "provenance.json"
+        )
+        let declaredHaplotyped = ONTGenotypeResultBundleManifest(
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
+            workflowKind: .fullLengthONTMHCGenotype,
+            workflowMode: .haplotyped,
+            outputName: "haplotyped",
+            analysisName: "Haplotyped",
+            primaryWorkbookPath: "haplotyped.xlsx",
+            longSummaryCSVPath: "calls.csv",
+            sampleSummaryCSVPath: "samples.csv",
+            statsJSONPath: "stats.json",
+            provenancePath: "provenance.json"
+        )
+        let cases: [(manifest: ONTGenotypeResultBundleManifest, reason: String)] = [
+            (
+                malformed,
+                "The workflow kind declaration must be a JSON string; found object."
+            ),
+            (
+                partial,
+                "The workflow declaration is incomplete or partially migrated."
+            ),
+            (
+                declaredHaplotyped,
+                "This result declares that haplotyping was performed."
+            ),
+        ]
+        let call = makeCall(
+            sample: "AnimalA",
+            genotype: "01_Mafa_A1_001_01",
+            reads: 42
+        )
+
+        for (index, testCase) in cases.enumerated() {
+            let bundleURL = root.appendingPathComponent(
+                "ineligible-\(index).lungfishgenotype",
+                isDirectory: true
+            )
+            try FileManager.default.createDirectory(
+                at: bundleURL,
+                withIntermediateDirectories: true
+            )
+            let controller = GenotypeResultViewController()
+            _ = controller.view
+            controller.configure(result: makeResult(
+                bundleURL: bundleURL,
+                samples: [],
+                calls: [call],
+                manifest: testCase.manifest
+            ))
+            controller.testingSelectLens(.audit)
+
+            let lensText = visibleText(in: controller.view)
+            XCTAssertEqual(controller.manualHaplotypeDisabledReason, testCase.reason)
+            XCTAssertFalse(controller.testingManualHaplotypingCreatorIsAvailable)
+            XCTAssertTrue(lensText.contains("Manual Haplotyping"))
+            XCTAssertTrue(lensText.contains(testCase.reason))
+            XCTAssertFalse(lensText.contains("Create haplotype"))
+            controller.testingAttemptManualHaplotypeCreation(
+                selectedGenotypeIDs: ["MHC-A::01_Mafa_A1_001_01"],
+                label: "Must Not Be Created"
+            )
+            XCTAssertTrue(controller.testingManualHaplotypeAssignments.isEmpty)
+        }
+
+        let eligibleBundleURL = root.appendingPathComponent(
+            "eligible.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: eligibleBundleURL,
+            withIntermediateDirectories: true
+        )
+        let eligibleController = GenotypeResultViewController()
+        _ = eligibleController.view
+        eligibleController.configure(result: makeResult(
+            bundleURL: eligibleBundleURL,
+            samples: [],
+            calls: [call]
+        ))
+        XCTAssertTrue(eligibleController.testingManualHaplotypingCreatorIsAvailable)
+        eligibleController.testingAttemptManualHaplotypeCreation(
+            selectedGenotypeIDs: ["MHC-A::01_Mafa_A1_001_01"],
+            label: "Eligible Manual Haplotype"
+        )
+        XCTAssertEqual(
+            eligibleController.testingManualHaplotypeAssignments.map(\.label),
+            ["Eligible Manual Haplotype"]
+        )
+    }
+
+    func testTrulyHaplotypedResultKeepsManualHaplotypingDetailHidden() {
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "test-definitions",
+            definitionSetName: "Test definitions",
+            speciesName: "Test species",
+            samples: []
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: [makeCall(
+                sample: "AnimalA",
+                genotype: "01_Mafa_A1_001_01",
+                reads: 42
+            )],
+            haplotypeAnalysis: analysis
+        ))
+
+        controller.testingSelectLens(.audit)
+
+        XCTAssertFalse(visibleText(in: controller.view).contains("Manual Haplotyping"))
+    }
+
     func testArtifactsLensListsValidatedCandidateFASTAAndGenBankArtifactsWhenDeclared() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeCandidateGenBankLens-\(UUID().uuidString)", isDirectory: true)
@@ -15205,26 +15358,28 @@ final class GenotypeResultViewportTests: XCTestCase {
         provisionalExon2SequencesByGenotype:
             [String: ONTGenotypeProvisionalExon2Sequence] = [:],
         provisionalExon2ArtifactURLs:
-            ONTGenotypeProvisionalExon2ArtifactURLs = .empty
+            ONTGenotypeProvisionalExon2ArtifactURLs = .empty,
+        manifest: ONTGenotypeResultBundleManifest? = nil
     ) -> ONTGenotypeResultBundleData {
-        ONTGenotypeResultBundleData(
+        let resolvedManifest = manifest ?? ONTGenotypeResultBundleManifest(
+            kind: kind,
+            workflowKind: GenotypeResultWorkflowKind(rawValue: kind),
+            workflowMode: haplotypeAnalysis == nil && haplotypeDefinitionSetID == nil
+                ? .genotypeOnly
+                : .haplotyped,
+            outputName: "example",
+            analysisName: "Example",
+            primaryWorkbookPath: "example.xlsx",
+            longSummaryCSVPath: "example.retained-demux-genotypes.csv",
+            sampleSummaryCSVPath: "example.retained-demux-samples.csv",
+            statsJSONPath: "example.retained-demux-stats.json",
+            provenancePath: "retained-demux-genotyping-provenance.json",
+            haplotypeDefinitionSetID: haplotypeDefinitionSetID,
+            mhcCandidateArtifacts: mhcCandidateArtifacts
+        )
+        return ONTGenotypeResultBundleData(
             bundleURL: bundleURL,
-            manifest: ONTGenotypeResultBundleManifest(
-                kind: kind,
-                workflowKind: GenotypeResultWorkflowKind(rawValue: kind),
-                workflowMode: haplotypeAnalysis == nil && haplotypeDefinitionSetID == nil
-                    ? .genotypeOnly
-                    : .haplotyped,
-                outputName: "example",
-                analysisName: "Example",
-                primaryWorkbookPath: "example.xlsx",
-                longSummaryCSVPath: "example.retained-demux-genotypes.csv",
-                sampleSummaryCSVPath: "example.retained-demux-samples.csv",
-                statsJSONPath: "example.retained-demux-stats.json",
-                provenancePath: "retained-demux-genotyping-provenance.json",
-                haplotypeDefinitionSetID: haplotypeDefinitionSetID,
-                mhcCandidateArtifacts: mhcCandidateArtifacts
-            ),
+            manifest: resolvedManifest,
             artifacts: ONTGenotypeResultArtifacts(
                 workbookURL: URL(fileURLWithPath: "/tmp/example.xlsx"),
                 longSummaryCSVURL: URL(fileURLWithPath: "/tmp/example.retained-demux-genotypes.csv"),

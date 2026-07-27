@@ -261,35 +261,7 @@ public struct AIHaplotypingRevisionPublisher {
         _ manifest: ONTGenotypeResultBundleManifest,
         revision: ONTGenotypeHaplotypeAnalysisRevision
     ) -> ONTGenotypeResultBundleManifest {
-        ONTGenotypeResultBundleManifest(
-            schemaVersion: manifest.schemaVersion,
-            kind: manifest.kind,
-            workflowKind: manifest.workflowKind,
-            workflowMode: .haplotyped,
-            outputName: manifest.outputName,
-            analysisName: manifest.analysisName,
-            primaryWorkbookPath: manifest.primaryWorkbookPath,
-            currentWorkbookPath: manifest.currentWorkbookPath,
-            workbookRevisions: manifest.workbookRevisions,
-            longSummaryCSVPath: manifest.longSummaryCSVPath,
-            sampleSummaryCSVPath: manifest.sampleSummaryCSVPath,
-            statsJSONPath: manifest.statsJSONPath,
-            provenancePath: manifest.provenancePath,
-            deduplicatedUnmatchedClustersFASTAPath: manifest.deduplicatedUnmatchedClustersFASTAPath,
-            haplotypeAnalysisPath: revision.path,
-            haplotypeDefinitionSetID: manifest.haplotypeDefinitionSetID,
-            haplotypeAssayID: manifest.haplotypeAssayID,
-            presetID: manifest.presetID,
-            presetVersion: manifest.presetVersion,
-            createdAt: manifest.createdAt,
-            activeHaplotypeAnalysisRevisionID: revision.id,
-            haplotypeAnalysisRevisions: (manifest.haplotypeAnalysisRevisions ?? []) + [revision],
-            mhcCandidateArtifacts: manifest.mhcCandidateArtifacts,
-            mhcReferenceVisualizations: manifest.mhcReferenceVisualizations,
-            referenceRecordStore: manifest.referenceRecordStore,
-            alignmentArtifacts: manifest.alignmentArtifacts,
-            provisionalExon2Artifacts: manifest.provisionalExon2Artifacts
-        )
+        manifest.appendingHaplotypeAnalysisRevision(revision)
     }
 
     private func remappedCalls(

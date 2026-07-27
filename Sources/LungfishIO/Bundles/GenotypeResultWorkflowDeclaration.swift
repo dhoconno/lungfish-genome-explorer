@@ -4,6 +4,10 @@ public enum GenotypeResultWorkflowDeclarationValue: Codable, Equatable, Sendable
     case null
     case bool(Bool)
     case integer(Int64)
+    /// Foundation's `Decoder` does not expose the original JSON number token.
+    /// `Decimal` preserves semantic identity for integers beyond `Int64`
+    /// within its 38-significant-digit precision, but not lexical formatting.
+    case decimal(Decimal)
     case number(Double)
     case string(String)
     case array([GenotypeResultWorkflowDeclarationValue])
@@ -17,6 +21,8 @@ public enum GenotypeResultWorkflowDeclarationValue: Codable, Equatable, Sendable
             self = .bool(value)
         } else if let value = try? container.decode(Int64.self) {
             self = .integer(value)
+        } else if let value = try? container.decode(Decimal.self) {
+            self = .decimal(value)
         } else if let value = try? container.decode(Double.self) {
             self = .number(value)
         } else if let value = try? container.decode(String.self) {
@@ -39,6 +45,8 @@ public enum GenotypeResultWorkflowDeclarationValue: Codable, Equatable, Sendable
             try container.encode(value)
         case .integer(let value):
             try container.encode(value)
+        case .decimal(let value):
+            try container.encode(value)
         case .number(let value):
             try container.encode(value)
         case .string(let value):
@@ -54,7 +62,7 @@ public enum GenotypeResultWorkflowDeclarationValue: Codable, Equatable, Sendable
         switch self {
         case .null: return "null"
         case .bool: return "boolean"
-        case .integer, .number: return "number"
+        case .integer, .decimal, .number: return "number"
         case .string: return "string"
         case .array: return "array"
         case .object: return "object"

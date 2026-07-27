@@ -20,6 +20,7 @@ struct GenotypeManualHaplotypingSection: View {
     @Binding var selectedGenotypeIds: Set<String>
     @Binding var draftLabel: String
     @Binding var draftColorTokenIndex: Int
+    var allowsCreation = true
     var onCreateHaplotype: () -> Void
     var onDeleteAssignment: (ManualHaplotypeAssignment) -> Void
     var onExportDefinitions: () -> Void
@@ -38,12 +39,14 @@ struct GenotypeManualHaplotypingSection: View {
             header
             Divider()
             existingAssignments
-            Divider()
-            ForEach(loci, id: \.self) { locus in
-                locusGroup(locus)
+            if allowsCreation {
                 Divider()
+                ForEach(loci, id: \.self) { locus in
+                    locusGroup(locus)
+                    Divider()
+                }
+                draftEditor
             }
-            draftEditor
         }
     }
 
@@ -51,7 +54,11 @@ struct GenotypeManualHaplotypingSection: View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Manual haplotyping")
                 .font(.subheadline.weight(.semibold))
-            Text("No reference haplotype set is available. Group observed genotypes into haplotypes; this bundle's annotations sidecar stores the assignments.")
+            Text(
+                allowsCreation
+                    ? "No reference haplotype set is available. Group observed genotypes into haplotypes; this bundle's annotations sidecar stores the assignments."
+                    : "Saved manual haplotype assignments from this bundle's annotations sidecar."
+            )
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

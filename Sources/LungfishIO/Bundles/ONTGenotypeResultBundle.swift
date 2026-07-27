@@ -231,16 +231,17 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
     public let outputName: String
     public let analysisName: String
     public let primaryWorkbookPath: String
-    public let currentWorkbookPath: String?
-    public let workbookRevisions: [ONTGenotypeWorkbookRevision]?
+    public private(set) var currentWorkbookPath: String?
+    public private(set) var workbookRevisions: [ONTGenotypeWorkbookRevision]?
     public let longSummaryCSVPath: String
     public let sampleSummaryCSVPath: String
     public let statsJSONPath: String
     public let provenancePath: String
     public let deduplicatedUnmatchedClustersFASTAPath: String?
-    public let haplotypeAnalysisPath: String?
-    public let activeHaplotypeAnalysisRevisionID: String?
-    public let haplotypeAnalysisRevisions: [ONTGenotypeHaplotypeAnalysisRevision]?
+    public private(set) var haplotypeAnalysisPath: String?
+    public private(set) var activeHaplotypeAnalysisRevisionID: String?
+    public private(set) var haplotypeAnalysisRevisions:
+        [ONTGenotypeHaplotypeAnalysisRevision]?
     public let haplotypeDefinitionSetID: String?
     public let haplotypeAssayID: String?
     public let presetID: String?
@@ -526,6 +527,28 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         self.referenceRecordStore = referenceRecordStore
         self.alignmentArtifacts = alignmentArtifacts
         self.provisionalExon2Artifacts = provisionalExon2Artifacts
+    }
+
+    public func replacingWorkbookFields(
+        currentWorkbookPath: String,
+        workbookRevisions: [ONTGenotypeWorkbookRevision]
+    ) -> Self {
+        var copy = self
+        copy.currentWorkbookPath = currentWorkbookPath
+        copy.workbookRevisions = workbookRevisions
+        return copy
+    }
+
+    public func appendingHaplotypeAnalysisRevision(
+        _ revision: ONTGenotypeHaplotypeAnalysisRevision
+    ) -> Self {
+        var copy = self
+        copy.workflowMode = .haplotyped
+        copy.haplotypeAnalysisPath = revision.path
+        copy.activeHaplotypeAnalysisRevisionID = revision.id
+        copy.haplotypeAnalysisRevisions =
+            (haplotypeAnalysisRevisions ?? []) + [revision]
+        return copy
     }
 }
 
