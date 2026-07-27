@@ -127,7 +127,7 @@ git commit -m "fix: reclaim retired workbook generations safely"
 - Test: `Tests/LungfishWorkflowTests/ONTBarcodeDemuxGenotypingPipelineTests.swift`
 - Test: `Tests/LungfishCLITests/FastqGenotypingCommandTests.swift`
 
-- [ ] **Step 1: Write failing lifecycle and append-only failure tests**
+- [x] **Step 1: Write failing lifecycle and append-only failure tests**
 
 Assert default success/failure removes large derived FASTQ roots after compact diagnostics are durable, explicit Keep Intermediates retains them, every sibling root shares the run UUID/lock marker, cleanup errors name exact paths, later runs never delete prior failure envelopes, miSeq preserves final evidence BAM/BAI, and miSeq no longer swallows `.amplicon-genotyping` cleanup failure.
 
@@ -137,13 +137,13 @@ run records supersession without rewriting prior history. Add UI assertions for
 a genotype-workflow-only **Keep Intermediates** checkbox with help text
 explaining disk cost and diagnostic use.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `swift test --filter 'FullLengthONTMHCGenotypingPipelineTests|ONTBarcodeDemuxGenotypingPipelineTests'`
 
 Expected: new assertions fail because stale receipts are removed and miSeq cleanup uses `try?`.
 
-- [ ] **Step 3: Implement one explicit lifecycle policy**
+- [x] **Step 3: Implement one explicit lifecycle policy**
 
 Add `keepIntermediates` to miSeq request/CLI/app resolved options, including the
 deprecated amplicon command wrapper. Expose it in the workflow dialog only for
@@ -156,13 +156,13 @@ markers to failed, then clean payloads and append disposition/errors. Replace
 `removeStaleFailureReceipts` with supersession metadata that never deletes old
 envelopes.
 
-- [ ] **Step 4: Run workflow, CLI, and provenance tests**
+- [x] **Step 4: Run workflow, CLI, and provenance tests**
 
 Run: `swift test --filter 'FullLengthONTMHCGenotypingPipelineTests|ONTBarcodeDemuxGenotypingPipelineTests|FastqGenotypingCommandTests|WorkflowKeepIntermediatesOptionTests|ScientificCLIProvenanceCoverageTests'`
 
 Expected: all selected tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/LungfishWorkflow/ONTGenotyping Sources/LungfishCLI/Commands/FastqGenotypingSubcommand.swift Sources/LungfishCLI/Commands/FastqONTBarcodeGenotypingSubcommand.swift Sources/LungfishApp/Services/WorkflowOperationExecutionService.swift Sources/LungfishApp/Views/WorkflowOperations Tests
@@ -178,7 +178,7 @@ git commit -m "fix: bound MHC genotyping intermediate storage"
 - Create: `Tests/LungfishWorkflowTests/ProjectStorageScannerTests.swift`
 - Modify: `Sources/LungfishIO/Bundles/ONTGenotypeWorkbookUpdateTransaction.swift`
 
-- [ ] **Step 1: Write failing scanner/classifier tests**
+- [x] **Step 1: Write failing scanner/classifier tests**
 
 Cover exact owned patterns, individual `.tmp` children, archive proof against exactly one retained live revision, lock-held and ambiguous entries, explicit retention, symlinks/special files, live bundles, operation history exclusion, logical/allocated byte counts, hard-link deduplication, cancellation, and incremental progress. Unknown entries must appear as not removable with a reason.
 
@@ -193,13 +193,13 @@ conclusively dead, the recorded lock is not held, directory identity still
 matches, Keep Intermediates is false, and no operation-history record claims
 live work. PID absence or age alone is insufficient.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `swift test --filter ProjectStorageScannerTests`
 
 Expected: compile failure because scanner types do not exist.
 
-- [ ] **Step 3: Implement bounded, no-hash preview scanning**
+- [x] **Step 3: Implement bounded, no-hash preview scanning**
 
 ```swift
 public struct ProjectStorageEntry: Identifiable, Sendable {
@@ -220,13 +220,13 @@ and `.lungfish-operation-history`. Probe `OwnedRunLock` and a narrow public,
 fail-closed workbook publication-lock/archive inspection API rather than
 duplicating private attestation rules.
 
-- [ ] **Step 4: Run tests and verify GREEN**
+- [x] **Step 4: Run tests and verify GREEN**
 
 Run: `swift test --filter ProjectStorageScannerTests`
 
 Expected: all scanner tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/LungfishWorkflow/Storage Sources/LungfishIO/Bundles/ONTGenotypeWorkbookUpdateTransaction.swift Tests/LungfishWorkflowTests/ProjectStorageScannerTests.swift
