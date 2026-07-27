@@ -6131,7 +6131,7 @@ wb.save(path)
 
     func testLegacyManagedStateRequiresExactRecordedCoordinateAndManagedPresentation() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
-        for defect in ["coordinate", "presentation"] {
+        for defect in ["coordinate", "presentation", "display-value"] {
             let root = try temporaryDirectory()
             defer { try? FileManager.default.removeItem(at: root) }
             let fixture = try makeGenericMatrixWorkbookBundle(
@@ -6152,7 +6152,7 @@ wb = load_workbook(path)
 matrix = wb["matrix"]
 original_font = copy(matrix["D7"].font)
 original_border = copy(matrix["D7"].border)
-matrix["D7"] = "[5]"
+matrix["D7"] = "[999]" if defect == "display-value" else "[5]"
 managed_font = copy(matrix["D7"].font)
 managed_font.italic = defect != "presentation"
 managed_font.color = "FF767676"

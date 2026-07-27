@@ -1675,9 +1675,15 @@ def validate_legacy_managed_state(state):
         disposition = clean(state.cell(row, 8).value)
         if disposition == "falsePositive":
             value = clean(destination.value)
+            original_value = state.cell(row, 9).value
+            original_number = numeric_review_evidence(original_value)
+            expected_value = (
+                f"[{review_display_value(original_value, original_number)}]"
+                if original_number is not None
+                else None
+            )
             valid = (
-                value.startswith("[")
-                and value.endswith("]")
+                value == expected_value
                 and bool(destination.font.italic)
                 and color_has_rgb_suffix(destination.font.color, "767676")
             )
