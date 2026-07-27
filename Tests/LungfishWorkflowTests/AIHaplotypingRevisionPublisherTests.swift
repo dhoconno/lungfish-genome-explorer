@@ -40,6 +40,8 @@ final class AIHaplotypingRevisionPublisherTests: XCTestCase {
             XCTAssertEqual(reference.sizeBytes, Int64(try ProvenanceFileHasher.fileSize(of: url)))
         }
         XCTAssertEqual(manifest.referenceRecordStore, fixture.result.manifest.referenceRecordStore)
+        XCTAssertEqual(manifest.workflowKind, fixture.result.manifest.workflowKind)
+        XCTAssertEqual(manifest.workflowMode, .haplotyped)
         XCTAssertEqual(manifest.alignmentArtifacts, fixture.result.manifest.alignmentArtifacts)
         XCTAssertEqual(
             manifest.provisionalExon2Artifacts,
@@ -364,6 +366,9 @@ private extension AIHaplotypingRevisionPublisherTests {
             )
         }
         let manifest = ONTGenotypeResultBundleManifest(
+            kind: GenotypeResultWorkflowKind.miSeqAmpliconMHCGenotype.rawValue,
+            workflowKind: .miSeqAmpliconMHCGenotype,
+            workflowMode: .haplotyped,
             outputName: "fixture",
             analysisName: "Fixture",
             primaryWorkbookPath: workbookURL.lastPathComponent,

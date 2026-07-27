@@ -207,11 +207,23 @@ public struct ONTGenotypeWorkbookRevision: Codable, Equatable, Sendable {
     }
 }
 
+public enum GenotypeResultWorkflowKind: String, Codable, CaseIterable, Equatable, Sendable {
+    case fullLengthONTMHCGenotype = "full-length-ont-mhc-genotype"
+    case miSeqAmpliconMHCGenotype = "miseq-amplicon-mhc-genotype"
+}
+
+public enum GenotypeResultWorkflowMode: String, Codable, CaseIterable, Equatable, Sendable {
+    case genotypeOnly
+    case haplotyped
+}
+
 public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
     public static let filename = "genotype-result.json"
 
     public let schemaVersion: Int
     public let kind: String
+    public let workflowKind: GenotypeResultWorkflowKind?
+    public let workflowMode: GenotypeResultWorkflowMode?
     public let outputName: String
     public let analysisName: String
     public let primaryWorkbookPath: String
@@ -319,6 +331,8 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
     ) {
         self.schemaVersion = schemaVersion
         self.kind = kind
+        self.workflowKind = nil
+        self.workflowMode = nil
         self.outputName = outputName
         self.analysisName = analysisName
         self.primaryWorkbookPath = primaryWorkbookPath
@@ -450,6 +464,64 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
             alignmentArtifacts: alignmentArtifacts,
             provisionalExon2Artifacts: provisionalExon2Artifacts
         )
+    }
+
+    public init(
+        schemaVersion: Int = 1,
+        kind: String,
+        workflowKind: GenotypeResultWorkflowKind?,
+        workflowMode: GenotypeResultWorkflowMode?,
+        outputName: String,
+        analysisName: String,
+        primaryWorkbookPath: String,
+        currentWorkbookPath: String? = nil,
+        workbookRevisions: [ONTGenotypeWorkbookRevision]? = nil,
+        longSummaryCSVPath: String,
+        sampleSummaryCSVPath: String,
+        statsJSONPath: String,
+        provenancePath: String,
+        deduplicatedUnmatchedClustersFASTAPath: String? = nil,
+        haplotypeAnalysisPath: String? = nil,
+        haplotypeDefinitionSetID: String? = nil,
+        haplotypeAssayID: String? = nil,
+        presetID: String? = nil,
+        presetVersion: String? = nil,
+        createdAt: String? = nil,
+        activeHaplotypeAnalysisRevisionID: String? = nil,
+        haplotypeAnalysisRevisions: [ONTGenotypeHaplotypeAnalysisRevision]? = nil,
+        mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest? = nil,
+        mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifacts? = nil,
+        referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo? = nil,
+        alignmentArtifacts: ONTGenotypeAlignmentArtifactManifest? = nil,
+        provisionalExon2Artifacts: ONTGenotypeProvisionalExon2ArtifactManifest? = nil
+    ) {
+        self.schemaVersion = schemaVersion
+        self.kind = kind
+        self.workflowKind = workflowKind
+        self.workflowMode = workflowMode
+        self.outputName = outputName
+        self.analysisName = analysisName
+        self.primaryWorkbookPath = primaryWorkbookPath
+        self.currentWorkbookPath = currentWorkbookPath
+        self.workbookRevisions = workbookRevisions
+        self.longSummaryCSVPath = longSummaryCSVPath
+        self.sampleSummaryCSVPath = sampleSummaryCSVPath
+        self.statsJSONPath = statsJSONPath
+        self.provenancePath = provenancePath
+        self.deduplicatedUnmatchedClustersFASTAPath = deduplicatedUnmatchedClustersFASTAPath
+        self.haplotypeAnalysisPath = haplotypeAnalysisPath
+        self.activeHaplotypeAnalysisRevisionID = activeHaplotypeAnalysisRevisionID
+        self.haplotypeAnalysisRevisions = haplotypeAnalysisRevisions
+        self.haplotypeDefinitionSetID = haplotypeDefinitionSetID
+        self.haplotypeAssayID = haplotypeAssayID
+        self.presetID = presetID
+        self.presetVersion = presetVersion
+        self.createdAt = createdAt
+        self.mhcCandidateArtifacts = mhcCandidateArtifacts
+        self.mhcReferenceVisualizations = mhcReferenceVisualizations
+        self.referenceRecordStore = referenceRecordStore
+        self.alignmentArtifacts = alignmentArtifacts
+        self.provisionalExon2Artifacts = provisionalExon2Artifacts
     }
 }
 

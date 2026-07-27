@@ -374,12 +374,18 @@ public final class GenotypeResultViewController: NSViewController {
 
     private var isGenotypeOnlyResult: Bool {
         guard let result else { return false }
-        return !hasHaplotypingResult && !result.calls.isEmpty
+        guard case .eligible = GenotypeManualHaplotypeEligibility.evaluate(result) else {
+            return false
+        }
+        return true
     }
 
     private var isFullLengthMHCGenotypeViewport: Bool {
-        !hasHaplotypingResult
-            && result?.manifest.kind == "full-length-ont-mhc-genotype"
+        guard let result,
+              case .eligible(let resultKind) = GenotypeManualHaplotypeEligibility.evaluate(result) else {
+            return false
+        }
+        return resultKind == .fullLengthONTMHCGenotype
     }
 
     public override func loadView() {

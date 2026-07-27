@@ -768,6 +768,8 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         })
 
         let manifest = try ONTGenotypeResultBundle.loadManifest(from: outputDirectory)
+        XCTAssertEqual(manifest.workflowKind, .miSeqAmpliconMHCGenotype)
+        XCTAssertEqual(manifest.workflowMode, .genotypeOnly)
         XCTAssertNotNil(manifest.alignmentArtifacts?.genotypingEvidence)
         XCTAssertNil(manifest.alignmentArtifacts?.reciprocalEvidence)
         XCTAssertNil(manifest.provisionalExon2Artifacts)

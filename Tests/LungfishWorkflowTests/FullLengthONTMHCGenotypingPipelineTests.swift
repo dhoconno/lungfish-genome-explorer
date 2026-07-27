@@ -238,6 +238,8 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         _ = try await pipeline.run(request)
 
         let manifest = try ONTGenotypeResultBundle.loadManifest(from: request.outputDirectory)
+        XCTAssertEqual(manifest.workflowKind, .fullLengthONTMHCGenotype)
+        XCTAssertEqual(manifest.workflowMode, .genotypeOnly)
         let candidates = try JSONDecoder().decode(
             ONTMHCCandidateAllelesDocument.self,
             from: Data(contentsOf: ONTGenotypeResultBundle.resolvedURL(

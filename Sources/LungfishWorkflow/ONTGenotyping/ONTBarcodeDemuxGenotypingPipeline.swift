@@ -2484,6 +2484,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         try writeHaplotypeDefinitionSnapshot(definitionSet, supportDirectory: supportDirectory)
 
         let manifest = ONTGenotypeResultBundleManifest(
+            kind: GenotypeResultWorkflowKind.miSeqAmpliconMHCGenotype.rawValue,
+            workflowKind: .miSeqAmpliconMHCGenotype,
+            workflowMode: .haplotyped,
             outputName: request.outputName,
             analysisName: request.analysisName,
             primaryWorkbookPath: relativePath(from: request.outputDirectory, to: request.workbookURL),
@@ -2834,6 +2837,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             return nil
         }
         let manifest = ONTGenotypeResultBundleManifest(
+            kind: GenotypeResultWorkflowKind.miSeqAmpliconMHCGenotype.rawValue,
+            workflowKind: .miSeqAmpliconMHCGenotype,
+            workflowMode: .haplotyped,
             outputName: request.outputName,
             analysisName: request.analysisName,
             primaryWorkbookPath: relativePath(from: request.outputDirectory, to: request.workbookURL),
@@ -3675,6 +3681,13 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     ) throws {
         let resolvedHaplotypeDefinitionSet = try resolveHaplotypeDefinitionSet(for: request)
         let manifest = ONTGenotypeResultBundleManifest(
+            kind: resolvedMode == .illuminaPaired
+                ? GenotypeResultWorkflowKind.miSeqAmpliconMHCGenotype.rawValue
+                : "ont-barcode-genotype",
+            workflowKind: resolvedMode == .illuminaPaired ? .miSeqAmpliconMHCGenotype : nil,
+            workflowMode: resolvedMode == .illuminaPaired
+                ? (request.haplotypeDefinitionSetID == nil ? .genotypeOnly : .haplotyped)
+                : nil,
             outputName: request.outputName,
             analysisName: request.analysisName,
             primaryWorkbookPath: relativePath(from: request.outputDirectory, to: request.workbookURL),

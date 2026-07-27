@@ -2971,6 +2971,8 @@ public struct GenotypeWorkbookRevisionService {
         ONTGenotypeResultBundleManifest(
             schemaVersion: manifest.schemaVersion,
             kind: manifest.kind,
+            workflowKind: manifest.workflowKind,
+            workflowMode: manifest.workflowMode,
             outputName: manifest.outputName,
             analysisName: manifest.analysisName,
             primaryWorkbookPath: manifest.primaryWorkbookPath,

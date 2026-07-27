@@ -6,6 +6,50 @@ import XCTest
 @testable import LungfishIO
 
 final class ONTGenotypeResultBundleTests: XCTestCase {
+    func testManifestRoundTripsTypedWorkflowDeclaration() throws {
+        let manifest = ONTGenotypeResultBundleManifest(
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
+            workflowKind: .fullLengthONTMHCGenotype,
+            workflowMode: .genotypeOnly,
+            outputName: "typed",
+            analysisName: "Typed",
+            primaryWorkbookPath: "typed.xlsx",
+            longSummaryCSVPath: "calls.csv",
+            sampleSummaryCSVPath: "samples.csv",
+            statsJSONPath: "stats.json",
+            provenancePath: "provenance.json"
+        )
+
+        let decoded = try JSONDecoder().decode(
+            ONTGenotypeResultBundleManifest.self,
+            from: JSONEncoder().encode(manifest)
+        )
+
+        XCTAssertEqual(decoded.workflowKind, .fullLengthONTMHCGenotype)
+        XCTAssertEqual(decoded.workflowMode, .genotypeOnly)
+    }
+
+    func testLegacyManifestDecodesWithoutTypedWorkflowDeclaration() throws {
+        let data = Data(#"""
+        {
+          "schemaVersion": 1,
+          "kind": "full-length-ont-mhc-genotype",
+          "outputName": "legacy",
+          "analysisName": "Legacy",
+          "primaryWorkbookPath": "legacy.xlsx",
+          "longSummaryCSVPath": "calls.csv",
+          "sampleSummaryCSVPath": "samples.csv",
+          "statsJSONPath": "stats.json",
+          "provenancePath": "provenance.json"
+        }
+        """#.utf8)
+
+        let manifest = try JSONDecoder().decode(ONTGenotypeResultBundleManifest.self, from: data)
+
+        XCTAssertNil(manifest.workflowKind)
+        XCTAssertNil(manifest.workflowMode)
+    }
+
     func testMHCCandidateDisplaySettingsDefaultToAllVisibleAndFourCanonicalTints() {
         let settings = ONTMHCCandidateDisplaySettings.default
 

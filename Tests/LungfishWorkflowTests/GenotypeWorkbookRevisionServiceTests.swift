@@ -73,6 +73,8 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
             userProvider: { "tester" },
             pythonExecutableURL: testPythonExecutableURL
         ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        XCTAssertEqual(updatedManifest.workflowKind, beforeScientificArtifacts.workflowKind)
+        XCTAssertEqual(updatedManifest.workflowMode, beforeScientificArtifacts.workflowMode)
 
         XCTAssertNotNil(updatedManifest.mhcCandidateArtifacts?.candidateJSON)
         XCTAssertNotNil(updatedManifest.mhcCandidateArtifacts?.unnameableJSON)
@@ -4404,6 +4406,9 @@ wb.save(path)
         }
 
         let manifest = ONTGenotypeResultBundleManifest(
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
+            workflowKind: .fullLengthONTMHCGenotype,
+            workflowMode: .genotypeOnly,
             outputName: outputName,
             analysisName: outputName,
             primaryWorkbookPath: primaryWorkbookURL.lastPathComponent,

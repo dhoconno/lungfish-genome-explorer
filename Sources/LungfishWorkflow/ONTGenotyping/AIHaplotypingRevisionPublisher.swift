@@ -264,6 +264,8 @@ public struct AIHaplotypingRevisionPublisher {
         ONTGenotypeResultBundleManifest(
             schemaVersion: manifest.schemaVersion,
             kind: manifest.kind,
+            workflowKind: manifest.workflowKind,
+            workflowMode: .haplotyped,
             outputName: manifest.outputName,
             analysisName: manifest.analysisName,
             primaryWorkbookPath: manifest.primaryWorkbookPath,

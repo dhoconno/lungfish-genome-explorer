@@ -4488,7 +4488,9 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         try writeHaplotypeDefinitionSnapshot(definitionSet, supportDirectory: supportDirectory)
 
         let manifest = ONTGenotypeResultBundleManifest(
-            kind: "full-length-ont-mhc-genotype",
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
+            workflowKind: .fullLengthONTMHCGenotype,
+            workflowMode: .haplotyped,
             outputName: request.outputName,
             analysisName: request.outputName,
             primaryWorkbookPath: relativePath(from: request.outputDirectory, to: request.workbookURL),
@@ -4939,7 +4941,9 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
     ) throws -> FullLengthONTMHCSuccessManifestPublicationPlan {
         let resolvedHaplotypeDefinitionSet = try resolveHaplotypeDefinitionSet(for: request)
         let manifest = ONTGenotypeResultBundleManifest(
-            kind: "full-length-ont-mhc-genotype",
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
+            workflowKind: .fullLengthONTMHCGenotype,
+            workflowMode: request.haplotypeDefinitionSetID == nil ? .genotypeOnly : .haplotyped,
             outputName: request.outputName,
             analysisName: request.outputName,
             primaryWorkbookPath: relativePath(from: request.outputDirectory, to: request.workbookURL),
