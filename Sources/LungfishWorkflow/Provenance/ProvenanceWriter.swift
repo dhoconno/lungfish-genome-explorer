@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import Darwin
 import Foundation
 
 public enum ProvenanceWriterError: Error, LocalizedError, Sendable, Equatable {
@@ -12,6 +13,9 @@ public enum ProvenanceWriterError: Error, LocalizedError, Sendable, Equatable {
         expectedPublicKeyPath: String,
         actualPublicKeyPath: String
     )
+    case unsafeStagedSignatureArtifact(provider: String, path: String)
+    case exclusivePublicationFailed(path: String, code: Int32)
+    case durabilitySyncFailed(path: String, code: Int32)
 
     public var errorDescription: String? {
         switch self {
@@ -25,6 +29,12 @@ public enum ProvenanceWriterError: Error, LocalizedError, Sendable, Equatable {
             return """
             Provenance signing provider '\(provider)' changed signature artifact URLs for the same provenance URL; expected signature \(expectedSignaturePath) and public key \(expectedPublicKeyPath), got signature \(actualSignaturePath) and public key \(actualPublicKeyPath).
             """
+        case .unsafeStagedSignatureArtifact(let provider, let path):
+            return "Provenance signing provider '\(provider)' produced an artifact outside the staging directory: \(path)."
+        case .exclusivePublicationFailed(let path, let code):
+            return "Could not publish a new provenance artifact without replacement at \(path): \(POSIXError(.init(rawValue: code) ?? .EIO).localizedDescription)"
+        case .durabilitySyncFailed(let path, let code):
+            return "Could not durably synchronize provenance artifact \(path): \(POSIXError(.init(rawValue: code) ?? .EIO).localizedDescription)"
         }
     }
 }
@@ -112,6 +122,114 @@ public struct ProvenanceWriter: Sendable {
         )
         if signingProvider.providerIdentifier == ProvenanceSigningConfiguration.localProviderID {
             _ = try ProvenanceSignatureVerifier.verify(provenanceURL: provenanceURL)
+        }
+
+        return provenanceURL
+    }
+
+    /// Writes and signs a complete provenance transaction on the destination
+    /// filesystem, then publishes every artifact without replacing any path.
+    ///
+    /// Signature and public-key artifacts are published first. The provenance
+    /// document is the commit marker and is published last.
+    @discardableResult
+    public func writeNew(
+        _ envelope: ProvenanceEnvelope,
+        toSidecar provenanceURL: URL
+    ) throws -> URL {
+        let fileManager = FileManager.default
+        let destinationDirectory = provenanceURL.deletingLastPathComponent()
+        try fileManager.createDirectory(
+            at: destinationDirectory,
+            withIntermediateDirectories: true
+        )
+        let stagingDirectory = destinationDirectory.appendingPathComponent(
+            ".\(provenanceURL.lastPathComponent).staging-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(
+            at: stagingDirectory,
+            withIntermediateDirectories: false
+        )
+        defer {
+            try? fileManager.removeItem(at: stagingDirectory)
+        }
+
+        let stagedProvenanceURL = stagingDirectory.appendingPathComponent(
+            provenanceURL.lastPathComponent
+        )
+        try write(envelope, toSidecar: stagedProvenanceURL)
+
+        var artifacts: [(staged: URL, destination: URL)] = []
+        if let signingProvider {
+            guard let stagedEnvelope = try ProvenanceEnvelopeReader.load(
+                fromSidecar: stagedProvenanceURL
+            ),
+            let reference = stagedEnvelope.signatures.last(where: {
+                $0.provider == signingProvider.providerIdentifier
+            }) else {
+                throw ProvenanceWriterError.unsafeStagedSignatureArtifact(
+                    provider: signingProvider.providerIdentifier,
+                    path: stagedProvenanceURL.path
+                )
+            }
+            artifacts.append(
+                try exclusivePublicationArtifact(
+                    storedPath: reference.signaturePath,
+                    provider: signingProvider.providerIdentifier,
+                    stagingDirectory: stagingDirectory,
+                    destinationDirectory: destinationDirectory
+                )
+            )
+            if let publicKeyPath = reference.publicKeyPath {
+                artifacts.append(
+                    try exclusivePublicationArtifact(
+                        storedPath: publicKeyPath,
+                        provider: signingProvider.providerIdentifier,
+                        stagingDirectory: stagingDirectory,
+                        destinationDirectory: destinationDirectory
+                    )
+                )
+            }
+        }
+        artifacts.append((stagedProvenanceURL, provenanceURL))
+
+        for artifact in artifacts {
+            try synchronizeFile(at: artifact.staged)
+        }
+        try synchronizeDirectory(at: stagingDirectory)
+
+        var published: [(url: URL, identity: FileIdentity)] = []
+        do {
+            for artifact in artifacts {
+                let identity = try fileIdentity(at: artifact.staged)
+                let result = artifact.staged.path.withCString { sourcePath in
+                    artifact.destination.path.withCString { destinationPath in
+                        Darwin.renameatx_np(
+                            AT_FDCWD,
+                            sourcePath,
+                            AT_FDCWD,
+                            destinationPath,
+                            UInt32(RENAME_EXCL)
+                        )
+                    }
+                }
+                guard result == 0 else {
+                    throw ProvenanceWriterError.exclusivePublicationFailed(
+                        path: artifact.destination.path,
+                        code: errno
+                    )
+                }
+                published.append((artifact.destination, identity))
+            }
+            try synchronizeDirectory(at: destinationDirectory)
+        } catch {
+            for artifact in published.reversed()
+            where (try? fileIdentity(at: artifact.url)) == artifact.identity {
+                _ = artifact.url.path.withCString { Darwin.unlink($0) }
+            }
+            try? synchronizeDirectory(at: destinationDirectory)
+            throw error
         }
 
         return provenanceURL
@@ -292,6 +410,87 @@ public struct ProvenanceWriter: Sendable {
                 actualSignaturePath: actualSignatureURL.path,
                 expectedPublicKeyPath: expectedPublicKeyURL.path,
                 actualPublicKeyPath: actualPublicKeyURL.path
+            )
+        }
+    }
+
+    private struct FileIdentity: Equatable {
+        let device: dev_t
+        let inode: ino_t
+    }
+
+    private func exclusivePublicationArtifact(
+        storedPath: String,
+        provider: String,
+        stagingDirectory: URL,
+        destinationDirectory: URL
+    ) throws -> (staged: URL, destination: URL) {
+        guard !storedPath.hasPrefix("/") else {
+            throw ProvenanceWriterError.unsafeStagedSignatureArtifact(
+                provider: provider,
+                path: storedPath
+            )
+        }
+        let stagedURL = stagingDirectory.appendingPathComponent(storedPath)
+            .standardizedFileURL
+        guard stagedURL.deletingLastPathComponent()
+                == stagingDirectory.standardizedFileURL,
+              stagedURL.lastPathComponent != "." else {
+            throw ProvenanceWriterError.unsafeStagedSignatureArtifact(
+                provider: provider,
+                path: storedPath
+            )
+        }
+        return (
+            stagedURL,
+            destinationDirectory.appendingPathComponent(
+                stagedURL.lastPathComponent
+            )
+        )
+    }
+
+    private func fileIdentity(at url: URL) throws -> FileIdentity {
+        var metadata = stat()
+        guard url.path.withCString({ Darwin.lstat($0, &metadata) }) == 0 else {
+            throw POSIXError(.init(rawValue: errno) ?? .EIO)
+        }
+        return FileIdentity(device: metadata.st_dev, inode: metadata.st_ino)
+    }
+
+    private func synchronizeFile(at url: URL) throws {
+        let descriptor = url.path.withCString {
+            Darwin.open($0, O_RDONLY | O_NOFOLLOW)
+        }
+        guard descriptor >= 0 else {
+            throw ProvenanceWriterError.durabilitySyncFailed(
+                path: url.path,
+                code: errno
+            )
+        }
+        defer { Darwin.close(descriptor) }
+        guard Darwin.fsync(descriptor) == 0 else {
+            throw ProvenanceWriterError.durabilitySyncFailed(
+                path: url.path,
+                code: errno
+            )
+        }
+    }
+
+    private func synchronizeDirectory(at url: URL) throws {
+        let descriptor = url.path.withCString {
+            Darwin.open($0, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+        }
+        guard descriptor >= 0 else {
+            throw ProvenanceWriterError.durabilitySyncFailed(
+                path: url.path,
+                code: errno
+            )
+        }
+        defer { Darwin.close(descriptor) }
+        guard Darwin.fsync(descriptor) == 0 else {
+            throw ProvenanceWriterError.durabilitySyncFailed(
+                path: url.path,
+                code: errno
             )
         }
     }

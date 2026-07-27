@@ -17,6 +17,7 @@ enum GenotypeReplayManualHaplotypeAssignmentsError:
     case missingPriorSidecar(String)
     case checksumMismatch(name: String, expected: String, actual: String)
     case replayFormatMismatch(expected: String, actual: String)
+    case manifestChanged(String)
 
     var errorDescription: String? {
         switch self {
@@ -36,6 +37,8 @@ enum GenotypeReplayManualHaplotypeAssignmentsError:
             "\(name) checksum mismatch: expected \(expected), found \(actual)."
         case .replayFormatMismatch(let expected, let actual):
             "Unsupported replay format '\(actual)'; expected '\(expected)'."
+        case .manifestChanged(let path):
+            "The target bundle manifest changed at the annotation sidecar publication boundary: \(path)."
         }
     }
 }
@@ -67,19 +70,14 @@ struct GenotypeReplayManualHaplotypeAssignmentsSubcommand:
     )
     var bundle: String
 
-    @Option(
-        name: .customLong("output-provenance"),
-        help: "Replay provenance path; defaults to a replay-specific peer of annotations.json"
-    )
-    var outputProvenance: String?
-
     var publicationPreparationHook: (@Sendable () throws -> Void)? = nil
+    var sidecarPublicationPreparationHook:
+        (@Sendable () throws -> Void)? = nil
     var provenancePublisher: ProvenancePublisher? = nil
 
     private enum CodingKeys: String, CodingKey {
         case provenance
         case bundle
-        case outputProvenance
     }
 
     init() {}
@@ -89,10 +87,6 @@ struct GenotypeReplayManualHaplotypeAssignmentsSubcommand:
         let container = try decoder.container(keyedBy: CodingKeys.self)
         provenance = try container.decode(String.self, forKey: .provenance)
         bundle = try container.decode(String.self, forKey: .bundle)
-        outputProvenance = try container.decodeIfPresent(
-            String.self,
-            forKey: .outputProvenance
-        )
     }
 
     func validate() throws {
@@ -103,12 +97,6 @@ struct GenotypeReplayManualHaplotypeAssignmentsSubcommand:
         if bundle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             throw GenotypeReplayManualHaplotypeAssignmentsError
                 .emptyOption("--bundle")
-        }
-        if let outputProvenance,
-           outputProvenance.trimmingCharacters(in: .whitespacesAndNewlines)
-            .isEmpty {
-            throw GenotypeReplayManualHaplotypeAssignmentsError
-                .emptyOption("--output-provenance")
         }
         try validateDistinctPaths()
     }
@@ -126,14 +114,10 @@ struct GenotypeReplayManualHaplotypeAssignmentsSubcommand:
         let manifestURL = bundleURL.appendingPathComponent(
             ONTGenotypeResultBundleManifest.filename
         ).standardizedFileURL
-        let defaultOutputProvenanceURL =
+        let outputProvenanceURL =
             GenotypeManualHaplotypeAssignmentReplayPayload
                 .replayOutputProvenanceURL(forBundleAt: bundleURL)
                 .standardizedFileURL
-        let outputProvenanceURL =
-            outputProvenance.map {
-                URL(fileURLWithPath: $0).standardizedFileURL
-            } ?? defaultOutputProvenanceURL
         try validateOutputAvailability(outputProvenanceURL)
 
         let sourceProvenanceData = try Data(contentsOf: sourceProvenanceURL)
@@ -171,27 +155,26 @@ struct GenotypeReplayManualHaplotypeAssignmentsSubcommand:
         )
         let outputData = try reconstructed.encoded()
 
-        let publicationSnapshot = try ProvenancePublicationSnapshot(
-            urls: [annotationURL]
-                + ProvenancePublicationArtifacts.sidecarArtifacts(
-                    for: outputProvenanceURL
-                ),
-            backupNamePrefix:
-                "lungfish-genotype-manual-haplotype-assignment-replay"
+        try sidecarPublicationPreparationHook?()
+        try ONTGenotypeResultBundleData.writeAnnotationSidecar(
+            reconstructed,
+            expectedRevision: priorSnapshot.revision,
+            forBundleAt: bundleURL,
+            assuming: publicationLock,
+            precommitValidation: {
+                let reattestedManifestData = try ONTGenotypeResultBundle
+                    .readManifestDataNoFollow(from: bundleURL)
+                guard reattestedManifestData == manifestData else {
+                    throw GenotypeReplayManualHaplotypeAssignmentsError
+                        .manifestChanged(manifestURL.path)
+                }
+            }
         )
-        defer { publicationSnapshot.discard() }
 
         do {
-            try ONTGenotypeResultBundleData.writeAnnotationSidecar(
-                reconstructed,
-                expectedRevision: priorSnapshot.revision,
-                forBundleAt: bundleURL,
-                assuming: publicationLock
-            )
             let command = commandArgv(
                 sourceProvenanceURL: sourceProvenanceURL,
-                bundleURL: bundleURL,
-                outputProvenanceURL: outputProvenanceURL
+                bundleURL: bundleURL
             )
             let reproducibleCommand = command.map(shellEscape)
                 .joined(separator: " ")
@@ -215,17 +198,12 @@ struct GenotypeReplayManualHaplotypeAssignmentsSubcommand:
                 url: annotationURL,
                 role: .output
             )
-            var explicitOptions: [String: ParameterValue] = [
+            let explicitOptions: [String: ParameterValue] = [
                 "provenance": .file(sourceProvenanceURL),
                 "bundle": .file(bundleURL),
             ]
-            if outputProvenance != nil {
-                explicitOptions["outputProvenance"] = .file(
-                    outputProvenanceURL
-                )
-            }
             let defaultOptions: [String: ParameterValue] = [
-                "outputProvenance": .file(defaultOutputProvenanceURL),
+                "outputProvenance": .file(outputProvenanceURL),
                 "replayFormat": .string(
                     GenotypeManualHaplotypeAssignmentReplayPayload.format
                 ),
@@ -315,14 +293,20 @@ struct GenotypeReplayManualHaplotypeAssignmentsSubcommand:
             if let provenancePublisher {
                 try provenancePublisher(envelope, outputProvenanceURL)
             } else {
-                try ProvenanceWriter().write(
+                try ProvenanceWriter().writeNew(
                     envelope,
                     toSidecar: outputProvenanceURL
                 )
             }
         } catch {
             try throwAfterProvenancePublicationFailure(error) {
-                try publicationSnapshot.restore()
+                try ONTGenotypeResultBundleData
+                    .restoreAnnotationSidecarData(
+                        priorData,
+                        expectedRevision: .sha256(sha256Hex(outputData)),
+                        forBundleAt: bundleURL,
+                        assuming: publicationLock
+                    )
             }
         }
     }
@@ -342,15 +326,10 @@ struct GenotypeReplayManualHaplotypeAssignmentsSubcommand:
             for: bundleURL
         ).standardizedFileURL
         let outputProvenanceURL =
-            outputProvenance.map {
-                URL(fileURLWithPath: $0).standardizedFileURL
-            } ?? GenotypeManualHaplotypeAssignmentReplayPayload
+            GenotypeManualHaplotypeAssignmentReplayPayload
                 .replayOutputProvenanceURL(forBundleAt: bundleURL)
                 .standardizedFileURL
-        let protectedArtifacts = [
-            lockURL,
-            manifestURL,
-        ]
+        let protectedArtifacts = [manifestURL]
             + ProvenancePublicationArtifacts.sidecarArtifacts(
                 for: sourceProvenanceURL
             )
@@ -363,7 +342,7 @@ struct GenotypeReplayManualHaplotypeAssignmentsSubcommand:
         let protectedPaths = Set(
             protectedArtifacts.map { $0.standardizedFileURL.path }
         )
-        let writableArtifacts = [annotationURL]
+        let writableArtifacts = [lockURL, annotationURL]
             + ProvenancePublicationArtifacts.sidecarArtifacts(
                 for: outputProvenanceURL
             )
@@ -448,20 +427,15 @@ struct GenotypeReplayManualHaplotypeAssignmentsSubcommand:
 
     private func commandArgv(
         sourceProvenanceURL: URL,
-        bundleURL: URL,
-        outputProvenanceURL: URL
+        bundleURL: URL
     ) -> [String] {
-        var argv = [
+        [
             CLICommandIdentity.executableName,
             "genotype",
             GenotypeManualHaplotypeAssignmentReplayPayload.cliSubcommandName,
             "--provenance", sourceProvenanceURL.path,
             "--bundle", bundleURL.path,
         ]
-        if outputProvenance != nil {
-            argv += ["--output-provenance", outputProvenanceURL.path]
-        }
-        return argv
     }
 
     private func descriptor(

@@ -284,9 +284,28 @@ public struct GenotypeManualHaplotypeAssignmentReplayPayload:
         let selectedAfter = afterAssignments.filter {
             $0.sample == operation.sample
         }
-        let beforeState = try selectedBeforeState(selectedBefore)
+        let selectedBeforeOrphans = selectedBefore.filter {
+            GenotypeManualHaplotypeLocus(normalizing: $0.locus) == nil
+        }
+        let selectedAfterOrphans = selectedAfter.filter {
+            GenotypeManualHaplotypeLocus(normalizing: $0.locus) == nil
+        }
+        guard selectedBeforeOrphans == selectedAfterOrphans else {
+            throw ReplayError.invalidOperation(
+                "unrecognized selected-sample loci must remain exact and ordered."
+            )
+        }
+        let recognizedSelectedBefore = selectedBefore.filter {
+            GenotypeManualHaplotypeLocus(normalizing: $0.locus) != nil
+        }
+        let recognizedSelectedAfter = selectedAfter.filter {
+            GenotypeManualHaplotypeLocus(normalizing: $0.locus) != nil
+        }
+        let beforeState = try selectedBeforeState(
+            recognizedSelectedBefore
+        )
         let targetBefore = beforeState.effectiveByKey
-        let targetAfter = try canonicalAfterMap(selectedAfter)
+        let targetAfter = try canonicalAfterMap(recognizedSelectedAfter)
         let canonicalizationKeys = Set(beforeState.rawByKey.compactMap {
             key, rawRecords in
             guard let effective = targetBefore[key] else {

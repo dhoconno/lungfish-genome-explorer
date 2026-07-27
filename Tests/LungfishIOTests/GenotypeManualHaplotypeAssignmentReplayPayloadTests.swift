@@ -147,7 +147,7 @@ final class GenotypeManualHaplotypeAssignmentReplayPayloadTests: XCTestCase {
         XCTAssertEqual(payload.priorSidecar.revisionSHA256, sha256(priorData))
     }
 
-    func testReplayCollapsesSelectedLegacyDuplicatesUsingTimestampAuthorityAndPreservesUnrelatedDuplicates() throws {
+    func testReplayCollapsesSelectedLegacyDuplicatesUsingTimestampAuthorityAndPreservesRawOrphansAndUnrelatedDuplicates() throws {
         let fixture = try legacyDuplicateFixture()
 
         let replayed = try fixture.payload.applying(
@@ -173,6 +173,15 @@ final class GenotypeManualHaplotypeAssignmentReplayPayloadTests: XCTestCase {
         XCTAssertEqual(
             replayed.auditLog.first?.action,
             "updateManualHaplotypeAssignment"
+        )
+        XCTAssertEqual(
+            replayed.manualHaplotypeAssignments.filter {
+                $0.sample == "Animal-1"
+                    && GenotypeManualHaplotypeLocus(
+                        normalizing: $0.locus
+                    ) == nil
+            },
+            [fixture.selectedOrphan]
         )
     }
 
@@ -797,6 +806,7 @@ final class GenotypeManualHaplotypeAssignmentReplayPayloadTests: XCTestCase {
         priorData: Data,
         authoritativeBefore: ManualHaplotypeAssignment,
         nonAuthoritativeBefore: ManualHaplotypeAssignment,
+        selectedOrphan: ManualHaplotypeAssignment,
         afterAssignments: [ManualHaplotypeAssignment],
         unrelatedAssignments: [ManualHaplotypeAssignment]
     ) {
@@ -852,12 +862,25 @@ final class GenotypeManualHaplotypeAssignmentReplayPayloadTests: XCTestCase {
             timestamp: "2026-07-26T14:30:00Z",
             author: "Other Analyst"
         )
+        let selectedOrphan = assignment(
+            sample: "Animal-1",
+            locus: "MHC-LEGACY-ORPHAN",
+            slot: .h2,
+            label: "opaque orphan",
+            color: 17,
+            alleles: ["opaque-allele"],
+            notes: "must remain byte-for-byte model exact",
+            id: nil,
+            timestamp: "not-a-date",
+            author: "Legacy Analyst"
+        )
         var prior = GenotypeAnnotationSidecar.empty(
             generatedAt: "2026-07-26T14:00:00Z"
         )
         prior.manualHaplotypeAssignments = [
             older,
             unrelatedOlder,
+            selectedOrphan,
             winner,
             unrelatedNewer,
         ]
@@ -876,6 +899,7 @@ final class GenotypeManualHaplotypeAssignmentReplayPayloadTests: XCTestCase {
         )
         let afterAssignments = [
             unrelatedOlder,
+            selectedOrphan,
             canonicalWinner,
             unrelatedNewer,
         ]
@@ -918,6 +942,7 @@ final class GenotypeManualHaplotypeAssignmentReplayPayloadTests: XCTestCase {
             priorData,
             winner,
             older,
+            selectedOrphan,
             afterAssignments,
             [unrelatedOlder, unrelatedNewer]
         )

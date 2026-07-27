@@ -208,6 +208,89 @@ struct ProvenanceSigningTests {
         }
     }
 
+    @Test("Exclusive writer publishes signed artifacts with valid final references")
+    func testExclusiveWriterPublishesVerifiableSignedArtifacts() throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let provenanceURL = directory.appendingPathComponent(
+            "exclusive.lungfish-provenance.json"
+        )
+        let writer = ProvenanceWriter(
+            signingProvider: LocalProvenanceSigningProvider(
+                privateKey: "exclusive-writer-key"
+            )
+        )
+
+        try writer.writeNew(
+            ProvenanceEnvelope.fixture(),
+            toSidecar: provenanceURL
+        )
+
+        let result = try ProvenanceSignatureVerifier.verify(
+            provenanceURL: provenanceURL
+        )
+        #expect(result.isValid)
+        let decoded = try ProvenanceEnvelopeReader.decode(
+            Data(contentsOf: provenanceURL)
+        )
+        let reference = try #require(
+            decoded.signatures.first {
+                $0.provider
+                    == ProvenanceSigningConfiguration.localProviderID
+            }
+        )
+        #expect(
+            reference.signaturePath
+                == ProvenanceSigningConfiguration.signatureURL(
+                    for: provenanceURL
+                ).lastPathComponent
+        )
+        #expect(
+            reference.publicKeyPath
+                == ProvenanceSigningConfiguration.publicKeyURL(
+                    for: provenanceURL
+                ).lastPathComponent
+        )
+    }
+
+    @Test("Exclusive writer never replaces a provenance file created while signing")
+    func testExclusiveWriterPreservesRacerAndCleansOnlyItsArtifacts() throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let provenanceURL = directory.appendingPathComponent(
+            "raced.lungfish-provenance.json"
+        )
+        let racerData = Data("racer-owned provenance".utf8)
+        let provider = RacingSigningProvider(
+            finalProvenanceURL: provenanceURL,
+            racerData: racerData
+        )
+        let writer = ProvenanceWriter(signingProvider: provider)
+
+        #expect(throws: (any Error).self) {
+            try writer.writeNew(
+                ProvenanceEnvelope.fixture(),
+                toSidecar: provenanceURL
+            )
+        }
+
+        #expect(try Data(contentsOf: provenanceURL) == racerData)
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: provider.finalSignatureURL.path
+            )
+        )
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: provider.finalPublicKeyURL.path
+            )
+        )
+        let leftovers = try FileManager.default.contentsOfDirectory(
+            atPath: directory.path
+        )
+        #expect(leftovers == [provenanceURL.lastPathComponent])
+    }
+
     private func makeTempDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("lungfish-provenance-signing-\(UUID().uuidString)", isDirectory: true)
@@ -257,5 +340,49 @@ private final class UnstableSigningProvider: ProvenanceSigningProvider, @uncheck
         try Data("unstable-signature-\(callNumber)".utf8).write(to: signatureURL, options: .atomic)
         try Data("unstable-public-key-\(callNumber)".utf8).write(to: publicKeyURL, options: .atomic)
         return ProvenanceSignatureArtifact(signatureURL: signatureURL, publicKeyURL: publicKeyURL)
+    }
+}
+
+private struct RacingSigningProvider: ProvenanceSigningProvider {
+    let providerIdentifier = "racing-provider"
+    let finalProvenanceURL: URL
+    let racerData: Data
+
+    var finalSignatureURL: URL {
+        finalProvenanceURL.deletingLastPathComponent()
+            .appendingPathComponent(
+                "\(finalProvenanceURL.lastPathComponent).racing.signature"
+            )
+    }
+
+    var finalPublicKeyURL: URL {
+        finalProvenanceURL.deletingLastPathComponent()
+            .appendingPathComponent(
+                "\(finalProvenanceURL.lastPathComponent).racing.pub"
+            )
+    }
+
+    func sign(provenanceURL: URL) throws -> ProvenanceSignatureArtifact {
+        try racerData.write(to: finalProvenanceURL, options: .atomic)
+        let signatureURL = provenanceURL.deletingLastPathComponent()
+            .appendingPathComponent(
+                "\(provenanceURL.lastPathComponent).racing.signature"
+            )
+        let publicKeyURL = provenanceURL.deletingLastPathComponent()
+            .appendingPathComponent(
+                "\(provenanceURL.lastPathComponent).racing.pub"
+            )
+        try Data("transaction signature".utf8).write(
+            to: signatureURL,
+            options: .atomic
+        )
+        try Data("transaction public key".utf8).write(
+            to: publicKeyURL,
+            options: .atomic
+        )
+        return ProvenanceSignatureArtifact(
+            signatureURL: signatureURL,
+            publicKeyURL: publicKeyURL
+        )
     }
 }

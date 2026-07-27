@@ -3894,7 +3894,64 @@ public extension ONTGenotypeResultBundleData {
         _ sidecar: GenotypeAnnotationSidecar,
         expectedRevision: GenotypeAnnotationSidecarRevision,
         forBundleAt bundleURL: URL,
+        assuming publicationLock: ONTGenotypeBundlePublicationLock,
+        precommitValidation: (() throws -> Void)? = nil
+    ) throws {
+        var sidecar = sidecar
+        try sidecar.promoteToCurrentSchema()
+        try publishAnnotationSidecarData(
+            sidecar.encoded(),
+            expectedRevision: expectedRevision,
+            forBundleAt: bundleURL,
+            assuming: publicationLock,
+            beforeRename: nil,
+            precommitValidation: precommitValidation
+        )
+    }
+
+    /// Restores the exact raw bytes captured before a failed multi-artifact
+    /// transaction. The expected revision must identify the currently
+    /// published sidecar, so rollback cannot erase a concurrent update.
+    static func restoreAnnotationSidecarData(
+        _ priorData: Data?,
+        expectedRevision: GenotypeAnnotationSidecarRevision,
+        forBundleAt bundleURL: URL,
         assuming publicationLock: ONTGenotypeBundlePublicationLock
+    ) throws {
+        try publishAnnotationSidecarData(
+            priorData,
+            expectedRevision: expectedRevision,
+            forBundleAt: bundleURL,
+            assuming: publicationLock,
+            beforeRename: nil,
+            precommitValidation: nil
+        )
+    }
+
+    internal static func restoreAnnotationSidecarData(
+        _ priorData: Data?,
+        expectedRevision: GenotypeAnnotationSidecarRevision,
+        forBundleAt bundleURL: URL,
+        assuming publicationLock: ONTGenotypeBundlePublicationLock,
+        beforeRename: (() throws -> Void)?
+    ) throws {
+        try publishAnnotationSidecarData(
+            priorData,
+            expectedRevision: expectedRevision,
+            forBundleAt: bundleURL,
+            assuming: publicationLock,
+            beforeRename: beforeRename,
+            precommitValidation: nil
+        )
+    }
+
+    private static func publishAnnotationSidecarData(
+        _ data: Data?,
+        expectedRevision: GenotypeAnnotationSidecarRevision,
+        forBundleAt bundleURL: URL,
+        assuming publicationLock: ONTGenotypeBundlePublicationLock,
+        beforeRename: (() throws -> Void)?,
+        precommitValidation: (() throws -> Void)?
     ) throws {
         let expectedLockURL = ONTGenotypeBundlePublicationLock.lockURL(
             for: bundleURL
@@ -3906,9 +3963,6 @@ public extension ONTGenotypeResultBundleData {
                     actualPath: publicationLock.lockURL.standardizedFileURL.path
                 )
         }
-        var sidecar = sidecar
-        try sidecar.promoteToCurrentSchema()
-        let data = try sidecar.encoded()
         let directoryFD = bundleURL.path.withCString {
             Darwin.open($0, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
         }
@@ -3940,54 +3994,62 @@ public extension ONTGenotypeResultBundleData {
             )
         }
 
-        let temporaryName = ".\(filename).\(UUID().uuidString).tmp"
-        let temporaryFD = temporaryName.withCString {
-            Darwin.openat(
-                directoryFD,
-                $0,
-                O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
-                mode_t(0o644)
-            )
+        let temporaryName = data.map { _ in
+            ".\(filename).\(UUID().uuidString).tmp"
         }
-        guard temporaryFD >= 0 else {
-            throw annotationSidecarPOSIXError(
-                operation: "create atomic sidecar staging file",
-                path: bundleURL.appendingPathComponent(temporaryName).path
-            )
+        var temporaryFD: Int32 = -1
+        if let temporaryName, let data {
+            temporaryFD = temporaryName.withCString {
+                Darwin.openat(
+                    directoryFD,
+                    $0,
+                    O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
+                    mode_t(0o644)
+                )
+            }
+            guard temporaryFD >= 0 else {
+                throw annotationSidecarPOSIXError(
+                    operation: "create atomic sidecar staging file",
+                    path: bundleURL.appendingPathComponent(temporaryName).path
+                )
+            }
+            try data.withUnsafeBytes { rawBuffer in
+                guard let baseAddress = rawBuffer.baseAddress else { return }
+                var offset = 0
+                while offset < rawBuffer.count {
+                    let written = Darwin.write(
+                        temporaryFD,
+                        baseAddress.advanced(by: offset),
+                        rawBuffer.count - offset
+                    )
+                    if written < 0 {
+                        if errno == EINTR { continue }
+                        throw annotationSidecarPOSIXError(
+                            operation: "write atomic sidecar staging file",
+                            path: bundleURL
+                                .appendingPathComponent(temporaryName).path
+                        )
+                    }
+                    offset += written
+                }
+            }
+            guard Darwin.fsync(temporaryFD) == 0 else {
+                throw annotationSidecarPOSIXError(
+                    operation: "synchronize atomic sidecar staging file",
+                    path: bundleURL.appendingPathComponent(temporaryName).path
+                )
+            }
         }
-        var shouldRemoveTemporary = true
+        var shouldRemoveTemporary = temporaryName != nil
         defer {
-            Darwin.close(temporaryFD)
-            if shouldRemoveTemporary {
+            if temporaryFD >= 0 {
+                Darwin.close(temporaryFD)
+            }
+            if shouldRemoveTemporary, let temporaryName {
                 temporaryName.withCString { _ = Darwin.unlinkat(directoryFD, $0, 0) }
             }
         }
 
-        try data.withUnsafeBytes { rawBuffer in
-            guard let baseAddress = rawBuffer.baseAddress else { return }
-            var offset = 0
-            while offset < rawBuffer.count {
-                let written = Darwin.write(
-                    temporaryFD,
-                    baseAddress.advanced(by: offset),
-                    rawBuffer.count - offset
-                )
-                if written < 0 {
-                    if errno == EINTR { continue }
-                    throw annotationSidecarPOSIXError(
-                        operation: "write atomic sidecar staging file",
-                        path: bundleURL.appendingPathComponent(temporaryName).path
-                    )
-                }
-                offset += written
-            }
-        }
-        guard Darwin.fsync(temporaryFD) == 0 else {
-            throw annotationSidecarPOSIXError(
-                operation: "synchronize atomic sidecar staging file",
-                path: bundleURL.appendingPathComponent(temporaryName).path
-            )
-        }
         let currentData = try readAnnotationSidecarDataIfPresent(
             forBundleAt: bundleURL
         )
@@ -4003,18 +4065,37 @@ public extension ONTGenotypeResultBundleData {
                 actual: actualRevision
             )
         }
-        let renameResult = temporaryName.withCString { temporaryCString in
-            filename.withCString { filenameCString in
-                Darwin.renameat(directoryFD, temporaryCString, directoryFD, filenameCString)
+        try beforeRename?()
+        try precommitValidation?()
+        if let temporaryName {
+            let renameResult = temporaryName.withCString { temporaryCString in
+                filename.withCString { filenameCString in
+                    Darwin.renameat(
+                        directoryFD,
+                        temporaryCString,
+                        directoryFD,
+                        filenameCString
+                    )
+                }
+            }
+            guard renameResult == 0 else {
+                throw annotationSidecarPOSIXError(
+                    operation: "atomically publish annotation sidecar",
+                    path: annotationSidecarURL(forBundleAt: bundleURL).path
+                )
+            }
+            shouldRemoveTemporary = false
+        } else {
+            let unlinkResult = filename.withCString {
+                Darwin.unlinkat(directoryFD, $0, 0)
+            }
+            guard unlinkResult == 0 else {
+                throw annotationSidecarPOSIXError(
+                    operation: "atomically restore absent annotation sidecar",
+                    path: annotationSidecarURL(forBundleAt: bundleURL).path
+                )
             }
         }
-        guard renameResult == 0 else {
-            throw annotationSidecarPOSIXError(
-                operation: "atomically publish annotation sidecar",
-                path: annotationSidecarURL(forBundleAt: bundleURL).path
-            )
-        }
-        shouldRemoveTemporary = false
         guard Darwin.fsync(directoryFD) == 0 else {
             throw annotationSidecarPOSIXError(
                 operation: "synchronize annotation sidecar directory",

@@ -150,6 +150,72 @@ final class ONTGenotypeResultBundleAnnotationSidecarTests: XCTestCase {
         )
     }
 
+    func testRawRestoreUsesRevisionCASAndAtomicallyRestoresExactPriorBytes() throws {
+        let bundle = try makeBundle()
+        defer { try? FileManager.default.removeItem(at: bundle) }
+        let annotationURL = ONTGenotypeResultBundleData.annotationSidecarURL(
+            forBundleAt: bundle
+        )
+        let initial = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-26T20:00:00Z"
+        )
+        let priorObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: initial.encoded())
+                as? [String: Any]
+        )
+        let priorData = try JSONSerialization.data(
+            withJSONObject: priorObject,
+            options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        )
+        try priorData.write(to: annotationURL)
+        let priorSnapshot =
+            try ONTGenotypeResultBundleData.loadAnnotationSidecarSnapshot(
+                forBundleAt: bundle
+            )
+        var replayed = priorSnapshot.sidecar
+        replayed.sampleNotes.append(.init(
+            sample: "S1",
+            body: "replayed edit",
+            author: "analyst",
+            timestamp: "2026-07-26T20:01:00Z"
+        ))
+        try ONTGenotypeResultBundleData.writeAnnotationSidecar(
+            replayed,
+            expectedRevision: priorSnapshot.revision,
+            forBundleAt: bundle
+        )
+        let replayedSnapshot =
+            try ONTGenotypeResultBundleData.loadAnnotationSidecarSnapshot(
+                forBundleAt: bundle
+            )
+        let replayedData = try XCTUnwrap(replayedSnapshot.data)
+
+        let publicationLock = try ONTGenotypeBundlePublicationLock.acquire(
+            for: bundle
+        )
+        var observedExistingReplayAtRenameBoundary = false
+        try ONTGenotypeResultBundleData.restoreAnnotationSidecarData(
+            priorData,
+            expectedRevision: replayedSnapshot.revision,
+            forBundleAt: bundle,
+            assuming: publicationLock,
+            beforeRename: {
+                observedExistingReplayAtRenameBoundary =
+                    try FileManager.default.fileExists(
+                        atPath: annotationURL.path
+                    ) && Data(contentsOf: annotationURL) == replayedData
+            }
+        )
+        publicationLock.release()
+
+        XCTAssertTrue(observedExistingReplayAtRenameBoundary)
+        XCTAssertEqual(try Data(contentsOf: annotationURL), priorData)
+        let reacquired = try ONTGenotypeBundlePublicationLock.acquire(
+            for: bundle
+        )
+        reacquired.release()
+    }
+
     private func makeBundle() throws -> URL {
         let bundle = FileManager.default.temporaryDirectory
             .appendingPathComponent(
