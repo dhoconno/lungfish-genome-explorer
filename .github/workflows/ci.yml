@@ -23,6 +23,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Select Xcode 26.4.1
         run: sudo xcode-select -s /Applications/Xcode_26.4.1.app/Contents/Developer
@@ -85,6 +87,37 @@ jobs:
           PYTHONDONTWRITEBYTECODE: "1"
         run: .ci-python/bin/python -B -m unittest discover -s scripts/tests
 
+      - name: Compare deterministic project-storage skips
+        run: |
+          task9_implementation_sha="$(git log --diff-filter=A --format=%H -1 -- scripts/verification/project-storage-task9-skip-policy.json)"
+          task9_base_sha="$(python3 scripts/verification/compare_project_storage_skips.py --policy scripts/verification/project-storage-task9-skip-policy.json --print-baseline-sha)"
+          scripts/verification/run_project_storage_skip_comparison.sh \
+            --suite ci-focused \
+            --base-sha "$task9_base_sha" \
+            --implementation-sha "$task9_implementation_sha" \
+            --report .build/project-storage-skip-comparison/ci-focused-report.json
+
+      - name: Test current HEAD project-storage implementation
+        run: |
+          task9_current_head_sha="$(git rev-parse HEAD)"
+          test -z "$(git status --porcelain)"
+          swift test --no-parallel --filter \
+            'ProjectStorageScannerLargeTreeTests|ProjectStorageScannerTests|ProjectStorageCleanupPreparationLargeTreeTests|ProjectStorageCleanupProvenanceTests|ProjectStoragePublishedCleanupOutcomeReaderTests|ProjectStorageAutomaticCleanupServiceTests|ProjectStoragePerformanceTests|ProjectTempCleanupTests'
+          test "$(git rev-parse HEAD)" = "$task9_current_head_sha"
+          test -z "$(git status --porcelain)"
+
+      - name: Upload project-storage skip comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: project-storage-skip-comparison
+          path: |
+            .build/project-storage-skip-comparison/ci-focused-base.log
+            .build/project-storage-skip-comparison/ci-focused-base-status.json
+            .build/project-storage-skip-comparison/ci-focused-implementation.log
+            .build/project-storage-skip-comparison/ci-focused-implementation-status.json
+            .build/project-storage-skip-comparison/ci-focused-report.json
+
   full:
     name: Full suite
     runs-on: macos-26
@@ -95,6 +128,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Select Xcode 26.4.1
         run: sudo xcode-select -s /Applications/Xcode_26.4.1.app/Contents/Developer

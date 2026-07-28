@@ -1,6 +1,7 @@
 import CryptoKit
 import Darwin
 import Foundation
+import LungfishCore
 import LungfishIO
 
 public enum ProjectStorageCleanupPreparationError:
@@ -74,6 +75,7 @@ public struct ProjectStorageCleanupReceiptWriter: Sendable {
         var now: @Sendable () -> Date
         var authoritativeScan:
             @Sendable (URL) throws -> ProjectStorageScanResult
+        var instrumentation: ProjectStorageInstrumentation
 
         init(
             cancellationCheck:
@@ -101,7 +103,10 @@ public struct ProjectStorageCleanupReceiptWriter: Sendable {
                 @escaping @Sendable (URL) throws
                     -> ProjectStorageScanResult = {
                         try ProjectStorageScanner().scan(projectURL: $0)
-                    }
+                    },
+            instrumentation: ProjectStorageInstrumentation = .production(
+                subsystem: LogSubsystem.workflow
+            )
         ) {
             self.cancellationCheck = cancellationCheck
             self.didHashRelativePath = didHashRelativePath
@@ -113,6 +118,7 @@ public struct ProjectStorageCleanupReceiptWriter: Sendable {
             self.syncDirectory = syncDirectory
             self.now = now
             self.authoritativeScan = authoritativeScan
+            self.instrumentation = instrumentation
         }
     }
 
@@ -170,18 +176,81 @@ public struct ProjectStorageCleanupReceiptWriter: Sendable {
         let sha256: String
     }
 
+    private final class PreparationMetrics {
+        var reusedHashes: UInt64 = 0
+        var computedHashes: UInt64 = 0
+
+        func recordReusedHash() {
+            reusedHashes = saturatedIncrement(reusedHashes)
+        }
+
+        func recordComputedHash() {
+            computedHashes = saturatedIncrement(computedHashes)
+        }
+
+        private func saturatedIncrement(_ value: UInt64) -> UInt64 {
+            let (next, overflow) = value.addingReportingOverflow(1)
+            return overflow ? .max : next
+        }
+    }
+
     private let operations: Operations
+    private let instrumentation: ProjectStorageInstrumentation
 
     public init() {
         operations = .init()
+        instrumentation = operations.instrumentation
     }
 
     init(operations: Operations) {
         self.operations = operations
+        self.instrumentation = operations.instrumentation
     }
 
     public func prepareConfirmedCleanup(
         _ request: ProjectStorageCleanupPreparationRequest
+    ) throws -> ProjectStorageCleanupPreparation {
+        let interval = instrumentation.begin(.descriptorPreparation)
+        let metrics = PreparationMetrics()
+        do {
+            let preparation = try performPreparation(
+                request,
+                metrics: metrics
+            )
+            record(metrics, in: interval)
+            instrumentation.end(interval, outcome: .success)
+            return preparation
+        } catch {
+            record(metrics, in: interval)
+            instrumentation.end(
+                interval,
+                outcome: error is CancellationError
+                    ? .cancelled
+                    : .failure
+            )
+            throw error
+        }
+    }
+
+    private func record(
+        _ metrics: PreparationMetrics,
+        in interval: ProjectStorageInstrumentation.Interval
+    ) {
+        instrumentation.count(
+            .reusedHashes,
+            metrics.reusedHashes,
+            in: interval
+        )
+        instrumentation.count(
+            .computedHashes,
+            metrics.computedHashes,
+            in: interval
+        )
+    }
+
+    private func performPreparation(
+        _ request: ProjectStorageCleanupPreparationRequest,
+        metrics: PreparationMetrics
     ) throws -> ProjectStorageCleanupPreparation {
         try operations.cancellationCheck()
         guard !request.selectedEntries.isEmpty else {
@@ -254,7 +323,8 @@ public struct ProjectStorageCleanupReceiptWriter: Sendable {
                     project: project,
                     projectDescriptor: projectDescriptor,
                     attested: attestations[entry.relativePath] ?? [:],
-                    hashCache: &hashCache
+                    hashCache: &hashCache,
+                    metrics: metrics
                 )
             )
         }
@@ -350,7 +420,9 @@ public struct ProjectStorageCleanupReceiptWriter: Sendable {
                     originPath: $0.sourceRelativePath
                 )
             }
-        let inputs = attestationInputs + inventoryInputs
+        let inputs = (attestationInputs + inventoryInputs).sorted {
+            $0.path < $1.path
+        }
         var resolved = options.defaults
         resolved.merge(options.resolvedDefaults) { _, new in new }
         resolved.merge(options.explicit) { _, new in new }
@@ -425,7 +497,8 @@ public struct ProjectStorageCleanupReceiptWriter: Sendable {
         project: URL,
         projectDescriptor: Int32,
         attested: [String: ProjectStorageCleanupInventoryEntry],
-        hashCache: inout [FileSystemObjectIdentity: CachedHash]
+        hashCache: inout [FileSystemObjectIdentity: CachedHash],
+        metrics: PreparationMetrics
     ) throws -> ProjectStorageCleanupJournal.Item {
         let sourceDescriptor = try openRelativeDirectory(
             entry.relativePath,
@@ -451,7 +524,8 @@ public struct ProjectStorageCleanupReceiptWriter: Sendable {
             relativePrefix: "",
             attested: attested,
             hashCache: &hashCache,
-            inventory: &inventory
+            inventory: &inventory,
+            metrics: metrics
         )
         inventory.sort { $0.relativePath < $1.relativePath }
         guard Set(attested.keys).isSubset(
@@ -495,7 +569,8 @@ public struct ProjectStorageCleanupReceiptWriter: Sendable {
         relativePrefix: String,
         attested: [String: ProjectStorageCleanupInventoryEntry],
         hashCache: inout [FileSystemObjectIdentity: CachedHash],
-        inventory: inout [ProjectStorageCleanupInventoryEntry]
+        inventory: inout [ProjectStorageCleanupInventoryEntry],
+        metrics: PreparationMetrics
     ) throws {
         try operations.cancellationCheck()
         var beforeInformation = stat()
@@ -564,7 +639,8 @@ public struct ProjectStorageCleanupReceiptWriter: Sendable {
                         relativePrefix: relative,
                         attested: attested,
                         hashCache: &hashCache,
-                        inventory: &inventory
+                        inventory: &inventory,
+                        metrics: metrics
                     )
                 } catch {
                     Darwin.close(child)
@@ -580,7 +656,8 @@ public struct ProjectStorageCleanupReceiptWriter: Sendable {
                         relativePath: relative,
                         inspectedInformation: information,
                         attested: attested[relative],
-                        hashCache: &hashCache
+                        hashCache: &hashCache,
+                        metrics: metrics
                     )
                 )
             default:
@@ -605,7 +682,8 @@ public struct ProjectStorageCleanupReceiptWriter: Sendable {
         relativePath: String,
         inspectedInformation: stat,
         attested: ProjectStorageCleanupInventoryEntry?,
-        hashCache: inout [FileSystemObjectIdentity: CachedHash]
+        hashCache: inout [FileSystemObjectIdentity: CachedHash],
+        metrics: PreparationMetrics
     ) throws -> ProjectStorageCleanupInventoryEntry {
         let descriptor = name.withCString {
             Darwin.openat(
@@ -657,6 +735,7 @@ public struct ProjectStorageCleanupReceiptWriter: Sendable {
                     .invalidAttestation(relativePath)
             }
             checksum = attested.sha256.lowercased()
+            metrics.recordReusedHash()
             if let cached = hashCache[snapshot.identity] {
                 guard cached.snapshot == snapshot,
                       cached.sha256 == checksum else {
@@ -674,12 +753,14 @@ public struct ProjectStorageCleanupReceiptWriter: Sendable {
                     .sourceIdentityChanged(relativePath)
             }
             checksum = cached.sha256
+            metrics.recordReusedHash()
         } else {
             operations.didHashRelativePath(relativePath)
             checksum = try hash(
                 descriptor: descriptor,
                 displayPath: fileURL.path
             )
+            metrics.recordComputedHash()
             hashCache[snapshot.identity] = .init(
                 snapshot: snapshot,
                 sha256: checksum

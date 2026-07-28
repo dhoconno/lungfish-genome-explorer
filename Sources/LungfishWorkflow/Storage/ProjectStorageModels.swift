@@ -25,6 +25,7 @@ public struct ProjectStorageClassification: Codable, Equatable, Sendable {
         case liveWorkbookAuthority
         case unknownOwnedPattern
         case inspectionFailed
+        case resourceLimitExceeded
     }
 
     public let disposition: Disposition

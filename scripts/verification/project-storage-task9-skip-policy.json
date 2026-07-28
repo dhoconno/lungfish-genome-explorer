@@ -1,0 +1,150 @@
+{
+  "schemaVersion": 1,
+  "baselineSHA": "c658f123de9d04a5d73014252ee1b93dd7736661",
+  "newTestClasses": [
+    "ProjectStorageScannerLargeTreeTests",
+    "ProjectStorageCleanupPreparationLargeTreeTests",
+    "ProjectStoragePerformanceTests"
+  ],
+  "newTestInventory": [
+    {
+      "class": "ProjectStorageScannerLargeTreeTests",
+      "test": "testCISemanticFixtureHasExactTopology"
+    },
+    {
+      "class": "ProjectStorageScannerLargeTreeTests",
+      "test": "testReleaseRepresentativeConfigurationIsExact"
+    },
+    {
+      "class": "ProjectStorageScannerLargeTreeTests",
+      "test": "testLargeTreeScanStreamsWithoutReadingOrHashingPayloads"
+    },
+    {
+      "class": "ProjectStorageScannerLargeTreeTests",
+      "test": "testLargeTreeHardLinksAreDeduplicatedAcrossCandidateBoundaries"
+    },
+    {
+      "class": "ProjectStorageScannerLargeTreeTests",
+      "test": "testLargeTreeExternalHardLinkSurvivorIsNotCreditedAsReclaimable"
+    },
+    {
+      "class": "ProjectStorageScannerLargeTreeTests",
+      "test": "testLargeTreeCancellationReturnsNoPartialResultAndMutatesNothing"
+    },
+    {
+      "class": "ProjectStorageScannerLargeTreeTests",
+      "test": "testLargeTreeCandidateReplacementDuringScanFailsClosed"
+    },
+    {
+      "class": "ProjectStorageScannerLargeTreeTests",
+      "test": "testLargeOperationHistoryTreeIsSkippedAndNeverOffered"
+    },
+    {
+      "class": "ProjectStorageScannerLargeTreeTests",
+      "test": "testLargeTreeScanEmitsBalancedScanInstrumentation"
+    },
+    {
+      "class": "ProjectStorageScannerLargeTreeTests",
+      "test": "testHardLinkTrackingBudgetFailsClosed"
+    },
+    {
+      "class": "ProjectStorageScannerLargeTreeTests",
+      "test": "testRetainedScannerStateMatchesDeclaredComplexityBound"
+    },
+    {
+      "class": "ProjectStorageScannerLargeTreeTests",
+      "test": "testReleaseRepresentativeScanMemoryDeltaIsAtMost96MiB"
+    },
+    {
+      "class": "ProjectStorageCleanupPreparationLargeTreeTests",
+      "test": "testLargePreparationReusesAttestedDescriptorsAndHashesEachUnattestedInodeOnce"
+    },
+    {
+      "class": "ProjectStorageCleanupPreparationLargeTreeTests",
+      "test": "testLargePreparationCancellationBeforePublicationMutatesNoSelectedRoot"
+    },
+    {
+      "class": "ProjectStorageCleanupPreparationLargeTreeTests",
+      "test": "testLargePreparationEmitsBalancedDescriptorPreparationInstrumentation"
+    },
+    {
+      "class": "ProjectStorageCleanupPreparationLargeTreeTests",
+      "test": "testLargePreparationWritesCompleteCanonicalProvenance"
+    },
+    {
+      "class": "ProjectStoragePerformanceTests",
+      "test": "testProjectOpenDoesNotInvokeAutomaticStorageCleanup"
+    },
+    {
+      "class": "ProjectStoragePerformanceTests",
+      "test": "testProjectOpenLeavesStorageFixtureUnchanged"
+    },
+    {
+      "class": "ProjectStoragePerformanceTests",
+      "test": "testDefaultScanAuthorityAndCleanupPreparationWorkersRunOffMainThread"
+    },
+    {
+      "class": "ProjectStoragePerformanceTests",
+      "test": "testProgressRelayBoundsMainActorDeliveryCountWithInjectedClock"
+    },
+    {
+      "class": "ProjectStoragePerformanceTests",
+      "test": "testLargePreviewMaximumMainThreadStallIsUnder100Milliseconds"
+    },
+    {
+      "class": "ProjectStoragePerformanceTests",
+      "test": "testLargePreviewEmitsBalancedMainActorCommitInstrumentation"
+    }
+  ],
+  "allowedNewTestSkips": [
+    {
+      "class": "ProjectStorageScannerLargeTreeTests",
+      "test": "testReleaseRepresentativeScanMemoryDeltaIsAtMost96MiB",
+      "reasonPatterns": [
+        "^storage-perf-disabled: LUNGFISH_RUN_STORAGE_PERF is absent$"
+      ]
+    },
+    {
+      "class": "ProjectStoragePerformanceTests",
+      "test": "testLargePreviewMaximumMainThreadStallIsUnder100Milliseconds",
+      "reasonPatterns": [
+        "^storage-perf-disabled: LUNGFISH_RUN_STORAGE_PERF is absent$"
+      ]
+    },
+    {
+      "class": "ProjectStorageScannerLargeTreeTests",
+      "test": "testCISemanticFixtureHasExactTopology",
+      "reasonPatterns": [
+        "^hard-link-unavailable: errno=(?:18 \\(EXDEV\\)|45 \\(ENOTSUP\\)|102 \\(EOPNOTSUPP\\))$"
+      ]
+    },
+    {
+      "class": "ProjectStorageScannerLargeTreeTests",
+      "test": "testLargeTreeHardLinksAreDeduplicatedAcrossCandidateBoundaries",
+      "reasonPatterns": [
+        "^hard-link-unavailable: errno=(?:18 \\(EXDEV\\)|45 \\(ENOTSUP\\)|102 \\(EOPNOTSUPP\\))$"
+      ]
+    },
+    {
+      "class": "ProjectStorageScannerLargeTreeTests",
+      "test": "testLargeTreeExternalHardLinkSurvivorIsNotCreditedAsReclaimable",
+      "reasonPatterns": [
+        "^hard-link-unavailable: errno=(?:18 \\(EXDEV\\)|45 \\(ENOTSUP\\)|102 \\(EOPNOTSUPP\\))$"
+      ]
+    },
+    {
+      "class": "ProjectStorageScannerLargeTreeTests",
+      "test": "testHardLinkTrackingBudgetFailsClosed",
+      "reasonPatterns": [
+        "^hard-link-unavailable: errno=(?:18 \\(EXDEV\\)|45 \\(ENOTSUP\\)|102 \\(EOPNOTSUPP\\))$"
+      ]
+    },
+    {
+      "class": "ProjectStorageCleanupPreparationLargeTreeTests",
+      "test": "testLargePreparationReusesAttestedDescriptorsAndHashesEachUnattestedInodeOnce",
+      "reasonPatterns": [
+        "^hard-link-unavailable: errno=(?:18 \\(EXDEV\\)|45 \\(ENOTSUP\\)|102 \\(EOPNOTSUPP\\))$"
+      ]
+    }
+  ]
+}

@@ -1,8 +1,11 @@
 import Darwin
 import Foundation
+import LungfishCore
 import LungfishIO
 
 public struct ProjectStorageScanner {
+    static let maximumTrackedHardLinkIdentities = 65_536
+
     private struct Candidate {
         let url: URL
         let category: ProjectStorageEntry.Category
@@ -13,15 +16,18 @@ public struct ProjectStorageScanner {
         let logicalBytes: UInt64
         let allocatedBytes: UInt64
         let unsafeReason: String?
+        let unsafeCode: ProjectStorageClassification.Code?
 
         init(
             logicalBytes: UInt64,
             allocatedBytes: UInt64,
-            unsafeReason: String?
+            unsafeReason: String?,
+            unsafeCode: ProjectStorageClassification.Code? = nil
         ) {
             self.logicalBytes = logicalBytes
             self.allocatedBytes = allocatedBytes
             self.unsafeReason = unsafeReason
+            self.unsafeCode = unsafeCode
         }
     }
 
@@ -34,11 +40,74 @@ public struct ProjectStorageScanner {
         var countedAllocation: (entryIndex: Int, bytes: UInt64)?
     }
 
+    private final class ScanMetrics {
+        // Logical directory-enumerator yields, not lstat calls: one increment
+        // for every project-discovery yield before pruning, plus one for every
+        // candidate-subtree yield before that entry's lstat. Project and
+        // candidate roots measured separately are excluded; the yielded
+        // operation-history root is included and its pruned descendants are
+        // excluded.
+        var visitedObjects: UInt64 = 0
+        var candidateEntries: UInt64 = 0
+        var trackedHardLinkIdentities: UInt64 = 0
+        var retainedScannerRecords: UInt64 = 0
+
+        func record(
+            with instrumentation: ProjectStorageInstrumentation,
+            in interval: ProjectStorageInstrumentation.Interval
+        ) {
+            instrumentation.count(
+                .visitedObjects,
+                visitedObjects,
+                in: interval
+            )
+            instrumentation.count(
+                .candidateEntries,
+                candidateEntries,
+                in: interval
+            )
+            instrumentation.count(
+                .trackedHardLinkIdentities,
+                trackedHardLinkIdentities,
+                in: interval
+            )
+            instrumentation.count(
+                .retainedScannerRecords,
+                retainedScannerRecords,
+                in: interval
+            )
+        }
+
+        func retain(
+            candidates: Int,
+            entries: Int,
+            hardLinkIdentities: Int
+        ) {
+            candidateEntries = UInt64(candidates)
+            trackedHardLinkIdentities = UInt64(hardLinkIdentities)
+            retainedScannerRecords = saturatedSum([
+                UInt64(candidates),
+                UInt64(entries),
+                UInt64(hardLinkIdentities),
+            ])
+        }
+
+        private func saturatedSum(_ values: [UInt64]) -> UInt64 {
+            values.reduce(into: 0) { total, value in
+                let (next, overflow) =
+                    total.addingReportingOverflow(value)
+                total = overflow ? .max : next
+            }
+        }
+    }
+
     private let processInspector: (Int32) throws -> OwnedProcessIdentity?
     private let lockProbe: (URL) throws -> OwnedRunLockProbe
     private let cancellationCheck: () throws -> Void
     private let legacyWorkbookClassifier:
         ProjectStorageLegacyWorkbookClassifier
+    private let instrumentation: ProjectStorageInstrumentation
+    private let hardLinkIdentityLimit: Int
 
     public init() {
         self.processInspector = {
@@ -47,6 +116,11 @@ public struct ProjectStorageScanner {
         self.lockProbe = { try OwnedRunLock.probe(at: $0) }
         self.cancellationCheck = { try Task.checkCancellation() }
         self.legacyWorkbookClassifier = .init()
+        self.instrumentation = .production(
+            subsystem: LogSubsystem.workflow
+        )
+        self.hardLinkIdentityLimit =
+            Self.maximumTrackedHardLinkIdentities
     }
 
     init(
@@ -65,7 +139,12 @@ public struct ProjectStorageScanner {
         workbookAttestationRootURL: URL? = nil,
         callerHeldRunLocks: [OwnedRunLock] = [],
         callerHeldWorkbookPublicationLocks:
-            [ONTGenotypeBundlePublicationLock] = []
+            [ONTGenotypeBundlePublicationLock] = [],
+        instrumentation: ProjectStorageInstrumentation = .production(
+            subsystem: LogSubsystem.workflow
+        ),
+        maximumTrackedHardLinkIdentities: Int =
+            Self.maximumTrackedHardLinkIdentities
     ) {
         self.processInspector = processInspector
         self.lockProbe = { lockURL in
@@ -83,11 +162,44 @@ public struct ProjectStorageScanner {
             callerHeldPublicationLocks:
                 callerHeldWorkbookPublicationLocks
         )
+        self.instrumentation = instrumentation
+        self.hardLinkIdentityLimit = max(
+            0,
+            maximumTrackedHardLinkIdentities
+        )
     }
 
     public func scan(
         projectURL: URL,
         progress: ((ProjectStorageScanProgress) -> Void)? = nil
+    ) throws -> ProjectStorageScanResult {
+        let interval = instrumentation.begin(.scan)
+        let metrics = ScanMetrics()
+        do {
+            let result = try performScan(
+                projectURL: projectURL,
+                progress: progress,
+                metrics: metrics
+            )
+            metrics.record(with: instrumentation, in: interval)
+            instrumentation.end(interval, outcome: .success)
+            return result
+        } catch {
+            metrics.record(with: instrumentation, in: interval)
+            instrumentation.end(
+                interval,
+                outcome: error is CancellationError
+                    ? .cancelled
+                    : .failure
+            )
+            throw error
+        }
+    }
+
+    private func performScan(
+        projectURL: URL,
+        progress: ((ProjectStorageScanProgress) -> Void)?,
+        metrics: ScanMetrics
     ) throws -> ProjectStorageScanResult {
         try cancellationCheck()
         let project = projectURL.standardizedFileURL
@@ -126,8 +238,21 @@ public struct ProjectStorageScanner {
             )
         }
 
-        var candidates = try discoverCandidates(
+        var candidates: [Candidate] = []
+        var entries: [ProjectStorageEntry] = []
+        var hardLinkAuthorities:
+            [FileSystemObjectIdentity: HardLinkAuthority] = [:]
+        defer {
+            metrics.visitedObjects = visited
+            metrics.retain(
+                candidates: candidates.count,
+                entries: entries.count,
+                hardLinkIdentities: hardLinkAuthorities.count
+            )
+        }
+        try discoverCandidates(
             projectURL: project,
+            candidates: &candidates,
             visited: &visited,
             report: report
         )
@@ -135,9 +260,6 @@ public struct ProjectStorageScanner {
             relativePath(from: project, to: $0.url)
                 < relativePath(from: project, to: $1.url)
         }
-        var entries: [ProjectStorageEntry] = []
-        var hardLinkAuthorities:
-            [FileSystemObjectIdentity: HardLinkAuthority] = [:]
         entries.reserveCapacity(candidates.count)
         for candidate in candidates {
             try cancellationCheck()
@@ -191,7 +313,9 @@ public struct ProjectStorageScanner {
                     logicalBytes: single.logicalBytes,
                     allocatedBytes: single.allocatedBytes,
                     unsafeReason:
-                        "The candidate is not a real directory."
+                        single.unsafeReason
+                        ?? "The candidate is not a real directory.",
+                    unsafeCode: single.unsafeCode
                 )
             }
             measuredLogical = try adding(
@@ -206,7 +330,7 @@ public struct ProjectStorageScanner {
             var classification: ProjectStorageClassification
             if let unsafeReason = measured.unsafeReason {
                 classification = .notRemovable(
-                    .unsafeFileSystemObject,
+                    measured.unsafeCode ?? .unsafeFileSystemObject,
                     reason: unsafeReason
                 )
             } else if !candidate.exactOwnedPattern {
@@ -268,23 +392,23 @@ public struct ProjectStorageScanner {
                 project.path
             )
         }
-        let adjustedEntries = entriesAdjustedForSurvivingHardLinks(
-            entries,
+        adjustEntriesForSurvivingHardLinks(
+            &entries,
             authorities: hardLinkAuthorities,
             projectIdentity: projectIdentity
         )
         return .init(
             projectIdentity: projectIdentity,
-            entries: adjustedEntries
+            entries: entries
         )
     }
 
     private func discoverCandidates(
         projectURL: URL,
+        candidates: inout [Candidate],
         visited: inout UInt64,
         report: (UInt64, String) -> Void
-    ) throws -> [Candidate] {
-        var candidates: [Candidate] = []
+    ) throws {
         let keys: [URLResourceKey] = [.isDirectoryKey]
         var enumerationFailure: String?
         guard let enumerator = FileManager.default.enumerator(
@@ -302,8 +426,8 @@ public struct ProjectStorageScanner {
             )
         }
         while let url = enumerator.nextObject() as? URL {
-            try cancellationCheck()
             visited = try adding(visited, 1)
+            try cancellationCheck()
             let relative = relativePath(from: projectURL, to: url)
             report(visited, relative)
             if relative == ProjectOperationHistoryWriter
@@ -361,7 +485,6 @@ public struct ProjectStorageScanner {
                     + enumerationFailure
             )
         }
-        return candidates
     }
 
     private func reservedCandidate(_ url: URL) -> Candidate? {
@@ -761,6 +884,9 @@ public struct ProjectStorageScanner {
             priorEntries: priorEntries,
             hardLinkAuthorities: &hardLinkAuthorities
         )
+        if rootMeasurement.unsafeCode == .resourceLimitExceeded {
+            return rootMeasurement
+        }
         var logical = rootMeasurement.logicalBytes
         var allocated = rootMeasurement.allocatedBytes
         var unsafeReason: String?
@@ -783,8 +909,8 @@ public struct ProjectStorageScanner {
             )
         }
         while let url = enumerator.nextObject() as? URL {
-            try cancellationCheck()
             visited = try adding(visited, 1)
+            try cancellationCheck()
             report(
                 visited,
                 relativePath(from: projectURL, to: url)
@@ -805,6 +931,14 @@ public struct ProjectStorageScanner {
                 priorEntries: priorEntries,
                 hardLinkAuthorities: &hardLinkAuthorities
             )
+            if measured.unsafeCode == .resourceLimitExceeded {
+                return .init(
+                    logicalBytes: 0,
+                    allocatedBytes: 0,
+                    unsafeReason: measured.unsafeReason,
+                    unsafeCode: .resourceLimitExceeded
+                )
+            }
             logical = try adding(logical, measured.logicalBytes)
             allocated = try adding(
                 allocated,
@@ -870,6 +1004,17 @@ public struct ProjectStorageScanner {
         if information.st_mode & S_IFMT == S_IFREG,
            information.st_nlink > 1 {
             let firstObservation = hardLinkAuthorities[identity] == nil
+            if firstObservation,
+               hardLinkAuthorities.count >= hardLinkIdentityLimit {
+                return .init(
+                    logicalBytes: 0,
+                    allocatedBytes: 0,
+                    unsafeReason:
+                        "Hard-link identity tracking exceeded the "
+                        + "\(formattedIdentityLimit)-entry safety limit.",
+                    unsafeCode: .resourceLimitExceeded
+                )
+            }
             try recordHardLinkOccurrence(
                 identity: identity,
                 expectedLinkCount: UInt64(information.st_nlink),
@@ -893,50 +1038,52 @@ public struct ProjectStorageScanner {
         )
     }
 
-    private func entriesAdjustedForSurvivingHardLinks(
-        _ entries: [ProjectStorageEntry],
-        authorities initialAuthorities:
+    private var formattedIdentityLimit: String {
+        let digits = String(hardLinkIdentityLimit)
+        var reversed: [Character] = []
+        reversed.reserveCapacity(digits.count + digits.count / 3)
+        for (index, digit) in digits.reversed().enumerated() {
+            if index > 0, index.isMultiple(of: 3) {
+                reversed.append(",")
+            }
+            reversed.append(digit)
+        }
+        return String(reversed.reversed())
+    }
+
+    private func adjustEntriesForSurvivingHardLinks(
+        _ entries: inout [ProjectStorageEntry],
+        authorities:
             [FileSystemObjectIdentity: HardLinkAuthority],
         projectIdentity: FileSystemObjectIdentity
-    ) -> [ProjectStorageEntry] {
-        var authorities = initialAuthorities
-        for identity in authorities.keys {
-            guard var authority = authorities[identity] else { continue }
+    ) {
+        for initialAuthority in authorities.values {
+            var authority = initialAuthority
             finalizePendingHardLinkOccurrences(
                 &authority,
                 entries: entries
             )
-            authorities[identity] = authority
-        }
-        var allocatedAdjustments = [UInt64](
-            repeating: 0,
-            count: entries.count
-        )
-        for authority in authorities.values
-        where !authority.expectedCountAgrees
-            || authority.removableOccurrences
-                != authority.expectedLinkCount {
+            guard !authority.expectedCountAgrees
+                    || authority.removableOccurrences
+                        != authority.expectedLinkCount else {
+                continue
+            }
             guard let allocation = authority.countedAllocation else {
                 continue
             }
-            let (adjustment, overflow) =
-                allocatedAdjustments[allocation.entryIndex]
-                .addingReportingOverflow(allocation.bytes)
-            allocatedAdjustments[allocation.entryIndex] =
-                overflow ? .max : adjustment
-        }
-        return entries.enumerated().map { index, entry in
-            let adjustment = allocatedAdjustments[index]
-            guard adjustment > 0 else { return entry }
-            return ProjectStorageEntry(
+            guard entries.indices.contains(allocation.entryIndex) else {
+                continue
+            }
+            let entry = entries[allocation.entryIndex]
+            entries[allocation.entryIndex] = ProjectStorageEntry(
                 projectIdentity: projectIdentity,
                 relativePath: entry.relativePath,
                 identity: entry.identity,
                 category: entry.category,
                 logicalBytes: entry.logicalBytes,
                 allocatedBytes:
-                    entry.allocatedBytes >= adjustment
-                    ? entry.allocatedBytes - adjustment
+                    entry.allocatedBytes >= allocation.bytes
+                    ? entry.allocatedBytes - allocation.bytes
                     : 0,
                 modificationDate: entry.modificationDate,
                 classification: entry.classification

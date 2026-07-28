@@ -1,7 +1,14 @@
 import AppKit
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
+
+enum ProjectStorageWorkerPhase: Sendable, Equatable {
+    case authorityCanonicalizationAndIdentity
+    case scanTraversal
+    case cleanupPreparation
+}
 
 @MainActor
 final class ProjectStorageCoordinator {
@@ -44,22 +51,32 @@ final class ProjectStorageCoordinator {
         var canonicalizeProjectURL: @Sendable (URL) -> URL
         var readProjectIdentity:
             @Sendable (URL) throws -> FileSystemObjectIdentity
+        var instrumentation: ProjectStorageInstrumentation
+        var progressUptime: @Sendable () -> TimeInterval
+        var workerObserver:
+            @Sendable (ProjectStorageWorkerPhase) -> Void
+        var cancellationPropagationObserver: @Sendable () -> Void
+
+        init() {
+            self = .production()
+        }
+
+        init(
+            cleanup:
+                @escaping @Sendable (CleanupInvocation) async throws
+                    -> CleanupOutcome
+        ) {
+            var operations = Self.production()
+            operations.cleanup = cleanup
+            self = operations
+        }
 
         init(
             scan:
                 @escaping @Sendable (
                     URL,
                     @escaping @Sendable (ProjectStorageScanProgress) -> Void
-                ) async throws -> ProjectStorageScanResult = {
-                    projectURL,
-                    progress in
-                    try await ProjectStorageCoordinator.runDetachedCancellable {
-                        try ProjectStorageScanner().scan(
-                            projectURL: projectURL,
-                            progress: progress
-                        )
-                    }
-                },
+                ) async throws -> ProjectStorageScanResult,
             cleanup:
                 @escaping @Sendable (CleanupInvocation) async throws
                     -> CleanupOutcome = { invocation in
@@ -76,12 +93,76 @@ final class ProjectStorageCoordinator {
                 @escaping @Sendable (URL) throws
                     -> FileSystemObjectIdentity = {
                         try FileSystemObjectIdentity.noFollow($0)
-                    }
+                    },
+            instrumentation: ProjectStorageInstrumentation = .production(
+                subsystem: LogSubsystem.app
+            ),
+            progressUptime:
+                @escaping @Sendable () -> TimeInterval = {
+                    ProcessInfo.processInfo.systemUptime
+                },
+            workerObserver:
+                @escaping @Sendable (ProjectStorageWorkerPhase) -> Void = {
+                    _ in
+                },
+            cancellationPropagationObserver:
+                @escaping @Sendable () -> Void = {}
         ) {
             self.scan = scan
             self.cleanup = cleanup
             self.canonicalizeProjectURL = canonicalizeProjectURL
             self.readProjectIdentity = readProjectIdentity
+            self.instrumentation = instrumentation
+            self.progressUptime = progressUptime
+            self.workerObserver = workerObserver
+            self.cancellationPropagationObserver =
+                cancellationPropagationObserver
+        }
+
+        static func production(
+            workerObserver:
+                @escaping @Sendable (ProjectStorageWorkerPhase) -> Void = {
+                    _ in
+                },
+            cancellationPropagationObserver:
+                @escaping @Sendable () -> Void = {},
+            beforeExecutorGuard:
+                @escaping @Sendable () throws -> Void = {}
+        ) -> Self {
+            Self(
+                scan: { projectURL, progress in
+                    try await ProjectStorageCoordinator
+                        .runDetachedCancellable(
+                            cancellationPropagationObserver:
+                                cancellationPropagationObserver
+                        ) {
+                            workerObserver(.scanTraversal)
+                            return try ProjectStorageScanner().scan(
+                                projectURL: projectURL,
+                                progress: progress
+                            )
+                        }
+                },
+                cleanup: { invocation in
+                    try await ProjectStorageCoordinator
+                        .runDetachedCancellable(
+                            cancellationPropagationObserver:
+                                cancellationPropagationObserver
+                        ) {
+                            try await performCleanup(
+                                invocation,
+                                workerObserver: workerObserver,
+                                beforeExecutorGuard: beforeExecutorGuard
+                            )
+                        }
+                },
+                instrumentation: .production(
+                    subsystem: LogSubsystem.app
+                ),
+                workerObserver: workerObserver,
+                cancellationPropagationObserver:
+                    cancellationPropagationObserver
+            )
         }
     }
 
@@ -141,21 +222,26 @@ final class ProjectStorageCoordinator {
     private final class ProgressRelay: @unchecked Sendable {
         private let lock = NSLock()
         private let interval: TimeInterval
+        private let uptime: @Sendable () -> TimeInterval
         private var lastDelivery: TimeInterval?
         private let deliver:
             @Sendable (ProjectStorageScanProgress) -> Void
 
         init(
             interval: TimeInterval,
+            uptime: @escaping @Sendable () -> TimeInterval = {
+                ProcessInfo.processInfo.systemUptime
+            },
             deliver:
                 @escaping @Sendable (ProjectStorageScanProgress) -> Void
         ) {
             self.interval = interval
+            self.uptime = uptime
             self.deliver = deliver
         }
 
         func receive(_ progress: ProjectStorageScanProgress) {
-            let now = ProcessInfo.processInfo.systemUptime
+            let now = uptime()
             lock.lock()
             let shouldDeliver =
                 lastDelivery.map { now - $0 >= interval } ?? true
@@ -193,6 +279,8 @@ final class ProjectStorageCoordinator {
 
     private let binding: Binding
     private let operations: Operations
+    private let instrumentation: ProjectStorageInstrumentation
+    private let progressUptime: @Sendable () -> TimeInterval
     private let completion: @MainActor () -> Void
     private var operationTask: Task<Void, Never>?
     private var operationGeneration: UInt64 = 0
@@ -211,7 +299,7 @@ final class ProjectStorageCoordinator {
         projectIdentity: FileSystemObjectIdentity,
         generation: UInt64,
         generationProvider: @escaping @MainActor () -> UInt64,
-        operations: Operations = .init(),
+        operations: Operations = .production(),
         completion: @escaping @MainActor () -> Void
     ) {
         self.binding = Binding(
@@ -223,6 +311,8 @@ final class ProjectStorageCoordinator {
             generationProvider: generationProvider
         )
         self.operations = operations
+        self.instrumentation = operations.instrumentation
+        self.progressUptime = operations.progressUptime
         self.completion = completion
     }
 
@@ -302,12 +392,17 @@ final class ProjectStorageCoordinator {
         }
         viewModel.beginScanning()
         let attempt = beginOperationAttempt()
-        let relay = ProgressRelay(interval: 0.1) { [weak self] progress in
+        let relay = ProgressRelay(
+            interval: 0.1,
+            uptime: progressUptime
+        ) { [weak self] progress in
             Task { @MainActor [weak self] in
                 guard let self, self.isCurrentAttempt(attempt) else {
                     return
                 }
-                self.viewModel.receiveScanProgress(progress)
+                self.commitScanUpdate {
+                    self.viewModel.receiveScanProgress(progress)
+                }
             }
         }
         let scan = operations.scan
@@ -333,14 +428,20 @@ final class ProjectStorageCoordinator {
                     self.invalidate()
                     return
                 }
-                self.viewModel.receiveScanResult(result)
+                self.commitScanUpdate {
+                    self.viewModel.receiveScanResult(result)
+                }
             } catch is CancellationError {
                 if self.isCurrentAttempt(attempt) {
-                    self.viewModel.receiveScanCancellation()
+                    self.commitScanUpdate(outcome: .cancelled) {
+                        self.viewModel.receiveScanCancellation()
+                    }
                 }
             } catch {
                 if self.isCurrentAttempt(attempt) {
-                    self.viewModel.receiveScanFailure(error)
+                    self.commitScanUpdate(outcome: .failure) {
+                        self.viewModel.receiveScanFailure(error)
+                    }
                 }
             }
         }
@@ -421,12 +522,17 @@ final class ProjectStorageCoordinator {
         let scan = operations.scan
         let cleanup = operations.cleanup
         let attempt = beginOperationAttempt()
-        let relay = ProgressRelay(interval: 0.1) { [weak self] progress in
+        let relay = ProgressRelay(
+            interval: 0.1,
+            uptime: progressUptime
+        ) { [weak self] progress in
             Task { @MainActor [weak self] in
                 guard let self, self.isCurrentAttempt(attempt) else {
                     return
                 }
-                self.viewModel.receiveScanProgress(progress)
+                self.commitScanUpdate {
+                    self.viewModel.receiveScanProgress(progress)
+                }
             }
         }
         operationTask = Task { @MainActor [weak self] in
@@ -462,7 +568,9 @@ final class ProjectStorageCoordinator {
                     return prior.identity == entry.identity
                 }
                 guard !retryable.isEmpty else {
-                    self.viewModel.receiveScanResult(fresh)
+                    self.commitScanUpdate {
+                        self.viewModel.receiveScanResult(fresh)
+                    }
                     return
                 }
                 self.viewModel.prepareRetry(with: retryable)
@@ -487,7 +595,10 @@ final class ProjectStorageCoordinator {
                 if self.isCurrentAttempt(attempt) {
                     switch phase {
                     case .revalidation:
-                        self.viewModel.receiveRevalidationCancellation()
+                        self.commitScanUpdate(outcome: .cancelled) {
+                            self.viewModel
+                                .receiveRevalidationCancellation()
+                        }
                     case .cleanup:
                         self.viewModel.receiveCleanupFailure(
                             ProjectStorageCoordinatorError
@@ -499,7 +610,9 @@ final class ProjectStorageCoordinator {
                 if self.isCurrentAttempt(attempt) {
                     switch phase {
                     case .revalidation:
-                        self.viewModel.receiveRevalidationFailure(error)
+                        self.commitScanUpdate(outcome: .failure) {
+                            self.viewModel.receiveRevalidationFailure(error)
+                        }
                     case .cleanup:
                         self.viewModel.receiveCleanupFailure(error)
                     }
@@ -514,6 +627,16 @@ final class ProjectStorageCoordinator {
         return operationGeneration
     }
 
+    private func commitScanUpdate(
+        outcome: ProjectStorageInstrumentation.Outcome = .success,
+        _ update: () -> Void
+    ) {
+        let interval = instrumentation.begin(.mainActorCommit)
+        instrumentation.count(.mainActorCommits, 1, in: interval)
+        update()
+        instrumentation.end(interval, outcome: outcome)
+    }
+
     private func isCurrentAttempt(_ attempt: UInt64) -> Bool {
         !isClosed
             && attempt == operationGeneration
@@ -526,7 +649,14 @@ final class ProjectStorageCoordinator {
         let canonicalizeProjectURL = operations.canonicalizeProjectURL
         let projectURL = cachedURL ?? binding.projectURL
         let expectedIdentity = binding.projectIdentity
-        let authority = try await Self.runDetachedCancellable {
+        let workerObserver = operations.workerObserver
+        let cancellationPropagationObserver =
+            operations.cancellationPropagationObserver
+        let authority = try await Self.runDetachedCancellable(
+            cancellationPropagationObserver:
+                cancellationPropagationObserver
+        ) {
+            workerObserver(.authorityCanonicalizationAndIdentity)
             let canonicalURL =
                 cachedURL ?? canonicalizeProjectURL(projectURL)
             return (
@@ -681,6 +811,8 @@ final class ProjectStorageCoordinator {
     }
 
     nonisolated private static func runDetachedCancellable<T: Sendable>(
+        cancellationPropagationObserver:
+            @escaping @Sendable () -> Void = {},
         _ operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
         let worker = Task.detached(priority: .userInitiated) {
@@ -690,6 +822,7 @@ final class ProjectStorageCoordinator {
             try await worker.value
         } onCancel: {
             worker.cancel()
+            cancellationPropagationObserver()
         }
     }
 
@@ -727,8 +860,12 @@ private enum ProjectStorageCoordinatorError: Error, LocalizedError {
 }
 
 private func performCleanup(
-    _ invocation: ProjectStorageCoordinator.CleanupInvocation
+    _ invocation: ProjectStorageCoordinator.CleanupInvocation,
+    workerObserver:
+        @Sendable (ProjectStorageWorkerPhase) -> Void = { _ in },
+    beforeExecutorGuard: @Sendable () throws -> Void = {}
 ) async throws -> ProjectStorageCoordinator.CleanupOutcome {
+    workerObserver(.cleanupPreparation)
     let preparation = try ProjectStorageCleanupReceiptWriter()
         .prepareConfirmedCleanup(
             .init(
@@ -748,6 +885,7 @@ private func performCleanup(
             )
         )
     do {
+        try beforeExecutorGuard()
         let execution = try await ProjectStorageCleanupExecutor().execute(
             .init(
                 projectURL: invocation.projectURL,
