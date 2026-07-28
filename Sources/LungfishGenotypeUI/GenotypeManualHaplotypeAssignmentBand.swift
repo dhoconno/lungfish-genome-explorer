@@ -119,6 +119,28 @@ struct GenotypeManualHaplotypeBandInvalidationPlan: Equatable {
     }
 }
 
+struct GenotypeManualHaplotypeValueLayout: Equatable {
+    static let textAlignment: NSTextAlignment = .center
+
+    let value: String
+    let rowRect: NSRect
+    let textRect: NSRect
+    let alignment: NSTextAlignment
+
+    static func drawingAttributes(
+        font: NSFont
+    ) -> [NSAttributedString.Key: Any] {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = textAlignment
+        paragraph.lineBreakMode = .byTruncatingTail
+        return [
+            .font: font,
+            .foregroundColor: NSColor.labelColor,
+            .paragraphStyle: paragraph,
+        ]
+    }
+}
+
 @MainActor
 private final class GenotypeManualHaplotypeDisclosureButton: NSButton {
     override var acceptsFirstResponder: Bool { true }
@@ -328,37 +350,64 @@ final class GenotypeManualHaplotypeSampleBandView:
         }
     }
 
+    func valueLayout(
+        sample: String,
+        locusIndex: Int
+    ) -> GenotypeManualHaplotypeValueLayout? {
+        guard isExpanded,
+              GenotypeManualHaplotypeAssignmentBandSnapshot.loci.indices
+                .contains(locusIndex),
+              let columnFrame = columnFrames[sample]
+        else {
+            return nil
+        }
+        let values = snapshot.valuesBySample[sample]
+            ?? Array(repeating: "—", count: 7)
+        let rowRect = NSRect(
+            x: columnFrame.minX + 3,
+            y: rowHeight * CGFloat(locusIndex + 1),
+            width: max(0, columnFrame.width - 6),
+            height: rowHeight
+        )
+        return GenotypeManualHaplotypeValueLayout(
+            value: values[locusIndex],
+            rowRect: rowRect,
+            textRect: rowRect.insetBy(
+                dx: 0,
+                dy: max(
+                    1,
+                    (
+                        rowHeight
+                            - font.boundingRectForFont.height
+                    ) / 2
+                )
+            ),
+            alignment: GenotypeManualHaplotypeValueLayout
+                .textAlignment
+        )
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard isExpanded else { return }
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = .center
-        paragraph.lineBreakMode = .byTruncatingTail
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: NSColor.labelColor,
-            .paragraphStyle: paragraph,
-        ]
+        let attributes =
+            GenotypeManualHaplotypeValueLayout.drawingAttributes(
+                font: font
+            )
         for (sample, columnFrame) in columnFrames
         where columnFrame.intersects(dirtyRect) {
-            let values = snapshot.valuesBySample[sample]
-                ?? Array(repeating: "—", count: 7)
-            for (index, value) in values.enumerated() {
-                let rowRect = NSRect(
-                    x: columnFrame.minX + 3,
-                    y: rowHeight * CGFloat(index + 1),
-                    width: max(0, columnFrame.width - 6),
-                    height: rowHeight
-                )
-                guard rowRect.intersects(dirtyRect) else { continue }
-                value.draw(
-                    in: rowRect.insetBy(
-                        dx: 0,
-                        dy: max(
-                            1,
-                            (rowHeight - font.boundingRectForFont.height) / 2
-                        )
-                    ),
+            for locusIndex in
+                GenotypeManualHaplotypeAssignmentBandSnapshot.loci.indices {
+                guard let layout = valueLayout(
+                    sample: sample,
+                    locusIndex: locusIndex
+                ),
+                      layout.rowRect.intersects(dirtyRect)
+                else {
+                    continue
+                }
+                layout.value.draw(
+                    in: layout.textRect,
                     withAttributes: attributes
                 )
             }

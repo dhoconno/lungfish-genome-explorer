@@ -71,6 +71,23 @@ struct GenotypeMatrixSelectorReuseNotificationSnapshot: Equatable {
     let afterDifferentIdentityConfiguration: Int
     let afterSameIdentityStateChange: Int
 }
+
+struct GenotypeMatrixFixedHeaderTestingSnapshot: Equatable {
+    let totalNativeHeaderHeight: CGFloat
+    let nativeHeaderRect: NSRect
+    let ordinarySampleHeaderRect: NSRect
+    let manualSectionRect: NSRect
+    let firstTableRowRect: NSRect?
+    let sampleTitleRect: NSRect
+    let sampleReadTextRect: NSRect
+    let sampleColumnRect: NSRect
+}
+
+struct GenotypeMatrixManualValueTestingSnapshot: Equatable {
+    let textRect: NSRect
+    let alignment: NSTextAlignment
+    let value: String
+}
 #endif
 
 /// Enforces the vertical document bounds for every AppKit scroll request while
@@ -6214,6 +6231,14 @@ extension GenotypeComparisonMatrixView {
     func testingScrollSampleMatrix(to origin: NSPoint) {
         scrollView.contentView.setBoundsOrigin(origin)
     }
+    func testingScrollSampleMatrixVertically(to y: CGFloat) {
+        let origin = NSPoint(
+            x: scrollView.contentView.bounds.origin.x,
+            y: y
+        )
+        scrollView.contentView.scroll(to: origin)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
     func testingConfigureSampleMatrixLegacyHorizontalScroller() {
         testingForcesLegacyBottomChrome = true
         scrollView.hasHorizontalScroller = true
@@ -6428,6 +6453,99 @@ extension GenotypeComparisonMatrixView {
 
     var testingManualHaplotypeBandFontPointSize: CGFloat {
         manualHaplotypeBandFont.pointSize
+    }
+
+    func testingFixedHeaderSnapshot(
+        sample: String
+    ) -> GenotypeMatrixFixedHeaderTestingSnapshot? {
+        guard let header =
+                tableView.headerView as? GenotypeMatrixHeaderView,
+              let columnIndex = tableView.tableColumns.firstIndex(
+                where: {
+                    sampleColumnLookup[$0.identifier] == sample
+                }
+              )
+        else {
+            return nil
+        }
+        let ordinaryLocalRect = header.headerRect(
+            ofColumn: columnIndex
+        )
+        let textBands = header.textBandRects(
+            in: ordinaryLocalRect,
+            leftInset: 20
+        )
+        let ordinaryRect = header.convert(
+            ordinaryLocalRect,
+            to: self
+        )
+        let manualRect = manualHaplotypeSampleBand.isHidden
+            || manualHaplotypeSampleBand.frame.isEmpty
+            ? .zero
+            : manualHaplotypeSampleBand.convert(
+                manualHaplotypeSampleBand.bounds,
+                to: self
+            )
+        let firstRowRect = tableView.numberOfRows > 0
+            ? tableView.convert(
+                tableView.rect(ofRow: 0),
+                to: self
+            )
+            : nil
+        return GenotypeMatrixFixedHeaderTestingSnapshot(
+            totalNativeHeaderHeight: header.frame.height,
+            nativeHeaderRect: header.convert(
+                header.bounds,
+                to: self
+            ),
+            ordinarySampleHeaderRect: ordinaryRect,
+            manualSectionRect: manualRect,
+            firstTableRowRect: firstRowRect,
+            sampleTitleRect: header.convert(
+                textBands.title,
+                to: self
+            ),
+            sampleReadTextRect: header.convert(
+                textBands.read,
+                to: self
+            ),
+            sampleColumnRect: tableView.convert(
+                tableView.rect(ofColumn: columnIndex),
+                to: self
+            )
+        )
+    }
+
+    func testingManualValueSnapshot(
+        sample: String,
+        locus: String
+    ) -> GenotypeMatrixManualValueTestingSnapshot? {
+        guard manualHaplotypeEditingEligible,
+              displayState.manualHaplotypeBandExpanded,
+              let normalizedLocus =
+                GenotypeManualHaplotypeLocus(normalizing: locus),
+              let locusIndex =
+                GenotypeManualHaplotypeAssignmentBandSnapshot.loci
+                    .firstIndex(of: normalizedLocus)
+        else {
+            return nil
+        }
+        guard let valueLayout =
+                manualHaplotypeSampleBand.valueLayout(
+                    sample: sample,
+                    locusIndex: locusIndex
+                )
+        else {
+            return nil
+        }
+        return GenotypeMatrixManualValueTestingSnapshot(
+            textRect: manualHaplotypeSampleBand.convert(
+                valueLayout.textRect,
+                to: self
+            ),
+            alignment: valueLayout.alignment,
+            value: valueLayout.value
+        )
     }
 
     func testingSetManualHaplotypeBandTypographyScale(_ scale: CGFloat?) {

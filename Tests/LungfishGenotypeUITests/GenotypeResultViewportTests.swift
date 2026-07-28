@@ -5619,6 +5619,221 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(accessibility.contains("MHC-A H1 A-H1, H2 A-H2"))
     }
 
+    func testExpandedManualHaplotypeSectionIsContainedByNativeMatrixHeader() throws {
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.frame = NSRect(x: 0, y: 0, width: 760, height: 520)
+        matrix.configure(
+            result: makeResult(
+                samples: [],
+                calls: [
+                    makeCall(
+                        sample: "AnimalA",
+                        genotype: "01_Mafa_A1_001_01",
+                        reads: 42
+                    ),
+                ]
+            )
+        )
+        matrix.layoutSubtreeIfNeeded()
+
+        let snapshot = try XCTUnwrap(
+            matrix.testingFixedHeaderSnapshot(sample: "AnimalA")
+        )
+        XCTAssertTrue(
+            snapshot.ordinarySampleHeaderRect.contains(
+                snapshot.sampleTitleRect
+            )
+        )
+        XCTAssertTrue(
+            snapshot.ordinarySampleHeaderRect.contains(
+                snapshot.sampleReadTextRect
+            )
+        )
+        XCTAssertFalse(snapshot.manualSectionRect.isEmpty)
+        XCTAssertTrue(
+            snapshot.nativeHeaderRect.contains(
+                snapshot.ordinarySampleHeaderRect
+            )
+        )
+        XCTAssertTrue(
+            snapshot.nativeHeaderRect.contains(
+                snapshot.manualSectionRect
+            ),
+            "The manual section must be spatially contained by the native header."
+        )
+        XCTAssertFalse(
+            snapshot.ordinarySampleHeaderRect.intersects(
+                snapshot.manualSectionRect
+            )
+        )
+        XCTAssertFalse(
+            snapshot.sampleTitleRect.intersects(
+                snapshot.manualSectionRect
+            )
+        )
+        XCTAssertFalse(
+            snapshot.sampleReadTextRect.intersects(
+                snapshot.manualSectionRect
+            )
+        )
+        XCTAssertEqual(
+            snapshot.totalNativeHeaderHeight,
+            snapshot.ordinarySampleHeaderRect.height
+                + snapshot.manualSectionRect.height,
+            accuracy: 0.5,
+            "The manual section must be part of the native fixed table header."
+        )
+        let firstRow = try XCTUnwrap(snapshot.firstTableRowRect)
+        XCTAssertFalse(
+            snapshot.manualSectionRect.intersects(firstRow),
+            "The first genotype row must begin below the fixed manual section."
+        )
+    }
+
+    func testNativeMatrixHeaderRegionsRemainFixedAfterVerticalScrolling() throws {
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.frame = NSRect(x: 0, y: 0, width: 760, height: 300)
+        matrix.configure(
+            result: makeResult(
+                samples: [],
+                calls: (0..<30).map { index in
+                    makeCall(
+                        sample: "AnimalA",
+                        genotype: String(
+                            format: "%02d_Mafa_A1_SCROLL_%02d",
+                            index,
+                            index
+                        ),
+                        reads: index + 1
+                    )
+                }
+            )
+        )
+        matrix.layoutSubtreeIfNeeded()
+        let before = try XCTUnwrap(
+            matrix.testingFixedHeaderSnapshot(sample: "AnimalA")
+        )
+        let beforeScrollY =
+            matrix.testingSampleMatrixScrollOffset.y
+
+        matrix.testingScrollSampleMatrixVertically(to: 180)
+        matrix.layoutSubtreeIfNeeded()
+
+        let after = try XCTUnwrap(
+            matrix.testingFixedHeaderSnapshot(sample: "AnimalA")
+        )
+        XCTAssertGreaterThan(
+            matrix.testingSampleMatrixScrollOffset.y,
+            beforeScrollY
+        )
+        XCTAssertEqual(
+            after.ordinarySampleHeaderRect,
+            before.ordinarySampleHeaderRect
+        )
+        XCTAssertEqual(after.manualSectionRect, before.manualSectionRect)
+    }
+
+    func testUnassignedManualHaplotypeValueIsCenteredInSampleColumn() throws {
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.frame = NSRect(x: 0, y: 0, width: 760, height: 520)
+        matrix.configure(
+            result: makeResult(
+                samples: [],
+                calls: [
+                    makeCall(
+                        sample: "AnimalA",
+                        genotype: "01_Mafa_A1_001_01",
+                        reads: 42
+                    ),
+                ]
+            )
+        )
+        matrix.layoutSubtreeIfNeeded()
+
+        let header = try XCTUnwrap(
+            matrix.testingFixedHeaderSnapshot(sample: "AnimalA")
+        )
+        let value = try XCTUnwrap(
+            matrix.testingManualValueSnapshot(
+                sample: "AnimalA",
+                locus: "MHC-A"
+            )
+        )
+        XCTAssertEqual(value.value, "—")
+        XCTAssertEqual(value.alignment, .center)
+        XCTAssertEqual(
+            value.textRect.midX,
+            header.sampleColumnRect.midX,
+            accuracy: 0.5
+        )
+    }
+
+    func testNativeMatrixHeaderHeightTracksExpandedManualRows() throws {
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.frame = NSRect(x: 0, y: 0, width: 760, height: 520)
+        matrix.configure(
+            result: makeResult(
+                samples: [],
+                calls: [
+                    makeCall(
+                        sample: "AnimalA",
+                        genotype: "01_Mafa_A1_001_01",
+                        reads: 42
+                    ),
+                ]
+            )
+        )
+        matrix.layoutSubtreeIfNeeded()
+        let expanded = try XCTUnwrap(
+            matrix.testingFixedHeaderSnapshot(sample: "AnimalA")
+        )
+
+        matrix.testingSetManualHaplotypeBandDisclosureExpanded(false)
+        matrix.layoutSubtreeIfNeeded()
+        let collapsed = try XCTUnwrap(
+            matrix.testingFixedHeaderSnapshot(sample: "AnimalA")
+        )
+        XCTAssertEqual(
+            expanded.totalNativeHeaderHeight
+                - collapsed.totalNativeHeaderHeight,
+            matrix.testingManualHaplotypeBandRowHeight * 7,
+            accuracy: 0.5
+        )
+    }
+
+    func testHaplotypedMatrixHasOnlyOrdinaryNativeHeader() throws {
+        let ineligible = GenotypeComparisonMatrixView()
+        ineligible.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: 760,
+            height: 520
+        )
+        ineligible.configure(
+            result: makeResult(
+                samples: [],
+                calls: [
+                    makeCall(
+                        sample: "AnimalA",
+                        genotype: "01_Mafa_A1_001_01",
+                        reads: 42
+                    ),
+                ],
+                haplotypeAnalysis: makeEmptyHaplotypeAnalysis()
+            )
+        )
+        ineligible.layoutSubtreeIfNeeded()
+        let ineligibleSnapshot = try XCTUnwrap(
+            ineligible.testingFixedHeaderSnapshot(sample: "AnimalA")
+        )
+        XCTAssertTrue(ineligibleSnapshot.manualSectionRect.isEmpty)
+        XCTAssertEqual(
+            ineligibleSnapshot.totalNativeHeaderHeight,
+            ineligibleSnapshot.ordinarySampleHeaderRect.height,
+            accuracy: 0.5
+        )
+    }
+
     func testManualHaplotypeBandDisclosurePersistsAndUsesContentTypography() {
         let matrix = GenotypeComparisonMatrixView()
         matrix.frame = NSRect(x: 0, y: 0, width: 760, height: 520)
