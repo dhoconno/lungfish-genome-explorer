@@ -181,7 +181,11 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishWorkflowTests",
-            dependencies: ["LungfishWorkflow", "LungfishTestSupport"],
+            dependencies: [
+                "LungfishIO",
+                "LungfishWorkflow",
+                "LungfishTestSupport",
+            ],
             path: "Tests/LungfishWorkflowTests",
             resources: [
                 .copy("Resources")

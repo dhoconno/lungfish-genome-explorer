@@ -2487,7 +2487,7 @@ public struct GenotypeWorkbookRevisionService {
             }
             let priorURL = URL(fileURLWithPath: priorPath, isDirectory: true)
             try validateSourceBundleTree(priorURL)
-            guard Darwin.renameatx_np(
+            guard PortableExclusiveRename.renameatxNP(
                 AT_FDCWD, priorURL.path,
                 AT_FDCWD, bundleURL.path,
                 UInt32(RENAME_EXCL)

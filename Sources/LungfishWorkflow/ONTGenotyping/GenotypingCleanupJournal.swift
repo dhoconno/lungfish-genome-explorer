@@ -158,7 +158,7 @@ enum GenotypingIdentityBoundCleanup {
             let originalURL = URL(fileURLWithPath: entry.path)
             let status = quarantineURL.path.withCString { source in
                 originalURL.path.withCString { destination in
-                    Darwin.renameatx_np(
+                    PortableExclusiveRename.renameatxNP(
                         AT_FDCWD,
                         source,
                         AT_FDCWD,
@@ -196,7 +196,7 @@ enum GenotypingIdentityBoundCleanup {
             )
         let detachStatus = originalURL.path.withCString { source in
             quarantineURL.path.withCString { quarantine in
-                Darwin.renameatx_np(
+                PortableExclusiveRename.renameatxNP(
                     AT_FDCWD,
                     source,
                     AT_FDCWD,
@@ -229,7 +229,7 @@ enum GenotypingIdentityBoundCleanup {
         guard detachedIdentity == entry.identity else {
             let restoreStatus = quarantineURL.path.withCString { source in
                 originalURL.path.withCString { destination in
-                    Darwin.renameatx_np(
+                    PortableExclusiveRename.renameatxNP(
                         AT_FDCWD,
                         source,
                         AT_FDCWD,
@@ -254,7 +254,7 @@ enum GenotypingIdentityBoundCleanup {
         } catch {
             let restoreStatus = quarantineURL.path.withCString { source in
                 originalURL.path.withCString { destination in
-                    Darwin.renameatx_np(
+                    PortableExclusiveRename.renameatxNP(
                         AT_FDCWD,
                         source,
                         AT_FDCWD,

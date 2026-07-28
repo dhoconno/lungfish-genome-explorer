@@ -75,7 +75,7 @@ public enum ProjectTempDirectory {
         static let defaultDetach: Detacher = { descriptor, source, destination in
             source.withCString { sourcePointer in
                 destination.withCString { destinationPointer in
-                    Darwin.renameatx_np(
+                    PortableExclusiveRename.renameatxNP(
                         descriptor,
                         sourcePointer,
                         descriptor,

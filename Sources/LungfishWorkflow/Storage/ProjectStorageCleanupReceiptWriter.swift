@@ -1011,7 +1011,7 @@ public struct ProjectStorageCleanupReceiptWriter: Sendable {
             }
             let renameStatus = stagingName.withCString { stagingNamePointer in
                 operationName.withCString { operationNamePointer in
-                    Darwin.renameatx_np(
+                    PortableExclusiveRename.renameatxNP(
                         collection,
                         stagingNamePointer,
                         collection,

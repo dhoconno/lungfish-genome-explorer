@@ -216,7 +216,13 @@ private struct DarwinFullLengthONTMHCAlignmentDirectoryRenamer:
     ) -> FullLengthONTMHCAlignmentDirectoryRenameAttempt {
         let status = stagedDirectoryURL.path.withCString { stagedPath in
             finalDirectoryURL.path.withCString { finalPath in
-                renameatx_np(AT_FDCWD, stagedPath, AT_FDCWD, finalPath, flags)
+                Darwin.renameatx_np(
+                    AT_FDCWD,
+                    stagedPath,
+                    AT_FDCWD,
+                    finalPath,
+                    flags
+                )
             }
         }
         return FullLengthONTMHCAlignmentDirectoryRenameAttempt(

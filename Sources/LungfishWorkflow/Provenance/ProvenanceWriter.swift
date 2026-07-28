@@ -4,6 +4,7 @@
 
 import Darwin
 import Foundation
+import LungfishIO
 
 public enum ProvenanceWriterError: Error, LocalizedError, Sendable, Equatable {
     case unstableSignatureArtifact(
@@ -156,12 +157,14 @@ public struct ProvenanceWriter: Sendable {
         (@Sendable (URL, URL) throws -> Void)?
     private let publicationMutationDidOccur:
         (@Sendable (ProvenanceWriterMutation) throws -> Void)?
+    private let durableAtomicFileStore: DurableAtomicFileStore
 
     public init(
         signingProvider: (any ProvenanceSigningProvider)? =
             ProvenanceSigningConfiguration.defaultProvider()
     ) {
         self.signingProvider = signingProvider
+        durableAtomicFileStore = DurableAtomicFileStore()
         publicationMutationDidOccur = nil
         exclusivePublicationPreRenameHook = nil
         exclusivePublicationPreMismatchCleanupHook = nil
@@ -176,7 +179,21 @@ public struct ProvenanceWriter: Sendable {
             ProvenanceSigningConfiguration.defaultProvider()
     ) {
         self.signingProvider = signingProvider
+        durableAtomicFileStore = DurableAtomicFileStore()
         self.publicationMutationDidOccur = publicationMutationDidOccur
+        exclusivePublicationPreRenameHook = nil
+        exclusivePublicationPreMismatchCleanupHook = nil
+        exclusivePublicationPreRollbackCleanupHook = nil
+        exclusivePublicationPreQuarantineRestoreHook = nil
+    }
+
+    init(
+        signingProvider: (any ProvenanceSigningProvider)?,
+        durableAtomicFileStore: DurableAtomicFileStore
+    ) {
+        self.signingProvider = signingProvider
+        self.durableAtomicFileStore = durableAtomicFileStore
+        publicationMutationDidOccur = nil
         exclusivePublicationPreRenameHook = nil
         exclusivePublicationPreMismatchCleanupHook = nil
         exclusivePublicationPreRollbackCleanupHook = nil
@@ -197,6 +214,7 @@ public struct ProvenanceWriter: Sendable {
             (@Sendable (ProvenanceWriterMutation) throws -> Void)? = nil
     ) {
         self.signingProvider = signingProvider
+        durableAtomicFileStore = DurableAtomicFileStore()
         self.publicationMutationDidOccur = publicationMutationDidOccur
         self.exclusivePublicationPreRenameHook =
             exclusivePublicationPreRenameHook
@@ -395,7 +413,7 @@ public struct ProvenanceWriter: Sendable {
                 )
                 let result = artifact.staged.path.withCString { sourcePath in
                     artifact.destination.path.withCString { destinationPath in
-                        Darwin.renameatx_np(
+                        PortableExclusiveRename.renameatxNP(
                             AT_FDCWD,
                             sourcePath,
                             AT_FDCWD,
@@ -647,6 +665,16 @@ public struct ProvenanceWriter: Sendable {
 
     private func writeUnsigned(_ envelope: ProvenanceEnvelope, toSidecar provenanceURL: URL) throws {
         let data = try ProvenanceJSON.encoder.encode(envelope)
+        if signingProvider == nil,
+           publicationMutationDidOccur == nil,
+           !FileManager.default.fileExists(atPath: provenanceURL.path) {
+            try durableAtomicFileStore.create(
+                data,
+                named: provenanceURL.lastPathComponent,
+                in: provenanceURL.deletingLastPathComponent()
+            )
+            return
+        }
         let temporaryURL = provenanceURL.deletingLastPathComponent()
             .appendingPathComponent(
                 ".\(provenanceURL.lastPathComponent)"
@@ -1067,7 +1095,7 @@ public struct ProvenanceWriter: Sendable {
     ) throws {
         let result = sourceURL.path.withCString { sourcePath in
             destinationURL.path.withCString { destinationPath in
-                Darwin.renameatx_np(
+                PortableExclusiveRename.renameatxNP(
                     AT_FDCWD,
                     sourcePath,
                     AT_FDCWD,
@@ -1088,6 +1116,19 @@ public struct ProvenanceWriter: Sendable {
         from sourceURL: URL,
         to destinationURL: URL
     ) throws -> Bool {
+        var sourceInfo = stat()
+        if sourceURL.path.withCString({
+            Darwin.lstat($0, &sourceInfo)
+        }) != 0 {
+            let code = errno
+            if code == ENOENT {
+                return false
+            }
+            throw ProvenanceWriterError.exclusivePublicationFailed(
+                path: sourceURL.path,
+                code: code
+            )
+        }
         do {
             try renameExclusively(
                 from: sourceURL,
@@ -1274,7 +1315,7 @@ public struct ProvenanceWriter: Sendable {
             )
         let quarantineResult = url.path.withCString { sourcePath in
             quarantineURL.path.withCString { quarantinePath in
-                Darwin.renameatx_np(
+                PortableExclusiveRename.renameatxNP(
                     AT_FDCWD,
                     sourcePath,
                     AT_FDCWD,
@@ -1306,7 +1347,7 @@ public struct ProvenanceWriter: Sendable {
             let restoreResult = quarantineURL.path.withCString {
                 quarantinePath in
                 url.path.withCString { originalPath in
-                    Darwin.renameatx_np(
+                    PortableExclusiveRename.renameatxNP(
                         AT_FDCWD,
                         quarantinePath,
                         AT_FDCWD,
@@ -1343,7 +1384,7 @@ public struct ProvenanceWriter: Sendable {
             let restoreResult = quarantineURL.path.withCString {
                 quarantinePath in
                 url.path.withCString { originalPath in
-                    Darwin.renameatx_np(
+                    PortableExclusiveRename.renameatxNP(
                         AT_FDCWD,
                         quarantinePath,
                         AT_FDCWD,

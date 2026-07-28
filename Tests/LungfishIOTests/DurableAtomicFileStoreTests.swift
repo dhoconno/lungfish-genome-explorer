@@ -182,6 +182,110 @@ final class DurableAtomicFileStoreTests: XCTestCase {
         )
         XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: root.path).isEmpty)
     }
+
+    func testUnsupportedExclusiveRenameFallsBackToExclusiveFileCreation() throws {
+        let store = DurableAtomicFileStore(operations: .init(
+            renameExclusive: { _, _, _, _, _ in
+                errno = ENOTSUP
+                return -1
+            }
+        ))
+
+        let destination = try store.create(
+            Data("portable".utf8),
+            named: "record.json",
+            in: root
+        )
+
+        XCTAssertEqual(try Data(contentsOf: destination), Data("portable".utf8))
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: root.path),
+            ["record.json"]
+        )
+    }
+
+    func testUnsupportedExclusiveRenamePreservesExistingDestination() throws {
+        let destination = root.appendingPathComponent("record.json")
+        try Data("existing".utf8).write(to: destination)
+        let store = DurableAtomicFileStore(operations: .init(
+            renameExclusive: { _, _, _, _, _ in
+                errno = ENOTSUP
+                return -1
+            }
+        ))
+
+        XCTAssertThrowsError(
+            try store.create(Data("replacement".utf8), named: "record.json", in: root)
+        ) { error in
+            guard case DurableAtomicFileStore.StoreError.destinationExists = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+        }
+
+        XCTAssertEqual(try Data(contentsOf: destination), Data("existing".utf8))
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: root.path),
+            ["record.json"]
+        )
+    }
+
+    func testExclusiveRenameFallbackPublishesDirectoryContents() throws {
+        let source = root.appendingPathComponent("source", isDirectory: true)
+        let destination = root.appendingPathComponent("destination", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: false)
+        try Data("payload".utf8).write(to: source.appendingPathComponent("payload.txt"))
+
+        let status = source.path.withCString { sourcePath in
+            destination.path.withCString { destinationPath in
+                PortableExclusiveRename.fallbackExclusiveRename(
+                    AT_FDCWD,
+                    sourcePath,
+                    AT_FDCWD,
+                    destinationPath
+                )
+            }
+        }
+
+        XCTAssertEqual(status, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: source.path))
+        XCTAssertEqual(
+            try Data(contentsOf: destination.appendingPathComponent("payload.txt")),
+            Data("payload".utf8)
+        )
+    }
+
+    func testExclusiveRenameFallbackPreservesExistingDirectory() throws {
+        let source = root.appendingPathComponent("source", isDirectory: true)
+        let destination = root.appendingPathComponent("destination", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: false)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: false)
+        try Data("source".utf8).write(to: source.appendingPathComponent("source.txt"))
+        try Data("destination".utf8).write(
+            to: destination.appendingPathComponent("destination.txt")
+        )
+
+        let status = source.path.withCString { sourcePath in
+            destination.path.withCString { destinationPath in
+                PortableExclusiveRename.fallbackExclusiveRename(
+                    AT_FDCWD,
+                    sourcePath,
+                    AT_FDCWD,
+                    destinationPath
+                )
+            }
+        }
+
+        XCTAssertEqual(status, -1)
+        XCTAssertEqual(errno, EEXIST)
+        XCTAssertEqual(
+            try Data(contentsOf: source.appendingPathComponent("source.txt")),
+            Data("source".utf8)
+        )
+        XCTAssertEqual(
+            try Data(contentsOf: destination.appendingPathComponent("destination.txt")),
+            Data("destination".utf8)
+        )
+    }
 }
 
 private final class RollbackDetachSwap: @unchecked Sendable {

@@ -2625,7 +2625,13 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         } else {
             let status = stagedOutputURL.path.withCString { stagedPath in
                 finalOutputURL.path.withCString { finalPath in
-                    renameatx_np(AT_FDCWD, stagedPath, AT_FDCWD, finalPath, flags)
+                    Darwin.renameatx_np(
+                        AT_FDCWD,
+                        stagedPath,
+                        AT_FDCWD,
+                        finalPath,
+                        flags
+                    )
                 }
             }
             initialErrorNumber = status == 0 ? nil : errno
@@ -2938,7 +2944,13 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         if replacingExisting {
             let status = stagedOutputURL.path.withCString { stagedPath in
                 finalOutputURL.path.withCString { finalPath in
-                    renameatx_np(AT_FDCWD, stagedPath, AT_FDCWD, finalPath, UInt32(RENAME_SWAP))
+                    Darwin.renameatx_np(
+                        AT_FDCWD,
+                        stagedPath,
+                        AT_FDCWD,
+                        finalPath,
+                        UInt32(RENAME_SWAP)
+                    )
                 }
             }
             guard status == 0 else {
@@ -3016,7 +3028,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             : stagedURL
         let status = finalURL.path.withCString { finalPath in
             quarantineURL.path.withCString { quarantinePath in
-                renameatx_np(
+                PortableExclusiveRename.renameatxNP(
                     AT_FDCWD,
                     finalPath,
                     AT_FDCWD,
@@ -6139,7 +6151,13 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         } else {
             let status = plan.stagedURL.path.withCString { stagedPath in
                 plan.finalURL.path.withCString { finalPath in
-                    renameatx_np(AT_FDCWD, stagedPath, AT_FDCWD, finalPath, UInt32(RENAME_EXCL))
+                    Darwin.renameatx_np(
+                        AT_FDCWD,
+                        stagedPath,
+                        AT_FDCWD,
+                        finalPath,
+                        UInt32(RENAME_EXCL)
+                    )
                 }
             }
             errorNumber = status == 0 ? nil : errno

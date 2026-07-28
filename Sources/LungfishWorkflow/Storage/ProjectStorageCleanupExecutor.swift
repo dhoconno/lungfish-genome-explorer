@@ -383,7 +383,7 @@ public struct ProjectStorageCleanupExecutor: Sendable {
                     destination, flags in
                     source.withCString { sourcePointer in
                         destination.withCString { destinationPointer in
-                            Darwin.renameatx_np(
+                            PortableExclusiveRename.renameatxNP(
                                 sourceParent,
                                 sourcePointer,
                                 destinationParent,

@@ -1518,7 +1518,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         )
         let rename: ONTGenotypeDirectoryRenamePrimitive = renamePrimitive ?? {
             sourceParent, sourceName, destinationParent, destinationName, flags in
-            Darwin.renameatx_np(
+            PortableExclusiveRename.renameatxNP(
                 sourceParent,
                 sourceName,
                 destinationParent,
@@ -1864,7 +1864,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         )
         let rename: ONTGenotypeDirectoryRenamePrimitive = renamePrimitive ?? {
             sourceParent, sourceName, destinationParent, destinationName, flags in
-            Darwin.renameatx_np(sourceParent, sourceName, destinationParent, destinationName, flags)
+            PortableExclusiveRename.renameatxNP(sourceParent, sourceName, destinationParent, destinationName, flags)
         }
         if rename(lhsParent, lhs.lastPathComponent, rhsParent, rhs.lastPathComponent, UInt32(RENAME_SWAP)) != 0 {
             let swapError = errno
@@ -2542,7 +2542,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         }
         let publishStatus = temporaryName.withCString { sourceName in
             url.lastPathComponent.withCString { destinationName in
-                Darwin.renameatx_np(
+                PortableExclusiveRename.renameatxNP(
                     rootDescriptor,
                     sourceName,
                     rootDescriptor,

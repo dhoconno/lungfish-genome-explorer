@@ -5,6 +5,7 @@
 import Foundation
 import Darwin
 import CryptoKit
+import LungfishIO
 
 public enum ProvenancePublicationSnapshotError:
     Error, LocalizedError, Sendable
@@ -504,7 +505,7 @@ public struct ProvenancePublicationSnapshot {
     ) throws -> Bool {
         let result = sourceURL.path.withCString { sourcePath in
             destinationURL.path.withCString { destinationPath in
-                Darwin.renameatx_np(
+                PortableExclusiveRename.renameatxNP(
                     AT_FDCWD,
                     sourcePath,
                     AT_FDCWD,

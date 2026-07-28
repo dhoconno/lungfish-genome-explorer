@@ -1329,7 +1329,7 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
         if previousIdentity != nil {
             renameStatus = stagingName.withCString { staging in
                 outputName.withCString { output in
-                    Darwin.renameatx_np(
+                    PortableExclusiveRename.renameatxNP(
                         projectionsDescriptor,
                         staging,
                         projectionsDescriptor,
@@ -1341,7 +1341,7 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
         } else {
             renameStatus = stagingName.withCString { staging in
                 outputName.withCString { output in
-                    Darwin.renameatx_np(
+                    PortableExclusiveRename.renameatxNP(
                         projectionsDescriptor,
                         staging,
                         projectionsDescriptor,
@@ -1495,7 +1495,7 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
                 try rollbackObserver(.beforeRestoreExchange)
                 let status = stagingName.withCString { staging in
                     outputName.withCString { output in
-                        Darwin.renameatx_np(
+                        PortableExclusiveRename.renameatxNP(
                             directoryDescriptor,
                             staging,
                             directoryDescriptor,
@@ -1565,7 +1565,7 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
                 try rollbackObserver(.beforeDetachNewOutput)
                 let status = outputName.withCString { output in
                     stagingName.withCString { staging in
-                        Darwin.renameatx_np(
+                        PortableExclusiveRename.renameatxNP(
                             directoryDescriptor,
                             output,
                             directoryDescriptor,
@@ -1627,7 +1627,7 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
     ) throws {
         let status = sourceName.withCString { source in
             detachedName.withCString { detached in
-                Darwin.renameatx_np(
+                PortableExclusiveRename.renameatxNP(
                     directoryDescriptor,
                     source,
                     directoryDescriptor,
@@ -1663,7 +1663,7 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
             .appendingPathComponent(terminalName)
         let terminalStatus = detachedName.withCString { detached in
             terminalName.withCString { terminal in
-                Darwin.renameatx_np(
+                PortableExclusiveRename.renameatxNP(
                     directoryDescriptor,
                     detached,
                     directoryDescriptor,
@@ -1683,7 +1683,7 @@ public struct GenotypeReviewableRowCatalogPublisher: Sendable {
         ) == expectedIdentity else {
             _ = terminalName.withCString { terminal in
                 detachedName.withCString { detached in
-                    Darwin.renameatx_np(
+                    PortableExclusiveRename.renameatxNP(
                         directoryDescriptor,
                         terminal,
                         directoryDescriptor,

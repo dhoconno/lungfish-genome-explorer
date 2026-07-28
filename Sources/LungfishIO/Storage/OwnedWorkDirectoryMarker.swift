@@ -937,7 +937,7 @@ public enum OwnedWorkDirectoryMarkerStore {
             .appendingPathComponent(quarantineName, isDirectory: true)
         let detachStatus = childName.withCString { source in
             quarantineName.withCString { quarantine in
-                Darwin.renameatx_np(
+                PortableExclusiveRename.renameatxNP(
                     parentDescriptor,
                     source,
                     parentDescriptor,
@@ -968,7 +968,7 @@ public enum OwnedWorkDirectoryMarkerStore {
               FileSystemObjectIdentity(quarantineInfo) == expectedIdentity else {
             let restoreStatus = quarantineName.withCString { quarantine in
                 childName.withCString { destination in
-                    Darwin.renameatx_np(
+                    PortableExclusiveRename.renameatxNP(
                         parentDescriptor,
                         quarantine,
                         parentDescriptor,

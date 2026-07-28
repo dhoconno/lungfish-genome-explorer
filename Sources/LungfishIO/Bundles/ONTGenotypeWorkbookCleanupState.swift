@@ -117,7 +117,7 @@ enum ONTGenotypeWorkbookRetirement {
             ".lungfish-workbook-retiring-\(UUID().uuidString.lowercased())"
         let detached = url.lastPathComponent.withCString { sourceName in
             tombstone.withCString { destinationName in
-                Darwin.renameatx_np(
+                PortableExclusiveRename.renameatxNP(
                     parentDescriptor,
                     sourceName,
                     parentDescriptor,
@@ -162,7 +162,7 @@ enum ONTGenotypeWorkbookRetirement {
             ".lungfish-workbook-retiring-\(UUID().uuidString.lowercased())"
         let redetached = tombstone.withCString { sourceName in
             finalTombstone.withCString { destinationName in
-                Darwin.renameatx_np(
+                PortableExclusiveRename.renameatxNP(
                     parentDescriptor,
                     sourceName,
                     parentDescriptor,
@@ -225,7 +225,7 @@ enum ONTGenotypeWorkbookRetirement {
             ".lungfish-workbook-retiring-\(UUID().uuidString.lowercased())"
         let detached = name.withCString { sourceName in
             tombstone.withCString { destinationName in
-                Darwin.renameatx_np(
+                PortableExclusiveRename.renameatxNP(
                     parentDescriptor,
                     sourceName,
                     parentDescriptor,
@@ -281,7 +281,7 @@ enum ONTGenotypeWorkbookRetirement {
             ".lungfish-workbook-retiring-\(UUID().uuidString.lowercased())"
         let redetached = tombstone.withCString { sourceName in
             finalTombstone.withCString { destinationName in
-                Darwin.renameatx_np(
+                PortableExclusiveRename.renameatxNP(
                     parentDescriptor,
                     sourceName,
                     parentDescriptor,
@@ -338,7 +338,7 @@ enum ONTGenotypeWorkbookRetirement {
     ) throws {
         let restored = tombstone.withCString { sourceName in
             original.withCString { destinationName in
-                Darwin.renameatx_np(
+                PortableExclusiveRename.renameatxNP(
                     parentDescriptor,
                     sourceName,
                     parentDescriptor,
@@ -1413,7 +1413,7 @@ enum ONTGenotypeWorkbookCleanupStateStore {
                 let tombstone = ".lungfish-cleanup-entry-\(UUID().uuidString.lowercased())"
                 let detach = name.withCString { source in
                     tombstone.withCString { destination in
-                        Darwin.renameatx_np(
+                        PortableExclusiveRename.renameatxNP(
                             descriptor,
                             source,
                             descriptor,
@@ -1438,7 +1438,7 @@ enum ONTGenotypeWorkbookCleanupStateStore {
                       detached.st_mode & S_IFMT == info.st_mode & S_IFMT else {
                     _ = tombstone.withCString { source in
                         name.withCString { destination in
-                            Darwin.renameatx_np(
+                            PortableExclusiveRename.renameatxNP(
                                 descriptor,
                                 source,
                                 descriptor,

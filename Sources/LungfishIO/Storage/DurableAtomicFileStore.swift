@@ -33,12 +33,20 @@ public struct DurableAtomicFileStore: Sendable {
     public struct Operations: Sendable {
         public typealias Synchronizer = @Sendable (Int32) -> Int32
         public typealias EntryRemover = @Sendable (Int32, String) -> Int32
+        public typealias ExclusiveRenamer = @Sendable (
+            Int32,
+            UnsafePointer<CChar>,
+            Int32,
+            UnsafePointer<CChar>,
+            UInt32
+        ) -> Int32
 
         public var syncFile: Synchronizer
         public var syncDirectory: Synchronizer
         public var syncRollbackDirectory: Synchronizer
         public var removeRollbackFile: EntryRemover
         public var beforeRollbackDetach: @Sendable () -> Void
+        public var renameExclusive: ExclusiveRenamer
 
         public init(
             syncFile: @escaping Synchronizer = { Darwin.fsync($0) },
@@ -47,13 +55,17 @@ public struct DurableAtomicFileStore: Sendable {
             removeRollbackFile: @escaping EntryRemover = { descriptor, name in
                 name.withCString { Darwin.unlinkat(descriptor, $0, 0) }
             },
-            beforeRollbackDetach: @escaping @Sendable () -> Void = {}
+            beforeRollbackDetach: @escaping @Sendable () -> Void = {},
+            renameExclusive: @escaping ExclusiveRenamer = {
+                PortableExclusiveRename.renameatxNP($0, $1, $2, $3, $4)
+            }
         ) {
             self.syncFile = syncFile
             self.syncDirectory = syncDirectory
             self.syncRollbackDirectory = syncRollbackDirectory
             self.removeRollbackFile = removeRollbackFile
             self.beforeRollbackDetach = beforeRollbackDetach
+            self.renameExclusive = renameExclusive
         }
     }
 
@@ -161,15 +173,28 @@ public struct DurableAtomicFileStore: Sendable {
             }
             descriptorIsOpen = false
 
-            let renameStatus = temporaryName.withCString { temporary in
+            var renameStatus = temporaryName.withCString { temporary in
                 fileName.withCString { destination in
-                    Darwin.renameatx_np(
+                    operations.renameExclusive(
                         directoryDescriptor,
                         temporary,
                         directoryDescriptor,
                         destination,
                         UInt32(RENAME_EXCL)
                     )
+                }
+            }
+            if renameStatus != 0,
+               PortableExclusiveRename.isUnsupportedExclusiveRename(errno) {
+                renameStatus = temporaryName.withCString { temporary in
+                    fileName.withCString { destination in
+                        PortableExclusiveRename.fallbackExclusiveRename(
+                            directoryDescriptor,
+                            temporary,
+                            directoryDescriptor,
+                            destination
+                        )
+                    }
                 }
             }
             guard renameStatus == 0 else {
@@ -276,7 +301,7 @@ public struct DurableAtomicFileStore: Sendable {
         let quarantineURL = directoryURL.appendingPathComponent(quarantineName)
         let renameStatus = fileName.withCString { source in
             quarantineName.withCString { quarantine in
-                Darwin.renameatx_np(
+                PortableExclusiveRename.renameatxNP(
                     directoryDescriptor,
                     source,
                     directoryDescriptor,
@@ -304,7 +329,7 @@ public struct DurableAtomicFileStore: Sendable {
             // otherwise leave the quarantine as recoverable evidence.
             let restoreStatus = quarantineName.withCString { quarantine in
                 fileName.withCString { destination in
-                    Darwin.renameatx_np(
+                    PortableExclusiveRename.renameatxNP(
                         directoryDescriptor,
                         quarantine,
                         directoryDescriptor,

@@ -175,7 +175,7 @@ public struct ProjectOperationHistoryWriter: Sendable {
             try operations.beforePublish(stagingURL, operationURL)
             let renameStatus = stagingName.withCString { staging in
                 operationName.withCString { final in
-                    Darwin.renameatx_np(
+                    PortableExclusiveRename.renameatxNP(
                         descriptors.history,
                         staging,
                         descriptors.history,
@@ -350,7 +350,7 @@ public struct ProjectOperationHistoryWriter: Sendable {
             .appendingPathComponent(quarantineName, isDirectory: true)
         let detachStatus = stagingName.withCString { staging in
             quarantineName.withCString { quarantine in
-                Darwin.renameatx_np(
+                PortableExclusiveRename.renameatxNP(
                     historyDescriptor,
                     staging,
                     historyDescriptor,
@@ -381,7 +381,7 @@ public struct ProjectOperationHistoryWriter: Sendable {
               FileSystemObjectIdentity(from: quarantineInfo) == expectedIdentity else {
             let restoreStatus = quarantineName.withCString { quarantine in
                 stagingName.withCString { staging in
-                    Darwin.renameatx_np(
+                    PortableExclusiveRename.renameatxNP(
                         historyDescriptor,
                         quarantine,
                         historyDescriptor,

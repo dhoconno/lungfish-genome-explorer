@@ -5,6 +5,7 @@
 import Darwin
 import Foundation
 import Testing
+import LungfishIO
 @testable import LungfishWorkflow
 
 @Suite("Provenance Signing")
@@ -374,6 +375,40 @@ struct ProvenanceSigningTests {
                 == ProvenanceSigningConfiguration.publicKeyURL(
                     for: provenanceURL
                 ).lastPathComponent
+        )
+    }
+
+    @Test("Unsigned writer publishes on filesystems without exclusive rename")
+    func testUnsignedWriterFallsBackWhenExclusiveRenameIsUnsupported() throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let provenanceURL = directory.appendingPathComponent(
+            "portable.lungfish-provenance.json"
+        )
+        let store = DurableAtomicFileStore(operations: .init(
+            renameExclusive: { _, _, _, _, _ in
+                errno = ENOTSUP
+                return -1
+            }
+        ))
+        let writer = ProvenanceWriter(
+            signingProvider: nil,
+            durableAtomicFileStore: store
+        )
+
+        try writer.write(
+            ProvenanceEnvelope.fixture(),
+            toSidecar: provenanceURL
+        )
+
+        let decoded = try ProvenanceEnvelopeReader.decode(
+            Data(contentsOf: provenanceURL)
+        )
+        #expect(decoded.workflowName == ProvenanceEnvelope.fixture().workflowName)
+        #expect(
+            try FileManager.default.contentsOfDirectory(
+                atPath: directory.path
+            ) == [provenanceURL.lastPathComponent]
         )
     }
 
