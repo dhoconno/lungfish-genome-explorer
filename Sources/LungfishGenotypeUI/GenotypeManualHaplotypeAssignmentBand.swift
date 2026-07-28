@@ -141,6 +141,47 @@ struct GenotypeManualHaplotypeValueLayout: Equatable {
     }
 }
 
+/// Value-semantic geometry for the ordinary and manual regions of a native
+/// matrix table header.
+struct GenotypeManualHaplotypeHeaderLayout: Equatable {
+    let isEligible: Bool
+    let isExpanded: Bool
+    let ordinaryHeight: CGFloat
+    let rowHeight: CGFloat
+
+    var manualHeight: CGFloat {
+        guard isEligible else { return 0 }
+        return rowHeight * CGFloat(isExpanded ? 8 : 1)
+    }
+
+    var totalHeight: CGFloat {
+        ordinaryHeight + manualHeight
+    }
+
+    func ordinaryRect(in bounds: NSRect, isFlipped: Bool) -> NSRect {
+        NSRect(
+            x: bounds.minX,
+            y: isFlipped
+                ? bounds.minY
+                : bounds.maxY - ordinaryHeight,
+            width: bounds.width,
+            height: min(max(ordinaryHeight, 0), bounds.height)
+        )
+    }
+
+    func manualRect(in bounds: NSRect, isFlipped: Bool) -> NSRect {
+        guard manualHeight > 0 else { return .zero }
+        return NSRect(
+            x: bounds.minX,
+            y: isFlipped
+                ? bounds.minY + ordinaryHeight
+                : bounds.minY,
+            width: bounds.width,
+            height: min(manualHeight, max(0, bounds.height - ordinaryHeight))
+        )
+    }
+}
+
 @MainActor
 private final class GenotypeManualHaplotypeDisclosureButton: NSButton {
     override var acceptsFirstResponder: Bool { true }
@@ -343,7 +384,7 @@ final class GenotypeManualHaplotypeSampleBandView:
         let plan = GenotypeManualHaplotypeBandInvalidationPlan(
             samples: samples,
             columnFrames: columnFrames,
-            visibleBounds: bounds
+            visibleBounds: visibleRect
         )
         for rect in plan.rects {
             setNeedsDisplay(rect)

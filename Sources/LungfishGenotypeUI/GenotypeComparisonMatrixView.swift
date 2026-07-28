@@ -245,10 +245,15 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private var manualHaplotypeBandGeometryDirty = true
     private var manualHaplotypeBandHorizontalOffset: CGFloat?
     private var manualHaplotypeBandBoundsSize = NSSize.zero
+    private var manualHaplotypeBandCachedCoverageRect = NSRect.zero
+    private var manualHaplotypeBandCachedOverscanWidth: CGFloat?
 #if DEBUG
     private var testingManualHaplotypeBandInvalidatedSampleSet =
         Set<String>()
     private var testingManualHaplotypeBandTypographyScaleOverride: CGFloat?
+    private var testingManualHaplotypeGeometryUpdateCount = 0
+    private var testingManualHaplotypeGeometryRecomputationCount = 0
+    private var testingManualHaplotypeGeometryInspectedColumnCount = 0
     private var testingForcesLegacyBottomChrome = false
 #endif
     private var pinnedWidthConstraint: NSLayoutConstraint?
@@ -965,9 +970,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             self.applyManualHaplotypeBandPresentation()
             self.onManualHaplotypeBandExpansionChanged?(expanded)
         }
-        addSubview(manualHaplotypePinnedBand)
         manualHaplotypeSampleBand.isHidden = true
-        addSubview(manualHaplotypeSampleBand)
 
         configureTableView(pinnedTableView)
         configureTableView(tableView)
@@ -1033,6 +1036,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         pinnedHeaderView.readTitleForColumn = { [weak self] column in
             self?.readTitle(forColumnAt: column, in: self?.pinnedTableView)
         }
+        pinnedHeaderView.manualContentView = manualHaplotypePinnedBand
         pinnedTableView.headerView = pinnedHeaderView
         pinnedTableView.setAccessibilityIdentifier("genotype-comparison-pinned-table")
         pinnedTableView.setAccessibilityLabel("Shared genotype calls, loci, and summary statistics")
@@ -1088,6 +1092,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             guard let self, let sample = self.sampleName(forColumnAt: column) else { return nil }
             return self.contextMenu(for: .column(sample: sample))
         }
+        headerView.manualContentView = manualHaplotypeSampleBand
         tableView.headerView = headerView
         tableView.setAccessibilityIdentifier("genotype-comparison-table")
         tableView.setAccessibilityLabel("Shared genotype calls by sample")
@@ -1167,7 +1172,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         super.layout()
         setPinnedPaneWidth(pinnedWidthConstraint?.constant ?? 360, persist: false)
         synchronizePinnedScrollBottomInset()
-        layoutManualHaplotypeBand()
+        updateManualHaplotypeBandColumnGeometry()
     }
 
     @objc private func scrollViewBoundsChanged(_ notification: Notification) {
@@ -1180,7 +1185,10 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         switch sourceContentView {
         case scrollView.contentView:
             destinationContentView = pinnedScrollView.contentView
-            updateManualHaplotypeBandColumnGeometry()
+            if manualHaplotypeBandHorizontalOffset
+                != sourceContentView.bounds.origin.x {
+                updateManualHaplotypeBandColumnGeometry()
+            }
         case pinnedScrollView.contentView:
             destinationContentView = scrollView.contentView
         default:
@@ -1255,6 +1263,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         testingColumnRebuildCount += 1
 #endif
         manualHaplotypeBandGeometryDirty = true
+        manualHaplotypeBandCachedCoverageRect = .zero
+        manualHaplotypeBandCachedOverscanWidth = nil
         let preservedSortDescriptors = activeSortDescriptors
         suppressSortDescriptorSync = true
         captureStableSampleColumnState()
@@ -1320,8 +1330,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
         rebuildVisibleColumnIndex()
         updatePinnedWidth()
-        pinnedTableView.headerView?.frame.size.height = 34
-        tableView.headerView?.frame.size.height = 34
+        updateNativeHeaderLayout(ordinaryHeight: 34)
         rebuildPinnedColumnMenu()
         updateColumnCommentMetadata()
         registerColumnTypographyBaselines()
@@ -2086,16 +2095,16 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             pinnedTableView.rect(ofRow: $0).minY + anchor.withinRowOffset
         } ?? 0
         let proposedSampleX = restoredSampleHorizontalOrigin(for: anchor)
-        suppressScrollSync = true
-        scroll(
-            pinnedScrollView,
-            to: NSPoint(x: anchor.pinnedHorizontalOrigin, y: proposedY)
-        )
-        scroll(
-            scrollView,
-            to: NSPoint(x: proposedSampleX, y: proposedY)
-        )
-        suppressScrollSync = false
+        withScrollSyncSuppressed {
+            scroll(
+                pinnedScrollView,
+                to: NSPoint(x: anchor.pinnedHorizontalOrigin, y: proposedY)
+            )
+            scroll(
+                scrollView,
+                to: NSPoint(x: proposedSampleX, y: proposedY)
+            )
+        }
     }
 
     private func restoredSampleHorizontalOrigin(
@@ -2143,6 +2152,20 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         bounds.origin = origin
         clipView.scroll(to: clipView.constrainBoundsRect(bounds).origin)
         scrollView.reflectScrolledClipView(clipView)
+    }
+
+    private func withScrollSyncSuppressed(_ action: () -> Void) {
+        let wasSuppressed = suppressScrollSync
+        let previousSampleX = scrollView.contentView.bounds.origin.x
+        suppressScrollSync = true
+        action()
+        suppressScrollSync = wasSuppressed
+        guard !wasSuppressed,
+              scrollView.contentView.bounds.origin.x
+                != previousSampleX else {
+            return
+        }
+        updateManualHaplotypeBandColumnGeometry()
     }
 
     private func reconcileSelectionAfterFilter() {
@@ -2411,6 +2434,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         if resizedTable === tableView {
             captureStableSampleColumnState()
             manualHaplotypeBandGeometryDirty = true
+            manualHaplotypeBandCachedCoverageRect = .zero
+            updateManualHaplotypeBandColumnGeometry()
             return
         }
         var widths = restoredColumnWidths
@@ -2582,14 +2607,14 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             byExtendingSelection: false
         )
         suppressSelectionClearedCallback = false
-        suppressScrollSync = true
-        pinnedScrollView.contentView.setBoundsOrigin(
-            scrollOrigins.pinned
-        )
-        scrollView.contentView.setBoundsOrigin(
-            scrollOrigins.samples
-        )
-        suppressScrollSync = false
+        withScrollSyncSuppressed {
+            pinnedScrollView.contentView.setBoundsOrigin(
+                scrollOrigins.pinned
+            )
+            scrollView.contentView.setBoundsOrigin(
+                scrollOrigins.samples
+            )
+        }
         pinnedScrollView.reflectScrolledClipView(
             pinnedScrollView.contentView
         )
@@ -3919,6 +3944,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         captureStableSampleColumnState()
         rebuildVisibleColumnIndex()
         manualHaplotypeBandGeometryDirty = true
+        manualHaplotypeBandCachedCoverageRect = .zero
+        updateManualHaplotypeBandColumnGeometry()
     }
 
     @discardableResult
@@ -4683,15 +4710,23 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     private var manualHaplotypeBandHeight: CGFloat {
-        guard manualHaplotypeEditingEligible else { return 0 }
-        return manualHaplotypeBandRowHeight
-            * CGFloat(displayState.manualHaplotypeBandExpanded ? 8 : 1)
+        manualHaplotypeHeaderLayout(ordinaryHeight: 0).manualHeight
     }
 
     private func applyManualHaplotypeBandPresentation() {
         let hidden = !manualHaplotypeEditingEligible
-        pinnedScrollView.automaticallyAdjustsContentInsets = hidden
-        scrollView.automaticallyAdjustsContentInsets = hidden
+        pinnedScrollView.automaticallyAdjustsContentInsets = true
+        scrollView.automaticallyAdjustsContentInsets = true
+        if pinnedScrollView.contentInsets.top != 0 {
+            var insets = pinnedScrollView.contentInsets
+            insets.top = 0
+            pinnedScrollView.contentInsets = insets
+        }
+        if scrollView.contentInsets.top != 0 {
+            var insets = scrollView.contentInsets
+            insets.top = 0
+            scrollView.contentInsets = insets
+        }
         manualHaplotypePinnedBand.isHidden = hidden
         manualHaplotypeSampleBand.isHidden = hidden
         manualHaplotypePinnedBand.isExpanded =
@@ -4707,128 +4742,176 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         manualHaplotypePinnedBand.needsLayout = true
         manualHaplotypePinnedBand.needsDisplay = true
         manualHaplotypeSampleBand.needsDisplay = true
+        manualHaplotypeBandGeometryDirty = true
+        manualHaplotypeBandCachedCoverageRect = .zero
+        updateNativeHeaderLayout()
         needsLayout = true
     }
 
-    private func layoutManualHaplotypeBand() {
-        let height = manualHaplotypeBandHeight
-        if pinnedScrollView.contentInsets.top != height {
-            var pinnedInsets = pinnedScrollView.contentInsets
-            pinnedInsets.top = height
-            pinnedScrollView.contentInsets = pinnedInsets
-        }
-        if scrollView.contentInsets.top != height {
-            var sampleInsets = scrollView.contentInsets
-            sampleInsets.top = height
-            scrollView.contentInsets = sampleInsets
-        }
+    private func manualHaplotypeHeaderLayout(
+        ordinaryHeight: CGFloat
+    ) -> GenotypeManualHaplotypeHeaderLayout {
+        GenotypeManualHaplotypeHeaderLayout(
+            isEligible: manualHaplotypeEditingEligible,
+            isExpanded: displayState.manualHaplotypeBandExpanded,
+            ordinaryHeight: ordinaryHeight,
+            rowHeight: manualHaplotypeBandRowHeight
+        )
+    }
 
-        guard height > 0 else {
-            manualHaplotypePinnedBand.frame = .zero
-            manualHaplotypeSampleBand.frame = .zero
-            return
+    private func updateNativeHeaderLayout(
+        ordinaryHeight: CGFloat? = nil
+    ) {
+        let resolvedOrdinaryHeight = ordinaryHeight
+            ?? (tableView.headerView as? GenotypeMatrixHeaderView)?
+                .ordinaryHeaderHeight
+            ?? 34
+        let layout = manualHaplotypeHeaderLayout(
+            ordinaryHeight: resolvedOrdinaryHeight
+        )
+        for header in [
+            pinnedTableView.headerView as? GenotypeMatrixHeaderView,
+            tableView.headerView as? GenotypeMatrixHeaderView,
+        ].compactMap({ $0 }) {
+            header.headerLayout = layout
         }
-        let pinnedHeaderHeight =
-            pinnedTableView.headerView?.frame.height ?? 0
-        let sampleHeaderHeight = tableView.headerView?.frame.height ?? 0
-        manualHaplotypePinnedBand.frame = NSRect(
-            x: pinnedScrollView.frame.minX,
-            y: pinnedScrollView.frame.maxY - pinnedHeaderHeight - height,
-            width: pinnedScrollView.frame.width,
-            height: height
-        )
-        manualHaplotypeSampleBand.frame = NSRect(
-            x: scrollView.frame.minX,
-            y: scrollView.frame.maxY - sampleHeaderHeight - height,
-            width: scrollView.frame.width,
-            height: height
-        )
+        pinnedScrollView.tile()
+        scrollView.tile()
         updateManualHaplotypeBandColumnGeometry()
     }
 
     private func updateManualHaplotypeBandColumnGeometry() {
+#if DEBUG
+        testingManualHaplotypeGeometryUpdateCount += 1
+#endif
         guard manualHaplotypeEditingEligible,
               manualHaplotypeBandHeight > 0,
               !manualHaplotypeSampleBand.bounds.isEmpty else {
             if !manualHaplotypeSampleBand.columnFrames.isEmpty {
                 manualHaplotypeSampleBand.columnFrames = [:]
             }
-            manualHaplotypeSampleBand.setBoundsOrigin(.zero)
             manualHaplotypeBandGeometryDirty = true
             manualHaplotypeBandHorizontalOffset = nil
             manualHaplotypeBandBoundsSize = .zero
+            manualHaplotypeBandCachedCoverageRect = .zero
             return
         }
         let horizontalOffset = scrollView.contentView.bounds.origin.x
-        if manualHaplotypeSampleBand.bounds.origin.x != horizontalOffset {
-            manualHaplotypeSampleBand.setBoundsOrigin(
-                NSPoint(x: horizontalOffset, y: 0)
-            )
-        }
-        let bandBounds = manualHaplotypeSampleBand.bounds
+        let visibleBandRect = NSRect(
+            x: horizontalOffset,
+            y: 0,
+            width: scrollView.contentView.bounds.width,
+            height: manualHaplotypeBandHeight
+        )
         if !manualHaplotypeBandGeometryDirty,
            manualHaplotypeBandHorizontalOffset != nil,
-           manualHaplotypeBandBoundsSize == bandBounds.size,
+           manualHaplotypeBandBoundsSize == visibleBandRect.size,
            !manualHaplotypeSampleBand.columnFrames.isEmpty {
-            let coveredMinimumX =
-                manualHaplotypeSampleBand.columnFrames.values.lazy
-                    .map(\.minX).min() ?? .infinity
-            let coveredMaximumX =
-                manualHaplotypeSampleBand.columnFrames.values.lazy
-                    .map(\.maxX).max() ?? -.infinity
-            if coveredMinimumX <= bandBounds.minX,
-               coveredMaximumX >= bandBounds.maxX {
+            if manualHaplotypeBandCachedCoverageRect.contains(
+                visibleBandRect
+            ) {
                 manualHaplotypeBandHorizontalOffset = horizontalOffset
                 return
             }
         }
-        let visibleDocumentRect = NSRect(
-            x: horizontalOffset,
-            y: 0,
-            width: bandBounds.width,
-            height: max(1, tableView.bounds.height)
-        )
-        let overscanWidth =
-            (tableView.tableColumns.lazy.map(\.width).max() ?? 68) * 4
-        let cachedDocumentRect = visibleDocumentRect.insetBy(
+        let overscanWidth: CGFloat
+        if let cached = manualHaplotypeBandCachedOverscanWidth {
+            overscanWidth = cached
+        } else {
+            overscanWidth =
+                (tableView.tableColumns.lazy.map(\.width).max() ?? 68)
+                    * 4
+            manualHaplotypeBandCachedOverscanWidth = overscanWidth
+        }
+#if DEBUG
+        testingManualHaplotypeGeometryRecomputationCount += 1
+#endif
+        let cachedBandRect = visibleBandRect.insetBy(
             dx: -overscanWidth,
             dy: 0
         )
+        let cachedTableRect = NSRect(
+            x: cachedBandRect.minX,
+            y: tableView.bounds.minY,
+            width: cachedBandRect.width,
+            height: max(1, tableView.bounds.height)
+        )
+        let boundedColumnIndexes: ClosedRange<Int>?
+        if tableView.numberOfColumns > 0 {
+            let firstColumnRect = tableView.rect(ofColumn: 0)
+            let lastColumnRect = tableView.rect(
+                ofColumn: tableView.numberOfColumns - 1
+            )
+            let firstIndex = cachedTableRect.minX
+                <= firstColumnRect.minX
+                ? 0
+                : tableView.column(
+                    at: NSPoint(
+                        x: cachedTableRect.minX,
+                        y: tableView.bounds.midY
+                    )
+                )
+            let lastIndex = cachedTableRect.maxX
+                >= lastColumnRect.maxX
+                ? tableView.numberOfColumns - 1
+                : tableView.column(
+                    at: NSPoint(
+                        x: cachedTableRect.maxX.nextDown,
+                        y: tableView.bounds.midY
+                    )
+                )
+            boundedColumnIndexes =
+                firstIndex >= 0 && lastIndex >= firstIndex
+                ? firstIndex...lastIndex
+                : nil
+        } else {
+            boundedColumnIndexes = nil
+        }
         var nextFrames: [String: NSRect] = [:]
         nextFrames.reserveCapacity(
-            min(tableView.numberOfColumns, 32)
+            boundedColumnIndexes.map {
+                $0.upperBound - $0.lowerBound + 1
+            } ?? 0
         )
-        let horizontalSpacing = tableView.intercellSpacing.width
-        var documentX = tableView.numberOfColumns > 0
-            ? tableView.rect(ofColumn: 0).minX
-            : 0
-        for column in tableView.tableColumns {
-            defer {
-                documentX += column.width + horizontalSpacing
+        if let boundedColumnIndexes {
+            for columnIndex in boundedColumnIndexes {
+#if DEBUG
+                testingManualHaplotypeGeometryInspectedColumnCount += 1
+#endif
+                let column = tableView.tableColumns[columnIndex]
+                guard let sample =
+                        sampleColumnLookup[column.identifier] else {
+                    continue
+                }
+                let sampleColumnRect = tableView.rect(
+                    ofColumn: columnIndex
+                )
+                let renderedWidth = min(
+                    column.width,
+                    sampleColumnRect.width
+                )
+                let renderedRect = NSRect(
+                    x: sampleColumnRect.midX - renderedWidth / 2,
+                    y: 0,
+                    width: renderedWidth,
+                    height: cachedBandRect.height
+                )
+                guard renderedRect.intersects(cachedBandRect) else {
+                    continue
+                }
+                let frame = NSRect(
+                    x: renderedRect.minX,
+                    y: 0,
+                    width: renderedRect.width,
+                    height: manualHaplotypeBandHeight
+                )
+                nextFrames[sample] = frame
             }
-            guard let sample = sampleColumnLookup[column.identifier] else {
-                continue
-            }
-            let documentRect = NSRect(
-                x: documentX,
-                y: 0,
-                width: column.width,
-                height: cachedDocumentRect.height
-            )
-            guard documentRect.intersects(cachedDocumentRect) else {
-                continue
-            }
-            let frame = NSRect(
-                x: documentRect.minX,
-                y: 0,
-                width: column.width,
-                height: manualHaplotypeBandHeight
-            )
-            nextFrames[sample] = frame
         }
         manualHaplotypeBandGeometryDirty = false
         manualHaplotypeBandHorizontalOffset = horizontalOffset
-        manualHaplotypeBandBoundsSize = bandBounds.size
+        manualHaplotypeBandBoundsSize = visibleBandRect.size
+        manualHaplotypeBandCachedCoverageRect = cachedBandRect
         guard nextFrames != manualHaplotypeSampleBand.columnFrames else {
             return
         }
@@ -4889,8 +4972,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 + ceil(typography.font(for: .caption).boundingRectForFont.height)
                 + 8
         )
-        pinnedTableView.headerView?.frame.size.height = headerHeight
-        tableView.headerView?.frame.size.height = headerHeight
+        updateNativeHeaderLayout(ordinaryHeight: headerHeight)
         filterHeightConstraint?.constant = max(24, ceil(typography.font(for: .body).boundingRectForFont.height + 8))
         reviewLegendHeightConstraint?.constant = max(
             15,
@@ -4905,10 +4987,6 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             table.reloadData()
             table.headerView?.needsDisplay = true
         }
-        // Apply the new band inset before restoring the semantic row anchor.
-        // Otherwise AppKit tiles the clip view after restoration and clamps
-        // the origin against the stale inset.
-        layoutManualHaplotypeBand()
         restoreTypographyScrollAnchor(
             pinnedScrollAnchor,
             scrollView: pinnedScrollView,
@@ -4953,13 +5031,14 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             x: anchor.horizontalOrigin,
             y: tableView.rect(ofRow: row).minY + anchor.withinRowOffset
         )
-        suppressScrollSync = true
-        scrollView.contentView.setBoundsOrigin(origin)
-        suppressScrollSync = false
+        withScrollSyncSuppressed {
+            scrollView.contentView.setBoundsOrigin(origin)
+        }
     }
 
     private var tableViewHeaderHeight: CGFloat {
-        tableView.headerView?.frame.height ?? 34
+        (tableView.headerView as? GenotypeMatrixHeaderView)?
+            .ordinaryHeaderHeight ?? 34
     }
 
     private func allMatrixTables() -> [NSTableView] {
@@ -5021,6 +5100,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             }
         }
         manualHaplotypeBandGeometryDirty = true
+        manualHaplotypeBandCachedCoverageRect = .zero
+        manualHaplotypeBandCachedOverscanWidth = nil
     }
 
     private func backgroundColor(
@@ -5771,8 +5852,55 @@ private final class GenotypeMatrixHeaderView: NSTableHeaderView {
     var readFont: (() -> NSFont)?
     var chicletSize: (() -> CGFloat)?
     var onContextMenuRequest: ((Int) -> NSMenu?)?
+    var headerLayout = GenotypeManualHaplotypeHeaderLayout(
+        isEligible: false,
+        isExpanded: false,
+        ordinaryHeight: 34,
+        rowHeight: 22
+    ) {
+        didSet {
+            if frame.height != headerLayout.totalHeight {
+                frame.size.height = headerLayout.totalHeight
+            }
+            needsLayout = true
+            needsDisplay = true
+        }
+    }
+    var manualContentView: NSView? {
+        didSet {
+            guard oldValue !== manualContentView else { return }
+            oldValue?.removeFromSuperview()
+            if let manualContentView {
+                addSubview(manualContentView)
+            }
+            needsLayout = true
+        }
+    }
     private var selectorButtons:
         [NSUserInterfaceItemIdentifier: GenotypeMatrixSelectorButton] = [:]
+
+    var ordinaryHeaderHeight: CGFloat {
+        headerLayout.ordinaryHeight
+    }
+
+    var ordinaryHeaderBounds: NSRect {
+        headerLayout.ordinaryRect(in: bounds, isFlipped: isFlipped)
+    }
+
+    var manualHeaderBounds: NSRect {
+        headerLayout.manualRect(in: bounds, isFlipped: isFlipped)
+    }
+
+    func ordinaryHeaderRect(ofColumn column: Int) -> NSRect {
+        let columnRect = headerRect(ofColumn: column)
+        let ordinaryBounds = ordinaryHeaderBounds
+        return NSRect(
+            x: columnRect.minX,
+            y: ordinaryBounds.minY,
+            width: columnRect.width,
+            height: ordinaryBounds.height
+        )
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         guard let tableView else { return }
@@ -5781,7 +5909,7 @@ private final class GenotypeMatrixHeaderView: NSTableHeaderView {
         dirtyRect.fill()
 
         for column in 0..<tableView.numberOfColumns {
-            let rect = headerRect(ofColumn: column)
+            let rect = ordinaryHeaderRect(ofColumn: column)
             guard rect.intersects(dirtyRect) else { continue }
             drawHeaderCell(
                 in: rect,
@@ -5796,6 +5924,7 @@ private final class GenotypeMatrixHeaderView: NSTableHeaderView {
 
     override func layout() {
         super.layout()
+        manualContentView?.frame = manualHeaderBounds
         synchronizeSelectorButtons()
     }
 
@@ -5868,6 +5997,7 @@ private final class GenotypeMatrixHeaderView: NSTableHeaderView {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        guard ordinaryHeaderBounds.contains(point) else { return }
         let column = self.column(at: point)
         if column >= 0,
            isColumnSelectable?(column) == true,
@@ -5880,6 +6010,9 @@ private final class GenotypeMatrixHeaderView: NSTableHeaderView {
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
+        guard ordinaryHeaderBounds.contains(point) else {
+            return super.menu(for: event)
+        }
         let column = self.column(at: point)
         if column >= 0, let menu = onContextMenuRequest?(column) {
             return menu
@@ -5888,7 +6021,7 @@ private final class GenotypeMatrixHeaderView: NSTableHeaderView {
     }
 
     private func chicletRect(forColumn column: Int) -> NSRect {
-        chicletRect(in: headerRect(ofColumn: column))
+        chicletRect(in: ordinaryHeaderRect(ofColumn: column))
     }
 
     private func drawHeaderCell(
@@ -6229,7 +6362,17 @@ extension GenotypeComparisonMatrixView {
         pinnedScrollView.contentView.setBoundsOrigin(origin)
     }
     func testingScrollSampleMatrix(to origin: NSPoint) {
-        scrollView.contentView.setBoundsOrigin(origin)
+        let documentRect = scrollView.contentView.documentRect
+        let maximumX = max(
+            documentRect.minX,
+            documentRect.maxX - scrollView.contentView.bounds.width
+        )
+        let constrainedOrigin = NSPoint(
+            x: min(max(origin.x, documentRect.minX), maximumX),
+            y: origin.y
+        )
+        scrollView.contentView.scroll(to: constrainedOrigin)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
     }
     func testingScrollSampleMatrixVertically(to y: CGFloat) {
         let origin = NSPoint(
@@ -6468,7 +6611,7 @@ extension GenotypeComparisonMatrixView {
         else {
             return nil
         }
-        let ordinaryLocalRect = header.headerRect(
+        let ordinaryLocalRect = header.ordinaryHeaderRect(
             ofColumn: columnIndex
         )
         let textBands = header.textBandRects(
@@ -6479,11 +6622,12 @@ extension GenotypeComparisonMatrixView {
             ordinaryLocalRect,
             to: self
         )
+        let manualLocalRect = header.manualHeaderBounds
         let manualRect = manualHaplotypeSampleBand.isHidden
-            || manualHaplotypeSampleBand.frame.isEmpty
+            || manualLocalRect.isEmpty
             ? .zero
-            : manualHaplotypeSampleBand.convert(
-                manualHaplotypeSampleBand.bounds,
+            : header.convert(
+                manualLocalRect,
                 to: self
             )
         let firstRowRect = tableView.numberOfRows > 0
@@ -6557,10 +6701,103 @@ extension GenotypeComparisonMatrixView {
     var testingManualHaplotypeBandColumnFrames: [String: NSRect] {
         updateManualHaplotypeBandColumnGeometry()
         let horizontalOffset =
-            manualHaplotypeSampleBand.bounds.origin.x
+            scrollView.contentView.bounds.origin.x
         return manualHaplotypeSampleBand.columnFrames.mapValues {
             $0.offsetBy(dx: -horizontalOffset, dy: 0)
         }
+    }
+
+    var testingRenderedManualHaplotypeBandColumnFrames:
+        [String: NSRect] {
+        manualHaplotypeSampleBand.columnFrames
+    }
+
+    func testingResetManualHaplotypeGeometryCounters() {
+        testingManualHaplotypeGeometryUpdateCount = 0
+        testingManualHaplotypeGeometryRecomputationCount = 0
+        testingManualHaplotypeGeometryInspectedColumnCount = 0
+    }
+
+    var testingManualHaplotypeGeometryCounters:
+        (
+            updates: Int,
+            recomputations: Int,
+            inspectedColumns: Int
+        ) {
+        (
+            testingManualHaplotypeGeometryUpdateCount,
+            testingManualHaplotypeGeometryRecomputationCount,
+            testingManualHaplotypeGeometryInspectedColumnCount
+        )
+    }
+
+    func testingResizeSampleColumnThroughProductionCallback(
+        sample: String,
+        width: CGFloat
+    ) {
+        guard let column = tableView.tableColumns.first(where: {
+            sampleColumnLookup[$0.identifier] == sample
+        }) else {
+            return
+        }
+        column.width = max(column.minWidth, width)
+        tableViewColumnDidResize(
+            Notification(
+                name: NSTableView.columnDidResizeNotification,
+                object: tableView
+            )
+        )
+    }
+
+    func testingMoveSampleColumnThroughProductionCallback(
+        sample: String,
+        to targetIndex: Int
+    ) {
+        guard let sourceIndex = tableView.tableColumns.firstIndex(where: {
+            sampleColumnLookup[$0.identifier] == sample
+        }) else {
+            return
+        }
+        let boundedTarget = min(
+            max(0, targetIndex),
+            max(0, tableView.numberOfColumns - 1)
+        )
+        tableView.moveColumn(sourceIndex, toColumn: boundedTarget)
+        tableViewColumnDidMove(
+            Notification(
+                name: NSTableView.columnDidMoveNotification,
+                object: tableView
+            )
+        )
+    }
+
+    func testingRegisteredManualHaplotypeTooltipAtLiveColumn(
+        sample: String,
+        locus: String
+    ) -> String? {
+        guard let locus = GenotypeManualHaplotypeLocus(
+            normalizing: locus
+        ),
+              let locusIndex =
+                GenotypeManualHaplotypeAssignmentBandSnapshot.loci
+                    .firstIndex(of: locus),
+              let columnIndex = tableView.tableColumns.firstIndex(where: {
+                  sampleColumnLookup[$0.identifier] == sample
+              })
+        else {
+            return nil
+        }
+        let liveColumnRect = tableView.convert(
+            tableView.rect(ofColumn: columnIndex),
+            to: manualHaplotypeSampleBand
+        )
+        return manualHaplotypeSampleBand.testingRegisteredToolTip(
+            at: NSPoint(
+                x: liveColumnRect.midX,
+                y: manualHaplotypeBandRowHeight
+                    * (CGFloat(locusIndex) + 1.5)
+            )
+        )
     }
 
     func testingResetManualHaplotypeBandInvalidations() {
@@ -7416,7 +7653,7 @@ extension GenotypeComparisonMatrixView {
         let readFont = header.readFont?()
             ?? .monospacedDigitSystemFont(ofSize: 10, weight: .regular)
         return tableView.tableColumns.indices.allSatisfy { column in
-            let rect = header.headerRect(ofColumn: column)
+            let rect = header.ordinaryHeaderRect(ofColumn: column)
             let bands = header.textBandRects(in: rect, leftInset: 20)
             return rect.contains(bands.title)
                 && rect.contains(bands.read)
