@@ -5538,6 +5538,9 @@ public final class GenotypeResultViewController: NSViewController {
                         author: self.annotationAuthorProvider()
                     )
                 if replacement.didChange {
+                    self.comparisonMatrix.applyManualHaplotypeAssignments(
+                        currentStore.sidecar.manualHaplotypeAssignments
+                    )
                     self.markCurrentWorkbookDirty(
                         requiresFullUpdate: true,
                         legacyStatus:
