@@ -96,6 +96,80 @@ private final class MatrixProjectionManualNumericScheduler:
 
 @MainActor
 final class GenotypeResultViewportTests: XCTestCase {
+    func testSampleCurationWorkbenchUsesHysteresisAcrossViewportWidths() {
+        let workbench = makeSampleCurationWorkbench()
+
+        workbench.frame.size = NSSize(width: 779, height: 700)
+        XCTAssertEqual(workbench.layoutMode, .stacked)
+
+        workbench.frame.size = NSSize(width: 841, height: 700)
+        XCTAssertEqual(workbench.layoutMode, .sideBySide)
+
+        workbench.frame.size = NSSize(width: 800, height: 700)
+        XCTAssertEqual(workbench.layoutMode, .sideBySide)
+
+        workbench.frame.size = NSSize(width: 779, height: 700)
+        XCTAssertEqual(workbench.layoutMode, .stacked)
+    }
+
+    func testSampleCurationWorkbenchRetainsInjectedChildViewIdentities() {
+        let header = NSView()
+        let assignment = NSView()
+        let evidence = NSView()
+        let workbench = GenotypeSampleCurationWorkbenchView(
+            headerView: header,
+            assignmentView: assignment,
+            evidenceView: evidence
+        )
+
+        workbench.frame.size = NSSize(width: 841, height: 700)
+        workbench.frame.size = NSSize(width: 779, height: 700)
+
+        XCTAssertTrue(workbench.headerView === header)
+        XCTAssertTrue(workbench.assignmentView === assignment)
+        XCTAssertTrue(workbench.evidenceView === evidence)
+        XCTAssertFalse(header.translatesAutoresizingMaskIntoConstraints)
+        XCTAssertFalse(assignment.translatesAutoresizingMaskIntoConstraints)
+        XCTAssertFalse(evidence.translatesAutoresizingMaskIntoConstraints)
+    }
+
+    func testSampleCurationWorkbenchDoesNotOwnScrolling() {
+        let workbench = makeSampleCurationWorkbench()
+
+        XCTAssertNil(workbench.firstDescendant(ofType: NSScrollView.self))
+    }
+
+    func testSampleCurationWorkbenchTypographyScaleRaisesSideBySideThreshold() {
+        let workbench = makeSampleCurationWorkbench(typographyScale: 2)
+
+        workbench.frame.size = NSSize(width: 841, height: 700)
+
+        XCTAssertEqual(workbench.layoutMode, .stacked)
+    }
+
+    func testSampleCurationWorkbenchSideBySideEditorIsCappedAt640Points() {
+        let workbench = makeSampleCurationWorkbench()
+        workbench.frame.size = NSSize(width: 1_400, height: 700)
+
+        workbench.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(workbench.layoutMode, .sideBySide)
+        XCTAssertLessThanOrEqual(workbench.assignmentView.frame.width, 640.5)
+        XCTAssertGreaterThanOrEqual(workbench.assignmentView.frame.width, 419.5)
+        XCTAssertGreaterThanOrEqual(workbench.evidenceView.frame.width, 299.5)
+    }
+
+    private func makeSampleCurationWorkbench(
+        typographyScale: CGFloat = 1
+    ) -> GenotypeSampleCurationWorkbenchView {
+        GenotypeSampleCurationWorkbenchView(
+            headerView: NSView(),
+            assignmentView: NSView(),
+            evidenceView: NSView(),
+            typographyScale: typographyScale
+        )
+    }
+
     func testMatrixFalsePositiveRendersBracketedReadCountWithoutChangingEvidence() {
         let genotype = "01_Mafa_A1_FALSE_POSITIVE"
         let call = makeCall(sample: "AnimalA", genotype: genotype, reads: 42)
