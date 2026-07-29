@@ -6759,6 +6759,121 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
     }
 
+    func testManualHaplotypeClearImmediatelyRestoresHeaderDashWithoutMatrixReload()
+        throws
+    {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "ManualHaplotypeClear-\(UUID().uuidString).lungfishgenotype",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-28T00:00:00Z"
+        )
+        sidecar.manualHaplotypeAssignments = [
+            ManualHaplotypeAssignment(
+                sample: "AnimalA",
+                locus: "MHC-A",
+                slot: .h1,
+                label: "Seeded-H1",
+                colorTokenIndex: 1,
+                diagnosticAlleles: [],
+                notes: ""
+            ),
+        ]
+        try ONTGenotypeResultBundleData.writeAnnotationSidecar(
+            sidecar,
+            forBundleAt: bundleURL
+        )
+        let result = makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [
+                makeCall(
+                    sample: "AnimalA",
+                    genotype: "01_Mafa_A1_001_01",
+                    reads: 42
+                ),
+            ]
+        )
+        try ONTGenotypeResultBundle.writeManifest(
+            result.manifest,
+            to: bundleURL
+        )
+        let controller = GenotypeResultViewController()
+        controller.view.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: 1_200,
+            height: 800
+        )
+        controller.configure(result: result)
+        controller.testingShowMatrixTargetSelection([
+            .column(sample: "AnimalA"),
+        ])
+        controller.view.layoutSubtreeIfNeeded()
+        let matrix = controller.testingComparisonMatrix
+        XCTAssertEqual(
+            matrix.testingManualHaplotypeBandValues(
+                sample: "AnimalA"
+            ).first,
+            "Seeded-H1 · —"
+        )
+        var annotationSidecarChangedCount = 0
+        var workbookActions: [GenotypeCurrentWorkbookUIRequest.Action] = []
+        controller.onAnnotationSidecarChanged = { _ in
+            annotationSidecarChangedCount += 1
+        }
+        controller.onCurrentWorkbookSyncRequested = {
+            workbookActions.append($0.action)
+        }
+
+        controller.testingClearManualHaplotypeLabel(
+            locus: .a,
+            slot: .h1
+        )
+        XCTAssertTrue(controller.testingManualHaplotypeEditorIsDirty)
+        XCTAssertTrue(controller.testingManualHaplotypeEditorCanSave)
+        controller.testingResetMatrixReloadCounters()
+        matrix.testingResetManualHaplotypeBandInvalidations()
+
+        controller.testingSaveManualHaplotypeDraft()
+
+        XCTAssertNil(controller.testingManualHaplotypeEditorPersistenceError)
+        XCTAssertEqual(
+            matrix.testingManualHaplotypeBandValues(
+                sample: "AnimalA"
+            ).first,
+            "—"
+        )
+        XCTAssertEqual(
+            matrix.testingManualHaplotypeBandInvalidatedSamples,
+            ["AnimalA"]
+        )
+        XCTAssertEqual(controller.testingMatrixFullReloadCount, 0)
+        XCTAssertEqual(controller.testingMatrixPartialReloadCount, 0)
+        XCTAssertEqual(workbookActions, [.markDirty])
+        XCTAssertEqual(annotationSidecarChangedCount, 1)
+
+        let persisted = try GenotypeAnnotationSidecar.decode(
+            Data(contentsOf: bundleURL.appendingPathComponent(
+                GenotypeAnnotationSidecar.filename
+            ))
+        )
+        XCTAssertTrue(persisted.manualHaplotypeAssignments.isEmpty)
+        XCTAssertEqual(
+            persisted.auditLog.filter {
+                $0.action == "replaceManualHaplotypeAssignments"
+            }.count,
+            1
+        )
+    }
+
     func testManualHaplotypeCancelVetoesSelectionSearchVisibilityLensAndReload() async throws {
         let bundleURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(

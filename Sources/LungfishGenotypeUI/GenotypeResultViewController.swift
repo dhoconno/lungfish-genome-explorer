@@ -9515,6 +9515,13 @@ extension GenotypeResultViewController {
         )
     }
 
+    func testingClearManualHaplotypeLabel(
+        locus: GenotypeManualHaplotypeLocus = .a,
+        slot: HaplotypeSlot = .h1
+    ) {
+        manualHaplotypeEditorModel?.clear(locus: locus, slot: slot)
+    }
+
     func testingSaveManualHaplotypeDraft() {
         manualHaplotypeEditorModel?.save()
     }
