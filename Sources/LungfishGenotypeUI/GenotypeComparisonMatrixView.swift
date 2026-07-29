@@ -247,6 +247,11 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private var manualHaplotypeBandBoundsSize = NSSize.zero
     private var manualHaplotypeBandCachedCoverageRect = NSRect.zero
     private var manualHaplotypeBandCachedOverscanWidth: CGFloat?
+    /// Presentation-only minima measured from the expanded assignment band.
+    /// User-preferred widths remain exclusively in
+    /// `sampleColumnWidthsByStableID`.
+    private var manualHaplotypeTransientMinimumWidths: [String: CGFloat] = [:]
+    private var isApplyingManualHaplotypeAutoFit = false
 #if DEBUG
     private var testingManualHaplotypeBandInvalidatedSampleSet =
         Set<String>()
@@ -256,6 +261,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private var testingManualHaplotypeGeometryInspectedColumnCount = 0
     private var testingManualHaplotypeDisclosureHeaderRelayoutCount = 0
     private var testingManualHaplotypeDisclosureAnchorPreservationCount = 0
+    private var testingManualHaplotypeMeasurementCountsBySample:
+        [String: Int] = [:]
     private var testingForcesLegacyBottomChrome = false
 #endif
     private var pinnedWidthConstraint: NSLayoutConstraint?
@@ -460,6 +467,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         appendMissingCandidateSamples(from: result)
         preferredSampleColumnOrder = sampleNames
         sampleColumnWidthsByStableID = [:]
+        manualHaplotypeTransientMinimumWidths = [:]
         sampleReadTitleByName = sampleReadTitles(from: result)
         selectedRowLocus = nil
         selectedFilterLocus = nil
@@ -519,6 +527,10 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         sampleColumnWidthsByStableID = sampleColumnWidthsByStableID.filter {
             validSamples.contains($0.key)
         }
+        manualHaplotypeTransientMinimumWidths =
+            manualHaplotypeTransientMinimumWidths.filter {
+                validSamples.contains($0.key)
+            }
         sampleReadTitleByName = sampleReadTitles(from: result)
         applyAnnotationSidecar(sidecar, reload: false)
         applyManualHaplotypeBandPresentation()
@@ -538,6 +550,13 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 : nil
         displayState = state
         applyManualHaplotypeBandPresentation()
+        if state.manualHaplotypeBandExpanded
+            != previousState.manualHaplotypeBandExpanded {
+            refreshManualHaplotypeAutoFit(
+                samples: Set(visibleSampleNames),
+                remeasure: state.manualHaplotypeBandExpanded
+            )
+        }
         if manualHaplotypeAnchor != nil {
             layoutSubtreeIfNeeded()
             restoreSemanticScrollAnchor(manualHaplotypeAnchor)
@@ -1610,7 +1629,20 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
         guard !columns.isEmpty else { return }
         for (sample, width) in columns {
-            sampleColumnWidthsByStableID[sample] = width
+            let transientWidth = displayState.manualHaplotypeBandExpanded
+                ? (manualHaplotypeTransientMinimumWidths[sample] ?? 0)
+                    / max(contentTypographyScale, 0.01)
+                : 0
+            // A programmatic auto-fit floor is presentation state, not a user
+            // resize. Preserve the stored preference unless the analyst has
+            // deliberately widened the column beyond that floor.
+            if transientWidth > 0, width <= transientWidth + 0.5 {
+                if sampleColumnWidthsByStableID[sample] == nil {
+                    sampleColumnWidthsByStableID[sample] = 68
+                }
+            } else {
+                sampleColumnWidthsByStableID[sample] = width
+            }
         }
 
         let visibleOrder = columns.map(\.0)
@@ -2463,6 +2495,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     func tableViewColumnDidResize(_ notification: Notification) {
+        guard !isApplyingManualHaplotypeAutoFit else { return }
         guard !isApplyingContentTypography else { return }
         guard let resizedTable = notification.object as? NSTableView,
               resizedTable === pinnedTableView || resizedTable === tableView else {
@@ -4720,6 +4753,12 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 #endif
         manualHaplotypeSampleBand.invalidate(samples: changedSamples)
         updateManualHaplotypeHeaderAccessibility(samples: changedSamples)
+        if displayState.manualHaplotypeBandExpanded {
+            refreshManualHaplotypeAutoFit(
+                samples: changedSamples,
+                remeasure: true
+            )
+        }
     }
 
     private var manualHaplotypeBandRowHeight: CGFloat {
@@ -4833,6 +4872,10 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         let anchor = captureSemanticScrollAnchor()
         displayState.manualHaplotypeBandExpanded = expanded
         applyManualHaplotypeBandPresentation()
+        refreshManualHaplotypeAutoFit(
+            samples: Set(visibleSampleNames),
+            remeasure: expanded
+        )
         layoutSubtreeIfNeeded()
         restoreSemanticScrollAnchor(anchor)
     }
@@ -5072,6 +5115,11 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             ceil(typography.font(for: .caption).boundingRectForFont.height + 4)
         )
         applyManualHaplotypeBandPresentation()
+        if displayState.manualHaplotypeBandExpanded {
+            measureManualHaplotypeTransientMinimumWidths(
+                samples: Set(visibleSampleNames)
+            )
+        }
         applyColumnTypography()
         for table in [pinnedTableView, tableView] {
             for column in table.tableColumns {
@@ -5134,6 +5182,93 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             .ordinaryHeaderHeight ?? 34
     }
 
+    private func measureManualHaplotypeTransientMinimumWidths(
+        samples: Set<String>
+    ) {
+        guard manualHaplotypeEditingEligible,
+              displayState.manualHaplotypeBandExpanded,
+              !samples.isEmpty else {
+            return
+        }
+        let visible = Set(visibleSampleNames)
+        let measuredSamples = samples.intersection(visible)
+        guard !measuredSamples.isEmpty else { return }
+        let assignmentFont = manualHaplotypeBandFont
+        let headerFont = resolvedContentTypography().font(for: .tableHeader)
+        for sample in measuredSamples {
+            manualHaplotypeTransientMinimumWidths[sample] =
+                GenotypeManualHaplotypeColumnMeasurement.requiredWidth(
+                    values: manualHaplotypeBandSnapshot
+                        .valuesBySample[sample]
+                        ?? Array(repeating: "—", count: 7),
+                    sampleTitle: sample,
+                    retainedReadTitle: sampleReadTitleByName[sample],
+                    font: assignmentFont,
+                    headerFont: headerFont
+                )
+#if DEBUG
+            testingManualHaplotypeMeasurementCountsBySample[
+                sample,
+                default: 0
+            ] += 1
+#endif
+        }
+    }
+
+    private func refreshManualHaplotypeAutoFit(
+        samples: Set<String>,
+        remeasure: Bool
+    ) {
+        let visible = Set(visibleSampleNames)
+        let affectedSamples = samples.intersection(visible)
+        guard !affectedSamples.isEmpty else { return }
+        if remeasure {
+            measureManualHaplotypeTransientMinimumWidths(
+                samples: affectedSamples
+            )
+        }
+        let scale = contentTypographyScale
+        let headerFont = resolvedContentTypography().font(for: .tableHeader)
+        isApplyingManualHaplotypeAutoFit = true
+        defer { isApplyingManualHaplotypeAutoFit = false }
+        for column in tableView.tableColumns {
+            guard let sample = sampleColumnLookup[column.identifier],
+                  affectedSamples.contains(sample) else {
+                continue
+            }
+            let baselineWidth =
+                (sampleColumnWidthsByStableID[sample] ?? 68) * scale
+            let baselineMinimum =
+                (typographyBaselineColumnMinWidths[
+                    column.identifier.rawValue
+                ] ?? 58) * scale
+            let headerWidth =
+                GenotypeManualHaplotypeColumnMeasurement.requiredWidth(
+                    values: [],
+                    sampleTitle: sample,
+                    retainedReadTitle: sampleReadTitleByName[sample],
+                    font: manualHaplotypeBandFont,
+                    headerFont: headerFont
+                )
+            let transientMinimum =
+                displayState.manualHaplotypeBandExpanded
+                    ? manualHaplotypeTransientMinimumWidths[sample] ?? 0
+                    : 0
+            let minimum = max(
+                baselineMinimum,
+                headerWidth,
+                transientMinimum
+            )
+            column.minWidth = minimum
+            column.width = max(baselineWidth, minimum)
+        }
+        manualHaplotypeBandGeometryDirty = true
+        manualHaplotypeBandCachedCoverageRect = .zero
+        manualHaplotypeBandCachedOverscanWidth = nil
+        updateManualHaplotypeBandColumnGeometry()
+        setHeaderViewsNeedDisplay()
+    }
+
     private func allMatrixTables() -> [NSTableView] {
         [pinnedTableView, tableView]
     }
@@ -5162,8 +5297,16 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         let scale = max(contentTypographyScale, 0.01)
         for column in table.tableColumns {
             let key = column.identifier.rawValue
-            typographyBaselineColumnWidths[key] = column.width / scale
-            typographyBaselineColumnMinWidths[key] = column.minWidth / scale
+            if let sample = sampleColumnLookup[column.identifier] {
+                typographyBaselineColumnWidths[key] =
+                    sampleColumnWidthsByStableID[sample] ?? 68
+                typographyBaselineColumnMinWidths[key] =
+                    typographyBaselineColumnMinWidths[key] ?? 58
+            } else {
+                typographyBaselineColumnWidths[key] = column.width / scale
+                typographyBaselineColumnMinWidths[key] =
+                    column.minWidth / scale
+            }
         }
     }
 
@@ -5181,12 +5324,35 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 let headerWidth = ceil(
                     (column.title as NSString).size(withAttributes: [.font: headerFont]).width + 24
                 )
-                let minimum = max(baselineMinimum * scale, headerWidth)
+                let sample = sampleColumnLookup[column.identifier]
+                let retainedReadHeaderWidth = sample.map {
+                    GenotypeManualHaplotypeColumnMeasurement.requiredWidth(
+                        values: [],
+                        sampleTitle: $0,
+                        retainedReadTitle: sampleReadTitleByName[$0],
+                        font: manualHaplotypeBandFont,
+                        headerFont: headerFont
+                    )
+                } ?? 0
+                let transientMinimum = sample.flatMap {
+                    displayState.manualHaplotypeBandExpanded
+                        ? manualHaplotypeTransientMinimumWidths[$0]
+                        : nil
+                } ?? 0
+                let minimum = max(
+                    baselineMinimum * scale,
+                    headerWidth,
+                    retainedReadHeaderWidth,
+                    transientMinimum
+                )
                 if column.identifier == ColumnID.rowSelector {
                     column.maxWidth = max(baselineWidth * scale, minimum)
                 }
                 column.minWidth = minimum
-                column.width = max(baselineWidth * scale, minimum)
+                let preferredWidth = sample.flatMap {
+                    sampleColumnWidthsByStableID[$0]
+                }.map { $0 * scale } ?? baselineWidth * scale
+                column.width = max(preferredWidth, minimum)
                 if column.identifier == ColumnID.rowSelector {
                     column.maxWidth = column.width
                 }
@@ -6533,6 +6699,11 @@ extension GenotypeComparisonMatrixView {
             sampleColumnLookup[$0.identifier] == sample
         })?.width ?? 0
     }
+    func testingUserPreferredSampleColumnWidth(
+        sample: String
+    ) -> CGFloat {
+        sampleColumnWidthsByStableID[sample] ?? 68
+    }
     var testingPinnedColumnTitles: [String] {
         pinnedTableView.tableColumns.map(\.title)
     }
@@ -6800,6 +6971,10 @@ extension GenotypeComparisonMatrixView {
     func testingSetManualHaplotypeBandTypographyScale(_ scale: CGFloat?) {
         testingManualHaplotypeBandTypographyScaleOverride = scale
         applyManualHaplotypeBandPresentation()
+        refreshManualHaplotypeAutoFit(
+            samples: Set(visibleSampleNames),
+            remeasure: displayState.manualHaplotypeBandExpanded
+        )
         layoutSubtreeIfNeeded()
     }
 
@@ -6821,6 +6996,15 @@ extension GenotypeComparisonMatrixView {
         testingManualHaplotypeGeometryUpdateCount = 0
         testingManualHaplotypeGeometryRecomputationCount = 0
         testingManualHaplotypeGeometryInspectedColumnCount = 0
+    }
+
+    func testingResetManualHaplotypeAutoFitMeasurementCounts() {
+        testingManualHaplotypeMeasurementCountsBySample.removeAll()
+    }
+
+    var testingManualHaplotypeAutoFitMeasurementCounts:
+        [String: Int] {
+        testingManualHaplotypeMeasurementCountsBySample
     }
 
     var testingManualHaplotypeGeometryCounters:

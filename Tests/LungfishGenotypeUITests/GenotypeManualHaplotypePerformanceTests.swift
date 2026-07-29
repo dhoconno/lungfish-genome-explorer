@@ -213,6 +213,118 @@ final class GenotypeManualHaplotypePerformanceTests: XCTestCase {
         XCTAssertEqual(invalidation.rects, [columnFrames[fixture.samples[0]]])
     }
 
+    func testTypingDraftDoesNotResizeColumnsOrRebuildProjection() throws {
+        let fixture = GenotypeManualHaplotypeTask10Fixture()
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "ManualHaplotypeDraft-\(UUID().uuidString).lungfishgenotype",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        try fixture.sidecar.encoded().write(
+            to: bundleURL.appendingPathComponent(
+                GenotypeAnnotationSidecar.filename
+            ),
+            options: .atomic
+        )
+        let controller = GenotypeResultViewController()
+        controller.view.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: 1_200,
+            height: 800
+        )
+        controller.configure(
+            result: fixture.result(
+                workflowMode: .genotypeOnly,
+                bundleURL: bundleURL
+            )
+        )
+        controller.testingShowMatrixTargetSelection([
+            .column(sample: fixture.samples[0]),
+        ])
+        controller.testingSetManualHaplotypeBandDisclosureExpanded(true)
+        let matrix = controller.testingComparisonMatrix
+        let widthBeforeTyping = matrix.testingSampleColumnWidth(
+            sample: fixture.samples[0]
+        )
+        controller.testingResetProjectionPerformanceCounters()
+        matrix.testingResetManualHaplotypeAutoFitMeasurementCounts()
+        let projectionBeforeTyping =
+            controller.testingProjectionPerformanceSnapshot
+
+        controller.testingUpdateManualHaplotypeLabel(
+            "A draft that has not been saved"
+        )
+
+        XCTAssertTrue(controller.testingManualHaplotypeEditorIsDirty)
+        XCTAssertEqual(
+            matrix.testingSampleColumnWidth(sample: fixture.samples[0]),
+            widthBeforeTyping,
+            accuracy: 0.5
+        )
+        XCTAssertTrue(
+            matrix.testingManualHaplotypeAutoFitMeasurementCounts.isEmpty
+        )
+        let projectionAfterTyping =
+            controller.testingProjectionPerformanceSnapshot
+        XCTAssertEqual(
+            projectionAfterTyping.matrix.baseProjectionBuildCount,
+            projectionBeforeTyping.matrix.baseProjectionBuildCount
+        )
+        XCTAssertEqual(
+            projectionAfterTyping.matrix.derivedProjectionPassCount,
+            projectionBeforeTyping.matrix.derivedProjectionPassCount
+        )
+        XCTAssertEqual(
+            projectionAfterTyping.matrix.columnRebuildCount,
+            projectionBeforeTyping.matrix.columnRebuildCount
+        )
+    }
+
+    func testSingleSaveRemeasuresOnlyChangedSample() {
+        let fixture = GenotypeManualHaplotypeTask10Fixture()
+        let matrix = GenotypeComparisonMatrixView(
+            frame: NSRect(x: 0, y: 0, width: 1_440, height: 720)
+        )
+        matrix.configure(
+            result: fixture.result(workflowMode: .genotypeOnly),
+            sidecar: fixture.sidecar
+        )
+        matrix.testingSetManualHaplotypeBandDisclosureExpanded(true)
+        matrix.testingResetManualHaplotypeAutoFitMeasurementCounts()
+        matrix.testingResetProjectionPerformanceCounters()
+        let projectionBeforeSave =
+            matrix.testingProjectionPerformanceSnapshot
+        var changedAssignments = fixture.assignments
+        changedAssignments[0].label = "Changed after a successful save"
+
+        matrix.applyManualHaplotypeAssignments(changedAssignments)
+
+        XCTAssertEqual(
+            matrix.testingManualHaplotypeAutoFitMeasurementCounts,
+            [fixture.samples[0]: 1]
+        )
+        let projectionAfterSave =
+            matrix.testingProjectionPerformanceSnapshot
+        XCTAssertEqual(
+            projectionAfterSave.baseProjectionBuildCount,
+            projectionBeforeSave.baseProjectionBuildCount
+        )
+        XCTAssertEqual(
+            projectionAfterSave.derivedProjectionPassCount,
+            projectionBeforeSave.derivedProjectionPassCount
+        )
+        XCTAssertEqual(
+            projectionAfterSave.columnRebuildCount,
+            projectionBeforeSave.columnRebuildCount
+        )
+    }
+
     private func percentile(
         _ values: [TimeInterval],
         _ quantile: Double

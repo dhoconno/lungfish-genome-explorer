@@ -5993,6 +5993,235 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(accessibility.contains("MHC-A H1 A-H1, H2 A-H2"))
     }
 
+    func testExpandedBandAutoFitsEachSampleToWidestCompleteAssignmentPair()
+        throws
+    {
+        let longH1 = String(repeating: "H", count: 128)
+        let longH2 = "second-manual-haplotype"
+        let displayedPair = "\(longH1) · \(longH2)"
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-29T00:00:00Z"
+        )
+        sidecar.manualHaplotypeAssignments = [
+            ManualHaplotypeAssignment(
+                sample: "AnimalA",
+                locus: "MHC-A",
+                slot: .h1,
+                label: longH1,
+                colorTokenIndex: 0,
+                diagnosticAlleles: [],
+                notes: ""
+            ),
+            ManualHaplotypeAssignment(
+                sample: "AnimalA",
+                locus: "MHC-A",
+                slot: .h2,
+                label: longH2,
+                colorTokenIndex: 1,
+                diagnosticAlleles: [],
+                notes: ""
+            ),
+        ]
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.frame = NSRect(x: 0, y: 0, width: 760, height: 520)
+        matrix.configure(
+            result: makeResult(
+                samples: [],
+                calls: [
+                    makeCall(
+                        sample: "AnimalA",
+                        genotype: "01_Mafa_A1_001_01",
+                        reads: 42
+                    ),
+                    makeCall(
+                        sample: "AnimalB-with-a-wide-header",
+                        genotype: "01_Mafa_A1_001_01",
+                        reads: 42
+                    ),
+                ]
+            ),
+            sidecar: sidecar
+        )
+        let collapsedWidth = matrix.testingSampleColumnWidth(
+            sample: "AnimalA"
+        )
+
+        matrix.testingSetManualHaplotypeBandDisclosureExpanded(true)
+        matrix.layoutSubtreeIfNeeded()
+
+        let font = NSFont.systemFont(
+            ofSize: matrix.testingManualHaplotypeBandFontPointSize
+        )
+        let requiredPairWidth = ceil(
+            (displayedPair as NSString).size(
+                withAttributes: [.font: font]
+            ).width + 12
+        )
+        XCTAssertGreaterThan(
+            matrix.testingSampleColumnWidth(sample: "AnimalA"),
+            collapsedWidth
+        )
+        XCTAssertGreaterThanOrEqual(
+            matrix.testingSampleColumnWidth(sample: "AnimalA"),
+            requiredPairWidth
+        )
+        XCTAssertGreaterThan(
+            matrix.testingSampleColumnWidth(
+                sample: "AnimalB-with-a-wide-header"
+            ),
+            68,
+            "The ordinary header remains part of the auto-fit floor."
+        )
+    }
+
+    func testAutoFitNeverOverwritesStoredUserPreferredWidth() {
+        let longLabel = String(repeating: "A", count: 128)
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-29T00:00:00Z"
+        )
+        sidecar.manualHaplotypeAssignments = [
+            ManualHaplotypeAssignment(
+                sample: "AnimalA",
+                locus: "MHC-A",
+                slot: .h1,
+                label: longLabel,
+                colorTokenIndex: 0,
+                diagnosticAlleles: [],
+                notes: ""
+            ),
+        ]
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.frame = NSRect(x: 0, y: 0, width: 760, height: 520)
+        matrix.configure(
+            result: makeResult(
+                samples: [],
+                calls: [
+                    makeCall(
+                        sample: "AnimalA",
+                        genotype: "01_Mafa_A1_001_01",
+                        reads: 42
+                    ),
+                ]
+            ),
+            sidecar: sidecar
+        )
+        matrix.testingResizeSampleColumnThroughProductionCallback(
+            sample: "AnimalA",
+            width: 112
+        )
+        XCTAssertEqual(
+            matrix.testingUserPreferredSampleColumnWidth(sample: "AnimalA"),
+            112,
+            accuracy: 0.5
+        )
+
+        matrix.testingSetManualHaplotypeBandDisclosureExpanded(true)
+        XCTAssertGreaterThan(
+            matrix.testingSampleColumnWidth(sample: "AnimalA"),
+            112
+        )
+        XCTAssertEqual(
+            matrix.testingUserPreferredSampleColumnWidth(sample: "AnimalA"),
+            112,
+            accuracy: 0.5,
+            "Programmatic auto-fit must not become the stored preference."
+        )
+    }
+
+    func testCollapseRestoresUserOrHeaderWidth() {
+        let longLabel = String(repeating: "B", count: 128)
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-29T00:00:00Z"
+        )
+        sidecar.manualHaplotypeAssignments = [
+            ManualHaplotypeAssignment(
+                sample: "AnimalA",
+                locus: "MHC-A",
+                slot: .h1,
+                label: longLabel,
+                colorTokenIndex: 0,
+                diagnosticAlleles: [],
+                notes: ""
+            ),
+        ]
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.frame = NSRect(x: 0, y: 0, width: 760, height: 520)
+        matrix.configure(
+            result: makeResult(
+                samples: [],
+                calls: [
+                    makeCall(
+                        sample: "AnimalA",
+                        genotype: "01_Mafa_A1_001_01",
+                        reads: 42
+                    ),
+                ]
+            ),
+            sidecar: sidecar
+        )
+        let collapsedWidth = matrix.testingSampleColumnWidth(
+            sample: "AnimalA"
+        )
+
+        matrix.testingSetManualHaplotypeBandDisclosureExpanded(true)
+        XCTAssertGreaterThan(
+            matrix.testingSampleColumnWidth(sample: "AnimalA"),
+            collapsedWidth
+        )
+        matrix.testingSetManualHaplotypeBandDisclosureExpanded(false)
+
+        XCTAssertEqual(
+            matrix.testingSampleColumnWidth(sample: "AnimalA"),
+            collapsedWidth,
+            accuracy: 0.5
+        )
+    }
+
+    func testTypographyRemeasuresAllVisibleSamplesOnceAndSaveRemeasuresOnlyChangedSample() {
+        let samples = ["AnimalA", "AnimalB", "AnimalC"]
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.frame = NSRect(x: 0, y: 0, width: 760, height: 520)
+        matrix.configure(
+            result: makeResult(
+                samples: [],
+                calls: samples.map {
+                    makeCall(
+                        sample: $0,
+                        genotype: "01_Mafa_A1_001_01",
+                        reads: 42
+                    )
+                }
+            )
+        )
+        matrix.testingSetManualHaplotypeBandDisclosureExpanded(true)
+        matrix.testingResetManualHaplotypeAutoFitMeasurementCounts()
+
+        matrix.testingSetManualHaplotypeBandTypographyScale(1.5)
+
+        XCTAssertEqual(
+            matrix.testingManualHaplotypeAutoFitMeasurementCounts,
+            Dictionary(uniqueKeysWithValues: samples.map { ($0, 1) })
+        )
+        matrix.testingResetManualHaplotypeAutoFitMeasurementCounts()
+
+        matrix.applyManualHaplotypeAssignments([
+            ManualHaplotypeAssignment(
+                sample: "AnimalB",
+                locus: "MHC-A",
+                slot: .h1,
+                label: "Changed",
+                colorTokenIndex: 0,
+                diagnosticAlleles: [],
+                notes: ""
+            ),
+        ])
+
+        XCTAssertEqual(
+            matrix.testingManualHaplotypeAutoFitMeasurementCounts,
+            ["AnimalB": 1]
+        )
+    }
+
     func testExpandedManualHaplotypeSectionIsContainedByNativeMatrixHeader() throws {
         let matrix = GenotypeComparisonMatrixView()
         matrix.frame = NSRect(x: 0, y: 0, width: 760, height: 520)
