@@ -69,7 +69,8 @@ struct GenotypeSupportedAllelesPanel: View {
                 .accessibilityHidden(true)
                 .background(
                     GenotypeSupportedAllelesAccessibilityElement(
-                        label: "Supported Alleles"
+                        label: "Supported Alleles",
+                        semanticRole: .heading(level: 2)
                     )
                 )
 
@@ -158,7 +159,8 @@ struct GenotypeSupportedAllelesPanel: View {
                 .accessibilityHidden(true)
                 .background(
                     GenotypeSupportedAllelesAccessibilityElement(
-                        label: "All \(snapshot.rows.count.formatted(.number)) Supported Alleles"
+                        label: "All \(snapshot.rows.count.formatted(.number)) Supported Alleles",
+                        semanticRole: .heading(level: 1)
                     )
                 )
                 .padding(.horizontal, 12)
@@ -208,23 +210,70 @@ struct GenotypeSupportedAllelesPanel: View {
 }
 
 private struct GenotypeSupportedAllelesAccessibilityElement: NSViewRepresentable {
-    let label: String
+    enum SemanticRole {
+        case staticText
+        case heading(level: Int)
+    }
 
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView(frame: .zero)
+    let label: String
+    var semanticRole: SemanticRole = .staticText
+
+    func makeNSView(context: Context) -> GenotypeSupportedAllelesAccessibilityView {
+        let view = GenotypeSupportedAllelesAccessibilityView(frame: .zero)
         configure(view)
         return view
     }
 
-    func updateNSView(_ view: NSView, context: Context) {
+    func updateNSView(
+        _ view: GenotypeSupportedAllelesAccessibilityView,
+        context: Context
+    ) {
         configure(view)
     }
 
-    private func configure(_ view: NSView) {
+    private func configure(_ view: GenotypeSupportedAllelesAccessibilityView) {
         view.setAccessibilityElement(true)
-        view.setAccessibilityRole(.staticText)
         view.setAccessibilityLabel(label)
+        switch semanticRole {
+        case .staticText:
+            view.setAccessibilityRole(.staticText)
+            view.headingLevel = nil
+        case .heading(let level):
+            view.setAccessibilityRole(.supportedAllelesHeading)
+            view.headingLevel = level
+        }
     }
+}
+
+private final class GenotypeSupportedAllelesAccessibilityView: NSView {
+    nonisolated(unsafe) var headingLevel: Int?
+
+    @available(macOS, deprecated: 10.10)
+    override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+        var names = super.accessibilityAttributeNames()
+        if headingLevel != nil, !names.contains(.supportedAllelesHeadingLevel) {
+            names.append(.supportedAllelesHeadingLevel)
+        }
+        return names
+    }
+
+    @available(macOS, deprecated: 10.10)
+    override func accessibilityAttributeValue(
+        _ attribute: NSAccessibility.Attribute
+    ) -> Any? {
+        if attribute == .supportedAllelesHeadingLevel {
+            return headingLevel.map(NSNumber.init(value:))
+        }
+        return super.accessibilityAttributeValue(attribute)
+    }
+}
+
+private extension NSAccessibility.Role {
+    static let supportedAllelesHeading = Self(rawValue: "AXHeading")
+}
+
+private extension NSAccessibility.Attribute {
+    static let supportedAllelesHeadingLevel = Self(rawValue: "AXHeadingLevel")
 }
 
 private struct GenotypeSupportedAllelesShowAllButton: NSViewRepresentable {

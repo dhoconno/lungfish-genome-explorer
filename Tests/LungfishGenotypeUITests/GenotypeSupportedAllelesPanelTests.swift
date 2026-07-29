@@ -54,6 +54,11 @@ final class GenotypeSupportedAllelesPanelTests: XCTestCase {
         for label in expected {
             XCTAssertEqual(labels.filter { $0 == label }.count, 1, "Missing or duplicate \(label)")
         }
+        try assertHeading(
+            labelled: "Supported Alleles",
+            level: 2,
+            in: mounted.host
+        )
         XCTAssertFalse(labels.contains(snapshot.rows[12].accessibilityLabel))
         XCTAssertFalse(descendants(of: mounted.host).contains { $0 is NSScrollView })
     }
@@ -83,6 +88,11 @@ final class GenotypeSupportedAllelesPanelTests: XCTestCase {
 
         XCTAssertNotEqual(popoverWindow, mounted.window)
         XCTAssertTrue(popoverLabels.contains("All 1,001 Supported Alleles"))
+        try assertHeading(
+            labelled: "All 1,001 Supported Alleles",
+            level: 1,
+            in: popoverContent
+        )
         XCTAssertTrue(popoverLabels.contains(snapshot.rows[0].accessibilityLabel))
         XCTAssertTrue(descendants(of: popoverContent).contains { $0 is NSScrollView })
         XCTAssertEqual(table.numberOfRows, 1_001)
@@ -260,6 +270,24 @@ final class GenotypeSupportedAllelesPanelTests: XCTestCase {
         ([root] + descendants(of: root)).first {
             $0.isAccessibilityElement() && $0.accessibilityLabel() == label
         }
+    }
+
+    private func assertHeading(
+        labelled label: String,
+        level: Int,
+        in root: NSView
+    ) throws {
+        let view = try XCTUnwrap(accessibilityView(labelled: label, in: root))
+        let headingRole = NSAccessibility.Role(rawValue: "AXHeading")
+        let headingLevelAttribute = NSAccessibility.Attribute(rawValue: "AXHeadingLevel")
+        let headingLevel = view.perform(
+            NSSelectorFromString("accessibilityAttributeValue:"),
+            with: headingLevelAttribute.rawValue
+        )?.takeUnretainedValue() as? NSNumber
+
+        XCTAssertEqual(view.accessibilityRole(), headingRole)
+        XCTAssertNil(view.accessibilitySubrole())
+        XCTAssertEqual(headingLevel?.intValue, level)
     }
 
     private func descendants(of root: NSView) -> [NSView] {
