@@ -46,6 +46,7 @@ struct GenotypeSampleComparisonPanel: View {
     @ObservedObject var model: GenotypeSampleComparisonModel
     var typographyModel: ContentTypographyModel = .shared
     let onBackToEvidence: () -> Void
+    @State private var keyboardHighlightedSource: String?
 
     private var bodyFont: Font { typographyModel.font(for: .body) }
     private var captionFont: Font {
@@ -75,21 +76,26 @@ struct GenotypeSampleComparisonPanel: View {
                     .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 8)
-                Button("Back to Evidence", action: onBackToEvidence)
-                    .accessibilityIdentifier(
-                        "sample-comparison-back-to-evidence"
-                    )
+                GenotypeSampleComparisonActionButton(
+                    title: "Back to Evidence",
+                    font: typographyModel.resolvedNSFont(for: .body),
+                    isEnabled: true,
+                    accessibilityIdentifier:
+                        "sample-comparison-back-to-evidence",
+                    action: onBackToEvidence
+                )
             }
             sourceSelector
             if let source = model.selectedSource {
                 summary(source: source)
                 rows
-                Button("Use \(source) Assignments") {
-                    model.requestUseAssignments()
-                }
-                .disabled(model.pendingSource != nil)
-                .accessibilityIdentifier(
-                    "sample-comparison-use-assignments"
+                GenotypeSampleComparisonActionButton(
+                    title: "Use \(source) Assignments",
+                    font: typographyModel.resolvedNSFont(for: .body),
+                    isEnabled: model.pendingSource == nil,
+                    accessibilityIdentifier:
+                        "sample-comparison-use-assignments",
+                    action: model.requestUseAssignments
                 )
             } else {
                 Text("Choose a source sample to compare genotypes.")
@@ -138,70 +144,169 @@ struct GenotypeSampleComparisonPanel: View {
 
     private var sourceSelector: some View {
         VStack(alignment: .leading, spacing: 6) {
-            TextField(
-                "Search source samples",
+            GenotypeSampleSourceSearchField(
                 text: Binding(
                     get: { model.searchText },
-                    set: { model.updateSearch($0) }
+                    set: { query in
+                        model.updateSearch(query)
+                        reconcileKeyboardHighlight()
+                    }
+                ),
+                font: typographyModel.resolvedNSFont(for: .body),
+                keyboardHighlightedSource: keyboardHighlightedSource,
+                onMove: moveKeyboardHighlight,
+                onCommit: selectKeyboardHighlightedSource
+            )
+            .frame(
+                minHeight: max(
+                    22,
+                    typographyModel.scaledPointSize(
+                        fromCanonicalPointSize: 22
+                    )
                 )
             )
-            .font(bodyFont)
-            .textFieldStyle(.roundedBorder)
-            .accessibilityLabel(
-                "Search samples to compare haplotype assignments"
-            )
-            .accessibilityIdentifier("sample-comparison-source-search")
             if model.filteredCandidates.isEmpty {
                 Text("No samples match this search.")
                     .font(captionFont)
                     .foregroundStyle(.secondary)
             } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 5) {
-                        ForEach(model.filteredCandidates) { candidate in
-                            Button {
-                                model.selectSource(candidate.sample)
-                            } label: {
-                                HStack(alignment: .firstTextBaseline) {
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        Text(candidate.sample)
-                                            .font(bodyFont)
-                                        Text(
-                                            candidate.completenessSummary
-                                                + " · "
-                                                + candidate.compactSummary
-                                        )
-                                        .font(captionFont)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(2)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 5) {
+                            ForEach(model.filteredCandidates) { candidate in
+                                Button {
+                                    keyboardHighlightedSource =
+                                        candidate.sample
+                                    model.selectSource(candidate.sample)
+                                } label: {
+                                    HStack(alignment: .firstTextBaseline) {
+                                        VStack(
+                                            alignment: .leading,
+                                            spacing: 1
+                                        ) {
+                                            Text(candidate.sample)
+                                                .font(bodyFont)
+                                            Text(
+                                                candidate.completenessSummary
+                                                    + " · "
+                                                    + candidate.compactSummary
+                                            )
+                                            .font(captionFont)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(2)
+                                        }
+                                        Spacer(minLength: 4)
+                                        if model.selectedSource
+                                            == candidate.sample {
+                                            Image(systemName: "checkmark")
+                                                .accessibilityHidden(true)
+                                        }
                                     }
-                                    Spacer(minLength: 4)
-                                    if model.selectedSource
-                                        == candidate.sample {
-                                        Image(systemName: "checkmark")
-                                            .accessibilityHidden(true)
-                                    }
+                                    .contentShape(Rectangle())
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 2)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 4)
+                                            .fill(
+                                                keyboardHighlightedSource
+                                                    == candidate.sample
+                                                    ? Color.accentColor.opacity(
+                                                        0.14
+                                                    )
+                                                    : Color.clear
+                                            )
+                                    )
                                 }
-                                .contentShape(Rectangle())
+                                .buttonStyle(.plain)
+                                .accessibilityLabel(
+                                    candidate.accessibilityLabel
+                                )
+                                .accessibilityValue(
+                                    sourceCandidateAccessibilityValue(
+                                        candidate.sample
+                                    )
+                                )
+                                .accessibilityIdentifier(
+                                    "sample-comparison-source-"
+                                        + candidate.sample
+                                )
+                                .id(candidate.sample)
                             }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(candidate.accessibilityLabel)
-                            .accessibilityValue(
-                                model.selectedSource == candidate.sample
-                                    ? "Selected"
-                                    : "Not selected"
-                            )
-                            .accessibilityIdentifier(
-                                "sample-comparison-source-\(candidate.sample)"
+                        }
+                    }
+                    .onChange(of: keyboardHighlightedSource) {
+                        _, highlightedSource in
+                        if let highlightedSource {
+                            proxy.scrollTo(
+                                highlightedSource,
+                                anchor: .center
                             )
                         }
                     }
+                    .frame(maxHeight: 132 * typographyScale)
+                    .accessibilityIdentifier(
+                        "sample-comparison-source-selector"
+                    )
                 }
-                .frame(maxHeight: 132 * typographyScale)
-                .accessibilityIdentifier(
-                    "sample-comparison-source-selector"
-                )
             }
+        }
+        .background(GenotypeSampleSourceSelectorIdentityView())
+    }
+
+    private func moveKeyboardHighlight(_ direction: Int) -> Bool {
+        let candidates = model.filteredCandidates.map(\.sample)
+        guard !candidates.isEmpty else { return false }
+        if let keyboardHighlightedSource,
+           let current = candidates.firstIndex(
+               of: keyboardHighlightedSource
+           ) {
+            let next = min(
+                max(current + direction, candidates.startIndex),
+                candidates.index(before: candidates.endIndex)
+            )
+            self.keyboardHighlightedSource = candidates[next]
+        } else {
+            keyboardHighlightedSource =
+                direction < 0 ? candidates.last : candidates.first
+        }
+        return true
+    }
+
+    private func selectKeyboardHighlightedSource() -> Bool {
+        guard let keyboardHighlightedSource,
+              model.filteredCandidates.contains(where: {
+                  $0.sample == keyboardHighlightedSource
+              }) else {
+            return false
+        }
+        model.selectSource(keyboardHighlightedSource)
+        return true
+    }
+
+    private func reconcileKeyboardHighlight() {
+        guard let keyboardHighlightedSource else { return }
+        if !model.filteredCandidates.contains(where: {
+            $0.sample == keyboardHighlightedSource
+        }) {
+            self.keyboardHighlightedSource = nil
+        }
+    }
+
+    private func sourceCandidateAccessibilityValue(
+        _ sample: String
+    ) -> String {
+        switch (
+            model.selectedSource == sample,
+            keyboardHighlightedSource == sample
+        ) {
+        case (true, true):
+            return "Selected and keyboard highlighted"
+        case (true, false):
+            return "Selected"
+        case (false, true):
+            return "Keyboard highlighted"
+        case (false, false):
+            return "Not selected"
         }
     }
 
@@ -477,6 +582,225 @@ struct GenotypeSampleComparisonRowLayout: Layout {
             )
         )
         return result
+    }
+}
+
+@MainActor
+private struct GenotypeSampleSourceSearchField: NSViewRepresentable {
+    @Environment(\.isEnabled) private var environmentIsEnabled
+    @Binding var text: String
+    let font: NSFont
+    let keyboardHighlightedSource: String?
+    let onMove: (Int) -> Bool
+    let onCommit: () -> Bool
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(
+            text: $text,
+            onMove: onMove,
+            onCommit: onCommit
+        )
+    }
+
+    func makeNSView(context: Context) -> KeyboardSearchField {
+        let field = KeyboardSearchField()
+        field.delegate = context.coordinator
+        configure(field, coordinator: context.coordinator)
+        return field
+    }
+
+    func updateNSView(
+        _ field: KeyboardSearchField,
+        context: Context
+    ) {
+        configure(field, coordinator: context.coordinator)
+    }
+
+    private func configure(
+        _ field: KeyboardSearchField,
+        coordinator: Coordinator
+    ) {
+        coordinator.text = $text
+        coordinator.onMove = onMove
+        coordinator.onCommit = onCommit
+        field.onMove = { [weak coordinator] direction in
+            coordinator?.onMove(direction) ?? false
+        }
+        field.onCommit = { [weak coordinator] in
+            coordinator?.onCommit() ?? false
+        }
+        if field.stringValue != text {
+            field.stringValue = text
+        }
+        field.isEnabled = environmentIsEnabled
+        field.allowsUserInteraction = environmentIsEnabled
+        field.setAccessibilityElement(environmentIsEnabled)
+        field.font = font
+        field.placeholderString = "Search source samples"
+        field.setAccessibilityLabel(
+            "Search samples to compare haplotype assignments"
+        )
+        let keyboardInstructions =
+            "Use Up and Down Arrow to highlight a filtered sample, "
+            + "then press Return to select it."
+        if let keyboardHighlightedSource {
+            field.setAccessibilityHelp(
+                "Keyboard highlighted sample: "
+                    + "\(keyboardHighlightedSource). "
+                    + keyboardInstructions
+            )
+        } else {
+            field.setAccessibilityHelp(keyboardInstructions)
+        }
+        field.setAccessibilityIdentifier(
+            "sample-comparison-source-search"
+        )
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSSearchFieldDelegate {
+        var text: Binding<String>
+        var onMove: (Int) -> Bool
+        var onCommit: () -> Bool
+
+        init(
+            text: Binding<String>,
+            onMove: @escaping (Int) -> Bool,
+            onCommit: @escaping () -> Bool
+        ) {
+            self.text = text
+            self.onMove = onMove
+            self.onCommit = onCommit
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSSearchField else {
+                return
+            }
+            text.wrappedValue = field.stringValue
+        }
+    }
+
+    @MainActor
+    final class KeyboardSearchField: NSSearchField {
+        var onMove: ((Int) -> Bool)?
+        var onCommit: (() -> Bool)?
+        var allowsUserInteraction = true
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            allowsUserInteraction ? super.hitTest(point) : nil
+        }
+
+        override func keyDown(with event: NSEvent) {
+            let handled: Bool
+            switch event.keyCode {
+            case 125:
+                handled = onMove?(1) ?? false
+            case 126:
+                handled = onMove?(-1) ?? false
+            case 36, 76:
+                handled = onCommit?() ?? false
+            default:
+                handled = false
+            }
+            if !handled {
+                super.keyDown(with: event)
+            }
+        }
+    }
+}
+
+@MainActor
+private struct GenotypeSampleComparisonActionButton:
+    NSViewRepresentable
+{
+    @Environment(\.isEnabled) private var environmentIsEnabled
+    let title: String
+    let font: NSFont
+    let isEnabled: Bool
+    let accessibilityIdentifier: String
+    let action: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(action: action)
+    }
+
+    func makeNSView(context: Context) -> InteractionButton {
+        let button = InteractionButton(
+            title: title,
+            target: context.coordinator,
+            action: #selector(Coordinator.performAction)
+        )
+        button.bezelStyle = .rounded
+        button.controlSize = .small
+        configure(button, coordinator: context.coordinator)
+        return button
+    }
+
+    func updateNSView(
+        _ button: InteractionButton,
+        context: Context
+    ) {
+        configure(button, coordinator: context.coordinator)
+    }
+
+    private func configure(
+        _ button: InteractionButton,
+        coordinator: Coordinator
+    ) {
+        coordinator.action = action
+        let interactionEnabled = environmentIsEnabled && isEnabled
+        button.title = title
+        button.font = font
+        button.isEnabled = interactionEnabled
+        button.allowsUserInteraction = interactionEnabled
+        button.setAccessibilityElement(interactionEnabled)
+        button.setAccessibilityRole(.button)
+        button.setAccessibilityLabel(title)
+        button.setAccessibilityIdentifier(accessibilityIdentifier)
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        var action: () -> Void
+
+        init(action: @escaping () -> Void) {
+            self.action = action
+        }
+
+        @objc func performAction() {
+            action()
+        }
+    }
+
+    @MainActor
+    final class InteractionButton: NSButton {
+        var allowsUserInteraction = true
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            allowsUserInteraction ? super.hitTest(point) : nil
+        }
+    }
+}
+
+@MainActor
+private struct GenotypeSampleSourceSelectorIdentityView:
+    NSViewRepresentable
+{
+    func makeNSView(context _: Context) -> NSView {
+        let view = NSView()
+        view.setAccessibilityElement(false)
+        view.setAccessibilityIdentifier(
+            "sample-comparison-source-selector"
+        )
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context _: Context) {
+        view.setAccessibilityElement(false)
+        view.setAccessibilityIdentifier(
+            "sample-comparison-source-selector"
+        )
     }
 }
 

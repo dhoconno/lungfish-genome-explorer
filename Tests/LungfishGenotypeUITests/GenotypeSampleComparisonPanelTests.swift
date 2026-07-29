@@ -68,28 +68,76 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
             preferredFontProvider:
                 ComparisonPreferredFontProvider(pointSize: 13)
         )
-        let model = makeComparison()
-        model.selectSource("Source")
-        let mounted = mount(
-            model: model,
-            width: 420,
-            typography: typography
+        let comparison = makeComparison()
+        comparison.selectSource("Source")
+        let trailing = GenotypeSampleCurationTrailingModel(
+            evidenceSnapshot: .init(rows: []),
+            comparison: comparison
         )
+        let host = makeGenotypeSampleCurationTrailingHostingView(
+            model: trailing,
+            typographyModel: typography
+        )
+        let mounted = mount(host: host, width: 420)
         defer { mounted.window.close() }
-        let baseline = controlIdentities(in: mounted.host)
+        let baseline = identifiedControlIdentities(in: mounted.host)
+        XCTAssertEqual(
+            Set(baseline.keys),
+            [
+                "sample-comparison-back-to-evidence",
+                "sample-comparison-source-search",
+                "sample-comparison-source-selector",
+                "sample-comparison-use-assignments",
+            ]
+        )
 
-        for width in [779, 841, 1_200] {
-            mounted.window.setContentSize(
-                NSSize(width: width, height: 1_200)
-            )
-            flush(mounted.host)
-            XCTAssertEqual(controlIdentities(in: mounted.host), baseline)
+        for scale in [100, 200] {
+            preference.value = .custom(scale)
+            notifications.post(name: .contentTextSizeDidChange, object: nil)
+            for width in [420, 779, 841, 1_200] {
+                mounted.window.setContentSize(
+                    NSSize(width: width, height: 1_200)
+                )
+                flush(mounted.host)
+                trailing.showEvidence()
+                flush(mounted.host)
+                let evidenceHeight = mounted.host.fittingSize.height
+                assertComparisonControlsAreAbsentFromAXTree(
+                    host: mounted.host,
+                    file: #filePath,
+                    line: #line
+                )
+
+                trailing.showCompareAndCopy()
+                flush(mounted.host)
+                let comparisonHeight = mounted.host.fittingSize.height
+                assertComparisonControlsArePresentInAXTree(
+                    host: mounted.host,
+                    file: #filePath,
+                    line: #line
+                )
+                XCTAssertEqual(
+                    identifiedControlIdentities(in: mounted.host),
+                    baseline,
+                    "Controls remounted at \(width) points and \(scale)%."
+                )
+                XCTAssertGreaterThan(
+                    comparisonHeight,
+                    evidenceHeight,
+                    "Inactive comparison content affected Evidence height "
+                        + "at \(width) points and \(scale)%."
+                )
+                trailing.showEvidence()
+                flush(mounted.host)
+                XCTAssertEqual(
+                    mounted.host.fittingSize.height,
+                    evidenceHeight,
+                    accuracy: 1,
+                    "Evidence height did not restore at \(width) points "
+                        + "and \(scale)%."
+                )
+            }
         }
-
-        preference.value = .custom(200)
-        notifications.post(name: .contentTextSizeDidChange, object: nil)
-        flush(mounted.host)
-        XCTAssertEqual(controlIdentities(in: mounted.host), baseline)
     }
 
     func testEvidenceCompareEvidenceCycleKeepsBothModeTreesMounted() {
@@ -139,6 +187,107 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
         XCTAssertTrue(sourceControl === sourceControlAgain)
     }
 
+    func testModeActionsAreConcreteStableButtonsAndInactiveModeIsDisabled() {
+        var staged: [String] = []
+        let comparison = makeComparison(stage: {
+            staged.append($0)
+        })
+        comparison.selectSource("Source")
+        let trailing = GenotypeSampleCurationTrailingModel(
+            evidenceSnapshot: .init(rows: []),
+            comparison: comparison
+        )
+        let host = makeGenotypeSampleCurationTrailingHostingView(
+            model: trailing,
+            typographyModel: .shared
+        )
+        let mounted = mount(host: host, width: 841)
+        defer { mounted.window.close() }
+
+        guard let back = concreteButton(
+            identifier: "sample-comparison-back-to-evidence",
+            in: host
+        ),
+        let use = concreteButton(
+            identifier: "sample-comparison-use-assignments",
+            in: host
+        ),
+        let search = descendants(of: host).first(where: {
+            $0.accessibilityIdentifier()
+                == "sample-comparison-source-search"
+        }) as? NSSearchField else {
+            return XCTFail("Expected concrete comparison controls")
+        }
+        XCTAssertFalse(back.isEnabled)
+        XCTAssertFalse(use.isEnabled)
+        XCTAssertFalse(search.isEnabled)
+        XCTAssertNil(back.hitTest(back.bounds.center))
+        XCTAssertNil(use.hitTest(use.bounds.center))
+        XCTAssertNil(search.hitTest(search.bounds.center))
+        assertComparisonControlsAreAbsentFromAXTree(host: host)
+
+        trailing.showCompareAndCopy()
+        flush(host)
+        XCTAssertTrue(back.isEnabled)
+        XCTAssertTrue(use.isEnabled)
+        XCTAssertTrue(search.isEnabled)
+        XCTAssertNotNil(back.hitTest(back.bounds.center))
+        XCTAssertNotNil(use.hitTest(use.bounds.center))
+        XCTAssertNotNil(search.hitTest(search.bounds.center))
+        assertComparisonControlsArePresentInAXTree(host: host)
+
+        use.performClick(nil)
+        XCTAssertEqual(staged, ["Source"])
+        back.performClick(nil)
+        flush(host)
+        XCTAssertEqual(trailing.mode, .evidence)
+        assertComparisonControlsAreAbsentFromAXTree(host: host)
+        trailing.showCompareAndCopy()
+        flush(host)
+        XCTAssertTrue(
+            back === concreteButton(
+                identifier: "sample-comparison-back-to-evidence",
+                in: host
+            )
+        )
+        XCTAssertTrue(
+            use === concreteButton(
+                identifier: "sample-comparison-use-assignments",
+                in: host
+            )
+        )
+    }
+
+    func testTrailingPaneMeasuresOnlyTheActiveMode() {
+        let comparison = makeKeyboardComparison()
+        comparison.selectSource("Matching First")
+        let trailing = GenotypeSampleCurationTrailingModel(
+            evidenceSnapshot: .init(rows: []),
+            comparison: comparison
+        )
+        let host = makeGenotypeSampleCurationTrailingHostingView(
+            model: trailing,
+            typographyModel: .shared
+        )
+        let mounted = mount(host: host, width: 841)
+        defer { mounted.window.close() }
+
+        let evidenceHeight = host.fittingSize.height
+        trailing.showCompareAndCopy()
+        flush(host)
+        let comparisonHeight = host.fittingSize.height
+        trailing.showEvidence()
+        flush(host)
+        let restoredEvidenceHeight = host.fittingSize.height
+
+        XCTAssertGreaterThan(comparisonHeight, evidenceHeight)
+        XCTAssertEqual(
+            restoredEvidenceHeight,
+            evidenceHeight,
+            accuracy: 1
+        )
+    }
+
     func testRefreshPreservesTrailingComparisonAndSelectorIdentity() {
         let comparison = makeComparison()
         comparison.selectSource("Source")
@@ -185,6 +334,87 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
         XCTAssertEqual(
             comparison.comparisonRows.map(\.targetReadSupport),
             ["99"]
+        )
+    }
+
+    func testSourceSearchArrowKeysHighlightFilteredCandidatesAndReturnSelects() {
+        let model = makeKeyboardComparison()
+        let mounted = mount(model: model, width: 841)
+        defer { mounted.window.close() }
+        guard let search = descendants(of: mounted.host).first(where: {
+            $0.accessibilityIdentifier()
+                == "sample-comparison-source-search"
+        }) as? NSSearchField else {
+            return XCTFail("Expected an AppKit source search field")
+        }
+        let searchIdentity = ObjectIdentifier(search)
+
+        search.stringValue = "matching"
+        search.delegate?.controlTextDidChange?(
+            Notification(
+                name: NSControl.textDidChangeNotification,
+                object: search
+            )
+        )
+        flush(mounted.host)
+        XCTAssertEqual(
+            model.filteredCandidates.map(\.sample),
+            ["Matching First", "Matching Second"]
+        )
+        search.keyDown(
+            with: keyEvent(characters: "\u{F701}", keyCode: 125)
+        )
+        flush(mounted.host)
+        XCTAssertTrue(
+            search.accessibilityHelp()?.contains(
+                "Keyboard highlighted sample: Matching First."
+            ) == true
+        )
+
+        search.keyDown(
+            with: keyEvent(characters: "\u{F701}", keyCode: 125)
+        )
+        flush(mounted.host)
+        XCTAssertTrue(
+            search.accessibilityHelp()?.contains(
+                "Keyboard highlighted sample: Matching Second."
+            ) == true
+        )
+        XCTAssertEqual(model.selectedSource, nil)
+
+        search.keyDown(
+            with: keyEvent(characters: "\u{F700}", keyCode: 126)
+        )
+        search.keyDown(with: keyEvent(characters: "\r", keyCode: 36))
+        flush(mounted.host)
+
+        XCTAssertEqual(model.selectedSource, "Matching First")
+        XCTAssertTrue(
+            search.accessibilityHelp()?.contains(
+                "Keyboard highlighted sample: Matching First."
+            ) == true
+        )
+
+        mounted.window.setContentSize(
+            NSSize(width: 420, height: 1_200)
+        )
+        model.refreshTargetRows([
+            row(id: targetID, allele: "Target refreshed", reads: 19),
+        ])
+        flush(mounted.host)
+        let searchAfterRefresh = descendants(of: mounted.host).first {
+            $0.accessibilityIdentifier()
+                == "sample-comparison-source-search"
+        }
+        XCTAssertEqual(
+            searchAfterRefresh.map(ObjectIdentifier.init),
+            searchIdentity
+        )
+        XCTAssertEqual(model.selectedSource, "Matching First")
+        XCTAssertTrue(
+            search.accessibilityHelp()?.contains(
+                "Keyboard highlighted sample: Matching First."
+            ) == true
         )
     }
 
@@ -253,6 +483,33 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
             },
             isDraftDirty: isDirty,
             stageAssignments: stage
+        )
+    }
+
+    private func makeKeyboardComparison() -> GenotypeSampleComparisonModel {
+        let candidates = [
+            ("Unrelated", "other assignments"),
+            ("Matching First", "matching assignments"),
+            ("Matching Second", "matching assignments"),
+        ].map { sample, summary in
+            GenotypeManualHaplotypeEditorModel.CopyCandidate(
+                sample: sample,
+                assignedSlotCount: 2,
+                completenessSummary: "2 of 14 assigned",
+                compactSummary: summary,
+                accessibilityLabel:
+                    "\(sample), 2 of 14 assigned, \(summary)"
+            )
+        }
+        return GenotypeSampleComparisonModel(
+            targetSample: "Target",
+            targetRows: [
+                row(id: targetID, allele: "Target only", reads: 9),
+            ],
+            candidates: candidates,
+            rowsForSource: { _ in [] },
+            isDraftDirty: { false },
+            stageAssignments: { _ in }
         )
     }
 
@@ -332,12 +589,106 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
         }
     }
 
+    private func keyEvent(
+        characters: String,
+        keyCode: UInt16
+    ) -> NSEvent {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: characters,
+            isARepeat: false,
+            keyCode: keyCode
+        )!
+    }
+
     private func controlIdentities(in root: NSView) -> Set<ObjectIdentifier> {
         Set(
             descendants(of: root)
                 .filter { $0 is NSButton || $0 is NSTextField }
                 .map(ObjectIdentifier.init)
         )
+    }
+
+    private func identifiedControlIdentities(
+        in root: NSView
+    ) -> [String: ObjectIdentifier] {
+        let identifiers = [
+            "sample-comparison-back-to-evidence",
+            "sample-comparison-source-search",
+            "sample-comparison-source-selector",
+            "sample-comparison-use-assignments",
+        ]
+        return Dictionary(uniqueKeysWithValues: identifiers.compactMap {
+            identifier in
+            descendants(of: root).first {
+                $0.accessibilityIdentifier() == identifier
+            }.map { (identifier, ObjectIdentifier($0)) }
+        })
+    }
+
+    private func assertComparisonControlsAreAbsentFromAXTree(
+        host: NSView,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        for identifier in [
+            "sample-comparison-back-to-evidence",
+            "sample-comparison-source-search",
+            "sample-comparison-use-assignments",
+        ] {
+            let control = descendants(of: host).first {
+                $0.accessibilityIdentifier() == identifier
+            }
+            XCTAssertFalse(
+                control?.isAccessibilityElement() ?? true,
+                "Inactive control \(identifier) remained an AX element.",
+                file: file,
+                line: line
+            )
+        }
+    }
+
+    private func assertComparisonControlsArePresentInAXTree(
+        host: NSView,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        for identifier in [
+            "sample-comparison-back-to-evidence",
+            "sample-comparison-source-search",
+            "sample-comparison-use-assignments",
+        ] {
+            let control = descendants(of: host).first {
+                $0.accessibilityIdentifier() == identifier
+            }
+            XCTAssertTrue(
+                control?.isAccessibilityElement() ?? false,
+                "Active control \(identifier) was not an AX element.",
+                file: file,
+                line: line
+            )
+        }
+    }
+
+    private func concreteButton(
+        identifier: String,
+        in root: NSView
+    ) -> NSButton? {
+        descendants(of: root).compactMap { $0 as? NSButton }.first {
+            $0.accessibilityIdentifier() == identifier
+        }
+    }
+}
+
+private extension NSRect {
+    var center: NSPoint {
+        NSPoint(x: midX, y: midY)
     }
 }
 

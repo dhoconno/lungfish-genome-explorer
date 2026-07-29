@@ -1426,6 +1426,13 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func applyDisplayStateImmediately(_ state: GenotypeResultDisplayState) {
+        let focusedManualHaplotypeCombo =
+            focusedManualHaplotypeComboBox()
+        defer {
+            restoreManualHaplotypeFocus(
+                focusedManualHaplotypeCombo
+            )
+        }
         let state = state.normalized(forGenotypeOnlyResult: isGenotypeOnlyResult)
         let previousDisplayState = displayState
         let candidateSearchProjectionChanged = candidateVisibilityChanged(
@@ -2319,6 +2326,11 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func refreshCurrentSelectionDetails() {
+        if sampleCurationWorkbench != nil,
+           sampleCurationTrailingModel != nil {
+            refreshSelectedSampleCurationEvidence()
+            return
+        }
         guard !hasUnsavedManualHaplotypeDraft else {
             return
         }
@@ -6106,6 +6118,55 @@ public final class GenotypeResultViewController: NSViewController {
         return nil
     }
 
+    private func focusedManualHaplotypeComboBox() -> NSComboBox? {
+        guard let host = manualHaplotypeEditorHostView,
+              let firstResponder = view.window?.firstResponder else {
+            return nil
+        }
+        var pending = [host]
+        while let view = pending.popLast() {
+            if let combo = view as? NSComboBox,
+               firstResponder === combo
+                    || combo.currentEditor() === firstResponder {
+                return combo
+            }
+            pending.append(contentsOf: view.subviews)
+        }
+        return nil
+    }
+
+    private func restoreManualHaplotypeFocus(_ combo: NSComboBox?) {
+        guard let combo,
+              let window = view.window,
+              combo.window === window else {
+            return
+        }
+        let firstResponder = window.firstResponder
+        if firstResponder === combo
+            || combo.currentEditor() === firstResponder {
+            return
+        }
+        window.makeFirstResponder(combo)
+    }
+
+    private func descendantView(
+        in root: NSView,
+        accessibilityIdentifier: String
+    ) -> NSView? {
+        if root.accessibilityIdentifier() == accessibilityIdentifier {
+            return root
+        }
+        for subview in root.subviews {
+            if let match = descendantView(
+                in: subview,
+                accessibilityIdentifier: accessibilityIdentifier
+            ) {
+                return match
+            }
+        }
+        return nil
+    }
+
     private func manualHaplotypeEditorSnapshot(
         sample: String,
         result: ONTGenotypeResultBundleData,
@@ -9246,6 +9307,136 @@ extension GenotypeResultViewController {
     var testingSampleComparisonRowIDs:
         [GenotypeCandidateMatrixRowID] {
         sampleComparisonModel?.comparisonRows.map(\.id) ?? []
+    }
+
+    var testingSampleComparisonRows: [GenotypeSampleComparisonRow] {
+        sampleComparisonModel?.comparisonRows ?? []
+    }
+
+    var testingSampleCurationControlIdentities:
+        [String: ObjectIdentifier] {
+        guard let workbench = sampleCurationWorkbench else {
+            return [:]
+        }
+        let identifiers = [
+            "manual-haplotype-compare-copy",
+            "sample-comparison-back-to-evidence",
+            "sample-comparison-source-search",
+            "sample-comparison-source-selector",
+            "sample-comparison-use-assignments",
+        ]
+        return Dictionary(
+            uniqueKeysWithValues: identifiers.compactMap { identifier in
+                descendantView(
+                    in: workbench,
+                    accessibilityIdentifier: identifier
+                ).map { (identifier, ObjectIdentifier($0)) }
+            }
+        )
+    }
+
+    @discardableResult
+    func testingPerformManualHaplotypeCompareAction() -> Bool {
+        guard let workbench = sampleCurationWorkbench,
+              let button = descendantView(
+                in: workbench,
+                accessibilityIdentifier:
+                    "manual-haplotype-compare-copy"
+              ) as? NSButton else {
+            return false
+        }
+        button.performClick(nil)
+        return true
+    }
+
+    @discardableResult
+    func testingPerformBackToSampleEvidenceAction() -> Bool {
+        guard let workbench = sampleCurationWorkbench,
+              let control = descendantView(
+                in: workbench,
+                accessibilityIdentifier:
+                    "sample-comparison-back-to-evidence"
+              ) else {
+            return false
+        }
+        if let button = control as? NSButton {
+            button.performClick(nil)
+            return true
+        }
+        return control.accessibilityPerformPress()
+    }
+
+    @discardableResult
+    func testingPerformSampleComparisonSourceSelection(
+        _ sample: String
+    ) -> Bool {
+        guard let workbench = sampleCurationWorkbench,
+              let searchField = descendantView(
+                in: workbench,
+                accessibilityIdentifier:
+                    "sample-comparison-source-search"
+              ) as? NSSearchField else {
+            return false
+        }
+        searchField.stringValue = sample
+        NotificationCenter.default.post(
+            name: NSControl.textDidChangeNotification,
+            object: searchField
+        )
+        guard let down = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: view.window?.windowNumber ?? 0,
+            context: nil,
+            characters: String(UnicodeScalar(NSDownArrowFunctionKey)!),
+            charactersIgnoringModifiers:
+                String(UnicodeScalar(NSDownArrowFunctionKey)!),
+            isARepeat: false,
+            keyCode: 125
+        ),
+              let enter = NSEvent.keyEvent(
+                  with: .keyDown,
+                  location: .zero,
+                  modifierFlags: [],
+                  timestamp: 0,
+                  windowNumber: view.window?.windowNumber ?? 0,
+                  context: nil,
+                  characters: "\r",
+                  charactersIgnoringModifiers: "\r",
+                  isARepeat: false,
+                  keyCode: 36
+              ) else {
+            return false
+        }
+        searchField.keyDown(with: down)
+        searchField.keyDown(with: enter)
+        return sampleComparisonModel?.selectedSource == sample
+    }
+
+    @discardableResult
+    func testingPerformUseSampleAssignments() -> Bool {
+        guard let workbench = sampleCurationWorkbench,
+              let control = descendantView(
+                in: workbench,
+                accessibilityIdentifier:
+                    "sample-comparison-use-assignments"
+              ) else {
+            return false
+        }
+        if let button = control as? NSButton {
+            button.performClick(nil)
+            return true
+        }
+        return control.accessibilityPerformPress()
+    }
+
+    func testingManualHaplotypeDraftLabel(
+        locus: GenotypeManualHaplotypeLocus,
+        slot: HaplotypeSlot
+    ) -> String? {
+        manualHaplotypeEditorModel?.draft[locus, slot]?.label
     }
 
     var testingManualHaplotypeComboIdentities: [ObjectIdentifier] {

@@ -6843,6 +6843,10 @@ extension GenotypeComparisonMatrixView {
         locusPopup.itemArray.map(\.title)
     }
 
+    func testingSetLocusFilter(_ locus: String?) {
+        applyLocusFilter(locus)
+    }
+
     var testingSelectedMatrixTargets: [GenotypeAnnotationSidecar.MatrixTarget] {
         selectedMatrixTargets
     }
