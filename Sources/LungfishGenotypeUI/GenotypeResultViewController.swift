@@ -4263,7 +4263,8 @@ public final class GenotypeResultViewController: NSViewController {
     ) -> GenotypeSupportedAllelesSnapshot {
         GenotypeSupportedAllelesSnapshot(
             rows: details.map { item in
-                GenotypeSupportedAllelePresentation(
+                let semantics = item.semantics
+                return GenotypeSupportedAllelePresentation(
                     id: item.stableClusterID.map {
                         "candidate:\($0)"
                     } ?? "known:\(item.sharedCall.locus):"
@@ -4271,12 +4272,79 @@ public final class GenotypeResultViewController: NSViewController {
                     allele: alleleDisplayLabel(
                         for: item.sharedCall.genotype
                     ),
-                    readSupport: integer(
-                        item.support.passedUniqueReads
-                    )
+                    readSupport: semantics.cell.text.value,
+                    qualifiers:
+                        supportedAlleleQualifiers(semantics),
+                    readSupportIsSecondary:
+                        semantics.cell.text.colorRole == .secondary,
+                    readSupportIsItalic:
+                        semantics.cell.text.isItalic,
+                    semanticAccessibilityDetails:
+                        supportedAlleleAccessibilityDetails(semantics)
                 )
             }
         )
+    }
+
+    private func supportedAlleleQualifiers(
+        _ semantics: GenotypeVisibleSampleAlleleSemantics
+    ) -> [String] {
+        var qualifiers: [String] = []
+        if semantics.isProvisionalExon2 {
+            qualifiers.append("Provisional exon 2")
+        }
+        switch semantics.candidateClassification {
+        case .novel:
+            qualifiers.append("Novel candidate")
+        case .extension:
+            qualifiers.append("Extension candidate")
+        case nil:
+            break
+        }
+        switch semantics.cell.review {
+        case .falsePositive:
+            qualifiers.append("False positive")
+        case .falseNegative:
+            qualifiers.append("False negative")
+        case nil:
+            break
+        }
+        let comments = semantics.cell.commentCounts
+        if comments.alleleRow > 0 {
+            qualifiers.append("Allele row comment")
+        }
+        if comments.sampleColumn > 0 {
+            qualifiers.append("Sample comment")
+        }
+        if comments.cell > 0 {
+            qualifiers.append("Cell comment")
+        }
+        return qualifiers
+    }
+
+    private func supportedAlleleAccessibilityDetails(
+        _ semantics: GenotypeVisibleSampleAlleleSemantics
+    ) -> String? {
+        guard semantics.isProvisionalExon2
+                || semantics.candidateClassification != nil
+                || semantics.cell.review != nil
+                || semantics.cell.commentCounts.total > 0 else {
+            return nil
+        }
+        var details: [String] = []
+        if semantics.isProvisionalExon2 {
+            details.append("Designation: Provisional exon 2.")
+        }
+        switch semantics.candidateClassification {
+        case .novel:
+            details.append("Candidate classification: novel.")
+        case .extension:
+            details.append("Candidate classification: extension.")
+        case nil:
+            break
+        }
+        details.append(semantics.cell.accessibilityLabel)
+        return details.joined(separator: " ")
     }
 
     private func showLegacySingleSampleColumnSelection(
@@ -9042,6 +9110,11 @@ extension GenotypeResultViewController {
 
     var testingSupportedAllelesSnapshotRowCount: Int? {
         sampleSupportedAllelesSnapshot?.rows.count
+    }
+
+    var testingSupportedAllelesSnapshotRows:
+        [GenotypeSupportedAllelePresentation] {
+        sampleSupportedAllelesSnapshot?.rows ?? []
     }
 
     var testingGeneratedDetailLargestFontPointSize: CGFloat {

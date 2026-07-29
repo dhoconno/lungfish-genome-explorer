@@ -10930,36 +10930,68 @@ final class GenotypeResultViewportTests: XCTestCase {
             bundleURL: bundleURL,
             author: "Analyst"
         )
-        try store.addMatrixComment(
-            target: .column(sample: "AnimalA"),
-            body: "Retained sample annotation"
-        )
         let genotype = "Mafa-A1*007:08:01:01_1nt_nov"
         let call = makeCall(
             sample: "AnimalA",
             genotype: genotype,
             reads: 42
         )
-        let extensionCall = makeCall(
-            sample: "AnimalA",
-            genotype: "Mafa-A1*007:06_ext",
-            reads: 21
+        let rowTarget = GenotypeAnnotationSidecar.MatrixTarget.row(
+            locus: call.locusGroup,
+            genotype: genotype
+        )
+        let cellTarget = GenotypeAnnotationSidecar.MatrixTarget.cell(
+            locus: call.locusGroup,
+            genotype: genotype,
+            sample: "AnimalA"
+        )
+        try store.addMatrixComment(
+            target: rowTarget,
+            body: "Review provisional sequence"
+        )
+        try store.addMatrixComment(
+            target: .column(sample: "AnimalA"),
+            body: "Retained sample annotation"
+        )
+        try store.addMatrixComment(
+            target: cellTarget,
+            body: "Supported call needs review"
+        )
+        let annotationsURL = bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = try GenotypeAnnotationSidecar.decode(
+            Data(contentsOf: annotationsURL)
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: cellTarget,
+                disposition: .falsePositive,
+                author: "Analyst",
+                timestamp: "2026-07-29T00:00:00Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: annotationsURL)
+        let extensionCandidate = makeCandidate(
+            id: "extension-candidate",
+            name: "Mafa-A1*007:06_ext",
+            classification: .extension,
+            support: .singleton,
+            samples: ["AnimalA"]
         )
         let controller = GenotypeResultViewController()
         _ = controller.view
-        controller.configure(result: makeResult(
+        controller.configure(result: makeCandidateResult(
             bundleURL: bundleURL,
-            samples: [
-                ONTGenotypeSampleResult(
+            calls: [call],
+            candidates: [extensionCandidate],
+            observations: [
+                makeCandidateObservation(
+                    cluster: "extension-candidate",
                     sample: "AnimalA",
-                    passedAlignments: 63,
-                    passedUniqueReads: 1_200,
-                    sampleTotalReads: nil,
-                    sampleUniqueRetainedPercent: nil,
-                    calls: [call, extensionCall]
+                    reads: 21
                 ),
             ],
-            calls: [call, extensionCall],
             provisionalExon2SequencesByGenotype: [
                 genotype: ONTGenotypeProvisionalExon2Sequence(
                     genotype: genotype,
@@ -10979,23 +11011,53 @@ final class GenotypeResultViewportTests: XCTestCase {
 
         controller.testingSelectMatrixColumn(sample: "AnimalA")
 
-        XCTAssertTrue(
-            controller.testingCurrentSelectionDetailRows.contains {
-                $0 == ("Allele", genotype)
-            }
+        let rows = controller.testingSupportedAllelesSnapshotRows
+        XCTAssertEqual(
+            rows.map(\.allele),
+            controller.testingComparisonMatrix
+                .visibleSampleAlleleDetails(sample: "AnimalA")
+                .map(\.sharedCall.genotype)
         )
-        XCTAssertTrue(
-            controller.testingCurrentSelectionDetailRows.contains {
-                $0 == ("Allele", extensionCall.genotype)
-            }
-        )
-        XCTAssertTrue(
-            controller.testingCurrentSelectionDetailRows.contains {
-                $0 == (
-                    "Column Comment",
-                    "Retained sample annotation"
-                )
-            }
+        let provisional = try XCTUnwrap(rows.first {
+            $0.allele == genotype
+        })
+        XCTAssertEqual(provisional.readSupport, "[42]")
+        XCTAssertTrue(provisional.readSupportIsItalic)
+        XCTAssertTrue(provisional.readSupportIsSecondary)
+        XCTAssertEqual(provisional.qualifiers, [
+            "Provisional exon 2",
+            "False positive",
+            "Allele row comment",
+            "Sample comment",
+            "Cell comment",
+        ])
+        XCTAssertTrue(provisional.accessibilityLabel.contains(
+            "Designation: Provisional exon 2."
+        ))
+        XCTAssertTrue(provisional.accessibilityLabel.contains(
+            "Review: false positive."
+        ))
+        XCTAssertTrue(provisional.accessibilityLabel.contains(
+            "Comments: allele row 1, sample column 1, cell 1."
+        ))
+
+        let extensionRow = try XCTUnwrap(rows.first {
+            $0.allele == extensionCandidate.provisionalName
+        })
+        XCTAssertEqual(extensionRow.qualifiers, [
+            "Extension candidate",
+            "Sample comment",
+        ])
+        XCTAssertTrue(extensionRow.accessibilityLabel.contains(
+            "Candidate classification: extension."
+        ))
+
+        // A false-negative cell cannot be present in this evidence panel:
+        // the Supported Alleles contract only contains cells with read support.
+        XCTAssertFalse(rows.flatMap(\.qualifiers).contains("False negative"))
+        XCTAssertEqual(
+            GenotypeSupportedAllelesSnapshot.columnTitles,
+            ["Allele", "Read support"]
         )
     }
 
@@ -20445,7 +20507,9 @@ final class GenotypeResultViewportTests: XCTestCase {
         candidateDocumentSchemaVersion: Int = 1,
         candidateArtifactManifestSchemaVersion: Int = 1,
         referenceMetadata: ONTGenotypeReferenceMetadata? = nil,
-        mhcCandidateGenBankArtifactURLs: ONTMHCCandidateGenBankArtifactURLs = .empty
+        mhcCandidateGenBankArtifactURLs: ONTMHCCandidateGenBankArtifactURLs = .empty,
+        provisionalExon2SequencesByGenotype:
+            [String: ONTGenotypeProvisionalExon2Sequence] = [:]
     ) -> ONTGenotypeResultBundleData {
         let sampleIDs = Set(calls.map(\.sample) + observations.map(\.sampleID))
         let samples = sampleIDs.sorted().map { sample in
@@ -20489,7 +20553,9 @@ final class GenotypeResultViewportTests: XCTestCase {
                 unnameableJSON: nil,
                 unnameableFASTA: nil
             ),
-            referenceMetadata: referenceMetadata
+            referenceMetadata: referenceMetadata,
+            provisionalExon2SequencesByGenotype:
+                provisionalExon2SequencesByGenotype
         )
         let document = ONTMHCCandidateAllelesDocument(
             schemaVersion: candidateDocumentSchemaVersion,
@@ -20513,9 +20579,14 @@ final class GenotypeResultViewportTests: XCTestCase {
             mhcUnnameableClusters: nil,
             mhcCandidateSequencesByStableClusterID: candidateSequences,
             mhcCandidateGenBankArtifactURLs: mhcCandidateGenBankArtifactURLs,
+            mhcAlignmentArtifactURLs: base.mhcAlignmentArtifactURLs,
             mhcReferenceVisualizations: mhcReferenceVisualizations,
             integrityWarnings: integrityWarnings,
-            referenceMetadata: referenceMetadata
+            referenceMetadata: referenceMetadata,
+            provisionalExon2SequencesByGenotype:
+                provisionalExon2SequencesByGenotype,
+            provisionalExon2ArtifactURLs:
+                base.provisionalExon2ArtifactURLs
         )
     }
 

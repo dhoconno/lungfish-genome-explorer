@@ -6,9 +6,18 @@ struct GenotypeSupportedAllelePresentation: Identifiable, Equatable {
     let id: String
     let allele: String
     let readSupport: String
+    var qualifiers: [String] = []
+    var readSupportIsSecondary = false
+    var readSupportIsItalic = false
+    var semanticAccessibilityDetails: String?
 
     var accessibilityLabel: String {
-        "\(allele), read support \(readSupport)."
+        let summary = "\(allele), read support \(readSupport)."
+        guard let semanticAccessibilityDetails,
+              !semanticAccessibilityDetails.isEmpty else {
+            return summary
+        }
+        return "\(summary) \(semanticAccessibilityDetails)"
     }
 }
 
@@ -101,11 +110,18 @@ struct GenotypeSupportedAllelesPanel: View {
 
             ForEach(Array(snapshot.previewRows)) { row in
                 GridRow {
-                    Text(row.allele)
-                        .font(contentBodyFont)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .frame(minWidth: 150, maxWidth: .infinity, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(row.allele)
+                            .font(contentBodyFont)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        qualifierText(row)
+                    }
+                        .frame(
+                            minWidth: 150,
+                            maxWidth: .infinity,
+                            alignment: .leading
+                        )
                         .accessibilityHidden(true)
                         .background(
                             GenotypeSupportedAllelesAccessibilityElement(
@@ -114,6 +130,12 @@ struct GenotypeSupportedAllelesPanel: View {
                         )
                     Text(row.readSupport)
                         .font(contentMonospacedFont.monospacedDigit())
+                        .italic(row.readSupportIsItalic)
+                        .foregroundStyle(
+                            row.readSupportIsSecondary
+                                ? .secondary
+                                : .primary
+                        )
                         .frame(
                             minWidth: 90,
                             maxWidth: .infinity,
@@ -174,7 +196,13 @@ struct GenotypeSupportedAllelesPanel: View {
                 .lineLimit(2)
             Text("Read support: \(row.readSupport)")
                 .font(contentCaptionFont)
-                .foregroundStyle(.secondary)
+                .italic(row.readSupportIsItalic)
+                .foregroundStyle(
+                    row.readSupportIsSecondary
+                        ? .secondary
+                        : .primary
+                )
+            qualifierText(row)
         }
         .accessibilityHidden(true)
         .background(
@@ -182,6 +210,20 @@ struct GenotypeSupportedAllelesPanel: View {
                 label: row.accessibilityLabel
             )
         )
+    }
+
+    @ViewBuilder
+    private func qualifierText(
+        _ row: GenotypeSupportedAllelePresentation
+    ) -> some View {
+        if !row.qualifiers.isEmpty {
+            Text(row.qualifiers.joined(separator: " \u{00b7} "))
+                .font(contentCaptionFont)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .accessibilityHidden(true)
+        }
     }
 
     private static func showAllButtonTitle(
@@ -397,7 +439,10 @@ private struct GenotypeSupportedAllelesVirtualizedList: NSViewRepresentable {
 
 private final class GenotypeSupportedAllelesTableCell: NSTableCellView {
     private let alleleLabel = NSTextField(labelWithString: "")
+    private let qualifierLabel = NSTextField(labelWithString: "")
     private let readSupportLabel = NSTextField(labelWithString: "")
+    private var alleleTopConstraint: NSLayoutConstraint?
+    private var alleleCenterYConstraint: NSLayoutConstraint?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -405,14 +450,37 @@ private final class GenotypeSupportedAllelesTableCell: NSTableCellView {
         readSupportLabel.textColor = .secondaryLabelColor
         readSupportLabel.alignment = .right
         readSupportLabel.lineBreakMode = .byTruncatingHead
-        for label in [alleleLabel, readSupportLabel] {
+        qualifierLabel.textColor = .secondaryLabelColor
+        qualifierLabel.lineBreakMode = .byTruncatingTail
+        for label in [alleleLabel, qualifierLabel, readSupportLabel] {
             label.translatesAutoresizingMaskIntoConstraints = false
             label.setAccessibilityElement(false)
             addSubview(label)
         }
+        alleleTopConstraint = alleleLabel.topAnchor.constraint(
+            equalTo: topAnchor,
+            constant: 4
+        )
+        alleleCenterYConstraint = alleleLabel.centerYAnchor.constraint(
+            equalTo: centerYAnchor
+        )
         NSLayoutConstraint.activate([
             alleleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            alleleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            qualifierLabel.leadingAnchor.constraint(
+                equalTo: alleleLabel.leadingAnchor
+            ),
+            qualifierLabel.trailingAnchor.constraint(
+                lessThanOrEqualTo: readSupportLabel.leadingAnchor,
+                constant: -12
+            ),
+            qualifierLabel.topAnchor.constraint(
+                equalTo: alleleLabel.bottomAnchor,
+                constant: 1
+            ),
+            qualifierLabel.bottomAnchor.constraint(
+                lessThanOrEqualTo: bottomAnchor,
+                constant: -4
+            ),
             readSupportLabel.leadingAnchor.constraint(
                 greaterThanOrEqualTo: alleleLabel.trailingAnchor,
                 constant: 12
@@ -439,8 +507,28 @@ private final class GenotypeSupportedAllelesTableCell: NSTableCellView {
     ) {
         alleleLabel.stringValue = row.allele
         alleleLabel.font = bodyFont
+        let hasQualifiers = !row.qualifiers.isEmpty
+        alleleTopConstraint?.isActive = false
+        alleleCenterYConstraint?.isActive = false
+        if hasQualifiers {
+            alleleTopConstraint?.isActive = true
+        } else {
+            alleleCenterYConstraint?.isActive = true
+        }
+        qualifierLabel.isHidden = !hasQualifiers
+        qualifierLabel.stringValue =
+            row.qualifiers.joined(separator: " \u{00b7} ")
+        qualifierLabel.font = captionFont
         readSupportLabel.stringValue = row.readSupport
-        readSupportLabel.font = captionFont
+        readSupportLabel.font = row.readSupportIsItalic
+            ? NSFontManager.shared.convert(
+                captionFont,
+                toHaveTrait: .italicFontMask
+            )
+            : captionFont
+        readSupportLabel.textColor = row.readSupportIsSecondary
+            ? .secondaryLabelColor
+            : .labelColor
         setAccessibilityIdentifier(row.id)
         setAccessibilityLabel(row.accessibilityLabel)
     }

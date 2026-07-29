@@ -19,12 +19,19 @@ private extension GenotypeCandidateMatrixRowID {
     }
 }
 
+struct GenotypeVisibleSampleAlleleSemantics {
+    let isProvisionalExon2: Bool
+    let candidateClassification: ONTMHCCandidateClassification?
+    let cell: GenotypeMatrixCellSemanticState
+}
+
 struct GenotypeVisibleSampleAlleleDetail {
     let rowID: GenotypeCandidateMatrixRowID
     let stableClusterID: String?
     let sharedCall: ONTGenotypeSharedCall
     let support: ONTGenotypeSampleSupport
     let fraction: Double?
+    let semantics: GenotypeVisibleSampleAlleleSemantics
 }
 
 #if DEBUG
@@ -3584,7 +3591,12 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             stableClusterID: row.stableClusterID,
             sharedCall: row.sharedCall,
             support: support,
-            fraction: fraction
+            fraction: fraction,
+            semantics: GenotypeVisibleSampleAlleleSemantics(
+                isProvisionalExon2: isProvisionalExon2(row),
+                candidateClassification: row.candidate?.classification,
+                cell: semanticCellState(for: sample, row: row)
+            )
         )
     }
 
