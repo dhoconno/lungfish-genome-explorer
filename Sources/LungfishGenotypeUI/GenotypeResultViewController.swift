@@ -5864,6 +5864,9 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func focusManualHaplotypeEditor(sample: String) {
+#if DEBUG
+        testingLastManualHaplotypeFocusIdentifier = nil
+#endif
         let target: GenotypeAnnotationSidecar.MatrixTarget =
             .column(sample: sample)
         if currentSelectionState?.matrixTargets != [target] {
@@ -5871,26 +5874,37 @@ public final class GenotypeResultViewController: NSViewController {
         }
         guard let host = manualHaplotypeEditorHostView else { return }
         detailScrollView.isHidden = false
-        detailScrollView.contentView.scrollToVisible(
-            host.convert(host.bounds, to: detailDocumentView)
-        )
-        detailScrollView.reflectScrolledClipView(
-            detailScrollView.contentView
-        )
+        sampleCurationWorkbench?.layoutSubtreeIfNeeded()
         view.layoutSubtreeIfNeeded()
         let identifier = "manual-haplotype-MHC-A-h1"
-#if DEBUG
-        testingLastManualHaplotypeFocusIdentifier = identifier
-#endif
         DispatchQueue.main.async { [weak self, weak host] in
             guard let self, let host,
+                  host === self.manualHaplotypeEditorHostView else {
+                return
+            }
+            self.sampleCurationWorkbench?.layoutSubtreeIfNeeded()
+            self.view.layoutSubtreeIfNeeded()
+            guard
                   let combo = self.descendantComboBox(
                       in: host,
                       accessibilityIdentifier: identifier
                   ) else {
                 return
             }
-            self.view.window?.makeFirstResponder(combo)
+            let fieldRect = combo.convert(
+                combo.bounds,
+                to: self.detailDocumentView
+            )
+            self.detailScrollView.contentView.scrollToVisible(fieldRect)
+            self.detailScrollView.reflectScrolledClipView(
+                self.detailScrollView.contentView
+            )
+            guard self.view.window?.makeFirstResponder(combo) == true else {
+                return
+            }
+#if DEBUG
+            self.testingLastManualHaplotypeFocusIdentifier = identifier
+#endif
         }
     }
 

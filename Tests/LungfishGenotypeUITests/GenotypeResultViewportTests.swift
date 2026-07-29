@@ -6886,9 +6886,10 @@ final class GenotypeResultViewportTests: XCTestCase {
             controller.testingManualHaplotypeEditorSample,
             "AnimalA"
         )
-        XCTAssertEqual(
+        XCTAssertNil(
             controller.testingLastManualHaplotypeFocusedFieldIdentifier,
-            "manual-haplotype-MHC-A-h1"
+            "A focus diagnostic must only be published after a window "
+                + "accepts the real combo as first responder."
         )
 
         let haplotyped = GenotypeComparisonMatrixView()
@@ -6917,6 +6918,90 @@ final class GenotypeResultViewportTests: XCTestCase {
             )?.items.contains {
                 $0.title == "Edit Haplotype Assignments…"
             } ?? true
+        )
+    }
+
+    func testManualHaplotypeContextActionFocusesVisibleMHCATextField()
+        throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "ManualHaplotypeFocus-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent(
+            "example.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let call = makeCall(
+            sample: "AnimalA",
+            genotype: "01_Mafa_A1_001_01",
+            reads: 42
+        )
+        let controller = GenotypeResultViewController()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 720),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = controller.view
+        defer { window.orderOut(nil) }
+        window.makeKeyAndOrderFront(nil)
+        controller.configure(
+            result: makeResult(
+                bundleURL: bundleURL,
+                samples: [],
+                calls: [call]
+            )
+        )
+        controller.testingApplyDisplayStateImmediately(
+            GenotypeResultDisplayState(
+                summaryViewMode: .matrix,
+                layout: .listTop
+            )
+        )
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        XCTAssertTrue(
+            controller.testingPerformMatrixContextCommand(
+                .editManualHaplotypeAssignments
+            )
+        )
+        let deadline = Date(timeIntervalSinceNow: 1)
+        var focusedCombo: NSComboBox?
+        repeat {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
+            controller.view.layoutSubtreeIfNeeded()
+            if let combo = controller.testingFirstManualHaplotypeComboBox,
+               window.firstResponder === combo
+                    || combo.currentEditor() === window.firstResponder {
+                focusedCombo = combo
+                break
+            }
+        } while Date() < deadline
+
+        let combo = try XCTUnwrap(
+            focusedCombo,
+            "The context action must focus the real mounted MHC-A H1 field."
+        )
+        let clipView = try XCTUnwrap(
+            sequence(first: combo.superview) { $0?.superview }
+                .compactMap { $0 as? NSClipView }
+                .first
+        )
+        let comboFrame = combo.convert(combo.bounds, to: clipView)
+        XCTAssertTrue(
+            clipView.bounds.intersects(comboFrame),
+            "The focused combo must be scrolled into the visible detail clip."
+        )
+        XCTAssertEqual(
+            controller.testingLastManualHaplotypeFocusedFieldIdentifier,
+            "manual-haplotype-MHC-A-h1"
         )
     }
 

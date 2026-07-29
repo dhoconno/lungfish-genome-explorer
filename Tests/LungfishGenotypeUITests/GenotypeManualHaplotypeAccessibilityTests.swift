@@ -232,6 +232,122 @@ final class GenotypeManualHaplotypeAccessibilityTests: XCTestCase {
         )
     }
 
+    func testMountedEditorUsesBoundedCopyPopoverAndOverflowExport()
+        throws
+    {
+        let fixture = GenotypeManualHaplotypeTask10Fixture()
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: fixture.assignments
+        )
+        let draft = GenotypeManualHaplotypeDraft(
+            sample: fixture.samples[0],
+            index: index
+        )
+        var exportCount = 0
+        let model = GenotypeManualHaplotypeEditorModel(
+            snapshot: .init(
+                draft: draft,
+                copyCandidates: [
+                    index.sampleAssignments(for: fixture.samples[1]),
+                ],
+                isReadOnly: false
+            ),
+            onSave: { $0 },
+            onReload: {
+                .init(
+                    draft: draft,
+                    copyCandidates: [],
+                    isReadOnly: false
+                )
+            },
+            onExport: { exportCount += 1 }
+        )
+        let host = makeGenotypeManualHaplotypeEditorHostingView(
+            model: model,
+            typographyModel: .shared
+        )
+        host.frame = NSRect(x: 0, y: 0, width: 620, height: 1_600)
+        let window = NSWindow(
+            contentRect: host.frame,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = host
+        defer { window.orderOut(nil) }
+        window.makeKeyAndOrderFront(nil)
+        flush(host)
+
+        let buttons = descendants(of: host).compactMap { $0 as? NSButton }
+        let copyButton = try XCTUnwrap(
+            buttons.first {
+                $0.accessibilityIdentifier()
+                    == "manual-haplotype-copy-picker"
+            }
+        )
+        let moreActions = try XCTUnwrap(
+            descendants(of: host)
+                .compactMap { $0 as? NSPopUpButton }
+                .first {
+                    $0.accessibilityIdentifier()
+                        == "manual-haplotype-more-actions"
+                }
+        )
+        XCTAssertNil(
+            buttons.first {
+                $0.title == "Export All Manual Definitions…"
+                    || $0.title == "Export Manual Definitions…"
+            },
+            "Analysis-wide export must not be a footer peer of sample Save."
+        )
+        let exportItem = try XCTUnwrap(
+            moreActions.menu?.items.first {
+                $0.title == "Export All Manual Definitions…"
+            }
+        )
+        let exportAction = try XCTUnwrap(exportItem.action)
+        XCTAssertTrue(
+            NSApp.sendAction(
+                exportAction,
+                to: exportItem.target,
+                from: exportItem
+            )
+        )
+        XCTAssertEqual(exportCount, 1)
+
+        let inlineHeight = host.fittingSize.height
+        let existingWindows = Set(NSApp.windows.map(ObjectIdentifier.init))
+        copyButton.performClick(nil)
+        let popoverWindow = try XCTUnwrap(
+            waitForWindow(excluding: existingWindows)
+        )
+        defer {
+            popoverWindow.close()
+            RunLoop.main.run(
+                until: Date(timeIntervalSinceNow: 0.08)
+            )
+        }
+        let popoverContent = try XCTUnwrap(popoverWindow.contentView)
+        XCTAssertNotEqual(popoverWindow, window)
+        XCTAssertEqual(host.fittingSize.height, inlineHeight, accuracy: 1)
+        XCTAssertNotNil(
+            descendants(of: popoverContent)
+                .compactMap { $0 as? NSTextField }
+                .first {
+                    $0.accessibilityIdentifier()
+                        == "manual-haplotype-copy-search"
+                }
+        )
+        model.copyAssignments(from: fixture.samples[1])
+        flush(host)
+        XCTAssertEqual(
+            model.draft[.a, .h1]?.label,
+            "MHC-A-Alpha",
+            "Copy must mutate the same draft rendered by the editor."
+        )
+        XCTAssertEqual(exportCount, 1)
+    }
+
     func testMountedDetailViewBoundsOneHundredSelectedSampleSummaries()
         throws
     {
@@ -291,4 +407,30 @@ final class GenotypeManualHaplotypeAccessibilityTests: XCTestCase {
     private func descendants(of root: NSView) -> [NSView] {
         [root] + root.subviews.flatMap(descendants(of:))
     }
+
+    private func flush(_ view: NSView) {
+        view.window?.layoutIfNeeded()
+        view.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.08))
+        view.window?.layoutIfNeeded()
+        view.layoutSubtreeIfNeeded()
+    }
+
+    private func waitForWindow(
+        excluding existingWindows: Set<ObjectIdentifier>
+    ) -> NSWindow? {
+        let deadline = Date(timeIntervalSinceNow: 1)
+        repeat {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
+            if let window = NSApp.windows.first(where: {
+                !existingWindows.contains(ObjectIdentifier($0))
+                    && $0.isVisible
+            }) {
+                window.contentView?.layoutSubtreeIfNeeded()
+                return window
+            }
+        } while Date() < deadline
+        return nil
+    }
+
 }
