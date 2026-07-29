@@ -6403,6 +6403,102 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
     }
 
+    func testManualHaplotypeDisclosureWidthChangesRetileOnlyAcrossWrapThreshold()
+        throws
+    {
+        let samples = ["AnimalA", "AnimalB", "AnimalC", "AnimalD"]
+        let calls = (0..<24).flatMap { row in
+            samples.map { sample in
+                makeCall(
+                    sample: sample,
+                    genotype: String(format: "%02d_Mafa_A1", row),
+                    reads: row + 1
+                )
+            }
+        }
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.frame = NSRect(x: 0, y: 0, width: 800, height: 320)
+        matrix.testingSetPinnedPaneWidth(420)
+        matrix.configure(result: makeResult(samples: [], calls: calls))
+        matrix.testingSetManualHaplotypeBandTypographyScale(2)
+        matrix.layoutSubtreeIfNeeded()
+        matrix.testingSetContentScrollOrigins(
+            pinned: NSPoint(
+                x: 0,
+                y: matrix.testingMatrixRowHeight * 5 + 3
+            ),
+            samples: NSPoint(
+                x: 60,
+                y: matrix.testingMatrixRowHeight * 5 + 3
+            )
+        )
+        let sameLineHeader = try XCTUnwrap(
+            matrix.testingFixedHeaderSnapshot(sample: "AnimalA")
+        )
+        matrix.testingResetManualHaplotypeDisclosureLayoutCounters()
+
+        for width: CGFloat in [400, 380, 360] {
+            matrix.testingSetPinnedPaneWidth(width)
+            let current = try XCTUnwrap(
+                matrix.testingFixedHeaderSnapshot(sample: "AnimalA")
+            )
+            XCTAssertEqual(
+                current.manualSectionRect.height,
+                sameLineHeader.manualSectionRect.height,
+                accuracy: 0.5
+            )
+        }
+        XCTAssertEqual(
+            matrix.testingManualHaplotypeDisclosureLayoutCounters
+                .headerRelayouts,
+            0
+        )
+        XCTAssertEqual(
+            matrix.testingManualHaplotypeDisclosureLayoutCounters
+                .anchorPreservations,
+            0
+        )
+
+        let anchor = matrix.testingSemanticScrollAnchor
+        matrix.testingSetPinnedPaneWidth(180)
+        let wrappedHeader = try XCTUnwrap(
+            matrix.testingFixedHeaderSnapshot(sample: "AnimalA")
+        )
+
+        XCTAssertGreaterThan(
+            wrappedHeader.manualSectionRect.height,
+            sameLineHeader.manualSectionRect.height
+        )
+        XCTAssertEqual(
+            matrix.testingManualHaplotypeDisclosureLayoutCounters
+                .headerRelayouts,
+            1
+        )
+        XCTAssertEqual(
+            matrix.testingManualHaplotypeDisclosureLayoutCounters
+                .anchorPreservations,
+            1
+        )
+        XCTAssertEqual(
+            matrix.testingSemanticScrollAnchor.rowID,
+            anchor.rowID
+        )
+        XCTAssertEqual(
+            matrix.testingSemanticScrollAnchor.withinRowOffset,
+            anchor.withinRowOffset,
+            accuracy: 0.01
+        )
+        XCTAssertEqual(
+            matrix.testingSemanticScrollAnchor.leadingSampleID,
+            anchor.leadingSampleID
+        )
+        XCTAssertEqual(
+            matrix.testingSemanticScrollAnchor.withinSampleOffset,
+            anchor.withinSampleOffset,
+            accuracy: 0.01
+        )
+    }
+
     func testManualHaplotypeBandRealignsAfterContentTextSizeChanges()
         throws
     {

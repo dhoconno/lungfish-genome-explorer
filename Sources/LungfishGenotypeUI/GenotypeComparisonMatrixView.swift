@@ -254,6 +254,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private var testingManualHaplotypeGeometryUpdateCount = 0
     private var testingManualHaplotypeGeometryRecomputationCount = 0
     private var testingManualHaplotypeGeometryInspectedColumnCount = 0
+    private var testingManualHaplotypeDisclosureHeaderRelayoutCount = 0
+    private var testingManualHaplotypeDisclosureAnchorPreservationCount = 0
     private var testingForcesLegacyBottomChrome = false
 #endif
     private var pinnedWidthConstraint: NSLayoutConstraint?
@@ -1185,14 +1187,25 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     override func layout() {
         super.layout()
         setPinnedPaneWidth(pinnedWidthConstraint?.constant ?? 360, persist: false)
-        let disclosureWidthChanged =
+        let nextDisclosureHeight = manualHaplotypeDisclosureHeight
+        let disclosureHeightChanged =
             manualHaplotypeEditingEligible
-                && manualHaplotypePinnedBand.availableDisclosureWidth
-                    != manualHaplotypeDisclosureAvailableWidth
-        let disclosureAnchor = disclosureWidthChanged
+                && (
+                    manualHaplotypePinnedBand.disclosureHeight
+                        != nextDisclosureHeight
+                    || manualHaplotypeSampleBand.disclosureHeight
+                        != nextDisclosureHeight
+                )
+        let disclosureAnchor = disclosureHeightChanged
             ? captureSemanticScrollAnchor()
             : nil
         if synchronizeManualHaplotypeDisclosureGeometry() {
+#if DEBUG
+            testingManualHaplotypeDisclosureHeaderRelayoutCount += 1
+            if disclosureAnchor != nil {
+                testingManualHaplotypeDisclosureAnchorPreservationCount += 1
+            }
+#endif
             updateNativeHeaderLayout()
             restoreSemanticScrollAnchor(disclosureAnchor)
         }
@@ -4757,18 +4770,22 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         guard manualHaplotypeEditingEligible else { return false }
         let width = manualHaplotypeDisclosureAvailableWidth
         let height = manualHaplotypeDisclosureHeight
-        guard force
-                || manualHaplotypePinnedBand.availableDisclosureWidth
-                    != width
-                || manualHaplotypePinnedBand.disclosureHeight != height
+        let widthChanged =
+            manualHaplotypePinnedBand.availableDisclosureWidth != width
+        let heightChanged =
+            manualHaplotypePinnedBand.disclosureHeight != height
                 || manualHaplotypeSampleBand.disclosureHeight != height
-        else {
+        guard force || widthChanged || heightChanged else {
             return false
         }
-        manualHaplotypePinnedBand.availableDisclosureWidth = width
-        manualHaplotypePinnedBand.disclosureHeight = height
-        manualHaplotypeSampleBand.disclosureHeight = height
-        return true
+        if force || widthChanged {
+            manualHaplotypePinnedBand.availableDisclosureWidth = width
+        }
+        if force || heightChanged {
+            manualHaplotypePinnedBand.disclosureHeight = height
+            manualHaplotypeSampleBand.disclosureHeight = height
+        }
+        return heightChanged
     }
 
     private func applyManualHaplotypeBandPresentation() {
@@ -6528,6 +6545,17 @@ extension GenotypeComparisonMatrixView {
     func testingSetPinnedPaneWidth(_ width: CGFloat) {
         setPinnedPaneWidth(width, persist: true)
         layoutSubtreeIfNeeded()
+    }
+    func testingResetManualHaplotypeDisclosureLayoutCounters() {
+        testingManualHaplotypeDisclosureHeaderRelayoutCount = 0
+        testingManualHaplotypeDisclosureAnchorPreservationCount = 0
+    }
+    var testingManualHaplotypeDisclosureLayoutCounters:
+        (headerRelayouts: Int, anchorPreservations: Int) {
+        (
+            testingManualHaplotypeDisclosureHeaderRelayoutCount,
+            testingManualHaplotypeDisclosureAnchorPreservationCount
+        )
     }
     var testingAvailableReferenceColumnTitles: [String] {
         referenceFields.map(\.displayTitle)
