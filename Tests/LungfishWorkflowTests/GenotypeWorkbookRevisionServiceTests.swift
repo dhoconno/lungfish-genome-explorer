@@ -7,6 +7,392 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
+    func testPublicWorkbookRevisionOutcomeAndLegacyWrapperMatchCommittedManifest() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let outcomeRoot = try temporaryDirectory()
+        let legacyRoot = try temporaryDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: outcomeRoot)
+            try? FileManager.default.removeItem(at: legacyRoot)
+        }
+        let outcomeFixture = try makeMCMWorkbookBundle(
+            in: outcomeRoot,
+            outputName: "public-outcome"
+        )
+        let legacyFixture = try makeMCMWorkbookBundle(
+            in: legacyRoot,
+            outputName: "legacy-outcome"
+        )
+        let outcomeService = GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 7_400) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL:
+                outcomeRoot.appendingPathComponent(
+                    "attestations",
+                    isDirectory: true
+                )
+        )
+
+        let outcome: GenotypeWorkbookRevisionOutcome =
+            try outcomeService.applyHaplotypeOverridesWithOutcome(
+                [],
+                annotationSidecarURL: nil,
+                into: outcomeFixture.bundleURL
+            )
+        let legacyManifest = try GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 7_400) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL:
+                legacyRoot.appendingPathComponent(
+                    "attestations",
+                    isDirectory: true
+                )
+        ).applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: nil,
+            into: legacyFixture.bundleURL
+        )
+
+        XCTAssertNil(outcome.cleanupPendingWarning)
+        XCTAssertEqual(
+            outcome.manifest,
+            try ONTGenotypeResultBundle.loadManifest(
+                from: outcomeFixture.bundleURL
+            )
+        )
+        XCTAssertEqual(
+            legacyManifest,
+            try ONTGenotypeResultBundle.loadManifest(
+                from: legacyFixture.bundleURL
+            )
+        )
+    }
+
+    func testCommittedCleanupFailureReturnsSuccessWarningWithoutSecondRetiredGeneration()
+        throws
+    {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(
+            in: root,
+            outputName: "committed-cleanup-warning"
+        )
+        let beforeRevisionCount = fixture.manifest.workbookRevisions?.count ?? 0
+        let attestationRoot = root.appendingPathComponent(
+            "attestations",
+            isDirectory: true
+        )
+
+        let outcome = try GenotypeWorkbookRevisionService(
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL: attestationRoot,
+            workbookCleanupFailureInjector: { checkpoint in
+                guard checkpoint == "during-workbook-cleanup-traversal" else {
+                    return
+                }
+                throw NSError(
+                    domain: "InjectedCommittedCleanupFailure",
+                    code: 5
+                )
+            }
+        ).applyHaplotypeOverridesWithOutcome(
+            [
+                GenotypeWorkbookHaplotypeCall(
+                    sample: "DW472",
+                    locus: "MHC-DP",
+                    haplotype1: "Latest-DP-1",
+                    haplotype2: "Latest-DP-2",
+                    status: "called",
+                    notes: "latest assignments"
+                ),
+            ],
+            annotationSidecarURL: nil,
+            into: fixture.bundleURL
+        )
+
+        XCTAssertEqual(
+            outcome.cleanupPendingWarning,
+            "Workbook updated; retired-generation cleanup pending."
+        )
+        XCTAssertEqual(
+            outcome.manifest,
+            try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
+        )
+        XCTAssertGreaterThan(
+            outcome.manifest.workbookRevisions?.count ?? 0,
+            beforeRevisionCount
+        )
+        let pending = try workbookCleanupArtifacts(in: root)
+        XCTAssertEqual(
+            pending.filter {
+                $0.lastPathComponent.hasPrefix(
+                    ".lungfish-workbook-cleanup-pending-"
+                )
+            }.count,
+            1
+        )
+        XCTAssertEqual(
+            pending.filter {
+                $0.lastPathComponent.contains(".workbook-cleanup-state-")
+            }.count,
+            1
+        )
+        let inspection = try inspectMCMWorkbook(
+            try ONTGenotypeResultBundle.currentWorkbookURL(
+                for: fixture.bundleURL
+            )
+        )
+        XCTAssertEqual(inspection["abbreviatedDPHaplotype1"], "Latest-DP-1")
+        XCTAssertEqual(inspection["abbreviatedDPHaplotype2"], "Latest-DP-2")
+    }
+
+    func testLegacyManifestWrapperReturnsCommittedManifestWhenCleanupRemainsPending()
+        throws
+    {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(
+            in: root,
+            outputName: "legacy-cleanup-warning"
+        )
+
+        let returned = try GenotypeWorkbookRevisionService(
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL: root.appendingPathComponent(
+                "attestations",
+                isDirectory: true
+            ),
+            workbookCleanupFailureInjector: { checkpoint in
+                guard checkpoint == "during-workbook-cleanup-traversal" else {
+                    return
+                }
+                throw NSError(
+                    domain: "InjectedLegacyCommittedCleanupFailure",
+                    code: 5
+                )
+            }
+        ).applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: nil,
+            into: fixture.bundleURL
+        )
+
+        XCTAssertEqual(
+            returned,
+            try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
+        )
+        XCTAssertTrue(
+            try workbookCleanupArtifacts(in: root).contains {
+                $0.lastPathComponent.contains(".workbook-cleanup-state-")
+            }
+        )
+    }
+
+    func testPreflightCleanupFailureBlocksWithoutCreatingWorkbookGeneration() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let paused = try pausedCommittedWorkbookCleanup(
+            outputName: "preflight-cleanup-block"
+        )
+        paused.lock.release()
+        defer { try? FileManager.default.removeItem(at: paused.root) }
+        let before = try ONTGenotypeResultBundle.loadManifest(
+            from: paused.fixture.bundleURL
+        )
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                pythonExecutableURL: testPythonExecutableURL,
+                workbookAttestationRootURL: paused.attestationRoot,
+                workbookCleanupFailureInjector: { checkpoint in
+                    guard checkpoint
+                        == "during-workbook-cleanup-traversal" else {
+                        return
+                    }
+                    throw NSError(
+                        domain: "InjectedPreflightCleanupFailure",
+                        code: 5
+                    )
+                }
+            ).applyHaplotypeOverridesWithOutcome(
+                [],
+                annotationSidecarURL: nil,
+                into: paused.fixture.bundleURL
+            )
+        ) { error in
+            XCTAssertTrue(
+                error.localizedDescription.contains(
+                    "The existing workbook is valid, but this new update was not applied because a prior retired generation could not be cleaned up safely."
+                ),
+                error.localizedDescription
+            )
+        }
+        XCTAssertEqual(
+            try ONTGenotypeResultBundle.loadManifest(
+                from: paused.fixture.bundleURL
+            ),
+            before
+        )
+        XCTAssertEqual(
+            try workbookCleanupArtifacts(in: paused.root).filter {
+                $0.lastPathComponent.hasPrefix(
+                    ".lungfish-workbook-cleanup-pending-"
+                )
+            }.count,
+            1
+        )
+        try assertNoWorkbookUpdateStage(
+            for: paused.fixture.bundleURL
+        )
+    }
+
+    func testCleanupPendingWarningPersistenceFailureAfterCommitIsSuccessWarning()
+        throws
+    {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(
+            in: root,
+            outputName: "warning-persistence-failure"
+        )
+
+        let outcome = try GenotypeWorkbookRevisionService(
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL: root.appendingPathComponent(
+                "attestations",
+                isDirectory: true
+            ),
+            workbookCleanupFailureInjector: { checkpoint in
+                if checkpoint == "during-workbook-cleanup-traversal" {
+                    throw NSError(
+                        domain: "InjectedCommittedCleanupFailure",
+                        code: 5
+                    )
+                }
+                if checkpoint == "before-workbook-cleanup-warning-write" {
+                    throw NSError(
+                        domain: "InjectedWarningPersistenceFailure",
+                        code: 17
+                    )
+                }
+            }
+        ).applyHaplotypeOverridesWithOutcome(
+            [],
+            annotationSidecarURL: nil,
+            into: fixture.bundleURL
+        )
+
+        XCTAssertEqual(
+            outcome.cleanupPendingWarning,
+            "Workbook updated; retired-generation cleanup pending."
+        )
+        XCTAssertEqual(
+            outcome.manifest,
+            try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
+        )
+        XCTAssertTrue(
+            try workbookCleanupArtifacts(in: root).contains {
+                $0.lastPathComponent.contains(".workbook-cleanup-state-")
+            }
+        )
+    }
+
+    func testSchemaThreeCleanupPendingRecoveryFinishesThenPublishesLatestAssignments()
+        throws
+    {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let paused = try pausedCommittedWorkbookCleanup(
+            outputName: "schema-three-recovery"
+        )
+        paused.lock.release()
+        defer { try? FileManager.default.removeItem(at: paused.root) }
+        let stateURL = try workbookCleanupStateURL(in: paused.root)
+        let stateObject = try XCTUnwrap(
+            try JSONSerialization.jsonObject(
+                with: Data(contentsOf: stateURL)
+            ) as? [String: Any]
+        )
+        XCTAssertEqual(stateObject["schemaVersion"] as? Int, 3)
+
+        let outcome = try GenotypeWorkbookRevisionService(
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL: paused.attestationRoot
+        ).applyHaplotypeOverridesWithOutcome(
+            [
+                GenotypeWorkbookHaplotypeCall(
+                    sample: "DW472",
+                    locus: "MHC-DP",
+                    haplotype1: "Recovered-Latest-DP-1",
+                    haplotype2: "Recovered-Latest-DP-2",
+                    status: "called",
+                    notes: "latest after cleanup recovery"
+                ),
+            ],
+            annotationSidecarURL: nil,
+            into: paused.fixture.bundleURL
+        )
+
+        XCTAssertNil(outcome.cleanupPendingWarning)
+        let inspection = try inspectMCMWorkbook(
+            try ONTGenotypeResultBundle.currentWorkbookURL(
+                for: paused.fixture.bundleURL
+            )
+        )
+        XCTAssertEqual(
+            inspection["abbreviatedDPHaplotype1"],
+            "Recovered-Latest-DP-1"
+        )
+        XCTAssertEqual(
+            inspection["abbreviatedDPHaplotype2"],
+            "Recovered-Latest-DP-2"
+        )
+        XCTAssertTrue(
+            try workbookRecoveryReceiptActions(in: paused.root).contains(
+                "finished-committed-cleanup"
+            )
+        )
+        try assertNoRetiredWorkbookGeneration(in: paused.root)
+    }
+
+    func testRecoveryConvergesBeforeNewGenerationAndAcquiresPublicationLockOnlyOnce()
+        throws
+    {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let paused = try pausedCommittedWorkbookCleanup(
+            outputName: "single-lock-recovery"
+        )
+        paused.lock.release()
+        defer { try? FileManager.default.removeItem(at: paused.root) }
+        let acquisitions = WorkbookPublicationLockAcquisitionCounter()
+
+        let outcome = try GenotypeWorkbookRevisionService(
+            testingWorkbookPublicationLockAcquirer: { bundleURL in
+                acquisitions.increment()
+                return try ONTGenotypeBundlePublicationLock.acquire(
+                    for: bundleURL
+                )
+            },
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL: paused.attestationRoot
+        ).applyHaplotypeOverridesWithOutcome(
+            [],
+            annotationSidecarURL: nil,
+            into: paused.fixture.bundleURL
+        )
+
+        XCTAssertNil(outcome.cleanupPendingWarning)
+        XCTAssertEqual(acquisitions.value, 1)
+        XCTAssertTrue(
+            try workbookRecoveryReceiptActions(in: paused.root).contains(
+                "finished-committed-cleanup"
+            )
+        )
+        try assertNoRetiredWorkbookGeneration(in: paused.root)
+    }
+
     func testExplicitWorkbookUpdateAcceptsWriterShapedSchemaV4UnnameableIdentity() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()
@@ -12157,6 +12543,19 @@ private final class SendableFlagBox: @unchecked Sendable {
 
     var value: UInt32? { lock.withLock { stored } }
     func set(_ value: UInt32) { lock.withLock { stored = value } }
+}
+
+private final class WorkbookPublicationLockAcquisitionCounter:
+    @unchecked Sendable
+{
+    private let lock = NSLock()
+    private var stored = 0
+
+    var value: Int { lock.withLock { stored } }
+
+    func increment() {
+        lock.withLock { stored += 1 }
+    }
 }
 
 private final class IncrementingDateProvider: @unchecked Sendable {

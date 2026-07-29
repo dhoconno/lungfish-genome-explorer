@@ -132,6 +132,19 @@ public struct GenotypeWorkbookRevisionProvenanceContext: Equatable, Sendable {
     }
 }
 
+public struct GenotypeWorkbookRevisionOutcome: Sendable {
+    public let manifest: ONTGenotypeResultBundleManifest
+    public let cleanupPendingWarning: String?
+
+    public init(
+        manifest: ONTGenotypeResultBundleManifest,
+        cleanupPendingWarning: String?
+    ) {
+        self.manifest = manifest
+        self.cleanupPendingWarning = cleanupPendingWarning
+    }
+}
+
 public struct GenotypeWorkbookRevisionService {
     private enum WorkbookPublicationMechanism {
         case renameSwap
@@ -273,6 +286,10 @@ public struct GenotypeWorkbookRevisionService {
     private let forceBundleCloneFallback: Bool
     private let bundleCopyPrimitive: (@Sendable (URL, URL, UInt32) -> Int32)?
     private let workbookAttestationRootURL: URL?
+    private let workbookCleanupFailureInjector:
+        (@Sendable (String) throws -> Void)?
+    private var workbookPublicationLockAcquirer:
+        @Sendable (URL) throws -> ONTGenotypeBundlePublicationLock
     private let directorySwapPrimitive: ONTGenotypeDirectoryRenamePrimitive?
     private let directoryMovePrimitive: ONTGenotypeDirectoryRenamePrimitive?
     private let workbookAtomicRenamePrimitive: ONTGenotypeAtomicRenamePrimitive?
@@ -288,6 +305,8 @@ public struct GenotypeWorkbookRevisionService {
         forceBundleCloneFallback: Bool = false,
         bundleCopyPrimitive: (@Sendable (URL, URL, UInt32) -> Int32)? = nil,
         workbookAttestationRootURL: URL? = nil,
+        workbookCleanupFailureInjector:
+            (@Sendable (String) throws -> Void)? = nil,
         directorySwapPrimitive: ONTGenotypeDirectoryRenamePrimitive? = nil,
         directoryMovePrimitive: ONTGenotypeDirectoryRenamePrimitive? = nil,
         workbookAtomicRenamePrimitive: ONTGenotypeAtomicRenamePrimitive? = nil,
@@ -302,10 +321,35 @@ public struct GenotypeWorkbookRevisionService {
         self.forceBundleCloneFallback = forceBundleCloneFallback
         self.bundleCopyPrimitive = bundleCopyPrimitive
         self.workbookAttestationRootURL = workbookAttestationRootURL
+        self.workbookCleanupFailureInjector =
+            workbookCleanupFailureInjector
+        self.workbookPublicationLockAcquirer = {
+            try ONTGenotypeBundlePublicationLock.acquire(for: $0)
+        }
         self.directorySwapPrimitive = directorySwapPrimitive
         self.directoryMovePrimitive = directoryMovePrimitive
         self.workbookAtomicRenamePrimitive = workbookAtomicRenamePrimitive
         self.workbookMarkerWriteFailureInjector = workbookMarkerWriteFailureInjector
+    }
+
+    init(
+        testingWorkbookPublicationLockAcquirer:
+            @escaping @Sendable (URL) throws
+                -> ONTGenotypeBundlePublicationLock,
+        pythonExecutableURL: URL?,
+        workbookAttestationRootURL: URL?,
+        workbookCleanupFailureInjector:
+            (@Sendable (String) throws -> Void)? = nil
+    ) {
+        self.init(
+            pythonExecutableURL: pythonExecutableURL,
+            workbookAttestationRootURL:
+                workbookAttestationRootURL,
+            workbookCleanupFailureInjector:
+                workbookCleanupFailureInjector
+        )
+        workbookPublicationLockAcquirer =
+            testingWorkbookPublicationLockAcquirer
     }
 
     public func ensureCurrentWorkbook(
@@ -372,6 +416,29 @@ public struct GenotypeWorkbookRevisionService {
         projectionMode:
             GenotypeWorkbookHaplotypeProjectionMode = .haplotyped
     ) throws -> ONTGenotypeResultBundleManifest {
+        try applyHaplotypeOverridesWithOutcome(
+            calls,
+            annotationSidecarURL: annotationSidecarURL,
+            into: bundleURL,
+            annotationOnly: annotationOnly,
+            includedLoci: includedLoci,
+            fingerprintInputs: fingerprintInputs,
+            provenanceContext: provenanceContext,
+            projectionMode: projectionMode
+        ).manifest
+    }
+
+    public func applyHaplotypeOverridesWithOutcome(
+        _ calls: [GenotypeWorkbookHaplotypeCall],
+        annotationSidecarURL: URL?,
+        into bundleURL: URL,
+        annotationOnly: Bool = false,
+        includedLoci: [String] = [],
+        fingerprintInputs: GenotypeWorkbookFingerprintInputs? = nil,
+        provenanceContext: GenotypeWorkbookRevisionProvenanceContext? = nil,
+        projectionMode:
+            GenotypeWorkbookHaplotypeProjectionMode = .haplotyped
+    ) throws -> GenotypeWorkbookRevisionOutcome {
         if fingerprintInputs != nil, !annotationOnly {
             throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
                 "Semantic fingerprint input overrides are only valid for annotation-only workbook updates."
@@ -395,12 +462,27 @@ public struct GenotypeWorkbookRevisionService {
         try checkCancellation()
         let publicationLock = try DarwinFullLengthONTMHCRunLock.acquire(outputDirectoryURL: bundle)
         defer { publicationLock.release() }
-        let workbookPublicationLock = try ONTGenotypeBundlePublicationLock.acquire(for: bundle)
+        let workbookPublicationLock =
+            try workbookPublicationLockAcquirer(bundle)
         defer { workbookPublicationLock.release() }
-        try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
-            for: bundle,
-            attestationRootURL: workbookAttestationRootURL
-        )
+        do {
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: bundle,
+                attestationRootURL: workbookAttestationRootURL,
+                cleanupFailureInjector:
+                    workbookCleanupFailureInjector
+            )
+        } catch let recoveryError as ONTGenotypeWorkbookUpdateRecoveryError {
+            switch recoveryError {
+            case .cleanupPendingWarning,
+                 .cleanupPendingWarningPersistenceFailure:
+                throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                    "The existing workbook is valid, but this new update was not applied because a prior retired generation could not be cleaned up safely. \(recoveryError.localizedDescription)"
+                )
+            default:
+                throw recoveryError
+            }
+        }
         try recoverWorkbookRollbackFailureIfNeeded(for: bundle)
         try validateSourceBundleTree(bundle)
         let manifest = try ONTGenotypeResultBundle.loadManifest(from: bundle)
@@ -686,7 +768,10 @@ public struct GenotypeWorkbookRevisionService {
             try requireAnnotationSidecarUnchanged()
             try requireReviewableRowCatalogUnchanged()
             try requireWorkbookCSVProjectionUnchanged()
-            return manifest
+            return GenotypeWorkbookRevisionOutcome(
+                manifest: manifest,
+                cleanupPendingWarning: nil
+            )
         }
         try publicationFailureInjector?("after-python-before-source-conflict-check")
         try requireCLIInputDescriptorsUnchanged()
@@ -1046,13 +1131,40 @@ public struct GenotypeWorkbookRevisionService {
                 removeStageOnExit = false
                 throw manualEditConflict
             }
-            try ONTGenotypeWorkbookUpdateRecovery.finalizeCommittedTransactionAssumingLock(
-                workbookTransaction,
-                for: bundle,
-                attestationRootURL: workbookAttestationRootURL
+            let committedManifest = try JSONDecoder().decode(
+                ONTGenotypeResultBundleManifest.self,
+                from: revisedManifestData
             )
-            removeStageOnExit = false
-            return try JSONDecoder().decode(ONTGenotypeResultBundleManifest.self, from: revisedManifestData)
+            do {
+                try ONTGenotypeWorkbookUpdateRecovery
+                    .finalizeCommittedTransactionAssumingLock(
+                        workbookTransaction,
+                        for: bundle,
+                        attestationRootURL:
+                            workbookAttestationRootURL,
+                        cleanupFailureInjector:
+                            workbookCleanupFailureInjector
+                    )
+                removeStageOnExit = false
+                return GenotypeWorkbookRevisionOutcome(
+                    manifest: committedManifest,
+                    cleanupPendingWarning: nil
+                )
+            } catch let recoveryError
+                as ONTGenotypeWorkbookUpdateRecoveryError {
+                switch recoveryError {
+                case .cleanupPendingWarning,
+                     .cleanupPendingWarningPersistenceFailure:
+                    removeStageOnExit = false
+                    return GenotypeWorkbookRevisionOutcome(
+                        manifest: committedManifest,
+                        cleanupPendingWarning:
+                            "Workbook updated; retired-generation cleanup pending."
+                    )
+                default:
+                    throw recoveryError
+                }
+            }
         } catch {
             if finalManifestCommitted { throw error }
             let publicationError = error
