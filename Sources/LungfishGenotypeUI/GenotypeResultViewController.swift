@@ -9959,6 +9959,24 @@ extension GenotypeResultViewController {
         manualHaplotypeEditorModel?.clear(locus: locus, slot: slot)
     }
 
+    func testingManualHaplotypeAutocompleteSuggestions(
+        matching query: String,
+        locus: GenotypeManualHaplotypeLocus = .a,
+        slot: HaplotypeSlot = .h1
+    ) -> [String] {
+        manualHaplotypeEditorModel?
+            .autocompleteSuggestions(
+                matching: query,
+                locus: locus,
+                slot: slot
+            )
+            .map(\.label) ?? []
+    }
+
+    func testingCopyManualHaplotypes(from sample: String) {
+        manualHaplotypeEditorModel?.copyAssignments(from: sample)
+    }
+
     func testingSaveManualHaplotypeDraft() {
         manualHaplotypeEditorModel?.save()
     }
