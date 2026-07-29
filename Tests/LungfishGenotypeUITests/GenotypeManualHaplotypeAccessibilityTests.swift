@@ -1,7 +1,9 @@
 import AppKit
+import SwiftUI
 import XCTest
 import LungfishCore
 import LungfishIO
+import LungfishKit
 @testable import LungfishGenotypeUI
 
 @MainActor
@@ -123,6 +125,62 @@ final class GenotypeManualHaplotypeAccessibilityTests: XCTestCase {
         )
     }
 
+    func testInvalidHostedComboExposesValidationAsActualAccessibilityHelp()
+        throws
+    {
+        let draft = GenotypeManualHaplotypeDraft(
+            sample: "Animal-1",
+            index: GenotypeManualHaplotypeAssignmentIndex(assignments: [])
+        )
+        let snapshot = GenotypeManualHaplotypeEditorModel.Snapshot(
+            draft: draft,
+            copyCandidates: [],
+            isReadOnly: false
+        )
+        let model = GenotypeManualHaplotypeEditorModel(
+            snapshot: snapshot,
+            onSave: { $0 },
+            onReload: { snapshot },
+            onExport: {}
+        )
+        model.updateLabel(
+            String(repeating: "x", count: 129),
+            locus: .a,
+            slot: .h1
+        )
+        let expectedHelp = try XCTUnwrap(
+            model.rows[0].h1.validationDescription
+        )
+        let host = makeGenotypeManualHaplotypeEditorHostingView(
+            model: model,
+            typographyModel: .shared
+        )
+        host.frame = NSRect(x: 0, y: 0, width: 520, height: 1_600)
+        let window = NSWindow(
+            contentRect: host.frame,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = host
+        defer { window.orderOut(nil) }
+        window.makeKeyAndOrderFront(nil)
+        window.layoutIfNeeded()
+        host.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
+        let combo = try XCTUnwrap(
+            descendants(of: host)
+                .compactMap { $0 as? NSComboBox }
+                .first {
+                    $0.accessibilityIdentifier()
+                        == "manual-haplotype-MHC-A-h1"
+                }
+        )
+
+        XCTAssertEqual(combo.accessibilityHelp(), expectedHelp)
+        XCTAssertEqual(combo.accessibilityLabel(), "MHC-A H1 haplotype label")
+    }
+
     func testCopyPickerReportsCompletenessAndMultiSelectionIsBounded() {
         let fixture = GenotypeManualHaplotypeTask10Fixture()
         let index = GenotypeManualHaplotypeAssignmentIndex(
@@ -228,5 +286,9 @@ final class GenotypeManualHaplotypeAccessibilityTests: XCTestCase {
             )
         )
         XCTAssertNil(controller.testingManualHaplotypeEditorSample)
+    }
+
+    private func descendants(of root: NSView) -> [NSView] {
+        [root] + root.subviews.flatMap(descendants(of:))
     }
 }

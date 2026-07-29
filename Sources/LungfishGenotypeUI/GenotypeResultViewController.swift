@@ -5587,20 +5587,15 @@ public final class GenotypeResultViewController: NSViewController {
         )
         manualHaplotypeEditorModel = model
 
-        let container = NSHostingView(
-            rootView: GenotypeManualHaplotypeEditor(
-                model: model,
-                typographyModel: manualHaplotypeEditorTypographyModel
-            )
+        let container = makeGenotypeManualHaplotypeEditorHostingView(
+            model: model,
+            typographyModel: manualHaplotypeEditorTypographyModel
         )
         container.identifier = Self.generatedContentHostingViewIdentifier
         container.translatesAutoresizingMaskIntoConstraints = false
         container.setAccessibilityIdentifier(
             "manual-haplotype-detail-editor"
         )
-        NSLayoutConstraint.activate([
-            container.heightAnchor.constraint(greaterThanOrEqualToConstant: 590),
-        ])
         manualHaplotypeEditorHostView = container
         return container
     }
