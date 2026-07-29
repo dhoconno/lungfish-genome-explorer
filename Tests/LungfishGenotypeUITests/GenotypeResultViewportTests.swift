@@ -6654,7 +6654,12 @@ final class GenotypeResultViewportTests: XCTestCase {
             options: .atomic
         )
         let controller = GenotypeResultViewController()
-        _ = controller.view
+        controller.view.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: 1_200,
+            height: 800
+        )
         let result = makeResult(
             bundleURL: bundleURL,
             samples: [],
@@ -6664,6 +6669,11 @@ final class GenotypeResultViewportTests: XCTestCase {
                     genotype: "01_Mafa_A1_001_01",
                     reads: 42
                 ),
+                makeCall(
+                    sample: "AnimalB",
+                    genotype: "01_Mafa_A1_001_01",
+                    reads: 21
+                ),
             ]
         )
         try ONTGenotypeResultBundle.writeManifest(
@@ -6671,6 +6681,24 @@ final class GenotypeResultViewportTests: XCTestCase {
             to: bundleURL
         )
         controller.configure(result: result)
+        controller.view.layoutSubtreeIfNeeded()
+        let matrix = controller.testingComparisonMatrix
+        var annotationSidecarChangedCount = 0
+        var workbookActions: [GenotypeCurrentWorkbookUIRequest.Action] = []
+        controller.onAnnotationSidecarChanged = { _ in
+            annotationSidecarChangedCount += 1
+        }
+        controller.onCurrentWorkbookSyncRequested = {
+            workbookActions.append($0.action)
+        }
+        XCTAssertEqual(
+            matrix.testingManualHaplotypeBandValues(sample: "AnimalA").first,
+            "—"
+        )
+        XCTAssertEqual(
+            matrix.testingManualHaplotypeBandValues(sample: "AnimalB").first,
+            "—"
+        )
         controller.testingResetProjectionPerformanceCounters()
         controller.testingShowMatrixTargetSelection([
             .column(sample: "AnimalA"),
@@ -6681,6 +6709,8 @@ final class GenotypeResultViewportTests: XCTestCase {
         controller.testingResetProjectionPerformanceCounters()
         let performanceBeforeSave =
             controller.testingProjectionPerformanceSnapshot
+        matrix.testingResetManualHaplotypeBandInvalidations()
+        controller.testingResetMatrixReloadCounters()
 
         controller.testingSaveManualHaplotypeDraft()
 
@@ -6692,6 +6722,22 @@ final class GenotypeResultViewportTests: XCTestCase {
             controller.testingManualHaplotypeWorkbookDirtyMarkCount,
             1
         )
+        XCTAssertEqual(
+            matrix.testingManualHaplotypeBandValues(sample: "AnimalA").first,
+            "M2A · —"
+        )
+        XCTAssertEqual(
+            matrix.testingManualHaplotypeBandValues(sample: "AnimalB").first,
+            "—"
+        )
+        XCTAssertEqual(
+            matrix.testingManualHaplotypeBandInvalidatedSamples,
+            ["AnimalA"]
+        )
+        XCTAssertEqual(annotationSidecarChangedCount, 1)
+        XCTAssertEqual(workbookActions, [.markDirty])
+        XCTAssertEqual(controller.testingMatrixFullReloadCount, 0)
+        XCTAssertEqual(controller.testingMatrixPartialReloadCount, 0)
         let performance =
             controller.testingProjectionPerformanceSnapshot
         XCTAssertEqual(
