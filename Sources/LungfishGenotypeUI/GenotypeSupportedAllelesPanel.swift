@@ -349,7 +349,7 @@ private struct GenotypeSupportedAllelesShowAllButton: NSViewRepresentable {
     }
 }
 
-private struct GenotypeSupportedAllelesVirtualizedList: NSViewRepresentable {
+struct GenotypeSupportedAllelesVirtualizedList: NSViewRepresentable {
     let rows: [GenotypeSupportedAllelePresentation]
     let bodyFont: NSFont
     let captionFont: NSFont
@@ -411,7 +411,22 @@ private struct GenotypeSupportedAllelesVirtualizedList: NSViewRepresentable {
             _ tableView: NSTableView,
             heightOfRow row: Int
         ) -> CGFloat {
-            max(38, bodyFont.pointSize + captionFont.pointSize + 12)
+            let bodyLineHeight = ceil(
+                bodyFont.boundingRectForFont.height
+            )
+            guard rows.indices.contains(row),
+                  !rows[row].qualifiers.isEmpty else {
+                return max(38, bodyLineHeight + 8)
+            }
+            let captionLineHeight = ceil(
+                captionFont.boundingRectForFont.height
+            )
+            return ceil(
+                bodyLineHeight
+                    + captionLineHeight
+                    + 1
+                    + 8
+            )
         }
 
         func tableView(

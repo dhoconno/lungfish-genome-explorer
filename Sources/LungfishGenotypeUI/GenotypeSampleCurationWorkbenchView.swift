@@ -1,4 +1,5 @@
 import AppKit
+import LungfishKit
 
 enum GenotypeCallSupportCheck: Equatable {
     case meetsThresholds
@@ -70,6 +71,8 @@ final class GenotypeSampleCurationHeaderView: NSView {
     let metricFields: [(label: NSTextField, value: NSTextField)]
 
     private var typographyScale: CGFloat
+    private let typographyModel: ContentTypographyModel
+    private let metricEmphasis: [Bool]
     private let rootStack = NSStackView()
     private let statsStack = NSStackView()
     private var stackedConstraints: [NSLayoutConstraint] = []
@@ -78,16 +81,24 @@ final class GenotypeSampleCurationHeaderView: NSView {
     init(
         metrics: [Metric],
         explanation: String? = nil,
-        typographyScale: CGFloat
+        typographyScale: CGFloat,
+        typographyModel: ContentTypographyModel = .shared
     ) {
         precondition(!metrics.isEmpty)
         self.typographyScale = max(1, typographyScale)
-        let content = metrics.map(Self.makeMetricView)
+        self.typographyModel = typographyModel
+        self.metricEmphasis = metrics.map(\.emphasized)
+        let content = metrics.map {
+            Self.makeMetricView(
+                $0,
+                typographyModel: typographyModel
+            )
+        }
         metricViews = content.map(\.view)
         metricFields = content.map { ($0.label, $0.value) }
         if let explanation {
             let field = NSTextField(wrappingLabelWithString: explanation)
-            field.font = .systemFont(ofSize: 11)
+            field.font = typographyModel.resolvedNSFont(for: .caption)
             field.textColor = .secondaryLabelColor
             field.maximumNumberOfLines = 0
             field.lineBreakMode = .byWordWrapping
@@ -105,6 +116,7 @@ final class GenotypeSampleCurationHeaderView: NSView {
         }
         super.init(frame: .zero)
         configure()
+        applyContentTypography()
         apply(.stacked)
     }
 
@@ -120,9 +132,12 @@ final class GenotypeSampleCurationHeaderView: NSView {
 
     func updateContentTypographyScale(_ scale: CGFloat) {
         let normalized = max(1, scale.isFinite ? scale : 1)
-        guard normalized != typographyScale else { return }
+        let scaleChanged = normalized != typographyScale
         typographyScale = normalized
-        updateLayoutMode(for: bounds.width)
+        applyContentTypography()
+        if scaleChanged {
+            updateLayoutMode(for: bounds.width)
+        }
     }
 
     private func configure() {
@@ -205,7 +220,8 @@ final class GenotypeSampleCurationHeaderView: NSView {
     }
 
     private static func makeMetricView(
-        _ metric: Metric
+        _ metric: Metric,
+        typographyModel: ContentTypographyModel
     ) -> (
         view: NSView,
         label: NSTextField,
@@ -222,7 +238,7 @@ final class GenotypeSampleCurationHeaderView: NSView {
         )
 
         let label = NSTextField(wrappingLabelWithString: metric.label)
-        label.font = .systemFont(ofSize: 11)
+        label.font = typographyModel.resolvedNSFont(for: .caption)
         label.textColor = .secondaryLabelColor
         label.maximumNumberOfLines = 0
         label.lineBreakMode = .byWordWrapping
@@ -234,9 +250,8 @@ final class GenotypeSampleCurationHeaderView: NSView {
         )
 
         let value = NSTextField(wrappingLabelWithString: metric.value)
-        value.font = .systemFont(
-            ofSize: 11,
-            weight: metric.emphasized ? .semibold : .regular
+        value.font = typographyModel.resolvedNSFont(
+            for: metric.emphasized ? .emphasizedBody : .body
         )
         value.maximumNumberOfLines = 0
         value.lineBreakMode = .byWordWrapping
@@ -256,6 +271,19 @@ final class GenotypeSampleCurationHeaderView: NSView {
         stack.addArrangedSubview(label)
         stack.addArrangedSubview(value)
         return (stack, label, value)
+    }
+
+    private func applyContentTypography() {
+        for (index, fields) in metricFields.enumerated() {
+            fields.label.font =
+                typographyModel.resolvedNSFont(for: .caption)
+            fields.value.font = typographyModel.resolvedNSFont(
+                for: metricEmphasis[index] ? .emphasizedBody : .body
+            )
+        }
+        explanationField?.font =
+            typographyModel.resolvedNSFont(for: .caption)
+        needsLayout = true
     }
 }
 

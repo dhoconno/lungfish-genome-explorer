@@ -68,6 +68,81 @@ final class GenotypeSupportedAllelesPanelTests: XCTestCase {
         assertLargeSnapshotKeepsInlineHeightBounded(mounted: mounted)
     }
 
+    func testQualifiedPopoverRowUsesScaledLineMetricsWithoutClipping()
+        throws
+    {
+        let notifications = NotificationCenter()
+        let preference = MutableSupportedAllelesTextSizePreference(.custom(200))
+        let provider = MutableSupportedAllelesPreferredFonts(pointSize: 13)
+        let typography = ContentTypographyModel(
+            notificationCenter: notifications,
+            preferenceProvider: { preference.value },
+            preferredFontProvider: provider
+        )
+        var rows = makeRows(count: 13)
+        rows[0] = GenotypeSupportedAllelePresentation(
+            id: "qualified",
+            allele: "Mafa-A1*007:08:01:01_1nt_nov",
+            readSupport: "[42]",
+            qualifiers: [
+                "Provisional exon 2",
+                "False positive",
+                "Cell comment",
+            ],
+            readSupportIsSecondary: true,
+            readSupportIsItalic: true,
+            semanticAccessibilityDetails:
+                "Designation: Provisional exon 2. Review: false positive."
+        )
+        let body = typography.resolvedNSFont(for: .body)
+        let caption = typography.resolvedNSFont(for: .caption)
+        let host = NSHostingView(
+            rootView: GenotypeSupportedAllelesVirtualizedList(
+                rows: rows,
+                bodyFont: body,
+                captionFont: caption
+            )
+        )
+        host.frame = NSRect(x: 0, y: 0, width: 520, height: 360)
+        let window = NSWindow(
+            contentRect: host.frame,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer { window.close() }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.08))
+        host.layoutSubtreeIfNeeded()
+        let table = try XCTUnwrap(
+            descendants(of: host).compactMap { $0 as? NSTableView }.first
+        )
+        let cell = try XCTUnwrap(
+            table.view(atColumn: 0, row: 0, makeIfNecessary: true)
+        )
+        cell.layoutSubtreeIfNeeded()
+
+        let requiredHeight = ceil(
+            body.boundingRectForFont.height
+                + caption.boundingRectForFont.height
+                + 1
+                + 8
+        )
+        XCTAssertGreaterThanOrEqual(
+            table.rect(ofRow: 0).height,
+            requiredHeight
+        )
+        for field in descendants(of: cell)
+            .compactMap({ $0 as? NSTextField })
+            .filter({ !$0.isHidden }) {
+            let frame = field.convert(field.bounds, to: cell)
+            XCTAssertGreaterThanOrEqual(frame.minY, cell.bounds.minY - 0.5)
+            XCTAssertLessThanOrEqual(frame.maxY, cell.bounds.maxY + 0.5)
+        }
+    }
+
     private func assertBoundedInlineAccessibility(
         snapshot: GenotypeSupportedAllelesSnapshot,
         mounted: MountedPanel

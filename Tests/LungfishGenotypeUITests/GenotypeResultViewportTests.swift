@@ -268,6 +268,41 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
     }
 
+    func testSampleCurationHeaderUsesLiveResolvedContentTypographyFonts() {
+        let notifications = NotificationCenter()
+        let preference = MutableGenotypeTextSizePreference(.custom(100))
+        let provider = MutableGenotypePreferredFonts(pointSize: 13)
+        let typography = ContentTypographyModel(
+            notificationCenter: notifications,
+            preferenceProvider: { preference.value },
+            preferredFontProvider: provider
+        )
+        let header = GenotypeSampleCurationHeaderView(
+            metrics: [
+                .init(
+                    label: "Call-support check",
+                    value: "Meets thresholds",
+                    emphasized: true
+                ),
+            ],
+            explanation: "Automated support explanation",
+            typographyScale: 1,
+            typographyModel: typography
+        )
+
+        XCTAssertEqual(header.metricFields[0].label.font?.pointSize, 13)
+        XCTAssertEqual(header.metricFields[0].value.font?.pointSize, 13)
+        XCTAssertEqual(header.explanationField?.font?.pointSize, 13)
+
+        preference.value = .custom(200)
+        notifications.post(name: .contentTextSizeDidChange, object: nil)
+        header.updateContentTypographyScale(2)
+
+        XCTAssertEqual(header.metricFields[0].label.font?.pointSize, 26)
+        XCTAssertEqual(header.metricFields[0].value.font?.pointSize, 26)
+        XCTAssertEqual(header.explanationField?.font?.pointSize, 26)
+    }
+
     private func makeSampleCurationWorkbench(
         typographyScale: CGFloat = 1
     ) -> GenotypeSampleCurationWorkbenchView {
@@ -11059,6 +11094,17 @@ final class GenotypeResultViewportTests: XCTestCase {
             GenotypeSupportedAllelesSnapshot.columnTitles,
             ["Allele", "Read support"]
         )
+        XCTAssertEqual(
+            controller.testingCurrentSelectionDetailRows.filter {
+                $0.0 == "Allele" || $0.0 == "Read support"
+            }.map { "\($0.0)=\($0.1)" },
+            rows.flatMap {
+                [
+                    "Allele=\($0.allele)",
+                    "Read support=\($0.readSupport)",
+                ]
+            }
+        )
     }
 
     func testSelectedSampleWorkbenchFillsDetailPaneAcrossLayoutsAndViewportWidths()
@@ -20897,6 +20943,15 @@ final class GenotypeResultViewportTests: XCTestCase {
                 )
             ]
         )
+    }
+}
+
+@MainActor
+private final class MutableGenotypeTextSizePreference {
+    var value: ContentTextSizePreference
+
+    init(_ value: ContentTextSizePreference) {
+        self.value = value
     }
 }
 

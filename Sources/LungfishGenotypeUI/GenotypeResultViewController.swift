@@ -2544,6 +2544,7 @@ public final class GenotypeResultViewController: NSViewController {
             || view is NSSegmentedControl
             || view is NSPopUpButton
             || view is NSSlider
+            || view is GenotypeSampleCurationHeaderView
             || view === knownAlleleDetailView
             || view === candidateAlleleDetailView
             || view === alleleSequenceDetailView
@@ -4190,15 +4191,12 @@ public final class GenotypeResultViewController: NSViewController {
         let supported =
             comparisonMatrix.visibleSampleAlleleDetails(sample: sample)
         let snapshot = supportedAllelesSnapshot(from: supported)
-        for item in supported {
-            let label = alleleDisplayLabel(
-                for: item.sharedCall.genotype
-            )
-            stateRows.append(("Allele", label))
+        for row in snapshot.rows {
+            stateRows.append(("Allele", row.allele))
             stateRows += [
                 (
                     "Read support",
-                    integer(item.support.passedUniqueReads)
+                    row.readSupport
                 ),
             ]
         }
@@ -4211,7 +4209,7 @@ public final class GenotypeResultViewController: NSViewController {
             showLegacySingleSampleColumnSelection(
                 sample: sample,
                 sampleRows: sampleRows,
-                supported: supported,
+                snapshot: snapshot,
                 comments: comments
             )
             return
@@ -4350,7 +4348,7 @@ public final class GenotypeResultViewController: NSViewController {
     private func showLegacySingleSampleColumnSelection(
         sample: String,
         sampleRows: [(String, String)],
-        supported: [GenotypeVisibleSampleAlleleDetail],
+        snapshot: GenotypeSupportedAllelesSnapshot,
         comments: [(String, String)]
     ) {
         detailStack.addArrangedSubview(
@@ -4360,16 +4358,12 @@ public final class GenotypeResultViewController: NSViewController {
             wrappingText(sample, weight: .medium)
         )
         detailStack.addArrangedSubview(detailRows(sampleRows))
-        if !supported.isEmpty {
+        if !snapshot.rows.isEmpty {
             detailStack.addArrangedSubview(
                 sectionTitle("Supported Alleles")
             )
-            let renderedEntries = supported.map { item in
-                let label = alleleDisplayLabel(
-                    for: item.sharedCall.genotype
-                )
-                return "\(label)  •  Read support: "
-                    + integer(item.support.passedUniqueReads)
+            let renderedEntries = snapshot.rows.map { row in
+                "\(row.allele)  •  Read support: \(row.readSupport)"
             }
             detailStack.addArrangedSubview(
                 wrappingText(
