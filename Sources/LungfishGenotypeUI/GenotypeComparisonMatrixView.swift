@@ -3578,7 +3578,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     func visibleSampleEvidenceRows(
         sample: String
     ) -> [GenotypeSampleEvidenceRow] {
-        visibleRows.compactMap { row in
+        visibleRows.compactMap { row -> GenotypeSampleEvidenceRow? in
             let support = support(for: sample, row: row)
             let semantics = semanticCellState(
                 for: sample,
@@ -3603,13 +3603,55 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             }
             return GenotypeSampleEvidenceRow(
                 id: row.id,
-                allele: row.genotype,
+                allele: biologicalAlleleDisplayName(for: row),
                 readSupport: support?.passedUniqueReads,
                 indicators: indicators,
                 accessibilityLabel:
-                    semantics.accessibilityLabel
+                    sampleEvidenceAccessibilityLabel(
+                        row: row,
+                        semantics: semantics
+                    ),
+                semanticQualifiers:
+                    sampleEvidenceSemanticQualifiers(row: row),
+                commentCounts: semantics.commentCounts
             )
         }
+    }
+
+    private func sampleEvidenceSemanticQualifiers(
+        row: GenotypeCandidateMatrixRow
+    ) -> [String] {
+        if isProvisionalExon2(row) {
+            return ["Provisional exon 2"]
+        }
+        switch row.candidate?.classification {
+        case .novel:
+            return ["Novel candidate"]
+        case .extension:
+            return ["Extension candidate"]
+        case nil:
+            return []
+        }
+    }
+
+    private func sampleEvidenceAccessibilityLabel(
+        row: GenotypeCandidateMatrixRow,
+        semantics: GenotypeMatrixCellSemanticState
+    ) -> String {
+        var parts: [String] = []
+        if isProvisionalExon2(row) {
+            parts.append("Designation: Provisional exon 2.")
+        }
+        switch row.candidate?.classification {
+        case .novel:
+            parts.append("Candidate classification: novel.")
+        case .extension:
+            parts.append("Candidate classification: extension.")
+        case nil:
+            break
+        }
+        parts.append(semantics.accessibilityLabel)
+        return parts.joined(separator: " ")
     }
 
     var visibleComparisonRowIDs: [GenotypeCandidateMatrixRowID] {
@@ -4740,7 +4782,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
         let selection = isSelected ? "Selected." : "Not selected."
         return [
-            "Sample \(sample), genotype \(row.genotype), locus \(row.locus).",
+            "Sample \(sample), genotype "
+                + "\(biologicalAlleleDisplayName(for: row)), "
+                + "locus \(row.locus).",
             evidence,
             reviewText,
             selection,

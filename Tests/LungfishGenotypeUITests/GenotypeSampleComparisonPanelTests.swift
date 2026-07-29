@@ -1,5 +1,6 @@
 import AppKit
 import LungfishCore
+import LungfishIO
 import LungfishKit
 import SwiftUI
 import XCTest
@@ -56,6 +57,141 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
             }
                 == false,
             "The factual summary must use the model's actual counts."
+        )
+    }
+
+    func testRenderedComparisonPreservesMatrixAlleleAndScopedSemantics()
+        throws
+    {
+        let rawKnown = "raw-reference-a"
+        let displayedKnown = "Mafa-A1*001:01"
+        let provisional = "Mafa-A1*007:08:01:01_1nt_nov"
+        let calls = [
+            makeCall(sample: "Target", genotype: rawKnown, reads: 18),
+            makeCall(sample: "Target", genotype: provisional, reads: 11),
+            makeCall(sample: "Source", genotype: rawKnown, reads: 17),
+            makeCall(sample: "Source", genotype: provisional, reads: 9),
+        ]
+        let provisionalCall = try XCTUnwrap(
+            calls.first { $0.genotype == provisional }
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-29T00:00:00Z"
+        )
+        sidecar.matrixComments = [
+            .init(
+                target: .row(
+                    locus: provisionalCall.locusGroup,
+                    genotype: provisional
+                ),
+                body: "Allele-wide context",
+                author: "Analyst",
+                timestamp: "2026-07-29T00:00:01Z"
+            ),
+            .init(
+                target: .column(sample: "Target"),
+                body: "Sample context",
+                author: "Analyst",
+                timestamp: "2026-07-29T00:00:02Z"
+            ),
+            .init(
+                target: .cell(
+                    locus: provisionalCall.locusGroup,
+                    genotype: provisional,
+                    sample: "Target"
+                ),
+                body: "Cell context",
+                author: "Analyst",
+                timestamp: "2026-07-29T00:00:03Z"
+            ),
+        ]
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.configure(
+            result: makeSemanticMatrixResult(
+                calls: calls,
+                rawKnown: rawKnown,
+                displayedKnown: displayedKnown,
+                provisional: provisional
+            ),
+            sidecar: sidecar
+        )
+        let model = GenotypeSampleComparisonModel(
+            targetSample: "Target",
+            targetRows: matrix.visibleSampleEvidenceRows(sample: "Target"),
+            candidates: [
+                .init(
+                    sample: "Source",
+                    assignedSlotCount: 0,
+                    completenessSummary: "0 of 14 assigned",
+                    compactSummary: "No assignments",
+                    accessibilityLabel:
+                        "Source, 0 of 14 assigned, No assignments"
+                ),
+            ],
+            orderedVisibleRowIDs: matrix.visibleComparisonRowIDs,
+            rowsForSource: {
+                matrix.visibleSampleEvidenceRows(sample: $0)
+            },
+            isDraftDirty: { false },
+            stageAssignments: { _ in }
+        )
+        model.selectSource("Source")
+        let mounted = mount(model: model, width: 841)
+        defer { mounted.window.close() }
+
+        XCTAssertTrue(
+            model.comparisonRows.map(\.allele).contains(displayedKnown),
+            "\(model.comparisonRows)"
+        )
+        XCTAssertFalse(
+            model.comparisonRows.map(\.allele).contains(rawKnown),
+            "\(model.comparisonRows)"
+        )
+        let provisionalRow = try XCTUnwrap(
+            model.comparisonRows.first { $0.allele == provisional }
+        )
+        XCTAssertEqual(
+            provisionalRow.semanticQualifiers,
+            ["Provisional exon 2"]
+        )
+        XCTAssertEqual(
+            provisionalRow.targetCommentCounts,
+            .init(alleleRow: 1, sampleColumn: 1, cell: 1)
+        )
+        XCTAssertEqual(
+            provisionalRow.sourceCommentCounts,
+            .init(alleleRow: 1, sampleColumn: 0, cell: 0)
+        )
+
+        let labels = accessibilityLabels(in: mounted.host)
+        let knownLabel = try XCTUnwrap(
+            labels.first { $0.contains(displayedKnown) }
+        )
+        XCTAssertFalse(knownLabel.contains(rawKnown), knownLabel)
+        let provisionalLabel = try XCTUnwrap(
+            labels.first {
+                $0.contains(provisional)
+                    && $0.contains("Designation: Provisional exon 2.")
+            }
+        )
+        XCTAssertTrue(
+            provisionalLabel.contains(
+                "Target comments: allele row, sample column, cell; "
+                    + "Source comments: allele row"
+            ),
+            provisionalLabel
+        )
+        XCTAssertTrue(
+            provisionalLabel.contains(
+                "Comments: allele row 1, sample column 1, cell 1."
+            ),
+            provisionalLabel
+        )
+        XCTAssertTrue(
+            provisionalLabel.contains(
+                "Comments: allele row 1, sample column 0, cell 0."
+            ),
+            provisionalLabel
         )
     }
 
@@ -533,6 +669,135 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
             readSupport: reads,
             indicators: indicators,
             accessibilityLabel: allele
+        )
+    }
+
+    private func makeCall(
+        sample: String,
+        genotype: String,
+        reads: Int
+    ) -> ONTGenotypeCall {
+        ONTGenotypeCall(
+            sample: sample,
+            genotype: genotype,
+            passedAlignments: reads,
+            passedUniqueReads: reads,
+            sampleTotalReads: nil,
+            sampleUniqueRetainedReads: nil,
+            sampleUniqueRetainedPercent: nil,
+            overallInputReads: nil,
+            overallUniqueRetainedReads: nil,
+            overallUniqueRetainedPercent: nil
+        )
+    }
+
+    private func makeSemanticMatrixResult(
+        calls: [ONTGenotypeCall],
+        rawKnown: String,
+        displayedKnown: String,
+        provisional: String
+    ) -> ONTGenotypeResultBundleData {
+        let samples = ["Target", "Source"].map { sample in
+            let sampleCalls = calls.filter { $0.sample == sample }
+            return ONTGenotypeSampleResult(
+                sample: sample,
+                passedAlignments: sampleCalls.reduce(0) {
+                    $0 + $1.passedAlignments
+                },
+                passedUniqueReads: sampleCalls.reduce(0) {
+                    $0 + $1.passedUniqueReads
+                },
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: sampleCalls
+            )
+        }
+        let alleleFieldKey = "feature.allele"
+        let bundleURL = URL(
+            fileURLWithPath: "/tmp/comparison-semantics.lungfishgenotype"
+        )
+        return ONTGenotypeResultBundleData(
+            bundleURL: bundleURL,
+            manifest: ONTGenotypeResultBundleManifest(
+                kind:
+                    GenotypeResultWorkflowKind
+                        .miSeqAmpliconMHCGenotype.rawValue,
+                workflowKind: .miSeqAmpliconMHCGenotype,
+                workflowMode: .genotypeOnly,
+                outputName: "comparison-semantics",
+                analysisName: "Comparison Semantics",
+                primaryWorkbookPath: "current.xlsx",
+                longSummaryCSVPath: "calls.csv",
+                sampleSummaryCSVPath: "samples.csv",
+                statsJSONPath: "stats.json",
+                provenancePath: "provenance.json"
+            ),
+            artifacts: ONTGenotypeResultArtifacts(
+                workbookURL: bundleURL.appendingPathComponent("current.xlsx"),
+                longSummaryCSVURL:
+                    bundleURL.appendingPathComponent("calls.csv"),
+                sampleSummaryCSVURL:
+                    bundleURL.appendingPathComponent("samples.csv"),
+                statsJSONURL: bundleURL.appendingPathComponent("stats.json"),
+                provenanceURL:
+                    bundleURL.appendingPathComponent("provenance.json")
+            ),
+            stats: ONTGenotypeRunStats(
+                totalInputReads: calls.reduce(0) {
+                    $0 + $1.passedUniqueReads
+                },
+                retainedUniqueReads: calls.reduce(0) {
+                    $0 + $1.passedUniqueReads
+                }
+            ),
+            calls: calls,
+            samples: samples,
+            haplotypeAnalysis: nil,
+            mhcCandidates: nil,
+            mhcUnnameableClusters: nil,
+            mhcCandidateSequencesByStableClusterID: [:],
+            mhcCandidateGenBankArtifactURLs: .empty,
+            mhcAlignmentArtifactURLs: .empty,
+            mhcReferenceVisualizations: nil,
+            integrityWarnings: [],
+            referenceMetadata: ONTGenotypeReferenceMetadata(
+                fields: [
+                    GenBankRecordDatabase.FieldDefinition(
+                        key: alleleFieldKey,
+                        displayTitle: "Allele",
+                        valueType: "text",
+                        sourceCategory: "feature",
+                        preferredOrder: 0
+                    ),
+                ],
+                recordsBySequenceName: [
+                    rawKnown: [alleleFieldKey: displayedKnown],
+                ],
+                alleleFieldKey: alleleFieldKey
+            ),
+            provisionalExon2SequencesByGenotype: [
+                provisional: ONTGenotypeProvisionalExon2Sequence(
+                    genotype: provisional,
+                    locus: calls.first {
+                        $0.genotype == provisional
+                    }?.locusGroup ?? "MHC-A",
+                    sequence: "AACCGGTT",
+                    sequenceSHA256: String(repeating: "a", count: 64),
+                    sampleSupport: [
+                        .init(
+                            sample: "Target",
+                            passedAlignments: 11,
+                            passedUniqueReads: 11
+                        ),
+                        .init(
+                            sample: "Source",
+                            passedAlignments: 9,
+                            passedUniqueReads: 9
+                        ),
+                    ]
+                ),
+            ],
+            provisionalExon2ArtifactURLs: .empty
         )
     }
 

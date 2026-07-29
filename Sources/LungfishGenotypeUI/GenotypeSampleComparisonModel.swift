@@ -15,6 +15,26 @@ struct GenotypeSampleEvidenceRow: Identifiable, Equatable, Sendable {
     let readSupport: Int?
     let indicators: Indicators
     let accessibilityLabel: String
+    let semanticQualifiers: [String]
+    let commentCounts: GenotypeMatrixScopedCommentCounts
+
+    init(
+        id: GenotypeCandidateMatrixRowID,
+        allele: String,
+        readSupport: Int?,
+        indicators: Indicators,
+        accessibilityLabel: String,
+        semanticQualifiers: [String] = [],
+        commentCounts: GenotypeMatrixScopedCommentCounts = .zero
+    ) {
+        self.id = id
+        self.allele = allele
+        self.readSupport = readSupport
+        self.indicators = indicators
+        self.accessibilityLabel = accessibilityLabel
+        self.semanticQualifiers = semanticQualifiers
+        self.commentCounts = commentCounts
+    }
 }
 
 struct GenotypeSampleComparisonRow: Identifiable, Equatable, Sendable {
@@ -30,6 +50,11 @@ struct GenotypeSampleComparisonRow: Identifiable, Equatable, Sendable {
     let sourceReadSupport: String
     let relationship: Relationship
     let indicatorSummary: String?
+    let semanticQualifiers: [String]
+    let targetCommentCounts: GenotypeMatrixScopedCommentCounts
+    let sourceCommentCounts: GenotypeMatrixScopedCommentCounts
+    let targetAccessibilityLabel: String?
+    let sourceAccessibilityLabel: String?
 }
 
 @MainActor
@@ -294,7 +319,15 @@ final class GenotypeSampleComparisonModel: ObservableObject {
                 indicatorSummary: indicatorSummary(
                     target: target,
                     source: source
-                )
+                ),
+                semanticQualifiers: uniqueQualifiers(
+                    target: target,
+                    source: source
+                ),
+                targetCommentCounts: target?.commentCounts ?? .zero,
+                sourceCommentCounts: source?.commentCounts ?? .zero,
+                targetAccessibilityLabel: target?.accessibilityLabel,
+                sourceAccessibilityLabel: source?.accessibilityLabel
             )
         }
         summary = Summary(
@@ -368,6 +401,17 @@ final class GenotypeSampleComparisonModel: ObservableObject {
             labels.append("comment")
         }
         return labels
+    }
+
+    private func uniqueQualifiers(
+        target: GenotypeSampleEvidenceRow?,
+        source: GenotypeSampleEvidenceRow?
+    ) -> [String] {
+        var seen = Set<String>()
+        return ((target?.semanticQualifiers ?? [])
+            + (source?.semanticQualifiers ?? [])).filter {
+                seen.insert($0).inserted
+            }
     }
 
     private static func normalizedSearchKey(_ value: String) -> String {

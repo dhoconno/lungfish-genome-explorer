@@ -386,6 +386,20 @@ struct GenotypeSampleComparisonPanel: View {
                     .font(captionFont)
                     .foregroundStyle(.secondary)
             }
+            if !row.semanticQualifiers.isEmpty {
+                Label(
+                    row.semanticQualifiers.joined(separator: ", "),
+                    systemImage: "tag"
+                )
+                .font(captionFont)
+                .foregroundStyle(.secondary)
+            }
+            if let commentSummary = compactScopedCommentSummary(row) {
+                Label(commentSummary, systemImage: "text.bubble")
+                    .font(captionFont)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
         }
     }
 
@@ -447,7 +461,89 @@ struct GenotypeSampleComparisonPanel: View {
                     )
             )
         }
+        if let commentSummary = scopedCommentSummary(row) {
+            parts.append(commentSummary)
+        }
+        if let targetAccessibilityLabel =
+            row.targetAccessibilityLabel {
+            parts.append(targetAccessibilityLabel)
+        }
+        if let sourceAccessibilityLabel =
+            row.sourceAccessibilityLabel {
+            parts.append(sourceAccessibilityLabel)
+        }
         return parts.joined(separator: ", ") + "."
+    }
+
+    private func scopedCommentSummary(
+        _ row: GenotypeSampleComparisonRow
+    ) -> String? {
+        let summary = [
+            scopedCommentSummary(
+                sample: model.targetSample,
+                counts: row.targetCommentCounts
+            ),
+            scopedCommentSummary(
+                sample: model.selectedSource ?? "Source",
+                counts: row.sourceCommentCounts
+            ),
+        ]
+        .compactMap { $0 }
+        .joined(separator: "; ")
+        return summary.isEmpty ? nil : summary
+    }
+
+    private func compactScopedCommentSummary(
+        _ row: GenotypeSampleComparisonRow
+    ) -> String? {
+        let summaries = [
+            compactScopedCommentSummary(
+                sample: model.targetSample,
+                counts: row.targetCommentCounts
+            ),
+            compactScopedCommentSummary(
+                sample: model.selectedSource ?? "Source",
+                counts: row.sourceCommentCounts
+            ),
+        ].compactMap { $0 }
+        guard !summaries.isEmpty else { return nil }
+        return "Comments · " + summaries.joined(separator: " · ")
+    }
+
+    private func compactScopedCommentSummary(
+        sample: String,
+        counts: GenotypeMatrixScopedCommentCounts
+    ) -> String? {
+        var scopes: [String] = []
+        if counts.alleleRow > 0 {
+            scopes.append("row")
+        }
+        if counts.sampleColumn > 0 {
+            scopes.append("column")
+        }
+        if counts.cell > 0 {
+            scopes.append("cell")
+        }
+        guard !scopes.isEmpty else { return nil }
+        return "\(sample): \(scopes.joined(separator: ", "))"
+    }
+
+    private func scopedCommentSummary(
+        sample: String,
+        counts: GenotypeMatrixScopedCommentCounts
+    ) -> String? {
+        var scopes: [String] = []
+        if counts.alleleRow > 0 {
+            scopes.append("allele row")
+        }
+        if counts.sampleColumn > 0 {
+            scopes.append("sample column")
+        }
+        if counts.cell > 0 {
+            scopes.append("cell")
+        }
+        guard !scopes.isEmpty else { return nil }
+        return "\(sample) comments: \(scopes.joined(separator: ", "))"
     }
 }
 
