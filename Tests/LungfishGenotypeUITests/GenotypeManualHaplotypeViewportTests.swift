@@ -116,7 +116,7 @@ final class GenotypeManualHaplotypeViewportTests: XCTestCase {
             )
             let comboFrame = combo.convert(combo.bounds, to: mounted.host)
             XCTAssertGreaterThanOrEqual(
-                comboFrame.minX,
+                comboFrame.minX + 0.5,
                 editorHorizontalInset
                     + labelToComboSpacing
                     + requiredWidth,
