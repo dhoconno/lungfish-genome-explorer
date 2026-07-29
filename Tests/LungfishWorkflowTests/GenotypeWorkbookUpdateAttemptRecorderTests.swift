@@ -132,7 +132,9 @@ final class GenotypeWorkbookUpdateAttemptRecorderTests: XCTestCase {
                     destinationDirectory,
                     destination,
                     flags in
-                    if publications.incrementAndGet() == 2 {
+                    let destinationName = String(cString: destination)
+                    if destinationName == "provenance.json",
+                       publications.incrementAndGet() == 1 {
                         errno = EIO
                         return -1
                     }
@@ -154,24 +156,8 @@ final class GenotypeWorkbookUpdateAttemptRecorderTests: XCTestCase {
         )
 
         XCTAssertThrowsError(try handle.finalize(exitStatus: 0))
-        XCTAssertFalse(handle.isFinalized)
-        XCTAssertFalse(
-            FileManager.default.fileExists(
-                atPath: handle.directoryURL
-                    .appendingPathComponent("receipt.json").path
-            )
-        )
-        XCTAssertFalse(
-            FileManager.default.fileExists(
-                atPath: handle.directoryURL
-                    .appendingPathComponent("provenance.json").path
-            )
-        )
-
-        try handle.finalize(
-            exitStatus: 1,
-            stderr: "terminal provenance publication failed"
-        )
+        XCTAssertTrue(handle.isFinalized)
+        XCTAssertEqual(handle.testingTerminalOwnershipCount, 1)
         let receipt = try ProvenanceJSON.decoder.decode(
             GenotypeWorkbookUpdateAttemptReceipt.self,
             from: Data(
@@ -180,9 +166,165 @@ final class GenotypeWorkbookUpdateAttemptRecorderTests: XCTestCase {
             )
         )
         XCTAssertEqual(receipt.exitStatus, 1)
-        XCTAssertEqual(
-            receipt.stderr,
-            "terminal provenance publication failed"
+        XCTAssertTrue(
+            receipt.stderr?.contains(
+                "terminal provenance publication failed"
+            ) == true
+        )
+    }
+
+    func testReplacingAttemptDirectoryCannotRedirectTerminalPublication() throws {
+        let bundle = try makeBundle()
+        defer {
+            try? FileManager.default.removeItem(
+                at: bundle.deletingLastPathComponent()
+            )
+        }
+        let handle = try GenotypeWorkbookUpdateAttemptRecorder().begin(
+            bundleURL: bundle,
+            argv: ["lungfish-cli"]
+        )
+        let detached = handle.directoryURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("detached-\(handle.attemptID)")
+        try FileManager.default.moveItem(
+            at: handle.directoryURL,
+            to: detached
+        )
+        try FileManager.default.createDirectory(
+            at: handle.directoryURL,
+            withIntermediateDirectories: false
+        )
+
+        XCTAssertThrowsError(try handle.finalize(exitStatus: 0))
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: handle.directoryURL
+                    .appendingPathComponent("receipt.json").path
+            )
+        )
+        XCTAssertFalse(handle.isFinalized)
+        XCTAssertTrue(handle.hasPublicationFailure)
+    }
+
+    func testFinalizeRebindsAttestedAttemptInCurrentBundleGeneration() throws {
+        let bundle = try makeBundle()
+        let root = bundle.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let handle = try GenotypeWorkbookUpdateAttemptRecorder().begin(
+            bundleURL: bundle,
+            argv: ["lungfish-cli"]
+        )
+        let retired = root.appendingPathComponent(
+            "retired.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.moveItem(at: bundle, to: retired)
+        try FileManager.default.copyItem(at: retired, to: bundle)
+
+        try handle.finalize(exitStatus: 0)
+
+        let relativeAttempt = "artifacts/workbooks/updates/attempts/"
+            + handle.attemptID
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: bundle.appendingPathComponent(relativeAttempt)
+                    .appendingPathComponent("receipt.json").path
+            )
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: retired.appendingPathComponent(relativeAttempt)
+                    .appendingPathComponent("receipt.json").path
+            )
+        )
+    }
+
+    func testRollbackDoesNotDeleteSubstitutedReceipt() throws {
+        let bundle = try makeBundle()
+        defer {
+            try? FileManager.default.removeItem(
+                at: bundle.deletingLastPathComponent()
+            )
+        }
+        let receiptURLBox = SendableURLBox()
+        let substituted = Data("substituted receipt".utf8)
+        let store = DurableAtomicFileStore(
+            operations: .init(
+                renameExclusive: {
+                    sourceDirectory,
+                    source,
+                    destinationDirectory,
+                    destination,
+                    flags in
+                    let destinationName = String(cString: destination)
+                    if destinationName == "provenance.json",
+                       let receiptURL = receiptURLBox.value {
+                        try? FileManager.default.removeItem(at: receiptURL)
+                        try? substituted.write(to: receiptURL)
+                        errno = EIO
+                        return -1
+                    }
+                    return Darwin.renameatx_np(
+                        sourceDirectory,
+                        source,
+                        destinationDirectory,
+                        destination,
+                        flags
+                    )
+                }
+            )
+        )
+        let handle = try GenotypeWorkbookUpdateAttemptRecorder(
+            atomicFileStore: store
+        ).begin(
+            bundleURL: bundle,
+            argv: ["lungfish-cli"]
+        )
+        let receiptURL = handle.directoryURL.appendingPathComponent(
+            "receipt.json"
+        )
+        receiptURLBox.value = receiptURL
+
+        XCTAssertThrowsError(try handle.finalize(exitStatus: 0))
+        XCTAssertEqual(try Data(contentsOf: receiptURL), substituted)
+        XCTAssertFalse(handle.isFinalized)
+        XCTAssertTrue(handle.hasPublicationFailure)
+    }
+
+    func testConcurrentFinalizeCallsPublishOneTerminalOutcome() throws {
+        let bundle = try makeBundle()
+        defer {
+            try? FileManager.default.removeItem(
+                at: bundle.deletingLastPathComponent()
+            )
+        }
+        let handle = try GenotypeWorkbookUpdateAttemptRecorder().begin(
+            bundleURL: bundle,
+            argv: ["lungfish-cli"]
+        )
+        let results = SendableErrorCollector()
+        DispatchQueue.concurrentPerform(iterations: 2) { index in
+            do {
+                try handle.finalize(exitStatus: index)
+                results.append(nil)
+            } catch {
+                results.append(error)
+            }
+        }
+
+        XCTAssertEqual(results.values.count, 2)
+        XCTAssertEqual(results.values.compactMap { $0 }.count, 1)
+        XCTAssertTrue(handle.isFinalized)
+        XCTAssertEqual(handle.testingTerminalOwnershipCount, 1)
+        XCTAssertNoThrow(
+            try ProvenanceJSON.decoder.decode(
+                GenotypeWorkbookUpdateAttemptReceipt.self,
+                from: Data(
+                    contentsOf: handle.directoryURL
+                        .appendingPathComponent("receipt.json")
+                )
+            )
         )
     }
 
@@ -225,5 +367,28 @@ private final class SendableIntegerCounter: @unchecked Sendable {
             value += 1
             return value
         }
+    }
+}
+
+private final class SendableURLBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedValue: URL?
+
+    var value: URL? {
+        get { lock.withLock { storedValue } }
+        set { lock.withLock { storedValue = newValue } }
+    }
+}
+
+private final class SendableErrorCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [Error?] = []
+
+    var values: [Error?] {
+        lock.withLock { storage }
+    }
+
+    func append(_ error: Error?) {
+        lock.withLock { storage.append(error) }
     }
 }

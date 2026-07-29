@@ -101,12 +101,6 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
             )
         }
         do {
-            let attestation = try validatedAttestation()
-            try recordResolvedAttemptOptions(
-                context.attempt,
-                bundleURL: context.bundleURL,
-                attestation: attestation
-            )
             FileHandle.standardError.write(
                 Data("[ 10%] Resolving managed openpyxl runtime.\n".utf8)
             )
@@ -118,6 +112,12 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
                 context.attempt,
                 pythonExecutableURL: pythonURL
             )
+            let attestation = try validatedAttestation()
+            try recordResolvedAttemptOptions(
+                context.attempt,
+                bundleURL: context.bundleURL,
+                attestation: attestation
+            )
             let payload = try executeResolved(
                 pythonExecutableURL: pythonURL,
                 workbookAttestationRootURL: nil,
@@ -128,7 +128,10 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
             )
             try emitAndFinalize(payload, attempt: context.attempt)
         } catch {
-            if context.attempt.isFinalized { throw error }
+            if context.attempt.isFinalized
+                || context.attempt.hasPublicationFailure {
+                throw error
+            }
             try finalizeFailure(error, attempt: context.attempt)
         }
     }
@@ -153,15 +156,15 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
             )
         }
         do {
+            try recordManagedPythonRuntime(
+                context.attempt,
+                pythonExecutableURL: pythonExecutableURL
+            )
             let attestation = try validatedAttestation()
             try recordResolvedAttemptOptions(
                 context.attempt,
                 bundleURL: context.bundleURL,
                 attestation: attestation
-            )
-            try recordManagedPythonRuntime(
-                context.attempt,
-                pythonExecutableURL: pythonExecutableURL
             )
             let payload = try executeResolved(
                 pythonExecutableURL: pythonExecutableURL,
@@ -174,7 +177,10 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
             try emitAndFinalize(payload, attempt: context.attempt)
             return payload
         } catch {
-            if context.attempt.isFinalized { throw error }
+            if context.attempt.isFinalized
+                || context.attempt.hasPublicationFailure {
+                throw error
+            }
             try finalizeFailure(error, attempt: context.attempt)
         }
     }
@@ -338,12 +344,25 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
         _ attempt: GenotypeWorkbookUpdateAttemptHandle,
         pythonExecutableURL: URL
     ) throws {
-        try attempt.recordRuntimeIdentity([
+        var identity = [
             "pythonExecutable": pythonExecutableURL.standardizedFileURL.path,
             "condaEnvironment": "openpyxl",
             "condaPrefix": pythonExecutableURL.deletingLastPathComponent()
                 .deletingLastPathComponent().path,
-        ])
+        ]
+        do {
+            identity.merge(
+                try GenotypeWorkbookManagedRuntimeProbe.probe(
+                    pythonExecutableURL: pythonExecutableURL
+                )
+            ) { _, probed in probed }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            identity["runtimeVersionProbe"] =
+                "failed (\(errorText(error)))"
+        }
+        try attempt.recordRuntimeIdentity(identity)
     }
 
     private func finalizeFailure(

@@ -326,6 +326,9 @@ final class FastqGenotypingCommandTests: XCTestCase {
             "analysis.lungfishgenotype",
             isDirectory: true
         )
+        guard let pythonURL = openpyxlPythonURL() else {
+            throw XCTSkip("The managed test runtime must provide openpyxl")
+        }
         try FileManager.default.createDirectory(
             at: bundleURL,
             withIntermediateDirectories: true
@@ -342,7 +345,7 @@ final class FastqGenotypingCommandTests: XCTestCase {
 
         XCTAssertThrowsError(
             try command.runResolved(
-                pythonExecutableURL: URL(fileURLWithPath: "/missing/python"),
+                pythonExecutableURL: pythonURL,
                 workbookAttestationRootURL: nil,
                 argvProvider: { argv }
             )
@@ -353,6 +356,12 @@ final class FastqGenotypingCommandTests: XCTestCase {
         XCTAssertEqual(receipt.inputs.map(\.path), [callsURL.path])
         XCTAssertEqual(receipt.inputs.first?.fileSize, 18)
         XCTAssertNotNil(receipt.inputs.first?.checksumSHA256)
+        XCTAssertFalse(
+            try XCTUnwrap(receipt.runtimeIdentity["pythonVersion"]).isEmpty
+        )
+        XCTAssertFalse(
+            try XCTUnwrap(receipt.runtimeIdentity["openpyxlVersion"]).isEmpty
+        )
         XCTAssertTrue(
             receipt.stderr?.contains("couldn’t be read") == true
                 || receipt.stderr?.contains("Expected to decode Array") == true
@@ -630,6 +639,12 @@ final class FastqGenotypingCommandTests: XCTestCase {
         XCTAssertEqual(receipts.filter { $0.exitStatus == 1 }.count, 1)
         let failed = try XCTUnwrap(
             receipts.first { $0.exitStatus == 1 }
+        )
+        XCTAssertFalse(
+            try XCTUnwrap(failed.runtimeIdentity["pythonVersion"]).isEmpty
+        )
+        XCTAssertFalse(
+            try XCTUnwrap(failed.runtimeIdentity["openpyxlVersion"]).isEmpty
         )
         XCTAssertTrue(
             failed.stderr?.contains(

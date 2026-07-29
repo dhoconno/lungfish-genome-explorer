@@ -625,11 +625,6 @@ public struct GenotypeWorkbookRevisionService {
         for scientificInput in workbookScientificInputs {
             try attempt?.recordInputFile(at: scientificInput)
         }
-        if let attempt {
-            try attempt.recordRuntimeIdentity(
-                workbookAttemptRuntimeIdentityProbe()
-            )
-        }
         func requireCLIInputDescriptorsUnchanged() throws {
             for descriptor in provenanceContext?.cliInputDescriptors ?? [] {
                 try requireCLIInputDescriptorUnchanged(descriptor)
@@ -1493,68 +1488,6 @@ public struct GenotypeWorkbookRevisionService {
         }
         return identity
     }
-
-    private func workbookAttemptRuntimeIdentityProbe() -> [String: String] {
-        let process = Process()
-        let executable: String
-        if let pythonExecutableURL {
-            process.executableURL = pythonExecutableURL
-            executable = pythonExecutableURL.path
-            process.arguments = ["-c", Self.workbookRuntimeProbeScript]
-        } else {
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            executable = "/usr/bin/env"
-            process.arguments = [
-                "python3",
-                "-c",
-                Self.workbookRuntimeProbeScript,
-            ]
-        }
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-        var identity = [
-            "pythonExecutable": executable,
-            "condaEnvironment": "openpyxl",
-            "condaPrefix": URL(fileURLWithPath: executable)
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .path,
-        ]
-        do {
-            try process.run()
-            process.waitUntilExit()
-            let output = stdout.fileHandleForReading.readDataToEndOfFile()
-            guard process.terminationStatus == 0,
-                  let object = try JSONSerialization.jsonObject(with: output)
-                    as? [String: String],
-                  let pythonVersion = object["python_version"],
-                  !pythonVersion.isEmpty,
-                  let openpyxlVersion = object["openpyxl_version"],
-                  !openpyxlVersion.isEmpty else {
-                identity["runtimeVersionProbe"] =
-                    "failed (exit \(process.terminationStatus))"
-                return identity
-            }
-            identity["pythonVersion"] = pythonVersion
-            identity["openpyxlVersion"] = openpyxlVersion
-        } catch {
-            identity["runtimeVersionProbe"] =
-                "failed (\(String(describing: error)))"
-        }
-        return identity
-    }
-
-    private static let workbookRuntimeProbeScript = """
-        import json
-        import platform
-        import openpyxl
-        print(json.dumps({
-            "python_version": platform.python_version(),
-            "openpyxl_version": openpyxl.__version__,
-        }))
-        """
 
     private func recordWorkbookAttemptOutputs(
         _ attempt: GenotypeWorkbookUpdateAttemptHandle?,
