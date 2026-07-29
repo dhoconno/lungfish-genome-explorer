@@ -30,13 +30,94 @@ final class GenotypeCurrentWorkbookOpenHandoff: @unchecked Sendable {
     }
 
     nonisolated static func make(
-        opening canonicalURL: URL
+        opening canonicalURL: URL,
+        relativeTo bundleURL: URL
     ) throws -> GenotypeCurrentWorkbookOpenHandoff {
         let standardizedURL = canonicalURL.standardizedFileURL
-        let descriptor = Darwin.open(
-            standardizedURL.path,
-            O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC
+        let standardizedBundleURL = bundleURL.standardizedFileURL
+        let bundleComponents = standardizedBundleURL.pathComponents
+        let workbookComponents = standardizedURL.pathComponents
+        guard workbookComponents.count > bundleComponents.count,
+              Array(workbookComponents.prefix(bundleComponents.count))
+                == bundleComponents else {
+            throw NSError(
+                domain: NSCocoaErrorDomain,
+                code: NSFileReadInvalidFileNameError,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "The current workbook is not inside its genotype bundle.",
+                ]
+            )
+        }
+        let relativeComponents = Array(
+            workbookComponents.dropFirst(bundleComponents.count)
         )
+        guard relativeComponents.allSatisfy({
+            !$0.isEmpty && $0 != "." && $0 != ".." && !$0.contains("/")
+        }) else {
+            throw NSError(
+                domain: NSCocoaErrorDomain,
+                code: NSFileReadInvalidFileNameError,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "The current workbook has an invalid bundle-relative path.",
+                ]
+            )
+        }
+
+        let rootDescriptor = Darwin.open(
+            standardizedBundleURL.path,
+            O_RDONLY | O_DIRECTORY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC
+        )
+        guard rootDescriptor >= 0 else {
+            throw posixError(
+                operation: "Open current-workbook bundle for viewing",
+                path: standardizedBundleURL.path
+            )
+        }
+        defer { Darwin.close(rootDescriptor) }
+
+        var parentDescriptor = rootDescriptor
+        var ownedDirectoryDescriptors: [Int32] = []
+        defer {
+            for descriptor in ownedDirectoryDescriptors.reversed() {
+                Darwin.close(descriptor)
+            }
+        }
+        var displayURL = standardizedBundleURL
+        for component in relativeComponents.dropLast() {
+            displayURL.appendPathComponent(component, isDirectory: true)
+            let descriptor = component.withCString {
+                Darwin.openat(
+                    parentDescriptor,
+                    $0,
+                    O_RDONLY | O_DIRECTORY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC
+                )
+            }
+            guard descriptor >= 0 else {
+                throw posixError(
+                    operation:
+                        "Open current-workbook bundle directory for viewing",
+                    path: displayURL.path
+                )
+            }
+            ownedDirectoryDescriptors.append(descriptor)
+            parentDescriptor = descriptor
+        }
+
+        guard let filename = relativeComponents.last else {
+            throw NSError(
+                domain: NSCocoaErrorDomain,
+                code: NSFileReadInvalidFileNameError
+            )
+        }
+        let descriptor = filename.withCString {
+            Darwin.openat(
+                parentDescriptor,
+                $0,
+                O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC
+            )
+        }
         guard descriptor >= 0 else {
             throw posixError(
                 operation: "Open validated current workbook for viewing",

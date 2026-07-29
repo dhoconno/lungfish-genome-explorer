@@ -262,6 +262,87 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
         XCTAssertFalse(coordinator.testingHasRetainedRequest(for: bundle))
     }
 
+    func testCleanUpdateAndViewRejectsIntermediateWorkbookDirectorySwapAfterResolution() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "GenotypeCurrentWorkbookCleanIntermediateSwap-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = root.appendingPathComponent(
+            "clean-swap.lungfishgenotype",
+            isDirectory: true
+        )
+        try writeManifest(
+            in: bundle,
+            currentWorkbookPath: "artifacts/workbooks/current.xlsx"
+        )
+        let workbooks = bundle.appendingPathComponent(
+            "artifacts/workbooks",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: workbooks,
+            withIntermediateDirectories: true
+        )
+        let canonicalWorkbook = workbooks.appendingPathComponent("current.xlsx")
+        try Data("validated workbook".utf8).write(to: canonicalWorkbook)
+        let outsideWorkbooks = root.appendingPathComponent(
+            "outside-workbooks",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: outsideWorkbooks,
+            withIntermediateDirectories: true
+        )
+        let maliciousWorkbook = outsideWorkbooks.appendingPathComponent(
+            "current.xlsx"
+        )
+        try Data("must never open".utf8).write(to: maliciousWorkbook)
+
+        let fingerprint = try makeFingerprint("a")
+        var opened: [URL] = []
+        var openedBytes: [Data] = []
+        let coordinator = GenotypeCurrentWorkbookSyncCoordinator(
+            recordedFingerprintLoader: { _ in fingerprint },
+            updateRunner: { _, _ in
+                XCTFail("A clean workbook must not run an update")
+                return canonicalWorkbook
+            },
+            workbookOpener: { url in
+                opened.append(url)
+                if let bytes = try? Data(contentsOf: url) {
+                    openedBytes.append(bytes)
+                }
+            },
+            postWorkbookResolutionObserver: { resolvedURL in
+                XCTAssertEqual(
+                    resolvedURL.standardizedFileURL,
+                    canonicalWorkbook.standardizedFileURL
+                )
+                try FileManager.default.removeItem(at: workbooks)
+                try FileManager.default.createSymbolicLink(
+                    at: workbooks,
+                    withDestinationURL: outsideWorkbooks
+                )
+            },
+            idleScheduler: TestIdleScheduler().schedule
+        )
+
+        do {
+            _ = try await coordinator.synchronize(
+                makeRequest(bundle: bundle, fingerprint: fingerprint),
+                intent: .updateAndView
+            )
+            XCTFail("Expected the swapped intermediate directory to be rejected")
+        } catch {
+            // The canonical workbook was resolved before the directory swap,
+            // but opening must fail rather than follow the new symlink.
+        }
+
+        XCTAssertTrue(opened.isEmpty)
+        XCTAssertTrue(openedBytes.isEmpty)
+    }
+
     func testCleanFingerprintWithInvalidWorkbookUpdatesBeforeOpening() async throws {
         let bundle = bundleURL("clean-invalid-workbook")
         let fingerprint = try makeFingerprint("a")
