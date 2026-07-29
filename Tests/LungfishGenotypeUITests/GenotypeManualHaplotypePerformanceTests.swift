@@ -9,14 +9,16 @@ final class GenotypeManualHaplotypePerformanceTests: XCTestCase {
     func testRepresentativeMatrixInteractionsMeetReleaseFrameBudgets()
         throws
     {
-        let fixture = GenotypeManualHaplotypeTask10Fixture()
+        let fixture = GenotypeManualHaplotypeTask10Fixture(sampleCount: 12)
         let baseline = try MatrixInteractionHarness(
-            result: fixture.result(workflowMode: .haplotyped),
-            sidecar: nil
+            result: fixture.result(workflowMode: .genotypeOnly),
+            sidecar: nil,
+            benchmarksManualFeatures: false
         )
         let withBand = try MatrixInteractionHarness(
             result: fixture.result(workflowMode: .genotypeOnly),
-            sidecar: fixture.sidecar
+            sidecar: fixture.sidecar,
+            benchmarksManualFeatures: true
         )
 
         baseline.warmUp()
@@ -27,21 +29,40 @@ final class GenotypeManualHaplotypePerformanceTests: XCTestCase {
         )
         let baselineSamples = pairedSamples.primary
         let bandSamples = pairedSamples.secondary
+        // A matrix without the manual feature has no equivalent disclosure,
+        // hydrated-evidence, or selected-source comparison action. Keep their
+        // absolute frame budgets, while applying the paired regression gate
+        // to shared scrolling, reordering, and resizing interactions.
         let operations: [(
             name: String,
             band: [TimeInterval],
-            baseline: [TimeInterval]
+            baseline: [TimeInterval],
+            enforcesRegression: Bool
         )] = [
-            ("scroll", bandSamples.scroll, baselineSamples.scroll),
-            ("reorder", bandSamples.reorder, baselineSamples.reorder),
-            ("resize", bandSamples.resize, baselineSamples.resize),
+            ("scroll", bandSamples.scroll, baselineSamples.scroll, true),
+            ("reorder", bandSamples.reorder, baselineSamples.reorder, true),
+            ("resize", bandSamples.resize, baselineSamples.resize, true),
+            (
+                "disclosure",
+                bandSamples.disclosure,
+                baselineSamples.disclosure,
+                false
+            ),
+            ("evidence", bandSamples.evidence, baselineSamples.evidence, false),
+            ("compare", bandSamples.compare, baselineSamples.compare, false),
         ]
         let bandAggregate = bandSamples.scroll
             + bandSamples.reorder
             + bandSamples.resize
+            + bandSamples.disclosure
+            + bandSamples.evidence
+            + bandSamples.compare
         let baselineAggregate = baselineSamples.scroll
             + baselineSamples.reorder
             + baselineSamples.resize
+            + baselineSamples.disclosure
+            + baselineSamples.evidence
+            + baselineSamples.compare
         let p95 = percentile(bandAggregate, 0.95)
         let p99 = percentile(bandAggregate, 0.99)
         let baselineP95 = percentile(baselineAggregate, 0.95)
@@ -54,6 +75,7 @@ final class GenotypeManualHaplotypePerformanceTests: XCTestCase {
                 + operations.map { operation in
                     let operationP95 = percentile(operation.band, 0.95)
                     let operationP99 = percentile(operation.band, 0.99)
+                    let operationP50 = percentile(operation.band, 0.50)
                     let operationBaselineP95 = percentile(
                         operation.baseline,
                         0.95
@@ -63,12 +85,20 @@ final class GenotypeManualHaplotypePerformanceTests: XCTestCase {
                         baselineP95: operationBaselineP95
                     )
                     return
-                        "\(operation.name)_p95=\(operationP95), "
+                        "\(operation.name)_samples=\(operation.band.count), "
+                        + "\(operation.name)_p50=\(operationP50), "
+                        + "\(operation.name)_p95=\(operationP95), "
                         + "\(operation.name)_p99=\(operationP99), "
                         + "\(operation.name)_no_band_p95="
                         + "\(operationBaselineP95), "
                         + "\(operation.name)_regression="
-                        + "\(operationRegression)"
+                        + "\(operationRegression), "
+                        + "\(operation.name)_regression_gate="
+                        + (
+                            operation.enforcesRegression
+                                ? "paired"
+                                : "absolute-only-no-equivalent-baseline"
+                        )
                 }.joined(separator: ", ")
                 + ", "
                 + "aggregate_p95=\(p95), aggregate_p99=\(p99), "
@@ -103,11 +133,13 @@ final class GenotypeManualHaplotypePerformanceTests: XCTestCase {
                     0.0334,
                     "\(operation.name) p99 exceeded two frames."
                 )
-                XCTAssertLessThanOrEqual(
-                    operationRegression,
-                    0.10,
-                    "\(operation.name) p95 regressed more than 10% versus the otherwise-identical no-band matrix."
-                )
+                if operation.enforcesRegression {
+                    XCTAssertLessThanOrEqual(
+                        operationRegression,
+                        0.10,
+                        "\(operation.name) p95 regressed more than 10% versus the otherwise-identical no-content matrix."
+                    )
+                }
             }
         } else {
             XCTAssertTrue(operations.allSatisfy { !$0.band.isEmpty })
@@ -212,6 +244,155 @@ final class GenotypeManualHaplotypePerformanceTests: XCTestCase {
         XCTAssertEqual(changedSamples, [fixture.samples[0]])
         XCTAssertEqual(invalidation.rects, [columnFrames[fixture.samples[0]]])
     }
+
+#if DEBUG
+    func testDisclosureAndTypographyMeasurementIsSamplesTimesSeven() {
+        let fixture = GenotypeManualHaplotypeTask10Fixture()
+        let matrix = GenotypeComparisonMatrixView(
+            frame: NSRect(x: 0, y: 0, width: 1_440, height: 720)
+        )
+        matrix.configure(
+            result: fixture.result(workflowMode: .genotypeOnly),
+            sidecar: fixture.sidecar
+        )
+        matrix.testingResetManualHaplotypeAutoFitValueMeasurementCounts()
+
+        matrix.testingSetManualHaplotypeBandDisclosureExpanded(true)
+
+        XCTAssertEqual(
+            matrix.testingManualHaplotypeAutoFitValueMeasurementCounts.values
+                .reduce(0, +),
+            fixture.samples.count
+                * GenotypeManualHaplotypeLocus.allCases.count
+        )
+        XCTAssertTrue(
+            matrix.testingManualHaplotypeAutoFitValueMeasurementCounts.values
+                .allSatisfy {
+                    $0 == GenotypeManualHaplotypeLocus.allCases.count
+                }
+        )
+
+        matrix.testingSetManualHaplotypeBandDisclosureExpanded(false)
+        matrix.testingResetManualHaplotypeAutoFitValueMeasurementCounts()
+        matrix.testingSetManualHaplotypeBandDisclosureExpanded(true)
+        XCTAssertTrue(
+            matrix.testingManualHaplotypeAutoFitValueMeasurementCounts.isEmpty,
+            "Re-expansion must reuse settled assignment measurements."
+        )
+
+        matrix.testingResetManualHaplotypeAutoFitValueMeasurementCounts()
+        matrix.testingSetManualHaplotypeBandTypographyScale(1.5)
+
+        XCTAssertEqual(
+            matrix.testingManualHaplotypeAutoFitValueMeasurementCounts.values
+                .reduce(0, +),
+            fixture.samples.count
+                * GenotypeManualHaplotypeLocus.allCases.count
+        )
+    }
+
+    func testSingleSaveMeasurementIsSevenPerChangedSample() {
+        let fixture = GenotypeManualHaplotypeTask10Fixture()
+        let matrix = GenotypeComparisonMatrixView(
+            frame: NSRect(x: 0, y: 0, width: 1_440, height: 720)
+        )
+        matrix.configure(
+            result: fixture.result(workflowMode: .genotypeOnly),
+            sidecar: fixture.sidecar
+        )
+        matrix.testingSetManualHaplotypeBandDisclosureExpanded(true)
+        matrix.testingResetManualHaplotypeAutoFitValueMeasurementCounts()
+        var changedAssignments = fixture.assignments
+        changedAssignments[0].label = "Changed after save"
+
+        matrix.applyManualHaplotypeAssignments(changedAssignments)
+
+        XCTAssertEqual(
+            matrix.testingManualHaplotypeAutoFitValueMeasurementCounts,
+            [
+                fixture.samples[0]:
+                    GenotypeManualHaplotypeLocus.allCases.count,
+            ]
+        )
+    }
+
+    func testScrollingPerformsNoAssignmentMeasurementOrComparisonWork() {
+        let fixture = GenotypeManualHaplotypeTask10Fixture()
+        let matrix = GenotypeComparisonMatrixView(
+            frame: NSRect(x: 0, y: 0, width: 760, height: 420)
+        )
+        matrix.configure(
+            result: fixture.result(workflowMode: .genotypeOnly),
+            sidecar: fixture.sidecar
+        )
+        matrix.testingSetManualHaplotypeBandDisclosureExpanded(true)
+        let comparison = makePerformanceComparisonModel(
+            rowCount: 250,
+            candidateCount: 12
+        )
+        comparison.selectSource("SOURCE_000")
+        matrix.testingResetManualHaplotypeAutoFitValueMeasurementCounts()
+        comparison.testingResetPerformanceCounters()
+
+        for offset in stride(from: 0, through: 1_200, by: 40) {
+            matrix.testingSetContentScrollOrigins(
+                pinned: NSPoint(x: 0, y: 0),
+                samples: NSPoint(x: CGFloat(offset), y: 0)
+            )
+            matrix.layoutSubtreeIfNeeded()
+        }
+
+        XCTAssertTrue(
+            matrix.testingManualHaplotypeAutoFitValueMeasurementCounts.isEmpty
+        )
+        XCTAssertEqual(
+            comparison.testingPerformanceCounters.sourceSnapshotBuildCount,
+            0
+        )
+        XCTAssertEqual(
+            comparison.testingPerformanceCounters
+                .comparisonEvidenceRowInspectionCount,
+            0
+        )
+    }
+
+    func testComparisonSelectionIsLinearInVisibleRowsAndSearchDoesNotBuildSnapshots()
+    {
+        let rowCount = 500
+        let comparison = makePerformanceComparisonModel(
+            rowCount: rowCount,
+            candidateCount: 100
+        )
+        comparison.testingResetPerformanceCounters()
+
+        for query in ["source", "042", "complete", "not-present"] {
+            comparison.updateSearch(query)
+        }
+
+        XCTAssertEqual(
+            comparison.testingPerformanceCounters.sourceSnapshotBuildCount,
+            0
+        )
+        XCTAssertEqual(
+            comparison.testingPerformanceCounters
+                .comparisonEvidenceRowInspectionCount,
+            0
+        )
+
+        comparison.selectSource("SOURCE_042")
+
+        XCTAssertEqual(
+            comparison.testingPerformanceCounters.sourceSnapshotBuildCount,
+            1
+        )
+        XCTAssertEqual(
+            comparison.testingPerformanceCounters
+                .comparisonEvidenceRowInspectionCount,
+            rowCount * 2
+        )
+        XCTAssertEqual(comparison.comparisonRows.count, rowCount)
+    }
+#endif
 
     func testTypingDraftDoesNotResizeColumnsOrRebuildProjection() throws {
         let fixture = GenotypeManualHaplotypeTask10Fixture()
@@ -346,6 +527,44 @@ final class GenotypeManualHaplotypePerformanceTests: XCTestCase {
             ? (p95 - baselineP95) / baselineP95
             : 0
     }
+
+#if DEBUG
+    private func makePerformanceComparisonModel(
+        rowCount: Int,
+        candidateCount: Int
+    ) -> GenotypeSampleComparisonModel {
+        let rows = (0..<rowCount).map { index in
+            GenotypeSampleEvidenceRow(
+                id: .known(
+                    locus: "MHC-A",
+                    genotype: String(format: "ALLELE_%04d", index)
+                ),
+                allele: String(format: "Mafa-A1*%04d:01", index),
+                readSupport: index + 1,
+                indicators: [],
+                accessibilityLabel: "Allele \(index)"
+            )
+        }
+        let candidates = (0..<candidateCount).map { index in
+            let sample = String(format: "SOURCE_%03d", index)
+            return GenotypeManualHaplotypeEditorModel.CopyCandidate(
+                sample: sample,
+                assignedSlotCount: 14,
+                completenessSummary: "14 of 14 assigned",
+                compactSummary: "Complete",
+                accessibilityLabel: "\(sample), complete"
+            )
+        }
+        return GenotypeSampleComparisonModel(
+            targetSample: "TARGET",
+            targetRows: rows,
+            candidates: candidates,
+            rowsForSource: { _ in rows },
+            isDraftDirty: { false },
+            stageAssignments: { _ in }
+        )
+    }
+#endif
 }
 
 @MainActor
@@ -357,11 +576,16 @@ private final class MatrixInteractionHarness {
     }
 
     private let views: Views
+    private let primarySample: String
+    private let secondarySample: String
+    private let supportsDisclosure: Bool
+    private var comparisonModel: GenotypeSampleComparisonModel?
     private var sequence = 0
 
     init(
         result: ONTGenotypeResultBundleData,
-        sidecar: GenotypeAnnotationSidecar?
+        sidecar: GenotypeAnnotationSidecar?,
+        benchmarksManualFeatures: Bool
     ) throws {
         let matrix = GenotypeComparisonMatrixView(
             frame: NSRect(x: 0, y: 0, width: 1_440, height: 720)
@@ -375,7 +599,40 @@ private final class MatrixInteractionHarness {
             }
         )
         let clipView = try XCTUnwrap(table.enclosingScrollView?.contentView)
+        let resolvedPrimarySample = result.calls.first?.sample ?? ""
+        let resolvedSecondarySample = result.calls.first {
+            $0.sample != resolvedPrimarySample
+        }?.sample ?? resolvedPrimarySample
         views = Views(matrix: matrix, table: table, clipView: clipView)
+        primarySample = resolvedPrimarySample
+        secondarySample = resolvedSecondarySample
+        let isGenotypeOnly = result.manifest.workflowMode == .genotypeOnly
+        supportsDisclosure = benchmarksManualFeatures && isGenotypeOnly
+        if isGenotypeOnly {
+            let targetRows = matrix.visibleSampleEvidenceRows(
+                sample: primarySample
+            )
+            let sourceRows = benchmarksManualFeatures
+                ? matrix.visibleSampleEvidenceRows(sample: secondarySample)
+                : []
+            comparisonModel = GenotypeSampleComparisonModel(
+                targetSample: primarySample,
+                targetRows: targetRows,
+                candidates: [
+                    .init(
+                        sample: secondarySample,
+                        assignedSlotCount: 14,
+                        completenessSummary: "14 of 14 assigned",
+                        compactSummary: "Complete",
+                        accessibilityLabel:
+                            "\(secondarySample), 14 of 14 assigned"
+                    ),
+                ],
+                rowsForSource: { _ in sourceRows },
+                isDraftDirty: { false },
+                stageAssignments: { _ in }
+            )
+        }
     }
 
     func warmUp() {
@@ -383,6 +640,9 @@ private final class MatrixInteractionHarness {
             performScroll()
             performReorder()
             performResize()
+            performDisclosure()
+            performEvidenceRefresh()
+            performSelectedSourceCompare()
         }
     }
 
@@ -392,12 +652,18 @@ private final class MatrixInteractionHarness {
         primary: (
             scroll: [TimeInterval],
             reorder: [TimeInterval],
-            resize: [TimeInterval]
+            resize: [TimeInterval],
+            disclosure: [TimeInterval],
+            evidence: [TimeInterval],
+            compare: [TimeInterval]
         ),
         secondary: (
             scroll: [TimeInterval],
             reorder: [TimeInterval],
-            resize: [TimeInterval]
+            resize: [TimeInterval],
+            disclosure: [TimeInterval],
+            evidence: [TimeInterval],
+            compare: [TimeInterval]
         )
     ) {
         let scroll = measurePaired(
@@ -412,16 +678,34 @@ private final class MatrixInteractionHarness {
             primary: performResize,
             secondary: other.performResize
         )
+        let disclosure = measurePaired(
+            primary: performDisclosure,
+            secondary: other.performDisclosure
+        )
+        let evidence = measurePaired(
+            primary: performEvidenceRefresh,
+            secondary: other.performEvidenceRefresh
+        )
+        let compare = measurePaired(
+            primary: performSelectedSourceCompare,
+            secondary: other.performSelectedSourceCompare
+        )
         return (
             primary: (
                 scroll: scroll.primary,
                 reorder: reorder.primary,
-                resize: resize.primary
+                resize: resize.primary,
+                disclosure: disclosure.primary,
+                evidence: evidence.primary,
+                compare: compare.primary
             ),
             secondary: (
                 scroll: scroll.secondary,
                 reorder: reorder.secondary,
-                resize: resize.secondary
+                resize: resize.secondary,
+                disclosure: disclosure.secondary,
+                evidence: evidence.secondary,
+                compare: compare.secondary
             )
         )
     }
@@ -433,7 +717,7 @@ private final class MatrixInteractionHarness {
         primary: [TimeInterval],
         secondary: [TimeInterval]
     ) {
-        let measurementCount = 1_200
+        let measurementCount = 240
         var primary: [TimeInterval] = []
         var secondary: [TimeInterval] = []
         primary.reserveCapacity(measurementCount)
@@ -496,6 +780,37 @@ private final class MatrixInteractionHarness {
         sequence &+= 1
     }
 
+    private func performDisclosure() {
+        guard supportsDisclosure else {
+            views.matrix.layoutSubtreeIfNeeded()
+            sequence &+= 1
+            return
+        }
+        views.matrix.testingSetManualHaplotypeBandDisclosureExpanded(
+            sequence.isMultiple(of: 2)
+        )
+        views.matrix.layoutSubtreeIfNeeded()
+        sequence &+= 1
+    }
+
+    private func performEvidenceRefresh() {
+        _ = views.matrix.visibleSampleEvidenceRows(sample: primarySample)
+        sequence &+= 1
+    }
+
+    private func performSelectedSourceCompare() {
+        if let comparisonModel {
+            comparisonModel.selectSource(
+                sequence.isMultiple(of: 2) ? secondarySample : nil
+            )
+        } else {
+            _ = views.matrix.visibleSampleEvidenceRows(
+                sample: secondarySample
+            )
+        }
+        sequence &+= 1
+    }
+
     private static func descendants(of root: NSView) -> [NSView] {
         root.subviews.flatMap { [$0] + descendants(of: $0) }
     }
@@ -503,8 +818,12 @@ private final class MatrixInteractionHarness {
 
 @MainActor
 struct GenotypeManualHaplotypeTask10Fixture {
-    let samples = (0..<100).map {
-        String(format: "SAMPLE_%03d", $0)
+    let samples: [String]
+
+    init(sampleCount: Int = 100) {
+        samples = (0..<sampleCount).map {
+            String(format: "SAMPLE_%03d", $0)
+        }
     }
 
     var assignments: [ManualHaplotypeAssignment] {

@@ -231,7 +231,9 @@ final class GenotypeSampleComparisonModelTests: XCTestCase {
             stageAssignments: { _ in }
         )
 
+#if DEBUG
         let initialSearchKeyBuilds = model.candidateSearchKeyBuildCount
+#endif
         for _ in 0..<10 {
             _ = model.filteredCandidates
         }
@@ -240,9 +242,14 @@ final class GenotypeSampleComparisonModelTests: XCTestCase {
 
         XCTAssertEqual(model.filteredCandidates.map(\.sample), ["Beta"])
         XCTAssertEqual(sourceBuilds, 0)
+#if DEBUG
         XCTAssertEqual(initialSearchKeyBuilds, 3)
-        XCTAssertEqual(model.candidateSearchKeyBuildCount, initialSearchKeyBuilds)
+        XCTAssertEqual(
+            model.candidateSearchKeyBuildCount,
+            initialSearchKeyBuilds
+        )
         XCTAssertEqual(model.searchEvaluationCount, 2)
+#endif
     }
 
     func testSelectingOneSourceBuildsOnlyOneVisibleRowComparison() {

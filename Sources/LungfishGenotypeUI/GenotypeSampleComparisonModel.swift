@@ -79,9 +79,12 @@ final class GenotypeSampleComparisonModel: ObservableObject {
     private let isDraftDirty: () -> Bool
     private let stageAssignments: (String) -> Void
 
-    private(set) var candidateSearchKeyBuildCount: Int
+#if DEBUG
+    private(set) var candidateSearchKeyBuildCount = 0
     private(set) var searchEvaluationCount = 1
-    private(set) var selectedSourceBuildCount = 0
+    private var testingSourceSnapshotBuildCount = 0
+    private var testingComparisonEvidenceRowInspectionCount = 0
+#endif
 
     var stateSnapshot: StateSnapshot {
         StateSnapshot(
@@ -129,13 +132,17 @@ final class GenotypeSampleComparisonModel: ObservableObject {
         candidateRecords = records
         candidateSamples = Set(records.map(\.presentation.sample))
         filteredCandidates = records.map(\.presentation)
+#if DEBUG
         candidateSearchKeyBuildCount = records.count
+#endif
     }
 
     func updateSearch(_ query: String) {
         guard query != searchText else { return }
         searchText = query
+#if DEBUG
         searchEvaluationCount += 1
+#endif
         let normalized = Self.normalizedSearchKey(query)
         guard !normalized.isEmpty else {
             filteredCandidates = candidateRecords.map(\.presentation)
@@ -158,7 +165,9 @@ final class GenotypeSampleComparisonModel: ObservableObject {
         }
         selectedSource = validatedSample
         if let validatedSample {
-            selectedSourceBuildCount += 1
+#if DEBUG
+            testingSourceSnapshotBuildCount += 1
+#endif
             selectedSourceRows = rowsForSource(validatedSample)
         } else {
             selectedSourceRows = []
@@ -195,7 +204,9 @@ final class GenotypeSampleComparisonModel: ObservableObject {
     func refreshTargetRows(_ rows: [GenotypeSampleEvidenceRow]) {
         targetRows = rows
         if let selectedSource {
-            selectedSourceBuildCount += 1
+#if DEBUG
+            testingSourceSnapshotBuildCount += 1
+#endif
             selectedSourceRows = rowsForSource(selectedSource)
         } else {
             selectedSourceRows = []
@@ -235,6 +246,10 @@ final class GenotypeSampleComparisonModel: ObservableObject {
             summary = .empty
             return
         }
+#if DEBUG
+        testingComparisonEvidenceRowInspectionCount +=
+            targetRows.count + selectedSourceRows.count
+#endif
 
         let targetByID = firstRowsByID(targetRows)
         let sourceByID = firstRowsByID(selectedSourceRows)
@@ -364,3 +379,25 @@ final class GenotypeSampleComparisonModel: ObservableObject {
             )
     }
 }
+
+#if DEBUG
+extension GenotypeSampleComparisonModel {
+    struct TestingPerformanceCounters: Equatable {
+        let sourceSnapshotBuildCount: Int
+        let comparisonEvidenceRowInspectionCount: Int
+    }
+
+    var testingPerformanceCounters: TestingPerformanceCounters {
+        TestingPerformanceCounters(
+            sourceSnapshotBuildCount: testingSourceSnapshotBuildCount,
+            comparisonEvidenceRowInspectionCount:
+                testingComparisonEvidenceRowInspectionCount
+        )
+    }
+
+    func testingResetPerformanceCounters() {
+        testingSourceSnapshotBuildCount = 0
+        testingComparisonEvidenceRowInspectionCount = 0
+    }
+}
+#endif

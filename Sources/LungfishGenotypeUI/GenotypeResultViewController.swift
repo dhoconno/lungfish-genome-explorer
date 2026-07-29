@@ -9304,6 +9304,18 @@ extension GenotypeResultViewController {
         sampleComparisonModel?.selectSource(sample)
     }
 
+    var testingSampleComparisonCandidateSamples: [String] {
+        sampleComparisonModel?.filteredCandidates.map(\.sample) ?? []
+    }
+
+    var testingSelectedSampleComparisonSource: String? {
+        sampleComparisonModel?.selectedSource
+    }
+
+    func testingRequestUseSampleAssignments() {
+        sampleComparisonModel?.requestUseAssignments()
+    }
+
     var testingSampleComparisonRowIDs:
         [GenotypeCandidateMatrixRowID] {
         sampleComparisonModel?.comparisonRows.map(\.id) ?? []

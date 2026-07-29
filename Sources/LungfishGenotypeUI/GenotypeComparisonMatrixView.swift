@@ -4945,9 +4945,17 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         let anchor = captureSemanticScrollAnchor()
         displayState.manualHaplotypeBandExpanded = expanded
         applyManualHaplotypeBandPresentation()
+        if expanded {
+            let unmeasuredSamples = Set(visibleSampleNames).filter {
+                manualHaplotypeTransientMinimumWidths[$0] == nil
+            }
+            measureManualHaplotypeTransientMinimumWidths(
+                samples: Set(unmeasuredSamples)
+            )
+        }
         refreshManualHaplotypeAutoFit(
             samples: Set(visibleSampleNames),
-            remeasure: expanded
+            remeasure: false
         )
         layoutSubtreeIfNeeded()
         restoreSemanticScrollAnchor(anchor)
@@ -7082,6 +7090,17 @@ extension GenotypeComparisonMatrixView {
     var testingManualHaplotypeAutoFitMeasurementCounts:
         [String: Int] {
         testingManualHaplotypeMeasurementCountsBySample
+    }
+
+    func testingResetManualHaplotypeAutoFitValueMeasurementCounts() {
+        testingManualHaplotypeMeasurementCountsBySample.removeAll()
+    }
+
+    var testingManualHaplotypeAutoFitValueMeasurementCounts:
+        [String: Int] {
+        testingManualHaplotypeMeasurementCountsBySample.mapValues {
+            $0 * GenotypeManualHaplotypeLocus.allCases.count
+        }
     }
 
     var testingManualHaplotypeGeometryCounters:
