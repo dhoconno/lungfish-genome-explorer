@@ -651,6 +651,12 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
     }
 
+    func applyManualHaplotypeAssignments(
+        _ assignments: [ManualHaplotypeAssignment]
+    ) {
+        updateManualHaplotypeBand(assignments: assignments)
+    }
+
     func applyMetadataStore(_ store: SampleMetadataStore?, reload: Bool = true) {
         metadataStore = store
         if reload {
@@ -4681,7 +4687,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         )
 #endif
         manualHaplotypeSampleBand.invalidate(samples: changedSamples)
-        updateManualHaplotypeHeaderAccessibility()
+        updateManualHaplotypeHeaderAccessibility(samples: changedSamples)
     }
 
     private var manualHaplotypeBandRowHeight: CGFloat {
@@ -4919,10 +4925,13 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         manualHaplotypeSampleBand.needsDisplay = true
     }
 
-    private func updateManualHaplotypeHeaderAccessibility() {
+    private func updateManualHaplotypeHeaderAccessibility(
+        samples: Set<String>? = nil
+    ) {
         guard manualHaplotypeEditingEligible else { return }
         for column in tableView.tableColumns {
-            guard let sample = sampleColumnLookup[column.identifier] else {
+            guard let sample = sampleColumnLookup[column.identifier],
+                  samples?.contains(sample) ?? true else {
                 continue
             }
             let summary = manualHaplotypeBandSnapshot

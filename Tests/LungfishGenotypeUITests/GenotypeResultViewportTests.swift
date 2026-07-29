@@ -6506,8 +6506,13 @@ final class GenotypeResultViewportTests: XCTestCase {
             ),
         ]
 
-        matrix.applyAnnotationSidecar(sidecar, reload: false)
+        matrix.testingResetReloadCounters()
+        matrix.applyManualHaplotypeAssignments(
+            sidecar.manualHaplotypeAssignments
+        )
 
+        XCTAssertEqual(matrix.testingFullReloadCount, 0)
+        XCTAssertEqual(matrix.testingPartialReloadCount, 0)
         XCTAssertEqual(
             matrix.testingManualHaplotypeBandInvalidatedSamples,
             ["AnimalB"]
