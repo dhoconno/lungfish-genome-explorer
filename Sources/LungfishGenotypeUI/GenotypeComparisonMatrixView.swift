@@ -1622,7 +1622,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     /// Snapshot user-visible order and widths before any filtering rebuild
     /// removes columns. Replacing only the currently visible positions keeps
     /// filtered-out samples anchored in the full stable order.
-    private func captureStableSampleColumnState() {
+    private func captureStableSampleColumnState(
+        acceptTransientWidthsAsUserPreference: Bool = false
+    ) {
         let columns = tableView.tableColumns.compactMap { column -> (String, CGFloat)? in
             guard let sample = sampleColumnLookup[column.identifier] else { return nil }
             return (sample, column.width / max(contentTypographyScale, 0.01))
@@ -1636,7 +1638,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             // A programmatic auto-fit floor is presentation state, not a user
             // resize. Preserve the stored preference unless the analyst has
             // deliberately widened the column beyond that floor.
-            if transientWidth > 0, width <= transientWidth + 0.5 {
+            if !acceptTransientWidthsAsUserPreference,
+               transientWidth > 0,
+               width <= transientWidth + 0.5 {
                 if sampleColumnWidthsByStableID[sample] == nil {
                     sampleColumnWidthsByStableID[sample] = 68
                 }
@@ -2503,7 +2507,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
         captureColumnTypographyBaselines(in: resizedTable)
         if resizedTable === tableView {
-            captureStableSampleColumnState()
+            captureStableSampleColumnState(
+                acceptTransientWidthsAsUserPreference: true
+            )
             manualHaplotypeBandGeometryDirty = true
             manualHaplotypeBandCachedCoverageRect = .zero
             updateManualHaplotypeBandColumnGeometry()

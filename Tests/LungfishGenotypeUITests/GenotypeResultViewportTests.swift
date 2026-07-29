@@ -6128,6 +6128,72 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
     }
 
+    func testUserResizeToExpandedTransientFloorBecomesPreferredWidth() {
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-29T00:00:00Z"
+        )
+        sidecar.manualHaplotypeAssignments = [
+            ManualHaplotypeAssignment(
+                sample: "AnimalA",
+                locus: "MHC-A",
+                slot: .h1,
+                label: String(repeating: "W", count: 12),
+                colorTokenIndex: 0,
+                diagnosticAlleles: [],
+                notes: ""
+            ),
+        ]
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.frame = NSRect(x: 0, y: 0, width: 760, height: 520)
+        matrix.configure(
+            result: makeResult(
+                samples: [],
+                calls: [
+                    makeCall(
+                        sample: "AnimalA",
+                        genotype: "01_Mafa_A1_001_01",
+                        reads: 42
+                    ),
+                ]
+            ),
+            sidecar: sidecar
+        )
+        matrix.testingResizeSampleColumnThroughProductionCallback(
+            sample: "AnimalA",
+            width: 300
+        )
+        matrix.testingSetManualHaplotypeBandDisclosureExpanded(true)
+        let assignmentFont = NSFont.systemFont(
+            ofSize: matrix.testingManualHaplotypeBandFontPointSize
+        )
+        let transientFloor = ceil(
+            ("\(String(repeating: "W", count: 12)) · —" as NSString)
+                .size(withAttributes: [.font: assignmentFont]).width + 12
+        )
+        XCTAssertLessThan(transientFloor, 300)
+
+        matrix.testingResizeSampleColumnThroughProductionCallback(
+            sample: "AnimalA",
+            width: transientFloor
+        )
+        let resizedWidth = matrix.testingSampleColumnWidth(sample: "AnimalA")
+        XCTAssertEqual(resizedWidth, transientFloor, accuracy: 0.5)
+        XCTAssertEqual(
+            matrix.testingUserPreferredSampleColumnWidth(sample: "AnimalA"),
+            resizedWidth,
+            accuracy: 0.5,
+            "A genuine resize callback must capture the analyst's exact width, even when it equals the transient auto-fit floor."
+        )
+
+        matrix.testingSetManualHaplotypeBandDisclosureExpanded(false)
+
+        XCTAssertEqual(
+            matrix.testingSampleColumnWidth(sample: "AnimalA"),
+            resizedWidth,
+            accuracy: 0.5
+        )
+    }
+
     func testCollapseRestoresUserOrHeaderWidth() {
         let longLabel = String(repeating: "B", count: 128)
         var sidecar = GenotypeAnnotationSidecar.empty(
