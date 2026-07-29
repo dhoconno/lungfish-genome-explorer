@@ -98,6 +98,33 @@ final class GenotypeManualHaplotypeViewportTests: XCTestCase {
         )
     }
 
+    func testTwoHundredPercentSlotHeadersFitTheirVisibleLabels() throws {
+        let mounted = makeHost(width: 520, typographyPercent: 200)
+        defer { mounted.window.orderOut(nil) }
+        let hostedCombos = try combos(in: mounted.host)
+        let editorHorizontalInset: CGFloat = 10
+        let labelToComboSpacing: CGFloat = 6 + 9 + 6
+
+        for (index, combo) in hostedCombos.enumerated() {
+            let label = index.isMultiple(of: 2) ? "H1" : "H2"
+            let requiredWidth = ceil(
+                (label as NSString).size(
+                    withAttributes: [
+                        .font: NSFont.systemFont(ofSize: 26),
+                    ]
+                ).width
+            )
+            let comboFrame = combo.convert(combo.bounds, to: mounted.host)
+            XCTAssertGreaterThanOrEqual(
+                comboFrame.minX,
+                editorHorizontalInset
+                    + labelToComboSpacing
+                    + requiredWidth,
+                "\(label) must remain fully visible at 200% typography."
+            )
+        }
+    }
+
     func testWidthChangesPreserveComboIdentityDraftFocusAndRowMajorOrder()
         throws
     {

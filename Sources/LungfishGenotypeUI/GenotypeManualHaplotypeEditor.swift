@@ -964,7 +964,7 @@ struct GenotypeManualHaplotypeEditor: View {
         HStack(alignment: .center, spacing: 6) {
             Text(slot.slot.displayName)
                 .font(captionFont)
-                .frame(width: 22, alignment: .leading)
+                .fixedSize(horizontal: true, vertical: false)
                 .accessibilityAddTraits(.isHeader)
             Group {
                 if let colorTokenIndex = slot.colorTokenIndex {
