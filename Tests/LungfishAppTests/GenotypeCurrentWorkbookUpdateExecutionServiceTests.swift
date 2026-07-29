@@ -17,6 +17,7 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
         )
         let annotationURL = bundleURL.appendingPathComponent("annotations.json")
         try annotationData(editor: "metadata-test").write(to: annotationURL)
+        try createCanonicalWorkbookOutputs(in: bundleURL)
         let calls = [
             GenotypeWorkbookHaplotypeCall(
                 sample: "LF2888",
@@ -30,7 +31,7 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
         let operationCenter = OperationCenter()
         let runner = StubGenotypeWorkbookUpdateCLIProcessRunner(result: .init(
             exitCode: 0,
-            standardOutput: #"{"bundlePath":"\#(bundleURL.path)"}"#,
+            standardOutput: try successPayloadJSON(for: bundleURL),
             standardError: "[100%] Updated current.xlsx\n"
         ))
         let service = GenotypeCurrentWorkbookUpdateExecutionService(
@@ -158,6 +159,260 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
         })
     }
 
+    func testCommittedWorkbookCleanupWarningCompletesOperationAndReturnsWorkbook() async throws {
+        let temp = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let bundleURL = temp.appendingPathComponent(
+            "cleanup-warning.lungfishgenotype",
+            isDirectory: true
+        )
+        try createCanonicalWorkbookOutputs(in: bundleURL)
+        let warning = "Workbook updated; retired-generation cleanup pending."
+        let operationCenter = OperationCenter()
+        let runner = StubGenotypeWorkbookUpdateCLIProcessRunner(result: .init(
+            exitCode: 0,
+            standardOutput:
+                "[managed-runtime] ready\n"
+                + (try successPayloadJSON(
+                    for: bundleURL,
+                    cleanupPending: true,
+                    warning: warning
+                )),
+            standardError: "[100%] \(warning)\n"
+        ))
+        let service = GenotypeCurrentWorkbookUpdateExecutionService(
+            operationCenter: operationCenter,
+            processRunner: runner
+        )
+
+        let returnedURL = try await service.run(
+            bundleURL: bundleURL,
+            calls: [],
+            annotationSidecarURL: nil
+        )
+
+        let canonicalWorkbook = canonicalWorkbookURL(for: bundleURL)
+        XCTAssertEqual(returnedURL, canonicalWorkbook)
+        let item = try XCTUnwrap(operationCenter.items.first)
+        XCTAssertEqual(item.state, .completed)
+        XCTAssertEqual(item.detail, "Completed — cleanup pending")
+        XCTAssertEqual(item.outputURLs, [canonicalWorkbook])
+        XCTAssertTrue(item.logEntries.contains {
+            $0.level == .warning && $0.message == warning
+        })
+    }
+
+    func testBlockingPreflightRecoveryFailureKeepsOperationFailedAndDoesNotOpenWorkbook() async throws {
+        let temp = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let bundleURL = temp.appendingPathComponent(
+            "preflight-failure.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let sentence = """
+        The existing workbook is valid, but this new update was not applied because a prior retired generation could not be cleaned up safely.
+        """
+        let operationCenter = OperationCenter()
+        let runner = StubGenotypeWorkbookUpdateCLIProcessRunner(result: .init(
+            exitCode: 1,
+            standardOutput: "",
+            standardError: sentence
+        ))
+        let service = GenotypeCurrentWorkbookUpdateExecutionService(
+            operationCenter: operationCenter,
+            processRunner: runner
+        )
+
+        await XCTAssertThrowsErrorAsync {
+            try await service.run(
+                bundleURL: bundleURL,
+                calls: [],
+                annotationSidecarURL: nil
+            )
+        }
+
+        let item = try XCTUnwrap(operationCenter.items.first)
+        XCTAssertEqual(item.state, .failed)
+        XCTAssertTrue(item.errorDetail?.contains(sentence) == true)
+        XCTAssertTrue(item.outputURLs.isEmpty)
+    }
+
+    func testLegacySuccessPayloadWithoutCleanupFieldsRemainsCompatible() async throws {
+        let temp = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let bundleURL = temp.appendingPathComponent(
+            "legacy-payload.lungfishgenotype",
+            isDirectory: true
+        )
+        try createCanonicalWorkbookOutputs(in: bundleURL)
+        let operationCenter = OperationCenter()
+        let runner = StubGenotypeWorkbookUpdateCLIProcessRunner(result: .init(
+            exitCode: 0,
+            standardOutput: try successPayloadJSON(
+                for: bundleURL,
+                includeCleanupFields: false
+            ),
+            standardError: "[100%] Updated current.xlsx\n"
+        ))
+        let service = GenotypeCurrentWorkbookUpdateExecutionService(
+            operationCenter: operationCenter,
+            processRunner: runner
+        )
+
+        let returnedURL = try await service.run(
+            bundleURL: bundleURL,
+            calls: [],
+            annotationSidecarURL: nil
+        )
+
+        XCTAssertEqual(returnedURL, canonicalWorkbookURL(for: bundleURL))
+        let item = try XCTUnwrap(operationCenter.items.first)
+        XCTAssertEqual(item.state, .completed)
+        XCTAssertEqual(item.detail, "Updated current.xlsx")
+    }
+
+    func testMalformedSuccessPayloadFailsOperationWithoutOpeningWorkbook() async throws {
+        let temp = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let bundleURL = temp.appendingPathComponent(
+            "malformed-payload.lungfishgenotype",
+            isDirectory: true
+        )
+        try createCanonicalWorkbookOutputs(in: bundleURL)
+        let operationCenter = OperationCenter()
+        let runner = StubGenotypeWorkbookUpdateCLIProcessRunner(result: .init(
+            exitCode: 0,
+            standardOutput: "[managed-runtime] ready\n{\"bundlePath\":",
+            standardError: "[100%] Updated current.xlsx\n"
+        ))
+        let service = GenotypeCurrentWorkbookUpdateExecutionService(
+            operationCenter: operationCenter,
+            processRunner: runner
+        )
+
+        await XCTAssertThrowsErrorAsync {
+            try await service.run(
+                bundleURL: bundleURL,
+                calls: [],
+                annotationSidecarURL: nil
+            )
+        }
+
+        let item = try XCTUnwrap(operationCenter.items.first)
+        XCTAssertEqual(item.state, .failed)
+        XCTAssertTrue(item.outputURLs.isEmpty)
+        XCTAssertTrue(item.errorDetail?.contains("payload") == true)
+    }
+
+    func testSuccessPayloadMissingHistoricalPathFailsOperationWithoutOpeningWorkbook() async throws {
+        let temp = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let bundleURL = temp.appendingPathComponent(
+            "missing-payload-field.lungfishgenotype",
+            isDirectory: true
+        )
+        try createCanonicalWorkbookOutputs(in: bundleURL)
+        let incompletePayload = try JSONSerialization.data(
+            withJSONObject: [
+                "bundlePath": bundleURL.standardizedFileURL.path,
+                "currentWorkbookPath": canonicalWorkbookURL(for: bundleURL).path,
+            ],
+            options: [.sortedKeys]
+        )
+        let operationCenter = OperationCenter()
+        let runner = StubGenotypeWorkbookUpdateCLIProcessRunner(result: .init(
+            exitCode: 0,
+            standardOutput: try XCTUnwrap(
+                String(data: incompletePayload, encoding: .utf8)
+            ),
+            standardError: "[100%] Updated current.xlsx\n"
+        ))
+        let service = GenotypeCurrentWorkbookUpdateExecutionService(
+            operationCenter: operationCenter,
+            processRunner: runner
+        )
+
+        await XCTAssertThrowsErrorAsync {
+            try await service.run(
+                bundleURL: bundleURL,
+                calls: [],
+                annotationSidecarURL: nil
+            )
+        }
+
+        let item = try XCTUnwrap(operationCenter.items.first)
+        XCTAssertEqual(item.state, .failed)
+        XCTAssertTrue(item.outputURLs.isEmpty)
+    }
+
+    func testMismatchedOrEscapingPayloadPathsFailOperationWithoutOpeningWorkbook() async throws {
+        enum InvalidPayloadCase: CaseIterable {
+            case mismatchedBundle
+            case noncanonicalWorkbook
+            case outsideManifest
+            case symlinkedWorkbook
+        }
+
+        for invalidCase in InvalidPayloadCase.allCases {
+            let temp = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: temp) }
+            let bundleURL = temp.appendingPathComponent(
+                "\(invalidCase).lungfishgenotype",
+                isDirectory: true
+            )
+            try createCanonicalWorkbookOutputs(in: bundleURL)
+            let outsideURL = temp.appendingPathComponent("outside.xlsx")
+            try Data("outside".utf8).write(to: outsideURL)
+
+            var bundlePath = bundleURL.standardizedFileURL.path
+            var workbookPath = canonicalWorkbookURL(for: bundleURL).path
+            var manifestPath = canonicalManifestURL(for: bundleURL).path
+            switch invalidCase {
+            case .mismatchedBundle:
+                bundlePath = temp.appendingPathComponent("other.lungfishgenotype").path
+            case .noncanonicalWorkbook:
+                workbookPath = bundleURL
+                    .appendingPathComponent("artifacts/workbooks/../workbooks/current.xlsx")
+                    .path
+            case .outsideManifest:
+                manifestPath = temp.appendingPathComponent("manifest.json").path
+            case .symlinkedWorkbook:
+                try FileManager.default.removeItem(at: canonicalWorkbookURL(for: bundleURL))
+                try FileManager.default.createSymbolicLink(
+                    at: canonicalWorkbookURL(for: bundleURL),
+                    withDestinationURL: outsideURL
+                )
+            }
+            let operationCenter = OperationCenter()
+            let runner = StubGenotypeWorkbookUpdateCLIProcessRunner(result: .init(
+                exitCode: 0,
+                standardOutput: try payloadJSON(
+                    bundlePath: bundlePath,
+                    workbookPath: workbookPath,
+                    manifestPath: manifestPath
+                ),
+                standardError: "[100%] Updated current.xlsx\n"
+            ))
+            let service = GenotypeCurrentWorkbookUpdateExecutionService(
+                operationCenter: operationCenter,
+                processRunner: runner
+            )
+
+            await XCTAssertThrowsErrorAsync {
+                try await service.run(
+                    bundleURL: bundleURL,
+                    calls: [],
+                    annotationSidecarURL: nil
+                )
+            }
+
+            let item = try XCTUnwrap(operationCenter.items.first)
+            XCTAssertEqual(item.state, .failed, "\(invalidCase)")
+            XCTAssertTrue(item.outputURLs.isEmpty, "\(invalidCase)")
+        }
+    }
+
     func testFailureReportsCLIExitStatusAndStderr() async throws {
         let temp = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temp) }
@@ -202,9 +457,10 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
         )
         let annotationURL = bundleURL.appendingPathComponent("annotations.json")
         try annotationData(editor: "annotation-only-test").write(to: annotationURL)
+        try createCanonicalWorkbookOutputs(in: bundleURL)
         let runner = StubGenotypeWorkbookUpdateCLIProcessRunner(result: .init(
             exitCode: 0,
-            standardOutput: "{}",
+            standardOutput: try successPayloadJSON(for: bundleURL),
             standardError: "[100%] Updated current.xlsx\n"
         ))
         let service = GenotypeCurrentWorkbookUpdateExecutionService(
@@ -252,6 +508,7 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
             isDirectory: true
         )
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        try createCanonicalWorkbookOutputs(in: bundleURL)
         let liveAnnotationURL = bundleURL.appendingPathComponent("annotations.json")
         let admittedA = try annotationData(editor: "analyst-a")
         let admittedB = try annotationData(editor: "analyst-b")
@@ -261,7 +518,7 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
         var annotationURLsSeenByCLI: [URL] = []
         let runner = StubGenotypeWorkbookUpdateCLIProcessRunner(result: .init(
             exitCode: 0,
-            standardOutput: "{}",
+            standardOutput: try successPayloadJSON(for: bundleURL),
             standardError: "[100%] Updated current.xlsx\n"
         )) { invocation in
             let annotationPath = try self.value(
@@ -370,10 +627,11 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
             isDirectory: true
         )
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        try createCanonicalWorkbookOutputs(in: bundleURL)
         let gate = WorkbookInputPreparationGate()
         let runner = StubGenotypeWorkbookUpdateCLIProcessRunner(result: .init(
             exitCode: 0,
-            standardOutput: "{}",
+            standardOutput: try successPayloadJSON(for: bundleURL),
             standardError: "[100%] Updated current.xlsx\n"
         ))
         let service = GenotypeCurrentWorkbookUpdateExecutionService(
@@ -601,6 +859,72 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
         )
         sidecar.lastEditor = editor
         return try sidecar.encoded()
+    }
+
+    private func createCanonicalWorkbookOutputs(in bundleURL: URL) throws {
+        let workbookURL = canonicalWorkbookURL(for: bundleURL)
+        try FileManager.default.createDirectory(
+            at: workbookURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("workbook".utf8).write(to: workbookURL)
+        try Data("{}".utf8).write(to: canonicalManifestURL(for: bundleURL))
+    }
+
+    private func canonicalWorkbookURL(for bundleURL: URL) -> URL {
+        bundleURL.standardizedFileURL
+            .appendingPathComponent("artifacts", isDirectory: true)
+            .appendingPathComponent("workbooks", isDirectory: true)
+            .appendingPathComponent("current.xlsx", isDirectory: false)
+            .standardizedFileURL
+    }
+
+    private func canonicalManifestURL(for bundleURL: URL) -> URL {
+        bundleURL.standardizedFileURL
+            .appendingPathComponent("manifest.json", isDirectory: false)
+            .standardizedFileURL
+    }
+
+    private func successPayloadJSON(
+        for bundleURL: URL,
+        cleanupPending: Bool = false,
+        warning: String? = nil,
+        includeCleanupFields: Bool = true
+    ) throws -> String {
+        try payloadJSON(
+            bundlePath: bundleURL.standardizedFileURL.path,
+            workbookPath: canonicalWorkbookURL(for: bundleURL).path,
+            manifestPath: canonicalManifestURL(for: bundleURL).path,
+            cleanupPending: cleanupPending,
+            warning: warning,
+            includeCleanupFields: includeCleanupFields
+        )
+    }
+
+    private func payloadJSON(
+        bundlePath: String,
+        workbookPath: String,
+        manifestPath: String,
+        cleanupPending: Bool = false,
+        warning: String? = nil,
+        includeCleanupFields: Bool = true
+    ) throws -> String {
+        var object: [String: Any] = [
+            "bundlePath": bundlePath,
+            "currentWorkbookPath": workbookPath,
+            "manifestPath": manifestPath,
+        ]
+        if includeCleanupFields {
+            object["cleanupPending"] = cleanupPending
+            if let warning {
+                object["warning"] = warning
+            }
+        }
+        let data = try JSONSerialization.data(
+            withJSONObject: object,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        return try XCTUnwrap(String(data: data, encoding: .utf8))
     }
 
     private func value(after flag: String, in arguments: [String]) throws -> String {

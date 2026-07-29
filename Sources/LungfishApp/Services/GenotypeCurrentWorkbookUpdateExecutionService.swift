@@ -125,7 +125,29 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
                 )
                 throw LocalWorkflowExecutionError.nonZeroExit(result.exitCode)
             }
-            let currentWorkbookURL = Self.currentWorkbookURL(for: bundle)
+            let payload = try await Task.detached(priority: .utility) {
+                try Self.decodeAndValidateSuccessPayload(
+                    from: result.standardOutput,
+                    requestedBundleURL: bundle
+                )
+            }.value
+            let currentWorkbookURL = URL(
+                fileURLWithPath: payload.currentWorkbookPath,
+                isDirectory: false
+            ).standardizedFileURL
+            if payload.cleanupPending {
+                operationCenter.log(
+                    id: operationID,
+                    level: .warning,
+                    message: Self.cleanupPendingWarning
+                )
+                _ = operationCenter.complete(
+                    id: operationID,
+                    detail: "Completed — cleanup pending",
+                    outputURLs: [currentWorkbookURL]
+                )
+                return currentWorkbookURL
+            }
             _ = operationCenter.complete(
                 id: operationID,
                 detail: "Updated current.xlsx",
@@ -155,6 +177,9 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
             throw error
         }
     }
+
+    private static let cleanupPendingWarning =
+        "Workbook updated; retired-generation cleanup pending."
 
     private struct InputSnapshot: Sendable {
         let bundleURL: URL
@@ -659,14 +684,183 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
             .replacingOccurrences(of: ".", with: "-")
     }
 
-    private static func currentWorkbookURL(for bundleURL: URL) -> URL {
-        if let manifestURL = try? ONTGenotypeResultBundle.currentWorkbookURL(for: bundleURL) {
-            return manifestURL
-        }
-        return bundleURL
+    private nonisolated static func decodeAndValidateSuccessPayload(
+        from standardOutput: String,
+        requestedBundleURL: URL
+    ) throws -> FastqUpdateCurrentWorkbookPayload {
+        let payload = try decodeSuccessPayload(from: standardOutput)
+        let requestedBundle = requestedBundleURL.standardizedFileURL
+        let canonicalWorkbook = requestedBundle
             .appendingPathComponent("artifacts", isDirectory: true)
             .appendingPathComponent("workbooks", isDirectory: true)
-            .appendingPathComponent("current.xlsx")
+            .appendingPathComponent("current.xlsx", isDirectory: false)
+            .standardizedFileURL
+        let canonicalManifest = requestedBundle
+            .appendingPathComponent("manifest.json", isDirectory: false)
+            .standardizedFileURL
+
+        let payloadBundle = URL(
+            fileURLWithPath: payload.bundlePath,
+            isDirectory: true
+        ).standardizedFileURL
+        guard payloadBundle == requestedBundle,
+              payload.bundlePath == requestedBundle.path else {
+            throw GenotypeCurrentWorkbookUpdatePayloadError(
+                "The current-workbook result payload names a different or noncanonical bundle."
+            )
+        }
+        guard payload.currentWorkbookPath == canonicalWorkbook.path else {
+            throw GenotypeCurrentWorkbookUpdatePayloadError(
+                "The current-workbook result payload names a noncanonical workbook."
+            )
+        }
+        guard payload.manifestPath == canonicalManifest.path else {
+            throw GenotypeCurrentWorkbookUpdatePayloadError(
+                "The current-workbook result payload names a noncanonical manifest."
+            )
+        }
+
+        try validateCanonicalOutputEntriesNoFollow(
+            requestedBundleURL: requestedBundle
+        )
+        return payload
+    }
+
+    private nonisolated static func decodeSuccessPayload(
+        from standardOutput: String
+    ) throws -> FastqUpdateCurrentWorkbookPayload {
+        let trimmed = standardOutput.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        guard !trimmed.isEmpty else {
+            throw GenotypeCurrentWorkbookUpdatePayloadError(
+                "The successful current-workbook command returned no result payload."
+            )
+        }
+
+        let decoder = JSONDecoder()
+        if let payload = try? decoder.decode(
+            FastqUpdateCurrentWorkbookPayload.self,
+            from: Data(trimmed.utf8)
+        ) {
+            return payload
+        }
+
+        guard let openingBrace = trimmed.firstIndex(of: "{"),
+              let closingBrace = trimmed.lastIndex(of: "}"),
+              openingBrace <= closingBrace else {
+            throw GenotypeCurrentWorkbookUpdatePayloadError(
+                "The successful current-workbook command returned a malformed result payload."
+            )
+        }
+        let json = String(trimmed[openingBrace...closingBrace])
+        do {
+            return try decoder.decode(
+                FastqUpdateCurrentWorkbookPayload.self,
+                from: Data(json.utf8)
+            )
+        } catch {
+            throw GenotypeCurrentWorkbookUpdatePayloadError(
+                "The successful current-workbook command returned a malformed result payload."
+            )
+        }
+    }
+
+    private nonisolated static func validateCanonicalOutputEntriesNoFollow(
+        requestedBundleURL: URL
+    ) throws {
+        let rootDescriptor = Darwin.open(
+            requestedBundleURL.path,
+            O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+        )
+        guard rootDescriptor >= 0 else {
+            throw outputValidationError(
+                entry: requestedBundleURL.path,
+                reason: "the requested bundle is unavailable or is a symbolic link"
+            )
+        }
+        defer { Darwin.close(rootDescriptor) }
+
+        try validateRegularFileNoFollow(
+            named: "manifest.json",
+            parentDescriptor: rootDescriptor,
+            displayPath: requestedBundleURL
+                .appendingPathComponent("manifest.json", isDirectory: false)
+                .path
+        )
+
+        var ownedDirectoryDescriptors: [Int32] = []
+        defer {
+            for descriptor in ownedDirectoryDescriptors.reversed() {
+                Darwin.close(descriptor)
+            }
+        }
+        var parentDescriptor = rootDescriptor
+        var displayDirectory = requestedBundleURL
+        for component in ["artifacts", "workbooks"] {
+            displayDirectory.appendPathComponent(component, isDirectory: true)
+            let descriptor = component.withCString {
+                Darwin.openat(
+                    parentDescriptor,
+                    $0,
+                    O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+                )
+            }
+            guard descriptor >= 0 else {
+                throw outputValidationError(
+                    entry: displayDirectory.path,
+                    reason: "an output directory is unavailable or is a symbolic link"
+                )
+            }
+            ownedDirectoryDescriptors.append(descriptor)
+            parentDescriptor = descriptor
+        }
+        try validateRegularFileNoFollow(
+            named: "current.xlsx",
+            parentDescriptor: parentDescriptor,
+            displayPath: displayDirectory
+                .appendingPathComponent("current.xlsx", isDirectory: false)
+                .path
+        )
+    }
+
+    private nonisolated static func validateRegularFileNoFollow(
+        named name: String,
+        parentDescriptor: Int32,
+        displayPath: String
+    ) throws {
+        let descriptor = name.withCString {
+            Darwin.openat(
+                parentDescriptor,
+                $0,
+                O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC
+            )
+        }
+        guard descriptor >= 0 else {
+            throw outputValidationError(
+                entry: displayPath,
+                reason: "the output is unavailable or is a symbolic link"
+            )
+        }
+        defer { Darwin.close(descriptor) }
+
+        var metadata = stat()
+        guard Darwin.fstat(descriptor, &metadata) == 0,
+              metadata.st_mode & S_IFMT == S_IFREG else {
+            throw outputValidationError(
+                entry: displayPath,
+                reason: "the output is not a regular file"
+            )
+        }
+    }
+
+    private nonisolated static func outputValidationError(
+        entry: String,
+        reason: String
+    ) -> GenotypeCurrentWorkbookUpdatePayloadError {
+        GenotypeCurrentWorkbookUpdatePayloadError(
+            "The successful current-workbook result could not be validated at \(entry): \(reason)."
+        )
     }
 
     private static func logProcessOutput(
@@ -749,4 +943,50 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
         guard lines.count > lineLimit else { return trimmed }
         return lines.suffix(lineLimit).joined(separator: "\n")
     }
+}
+
+private struct FastqUpdateCurrentWorkbookPayload: Decodable, Sendable {
+    let bundlePath: String
+    let currentWorkbookPath: String
+    let manifestPath: String
+    let cleanupPending: Bool
+    let warning: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case bundlePath
+        case currentWorkbookPath
+        case manifestPath
+        case cleanupPending
+        case warning
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        bundlePath = try container.decode(String.self, forKey: .bundlePath)
+        currentWorkbookPath = try container.decode(
+            String.self,
+            forKey: .currentWorkbookPath
+        )
+        manifestPath = try container.decode(String.self, forKey: .manifestPath)
+        cleanupPending = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .cleanupPending
+        ) ?? false
+        warning = try container.decodeIfPresent(String.self, forKey: .warning)
+    }
+}
+
+private struct GenotypeCurrentWorkbookUpdatePayloadError:
+    Error,
+    LocalizedError,
+    CustomStringConvertible
+{
+    let message: String
+
+    init(_ message: String) {
+        self.message = message
+    }
+
+    var errorDescription: String? { message }
+    var description: String { message }
 }
