@@ -5560,6 +5560,176 @@ final class GenotypeResultViewportTests: XCTestCase {
         }
     }
 
+    func testManualHaplotypeSaveHeaderParityForExplicitONTAndMiSeqGenotypeOnlyResults()
+        throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "ManualHaplotypeAssaySaveParity-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let kinds: [GenotypeResultWorkflowKind] = [
+            .fullLengthONTMHCGenotype,
+            .miSeqAmpliconMHCGenotype,
+        ]
+
+        for kind in kinds {
+            let bundleURL = root.appendingPathComponent(
+                "\(kind.rawValue).lungfishgenotype",
+                isDirectory: true
+            )
+            try FileManager.default.createDirectory(
+                at: bundleURL,
+                withIntermediateDirectories: true
+            )
+            try ONTGenotypeResultBundleData.writeAnnotationSidecar(
+                .empty(generatedAt: "2026-07-28T00:00:00Z"),
+                forBundleAt: bundleURL
+            )
+            let manifest = ONTGenotypeResultBundleManifest(
+                kind: kind.rawValue,
+                workflowKind: kind,
+                workflowMode: .genotypeOnly,
+                outputName: kind.rawValue,
+                analysisName: kind.rawValue,
+                primaryWorkbookPath: "result.xlsx",
+                longSummaryCSVPath: "calls.csv",
+                sampleSummaryCSVPath: "samples.csv",
+                statsJSONPath: "stats.json",
+                provenancePath: "provenance.json"
+            )
+            try ONTGenotypeResultBundle.writeManifest(
+                manifest,
+                to: bundleURL
+            )
+            let result = makeResult(
+                bundleURL: bundleURL,
+                samples: [],
+                calls: [
+                    makeCall(
+                        sample: "AnimalA",
+                        genotype: "01_Mafa_A1_001_01",
+                        reads: 42
+                    ),
+                ],
+                manifest: manifest
+            )
+            XCTAssertEqual(
+                GenotypeManualHaplotypeEligibility.evaluate(result),
+                .eligible(resultKind: kind),
+                kind.rawValue
+            )
+            let controller = GenotypeResultViewController()
+            _ = controller.view
+            controller.configure(result: result)
+            var annotationSidecarChangedCount = 0
+            var workbookActions:
+                [GenotypeCurrentWorkbookUIRequest.Action] = []
+            controller.onAnnotationSidecarChanged = { _ in
+                annotationSidecarChangedCount += 1
+            }
+            controller.onCurrentWorkbookSyncRequested = {
+                workbookActions.append($0.action)
+            }
+
+            controller.testingShowMatrixTargetSelection([
+                .column(sample: "AnimalA"),
+            ])
+            controller.testingUpdateManualHaplotypeLabel("Shared-H1")
+            controller.testingSaveManualHaplotypeDraft()
+
+            XCTAssertEqual(
+                controller.testingComparisonMatrix
+                    .testingManualHaplotypeBandValues(
+                        sample: "AnimalA"
+                    ).first,
+                "Shared-H1 · —",
+                kind.rawValue
+            )
+            XCTAssertEqual(
+                annotationSidecarChangedCount,
+                1,
+                kind.rawValue
+            )
+            XCTAssertEqual(
+                workbookActions,
+                [.markDirty],
+                kind.rawValue
+            )
+            let persisted = try ONTGenotypeResultBundleData
+                .loadOrCreateAnnotationSidecar(forBundleAt: bundleURL)
+            XCTAssertEqual(
+                persisted.manualHaplotypeAssignments.map(\.label),
+                ["Shared-H1"],
+                kind.rawValue
+            )
+        }
+    }
+
+    func testHaplotypedMiSeqExcludesManualHaplotypeEditorAndContextCommand()
+        throws
+    {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "HaplotypedMiSeqManualEditor-\(UUID().uuidString).lungfishgenotype",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let manifest = ONTGenotypeResultBundleManifest(
+            kind: GenotypeResultWorkflowKind
+                .miSeqAmpliconMHCGenotype.rawValue,
+            workflowKind: .miSeqAmpliconMHCGenotype,
+            workflowMode: .haplotyped,
+            outputName: "haplotyped-miseq",
+            analysisName: "Haplotyped MiSeq",
+            primaryWorkbookPath: "result.xlsx",
+            longSummaryCSVPath: "calls.csv",
+            sampleSummaryCSVPath: "samples.csv",
+            statsJSONPath: "stats.json",
+            provenancePath: "provenance.json"
+        )
+        let result = makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [
+                makeCall(
+                    sample: "AnimalA",
+                    genotype: "01_Mafa_A1_001_01",
+                    reads: 42
+                ),
+            ],
+            haplotypeAnalysis: makeEmptyHaplotypeAnalysis(),
+            manifest: manifest
+        )
+        guard case .ineligible =
+            GenotypeManualHaplotypeEligibility.evaluate(result) else {
+            return XCTFail("Haplotyped MiSeq result must be ineligible")
+        }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: result)
+
+        controller.testingShowMatrixTargetSelection([
+            .column(sample: "AnimalA"),
+        ])
+
+        XCTAssertNil(controller.testingManualHaplotypeEditorSample)
+        let menu = controller.testingComparisonMatrix
+            .testingBuildActualContextMenu(
+                for: .column(sample: "AnimalA")
+            )
+        XCTAssertFalse(
+            menu?.items.contains {
+                $0.title == "Edit Haplotype Assignments…"
+            } ?? true
+        )
+    }
+
     func testManualHaplotypeBandShowsSevenRowsH1BeforeH2AndAccessibleHeaderSummary() {
         let matrix = GenotypeComparisonMatrixView()
         matrix.frame = NSRect(x: 0, y: 0, width: 760, height: 520)
