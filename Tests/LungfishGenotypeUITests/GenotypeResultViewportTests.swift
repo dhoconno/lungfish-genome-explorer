@@ -6194,6 +6194,96 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
     }
 
+    func testUserResizeCapturesOnlyNotifiedSampleColumn() {
+        let labelsBySample = [
+            "AnimalA": String(repeating: "W", count: 12),
+            "AnimalB": String(repeating: "W", count: 40),
+            "AnimalC": String(repeating: "W", count: 50),
+        ]
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-29T00:00:00Z"
+        )
+        sidecar.manualHaplotypeAssignments = labelsBySample.map {
+            sample,
+            label in
+            ManualHaplotypeAssignment(
+                sample: sample,
+                locus: "MHC-A",
+                slot: .h1,
+                label: label,
+                colorTokenIndex: 0,
+                diagnosticAlleles: [],
+                notes: ""
+            )
+        }
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.frame = NSRect(x: 0, y: 0, width: 760, height: 520)
+        matrix.configure(
+            result: makeResult(
+                samples: [],
+                calls: labelsBySample.keys.sorted().map {
+                    makeCall(
+                        sample: $0,
+                        genotype: "01_Mafa_A1_001_01",
+                        reads: 42
+                    )
+                }
+            ),
+            sidecar: sidecar
+        )
+        let baselineWidths: [String: CGFloat] = [
+            "AnimalA": 300,
+            "AnimalB": 100,
+            "AnimalC": 110,
+        ]
+        for sample in baselineWidths.keys.sorted() {
+            matrix.testingResizeSampleColumnThroughProductionCallback(
+                sample: sample,
+                width: baselineWidths[sample]!
+            )
+        }
+        matrix.testingSetManualHaplotypeBandDisclosureExpanded(true)
+        XCTAssertGreaterThan(
+            matrix.testingSampleColumnWidth(sample: "AnimalB"),
+            baselineWidths["AnimalB"]!
+        )
+        XCTAssertGreaterThan(
+            matrix.testingSampleColumnWidth(sample: "AnimalC"),
+            baselineWidths["AnimalC"]!
+        )
+        let assignmentFont = NSFont.systemFont(
+            ofSize: matrix.testingManualHaplotypeBandFontPointSize
+        )
+        let animalAFloor = ceil(
+            ("\(labelsBySample["AnimalA"]!) · —" as NSString)
+                .size(withAttributes: [.font: assignmentFont]).width + 12
+        )
+
+        matrix.testingResizeSampleColumnThroughProductionCallback(
+            sample: "AnimalA",
+            width: animalAFloor
+        )
+        matrix.testingSetManualHaplotypeBandDisclosureExpanded(false)
+
+        XCTAssertEqual(
+            matrix.testingSampleColumnWidth(sample: "AnimalA"),
+            animalAFloor,
+            accuracy: 0.5
+        )
+        XCTAssertEqual(
+            matrix.testingSampleColumnWidth(sample: "AnimalB"),
+            baselineWidths["AnimalB"]!,
+            accuracy: 0.5,
+            "Resizing AnimalA must not promote AnimalB's transient floor."
+        )
+        XCTAssertEqual(
+            matrix.testingSampleColumnWidth(sample: "AnimalC"),
+            baselineWidths["AnimalC"]!,
+            accuracy: 0.5,
+            "Resizing AnimalA must not promote AnimalC's transient floor."
+        )
+    }
+
     func testCollapseRestoresUserOrHeaderWidth() {
         let longLabel = String(repeating: "B", count: 128)
         var sidecar = GenotypeAnnotationSidecar.empty(

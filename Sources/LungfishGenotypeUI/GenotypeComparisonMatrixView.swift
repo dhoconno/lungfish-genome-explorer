@@ -1623,7 +1623,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     /// removes columns. Replacing only the currently visible positions keeps
     /// filtered-out samples anchored in the full stable order.
     private func captureStableSampleColumnState(
-        acceptTransientWidthsAsUserPreference: Bool = false
+        userResizedSample: String? = nil
     ) {
         let columns = tableView.tableColumns.compactMap { column -> (String, CGFloat)? in
             guard let sample = sampleColumnLookup[column.identifier] else { return nil }
@@ -1638,7 +1638,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             // A programmatic auto-fit floor is presentation state, not a user
             // resize. Preserve the stored preference unless the analyst has
             // deliberately widened the column beyond that floor.
-            if !acceptTransientWidthsAsUserPreference,
+            if sample != userResizedSample,
                transientWidth > 0,
                width <= transientWidth + 0.5 {
                 if sampleColumnWidthsByStableID[sample] == nil {
@@ -2507,8 +2507,20 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
         captureColumnTypographyBaselines(in: resizedTable)
         if resizedTable === tableView {
+            let resizedSample: String? =
+                (notification.userInfo?["NSTableColumn"]
+                    as? NSTableColumn).flatMap { resizedColumn in
+                        guard resizedTable.tableColumns.contains(
+                            where: { $0 === resizedColumn }
+                        ) else {
+                            return nil
+                        }
+                        return sampleColumnLookup[
+                            resizedColumn.identifier
+                        ]
+                    }
             captureStableSampleColumnState(
-                acceptTransientWidthsAsUserPreference: true
+                userResizedSample: resizedSample
             )
             manualHaplotypeBandGeometryDirty = true
             manualHaplotypeBandCachedCoverageRect = .zero
@@ -7039,7 +7051,8 @@ extension GenotypeComparisonMatrixView {
         tableViewColumnDidResize(
             Notification(
                 name: NSTableView.columnDidResizeNotification,
-                object: tableView
+                object: tableView,
+                userInfo: ["NSTableColumn": column]
             )
         )
     }
