@@ -5101,6 +5101,7 @@ public final class GenotypeResultViewController: NSViewController {
             }
             return
         }
+        teardownSampleCurationWorkbench()
         result = updatedResult
         manualHaplotypeEligibility =
             GenotypeManualHaplotypeEligibility.evaluate(updatedResult)
@@ -5821,6 +5822,7 @@ public final class GenotypeResultViewController: NSViewController {
               let store = annotationStore else {
             return nil
         }
+        let editorBundleURL = result.bundleURL.standardizedFileURL
 
         let model = GenotypeManualHaplotypeEditorModel(
             snapshot: manualHaplotypeEditorSnapshot(
@@ -5830,6 +5832,9 @@ public final class GenotypeResultViewController: NSViewController {
             ),
             onSave: { [weak self] draft in
                 guard let self,
+                      case .eligible = self.manualHaplotypeEligibility,
+                      self.result?.bundleURL.standardizedFileURL
+                        == editorBundleURL,
                       let currentStore = self.annotationStore else {
                     throw ManualHaplotypeEditorError.unavailable
                 }
@@ -8680,8 +8685,18 @@ public final class GenotypeResultViewController: NSViewController {
     private func teardownSampleCurationWorkbench() {
         sampleWorkbenchWidthConstraint?.isActive = false
         sampleWorkbenchWidthConstraint = nil
+        if let workbench = sampleCurationWorkbench {
+            if detailStack.arrangedSubviews.contains(where: {
+                $0 === workbench
+            }) {
+                detailStack.removeArrangedSubview(workbench)
+            }
+            workbench.removeFromSuperview()
+        }
         sampleCurationWorkbench = nil
         sampleSupportedAllelesSnapshot = nil
+        manualHaplotypeEditorModel = nil
+        manualHaplotypeEditorHostView = nil
     }
 
     private func previousHighlightColor(for request: GenotypeResultHighlightRequest) -> AnnotationColor? {
@@ -8966,6 +8981,19 @@ extension GenotypeResultViewController {
 
     var testingSampleWorkbenchIdentity: ObjectIdentifier? {
         sampleCurationWorkbench.map(ObjectIdentifier.init)
+    }
+
+    var testingMountedSampleWorkbenchCount: Int {
+        detailStack.arrangedSubviews
+            .compactMap {
+                $0 as? GenotypeSampleCurationWorkbenchView
+            }
+            .count
+    }
+
+    var testingRetainedManualHaplotypeEditorModel:
+        GenotypeManualHaplotypeEditorModel? {
+        manualHaplotypeEditorModel
     }
 
     var testingManualHaplotypeEditorHostIdentity:

@@ -10082,6 +10082,116 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertNil(controller.testingSampleWorkbenchLayoutMode)
     }
 
+    func testDirectHaplotypedResultReplacementPhysicallyRemovesManualWorkbenchAndRejectsStaleSave()
+        throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "ManualWorkbenchDirectReplacement-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent(
+            "example.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let call = makeCall(
+            sample: "AnimalA",
+            genotype: "01_Mafa_A1_001_01",
+            reads: 42
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [call]
+        ))
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        let staleModel = try XCTUnwrap(
+            controller.testingRetainedManualHaplotypeEditorModel
+        )
+        XCTAssertEqual(controller.testingMountedSampleWorkbenchCount, 1)
+
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [call],
+            haplotypeAnalysis: makeEmptyHaplotypeAnalysis()
+        ))
+
+        XCTAssertEqual(controller.testingMountedSampleWorkbenchCount, 0)
+        XCTAssertNil(controller.testingSampleWorkbenchIdentity)
+        XCTAssertNil(controller.testingManualHaplotypeEditorSample)
+        staleModel.updateLabel(
+            "Must Not Save",
+            locus: .a,
+            slot: .h1
+        )
+        staleModel.save()
+        XCTAssertNotNil(staleModel.persistenceErrorMessage)
+        XCTAssertTrue(controller.testingManualHaplotypeAssignments.isEmpty)
+    }
+
+    func testAIHaplotypingCompletionPhysicallyRemovesManualWorkbenchAndRejectsStaleSave()
+        throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "ManualWorkbenchAICompletion-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent(
+            "example.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let call = makeCall(
+            sample: "AnimalA",
+            genotype: "01_Mafa_A1_001_01",
+            reads: 42
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [call]
+        ))
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        let staleModel = try XCTUnwrap(
+            controller.testingRetainedManualHaplotypeEditorModel
+        )
+        XCTAssertEqual(controller.testingMountedSampleWorkbenchCount, 1)
+
+        controller.applyAIHaplotypingCompleted(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [call],
+            haplotypeAnalysis: makeEmptyHaplotypeAnalysis()
+        ))
+
+        XCTAssertEqual(controller.testingMountedSampleWorkbenchCount, 0)
+        XCTAssertNil(controller.testingSampleWorkbenchIdentity)
+        XCTAssertNil(controller.testingManualHaplotypeEditorSample)
+        staleModel.updateLabel(
+            "Must Not Save",
+            locus: .a,
+            slot: .h1
+        )
+        staleModel.save()
+        XCTAssertNotNil(staleModel.persistenceErrorMessage)
+        XCTAssertTrue(controller.testingManualHaplotypeAssignments.isEmpty)
+    }
+
     func testSelectedColumnDetailsRefreshWhenRowFilterChanges() {
         let first = makeCall(sample: "AnimalA", genotype: "NHP01222", reads: 73)
         let second = makeCall(sample: "AnimalA", genotype: "NHP99999", reads: 41)
