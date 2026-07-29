@@ -147,6 +147,39 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(workbench.layoutMode, .stacked)
     }
 
+    func testSampleCurationWorkbenchLiveTypographyScaleReevaluatesCurrentWidth() {
+        let workbench = makeSampleCurationWorkbench(typographyScale: 1)
+        workbench.frame.size = NSSize(width: 841, height: 700)
+        XCTAssertEqual(workbench.layoutMode, .sideBySide)
+
+        workbench.updateContentTypographyScale(2)
+        XCTAssertEqual(workbench.layoutMode, .stacked)
+
+        workbench.updateContentTypographyScale(1)
+        XCTAssertEqual(workbench.layoutMode, .sideBySide)
+    }
+
+    func testSampleCurationWorkbenchStackedModeUsesRequiredFillWidthEqualities() {
+        let workbench = makeSampleCurationWorkbench()
+        workbench.frame.size = NSSize(width: 700, height: 700)
+
+        workbench.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(workbench.headerView.frame.width, workbench.frame.width, accuracy: 0.5)
+        XCTAssertEqual(workbench.assignmentView.frame.width, workbench.frame.width, accuracy: 0.5)
+        XCTAssertEqual(workbench.evidenceView.frame.width, workbench.frame.width, accuracy: 0.5)
+
+        let identifiers = Set(
+            constraintsInHierarchy(workbench)
+                .filter { $0.isActive && $0.priority == .required }
+                .compactMap(\.identifier)
+        )
+        XCTAssertTrue(identifiers.contains("GenotypeSampleCurationWorkbench.headerWidth"))
+        XCTAssertTrue(identifiers.contains("GenotypeSampleCurationWorkbench.bodyWidth"))
+        XCTAssertTrue(identifiers.contains("GenotypeSampleCurationWorkbench.assignmentWidth"))
+        XCTAssertTrue(identifiers.contains("GenotypeSampleCurationWorkbench.evidenceWidth"))
+    }
+
     func testSampleCurationWorkbenchSideBySideEditorIsCappedAt640Points() {
         let workbench = makeSampleCurationWorkbench()
         workbench.frame.size = NSSize(width: 1_400, height: 700)
@@ -168,6 +201,10 @@ final class GenotypeResultViewportTests: XCTestCase {
             evidenceView: NSView(),
             typographyScale: typographyScale
         )
+    }
+
+    private func constraintsInHierarchy(_ view: NSView) -> [NSLayoutConstraint] {
+        view.constraints + view.subviews.flatMap(constraintsInHierarchy)
     }
 
     func testMatrixFalsePositiveRendersBracketedReadCountWithoutChangingEvidence() {

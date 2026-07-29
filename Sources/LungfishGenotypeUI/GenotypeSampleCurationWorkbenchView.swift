@@ -14,9 +14,10 @@ public final class GenotypeSampleCurationWorkbenchView: NSView {
 
     public private(set) var layoutMode: LayoutMode = .stacked
 
-    private let typographyScale: CGFloat
+    private var typographyScale: CGFloat
     private let rootStack = NSStackView()
     private let bodyStack = NSStackView()
+    private var stackedConstraints: [NSLayoutConstraint] = []
     private var sideBySideConstraints: [NSLayoutConstraint] = []
 
     public init(
@@ -28,11 +29,11 @@ public final class GenotypeSampleCurationWorkbenchView: NSView {
         self.headerView = headerView
         self.assignmentView = assignmentView
         self.evidenceView = evidenceView
-        self.typographyScale = max(1, typographyScale.isFinite ? typographyScale : 1)
+        self.typographyScale = Self.normalizedTypographyScale(typographyScale)
         super.init(frame: .zero)
 
         configureViewHierarchy()
-        configureSideBySideConstraints()
+        configureWidthConstraints()
         applyLayoutMode(.stacked)
     }
 
@@ -46,6 +47,14 @@ public final class GenotypeSampleCurationWorkbenchView: NSView {
         updateLayoutMode(for: newSize.width)
     }
 
+    public func updateContentTypographyScale(_ newScale: CGFloat) {
+        let normalizedScale = Self.normalizedTypographyScale(newScale)
+        guard normalizedScale != typographyScale else { return }
+
+        typographyScale = normalizedScale
+        updateLayoutMode(for: bounds.width)
+    }
+
     private func configureViewHierarchy() {
         headerView.translatesAutoresizingMaskIntoConstraints = false
         assignmentView.translatesAutoresizingMaskIntoConstraints = false
@@ -54,7 +63,7 @@ public final class GenotypeSampleCurationWorkbenchView: NSView {
         bodyStack.translatesAutoresizingMaskIntoConstraints = false
 
         rootStack.orientation = .vertical
-        rootStack.alignment = .width
+        rootStack.alignment = .leading
         rootStack.distribution = .fill
         rootStack.spacing = 12
 
@@ -75,7 +84,21 @@ public final class GenotypeSampleCurationWorkbenchView: NSView {
         ])
     }
 
-    private func configureSideBySideConstraints() {
+    private func configureWidthConstraints() {
+        let headerWidth = headerView.widthAnchor.constraint(equalTo: rootStack.widthAnchor)
+        headerWidth.identifier = "GenotypeSampleCurationWorkbench.headerWidth"
+        let bodyWidth = bodyStack.widthAnchor.constraint(equalTo: rootStack.widthAnchor)
+        bodyWidth.identifier = "GenotypeSampleCurationWorkbench.bodyWidth"
+        NSLayoutConstraint.activate([headerWidth, bodyWidth])
+
+        let assignmentWidth = assignmentView.widthAnchor.constraint(
+            equalTo: bodyStack.widthAnchor
+        )
+        assignmentWidth.identifier = "GenotypeSampleCurationWorkbench.assignmentWidth"
+        let evidenceWidth = evidenceView.widthAnchor.constraint(equalTo: bodyStack.widthAnchor)
+        evidenceWidth.identifier = "GenotypeSampleCurationWorkbench.evidenceWidth"
+        stackedConstraints = [assignmentWidth, evidenceWidth]
+
         let preferredEditorWidth = assignmentView.widthAnchor.constraint(
             equalTo: bodyStack.widthAnchor,
             multiplier: 0.62
@@ -102,13 +125,15 @@ public final class GenotypeSampleCurationWorkbenchView: NSView {
     }
 
     private func applyLayoutMode(_ newMode: LayoutMode) {
+        NSLayoutConstraint.deactivate(stackedConstraints)
         NSLayoutConstraint.deactivate(sideBySideConstraints)
         layoutMode = newMode
 
         switch newMode {
         case .stacked:
             bodyStack.orientation = .vertical
-            bodyStack.alignment = .width
+            bodyStack.alignment = .leading
+            NSLayoutConstraint.activate(stackedConstraints)
         case .sideBySide:
             bodyStack.orientation = .horizontal
             bodyStack.alignment = .height
@@ -126,5 +151,9 @@ public final class GenotypeSampleCurationWorkbenchView: NSView {
 
     private var stackedEntryWidth: CGFloat {
         780 + breakpointAdjustment
+    }
+
+    private static func normalizedTypographyScale(_ scale: CGFloat) -> CGFloat {
+        max(1, scale.isFinite ? scale : 1)
     }
 }
