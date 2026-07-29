@@ -88,6 +88,18 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
     mutating func validate() throws {}
 
     func run() async throws {
+        try await run(managedPythonResolver: {
+            try await CondaManager.shared.toolPath(
+                name: "python",
+                environment: "openpyxl"
+            )
+        })
+    }
+
+    func run(
+        managedPythonResolver:
+            @escaping @Sendable () async throws -> URL
+    ) async throws {
         let argv = CommandLine.arguments
         let context = try beginAttempt(
             argv: argv,
@@ -101,22 +113,29 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
             )
         }
         do {
-            FileHandle.standardError.write(
-                Data("[ 10%] Resolving managed openpyxl runtime.\n".utf8)
-            )
-            let pythonURL = try await CondaManager.shared.toolPath(
-                name: "python",
-                environment: "openpyxl"
-            )
-            try recordManagedPythonRuntime(
-                context.attempt,
-                pythonExecutableURL: pythonURL
-            )
             let attestation = try validatedAttestation()
             try recordResolvedAttemptOptions(
                 context.attempt,
                 bundleURL: context.bundleURL,
                 attestation: attestation
+            )
+            try recordManagedPythonRuntimeIntent(context.attempt)
+            FileHandle.standardError.write(
+                Data("[ 10%] Resolving managed openpyxl runtime.\n".utf8)
+            )
+            let pythonURL: URL
+            do {
+                pythonURL = try await managedPythonResolver()
+            } catch {
+                try context.attempt.recordRuntimeIdentity([
+                    "runtimeResolution": "failed",
+                    "runtimeResolutionFailure": error.localizedDescription,
+                ])
+                throw error
+            }
+            try recordManagedPythonRuntime(
+                context.attempt,
+                pythonExecutableURL: pythonURL
             )
             let payload = try executeResolved(
                 pythonExecutableURL: pythonURL,
@@ -340,6 +359,17 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
         ])
     }
 
+    private func recordManagedPythonRuntimeIntent(
+        _ attempt: GenotypeWorkbookUpdateAttemptHandle
+    ) throws {
+        try attempt.recordRuntimeIdentity([
+            "runtimeProvider": "managed-conda",
+            "requestedTool": "python",
+            "condaEnvironment": "openpyxl",
+            "runtimeResolution": "requested",
+        ])
+    }
+
     private func recordManagedPythonRuntime(
         _ attempt: GenotypeWorkbookUpdateAttemptHandle,
         pythonExecutableURL: URL
@@ -349,6 +379,9 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
             "condaEnvironment": "openpyxl",
             "condaPrefix": pythonExecutableURL.deletingLastPathComponent()
                 .deletingLastPathComponent().path,
+            "runtimeProvider": "managed-conda",
+            "requestedTool": "python",
+            "runtimeResolution": "resolved",
         ]
         do {
             identity.merge(

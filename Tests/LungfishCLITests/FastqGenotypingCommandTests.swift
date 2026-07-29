@@ -198,6 +198,91 @@ final class FastqGenotypingCommandTests: XCTestCase {
         XCTAssertTrue(receipt.resolvedOptions.isEmpty)
     }
 
+    func testManagedRuntimeResolutionFailureRecordsResolvedDefaultsAndRuntimeIntent()
+        async throws
+    {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "FastqWorkbookAttemptRuntimeResolution-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent(
+            "analysis.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let callsURL = root.appendingPathComponent("calls.json")
+        try Data("[]".utf8).write(to: callsURL)
+        let command = try FastqUpdateCurrentWorkbookSubcommand.parse([
+            bundleURL.path,
+            "--calls-json", callsURL.path,
+        ])
+
+        do {
+            try await command.run(managedPythonResolver: {
+                throw NSError(
+                    domain: "InjectedManagedRuntimeResolution",
+                    code: 42,
+                    userInfo: [
+                        NSLocalizedDescriptionKey:
+                            "managed openpyxl runtime unavailable",
+                    ]
+                )
+            })
+            XCTFail("Expected managed runtime resolution to fail")
+        } catch {
+            XCTAssertTrue(
+                error.localizedDescription.contains(
+                    "managed openpyxl runtime unavailable"
+                ),
+                error.localizedDescription
+            )
+        }
+
+        let receipt = try onlyWorkbookAttemptReceipt(in: bundleURL)
+        XCTAssertEqual(receipt.exitStatus, 1)
+        XCTAssertEqual(
+            receipt.resolvedOptions,
+            [
+                "bundle": bundleURL.path,
+                "callsJSON": callsURL.path,
+                "annotations": "none",
+                "annotationOnly": "false",
+                "haplotypeProjectionMode": "haplotyped",
+                "includedLoci": "",
+                "inputFingerprint": "none",
+                "inputFingerprintSchema": "none",
+                "reviewableRowCatalogPath": "none",
+                "reviewableRowCatalogSize": "none",
+                "reviewableRowCatalogSHA256": "none",
+                "reviewableRowCatalogSchema": "none",
+                "syncIntent": "none",
+            ]
+        )
+        XCTAssertEqual(
+            receipt.runtimeIdentity["runtimeProvider"],
+            "managed-conda"
+        )
+        XCTAssertEqual(receipt.runtimeIdentity["requestedTool"], "python")
+        XCTAssertEqual(
+            receipt.runtimeIdentity["condaEnvironment"],
+            "openpyxl"
+        )
+        XCTAssertEqual(receipt.runtimeIdentity["runtimeResolution"], "failed")
+        XCTAssertEqual(
+            receipt.runtimeIdentity["runtimeResolutionFailure"],
+            "managed openpyxl runtime unavailable"
+        )
+        XCTAssertTrue(
+            receipt.stderr?.contains(
+                "managed openpyxl runtime unavailable"
+            ) == true
+        )
+    }
+
     func testEachValidBundleTerminalPathCreatesExactlyOneExclusiveAttemptDirectory() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "FastqWorkbookAttemptExactlyOnce-\(UUID().uuidString)",
