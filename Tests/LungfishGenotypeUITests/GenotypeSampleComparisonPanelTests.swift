@@ -337,7 +337,7 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
         )
     }
 
-    func testSourceSearchArrowKeysHighlightFilteredCandidatesAndReturnSelects() {
+    func testSourceSearchFieldEditorCommandsHighlightAndSelectFilteredCandidate() {
         let model = makeKeyboardComparison()
         let mounted = mount(model: model, width: 841)
         defer { mounted.window.close() }
@@ -348,6 +348,11 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
             return XCTFail("Expected an AppKit source search field")
         }
         let searchIdentity = ObjectIdentifier(search)
+        XCTAssertTrue(mounted.window.makeFirstResponder(search))
+        guard let editor = search.currentEditor() else {
+            return XCTFail("Expected the mounted search field editor")
+        }
+        XCTAssertTrue(mounted.window.firstResponder === editor)
 
         search.stringValue = "matching"
         search.delegate?.controlTextDidChange?(
@@ -361,20 +366,22 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
             model.filteredCandidates.map(\.sample),
             ["Matching First", "Matching Second"]
         )
-        search.keyDown(
-            with: keyEvent(characters: "\u{F701}", keyCode: 125)
+        editor.doCommand(
+            by: #selector(NSResponder.moveDown(_:))
         )
         flush(mounted.host)
+        XCTAssertTrue(mounted.window.firstResponder === editor)
         XCTAssertTrue(
             search.accessibilityHelp()?.contains(
                 "Keyboard highlighted sample: Matching First."
             ) == true
         )
 
-        search.keyDown(
-            with: keyEvent(characters: "\u{F701}", keyCode: 125)
+        editor.doCommand(
+            by: #selector(NSResponder.moveDown(_:))
         )
         flush(mounted.host)
+        XCTAssertTrue(mounted.window.firstResponder === editor)
         XCTAssertTrue(
             search.accessibilityHelp()?.contains(
                 "Keyboard highlighted sample: Matching Second."
@@ -382,13 +389,14 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
         )
         XCTAssertEqual(model.selectedSource, nil)
 
-        search.keyDown(
-            with: keyEvent(characters: "\u{F700}", keyCode: 126)
+        editor.doCommand(by: #selector(NSResponder.moveUp(_:)))
+        editor.doCommand(
+            by: #selector(NSResponder.insertNewline(_:))
         )
-        search.keyDown(with: keyEvent(characters: "\r", keyCode: 36))
         flush(mounted.host)
 
         XCTAssertEqual(model.selectedSource, "Matching First")
+        XCTAssertTrue(mounted.window.firstResponder === editor)
         XCTAssertTrue(
             search.accessibilityHelp()?.contains(
                 "Keyboard highlighted sample: Matching First."
@@ -587,24 +595,6 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
             $0.isAccessibilityElement()
                 && $0.accessibilityLabel() == label
         }
-    }
-
-    private func keyEvent(
-        characters: String,
-        keyCode: UInt16
-    ) -> NSEvent {
-        NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [],
-            timestamp: 0,
-            windowNumber: 0,
-            context: nil,
-            characters: characters,
-            charactersIgnoringModifiers: characters,
-            isARepeat: false,
-            keyCode: keyCode
-        )!
     }
 
     private func controlIdentities(in root: NSView) -> Set<ObjectIdentifier> {

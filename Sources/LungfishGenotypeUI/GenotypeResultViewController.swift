@@ -9383,35 +9383,13 @@ extension GenotypeResultViewController {
             name: NSControl.textDidChangeNotification,
             object: searchField
         )
-        guard let down = NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [],
-            timestamp: 0,
-            windowNumber: view.window?.windowNumber ?? 0,
-            context: nil,
-            characters: String(UnicodeScalar(NSDownArrowFunctionKey)!),
-            charactersIgnoringModifiers:
-                String(UnicodeScalar(NSDownArrowFunctionKey)!),
-            isARepeat: false,
-            keyCode: 125
-        ),
-              let enter = NSEvent.keyEvent(
-                  with: .keyDown,
-                  location: .zero,
-                  modifierFlags: [],
-                  timestamp: 0,
-                  windowNumber: view.window?.windowNumber ?? 0,
-                  context: nil,
-                  characters: "\r",
-                  charactersIgnoringModifiers: "\r",
-                  isARepeat: false,
-                  keyCode: 36
-              ) else {
+        guard let window = view.window,
+              window.makeFirstResponder(searchField),
+              let editor = searchField.currentEditor() else {
             return false
         }
-        searchField.keyDown(with: down)
-        searchField.keyDown(with: enter)
+        editor.doCommand(by: #selector(NSResponder.moveDown(_:)))
+        editor.doCommand(by: #selector(NSResponder.insertNewline(_:)))
         return sampleComparisonModel?.selectedSource == sample
     }
 

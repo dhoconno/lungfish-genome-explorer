@@ -602,33 +602,27 @@ private struct GenotypeSampleSourceSearchField: NSViewRepresentable {
         )
     }
 
-    func makeNSView(context: Context) -> KeyboardSearchField {
-        let field = KeyboardSearchField()
+    func makeNSView(context: Context) -> InteractionSearchField {
+        let field = InteractionSearchField()
         field.delegate = context.coordinator
         configure(field, coordinator: context.coordinator)
         return field
     }
 
     func updateNSView(
-        _ field: KeyboardSearchField,
+        _ field: InteractionSearchField,
         context: Context
     ) {
         configure(field, coordinator: context.coordinator)
     }
 
     private func configure(
-        _ field: KeyboardSearchField,
+        _ field: InteractionSearchField,
         coordinator: Coordinator
     ) {
         coordinator.text = $text
         coordinator.onMove = onMove
         coordinator.onCommit = onCommit
-        field.onMove = { [weak coordinator] direction in
-            coordinator?.onMove(direction) ?? false
-        }
-        field.onCommit = { [weak coordinator] in
-            coordinator?.onCommit() ?? false
-        }
         if field.stringValue != text {
             field.stringValue = text
         }
@@ -679,33 +673,31 @@ private struct GenotypeSampleSourceSearchField: NSViewRepresentable {
             }
             text.wrappedValue = field.stringValue
         }
+
+        func control(
+            _: NSControl,
+            textView _: NSTextView,
+            doCommandBy commandSelector: Selector
+        ) -> Bool {
+            switch commandSelector {
+            case #selector(NSResponder.moveDown(_:)):
+                return onMove(1)
+            case #selector(NSResponder.moveUp(_:)):
+                return onMove(-1)
+            case #selector(NSResponder.insertNewline(_:)):
+                return onCommit()
+            default:
+                return false
+            }
+        }
     }
 
     @MainActor
-    final class KeyboardSearchField: NSSearchField {
-        var onMove: ((Int) -> Bool)?
-        var onCommit: (() -> Bool)?
+    final class InteractionSearchField: NSSearchField {
         var allowsUserInteraction = true
 
         override func hitTest(_ point: NSPoint) -> NSView? {
             allowsUserInteraction ? super.hitTest(point) : nil
-        }
-
-        override func keyDown(with event: NSEvent) {
-            let handled: Bool
-            switch event.keyCode {
-            case 125:
-                handled = onMove?(1) ?? false
-            case 126:
-                handled = onMove?(-1) ?? false
-            case 36, 76:
-                handled = onCommit?() ?? false
-            default:
-                handled = false
-            }
-            if !handled {
-                super.keyDown(with: event)
-            }
         }
     }
 }

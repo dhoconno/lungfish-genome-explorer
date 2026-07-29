@@ -11297,6 +11297,7 @@ final class GenotypeResultViewportTests: XCTestCase {
             )
         )
         flushMountedController(controller)
+        XCTAssertTrue(window.makeFirstResponder(focusedCombo))
         let controlIdentities =
             controller.testingSampleCurationControlIdentities
         XCTAssertTrue(
