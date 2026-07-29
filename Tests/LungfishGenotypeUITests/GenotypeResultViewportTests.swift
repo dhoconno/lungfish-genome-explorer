@@ -180,16 +180,92 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(identifiers.contains("GenotypeSampleCurationWorkbench.evidenceWidth"))
     }
 
-    func testSampleCurationWorkbenchSideBySideEditorIsCappedAt640Points() {
+    func testWideWorkbenchFillsAvailableWidthWithoutEditorCapOrDeadCenterGap() {
         let workbench = makeSampleCurationWorkbench()
         workbench.frame.size = NSSize(width: 1_400, height: 700)
 
         workbench.layoutSubtreeIfNeeded()
 
         XCTAssertEqual(workbench.layoutMode, .sideBySide)
-        XCTAssertLessThanOrEqual(workbench.assignmentView.frame.width, 640.5)
+        XCTAssertGreaterThan(workbench.assignmentView.frame.width, 640.5)
         XCTAssertGreaterThanOrEqual(workbench.assignmentView.frame.width, 419.5)
         XCTAssertGreaterThanOrEqual(workbench.evidenceView.frame.width, 299.5)
+        XCTAssertEqual(
+            workbench.assignmentView.frame.width
+                + workbench.evidenceView.frame.width
+                + 16,
+            workbench.frame.width,
+            accuracy: 1
+        )
+    }
+
+    func testCallSupportCheckStatesAndExplanationMatchThresholdContract() {
+        XCTAssertEqual(
+            GenotypeCallSupportCheck.evaluate(
+                callCount: 1,
+                retainedReads: 1_000,
+                alignments: 20
+            ),
+            .meetsThresholds
+        )
+        XCTAssertEqual(
+            GenotypeCallSupportCheck.evaluate(
+                callCount: 1,
+                retainedReads: 999,
+                alignments: 20
+            ),
+            .lowSupport
+        )
+        XCTAssertEqual(
+            GenotypeCallSupportCheck.evaluate(
+                callCount: 1,
+                retainedReads: 1_000,
+                alignments: 19
+            ),
+            .lowSupport
+        )
+        XCTAssertEqual(
+            GenotypeCallSupportCheck.evaluate(
+                callCount: 0,
+                retainedReads: 1_000,
+                alignments: 20
+            ),
+            .reviewNeeded
+        )
+        XCTAssertEqual(
+            GenotypeCallSupportCheck.meetsThresholds.title,
+            "Meets thresholds"
+        )
+        XCTAssertTrue(
+            GenotypeCallSupportCheck.meetsThresholds.explanation.contains(
+                "not analyst approval or confirmation that haplotype assignments are correct"
+            )
+        )
+        let header = GenotypeSampleCurationHeaderView(
+            metrics: [
+                .init(
+                    label: "Call-support check",
+                    value: GenotypeCallSupportCheck.meetsThresholds.title,
+                    accessibilityHelp:
+                        GenotypeCallSupportCheck.meetsThresholds.explanation
+                ),
+            ],
+            explanation:
+                GenotypeCallSupportCheck.meetsThresholds.explanation,
+            typographyScale: 1
+        )
+        XCTAssertEqual(
+            header.explanationField?.stringValue,
+            GenotypeCallSupportCheck.meetsThresholds.explanation
+        )
+        XCTAssertEqual(
+            header.explanationField?.accessibilityHelp(),
+            GenotypeCallSupportCheck.meetsThresholds.explanation
+        )
+        XCTAssertEqual(
+            header.metricFields[0].value.accessibilityHelp(),
+            GenotypeCallSupportCheck.meetsThresholds.explanation
+        )
     }
 
     private func makeSampleCurationWorkbench(
@@ -10749,9 +10825,178 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertFalse(text.contains("Mafa-B*002:01"))
         let rows = controller.testingCurrentSelectionDetailRows
         XCTAssertTrue(rows.contains { $0 == ("Retained Unique Reads", "40") })
-        XCTAssertTrue(rows.contains { $0 == ("Alignments", "57") })
-        XCTAssertTrue(rows.contains { $0 == ("QC", "Low Support") })
-        XCTAssertTrue(rows.contains { $0.0 == "Support" && $0.1 == "100.0%" })
+        XCTAssertTrue(rows.contains { $0 == ("Call-support check", "Low support") })
+        XCTAssertTrue(rows.contains { $0 == ("Read support", "30") })
+        XCTAssertFalse(rows.contains { ["QC", "Alignments", "Locus", "Unique Reads", "Support"].contains($0.0) })
+    }
+
+    func testEvidenceRowsUseExactCurrentMatrixOrderWithoutSecondSort() {
+        let first = makeCall(
+            sample: "AnimalA",
+            genotype: "01_Mafa_A1_001_01",
+            reads: 10
+        )
+        let second = makeCall(
+            sample: "AnimalA",
+            genotype: "01_Mafa_A1_002_01",
+            reads: 20
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [
+                ONTGenotypeSampleResult(
+                    sample: "AnimalA",
+                    passedAlignments: 30,
+                    passedUniqueReads: 1_200,
+                    sampleTotalReads: nil,
+                    sampleUniqueRetainedPercent: nil,
+                    calls: [first, second]
+                ),
+            ],
+            calls: [first, second]
+        ))
+
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+
+        let evidence = controller.testingCurrentSelectionDetailRows.filter {
+            $0.0 == "Allele" || $0.0 == "Read support"
+        }
+        XCTAssertEqual(evidence.map { "\($0.0)=\($0.1)" }, [
+            "Allele=01_Mafa_A1_001_01",
+            "Read support=10",
+            "Allele=01_Mafa_A1_002_01",
+            "Read support=20",
+        ])
+    }
+
+    func testPublishedSelectedSampleStateRowsUseCallSupportCheckAndTwoColumnEvidence() {
+        let first = makeCall(
+            sample: "AnimalA",
+            genotype: "NHP01222",
+            reads: 10
+        )
+        let second = makeCall(
+            sample: "AnimalA",
+            genotype: "NHP99999",
+            reads: 20
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [
+                ONTGenotypeSampleResult(
+                    sample: "AnimalA",
+                    passedAlignments: 30,
+                    passedUniqueReads: 1_200,
+                    sampleTotalReads: nil,
+                    sampleUniqueRetainedPercent: nil,
+                    calls: [first, second]
+                ),
+            ],
+            calls: [first, second],
+            referenceMetadata: makeGenBankReferenceMetadata()
+        ))
+        controller.testingSetComparisonFilter("Mafa-A1")
+
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+
+        let rows = controller.testingCurrentSelectionDetailRows
+        XCTAssertTrue(rows.contains {
+            $0 == ("Call-support check", "Meets thresholds")
+        })
+        XCTAssertEqual(rows.filter { $0.0 == "Allele" }.count, 1)
+        XCTAssertEqual(rows.filter { $0.0 == "Read support" }.count, 1)
+        XCTAssertFalse(rows.contains {
+            ["QC", "Locus", "Unique Reads", "Alignments", "Support"]
+                .contains($0.0)
+        })
+    }
+
+    func testEvidenceRetainsProvisionalExonTwoAndAnnotationPresentation()
+        throws
+    {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "EvidencePresentation-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let store = try GenotypeAnnotationStore(
+            bundleURL: bundleURL,
+            author: "Analyst"
+        )
+        try store.addMatrixComment(
+            target: .column(sample: "AnimalA"),
+            body: "Retained sample annotation"
+        )
+        let genotype = "Mafa-A1*007:08:01:01_1nt_nov"
+        let call = makeCall(
+            sample: "AnimalA",
+            genotype: genotype,
+            reads: 42
+        )
+        let extensionCall = makeCall(
+            sample: "AnimalA",
+            genotype: "Mafa-A1*007:06_ext",
+            reads: 21
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [
+                ONTGenotypeSampleResult(
+                    sample: "AnimalA",
+                    passedAlignments: 63,
+                    passedUniqueReads: 1_200,
+                    sampleTotalReads: nil,
+                    sampleUniqueRetainedPercent: nil,
+                    calls: [call, extensionCall]
+                ),
+            ],
+            calls: [call, extensionCall],
+            provisionalExon2SequencesByGenotype: [
+                genotype: ONTGenotypeProvisionalExon2Sequence(
+                    genotype: genotype,
+                    locus: "MHC-A",
+                    sequence: "ACGT",
+                    sequenceSHA256: String(repeating: "0", count: 64),
+                    sampleSupport: [
+                        .init(
+                            sample: "AnimalA",
+                            passedAlignments: 42,
+                            passedUniqueReads: 42
+                        ),
+                    ]
+                ),
+            ]
+        ))
+
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+
+        XCTAssertTrue(
+            controller.testingCurrentSelectionDetailRows.contains {
+                $0 == ("Allele", genotype)
+            }
+        )
+        XCTAssertTrue(
+            controller.testingCurrentSelectionDetailRows.contains {
+                $0 == ("Allele", extensionCall.genotype)
+            }
+        )
+        XCTAssertTrue(
+            controller.testingCurrentSelectionDetailRows.contains {
+                $0 == (
+                    "Column Comment",
+                    "Retained sample annotation"
+                )
+            }
+        )
     }
 
     func testSelectedSampleWorkbenchFillsDetailPaneAcrossLayoutsAndViewportWidths()
@@ -11014,8 +11259,8 @@ final class GenotypeResultViewportTests: XCTestCase {
                 [
                     "Selected Sample": "AnimalA Long Sample Name",
                     "Retained Unique Reads": "42",
-                    "Alignments": "45",
-                    "QC": "Low Support",
+                    "Passed Alignments": "45",
+                    "Call-support check": "Low support",
                 ]
             )
             XCTAssertEqual(
@@ -11127,8 +11372,8 @@ final class GenotypeResultViewportTests: XCTestCase {
             [
                 "Selected Sample": "AnimalA",
                 "Retained Unique Reads": "42",
-                "Alignments": "45",
-                "QC": "Low Support",
+                "Passed Alignments": "45",
+                "Call-support check": "Low support",
             ]
         )
         XCTAssertTrue(
@@ -11403,7 +11648,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         ]))
     }
 
-    func testSelectedColumnSupportRefreshesWhenDenominatorChanges() {
+    func testSelectedColumnReadSupportDoesNotBecomeFractionWhenDenominatorChanges() {
         let selected = makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_SELECTED", reads: 25)
         let other = makeCall(sample: "AnimalA", genotype: "02_Mafa_A1_OTHER", reads: 75)
         let controller = GenotypeResultViewController()
@@ -11416,7 +11661,8 @@ final class GenotypeResultViewportTests: XCTestCase {
             calls: [selected, other]
         ))
         controller.testingSelectMatrixColumn(sample: "AnimalA")
-        XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains { $0 == ("Support", "25.0%") })
+        XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains { $0 == ("Read support", "25") })
+        XCTAssertFalse(controller.testingCurrentSelectionDetailRows.contains { $0.0 == "Support" })
         var selectionPublicationCount = 0
         controller.onSelectionStateChanged = { _ in selectionPublicationCount += 1 }
 
@@ -11425,8 +11671,8 @@ final class GenotypeResultViewportTests: XCTestCase {
         ))
 
         XCTAssertEqual(selectionPublicationCount, 1)
-        XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains { $0 == ("Support", "12.5%") })
-        XCTAssertFalse(controller.testingCurrentSelectionDetailRows.contains { $0 == ("Support", "25.0%") })
+        XCTAssertTrue(controller.testingCurrentSelectionDetailRows.contains { $0 == ("Read support", "25") })
+        XCTAssertFalse(controller.testingCurrentSelectionDetailRows.contains { $0.0 == "Support" })
     }
 
     func testSelectedLargeColumnPublishesEveryAlleleWithBoundedDetailSubviews() {
@@ -11445,7 +11691,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         controller.testingSelectMatrixColumn(sample: "AnimalA")
 
         XCTAssertEqual(
-            controller.testingCurrentSelectionDetailRows.filter { $0.0.hasPrefix("Allele ") }.count,
+            controller.testingCurrentSelectionDetailRows.filter { $0.0 == "Allele" }.count,
             alleleCount
         )
         XCTAssertLessThanOrEqual(controller.testingDetailArrangedSubviewCount, 12)
@@ -11490,8 +11736,8 @@ final class GenotypeResultViewportTests: XCTestCase {
         controller.testingSelectMatrixColumn(sample: "AnimalA")
         let rows = controller.testingCurrentSelectionDetailRows
         XCTAssertTrue(rows.contains { $0 == ("Sample", "AnimalA") })
-        XCTAssertTrue(rows.contains { $0 == ("Unique Reads", "42") })
-        XCTAssertFalse(rows.contains { ["Retained Unique Reads", "QC"].contains($0.0) })
+        XCTAssertTrue(rows.contains { $0 == ("Read support", "42") })
+        XCTAssertFalse(rows.contains { ["Retained Unique Reads", "Call-support check"].contains($0.0) })
         XCTAssertFalse(rows.contains { $0.0 == "Alignments" && $0.1 == "Unavailable" })
     }
 

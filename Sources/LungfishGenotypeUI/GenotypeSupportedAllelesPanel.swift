@@ -5,14 +5,10 @@ import LungfishKit
 struct GenotypeSupportedAllelePresentation: Identifiable, Equatable {
     let id: String
     let allele: String
-    let locus: String
-    let uniqueReads: String
-    let alignments: String
-    let support: String
+    let readSupport: String
 
     var accessibilityLabel: String {
-        "\(allele), locus \(locus), \(uniqueReads) unique reads, "
-            + "\(alignments) alignments, \(support) support"
+        "\(allele), read support \(readSupport)."
     }
 }
 
@@ -24,6 +20,7 @@ struct GenotypeSupportedAllelesSnapshot: Equatable {
 
     static let previewLimit = 12
     static let columnsMinimumWidth: CGFloat = 520
+    static let columnTitles = ["Allele", "Read support"]
 
     let rows: [GenotypeSupportedAllelePresentation]
 
@@ -97,11 +94,8 @@ struct GenotypeSupportedAllelesPanel: View {
     private var columnPreview: some View {
         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 7) {
             GridRow {
-                columnHeader("Allele")
-                columnHeader("Locus")
-                columnHeader("Unique Reads")
-                columnHeader("Alignments")
-                columnHeader("Support")
+                columnHeader(GenotypeSupportedAllelesSnapshot.columnTitles[0])
+                columnHeader(GenotypeSupportedAllelesSnapshot.columnTitles[1])
             }
             .accessibilityHidden(true)
 
@@ -118,21 +112,13 @@ struct GenotypeSupportedAllelesPanel: View {
                                 label: row.accessibilityLabel
                             )
                         )
-                    Text(row.locus)
-                        .font(contentCaptionFont)
-                        .foregroundStyle(.secondary)
-                        .accessibilityHidden(true)
-                    Text(row.uniqueReads)
+                    Text(row.readSupport)
                         .font(contentMonospacedFont.monospacedDigit())
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .accessibilityHidden(true)
-                    Text(row.alignments)
-                        .font(contentMonospacedFont.monospacedDigit())
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .accessibilityHidden(true)
-                    Text(row.support)
-                        .font(contentMonospacedFont.monospacedDigit())
-                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .frame(
+                            minWidth: 90,
+                            maxWidth: .infinity,
+                            alignment: .trailing
+                        )
                         .accessibilityHidden(true)
                 }
             }
@@ -186,12 +172,9 @@ struct GenotypeSupportedAllelesPanel: View {
             Text(row.allele)
                 .font(contentBodyFont)
                 .lineLimit(2)
-            Text(
-                "\(row.locus) • \(row.uniqueReads) unique • "
-                    + "\(row.alignments) alignments • \(row.support)"
-            )
-            .font(contentCaptionFont)
-            .foregroundStyle(.secondary)
+            Text("Read support: \(row.readSupport)")
+                .font(contentCaptionFont)
+                .foregroundStyle(.secondary)
         }
         .accessibilityHidden(true)
         .background(
@@ -414,26 +397,32 @@ private struct GenotypeSupportedAllelesVirtualizedList: NSViewRepresentable {
 
 private final class GenotypeSupportedAllelesTableCell: NSTableCellView {
     private let alleleLabel = NSTextField(labelWithString: "")
-    private let metricsLabel = NSTextField(labelWithString: "")
+    private let readSupportLabel = NSTextField(labelWithString: "")
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         alleleLabel.lineBreakMode = .byTruncatingMiddle
-        metricsLabel.textColor = .secondaryLabelColor
-        metricsLabel.lineBreakMode = .byTruncatingTail
-        for label in [alleleLabel, metricsLabel] {
+        readSupportLabel.textColor = .secondaryLabelColor
+        readSupportLabel.alignment = .right
+        readSupportLabel.lineBreakMode = .byTruncatingHead
+        for label in [alleleLabel, readSupportLabel] {
             label.translatesAutoresizingMaskIntoConstraints = false
             label.setAccessibilityElement(false)
             addSubview(label)
         }
         NSLayoutConstraint.activate([
             alleleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            alleleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            alleleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 4),
-            metricsLabel.leadingAnchor.constraint(equalTo: alleleLabel.leadingAnchor),
-            metricsLabel.trailingAnchor.constraint(equalTo: alleleLabel.trailingAnchor),
-            metricsLabel.topAnchor.constraint(equalTo: alleleLabel.bottomAnchor, constant: 1),
-            metricsLabel.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -4),
+            alleleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            readSupportLabel.leadingAnchor.constraint(
+                greaterThanOrEqualTo: alleleLabel.trailingAnchor,
+                constant: 12
+            ),
+            readSupportLabel.trailingAnchor.constraint(
+                equalTo: trailingAnchor,
+                constant: -8
+            ),
+            readSupportLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            readSupportLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 90),
         ])
         setAccessibilityElement(true)
         setAccessibilityRole(.staticText)
@@ -450,10 +439,8 @@ private final class GenotypeSupportedAllelesTableCell: NSTableCellView {
     ) {
         alleleLabel.stringValue = row.allele
         alleleLabel.font = bodyFont
-        metricsLabel.stringValue =
-            "\(row.locus) • \(row.uniqueReads) unique • "
-            + "\(row.alignments) alignments • \(row.support)"
-        metricsLabel.font = captionFont
+        readSupportLabel.stringValue = row.readSupport
+        readSupportLabel.font = captionFont
         setAccessibilityIdentifier(row.id)
         setAccessibilityLabel(row.accessibilityLabel)
     }

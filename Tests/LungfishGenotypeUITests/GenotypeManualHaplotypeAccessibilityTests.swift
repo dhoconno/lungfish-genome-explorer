@@ -315,7 +315,7 @@ final class GenotypeManualHaplotypeAccessibilityTests: XCTestCase {
         )
     }
 
-    func testMountedEditorUsesBoundedCopyPopoverAndOverflowExport()
+    func testExportAllHaplotypeAssignmentsIsVisibleSecondaryActionWithExistingCallback()
         throws
     {
         let fixture = GenotypeManualHaplotypeTask10Fixture()
@@ -368,34 +368,17 @@ final class GenotypeManualHaplotypeAccessibilityTests: XCTestCase {
                     == "manual-haplotype-copy-picker"
             }
         )
-        let moreActions = try XCTUnwrap(
-            descendants(of: host)
-                .compactMap { $0 as? NSPopUpButton }
-                .first {
-                    $0.accessibilityIdentifier()
-                        == "manual-haplotype-more-actions"
-                }
-        )
-        XCTAssertNil(
+        let exportButton = try XCTUnwrap(
             buttons.first {
-                $0.title == "Export All Manual Definitions…"
-                    || $0.title == "Export Manual Definitions…"
-            },
-            "Analysis-wide export must not be a footer peer of sample Save."
-        )
-        let exportItem = try XCTUnwrap(
-            moreActions.menu?.items.first {
-                $0.title == "Export All Manual Definitions…"
+                $0.accessibilityIdentifier()
+                    == "manual-haplotype-export-all"
             }
         )
-        let exportAction = try XCTUnwrap(exportItem.action)
-        XCTAssertTrue(
-            NSApp.sendAction(
-                exportAction,
-                to: exportItem.target,
-                from: exportItem
-            )
+        XCTAssertEqual(
+            exportButton.title,
+            "Export All Haplotype Assignments…"
         )
+        exportButton.performClick(nil)
         XCTAssertEqual(exportCount, 1)
 
         let inlineHeight = host.fittingSize.height

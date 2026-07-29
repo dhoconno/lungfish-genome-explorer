@@ -940,12 +940,12 @@ struct GenotypeManualHaplotypeEditor: View {
                         .padding(12)
                 }
 
-                ManualHaplotypeMoreActionsMenu(
+                ManualHaplotypeExportButton(
+                    title: "Export All Haplotype Assignments\u{2026}",
                     font: comboFieldFont,
-                    canExport: model.canExport,
+                    isEnabled: model.canExport,
                     onExport: model.export
                 )
-                .fixedSize()
             }
 
             if let error = model.persistenceErrorMessage {
@@ -1241,58 +1241,45 @@ private struct ManualHaplotypeCopySearchField: NSViewRepresentable {
 }
 
 @MainActor
-private struct ManualHaplotypeMoreActionsMenu: NSViewRepresentable {
+private struct ManualHaplotypeExportButton: NSViewRepresentable {
+    let title: String
     let font: NSFont
-    let canExport: Bool
+    let isEnabled: Bool
     let onExport: () -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(onExport: onExport)
     }
 
-    func makeNSView(context: Context) -> NSPopUpButton {
-        let button = NSPopUpButton(frame: .zero, pullsDown: true)
+    func makeNSView(context: Context) -> NSButton {
+        let button = NSButton(
+            title: title,
+            target: context.coordinator,
+            action: #selector(Coordinator.export)
+        )
         button.bezelStyle = .rounded
         button.controlSize = .small
         configure(button, coordinator: context.coordinator)
         return button
     }
 
-    func updateNSView(_ button: NSPopUpButton, context: Context) {
+    func updateNSView(_ button: NSButton, context: Context) {
         configure(button, coordinator: context.coordinator)
     }
 
     private func configure(
-        _ button: NSPopUpButton,
+        _ button: NSButton,
         coordinator: Coordinator
     ) {
         coordinator.onExport = onExport
-        let menu = NSMenu()
-        menu.autoenablesItems = false
-        let displayItem = NSMenuItem()
-        displayItem.image = NSImage(
-            systemSymbolName: "ellipsis.circle",
-            accessibilityDescription:
-                "More haplotype assignment actions"
-        )
-        menu.addItem(displayItem)
-        let exportItem = NSMenuItem(
-            title: "Export All Manual Definitions\u{2026}",
-            action: #selector(Coordinator.export),
-            keyEquivalent: ""
-        )
-        exportItem.target = coordinator
-        exportItem.isEnabled = canExport
-        menu.addItem(exportItem)
-        button.menu = menu
+        button.title = title
         button.font = font
+        button.isEnabled = isEnabled
         button.setAccessibilityElement(true)
-        button.setAccessibilityRole(.popUpButton)
-        button.setAccessibilityLabel(
-            "More haplotype assignment actions"
-        )
+        button.setAccessibilityRole(.button)
+        button.setAccessibilityLabel(title)
         button.setAccessibilityIdentifier(
-            "manual-haplotype-more-actions"
+            "manual-haplotype-export-all"
         )
     }
 

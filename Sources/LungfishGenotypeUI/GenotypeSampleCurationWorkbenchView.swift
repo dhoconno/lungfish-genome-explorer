@@ -1,5 +1,56 @@
 import AppKit
 
+enum GenotypeCallSupportCheck: Equatable {
+    case meetsThresholds
+    case lowSupport
+    case reviewNeeded
+
+    static func evaluate(
+        callCount: Int,
+        retainedReads: Int,
+        alignments: Int
+    ) -> Self {
+        guard callCount > 0, retainedReads > 0, alignments > 0 else {
+            return .reviewNeeded
+        }
+        guard retainedReads >= 1_000, alignments >= 20 else {
+            return .lowSupport
+        }
+        return .meetsThresholds
+    }
+
+    var title: String {
+        switch self {
+        case .meetsThresholds:
+            return "Meets thresholds"
+        case .lowSupport:
+            return "Low support"
+        case .reviewNeeded:
+            return "Review needed"
+        }
+    }
+
+    var explanation: String {
+        let caveat =
+            "This automated call-support check is not analyst approval or "
+            + "confirmation that haplotype assignments are correct."
+        switch self {
+        case .meetsThresholds:
+            return "This sample has at least one genotype call. Its totals "
+                + "include at least 1,000 retained unique reads and 20 passed "
+                + "alignments. \(caveat)"
+        case .lowSupport:
+            return "This sample has at least one genotype call, but its totals "
+                + "include fewer than 1,000 retained unique reads or fewer than "
+                + "20 passed alignments. \(caveat)"
+        case .reviewNeeded:
+            return "This sample has no genotype calls, no retained unique "
+                + "reads, or no passed alignments. Review the sample before "
+                + "interpreting its calls. \(caveat)"
+        }
+    }
+}
+
 @MainActor
 final class GenotypeSampleCurationHeaderView: NSView {
     enum LayoutMode: Equatable {
@@ -11,6 +62,7 @@ final class GenotypeSampleCurationHeaderView: NSView {
         let label: String
         let value: String
         var emphasized = false
+        var accessibilityHelp: String?
     }
 
     private(set) var layoutMode: LayoutMode = .stacked
@@ -21,13 +73,36 @@ final class GenotypeSampleCurationHeaderView: NSView {
     private let rootStack = NSStackView()
     private let statsStack = NSStackView()
     private var stackedConstraints: [NSLayoutConstraint] = []
+    let explanationField: NSTextField?
 
-    init(metrics: [Metric], typographyScale: CGFloat) {
+    init(
+        metrics: [Metric],
+        explanation: String? = nil,
+        typographyScale: CGFloat
+    ) {
         precondition(!metrics.isEmpty)
         self.typographyScale = max(1, typographyScale)
         let content = metrics.map(Self.makeMetricView)
         metricViews = content.map(\.view)
         metricFields = content.map { ($0.label, $0.value) }
+        if let explanation {
+            let field = NSTextField(wrappingLabelWithString: explanation)
+            field.font = .systemFont(ofSize: 11)
+            field.textColor = .secondaryLabelColor
+            field.maximumNumberOfLines = 0
+            field.lineBreakMode = .byWordWrapping
+            field.usesSingleLineMode = false
+            field.setContentCompressionResistancePriority(
+                .defaultLow,
+                for: .horizontal
+            )
+            field.setAccessibilityElement(true)
+            field.setAccessibilityLabel(explanation)
+            field.setAccessibilityHelp(explanation)
+            self.explanationField = field
+        } else {
+            self.explanationField = nil
+        }
         super.init(frame: .zero)
         configure()
         apply(.stacked)
@@ -67,6 +142,9 @@ final class GenotypeSampleCurationHeaderView: NSView {
         if metricViews.count > 1 {
             rootStack.addArrangedSubview(statsStack)
         }
+        if let explanationField {
+            rootStack.addArrangedSubview(explanationField)
+        }
         addSubview(rootStack)
 
         NSLayoutConstraint.activate([
@@ -88,6 +166,9 @@ final class GenotypeSampleCurationHeaderView: NSView {
                 )
             }
         }
+        explanationField?.widthAnchor.constraint(
+            equalTo: rootStack.widthAnchor
+        ).isActive = true
     }
 
     private func updateLayoutMode(for width: CGFloat) {
@@ -168,6 +249,9 @@ final class GenotypeSampleCurationHeaderView: NSView {
         value.setAccessibilityLabel(
             "\(metric.label): \(metric.value)"
         )
+        if let accessibilityHelp = metric.accessibilityHelp {
+            value.setAccessibilityHelp(accessibilityHelp)
+        }
 
         stack.addArrangedSubview(label)
         stack.addArrangedSubview(value)
@@ -284,7 +368,6 @@ public final class GenotypeSampleCurationWorkbenchView: NSView {
 
         sideBySideConstraints = [
             assignmentView.widthAnchor.constraint(greaterThanOrEqualToConstant: 420),
-            assignmentView.widthAnchor.constraint(lessThanOrEqualToConstant: 640),
             evidenceView.widthAnchor.constraint(greaterThanOrEqualToConstant: 300),
             preferredEditorWidth,
         ]

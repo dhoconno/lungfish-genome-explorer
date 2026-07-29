@@ -4172,38 +4172,34 @@ public final class GenotypeResultViewController: NSViewController {
         let summary = sampleResultsByName[sample]
         var sampleRows: [(String, String)] = [("Sample", sample)]
         if let summary {
+            let check = callSupportCheck(
+                for: sample,
+                summary: summary
+            )
             sampleRows += [
                 (
                     "Retained Unique Reads",
                     integer(summary.passedUniqueReads)
                 ),
-                ("Alignments", integer(summary.passedAlignments)),
-                ("QC", summary.qcStatus.displayName),
+                ("Call-support check", check.title),
             ]
         }
         stateRows.append(("Selected Sample", sample))
         stateRows += sampleRows
 
-        let supported = sortedVisibleSampleAlleleDetails(sample: sample)
+        let supported =
+            comparisonMatrix.visibleSampleAlleleDetails(sample: sample)
         let snapshot = supportedAllelesSnapshot(from: supported)
-        for (index, item) in supported.enumerated() {
+        for item in supported {
             let label = alleleDisplayLabel(
                 for: item.sharedCall.genotype
             )
-            let supportLabel =
-                item.fraction.map(percent) ?? "Unavailable"
-            stateRows.append(("Allele \(index + 1)", label))
+            stateRows.append(("Allele", label))
             stateRows += [
-                ("Locus", item.sharedCall.locus),
                 (
-                    "Unique Reads",
+                    "Read support",
                     integer(item.support.passedUniqueReads)
                 ),
-                (
-                    "Alignments",
-                    integer(item.support.passedAlignments)
-                ),
-                ("Support", supportLabel),
             ]
         }
         let comments = matrixCommentDetailRows(for: targets)
@@ -4262,43 +4258,6 @@ public final class GenotypeResultViewController: NSViewController {
         sampleWorkbenchWidthConstraint?.isActive = true
     }
 
-    private func sortedVisibleSampleAlleleDetails(
-        sample: String
-    ) -> [GenotypeVisibleSampleAlleleDetail] {
-        comparisonMatrix.visibleSampleAlleleDetails(sample: sample)
-            .sorted { lhs, rhs in
-                let locusOrder =
-                    lhs.sharedCall.locus.localizedStandardCompare(
-                        rhs.sharedCall.locus
-                    )
-                if locusOrder != .orderedSame {
-                    return locusOrder == .orderedAscending
-                }
-                if lhs.sharedCall.locus != rhs.sharedCall.locus {
-                    return lhs.sharedCall.locus
-                        < rhs.sharedCall.locus
-                }
-                if lhs.support.passedUniqueReads
-                    != rhs.support.passedUniqueReads {
-                    return lhs.support.passedUniqueReads
-                        > rhs.support.passedUniqueReads
-                }
-                let labelOrder =
-                    alleleDisplayLabel(
-                        for: lhs.sharedCall.genotype
-                    ).localizedStandardCompare(
-                        alleleDisplayLabel(
-                            for: rhs.sharedCall.genotype
-                        )
-                    )
-                if labelOrder != .orderedSame {
-                    return labelOrder == .orderedAscending
-                }
-                return lhs.sharedCall.genotype
-                    < rhs.sharedCall.genotype
-            }
-    }
-
     private func supportedAllelesSnapshot(
         from details: [GenotypeVisibleSampleAlleleDetail]
     ) -> GenotypeSupportedAllelesSnapshot {
@@ -4312,15 +4271,9 @@ public final class GenotypeResultViewController: NSViewController {
                     allele: alleleDisplayLabel(
                         for: item.sharedCall.genotype
                     ),
-                    locus: item.sharedCall.locus,
-                    uniqueReads: integer(
+                    readSupport: integer(
                         item.support.passedUniqueReads
-                    ),
-                    alignments: integer(
-                        item.support.passedAlignments
-                    ),
-                    support:
-                        item.fraction.map(percent) ?? "Unavailable"
+                    )
                 )
             }
         )
@@ -4347,14 +4300,8 @@ public final class GenotypeResultViewController: NSViewController {
                 let label = alleleDisplayLabel(
                     for: item.sharedCall.genotype
                 )
-                let supportLabel =
-                    item.fraction.map(percent) ?? "Unavailable"
-                return "\(label)\nLocus: \(item.sharedCall.locus)"
-                    + "  •  Unique Reads: "
+                return "\(label)  •  Read support: "
                     + integer(item.support.passedUniqueReads)
-                    + "  •  Alignments: "
-                    + integer(item.support.passedAlignments)
-                    + "  •  Support: \(supportLabel)"
             }
             detailStack.addArrangedSubview(
                 wrappingText(
@@ -4377,24 +4324,48 @@ public final class GenotypeResultViewController: NSViewController {
             ),
         ]
         if let summary {
+            let check = callSupportCheck(
+                for: sample,
+                summary: summary
+            )
             metrics += [
                 .init(
                     label: "Retained Unique Reads",
                     value: integer(summary.passedUniqueReads)
                 ),
                 .init(
-                    label: "Alignments",
+                    label: "Passed Alignments",
                     value: integer(summary.passedAlignments)
                 ),
                 .init(
-                    label: "QC",
-                    value: summary.qcStatus.displayName
+                    label: "Call-support check",
+                    value: check.title,
+                    accessibilityHelp: check.explanation
                 ),
             ]
+            return GenotypeSampleCurationHeaderView(
+                metrics: metrics,
+                explanation: check.explanation,
+                typographyScale: currentContentTypographyScale()
+            )
         }
         return GenotypeSampleCurationHeaderView(
             metrics: metrics,
             typographyScale: currentContentTypographyScale()
+        )
+    }
+
+    private func callSupportCheck(
+        for sample: String,
+        summary: ONTGenotypeSampleResult
+    ) -> GenotypeCallSupportCheck {
+        let callCount =
+            result?.calls.lazy.filter { $0.sample == sample }.count
+            ?? 0
+        return GenotypeCallSupportCheck.evaluate(
+            callCount: callCount,
+            retainedReads: summary.passedUniqueReads,
+            alignments: summary.passedAlignments
         )
     }
 

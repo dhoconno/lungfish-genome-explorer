@@ -17,7 +17,33 @@ final class GenotypeSupportedAllelesPanelTests: XCTestCase {
         XCTAssertEqual(snapshot.layoutMode(forWidth: 520), .columns)
         XCTAssertEqual(
             snapshot.rows[0].accessibilityLabel,
-            "Allele 0, locus MHC-A, 100 unique reads, 200 alignments, 50.0% support"
+            "Allele 0, read support 100."
+        )
+    }
+
+    func testEvidenceTableContainsOnlyAlleleAndReadSupport() throws {
+        let snapshot = GenotypeSupportedAllelesSnapshot(rows: [
+            .init(
+                id: "known:MHC-A:NHP01801",
+                allele: "Mafa-A1*018:01:01:01",
+                readSupport: "712"
+            ),
+        ])
+        let mounted = mount(
+            GenotypeSupportedAllelesPanel(snapshot: snapshot),
+            width: 620
+        )
+        defer { close(mounted) }
+
+        XCTAssertEqual(
+            GenotypeSupportedAllelesSnapshot.columnTitles,
+            ["Allele", "Read support"]
+        )
+        XCTAssertEqual(
+            accessibilityLabels(in: mounted.host).filter {
+                $0 == "Mafa-A1*018:01:01:01, read support 712."
+            }.count,
+            1
         )
     }
 
@@ -191,10 +217,7 @@ final class GenotypeSupportedAllelesPanelTests: XCTestCase {
             GenotypeSupportedAllelePresentation(
                 id: "allele-\(index)",
                 allele: "Allele \(index)",
-                locus: index.isMultiple(of: 2) ? "MHC-A" : "MHC-B",
-                uniqueReads: "\(100 + index)",
-                alignments: "\(200 + index)",
-                support: "50.0%"
+                readSupport: "\(100 + index)"
             )
         }
     }
