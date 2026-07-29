@@ -316,6 +316,11 @@ public final class GenotypeResultViewController: NSViewController {
     private var manualHaplotypeEditorModel:
         GenotypeManualHaplotypeEditorModel?
     private weak var manualHaplotypeEditorHostView: NSView?
+    private var sampleCurationWorkbench:
+        GenotypeSampleCurationWorkbenchView?
+    private var sampleWorkbenchWidthConstraint: NSLayoutConstraint?
+    private var sampleSupportedAllelesSnapshot:
+        GenotypeSupportedAllelesSnapshot?
 #if DEBUG
     private var testingLastManualHaplotypeFocusIdentifier: String?
 #endif
@@ -972,6 +977,7 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func configureImmediately(result: ONTGenotypeResultBundleData) {
         invalidateCurrentWorkbookResultReload()
+        teardownSampleCurationWorkbench()
         currentWorkbookAnnotationAutoUpdateTask?.cancel()
         currentWorkbookAnnotationAutoUpdateTask = nil
         candidateSettingsPersistenceTask?.cancel()
@@ -2495,6 +2501,14 @@ public final class GenotypeResultViewController: NSViewController {
             afterApply: { [weak self, weak root, weak scrollView] in
                 guard let self, let root, let scrollView else { return }
                 self.finishGeneratedContentTypographyUpdate(in: root)
+                if root === self.detailStack {
+                    self.sampleCurationWorkbench?
+                        .updateContentTypographyScale(
+                            self.currentContentTypographyScale()
+                        )
+                    self.sampleCurationWorkbench?
+                        .layoutSubtreeIfNeeded()
+                }
                 root.layoutSubtreeIfNeeded()
                 scrollView.contentView.setBoundsOrigin(preservedOrigin)
                 scrollView.reflectScrolledClipView(scrollView.contentView)
@@ -4034,10 +4048,26 @@ public final class GenotypeResultViewController: NSViewController {
         manualHaplotypeEditorModel = nil
         manualHaplotypeEditorHostView = nil
         removeArrangedSubviews(from: detailStack)
-        detailStack.addArrangedSubview(sectionTitle(samples.count == 1 ? "Selected Sample" : "Selected Samples"))
         var stateRows: [(String, String)] = [
             ("Selection Type", samples.count == 1 ? "Column" : "Columns"),
         ]
+        if samples.count == 1, let sample = samples.first {
+            showSingleSampleColumnSelection(
+                sample: sample,
+                targets: targets,
+                stateRows: &stateRows
+            )
+            publishSelectionState(GenotypeResultSelectionState(
+                title: sample,
+                subtitle: "Sample column",
+                detailRows: stateRows,
+                highlightTarget: nil,
+                matrixTargets: targets
+            ))
+            return
+        }
+
+        detailStack.addArrangedSubview(sectionTitle("Selected Samples"))
         let manualAssignmentIndex =
             GenotypeManualHaplotypeAssignmentIndex(
                 assignments:
@@ -4048,15 +4078,9 @@ public final class GenotypeResultViewController: NSViewController {
             GenotypeManualHaplotypeMultiSamplePresentation(
                 samples: samples
             )
-        let boundedSamples = samples.count == 1
-            ? samples
-            : multiSamplePresentation.visibleSamples
-        for (index, sample) in boundedSamples.enumerated() {
+        for (index, sample) in
+            multiSamplePresentation.visibleSamples.enumerated() {
             detailStack.addArrangedSubview(wrappingText(sample, weight: .medium))
-            if samples.count == 1,
-               let editor = makeManualHaplotypeEditorHost(for: sample) {
-                detailStack.addArrangedSubview(editor)
-            }
             let summary = sampleResultsByName[sample]
             var rows: [(String, String)] = [("Sample", sample)]
             if let summary {
@@ -4066,99 +4090,52 @@ public final class GenotypeResultViewController: NSViewController {
                     ("QC", summary.qcStatus.displayName),
                 ]
             }
-            if samples.count > 1 {
-                let assignments =
-                    manualAssignmentIndex
-                        .sampleAssignments(for: sample)
-                        .assignments
-                let totalSlots =
-                    GenotypeManualHaplotypeLocus.allCases.count
-                    * HaplotypeSlot.allCases.count
-                let completeness =
-                    "\(assignments.count) of \(totalSlots) assigned"
-                let labels = Array(
-                    Set(assignments.map(\.label))
-                ).sorted {
-                    let order =
-                        $0.localizedStandardCompare($1)
-                    return order == .orderedSame
-                        ? $0 < $1
-                        : order == .orderedAscending
-                }
-                let boundedLabels = labels.prefix(6)
-                var labelSummary = boundedLabels.isEmpty
-                    ? "None"
-                    : boundedLabels.joined(separator: ", ")
-                let remainingLabels =
-                    labels.count - boundedLabels.count
-                if remainingLabels > 0 {
-                    labelSummary +=
-                        " (+\(remainingLabels) more)"
-                }
-                rows += [
-                    ("Haplotype Completeness", completeness),
-                    ("Haplotype Labels", labelSummary),
-                ]
-                stateRows += [
-                    (
-                        "\(sample) Haplotype Completeness",
-                        completeness
-                    ),
-                    (
-                        "\(sample) Haplotype Labels",
-                        labelSummary
-                    ),
-                ]
+            let assignments =
+                manualAssignmentIndex
+                    .sampleAssignments(for: sample)
+                    .assignments
+            let totalSlots =
+                GenotypeManualHaplotypeLocus.allCases.count
+                * HaplotypeSlot.allCases.count
+            let completeness =
+                "\(assignments.count) of \(totalSlots) assigned"
+            let labels = Array(
+                Set(assignments.map(\.label))
+            ).sorted {
+                let order =
+                    $0.localizedStandardCompare($1)
+                return order == .orderedSame
+                    ? $0 < $1
+                    : order == .orderedAscending
             }
+            let boundedLabels = labels.prefix(6)
+            var labelSummary = boundedLabels.isEmpty
+                ? "None"
+                : boundedLabels.joined(separator: ", ")
+            let remainingLabels =
+                labels.count - boundedLabels.count
+            if remainingLabels > 0 {
+                labelSummary +=
+                    " (+\(remainingLabels) more)"
+            }
+            rows += [
+                ("Haplotype Completeness", completeness),
+                ("Haplotype Labels", labelSummary),
+            ]
+            stateRows += [
+                (
+                    "\(sample) Haplotype Completeness",
+                    completeness
+                ),
+                (
+                    "\(sample) Haplotype Labels",
+                    labelSummary
+                ),
+            ]
             detailStack.addArrangedSubview(detailRows(rows))
-            stateRows.append((samples.count == 1 ? "Selected Sample" : "Sample \(index + 1)", sample))
+            stateRows.append(("Sample \(index + 1)", sample))
             stateRows += rows.filter {
-                samples.count == 1
-                    || !$0.0.hasPrefix("Haplotype ")
-            }
-
-            guard samples.count == 1 else { continue }
-
-            let supported = comparisonMatrix.visibleSampleAlleleDetails(sample: sample)
-                .sorted { lhs, rhs in
-                    let locusOrder = lhs.sharedCall.locus.localizedStandardCompare(rhs.sharedCall.locus)
-                    if locusOrder != .orderedSame {
-                        return locusOrder == .orderedAscending
-                    }
-                    if lhs.sharedCall.locus != rhs.sharedCall.locus {
-                        return lhs.sharedCall.locus < rhs.sharedCall.locus
-                    }
-                    if lhs.support.passedUniqueReads != rhs.support.passedUniqueReads {
-                        return lhs.support.passedUniqueReads > rhs.support.passedUniqueReads
-                    }
-                    let labelOrder = alleleDisplayLabel(for: lhs.sharedCall.genotype).localizedStandardCompare(
-                        alleleDisplayLabel(for: rhs.sharedCall.genotype)
-                    )
-                    if labelOrder != .orderedSame { return labelOrder == .orderedAscending }
-                    return lhs.sharedCall.genotype < rhs.sharedCall.genotype
-                }
-            if !supported.isEmpty {
-                detailStack.addArrangedSubview(sectionTitle("Supported Alleles"))
-            }
-            var renderedEntries: [String] = []
-            renderedEntries.reserveCapacity(supported.count)
-            for (alleleIndex, item) in supported.enumerated() {
-                let label = alleleDisplayLabel(for: item.sharedCall.genotype)
-                let supportLabel = item.fraction.map(percent) ?? "Unavailable"
-                let alleleRows = [
-                    ("Locus", item.sharedCall.locus),
-                    ("Unique Reads", integer(item.support.passedUniqueReads)),
-                    ("Alignments", integer(item.support.passedAlignments)),
-                    ("Support", supportLabel),
-                ]
-                renderedEntries.append(
-                    "\(label)\nLocus: \(item.sharedCall.locus)  •  Unique Reads: \(integer(item.support.passedUniqueReads))  •  Alignments: \(integer(item.support.passedAlignments))  •  Support: \(supportLabel)"
-                )
-                stateRows.append(("Allele \(alleleIndex + 1)", label))
-                stateRows += alleleRows
-            }
-            if !renderedEntries.isEmpty {
-                detailStack.addArrangedSubview(wrappingText(renderedEntries.joined(separator: "\n\n")))
+                !$0.0.hasPrefix("Haplotype ")
             }
         }
         if let omissionSummary =
@@ -4177,12 +4154,339 @@ public final class GenotypeResultViewController: NSViewController {
         appendCommentsToDetail(comments)
         stateRows += comments
         publishSelectionState(GenotypeResultSelectionState(
-            title: samples.count == 1 ? (samples.first ?? "Selected Sample") : "Selected Samples: \(samples.count)",
-            subtitle: samples.count == 1 ? "Sample column" : "Sample columns",
+            title: "Selected Samples: \(samples.count)",
+            subtitle: "Sample columns",
             detailRows: stateRows,
             highlightTarget: nil,
             matrixTargets: targets
         ))
+    }
+
+    private func showSingleSampleColumnSelection(
+        sample: String,
+        targets: [GenotypeAnnotationSidecar.MatrixTarget],
+        stateRows: inout [(String, String)]
+    ) {
+        let summary = sampleResultsByName[sample]
+        var sampleRows: [(String, String)] = [("Sample", sample)]
+        if let summary {
+            sampleRows += [
+                (
+                    "Retained Unique Reads",
+                    integer(summary.passedUniqueReads)
+                ),
+                ("Alignments", integer(summary.passedAlignments)),
+                ("QC", summary.qcStatus.displayName),
+            ]
+        }
+        stateRows.append(("Selected Sample", sample))
+        stateRows += sampleRows
+
+        let supported = sortedVisibleSampleAlleleDetails(sample: sample)
+        let snapshot = supportedAllelesSnapshot(from: supported)
+        for (index, item) in supported.enumerated() {
+            let label = alleleDisplayLabel(
+                for: item.sharedCall.genotype
+            )
+            let supportLabel =
+                item.fraction.map(percent) ?? "Unavailable"
+            stateRows.append(("Allele \(index + 1)", label))
+            stateRows += [
+                ("Locus", item.sharedCall.locus),
+                (
+                    "Unique Reads",
+                    integer(item.support.passedUniqueReads)
+                ),
+                (
+                    "Alignments",
+                    integer(item.support.passedAlignments)
+                ),
+                ("Support", supportLabel),
+            ]
+        }
+        let comments = matrixCommentDetailRows(for: targets)
+        stateRows += comments
+
+        guard let editor = makeManualHaplotypeEditorHost(
+            for: sample
+        ) else {
+            showLegacySingleSampleColumnSelection(
+                sample: sample,
+                sampleRows: sampleRows,
+                supported: supported,
+                comments: comments
+            )
+            return
+        }
+
+        let header = makeSampleCurationHeader(
+            sample: sample,
+            summary: summary
+        )
+        let assignment = NSView()
+        assignment.translatesAutoresizingMaskIntoConstraints = false
+        editor.translatesAutoresizingMaskIntoConstraints = false
+        assignment.addSubview(editor)
+        NSLayoutConstraint.activate([
+            editor.topAnchor.constraint(equalTo: assignment.topAnchor),
+            editor.leadingAnchor.constraint(
+                equalTo: assignment.leadingAnchor
+            ),
+            editor.trailingAnchor.constraint(
+                equalTo: assignment.trailingAnchor
+            ),
+            editor.bottomAnchor.constraint(
+                equalTo: assignment.bottomAnchor
+            ),
+        ])
+
+        let evidence = makeSampleEvidenceColumn(
+            snapshot: snapshot,
+            comments: comments
+        )
+        let workbench = GenotypeSampleCurationWorkbenchView(
+            headerView: header,
+            assignmentView: assignment,
+            evidenceView: evidence,
+            typographyScale: currentContentTypographyScale()
+        )
+        sampleSupportedAllelesSnapshot = snapshot
+        sampleCurationWorkbench = workbench
+        detailStack.addArrangedSubview(workbench)
+        sampleWorkbenchWidthConstraint =
+            workbench.widthAnchor.constraint(
+                equalTo: detailStack.widthAnchor
+            )
+        sampleWorkbenchWidthConstraint?.isActive = true
+    }
+
+    private func sortedVisibleSampleAlleleDetails(
+        sample: String
+    ) -> [GenotypeVisibleSampleAlleleDetail] {
+        comparisonMatrix.visibleSampleAlleleDetails(sample: sample)
+            .sorted { lhs, rhs in
+                let locusOrder =
+                    lhs.sharedCall.locus.localizedStandardCompare(
+                        rhs.sharedCall.locus
+                    )
+                if locusOrder != .orderedSame {
+                    return locusOrder == .orderedAscending
+                }
+                if lhs.sharedCall.locus != rhs.sharedCall.locus {
+                    return lhs.sharedCall.locus
+                        < rhs.sharedCall.locus
+                }
+                if lhs.support.passedUniqueReads
+                    != rhs.support.passedUniqueReads {
+                    return lhs.support.passedUniqueReads
+                        > rhs.support.passedUniqueReads
+                }
+                let labelOrder =
+                    alleleDisplayLabel(
+                        for: lhs.sharedCall.genotype
+                    ).localizedStandardCompare(
+                        alleleDisplayLabel(
+                            for: rhs.sharedCall.genotype
+                        )
+                    )
+                if labelOrder != .orderedSame {
+                    return labelOrder == .orderedAscending
+                }
+                return lhs.sharedCall.genotype
+                    < rhs.sharedCall.genotype
+            }
+    }
+
+    private func supportedAllelesSnapshot(
+        from details: [GenotypeVisibleSampleAlleleDetail]
+    ) -> GenotypeSupportedAllelesSnapshot {
+        GenotypeSupportedAllelesSnapshot(
+            rows: details.map { item in
+                GenotypeSupportedAllelePresentation(
+                    id: item.stableClusterID.map {
+                        "candidate:\($0)"
+                    } ?? "known:\(item.sharedCall.locus):"
+                        + item.sharedCall.genotype,
+                    allele: alleleDisplayLabel(
+                        for: item.sharedCall.genotype
+                    ),
+                    locus: item.sharedCall.locus,
+                    uniqueReads: integer(
+                        item.support.passedUniqueReads
+                    ),
+                    alignments: integer(
+                        item.support.passedAlignments
+                    ),
+                    support:
+                        item.fraction.map(percent) ?? "Unavailable"
+                )
+            }
+        )
+    }
+
+    private func showLegacySingleSampleColumnSelection(
+        sample: String,
+        sampleRows: [(String, String)],
+        supported: [GenotypeVisibleSampleAlleleDetail],
+        comments: [(String, String)]
+    ) {
+        detailStack.addArrangedSubview(
+            sectionTitle("Selected Sample")
+        )
+        detailStack.addArrangedSubview(
+            wrappingText(sample, weight: .medium)
+        )
+        detailStack.addArrangedSubview(detailRows(sampleRows))
+        if !supported.isEmpty {
+            detailStack.addArrangedSubview(
+                sectionTitle("Supported Alleles")
+            )
+            let renderedEntries = supported.map { item in
+                let label = alleleDisplayLabel(
+                    for: item.sharedCall.genotype
+                )
+                let supportLabel =
+                    item.fraction.map(percent) ?? "Unavailable"
+                return "\(label)\nLocus: \(item.sharedCall.locus)"
+                    + "  •  Unique Reads: "
+                    + integer(item.support.passedUniqueReads)
+                    + "  •  Alignments: "
+                    + integer(item.support.passedAlignments)
+                    + "  •  Support: \(supportLabel)"
+            }
+            detailStack.addArrangedSubview(
+                wrappingText(
+                    renderedEntries.joined(separator: "\n\n")
+                )
+            )
+        }
+        appendCommentsToDetail(comments)
+    }
+
+    private func makeSampleCurationHeader(
+        sample: String,
+        summary: ONTGenotypeSampleResult?
+    ) -> NSView {
+        let header = NSStackView()
+        header.orientation = .horizontal
+        header.alignment = .firstBaseline
+        header.distribution = .fillProportionally
+        header.spacing = 20
+        header.setContentCompressionResistancePriority(
+            .defaultLow,
+            for: .horizontal
+        )
+        header.addArrangedSubview(
+            sampleHeaderMetric(
+                label: "Selected Sample",
+                value: sample,
+                emphasized: true
+            )
+        )
+        if let summary {
+            header.addArrangedSubview(
+                sampleHeaderMetric(
+                    label: "Retained Unique Reads",
+                    value: integer(summary.passedUniqueReads)
+                )
+            )
+            header.addArrangedSubview(
+                sampleHeaderMetric(
+                    label: "Alignments",
+                    value: integer(summary.passedAlignments)
+                )
+            )
+            header.addArrangedSubview(
+                sampleHeaderMetric(
+                    label: "QC",
+                    value: summary.qcStatus.displayName
+                )
+            )
+        }
+        return header
+    }
+
+    private func sampleHeaderMetric(
+        label: String,
+        value: String,
+        emphasized: Bool = false
+    ) -> NSView {
+        let metric = NSStackView()
+        metric.orientation = .vertical
+        metric.alignment = .leading
+        metric.spacing = 2
+        metric.setContentCompressionResistancePriority(
+            .defaultLow,
+            for: .horizontal
+        )
+
+        let labelField = caption(label)
+        labelField.maximumNumberOfLines = 1
+        labelField.lineBreakMode = .byTruncatingTail
+        labelField.setContentCompressionResistancePriority(
+            .defaultLow,
+            for: .horizontal
+        )
+        let valueField = wrappingText(
+            value,
+            weight: emphasized ? .semibold : .regular,
+            maximumLines: 1
+        )
+        valueField.lineBreakMode = .byTruncatingMiddle
+        valueField.setContentCompressionResistancePriority(
+            .defaultLow,
+            for: .horizontal
+        )
+        metric.addArrangedSubview(labelField)
+        metric.addArrangedSubview(valueField)
+        return metric
+    }
+
+    private func makeSampleEvidenceColumn(
+        snapshot: GenotypeSupportedAllelesSnapshot,
+        comments: [(String, String)]
+    ) -> NSView {
+        let evidence = NSStackView()
+        evidence.orientation = .vertical
+        evidence.alignment = .width
+        evidence.spacing = 12
+        evidence.setContentCompressionResistancePriority(
+            .defaultLow,
+            for: .horizontal
+        )
+
+        let panel = NSHostingView(
+            rootView: GenotypeSupportedAllelesPanel(
+                snapshot: snapshot,
+                typographyModel:
+                    manualHaplotypeEditorTypographyModel
+            )
+        )
+        panel.identifier = Self.generatedContentHostingViewIdentifier
+        panel.translatesAutoresizingMaskIntoConstraints = false
+        panel.sizingOptions = [.intrinsicContentSize]
+        panel.setContentHuggingPriority(
+            .defaultLow,
+            for: .horizontal
+        )
+        panel.setContentCompressionResistancePriority(
+            .defaultLow,
+            for: .horizontal
+        )
+        evidence.addArrangedSubview(panel)
+
+        if !comments.isEmpty {
+            evidence.addArrangedSubview(sectionTitle("Comments"))
+            evidence.addArrangedSubview(detailRows(comments))
+        }
+        return evidence
+    }
+
+    private func currentContentTypographyScale() -> CGFloat {
+        let canonical = max(NSFont.systemFontSize, 1)
+        return manualHaplotypeEditorTypographyModel.scaledPointSize(
+            fromCanonicalPointSize: canonical
+        ) / canonical
     }
 
     private func showCellSelection(_ targets: [GenotypeAnnotationSidecar.MatrixTarget]) {
@@ -8354,6 +8658,9 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func removeArrangedSubviews(from stack: NSStackView) {
+        if stack === detailStack {
+            teardownSampleCurationWorkbench()
+        }
         stack.arrangedSubviews.forEach { view in
             if stack === detailStack, view === candidateAlleleDetailView {
                 candidateAlleleDetailWidthConstraint?.isActive = false
@@ -8368,6 +8675,13 @@ public final class GenotypeResultViewController: NSViewController {
             stack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
+    }
+
+    private func teardownSampleCurationWorkbench() {
+        sampleWorkbenchWidthConstraint?.isActive = false
+        sampleWorkbenchWidthConstraint = nil
+        sampleCurationWorkbench = nil
+        sampleSupportedAllelesSnapshot = nil
     }
 
     private func previousHighlightColor(for request: GenotypeResultHighlightRequest) -> AnnotationColor? {
@@ -8627,6 +8941,72 @@ extension GenotypeResultViewController {
 
     var testingDetailArrangedSubviewCount: Int {
         detailStack.arrangedSubviews.count
+    }
+
+    var testingSampleWorkbenchLayoutMode:
+        GenotypeSampleCurationWorkbenchView.LayoutMode? {
+        sampleCurationWorkbench?.layoutMode
+    }
+
+    var testingSampleWorkbenchFrame: NSRect? {
+        guard let sampleCurationWorkbench else { return nil }
+        return sampleCurationWorkbench.convert(
+            sampleCurationWorkbench.bounds,
+            to: detailDocumentView
+        )
+    }
+
+    var testingDetailStackFrame: NSRect {
+        detailStack.convert(detailStack.bounds, to: detailDocumentView)
+    }
+
+    var testingDetailStackWidth: CGFloat {
+        detailStack.bounds.width
+    }
+
+    var testingSampleWorkbenchIdentity: ObjectIdentifier? {
+        sampleCurationWorkbench.map(ObjectIdentifier.init)
+    }
+
+    var testingManualHaplotypeEditorHostIdentity:
+        ObjectIdentifier? {
+        manualHaplotypeEditorHostView.map(ObjectIdentifier.init)
+    }
+
+    var testingManualHaplotypeEditorModelIdentity:
+        ObjectIdentifier? {
+        manualHaplotypeEditorModel.map(ObjectIdentifier.init)
+    }
+
+    var testingManualHaplotypeComboIdentities: [ObjectIdentifier] {
+        guard let host = manualHaplotypeEditorHostView else {
+            return []
+        }
+        return GenotypeManualHaplotypeLocus.allCases.flatMap {
+            locus in
+            HaplotypeSlot.allCases.compactMap { slot in
+                descendantComboBox(
+                    in: host,
+                    accessibilityIdentifier:
+                        "manual-haplotype-\(locus.rawValue)-"
+                        + slot.rawValue
+                )
+            }
+        }.map(ObjectIdentifier.init)
+    }
+
+    var testingFirstManualHaplotypeComboBox: NSComboBox? {
+        guard let host = manualHaplotypeEditorHostView else {
+            return nil
+        }
+        return descendantComboBox(
+            in: host,
+            accessibilityIdentifier: "manual-haplotype-MHC-A-h1"
+        )
+    }
+
+    var testingSupportedAllelesSnapshotRowCount: Int? {
+        sampleSupportedAllelesSnapshot?.rows.count
     }
 
     var testingGeneratedDetailLargestFontPointSize: CGFloat {

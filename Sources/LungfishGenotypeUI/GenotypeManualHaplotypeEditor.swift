@@ -837,8 +837,29 @@ struct GenotypeManualHaplotypeEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Haplotype Assignments")
-                .font(headingFont)
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Haplotype Assignments")
+                        .font(headingFont)
+                    Text(
+                        "\(model.draft.assignedSlotCount) of 14 assigned"
+                    )
+                    .font(captionFont)
+                    .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if model.draft.isDirty {
+                    Text("Unsaved")
+                        .font(captionFont)
+                        .foregroundStyle(.secondary)
+                }
+                Button("Save Assignments") {
+                    model.save()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(!model.canSave)
+                .accessibilityIdentifier("manual-haplotype-save")
+            }
             Text("Edit the two manual assignments for each workbook locus.")
                 .font(captionFont)
                 .foregroundStyle(.secondary)
@@ -931,13 +952,6 @@ struct GenotypeManualHaplotypeEditor: View {
                 }
                 .disabled(!model.canExport)
                 .accessibilityIdentifier("manual-haplotype-export")
-                Spacer()
-                Button("Save Assignments") {
-                    model.save()
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(!model.canSave)
-                .accessibilityIdentifier("manual-haplotype-save")
             }
         }
         .padding(10)

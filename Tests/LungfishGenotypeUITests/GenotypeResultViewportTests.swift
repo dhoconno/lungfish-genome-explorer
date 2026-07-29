@@ -9786,6 +9786,302 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(rows.contains { $0.0 == "Support" && $0.1 == "100.0%" })
     }
 
+    func testSelectedSampleWorkbenchFillsDetailPaneAcrossLayoutsAndViewportWidths()
+        throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "SelectedSampleWorkbenchGeometry-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent(
+            "example.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let call = makeCall(
+            sample: "AnimalA",
+            genotype: "01_Mafa_A1_001_01",
+            reads: 42
+        )
+        let result = makeResult(
+            bundleURL: bundleURL,
+            samples: [
+                ONTGenotypeSampleResult(
+                    sample: "AnimalA",
+                    passedAlignments: 45,
+                    passedUniqueReads: 42,
+                    sampleTotalReads: nil,
+                    sampleUniqueRetainedPercent: nil,
+                    calls: [call]
+                ),
+            ],
+            calls: [call]
+        )
+
+        for layout in [
+            GenotypeResultPanelLayout.listTop,
+            .listLeading,
+            .listTrailing,
+        ] {
+            for width in [280, 420, 779, 841, 1_200, 2_300] {
+                let controller = GenotypeResultViewController()
+                controller.view.frame = NSRect(
+                    x: 0,
+                    y: 0,
+                    width: CGFloat(width),
+                    height: 900
+                )
+                controller.configure(result: result)
+                controller.testingApplyDisplayStateImmediately(
+                    GenotypeResultDisplayState(
+                        summaryViewMode: .matrix,
+                        layout: layout
+                    )
+                )
+                controller.testingSelectMatrixColumn(sample: "AnimalA")
+                controller.view.layoutSubtreeIfNeeded()
+
+                let workbenchFrame = try XCTUnwrap(
+                    controller.testingSampleWorkbenchFrame,
+                    "\(layout) at \(width)"
+                )
+                XCTAssertNotNil(
+                    controller.testingSampleWorkbenchLayoutMode,
+                    "\(layout) at \(width)"
+                )
+                XCTAssertEqual(
+                    workbenchFrame.width,
+                    controller.testingDetailStackWidth,
+                    accuracy: 1,
+                    "\(layout) at \(width)"
+                )
+                XCTAssertGreaterThanOrEqual(
+                    workbenchFrame.minX,
+                    controller.testingDetailStackFrame.minX - 1,
+                    "\(layout) at \(width)"
+                )
+                XCTAssertLessThanOrEqual(
+                    workbenchFrame.maxX,
+                    controller.testingDetailStackFrame.maxX + 1,
+                    "\(layout) at \(width)"
+                )
+            }
+        }
+    }
+
+    func testSelectedSampleWorkbenchResizePreservesDraftAndEditorIdentities()
+        throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "SelectedSampleWorkbenchIdentity-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent(
+            "example.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let call = makeCall(
+            sample: "AnimalA",
+            genotype: "01_Mafa_A1_001_01",
+            reads: 42
+        )
+        let controller = GenotypeResultViewController()
+        let window = NSWindow(
+            contentRect: NSRect(
+                x: 0,
+                y: 0,
+                width: 841,
+                height: 900
+            ),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        window.contentView = controller.view
+        controller.view.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: 841,
+            height: 900
+        )
+        window.makeKeyAndOrderFront(nil)
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [call]
+        ))
+        controller.testingApplyDisplayStateImmediately(
+            GenotypeResultDisplayState(
+                summaryViewMode: .matrix,
+                layout: .listTop
+            )
+        )
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        controller.view.layoutSubtreeIfNeeded()
+        controller.testingUpdateManualHaplotypeLabel("Draft A")
+        let focusedCombo = try XCTUnwrap(
+            controller.testingFirstManualHaplotypeComboBox
+        )
+        XCTAssertTrue(window.makeFirstResponder(focusedCombo))
+
+        let workbenchIdentity = try XCTUnwrap(
+            controller.testingSampleWorkbenchIdentity
+        )
+        let hostIdentity = try XCTUnwrap(
+            controller.testingManualHaplotypeEditorHostIdentity
+        )
+        let modelIdentity = try XCTUnwrap(
+            controller.testingManualHaplotypeEditorModelIdentity
+        )
+        let comboIdentities =
+            controller.testingManualHaplotypeComboIdentities
+
+        for width in [779, 841] {
+            controller.view.frame.size.width = CGFloat(width)
+            controller.view.layoutSubtreeIfNeeded()
+
+            XCTAssertEqual(
+                controller.testingSampleWorkbenchIdentity,
+                workbenchIdentity
+            )
+            XCTAssertEqual(
+                controller.testingManualHaplotypeEditorHostIdentity,
+                hostIdentity
+            )
+            XCTAssertEqual(
+                controller.testingManualHaplotypeEditorModelIdentity,
+                modelIdentity
+            )
+            XCTAssertEqual(
+                controller.testingManualHaplotypeComboIdentities,
+                comboIdentities
+            )
+            XCTAssertTrue(controller.testingManualHaplotypeEditorIsDirty)
+            XCTAssertTrue(
+                window.firstResponder === focusedCombo
+                    || focusedCombo.currentEditor()
+                        === window.firstResponder
+            )
+        }
+    }
+
+    func testSelectedSampleWorkbenchRespondsToLiveContentTypographyChanges()
+        throws
+    {
+        let settings = AppSettings.shared
+        let original = settings.contentTextSizePreference
+        defer {
+            settings.contentTextSizePreference = original
+            settings.save()
+        }
+        settings.contentTextSizePreference = .custom(100)
+        settings.save()
+
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "SelectedSampleWorkbenchTypography-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent(
+            "example.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let call = makeCall(
+            sample: "AnimalA",
+            genotype: "01_Mafa_A1_001_01",
+            reads: 42
+        )
+        let controller = GenotypeResultViewController()
+        controller.view.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: 900,
+            height: 900
+        )
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [call]
+        ))
+        controller.testingApplyDisplayStateImmediately(
+            GenotypeResultDisplayState(
+                summaryViewMode: .matrix,
+                layout: .listTop
+            )
+        )
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        controller.view.layoutSubtreeIfNeeded()
+        XCTAssertEqual(
+            controller.testingSampleWorkbenchLayoutMode,
+            .sideBySide
+        )
+
+        settings.contentTextSizePreference = .custom(200)
+        settings.save()
+        controller.view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(
+            controller.testingSampleWorkbenchLayoutMode,
+            .stacked
+        )
+    }
+
+    func testSelectedSampleWorkbenchIsTornDownForOtherSelectionSurfaces() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "SelectedSampleWorkbenchTeardown-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent(
+            "example.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let call = makeCall(
+            sample: "AnimalA",
+            genotype: "01_Mafa_A1_001_01",
+            reads: 42
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [call]
+        ))
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        XCTAssertNotNil(controller.testingSampleWorkbenchIdentity)
+
+        controller.testingSelectMatrixRows(
+            genotypes: [call.genotype],
+            sample: nil
+        )
+
+        XCTAssertNil(controller.testingSampleWorkbenchIdentity)
+        XCTAssertNil(controller.testingSampleWorkbenchLayoutMode)
+    }
+
     func testSelectedColumnDetailsRefreshWhenRowFilterChanges() {
         let first = makeCall(sample: "AnimalA", genotype: "NHP01222", reads: 73)
         let second = makeCall(sample: "AnimalA", genotype: "NHP99999", reads: 41)
