@@ -116,6 +116,7 @@ final class GenotypeManualHaplotypeAccessibilityTests: XCTestCase {
         )
         view.font = .systemFont(ofSize: 26)
         view.rowHeight = 68
+        view.disclosureHeight = 68
         view.layoutSubtreeIfNeeded()
         let button = try XCTUnwrap(
             view.subviews.compactMap { $0 as? NSButton }.first

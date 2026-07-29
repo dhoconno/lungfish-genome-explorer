@@ -1185,6 +1185,17 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     override func layout() {
         super.layout()
         setPinnedPaneWidth(pinnedWidthConstraint?.constant ?? 360, persist: false)
+        let disclosureWidthChanged =
+            manualHaplotypeEditingEligible
+                && manualHaplotypePinnedBand.availableDisclosureWidth
+                    != manualHaplotypeDisclosureAvailableWidth
+        let disclosureAnchor = disclosureWidthChanged
+            ? captureSemanticScrollAnchor()
+            : nil
+        if synchronizeManualHaplotypeDisclosureGeometry() {
+            updateNativeHeaderLayout()
+            restoreSemanticScrollAnchor(disclosureAnchor)
+        }
         synchronizePinnedScrollBottomInset()
         updateManualHaplotypeBandColumnGeometry()
     }
@@ -4723,8 +4734,41 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         return base
     }
 
+    private var manualHaplotypeDisclosureAvailableWidth: CGFloat {
+        max(1, pinnedWidthConstraint?.constant ?? 360)
+    }
+
+    private var manualHaplotypeDisclosureHeight: CGFloat {
+        GenotypeManualHaplotypePinnedBandView.requiredDisclosureHeight(
+            font: manualHaplotypeBandFont,
+            availableWidth: manualHaplotypeDisclosureAvailableWidth,
+            minimumHeight: manualHaplotypeBandRowHeight
+        )
+    }
+
     private var manualHaplotypeBandHeight: CGFloat {
         manualHaplotypeHeaderLayout(ordinaryHeight: 0).manualHeight
+    }
+
+    @discardableResult
+    private func synchronizeManualHaplotypeDisclosureGeometry(
+        force: Bool = false
+    ) -> Bool {
+        guard manualHaplotypeEditingEligible else { return false }
+        let width = manualHaplotypeDisclosureAvailableWidth
+        let height = manualHaplotypeDisclosureHeight
+        guard force
+                || manualHaplotypePinnedBand.availableDisclosureWidth
+                    != width
+                || manualHaplotypePinnedBand.disclosureHeight != height
+                || manualHaplotypeSampleBand.disclosureHeight != height
+        else {
+            return false
+        }
+        manualHaplotypePinnedBand.availableDisclosureWidth = width
+        manualHaplotypePinnedBand.disclosureHeight = height
+        manualHaplotypeSampleBand.disclosureHeight = height
+        return true
     }
 
     private func applyManualHaplotypeBandPresentation() {
@@ -4749,6 +4793,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             displayState.manualHaplotypeBandExpanded
         manualHaplotypePinnedBand.font = manualHaplotypeBandFont
         manualHaplotypeSampleBand.font = manualHaplotypeBandFont
+        synchronizeManualHaplotypeDisclosureGeometry(force: true)
         manualHaplotypePinnedBand.rowHeight =
             manualHaplotypeBandRowHeight
         manualHaplotypeSampleBand.rowHeight =
@@ -4782,6 +4827,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             isEligible: manualHaplotypeEditingEligible,
             isExpanded: displayState.manualHaplotypeBandExpanded,
             ordinaryHeight: ordinaryHeight,
+            disclosureHeight: manualHaplotypeDisclosureHeight,
             rowHeight: manualHaplotypeBandRowHeight
         )
     }
@@ -5886,6 +5932,7 @@ private final class GenotypeMatrixHeaderView: NSTableHeaderView {
         isEligible: false,
         isExpanded: false,
         ordinaryHeight: 34,
+        disclosureHeight: 22,
         rowHeight: 22
     ) {
         didSet {
@@ -6599,8 +6646,9 @@ extension GenotypeComparisonMatrixView {
         return manualHaplotypeSampleBand.testingRegisteredToolTip(
             at: NSPoint(
                 x: frame.midX,
-                y: manualHaplotypeBandRowHeight
-                    * (CGFloat(locusIndex) + 1.5)
+                y: manualHaplotypeDisclosureHeight
+                    + manualHaplotypeBandRowHeight
+                        * (CGFloat(locusIndex) + 0.5)
             )
         )
     }
@@ -6823,8 +6871,9 @@ extension GenotypeComparisonMatrixView {
         return manualHaplotypeSampleBand.testingRegisteredToolTip(
             at: NSPoint(
                 x: liveColumnRect.midX,
-                y: manualHaplotypeBandRowHeight
-                    * (CGFloat(locusIndex) + 1.5)
+                y: manualHaplotypeDisclosureHeight
+                    + manualHaplotypeBandRowHeight
+                        * (CGFloat(locusIndex) + 0.5)
             )
         )
     }

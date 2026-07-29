@@ -147,11 +147,13 @@ struct GenotypeManualHaplotypeHeaderLayout: Equatable {
     let isEligible: Bool
     let isExpanded: Bool
     let ordinaryHeight: CGFloat
+    let disclosureHeight: CGFloat
     let rowHeight: CGFloat
 
     var manualHeight: CGFloat {
         guard isEligible else { return 0 }
-        return rowHeight * CGFloat(isExpanded ? 8 : 1)
+        return disclosureHeight
+            + rowHeight * CGFloat(isExpanded ? 7 : 0)
     }
 
     var totalHeight: CGFloat {
@@ -216,6 +218,38 @@ private final class GenotypeManualHaplotypeDisclosureButton: NSButton {
 
 @MainActor
 final class GenotypeManualHaplotypePinnedBandView: NSView {
+    static let disclosureTitle = "Manual haplotypes (7 loci)"
+    static let disclosureHorizontalTextAllowance: CGFloat = 40
+    static let disclosureVerticalPadding: CGFloat = 4
+
+    static func requiredDisclosureHeight(
+        font: NSFont,
+        availableWidth: CGFloat,
+        minimumHeight: CGFloat
+    ) -> CGFloat {
+        let attributedTitle = NSAttributedString(
+            string: disclosureTitle,
+            attributes: [.font: font]
+        )
+        let bounds = attributedTitle.boundingRect(
+            with: NSSize(
+                width: max(
+                    1,
+                    availableWidth
+                        - disclosureHorizontalTextAllowance
+                ),
+                height: .greatestFiniteMagnitude
+            ),
+            options: [.usesLineFragmentOrigin, .usesFontLeading]
+        )
+        return ceil(
+            max(
+                minimumHeight,
+                bounds.height + disclosureVerticalPadding
+            )
+        )
+    }
+
     var font = NSFont.systemFont(ofSize: 11) {
         didSet {
             disclosureButton.font = font
@@ -229,6 +263,17 @@ final class GenotypeManualHaplotypePinnedBandView: NSView {
             needsDisplay = true
         }
     }
+    var disclosureHeight: CGFloat = 22 {
+        didSet {
+            needsLayout = true
+            needsDisplay = true
+        }
+    }
+    var availableDisclosureWidth: CGFloat = 360 {
+        didSet {
+            needsLayout = true
+        }
+    }
     var isExpanded = true {
         didSet {
             disclosureButton.state = isExpanded ? .on : .off
@@ -238,7 +283,7 @@ final class GenotypeManualHaplotypePinnedBandView: NSView {
     var onDisclosureChanged: ((Bool) -> Void)?
 
     private let disclosureButton = GenotypeManualHaplotypeDisclosureButton(
-        title: "Manual haplotypes (7 loci)",
+        title: disclosureTitle,
         target: nil,
         action: nil
     )
@@ -280,8 +325,11 @@ final class GenotypeManualHaplotypePinnedBandView: NSView {
         disclosureButton.frame = NSRect(
             x: 6,
             y: 0,
-            width: max(0, bounds.width - 12),
-            height: min(rowHeight, bounds.height)
+            width: max(
+                0,
+                min(bounds.width, availableDisclosureWidth) - 12
+            ),
+            height: min(disclosureHeight, bounds.height)
         )
     }
 
@@ -303,7 +351,7 @@ final class GenotypeManualHaplotypePinnedBandView: NSView {
         for (index, locus) in GenotypeManualHaplotypeAssignmentBandSnapshot.loci.enumerated() {
             let rowRect = NSRect(
                 x: 6,
-                y: rowHeight * CGFloat(index + 1),
+                y: disclosureHeight + rowHeight * CGFloat(index),
                 width: max(0, bounds.width - 12),
                 height: rowHeight
             )
@@ -330,6 +378,7 @@ final class GenotypeManualHaplotypeSampleBandView:
     }
     var font = NSFont.systemFont(ofSize: 11)
     var rowHeight: CGFloat = 22
+    var disclosureHeight: CGFloat = 22
     var isExpanded = true {
         didSet {
             refreshToolTipRegistration()
@@ -383,7 +432,12 @@ final class GenotypeManualHaplotypeSampleBandView:
               })?.key else {
             return ""
         }
-        let row = Int(floor(point.y / max(rowHeight, 1))) - 1
+        let row = Int(
+            floor(
+                (point.y - disclosureHeight)
+                    / max(rowHeight, 1)
+            )
+        )
         guard row >= 0,
               row < GenotypeManualHaplotypeAssignmentBandSnapshot.loci.count
         else {
@@ -436,7 +490,7 @@ final class GenotypeManualHaplotypeSampleBandView:
             ?? Array(repeating: "—", count: 7)
         let rowRect = NSRect(
             x: columnFrame.minX + 3,
-            y: rowHeight * CGFloat(locusIndex + 1),
+            y: disclosureHeight + rowHeight * CGFloat(locusIndex),
             width: max(0, columnFrame.width - 6),
             height: rowHeight
         )

@@ -6340,6 +6340,69 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
     }
 
+    func testManualHaplotypeDisclosureMeasuresWrappedLabelAtTwoHundredPercent()
+        throws
+    {
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.frame = NSRect(x: 0, y: 0, width: 427, height: 520)
+        matrix.testingSetPinnedPaneWidth(180)
+        matrix.configure(
+            result: makeResult(
+                samples: [],
+                calls: [
+                    makeCall(
+                        sample: "AnimalA",
+                        genotype: "01_Mafa_A1_001_01",
+                        reads: 42
+                    ),
+                ]
+            )
+        )
+        matrix.testingSetManualHaplotypeBandTypographyScale(2)
+        matrix.layoutSubtreeIfNeeded()
+
+        let collapsed = try XCTUnwrap(
+            matrix.testingFixedHeaderSnapshot(sample: "AnimalA")
+        )
+        let font = NSFont.systemFont(
+            ofSize: matrix.testingManualHaplotypeBandFontPointSize
+        )
+        let attributedTitle = NSAttributedString(
+            string: "Manual haplotypes (7 loci)",
+            attributes: [.font: font]
+        )
+        let wrappedBounds = attributedTitle.boundingRect(
+            with: NSSize(
+                width: matrix.testingPinnedPaneWidth - 40,
+                height: .greatestFiniteMagnitude
+            ),
+            options: [.usesLineFragmentOrigin, .usesFontLeading]
+        )
+        XCTAssertGreaterThan(
+            wrappedBounds.height,
+            matrix.testingManualHaplotypeBandRowHeight,
+            "The narrow 200% title must exercise the wrapped production path."
+        )
+        XCTAssertGreaterThanOrEqual(
+            collapsed.manualSectionRect.height,
+            ceil(wrappedBounds.height) + 4,
+            "The collapsed disclosure row must contain its wrapped title."
+        )
+
+        matrix.testingSetManualHaplotypeBandDisclosureExpanded(true)
+        matrix.layoutSubtreeIfNeeded()
+        let expanded = try XCTUnwrap(
+            matrix.testingFixedHeaderSnapshot(sample: "AnimalA")
+        )
+        XCTAssertEqual(
+            expanded.manualSectionRect.height
+                - collapsed.manualSectionRect.height,
+            matrix.testingManualHaplotypeBandRowHeight * 7,
+            accuracy: 0.5,
+            "Only the seven assignment row heights are added on expansion."
+        )
+    }
+
     func testManualHaplotypeBandRealignsAfterContentTextSizeChanges()
         throws
     {
