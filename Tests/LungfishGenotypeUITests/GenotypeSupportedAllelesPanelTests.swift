@@ -216,6 +216,7 @@ final class GenotypeSupportedAllelesPanelTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
         let mounted = (window, host)
