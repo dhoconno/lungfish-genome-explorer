@@ -185,6 +185,7 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
             -> GenotypeManualHaplotypeDraft
     private let onReload: () throws -> Snapshot
     private let onExport: () -> Void
+    private let onDidSave: () -> Void
     private let announcementPoster: any AccessibilityAnnouncementPosting
     private var preparedDraft: GenotypeManualHaplotypeDraft?
     private(set) var draftRevisionToken = UUID()
@@ -200,6 +201,7 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
         ) throws -> GenotypeManualHaplotypeDraft,
         onReload: @escaping () throws -> Snapshot,
         onExport: @escaping () -> Void,
+        onDidSave: @escaping () -> Void = {},
         announcementPoster: any AccessibilityAnnouncementPosting =
             AccessibilityAnnouncementPoster()
     ) {
@@ -212,6 +214,7 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
         self.onSave = onSave
         self.onReload = onReload
         self.onExport = onExport
+        self.onDidSave = onDidSave
         self.announcementPoster = announcementPoster
     }
 
@@ -365,6 +368,7 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
             self.preparedDraft = nil
             replaceDraft(savedDraft)
             persistenceErrorMessage = nil
+            onDidSave()
             announcementPoster.post(
                 "Saved haplotype assignments for \(draft.sample).",
                 priority: .high

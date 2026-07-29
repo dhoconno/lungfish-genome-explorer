@@ -6,6 +6,39 @@ import LungfishKit
 
 @MainActor
 final class GenotypeManualHaplotypeEditorTests: XCTestCase {
+    func testSuccessfulSaveNotifiesComparisonStatusCompletion() {
+        var didSaveCount = 0
+        let model = GenotypeManualHaplotypeEditorModel(
+            snapshot: GenotypeManualHaplotypeEditorModel.Snapshot(
+                draft: makeDraft(
+                    sample: "Animal-1",
+                    assignments: []
+                ),
+                copyCandidates: [],
+                isReadOnly: false
+            ),
+            onSave: { self.cleanDraft(from: $0) },
+            onReload: {
+                GenotypeManualHaplotypeEditorModel.Snapshot(
+                    draft: self.makeDraft(
+                        sample: "Animal-1",
+                        assignments: []
+                    ),
+                    copyCandidates: [],
+                    isReadOnly: false
+                )
+            },
+            onExport: {},
+            onDidSave: { didSaveCount += 1 }
+        )
+
+        model.updateLabel("M1", locus: .a, slot: .h1)
+        model.save()
+        model.save()
+
+        XCTAssertEqual(didSaveCount, 1)
+    }
+
     func testRowsUseWorkbookOrderAndExposeLocusSlotAccessibility() {
         let model = makeModel(sample: "Animal-1")
 

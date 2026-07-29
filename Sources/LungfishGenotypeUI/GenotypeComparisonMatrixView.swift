@@ -3573,6 +3573,43 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
     }
 
+    func visibleSampleEvidenceRows(
+        sample: String
+    ) -> [GenotypeSampleEvidenceRow] {
+        visibleRows.compactMap { row in
+            let support = support(for: sample, row: row)
+            let semantics = semanticCellState(
+                for: sample,
+                row: row
+            )
+            guard support != nil
+                    || semantics.review == .falseNegative else {
+                return nil
+            }
+            var indicators:
+                GenotypeSampleEvidenceRow.Indicators = []
+            switch semantics.review {
+            case .falsePositive:
+                indicators.insert(.falsePositive)
+            case .falseNegative:
+                indicators.insert(.falseNegative)
+            case nil:
+                break
+            }
+            if semantics.commentCounts.total > 0 {
+                indicators.insert(.comment)
+            }
+            return GenotypeSampleEvidenceRow(
+                id: row.id,
+                allele: row.genotype,
+                readSupport: support?.passedUniqueReads,
+                indicators: indicators,
+                accessibilityLabel:
+                    semantics.accessibilityLabel
+            )
+        }
+    }
+
     func sampleAlleleDetail(
         row: GenotypeCandidateMatrixRow,
         sample: String

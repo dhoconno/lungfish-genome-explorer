@@ -315,6 +315,8 @@ public final class GenotypeResultViewController: NSViewController {
     private var annotationStore: GenotypeAnnotationStore?
     private var manualHaplotypeEditorModel:
         GenotypeManualHaplotypeEditorModel?
+    private var sampleComparisonModel:
+        GenotypeSampleComparisonModel?
     private weak var manualHaplotypeEditorHostView: NSView?
     private var sampleCurationWorkbench:
         GenotypeSampleCurationWorkbenchView?
@@ -3801,6 +3803,7 @@ public final class GenotypeResultViewController: NSViewController {
         currentCandidateRow = nil
         currentSelectedSample = nil
         manualHaplotypeEditorModel = nil
+        sampleComparisonModel = nil
         manualHaplotypeEditorHostView = nil
         alleleSequenceDetailWidthConstraint?.isActive = false
         alleleSequenceDetailWidthConstraint = nil
@@ -4049,6 +4052,7 @@ public final class GenotypeResultViewController: NSViewController {
             return order == .orderedSame ? $0 < $1 : order == .orderedAscending
         }
         manualHaplotypeEditorModel = nil
+        sampleComparisonModel = nil
         manualHaplotypeEditorHostView = nil
         removeArrangedSubviews(from: detailStack)
         var stateRows: [(String, String)] = [
@@ -5881,9 +5885,31 @@ public final class GenotypeResultViewController: NSViewController {
             },
             onExport: { [weak self] in
                 self?.exportManualDefinitions()
+            },
+            onDidSave: { [weak self] in
+                self?.sampleComparisonModel?.saveCompleted()
             }
         )
         manualHaplotypeEditorModel = model
+        sampleComparisonModel = GenotypeSampleComparisonModel(
+            targetSample: sample,
+            targetRows:
+                comparisonMatrix.visibleSampleEvidenceRows(
+                    sample: sample
+                ),
+            candidates: model.copyCandidates,
+            rowsForSource: { [weak self] source in
+                self?.comparisonMatrix.visibleSampleEvidenceRows(
+                    sample: source
+                ) ?? []
+            },
+            isDraftDirty: { [weak model] in
+                model?.draft.isDirty == true
+            },
+            stageAssignments: { [weak model] source in
+                model?.copyAssignments(from: source)
+            }
+        )
 
         let container = makeGenotypeManualHaplotypeEditorHostingView(
             model: model,
@@ -8699,6 +8725,7 @@ public final class GenotypeResultViewController: NSViewController {
         sampleCurationWorkbench = nil
         sampleSupportedAllelesSnapshot = nil
         manualHaplotypeEditorModel = nil
+        sampleComparisonModel = nil
         manualHaplotypeEditorHostView = nil
     }
 
