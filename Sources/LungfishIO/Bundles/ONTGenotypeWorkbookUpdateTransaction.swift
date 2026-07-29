@@ -774,10 +774,25 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         attestationRootURL: URL? = nil,
         cleanupFailureInjector: (@Sendable (String) throws -> Void)? = nil
     ) throws {
+        try recoverIfNeededAssumingLock(
+            for: bundleURL,
+            attestationRootURL: attestationRootURL,
+            cleanupFailureInjector: cleanupFailureInjector,
+            cleanupOperations: .darwin
+        )
+    }
+
+    static func recoverIfNeededAssumingLock(
+        for bundleURL: URL,
+        attestationRootURL: URL? = nil,
+        cleanupFailureInjector: (@Sendable (String) throws -> Void)? = nil,
+        cleanupOperations: ONTGenotypeWorkbookCleanupOperations
+    ) throws {
         if try recoverCleanupStateIfPresent(
             for: bundleURL,
             attestationRootURL: attestationRootURL,
-            failureInjector: cleanupFailureInjector
+            failureInjector: cleanupFailureInjector,
+            cleanupOperations: cleanupOperations
         ) {
             return
         }
@@ -796,7 +811,8 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             try recoverIfNeededAssumingLock(
                 for: bundleURL,
                 attestationRootURL: attestationRootURL,
-                cleanupFailureInjector: cleanupFailureInjector
+                cleanupFailureInjector: cleanupFailureInjector,
+                cleanupOperations: cleanupOperations
             )
             return
         }
@@ -834,7 +850,8 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 decision: .manualSaveWinner,
                 for: bundleURL,
                 attestationRootURL: attestationRootURL,
-                failureInjector: cleanupFailureInjector
+                failureInjector: cleanupFailureInjector,
+                cleanupOperations: cleanupOperations
             )
             return
         }
@@ -859,7 +876,8 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 decision: .preparedDiscard,
                 for: bundleURL,
                 attestationRootURL: attestationRootURL,
-                failureInjector: cleanupFailureInjector
+                failureInjector: cleanupFailureInjector,
+                cleanupOperations: cleanupOperations
             )
             return
         }
@@ -899,7 +917,8 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 decision: .rollback,
                 for: bundleURL,
                 attestationRootURL: attestationRootURL,
-                failureInjector: cleanupFailureInjector
+                failureInjector: cleanupFailureInjector,
+                cleanupOperations: cleanupOperations
             )
             return
         }
@@ -943,7 +962,8 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 decision: .manualSaveWinner,
                 for: bundleURL,
                 attestationRootURL: attestationRootURL,
-                failureInjector: cleanupFailureInjector
+                failureInjector: cleanupFailureInjector,
+                cleanupOperations: cleanupOperations
             )
             return
         }
@@ -969,7 +989,8 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 decision: .committed,
                 for: bundleURL,
                 attestationRootURL: attestationRootURL,
-                failureInjector: cleanupFailureInjector
+                failureInjector: cleanupFailureInjector,
+                cleanupOperations: cleanupOperations
             )
             return
         }
@@ -993,7 +1014,8 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 decision: .committed,
                 for: bundleURL,
                 attestationRootURL: attestationRootURL,
-                failureInjector: cleanupFailureInjector
+                failureInjector: cleanupFailureInjector,
+                cleanupOperations: cleanupOperations
             )
             return
         }
@@ -1019,7 +1041,8 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 decision: .rollback,
                 for: bundleURL,
                 attestationRootURL: attestationRootURL,
-                failureInjector: cleanupFailureInjector
+                failureInjector: cleanupFailureInjector,
+                cleanupOperations: cleanupOperations
             )
             return
         }
@@ -2156,7 +2179,8 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         decision: ONTGenotypeWorkbookCleanupDecision,
         for bundleURL: URL,
         attestationRootURL: URL?,
-        failureInjector: (@Sendable (String) throws -> Void)?
+        failureInjector: (@Sendable (String) throws -> Void)?,
+        cleanupOperations: ONTGenotypeWorkbookCleanupOperations = .darwin
     ) throws {
         let states = try ONTGenotypeWorkbookCleanupStateStore.states(for: bundleURL)
             .filter { $0.1.transactionID == transaction.transactionID }
@@ -2190,6 +2214,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             state: state,
             stateURL: stateURL,
             failureInjector: failureInjector,
+            cleanupOperations: cleanupOperations,
             completion: {
                 try writeCleanupTerminalReceipt(state)
             }
@@ -3074,7 +3099,8 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
     private static func recoverCleanupStateIfPresent(
         for bundleURL: URL,
         attestationRootURL: URL?,
-        failureInjector: (@Sendable (String) throws -> Void)?
+        failureInjector: (@Sendable (String) throws -> Void)?,
+        cleanupOperations: ONTGenotypeWorkbookCleanupOperations
     ) throws -> Bool {
         let states = try ONTGenotypeWorkbookCleanupStateStore.states(for: bundleURL)
         guard states.count <= 1 else {
@@ -3136,6 +3162,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             state: state,
             stateURL: stateURL,
             failureInjector: failureInjector,
+            cleanupOperations: cleanupOperations,
             completion: {
                 try writeCleanupTerminalReceipt(state)
             }

@@ -9,6 +9,111 @@ struct ONTGenotypeWorkbookRetirementFileWitness: Equatable {
     let sha256: String
 }
 
+struct ONTGenotypeWorkbookCleanupOperations: Sendable {
+    typealias RenameExclusive = @Sendable (
+        Int32,
+        UnsafePointer<CChar>,
+        Int32,
+        UnsafePointer<CChar>,
+        UInt32,
+        PortableExclusiveRename.RegularSourceWitness?
+    ) -> PortableExclusiveRename.Outcome
+
+    var renameExclusive: RenameExclusive
+    var checkpoint: @Sendable (String) throws -> Void
+
+    init(
+        renameExclusive: @escaping RenameExclusive = {
+            PortableExclusiveRename.renameatxNPReporting(
+                $0,
+                $1,
+                $2,
+                $3,
+                $4,
+                sourceWitness: $5
+            )
+        },
+        checkpoint: @escaping @Sendable (String) throws -> Void = { _ in }
+    ) {
+        self.renameExclusive = renameExclusive
+        self.checkpoint = checkpoint
+    }
+
+    static let darwin = ONTGenotypeWorkbookCleanupOperations()
+}
+
+enum ONTGenotypeWorkbookCleanupRebaseClassifier {
+    enum Decision: Equatable {
+        case exact(device: dev_t, inode: ino_t)
+        case rebased(device: dev_t, inode: ino_t)
+        case reject
+    }
+
+    static func classify(
+        before: stat,
+        postDescriptor: stat,
+        postPath: stat,
+        mechanism: PortableExclusiveRename.Mechanism,
+        originalNameIsAbsent: Bool
+    ) -> Decision {
+        guard originalNameIsAbsent,
+              sameKernelIdentity(postDescriptor, postPath) else {
+            return .reject
+        }
+        if sameKernelIdentity(before, postDescriptor) {
+            return .exact(
+                device: postDescriptor.st_dev,
+                inode: postDescriptor.st_ino
+            )
+        }
+        guard mechanism == .reservationFallback,
+              before.st_mode & S_IFMT == S_IFREG,
+              postDescriptor.st_mode & S_IFMT == S_IFREG,
+              before.st_size == 0,
+              postDescriptor.st_size == 0,
+              stableMetadataMatches(before, postDescriptor) else {
+            return .reject
+        }
+        return .rebased(
+            device: postDescriptor.st_dev,
+            inode: postDescriptor.st_ino
+        )
+    }
+
+    static func sameKernelIdentity(_ lhs: stat, _ rhs: stat) -> Bool {
+        lhs.st_dev == rhs.st_dev
+            && lhs.st_ino == rhs.st_ino
+            && lhs.st_mode & S_IFMT == rhs.st_mode & S_IFMT
+    }
+
+    static func identityAndStableMetadataMatch(
+        _ lhs: stat,
+        _ rhs: stat
+    ) -> Bool {
+        sameKernelIdentity(lhs, rhs)
+            && lhs.st_size == rhs.st_size
+            && lhs.st_mode & mode_t(0o7777) == rhs.st_mode & mode_t(0o7777)
+            && lhs.st_mtimespec.tv_sec == rhs.st_mtimespec.tv_sec
+            && lhs.st_mtimespec.tv_nsec == rhs.st_mtimespec.tv_nsec
+            && lhs.st_ctimespec.tv_sec == rhs.st_ctimespec.tv_sec
+            && lhs.st_ctimespec.tv_nsec == rhs.st_ctimespec.tv_nsec
+    }
+
+    private static func stableMetadataMatches(
+        _ lhs: stat,
+        _ rhs: stat
+    ) -> Bool {
+        lhs.st_dev == rhs.st_dev
+            && lhs.st_mode & S_IFMT == rhs.st_mode & S_IFMT
+            && lhs.st_size == rhs.st_size
+            && lhs.st_mode & mode_t(0o7777) == rhs.st_mode & mode_t(0o7777)
+            && lhs.st_mtimespec.tv_sec == rhs.st_mtimespec.tv_sec
+            && lhs.st_mtimespec.tv_nsec == rhs.st_mtimespec.tv_nsec
+            && lhs.st_ctimespec.tv_sec == rhs.st_ctimespec.tv_sec
+            && lhs.st_ctimespec.tv_nsec == rhs.st_ctimespec.tv_nsec
+    }
+}
+
 // Retirement is performed under the bundle publication lock; that lock is the
 // cooperative boundary for bundle-parent entries. Detached attestations also
 // live beneath an owner-only 0700 authority root. Cooperating Lungfish
@@ -688,6 +793,7 @@ enum ONTGenotypeWorkbookCleanupStateStore {
         state: ONTGenotypeWorkbookCleanupState,
         stateURL: URL,
         failureInjector: (@Sendable (String) throws -> Void)?,
+        cleanupOperations: ONTGenotypeWorkbookCleanupOperations = .darwin,
         completion: () throws -> Void
     ) throws {
         do {
@@ -794,7 +900,8 @@ enum ONTGenotypeWorkbookCleanupStateStore {
             try removeContentsNoFollow(
                 descriptor: descriptor,
                 displayedAt: quarantine,
-                failureInjector: failureInjector
+                failureInjector: failureInjector,
+                cleanupOperations: cleanupOperations
             )
             try ONTGenotypeWorkbookRetirement.retireDirectory(
                 named: quarantine.lastPathComponent,
@@ -1344,7 +1451,8 @@ enum ONTGenotypeWorkbookCleanupStateStore {
     private static func removeContentsNoFollow(
         descriptor: Int32,
         displayedAt url: URL,
-        failureInjector: (@Sendable (String) throws -> Void)?
+        failureInjector: (@Sendable (String) throws -> Void)?,
+        cleanupOperations: ONTGenotypeWorkbookCleanupOperations
     ) throws {
         for name in try directoryEntryNames(descriptor: descriptor, displayedAt: url) {
             guard DurableAtomicFileStore.isSinglePathComponent(name) else {
@@ -1388,7 +1496,8 @@ enum ONTGenotypeWorkbookCleanupStateStore {
                     try removeContentsNoFollow(
                         descriptor: child,
                         displayedAt: url.appendingPathComponent(name, isDirectory: true),
-                        failureInjector: failureInjector
+                        failureInjector: failureInjector,
+                        cleanupOperations: cleanupOperations
                     )
                     var current = stat()
                     let currentStatus = name.withCString {
@@ -1406,76 +1515,328 @@ enum ONTGenotypeWorkbookCleanupStateStore {
                     }
                 }
             } else {
-                try failureInjector?(
-                    "before-workbook-cleanup-nondirectory-detach:"
-                        + url.appendingPathComponent(name).path
+                try removeNondirectoryNoFollow(
+                    named: name,
+                    information: info,
+                    beneath: descriptor,
+                    displayedAt: url,
+                    failureInjector: failureInjector,
+                    cleanupOperations: cleanupOperations
                 )
-                let tombstone = ".lungfish-cleanup-entry-\(UUID().uuidString.lowercased())"
-                let detach = name.withCString { source in
-                    tombstone.withCString { destination in
-                        PortableExclusiveRename.renameatxNP(
-                            descriptor,
-                            source,
-                            descriptor,
-                            destination,
-                            UInt32(RENAME_EXCL)
-                        )
-                    }
-                }
-                guard detach == 0 else {
-                    if errno == ENOENT { continue }
-                    throw CleanupTraversalError(
-                        detail: "Could not detach quarantine entry \(name) safely (errno \(errno))."
-                    )
-                }
-                var detached = stat()
-                let inspectDetached = tombstone.withCString {
-                    Darwin.fstatat(descriptor, $0, &detached, AT_SYMLINK_NOFOLLOW)
-                }
-                guard inspectDetached == 0,
-                      detached.st_dev == info.st_dev,
-                      detached.st_ino == info.st_ino,
-                      detached.st_mode & S_IFMT == info.st_mode & S_IFMT else {
-                    _ = tombstone.withCString { source in
-                        name.withCString { destination in
-                            PortableExclusiveRename.renameatxNP(
-                                descriptor,
-                                source,
-                                descriptor,
-                                destination,
-                                UInt32(RENAME_EXCL)
-                            )
-                        }
-                    }
-                    throw CleanupTraversalError(
-                        detail: "Quarantine entry \(name) was substituted before safe detach."
-                    )
-                }
-                try failureInjector?(
-                    "before-workbook-cleanup-nondirectory-unlink:"
-                        + url.appendingPathComponent(tombstone).path
-                )
-                var current = stat()
-                let inspectCurrent = tombstone.withCString {
-                    Darwin.fstatat(descriptor, $0, &current, AT_SYMLINK_NOFOLLOW)
-                }
-                guard inspectCurrent == 0,
-                      current.st_dev == info.st_dev,
-                      current.st_ino == info.st_ino,
-                      current.st_mode & S_IFMT == info.st_mode & S_IFMT,
-                      tombstone.withCString({
-                          Darwin.unlinkat(descriptor, $0, 0)
-                      }) == 0 else {
-                    throw CleanupTraversalError(
-                        detail: "Detached quarantine entry \(name) changed before removal."
-                    )
-                }
             }
         }
         guard Darwin.fsync(descriptor) == 0 else {
             throw CleanupTraversalError(
                 detail: "Could not durably clean \(url.path) (errno \(errno))."
             )
+        }
+    }
+
+    static func removeContentsNoFollowForTesting(
+        at directoryURL: URL,
+        failureInjector: (@Sendable (String) throws -> Void)? = nil,
+        cleanupOperations: ONTGenotypeWorkbookCleanupOperations = .darwin
+    ) throws {
+        let descriptor = Darwin.open(
+            directoryURL.path,
+            O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+        )
+        guard descriptor >= 0 else {
+            throw CleanupTraversalError(
+                detail: "Could not open \(directoryURL.path) (errno \(errno))."
+            )
+        }
+        defer { Darwin.close(descriptor) }
+        try removeContentsNoFollow(
+            descriptor: descriptor,
+            displayedAt: directoryURL,
+            failureInjector: failureInjector,
+            cleanupOperations: cleanupOperations
+        )
+    }
+
+    private static func removeNondirectoryNoFollow(
+        named name: String,
+        information before: stat,
+        beneath descriptor: Int32,
+        displayedAt directoryURL: URL,
+        failureInjector: (@Sendable (String) throws -> Void)?,
+        cleanupOperations: ONTGenotypeWorkbookCleanupOperations
+    ) throws {
+        let displayedEntry = directoryURL.appendingPathComponent(name)
+        let sourceDescriptor: Int32
+        let sourceWitness: PortableExclusiveRename.RegularSourceWitness?
+        if before.st_mode & S_IFMT == S_IFREG {
+            sourceDescriptor = retryOnInterruption {
+                name.withCString {
+                    Darwin.openat(
+                        descriptor,
+                        $0,
+                        O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC
+                    )
+                }
+            }
+            guard sourceDescriptor >= 0 else {
+                if errno == ENOENT { return }
+                throw CleanupTraversalError(
+                    detail: "Could not open quarantine entry \(name) safely (errno \(errno))."
+                )
+            }
+            var opened = stat()
+            let openedStatus = retryOnInterruption {
+                Darwin.fstat(sourceDescriptor, &opened)
+            }
+            guard openedStatus == 0 else {
+                let code = errno
+                _ = Darwin.close(sourceDescriptor)
+                errno = code
+                throw CleanupTraversalError(
+                    detail: "Could not witness quarantine entry \(name) (errno \(code))."
+                )
+            }
+            guard ONTGenotypeWorkbookCleanupRebaseClassifier
+                .sameKernelIdentity(before, opened) else {
+                _ = Darwin.close(sourceDescriptor)
+                errno = ESTALE
+                throw CleanupTraversalError(
+                    detail: "Quarantine entry \(name) changed before it could be opened."
+                )
+            }
+            sourceWitness = PortableExclusiveRename.RegularSourceWitness(
+                descriptor: sourceDescriptor,
+                expected: opened
+            )
+        } else {
+            sourceDescriptor = -1
+            sourceWitness = nil
+        }
+        defer {
+            if sourceDescriptor >= 0 {
+                let code = errno
+                _ = Darwin.close(sourceDescriptor)
+                errno = code
+            }
+        }
+
+        try cleanupOperations.checkpoint(
+            "source-witness-opened:\(displayedEntry.path)"
+        )
+        try failureInjector?(
+            "before-workbook-cleanup-nondirectory-detach:"
+                + displayedEntry.path
+        )
+        if let sourceWitness {
+            var currentPath = stat()
+            let pathStatus = name.withCString { sourceName in
+                retryOnInterruption {
+                    Darwin.fstatat(
+                        descriptor,
+                        sourceName,
+                        &currentPath,
+                        AT_SYMLINK_NOFOLLOW
+                    )
+                }
+            }
+            var currentDescriptor = stat()
+            let descriptorStatus = retryOnInterruption {
+                Darwin.fstat(
+                    sourceWitness.descriptor,
+                    &currentDescriptor
+                )
+            }
+            guard pathStatus == 0,
+                  descriptorStatus == 0,
+                  ONTGenotypeWorkbookCleanupRebaseClassifier
+                    .identityAndStableMetadataMatch(
+                        currentPath,
+                        sourceWitness.expected
+                    ),
+                  ONTGenotypeWorkbookCleanupRebaseClassifier
+                    .identityAndStableMetadataMatch(
+                        currentDescriptor,
+                        sourceWitness.expected
+                    ) else {
+                errno = ESTALE
+                throw CleanupTraversalError(
+                    detail: "Quarantine entry \(name) changed before safe detach."
+                )
+            }
+        }
+        let tombstone =
+            ".lungfish-cleanup-entry-\(UUID().uuidString.lowercased())"
+        let outcome = name.withCString { source in
+            tombstone.withCString { destination in
+                cleanupOperations.renameExclusive(
+                    descriptor,
+                    source,
+                    descriptor,
+                    destination,
+                    UInt32(RENAME_EXCL),
+                    sourceWitness
+                )
+            }
+        }
+        guard outcome.status == 0 else {
+            let code = errno
+            if code == ENOENT { return }
+            errno = code
+            throw CleanupTraversalError(
+                detail: "Could not detach quarantine entry \(name) safely (errno \(code))."
+            )
+        }
+
+        try cleanupOperations.checkpoint(
+            "after-nondirectory-detach:\(displayedEntry.path)"
+        )
+        var original = stat()
+        let originalStatus = name.withCString { originalName in
+            retryOnInterruption {
+                Darwin.fstatat(
+                    descriptor,
+                    originalName,
+                    &original,
+                    AT_SYMLINK_NOFOLLOW
+                )
+            }
+        }
+        let originalNameIsAbsent = originalStatus == -1 && errno == ENOENT
+        guard originalNameIsAbsent else {
+            throw CleanupTraversalError(
+                detail: "Quarantine entry \(name) survived or reappeared after detach."
+            )
+        }
+
+        var postPath = stat()
+        let inspectDetached = tombstone.withCString { detachedName in
+            retryOnInterruption {
+                Darwin.fstatat(
+                    descriptor,
+                    detachedName,
+                    &postPath,
+                    AT_SYMLINK_NOFOLLOW
+                )
+            }
+        }
+        guard inspectDetached == 0 else {
+            let code = errno
+            throw CleanupTraversalError(
+                detail: "Could not inspect detached quarantine entry \(name) (errno \(code))."
+            )
+        }
+
+        let expectedDevice: dev_t
+        let expectedInode: ino_t
+        let expectedType: mode_t
+        if let sourceWitness {
+            var postDescriptor = stat()
+            guard retryOnInterruption({
+                Darwin.fstat(sourceWitness.descriptor, &postDescriptor)
+            }) == 0 else {
+                let code = errno
+                throw CleanupTraversalError(
+                    detail: "Could not revalidate detached quarantine entry \(name) (errno \(code))."
+                )
+            }
+            switch ONTGenotypeWorkbookCleanupRebaseClassifier.classify(
+                before: sourceWitness.expected,
+                postDescriptor: postDescriptor,
+                postPath: postPath,
+                mechanism: outcome.mechanism,
+                originalNameIsAbsent: originalNameIsAbsent
+            ) {
+            case .exact(let device, let inode),
+                 .rebased(let device, let inode):
+                expectedDevice = device
+                expectedInode = inode
+            case .reject:
+                throw CleanupTraversalError(
+                    detail: "Quarantine entry \(name) was substituted before safe detach."
+                )
+            }
+            expectedType = sourceWitness.expected.st_mode & S_IFMT
+        } else {
+            guard before.st_dev == postPath.st_dev,
+                  before.st_ino == postPath.st_ino,
+                  before.st_mode & S_IFMT == postPath.st_mode & S_IFMT else {
+                throw CleanupTraversalError(
+                    detail: "Quarantine entry \(name) was substituted before safe detach."
+                )
+            }
+            expectedDevice = postPath.st_dev
+            expectedInode = postPath.st_ino
+            expectedType = before.st_mode & S_IFMT
+        }
+
+        try failureInjector?(
+            "before-workbook-cleanup-nondirectory-unlink:"
+                + directoryURL.appendingPathComponent(tombstone).path
+        )
+        try cleanupOperations.checkpoint(
+            "before-final-tombstone-witness:"
+                + directoryURL.appendingPathComponent(tombstone).path
+        )
+
+        try tombstone.withCString { detachedName in
+            var finalPath = stat()
+            let finalPathStatus = retryOnInterruption {
+                Darwin.fstatat(
+                    descriptor,
+                    detachedName,
+                    &finalPath,
+                    AT_SYMLINK_NOFOLLOW
+                )
+            }
+            guard finalPathStatus == 0,
+                  finalPath.st_dev == expectedDevice,
+                  finalPath.st_ino == expectedInode,
+                  finalPath.st_mode & S_IFMT == expectedType else {
+                throw CleanupTraversalError(
+                    detail: "Detached quarantine entry \(name) changed before removal."
+                )
+            }
+            if let sourceWitness {
+                var finalDescriptor = stat()
+                guard retryOnInterruption({
+                    Darwin.fstat(
+                        sourceWitness.descriptor,
+                        &finalDescriptor
+                    )
+                }) == 0,
+                      finalDescriptor.st_dev == expectedDevice,
+                      finalDescriptor.st_ino == expectedInode,
+                      finalDescriptor.st_mode & S_IFMT == expectedType else {
+                    throw CleanupTraversalError(
+                        detail: "Detached quarantine entry \(name) changed before removal."
+                    )
+                }
+            }
+
+            // There is intentionally no injected callback, actor hop, or
+            // allocation between these final descriptor/path witnesses and
+            // the name-based unlink syscall.
+            let removeStatus = retryOnInterruption {
+                Darwin.unlinkat(descriptor, detachedName, 0)
+            }
+            guard removeStatus == 0 else {
+                let code = errno
+                throw CleanupTraversalError(
+                    detail: "Could not remove detached quarantine entry \(name) (errno \(code))."
+                )
+            }
+        }
+        try cleanupOperations.checkpoint(
+            "after-nondirectory-unlink:"
+                + directoryURL.appendingPathComponent(tombstone).path
+        )
+    }
+
+    private static func retryOnInterruption(
+        _ operation: () -> Int32
+    ) -> Int32 {
+        while true {
+            let result = operation()
+            if result == -1, errno == EINTR { continue }
+            return result
         }
     }
 }
