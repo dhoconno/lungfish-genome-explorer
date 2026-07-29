@@ -21,8 +21,14 @@ final class GenotypeManualHaplotypePerformanceTests: XCTestCase {
             benchmarksManualFeatures: true
         )
 
-        baseline.warmUp()
-        withBand.warmUp()
+        let baselineWarmUp = baseline.warmUp()
+        let featureWarmUp = withBand.warmUp()
+        for coverage in [baselineWarmUp, featureWarmUp] {
+            XCTAssertEqual(coverage.expandedDisclosureCount, 10)
+            XCTAssertEqual(coverage.collapsedDisclosureCount, 10)
+            XCTAssertEqual(coverage.selectedComparisonSourceCount, 10)
+            XCTAssertEqual(coverage.clearedComparisonSourceCount, 10)
+        }
 
         let pairedSamples = baseline.measureRepresentativeInteractions(
             alongside: withBand
@@ -316,6 +322,43 @@ final class GenotypeManualHaplotypePerformanceTests: XCTestCase {
         )
     }
 
+    func testCollapsedSaveInvalidatesChangedSampleWidthBeforeReExpansion() {
+        let fixture = GenotypeManualHaplotypeTask10Fixture(sampleCount: 4)
+        let matrix = GenotypeComparisonMatrixView(
+            frame: NSRect(x: 0, y: 0, width: 1_440, height: 720)
+        )
+        matrix.configure(
+            result: fixture.result(workflowMode: .genotypeOnly),
+            sidecar: fixture.sidecar
+        )
+        matrix.testingSetManualHaplotypeBandDisclosureExpanded(true)
+        let originalWidth = matrix.testingSampleColumnWidth(
+            sample: fixture.samples[0]
+        )
+        matrix.testingSetManualHaplotypeBandDisclosureExpanded(false)
+        matrix.testingResetManualHaplotypeAutoFitValueMeasurementCounts()
+        var changedAssignments = fixture.assignments
+        changedAssignments[0].label = String(
+            repeating: "A much longer saved haplotype label ",
+            count: 4
+        )
+
+        matrix.applyManualHaplotypeAssignments(changedAssignments)
+        matrix.testingSetManualHaplotypeBandDisclosureExpanded(true)
+
+        XCTAssertGreaterThan(
+            matrix.testingSampleColumnWidth(sample: fixture.samples[0]),
+            originalWidth
+        )
+        XCTAssertEqual(
+            matrix.testingManualHaplotypeAutoFitValueMeasurementCounts,
+            [
+                fixture.samples[0]:
+                    GenotypeManualHaplotypeLocus.allCases.count,
+            ]
+        )
+    }
+
     func testScrollingPerformsNoAssignmentMeasurementOrComparisonWork() {
         let fixture = GenotypeManualHaplotypeTask10Fixture()
         let matrix = GenotypeComparisonMatrixView(
@@ -569,6 +612,13 @@ final class GenotypeManualHaplotypePerformanceTests: XCTestCase {
 
 @MainActor
 private final class MatrixInteractionHarness {
+    struct WarmUpCoverage {
+        var expandedDisclosureCount = 0
+        var collapsedDisclosureCount = 0
+        var selectedComparisonSourceCount = 0
+        var clearedComparisonSourceCount = 0
+    }
+
     private struct Views {
         let matrix: GenotypeComparisonMatrixView
         let table: NSTableView
@@ -580,7 +630,11 @@ private final class MatrixInteractionHarness {
     private let secondarySample: String
     private let supportsDisclosure: Bool
     private var comparisonModel: GenotypeSampleComparisonModel?
-    private var sequence = 0
+    private var scrollSequence = 0
+    private var reorderSequence = 0
+    private var resizeSequence = 0
+    private var disclosureSequence = 0
+    private var comparisonSequence = 0
 
     init(
         result: ONTGenotypeResultBundleData,
@@ -635,15 +689,27 @@ private final class MatrixInteractionHarness {
         }
     }
 
-    func warmUp() {
+    func warmUp() -> WarmUpCoverage {
+        var coverage = WarmUpCoverage()
         for _ in 0..<20 {
             performScroll()
             performReorder()
             performResize()
+            if disclosureSequence.isMultiple(of: 2) {
+                coverage.expandedDisclosureCount += 1
+            } else {
+                coverage.collapsedDisclosureCount += 1
+            }
             performDisclosure()
             performEvidenceRefresh()
+            if comparisonSequence.isMultiple(of: 2) {
+                coverage.selectedComparisonSourceCount += 1
+            } else {
+                coverage.clearedComparisonSourceCount += 1
+            }
             performSelectedSourceCompare()
         }
+        return coverage
     }
 
     func measureRepresentativeInteractions(
@@ -748,14 +814,14 @@ private final class MatrixInteractionHarness {
     }
 
     private func performScroll() {
-        sequence &+= 1
+        scrollSequence &+= 1
         let maximumX = max(
             0,
             views.table.bounds.width - views.clipView.bounds.width
         )
         let x = maximumX == 0
             ? 0
-            : CGFloat((sequence * 37) % max(1, Int(maximumX)))
+            : CGFloat((scrollSequence * 37) % max(1, Int(maximumX)))
         views.clipView.setBoundsOrigin(NSPoint(x: x, y: 0))
         views.table.enclosingScrollView?.reflectScrolledClipView(
             views.clipView
@@ -765,50 +831,51 @@ private final class MatrixInteractionHarness {
 
     private func performReorder() {
         guard views.table.numberOfColumns > 2 else { return }
-        let destination = sequence.isMultiple(of: 2)
+        let destination = reorderSequence.isMultiple(of: 2)
             ? 1
             : views.table.numberOfColumns - 1
         views.table.moveColumn(0, toColumn: destination)
         views.matrix.layoutSubtreeIfNeeded()
-        sequence &+= 1
+        reorderSequence &+= 1
     }
 
     private func performResize() {
         guard let column = views.table.tableColumns.first else { return }
-        column.width = sequence.isMultiple(of: 2) ? 106 : 114
+        column.width = resizeSequence.isMultiple(of: 2) ? 106 : 114
         views.matrix.layoutSubtreeIfNeeded()
-        sequence &+= 1
+        resizeSequence &+= 1
     }
 
     private func performDisclosure() {
         guard supportsDisclosure else {
             views.matrix.layoutSubtreeIfNeeded()
-            sequence &+= 1
+            disclosureSequence &+= 1
             return
         }
         views.matrix.testingSetManualHaplotypeBandDisclosureExpanded(
-            sequence.isMultiple(of: 2)
+            disclosureSequence.isMultiple(of: 2)
         )
         views.matrix.layoutSubtreeIfNeeded()
-        sequence &+= 1
+        disclosureSequence &+= 1
     }
 
     private func performEvidenceRefresh() {
         _ = views.matrix.visibleSampleEvidenceRows(sample: primarySample)
-        sequence &+= 1
     }
 
     private func performSelectedSourceCompare() {
         if let comparisonModel {
             comparisonModel.selectSource(
-                sequence.isMultiple(of: 2) ? secondarySample : nil
+                comparisonSequence.isMultiple(of: 2)
+                    ? secondarySample
+                    : nil
             )
         } else {
             _ = views.matrix.visibleSampleEvidenceRows(
                 sample: secondarySample
             )
         }
-        sequence &+= 1
+        comparisonSequence &+= 1
     }
 
     private static func descendants(of root: NSView) -> [NSView] {

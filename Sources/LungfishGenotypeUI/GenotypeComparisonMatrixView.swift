@@ -4831,6 +4831,12 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 samples: changedSamples,
                 remeasure: true
             )
+        } else {
+            for sample in changedSamples {
+                manualHaplotypeTransientMinimumWidths.removeValue(
+                    forKey: sample
+                )
+            }
         }
     }
 
