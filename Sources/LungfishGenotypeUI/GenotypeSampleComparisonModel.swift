@@ -191,6 +191,12 @@ final class GenotypeSampleComparisonModel: ObservableObject {
 
     func refreshTargetRows(_ rows: [GenotypeSampleEvidenceRow]) {
         targetRows = rows
+        if let selectedSource {
+            selectedSourceBuildCount += 1
+            selectedSourceRows = rowsForSource(selectedSource)
+        } else {
+            selectedSourceRows = []
+        }
         rebuildComparison()
     }
 

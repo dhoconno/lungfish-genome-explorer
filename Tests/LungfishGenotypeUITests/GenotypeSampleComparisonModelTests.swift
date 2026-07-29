@@ -411,6 +411,65 @@ final class GenotypeSampleComparisonModelTests: XCTestCase {
         XCTAssertEqual(staged, ["Source A", "Source B"])
     }
 
+    func testProjectionRefreshAtomicallyRebuildsSelectedSourceAndRetainsSelectionAndStatus() {
+        let replacementSourceID =
+            GenotypeCandidateMatrixRowID.candidate(
+                stableClusterID: "replacement-source"
+            )
+        var sourceRows = [
+            row(id: sharedID, allele: "Shared old", reads: 3),
+            row(id: sourceID, allele: "Source old", reads: 4),
+        ]
+        var requestedSources: [String] = []
+        let model = GenotypeSampleComparisonModel(
+            targetSample: "Target",
+            targetRows: [
+                row(id: targetID, allele: "Target old", reads: 1),
+                row(id: sharedID, allele: "Shared old", reads: 2),
+            ],
+            candidates: [
+                candidate("Source"),
+                candidate("Nonselected"),
+            ],
+            rowsForSource: { sample in
+                requestedSources.append(sample)
+                return sample == "Source" ? sourceRows : []
+            },
+            isDraftDirty: { false },
+            stageAssignments: { _ in }
+        )
+        model.selectSource("Source")
+        model.requestUseAssignments()
+        XCTAssertEqual(requestedSources, ["Source"])
+        XCTAssertEqual(model.stagedStatus, "Assignments staged from Source.")
+
+        sourceRows = [
+            row(
+                id: replacementSourceID,
+                allele: "Source replacement",
+                reads: 9
+            ),
+            row(id: sharedID, allele: "Shared refreshed", reads: 8),
+        ]
+        model.refreshTargetRows([
+            row(id: sharedID, allele: "Shared refreshed", reads: 7),
+            row(id: targetID, allele: "Target refreshed", reads: 6),
+        ])
+
+        XCTAssertEqual(requestedSources, ["Source", "Source"])
+        XCTAssertEqual(model.selectedSource, "Source")
+        XCTAssertEqual(model.stagedStatus, "Assignments staged from Source.")
+        XCTAssertEqual(
+            model.comparisonRows.map(\.id),
+            [sharedID, targetID, replacementSourceID]
+        )
+        XCTAssertEqual(
+            model.comparisonRows.map(\.relationship),
+            [.shared, .targetOnly, .sourceOnly]
+        )
+        XCTAssertFalse(model.comparisonRows.contains { $0.id == sourceID })
+    }
+
     private func makeModel(
         targetRows: [GenotypeSampleEvidenceRow] = [],
         candidates: [GenotypeManualHaplotypeEditorModel.CopyCandidate] = [],
