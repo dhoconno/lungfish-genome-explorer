@@ -187,6 +187,16 @@ final class PortableExclusiveRenameTests: XCTestCase {
                 UInt32(RENAME_EXCL),
                 operations: .init(
                     nativeRename: unsupportedNativeRename,
+                    closeDescriptor: { descriptor in
+                        let status = Darwin.close(descriptor)
+                        errno = EBADF
+                        return status
+                    },
+                    removeEntry: { parent, name, flags in
+                        let status = Darwin.unlinkat(parent, name, flags)
+                        errno = ENOSPC
+                        return status
+                    },
                     afterReservationCreated: {
                         try! FileManager.default.moveItem(at: source, to: heldOriginal)
                         try! Data("replacement".utf8).write(to: source)
@@ -204,6 +214,34 @@ final class PortableExclusiveRenameTests: XCTestCase {
         XCTAssertEqual(try text(at: source), "replacement")
         XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
         XCTAssertFalse(finalValidationWasCalled.value)
+    }
+
+    func testFallbackPreservesExistingDestinationErrnoAcrossOwnedSourceClose() throws {
+        let source = try makeFile("source", contents: "original")
+        let destination = try makeFile("destination", contents: "existing")
+
+        let outcome = withPaths(source, destination) { sourcePath, destinationPath in
+            PortableExclusiveRename.renameatxNPReporting(
+                AT_FDCWD,
+                sourcePath,
+                AT_FDCWD,
+                destinationPath,
+                UInt32(RENAME_EXCL),
+                operations: .init(
+                    nativeRename: unsupportedNativeRename,
+                    closeDescriptor: { descriptor in
+                        let status = Darwin.close(descriptor)
+                        errno = EBADF
+                        return status
+                    }
+                )
+            )
+        }
+
+        XCTAssertEqual(outcome.status, -1)
+        XCTAssertEqual(errno, EEXIST)
+        XCTAssertEqual(try text(at: source), "original")
+        XCTAssertEqual(try text(at: destination), "existing")
     }
 
     func testFallbackRejectsReservationNameSubstitutionBeforeRename() throws {
@@ -323,6 +361,16 @@ final class PortableExclusiveRenameTests: XCTestCase {
                     ordinaryRename: { _, _, _, _ in
                         errno = EACCES
                         return -1
+                    },
+                    closeDescriptor: { descriptor in
+                        let status = Darwin.close(descriptor)
+                        errno = EBADF
+                        return status
+                    },
+                    removeEntry: { parent, name, flags in
+                        let status = Darwin.unlinkat(parent, name, flags)
+                        errno = ENOENT
+                        return status
                     }
                 )
             )
@@ -332,6 +380,85 @@ final class PortableExclusiveRenameTests: XCTestCase {
         XCTAssertEqual(errno, EACCES)
         XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
         XCTAssertEqual(try text(at: source), "original")
+    }
+
+    func testDirectoryFallbackRetainsLegacyMetadataMutationSemantics() throws {
+        let source = root.appendingPathComponent("source", isDirectory: true)
+        let destination = root.appendingPathComponent("destination", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: false)
+        try Data("payload".utf8).write(to: source.appendingPathComponent("payload.txt"))
+        let afterReservationWasCalled = LockedValue(false)
+        let afterFinalValidationWasCalled = LockedValue(false)
+
+        let outcome = withPaths(source, destination) { sourcePath, destinationPath in
+            PortableExclusiveRename.renameatxNPReporting(
+                AT_FDCWD,
+                sourcePath,
+                AT_FDCWD,
+                destinationPath,
+                UInt32(RENAME_EXCL),
+                operations: .init(
+                    nativeRename: unsupportedNativeRename,
+                    createDirectoryReservation: { parent, name, mode in
+                        let status = Darwin.mkdirat(parent, name, mode)
+                        XCTAssertEqual(status, 0)
+                        XCTAssertEqual(Darwin.chmod(source.path, S_IRWXU), 0)
+                        return status
+                    },
+                    afterReservationCreated: {
+                        afterReservationWasCalled.value = true
+                    },
+                    afterFinalWitnessValidation: {
+                        afterFinalValidationWasCalled.value = true
+                    }
+                )
+            )
+        }
+
+        XCTAssertEqual(outcome, .init(status: 0, mechanism: .reservationFallback))
+        XCTAssertFalse(afterReservationWasCalled.value)
+        XCTAssertFalse(afterFinalValidationWasCalled.value)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: source.path))
+        XCTAssertEqual(
+            try text(at: destination.appendingPathComponent("payload.txt")),
+            "payload"
+        )
+    }
+
+    func testDirectoryFallbackPostReservationStatFailureRemovesReservationAndPreservesErrno() throws {
+        let source = root.appendingPathComponent("source", isDirectory: true)
+        let destination = root.appendingPathComponent("destination", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: false)
+        let removalWasCalled = LockedValue(false)
+
+        let outcome = withPaths(source, destination) { sourcePath, destinationPath in
+            PortableExclusiveRename.renameatxNPReporting(
+                AT_FDCWD,
+                sourcePath,
+                AT_FDCWD,
+                destinationPath,
+                UInt32(RENAME_EXCL),
+                operations: .init(
+                    nativeRename: unsupportedNativeRename,
+                    inspectDirectoryReservation: { _, _, _, _ in
+                        errno = EIO
+                        return -1
+                    },
+                    removeEntry: { parent, name, flags in
+                        removalWasCalled.value = true
+                        let status = Darwin.unlinkat(parent, name, flags)
+                        errno = ENOTEMPTY
+                        return status
+                    }
+                )
+            )
+        }
+
+        XCTAssertEqual(outcome, .init(status: -1, mechanism: .reservationFallback))
+        XCTAssertEqual(errno, EIO)
+        XCTAssertTrue(removalWasCalled.value)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: source.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
     }
 
     func testLegacyIntegerWrapperPreservesExistingCallContract() throws {

@@ -48,9 +48,30 @@ public enum PortableExclusiveRename {
             Int32,
             UnsafePointer<CChar>
         ) -> Int32
+        typealias DirectoryReservationCreator = @Sendable (
+            Int32,
+            UnsafePointer<CChar>,
+            mode_t
+        ) -> Int32
+        typealias PathInspector = @Sendable (
+            Int32,
+            UnsafePointer<CChar>,
+            UnsafeMutablePointer<stat>,
+            Int32
+        ) -> Int32
+        typealias DescriptorCloser = @Sendable (Int32) -> Int32
+        typealias EntryRemover = @Sendable (
+            Int32,
+            UnsafePointer<CChar>,
+            Int32
+        ) -> Int32
 
         var nativeRename: NativeRenamer
         var ordinaryRename: OrdinaryRenamer
+        var createDirectoryReservation: DirectoryReservationCreator
+        var inspectDirectoryReservation: PathInspector
+        var closeDescriptor: DescriptorCloser
+        var removeEntry: EntryRemover
         var afterReservationCreated: @Sendable () -> Void
         var afterFinalWitnessValidation: @Sendable () -> Void
 
@@ -61,11 +82,27 @@ public enum PortableExclusiveRename {
             ordinaryRename: @escaping OrdinaryRenamer = {
                 Darwin.renameat($0, $1, $2, $3)
             },
+            createDirectoryReservation: @escaping DirectoryReservationCreator = {
+                Darwin.mkdirat($0, $1, $2)
+            },
+            inspectDirectoryReservation: @escaping PathInspector = {
+                Darwin.fstatat($0, $1, $2, $3)
+            },
+            closeDescriptor: @escaping DescriptorCloser = {
+                Darwin.close($0)
+            },
+            removeEntry: @escaping EntryRemover = {
+                Darwin.unlinkat($0, $1, $2)
+            },
             afterReservationCreated: @escaping @Sendable () -> Void = {},
             afterFinalWitnessValidation: @escaping @Sendable () -> Void = {}
         ) {
             self.nativeRename = nativeRename
             self.ordinaryRename = ordinaryRename
+            self.createDirectoryReservation = createDirectoryReservation
+            self.inspectDirectoryReservation = inspectDirectoryReservation
+            self.closeDescriptor = closeDescriptor
+            self.removeEntry = removeEntry
             self.afterReservationCreated = afterReservationCreated
             self.afterFinalWitnessValidation = afterFinalWitnessValidation
         }
@@ -182,7 +219,6 @@ public enum PortableExclusiveRename {
                 sourceName,
                 destinationParent,
                 destinationName,
-                sourceInformation: sourceInfo,
                 operations: operations
             )
         default:
@@ -222,7 +258,7 @@ public enum PortableExclusiveRename {
             var descriptorInformation = stat()
             guard retryFstat(descriptor, &descriptorInformation) == 0 else {
                 let code = errno
-                _ = Darwin.close(descriptor)
+                _ = operations.closeDescriptor(descriptor)
                 return fallbackFailure(code)
             }
             witness = RegularSourceWitness(
@@ -239,7 +275,11 @@ public enum PortableExclusiveRename {
                   descriptor: witness.descriptor,
                   expected: witness.expected
               ) else {
-            closeOwnedSource(witness.descriptor, owned: ownsSourceDescriptor)
+            closeOwnedSource(
+                witness.descriptor,
+                owned: ownsSourceDescriptor,
+                operations: operations
+            )
             return fallbackFailure(ESTALE)
         }
 
@@ -253,15 +293,23 @@ public enum PortableExclusiveRename {
         }
         guard reservationDescriptor >= 0 else {
             let code = errno
-            closeOwnedSource(witness.descriptor, owned: ownsSourceDescriptor)
+            closeOwnedSource(
+                witness.descriptor,
+                owned: ownsSourceDescriptor,
+                operations: operations
+            )
             return fallbackFailure(code)
         }
 
         var reservationInformation = stat()
         guard retryFstat(reservationDescriptor, &reservationInformation) == 0 else {
             let code = errno
-            _ = Darwin.close(reservationDescriptor)
-            closeOwnedSource(witness.descriptor, owned: ownsSourceDescriptor)
+            _ = operations.closeDescriptor(reservationDescriptor)
+            closeOwnedSource(
+                witness.descriptor,
+                owned: ownsSourceDescriptor,
+                operations: operations
+            )
             return fallbackFailure(code)
         }
 
@@ -286,7 +334,8 @@ public enum PortableExclusiveRename {
                 reservationDescriptor: reservationDescriptor,
                 reservationInformation: reservationInformation,
                 sourceDescriptor: witness.descriptor,
-                ownsSourceDescriptor: ownsSourceDescriptor
+                ownsSourceDescriptor: ownsSourceDescriptor,
+                operations: operations
             )
             return fallbackFailure(ESTALE)
         }
@@ -312,13 +361,18 @@ public enum PortableExclusiveRename {
                 reservationDescriptor: reservationDescriptor,
                 reservationInformation: reservationInformation,
                 sourceDescriptor: witness.descriptor,
-                ownsSourceDescriptor: ownsSourceDescriptor
+                ownsSourceDescriptor: ownsSourceDescriptor,
+                operations: operations
             )
             return fallbackFailure(code)
         }
 
-        _ = Darwin.close(reservationDescriptor)
-        closeOwnedSource(witness.descriptor, owned: ownsSourceDescriptor)
+        _ = operations.closeDescriptor(reservationDescriptor)
+        closeOwnedSource(
+            witness.descriptor,
+            owned: ownsSourceDescriptor,
+            operations: operations
+        )
         return Outcome(status: 0, mechanism: .reservationFallback)
     }
 
@@ -327,52 +381,38 @@ public enum PortableExclusiveRename {
         _ sourceName: UnsafePointer<CChar>,
         _ destinationParent: Int32,
         _ destinationName: UnsafePointer<CChar>,
-        sourceInformation: stat,
         operations: Operations
     ) -> Outcome {
         let reservationStatus = retryOnInterruption {
-            Darwin.mkdirat(destinationParent, destinationName, S_IRWXU)
+            operations.createDirectoryReservation(
+                destinationParent,
+                destinationName,
+                S_IRWXU
+            )
         }
         guard reservationStatus == 0 else {
             return fallbackFailure(errno)
         }
 
         var reservationInformation = stat()
-        guard retryFstatat(
-            destinationParent,
-            destinationName,
-            &reservationInformation,
-            AT_SYMLINK_NOFOLLOW
-        ) == 0 else {
-            let code = errno
-            removeReservationIfUnchanged(
-                parent: destinationParent,
-                name: destinationName,
-                expected: reservationInformation
+        let inspectionStatus = retryOnInterruption {
+            operations.inspectDirectoryReservation(
+                destinationParent,
+                destinationName,
+                &reservationInformation,
+                AT_SYMLINK_NOFOLLOW
             )
+        }
+        guard inspectionStatus == 0 else {
+            let code = errno
+            while operations.removeEntry(
+                destinationParent,
+                destinationName,
+                AT_REMOVEDIR
+            ) != 0, errno == EINTR {}
             return fallbackFailure(code)
         }
 
-        operations.afterReservationCreated()
-        guard sameIdentityAndMetadata(
-                  parent: sourceParent,
-                  name: sourceName,
-                  expected: sourceInformation
-              ),
-              sameIdentity(
-                  parent: destinationParent,
-                  name: destinationName,
-                  expected: reservationInformation
-              ) else {
-            removeReservationIfUnchanged(
-                parent: destinationParent,
-                name: destinationName,
-                expected: reservationInformation
-            )
-            return fallbackFailure(ESTALE)
-        }
-
-        operations.afterFinalWitnessValidation()
         let status = retryOnInterruption {
             operations.ordinaryRename(
                 sourceParent,
@@ -386,7 +426,8 @@ public enum PortableExclusiveRename {
             removeReservationIfUnchanged(
                 parent: destinationParent,
                 name: destinationName,
-                expected: reservationInformation
+                expected: reservationInformation,
+                operations: operations
             )
             return fallbackFailure(code)
         }
@@ -400,21 +441,31 @@ public enum PortableExclusiveRename {
         reservationDescriptor: Int32,
         reservationInformation: stat,
         sourceDescriptor: Int32,
-        ownsSourceDescriptor: Bool
+        ownsSourceDescriptor: Bool,
+        operations: Operations
     ) {
         removeReservationIfUnchanged(
             parent: destinationParent,
             name: destinationName,
-            expected: reservationInformation
+            expected: reservationInformation,
+            operations: operations
         )
-        _ = Darwin.close(reservationDescriptor)
-        closeOwnedSource(sourceDescriptor, owned: ownsSourceDescriptor)
+        _ = operations.closeDescriptor(reservationDescriptor)
+        closeOwnedSource(
+            sourceDescriptor,
+            owned: ownsSourceDescriptor,
+            operations: operations
+        )
         errno = code
     }
 
-    private static func closeOwnedSource(_ descriptor: Int32, owned: Bool) {
+    private static func closeOwnedSource(
+        _ descriptor: Int32,
+        owned: Bool,
+        operations: Operations
+    ) {
         if owned {
-            _ = Darwin.close(descriptor)
+            _ = operations.closeDescriptor(descriptor)
         }
     }
 
@@ -533,7 +584,8 @@ public enum PortableExclusiveRename {
     private static func removeReservationIfUnchanged(
         parent: Int32,
         name: UnsafePointer<CChar>,
-        expected: stat
+        expected: stat,
+        operations: Operations
     ) {
         var current = stat()
         guard retryFstatat(parent, name, &current, AT_SYMLINK_NOFOLLOW) == 0,
@@ -541,6 +593,6 @@ public enum PortableExclusiveRename {
             return
         }
         let flags = current.st_mode & S_IFMT == S_IFDIR ? AT_REMOVEDIR : 0
-        while Darwin.unlinkat(parent, name, flags) != 0, errno == EINTR {}
+        while operations.removeEntry(parent, name, flags) != 0, errno == EINTR {}
     }
 }
