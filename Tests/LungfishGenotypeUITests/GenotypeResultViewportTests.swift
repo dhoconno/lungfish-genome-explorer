@@ -11662,6 +11662,263 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertFalse(controller.testingDetailText.contains("Mafa-B*002:01"))
     }
 
+    func testSelectedSampleComparisonRefreshesProjectionWithoutRemountingModels()
+        throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "SampleComparisonRefresh-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent(
+            "example.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let first = makeCall(
+            sample: "AnimalA",
+            genotype: "NHP01222",
+            reads: 73
+        )
+        let second = makeCall(
+            sample: "AnimalB",
+            genotype: "NHP99999",
+            reads: 41
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [first, second],
+            referenceMetadata: makeGenBankReferenceMetadata()
+        ))
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        let workbench = controller.testingSampleWorkbenchIdentity
+        let editor = controller.testingManualHaplotypeEditorModelIdentity
+        let trailing =
+            controller.testingSampleCurationTrailingModelIdentity
+        let comparison =
+            controller.testingSampleComparisonModelIdentity
+
+        controller.testingShowSampleComparison()
+        controller.testingSelectSampleComparisonSource("AnimalB")
+        controller.testingSetComparisonFilter("Mafa-A1")
+
+        XCTAssertEqual(
+            controller.testingSampleCurationTrailingMode,
+            .compareAndCopy
+        )
+        XCTAssertEqual(controller.testingSampleWorkbenchIdentity, workbench)
+        XCTAssertEqual(
+            controller.testingManualHaplotypeEditorModelIdentity,
+            editor
+        )
+        XCTAssertEqual(
+            controller.testingSampleCurationTrailingModelIdentity,
+            trailing
+        )
+        XCTAssertEqual(
+            controller.testingSampleComparisonModelIdentity,
+            comparison
+        )
+        XCTAssertEqual(
+            controller.testingSampleComparisonRowIDs,
+            controller.testingComparisonMatrix.testingVisibleRows
+                .filter {
+                    $0.support(for: "AnimalA") != nil
+                        || $0.support(for: "AnimalB") != nil
+                }
+                .map(\.id)
+        )
+    }
+
+    func testSelectedSampleComparisonTracksMatrixSortWithoutRemountingModels()
+        throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "SampleComparisonSort-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent(
+            "example.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let first = makeCall(
+            sample: "AnimalA",
+            genotype: "01_Mafa_A1_001_01",
+            reads: 73
+        )
+        let second = makeCall(
+            sample: "AnimalB",
+            genotype: "04_Mafa_B_001_01",
+            reads: 41
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [first, second]
+        ))
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        controller.testingShowSampleComparison()
+        controller.testingSelectSampleComparisonSource("AnimalB")
+        let workbench = controller.testingSampleWorkbenchIdentity
+        let editor = controller.testingManualHaplotypeEditorModelIdentity
+        let trailing = controller.testingSampleCurationTrailingModelIdentity
+        let comparison = controller.testingSampleComparisonModelIdentity
+
+        controller.testingComparisonMatrix.testingSetSortDescriptor(
+            key: "genotype",
+            ascending: false
+        )
+
+        XCTAssertEqual(controller.testingSampleCurationTrailingMode, .compareAndCopy)
+        XCTAssertEqual(controller.testingSampleWorkbenchIdentity, workbench)
+        XCTAssertEqual(controller.testingManualHaplotypeEditorModelIdentity, editor)
+        XCTAssertEqual(controller.testingSampleCurationTrailingModelIdentity, trailing)
+        XCTAssertEqual(controller.testingSampleComparisonModelIdentity, comparison)
+        XCTAssertEqual(
+            controller.testingSampleComparisonRowIDs,
+            controller.testingComparisonMatrix.testingVisibleRows.map(\.id)
+        )
+    }
+
+    func testSelectedSampleComparisonTracksSupportThresholdWithoutRemountingModels()
+        throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "SampleComparisonThreshold-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent(
+            "example.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let retained = makeCall(
+            sample: "AnimalA",
+            genotype: "01_Mafa_A1_001_01",
+            reads: 73
+        )
+        let removed = makeCall(
+            sample: "AnimalB",
+            genotype: "04_Mafa_B_001_01",
+            reads: 9
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [retained, removed]
+        ))
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        controller.testingShowSampleComparison()
+        controller.testingSelectSampleComparisonSource("AnimalB")
+        let workbench = controller.testingSampleWorkbenchIdentity
+        let editor = controller.testingManualHaplotypeEditorModelIdentity
+        let trailing = controller.testingSampleCurationTrailingModelIdentity
+        let comparison = controller.testingSampleComparisonModelIdentity
+        var state = controller.testingDisplayState
+        state.minimumReads = 20
+
+        controller.testingApplyDisplayStateImmediately(state)
+
+        XCTAssertEqual(controller.testingSampleCurationTrailingMode, .compareAndCopy)
+        XCTAssertEqual(controller.testingSampleWorkbenchIdentity, workbench)
+        XCTAssertEqual(controller.testingManualHaplotypeEditorModelIdentity, editor)
+        XCTAssertEqual(controller.testingSampleCurationTrailingModelIdentity, trailing)
+        XCTAssertEqual(controller.testingSampleComparisonModelIdentity, comparison)
+        XCTAssertEqual(
+            controller.testingSampleComparisonRowIDs,
+            controller.testingComparisonMatrix.testingVisibleRows.map(\.id)
+        )
+        XCTAssertEqual(controller.testingSampleComparisonRowIDs.count, 1)
+    }
+
+    func testSelectedSampleComparisonTracksManualRowAndSampleVisibilityWithoutRemountingModels()
+        throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "SampleComparisonVisibility-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent(
+            "example.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let first = makeCall(
+            sample: "AnimalA",
+            genotype: "01_Mafa_A1_001_01",
+            reads: 73
+        )
+        let second = makeCall(
+            sample: "AnimalB",
+            genotype: "04_Mafa_B_001_01",
+            reads: 41
+        )
+        let third = makeCall(
+            sample: "AnimalC",
+            genotype: "06_Mafa_I_001_01",
+            reads: 29
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [first, second, third]
+        ))
+        controller.testingSelectMatrixColumn(sample: "AnimalA")
+        controller.testingShowSampleComparison()
+        controller.testingSelectSampleComparisonSource("AnimalB")
+        let workbench = controller.testingSampleWorkbenchIdentity
+        let editor = controller.testingManualHaplotypeEditorModelIdentity
+        let trailing = controller.testingSampleCurationTrailingModelIdentity
+        let comparison = controller.testingSampleComparisonModelIdentity
+        let hiddenRow = try XCTUnwrap(
+            controller.testingComparisonMatrix.testingVisibleRows.last?.id
+        )
+
+        controller.testingComparisonMatrix.testingHideRows(Set([hiddenRow]))
+        controller.testingComparisonMatrix.testingHideSamples(Set(["AnimalC"]))
+
+        XCTAssertEqual(controller.testingSampleCurationTrailingMode, .compareAndCopy)
+        XCTAssertEqual(controller.testingSampleWorkbenchIdentity, workbench)
+        XCTAssertEqual(controller.testingManualHaplotypeEditorModelIdentity, editor)
+        XCTAssertEqual(controller.testingSampleCurationTrailingModelIdentity, trailing)
+        XCTAssertEqual(controller.testingSampleComparisonModelIdentity, comparison)
+        XCTAssertEqual(
+            controller.testingSampleComparisonRowIDs,
+            controller.testingComparisonMatrix.testingVisibleRows.map(\.id)
+        )
+        XCTAssertFalse(controller.testingSampleComparisonRowIDs.contains(hiddenRow))
+        XCTAssertFalse(controller.testingVisibleMatrixSamples.contains("AnimalC"))
+    }
+
     func testMultiRowSelectionPrunesHiddenNonAnchorAndAnchorRows() {
         let first = "01_Mafa_A1_KEEP_A"
         let second = "02_Mafa_A1_KEEP_B"

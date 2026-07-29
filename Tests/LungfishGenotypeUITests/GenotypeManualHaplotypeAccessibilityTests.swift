@@ -345,9 +345,11 @@ final class GenotypeManualHaplotypeAccessibilityTests: XCTestCase {
             },
             onExport: { exportCount += 1 }
         )
+        var compareCount = 0
         let host = makeGenotypeManualHaplotypeEditorHostingView(
             model: model,
-            typographyModel: .shared
+            typographyModel: .shared,
+            onCompareAndCopy: { compareCount += 1 }
         )
         host.frame = NSRect(x: 0, y: 0, width: 620, height: 1_600)
         let window = NSWindow(
@@ -362,10 +364,10 @@ final class GenotypeManualHaplotypeAccessibilityTests: XCTestCase {
         flush(host)
 
         let buttons = descendants(of: host).compactMap { $0 as? NSButton }
-        let copyButton = try XCTUnwrap(
+        let compareButton = try XCTUnwrap(
             buttons.first {
                 $0.accessibilityIdentifier()
-                    == "manual-haplotype-copy-picker"
+                    == "manual-haplotype-compare-copy"
             }
         )
         let exportButton = try XCTUnwrap(
@@ -381,36 +383,10 @@ final class GenotypeManualHaplotypeAccessibilityTests: XCTestCase {
         exportButton.performClick(nil)
         XCTAssertEqual(exportCount, 1)
 
-        let inlineHeight = host.fittingSize.height
-        let existingWindows = Set(NSApp.windows.map(ObjectIdentifier.init))
-        copyButton.performClick(nil)
-        let popoverWindow = try XCTUnwrap(
-            waitForWindow(excluding: existingWindows)
-        )
-        defer {
-            popoverWindow.close()
-            RunLoop.main.run(
-                until: Date(timeIntervalSinceNow: 0.08)
-            )
-        }
-        let popoverContent = try XCTUnwrap(popoverWindow.contentView)
-        XCTAssertNotEqual(popoverWindow, window)
-        XCTAssertEqual(host.fittingSize.height, inlineHeight, accuracy: 1)
-        XCTAssertNotNil(
-            descendants(of: popoverContent)
-                .compactMap { $0 as? NSTextField }
-                .first {
-                    $0.accessibilityIdentifier()
-                        == "manual-haplotype-copy-search"
-                }
-        )
-        model.copyAssignments(from: fixture.samples[1])
-        flush(host)
-        XCTAssertEqual(
-            model.draft[.a, .h1]?.label,
-            "MHC-A-Alpha",
-            "Copy must mutate the same draft rendered by the editor."
-        )
+        XCTAssertEqual(compareButton.title, "Compare & Copy…")
+        compareButton.performClick(nil)
+        XCTAssertEqual(compareCount, 1)
+        XCTAssertFalse(model.draft.isDirty)
         XCTAssertEqual(exportCount, 1)
     }
 

@@ -317,6 +317,8 @@ public final class GenotypeResultViewController: NSViewController {
         GenotypeManualHaplotypeEditorModel?
     private var sampleComparisonModel:
         GenotypeSampleComparisonModel?
+    private var sampleCurationTrailingModel:
+        GenotypeSampleCurationTrailingModel?
     private weak var manualHaplotypeEditorHostView: NSView?
     private var sampleCurationWorkbench:
         GenotypeSampleCurationWorkbenchView?
@@ -2599,7 +2601,14 @@ public final class GenotypeResultViewController: NSViewController {
             self?.showCandidateRow(row, sample: sample, matrixTargets: matrixTargets)
         }
         comparisonMatrix.onMatrixTargetsSelected = { [weak self] targets in
-            self?.showMatrixTargetSelection(targets)
+            guard let self else { return }
+            if self.currentSelectionState?.matrixTargets == targets,
+               self.sampleCurationWorkbench != nil,
+               self.sampleCurationTrailingModel != nil {
+                return
+            } else {
+                self.showMatrixTargetSelection(targets)
+            }
         }
         comparisonMatrix.onMatrixReviewRequested = { [weak self] request in
             self?.applyMatrixReview(request)
@@ -2617,6 +2626,9 @@ public final class GenotypeResultViewController: NSViewController {
             guard let self else { return }
             self.invalidateGenotypeSearchIndex()
             self.refreshVisibleFilterDependentViews()
+        }
+        comparisonMatrix.onVisibleProjectionChanged = { [weak self] in
+            self?.refreshSelectedSampleCurationEvidence()
         }
         comparisonMatrix.onMatrixVisibilityCapabilityChanged = { [weak self] capability in
             guard let self else { return }
@@ -3804,6 +3816,7 @@ public final class GenotypeResultViewController: NSViewController {
         currentSelectedSample = nil
         manualHaplotypeEditorModel = nil
         sampleComparisonModel = nil
+        sampleCurationTrailingModel = nil
         manualHaplotypeEditorHostView = nil
         alleleSequenceDetailWidthConstraint?.isActive = false
         alleleSequenceDetailWidthConstraint = nil
@@ -4053,6 +4066,7 @@ public final class GenotypeResultViewController: NSViewController {
         }
         manualHaplotypeEditorModel = nil
         sampleComparisonModel = nil
+        sampleCurationTrailingModel = nil
         manualHaplotypeEditorHostView = nil
         removeArrangedSubviews(from: detailStack)
         var stateRows: [(String, String)] = [
@@ -4240,8 +4254,30 @@ public final class GenotypeResultViewController: NSViewController {
             ),
         ])
 
+        guard let trailingModel = sampleCurationTrailingModel else {
+            showLegacySingleSampleColumnSelection(
+                sample: sample,
+                sampleRows: sampleRows,
+                snapshot: snapshot,
+                comments: comments
+            )
+            return
+        }
+        trailingModel.refreshEvidence(
+            target: snapshot,
+            comparisonTargetRows:
+                comparisonMatrix.visibleSampleEvidenceRows(
+                    sample: sample
+                ),
+            selectedSourceRows:
+                trailingModel.comparison.selectedSource.map {
+                    comparisonMatrix.visibleSampleEvidenceRows(sample: $0)
+                },
+            orderedVisibleRowIDs:
+                comparisonMatrix.visibleComparisonRowIDs
+        )
         let evidence = makeSampleEvidenceColumn(
-            snapshot: snapshot,
+            trailingModel: trailingModel,
             comments: comments
         )
         let workbench = GenotypeSampleCurationWorkbenchView(
@@ -4436,7 +4472,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func makeSampleEvidenceColumn(
-        snapshot: GenotypeSupportedAllelesSnapshot,
+        trailingModel: GenotypeSampleCurationTrailingModel,
         comments: [(String, String)]
     ) -> NSView {
         let evidence = NSStackView()
@@ -4448,12 +4484,9 @@ public final class GenotypeResultViewController: NSViewController {
             for: .horizontal
         )
 
-        let panel = NSHostingView(
-            rootView: GenotypeSupportedAllelesPanel(
-                snapshot: snapshot,
-                typographyModel:
-                    manualHaplotypeEditorTypographyModel
-            )
+        let panel = makeGenotypeSampleCurationTrailingHostingView(
+            model: trailingModel,
+            typographyModel: manualHaplotypeEditorTypographyModel
         )
         panel.identifier = Self.generatedContentHostingViewIdentifier
         panel.translatesAutoresizingMaskIntoConstraints = false
@@ -5891,13 +5924,15 @@ public final class GenotypeResultViewController: NSViewController {
             }
         )
         manualHaplotypeEditorModel = model
-        sampleComparisonModel = GenotypeSampleComparisonModel(
+        let comparisonModel = GenotypeSampleComparisonModel(
             targetSample: sample,
             targetRows:
                 comparisonMatrix.visibleSampleEvidenceRows(
                     sample: sample
                 ),
             candidates: model.copyCandidates,
+            orderedVisibleRowIDs:
+                comparisonMatrix.visibleComparisonRowIDs,
             rowsForSource: { [weak self] source in
                 self?.comparisonMatrix.visibleSampleEvidenceRows(
                     sample: source
@@ -5910,10 +5945,24 @@ public final class GenotypeResultViewController: NSViewController {
                 model?.copyAssignments(from: source)
             }
         )
+        sampleComparisonModel = comparisonModel
+        sampleCurationTrailingModel =
+            GenotypeSampleCurationTrailingModel(
+                evidenceSnapshot: supportedAllelesSnapshot(
+                    from:
+                        comparisonMatrix.visibleSampleAlleleDetails(
+                            sample: sample
+                        )
+                ),
+                comparison: comparisonModel
+            )
 
         let container = makeGenotypeManualHaplotypeEditorHostingView(
             model: model,
-            typographyModel: manualHaplotypeEditorTypographyModel
+            typographyModel: manualHaplotypeEditorTypographyModel,
+            onCompareAndCopy: { [weak self] in
+                self?.sampleCurationTrailingModel?.showCompareAndCopy()
+            }
         )
         container.identifier = Self.generatedContentHostingViewIdentifier
         container.translatesAutoresizingMaskIntoConstraints = false
@@ -5922,6 +5971,74 @@ public final class GenotypeResultViewController: NSViewController {
         )
         manualHaplotypeEditorHostView = container
         return container
+    }
+
+    private func refreshSelectedSampleCurationEvidence() {
+        guard let trailingModel = sampleCurationTrailingModel else {
+            return
+        }
+        let sample = trailingModel.comparison.targetSample
+        let snapshot = supportedAllelesSnapshot(
+            from:
+                comparisonMatrix.visibleSampleAlleleDetails(
+                    sample: sample
+                )
+        )
+        sampleSupportedAllelesSnapshot = snapshot
+        trailingModel.refreshEvidence(
+            target: snapshot,
+            comparisonTargetRows:
+                comparisonMatrix.visibleSampleEvidenceRows(
+                    sample: sample
+                ),
+            selectedSourceRows:
+                trailingModel.comparison.selectedSource.map {
+                    comparisonMatrix.visibleSampleEvidenceRows(sample: $0)
+                },
+            orderedVisibleRowIDs:
+                comparisonMatrix.visibleComparisonRowIDs
+        )
+        guard let targets = currentSelectionState?.matrixTargets,
+              targets == [.column(sample: sample)] else {
+            return
+        }
+        let summary = sampleResultsByName[sample]
+        var stateRows: [(String, String)] = [
+            ("Selection Type", "Column"),
+            ("Selected Sample", sample),
+            ("Sample", sample),
+        ]
+        if let summary {
+            stateRows += [
+                (
+                    "Retained Unique Reads",
+                    integer(summary.passedUniqueReads)
+                ),
+                (
+                    "Call-support check",
+                    callSupportCheck(
+                        for: sample,
+                        summary: summary
+                    ).title
+                ),
+            ]
+        }
+        for row in snapshot.rows {
+            stateRows += [
+                ("Allele", row.allele),
+                ("Read support", row.readSupport),
+            ]
+        }
+        stateRows += matrixCommentDetailRows(for: targets)
+        publishSelectionState(GenotypeResultSelectionState(
+            title: sample,
+            subtitle: "Sample column",
+            detailRows: stateRows,
+            highlightTarget: nil,
+            matrixTargets: targets
+        ))
+        sampleCurationWorkbench?.layoutSubtreeIfNeeded()
+        view.layoutSubtreeIfNeeded()
     }
 
     private func focusManualHaplotypeEditor(sample: String) {
@@ -8726,6 +8843,7 @@ public final class GenotypeResultViewController: NSViewController {
         sampleSupportedAllelesSnapshot = nil
         manualHaplotypeEditorModel = nil
         sampleComparisonModel = nil
+        sampleCurationTrailingModel = nil
         manualHaplotypeEditorHostView = nil
     }
 
@@ -9100,6 +9218,34 @@ extension GenotypeResultViewController {
     var testingManualHaplotypeEditorModelIdentity:
         ObjectIdentifier? {
         manualHaplotypeEditorModel.map(ObjectIdentifier.init)
+    }
+
+    var testingSampleCurationTrailingModelIdentity:
+        ObjectIdentifier? {
+        sampleCurationTrailingModel.map(ObjectIdentifier.init)
+    }
+
+    var testingSampleComparisonModelIdentity:
+        ObjectIdentifier? {
+        sampleComparisonModel.map(ObjectIdentifier.init)
+    }
+
+    var testingSampleCurationTrailingMode:
+        GenotypeSampleCurationTrailingModel.Mode? {
+        sampleCurationTrailingModel?.mode
+    }
+
+    func testingShowSampleComparison() {
+        sampleCurationTrailingModel?.showCompareAndCopy()
+    }
+
+    func testingSelectSampleComparisonSource(_ sample: String) {
+        sampleComparisonModel?.selectSource(sample)
+    }
+
+    var testingSampleComparisonRowIDs:
+        [GenotypeCandidateMatrixRowID] {
+        sampleComparisonModel?.comparisonRows.map(\.id) ?? []
     }
 
     var testingManualHaplotypeComboIdentities: [ObjectIdentifier] {

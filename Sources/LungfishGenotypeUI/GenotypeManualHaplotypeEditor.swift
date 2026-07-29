@@ -804,8 +804,8 @@ struct ManualHaplotypeLocusLayout: Layout {
 @MainActor
 struct GenotypeManualHaplotypeEditor: View {
     @ObservedObject var model: GenotypeManualHaplotypeEditorModel
-    @State private var showsCopyPopover = false
     var typographyModel: ContentTypographyModel = .shared
+    var onCompareAndCopy: () -> Void = {}
 
     private var headingFont: Font {
         typographyModel.font(for: .emphasizedBody)
@@ -932,17 +932,16 @@ struct GenotypeManualHaplotypeEditor: View {
             }
 
             HStack(spacing: 8) {
-                ManualHaplotypeCopyPickerButton(
-                    title: "Copy from Sample\u{2026}",
+                ManualHaplotypeActionButton(
+                    title: "Compare & Copy\u{2026}",
+                    accessibilityLabel:
+                        "Compare genotypes and copy haplotype assignments",
+                    accessibilityIdentifier:
+                        "manual-haplotype-compare-copy",
                     font: comboFieldFont,
                     isEnabled: !model.isReadOnly,
-                    isPresented: $showsCopyPopover
+                    action: onCompareAndCopy
                 )
-                .popover(isPresented: $showsCopyPopover) {
-                    copyPickerContents
-                        .frame(minWidth: 360, minHeight: 280)
-                        .padding(12)
-                }
 
                 ManualHaplotypeExportButton(
                     title: "Export All Haplotype Assignments\u{2026}",
@@ -1059,70 +1058,6 @@ struct GenotypeManualHaplotypeEditor: View {
         .help(slot.validationDescription ?? slot.accessibilityLabel)
     }
 
-    private var copyPickerContents: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Copy Haplotype Assignments")
-                .font(headingFont)
-                .accessibilityAddTraits(.isHeader)
-
-            if let empty = model.copyEmptyStateMessage {
-                Text(empty)
-                    .font(captionFont)
-                    .foregroundStyle(.secondary)
-            } else {
-                ManualHaplotypeCopySearchField(
-                    text: Binding(
-                        get: { model.copySearchText },
-                        set: { model.updateCopySearch($0) }
-                    ),
-                    font: typographyModel.resolvedNSFont(for: .body)
-                )
-                .frame(minHeight: ceil(comboFieldFont.pointSize + 10))
-
-                if model.filteredCopyCandidates.isEmpty {
-                    Text("No samples match this search.")
-                        .font(captionFont)
-                        .foregroundStyle(.secondary)
-                } else {
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 6) {
-                            ForEach(
-                                model.filteredCopyCandidates
-                            ) { candidate in
-                                Button {
-                                    model.copyAssignments(
-                                        from: candidate.sample
-                                    )
-                                    showsCopyPopover = false
-                                } label: {
-                                    VStack(
-                                        alignment: .leading,
-                                        spacing: 1
-                                    ) {
-                                        Text(candidate.sample)
-                                            .font(bodyFont)
-                                        Text(
-                                            "\(candidate.completenessSummary) \u{2022} \(candidate.compactSummary)"
-                                        )
-                                        .font(captionFont)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(2)
-                                    }
-                                }
-                                .buttonStyle(.plain)
-                                .disabled(model.isReadOnly)
-                                .accessibilityLabel(
-                                    candidate.accessibilityLabel
-                                )
-                            }
-                        }
-                    }
-                    .frame(maxHeight: 180)
-                }
-            }
-        }
-    }
-
     private func color(forTokenIndex index: Int) -> Color {
         let palette = HaplotypeColorToken.canonicalPalette
         let safeIndex = max(0, min(palette.count - 1, index))
@@ -1132,6 +1067,63 @@ struct GenotypeManualHaplotypeEditor: View {
             green: token.fillColor.green,
             blue: token.fillColor.blue
         )
+    }
+}
+
+@MainActor
+private struct ManualHaplotypeActionButton: NSViewRepresentable {
+    let title: String
+    let accessibilityLabel: String
+    let accessibilityIdentifier: String
+    let font: NSFont
+    let isEnabled: Bool
+    let action: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(action: action)
+    }
+
+    func makeNSView(context: Context) -> NSButton {
+        let button = NSButton(
+            title: title,
+            target: context.coordinator,
+            action: #selector(Coordinator.performAction)
+        )
+        button.bezelStyle = .rounded
+        button.controlSize = .small
+        configure(button, coordinator: context.coordinator)
+        return button
+    }
+
+    func updateNSView(_ button: NSButton, context: Context) {
+        configure(button, coordinator: context.coordinator)
+    }
+
+    private func configure(
+        _ button: NSButton,
+        coordinator: Coordinator
+    ) {
+        coordinator.action = action
+        button.title = title
+        button.font = font
+        button.isEnabled = isEnabled
+        button.setAccessibilityElement(true)
+        button.setAccessibilityRole(.button)
+        button.setAccessibilityLabel(accessibilityLabel)
+        button.setAccessibilityIdentifier(accessibilityIdentifier)
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        var action: () -> Void
+
+        init(action: @escaping () -> Void) {
+            self.action = action
+        }
+
+        @objc func performAction() {
+            action()
+        }
     }
 }
 
@@ -1304,12 +1296,14 @@ private struct ManualHaplotypeExportButton: NSViewRepresentable {
 @MainActor
 func makeGenotypeManualHaplotypeEditorHostingView(
     model: GenotypeManualHaplotypeEditorModel,
-    typographyModel: ContentTypographyModel
+    typographyModel: ContentTypographyModel,
+    onCompareAndCopy: @escaping () -> Void = {}
 ) -> NSHostingView<GenotypeManualHaplotypeEditor> {
     let host = NSHostingView(
         rootView: GenotypeManualHaplotypeEditor(
             model: model,
-            typographyModel: typographyModel
+            typographyModel: typographyModel,
+            onCompareAndCopy: onCompareAndCopy
         )
     )
     host.sizingOptions = [.intrinsicContentSize]

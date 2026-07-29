@@ -205,6 +205,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     var onSelectionCleared: (() -> Void)?
     var onDisplaySummaryChanged: ((Int, Int, Int) -> Void)?
     var onSearchProjectionChanged: (() -> Void)?
+    var onVisibleProjectionChanged: (() -> Void)?
     var onMatrixVisibilityCapabilityChanged:
         ((GenotypeMatrixVisibilityCapabilitySnapshot) -> Void)?
     var onManualHaplotypeTransitionPreflight:
@@ -2068,6 +2069,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         restoreSemanticScrollAnchor(semanticScrollAnchor)
         reconcileSelectionAfterFilter()
         onDisplaySummaryChanged?(visibleRows.count, totalRowCount, hiddenCellCount)
+        onVisibleProjectionChanged?()
 #if DEBUG
         testingVisibleSettlementGeneration &+= 1
         let settlementGeneration = testingVisibleSettlementGeneration
@@ -3608,6 +3610,10 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                     semantics.accessibilityLabel
             )
         }
+    }
+
+    var visibleComparisonRowIDs: [GenotypeCandidateMatrixRowID] {
+        visibleRows.map(\.id)
     }
 
     func sampleAlleleDetail(
@@ -7172,6 +7178,20 @@ extension GenotypeComparisonMatrixView {
 
     var testingVisibilityMutationCount: Int {
         testingVisibilityMutationPassCount
+    }
+
+    func testingHideRows(_ rowIDs: Set<GenotypeCandidateMatrixRowID>) {
+        _ = applyVisibilityState(
+            visibilityState.hidingRows(rowIDs),
+            announcement: "Selected rows hidden."
+        )
+    }
+
+    func testingHideSamples(_ samples: Set<String>) {
+        _ = applyVisibilityState(
+            visibilityState.hidingSamples(samples),
+            announcement: "Selected columns hidden."
+        )
     }
 
     var testingAccessibilityValueChangedNotificationCount: Int {

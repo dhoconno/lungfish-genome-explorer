@@ -72,6 +72,7 @@ final class GenotypeSampleComparisonModel: ObservableObject {
 
     private var targetRows: [GenotypeSampleEvidenceRow]
     private var selectedSourceRows: [GenotypeSampleEvidenceRow] = []
+    private var orderedVisibleRowIDs: [GenotypeCandidateMatrixRowID]?
     private let candidateRecords: [CandidateRecord]
     private let candidateSamples: Set<String>
     private let rowsForSource: (String) -> [GenotypeSampleEvidenceRow]
@@ -95,12 +96,14 @@ final class GenotypeSampleComparisonModel: ObservableObject {
         candidates: [
             GenotypeManualHaplotypeEditorModel.CopyCandidate
         ],
+        orderedVisibleRowIDs: [GenotypeCandidateMatrixRowID]? = nil,
         rowsForSource: @escaping (String) -> [GenotypeSampleEvidenceRow],
         isDraftDirty: @escaping () -> Bool,
         stageAssignments: @escaping (String) -> Void
     ) {
         self.targetSample = targetSample
         self.targetRows = targetRows
+        self.orderedVisibleRowIDs = orderedVisibleRowIDs
         self.rowsForSource = rowsForSource
         self.isDraftDirty = isDraftDirty
         self.stageAssignments = stageAssignments
@@ -200,6 +203,20 @@ final class GenotypeSampleComparisonModel: ObservableObject {
         rebuildComparison()
     }
 
+    func refreshTargetRows(
+        _ rows: [GenotypeSampleEvidenceRow],
+        selectedSourceRows refreshedSourceRows: [GenotypeSampleEvidenceRow]?,
+        orderedVisibleRowIDs: [GenotypeCandidateMatrixRowID]? = nil
+    ) {
+        targetRows = rows
+        if let orderedVisibleRowIDs {
+            self.orderedVisibleRowIDs = orderedVisibleRowIDs
+        }
+        selectedSourceRows =
+            selectedSource == nil ? [] : (refreshedSourceRows ?? [])
+        rebuildComparison()
+    }
+
     func saveCompleted() {
         stagedStatus = nil
     }
@@ -224,16 +241,18 @@ final class GenotypeSampleComparisonModel: ObservableObject {
         let targetIDs = Set(targetByID.keys)
         let sourceIDs = Set(sourceByID.keys)
         var seen = Set<GenotypeCandidateMatrixRowID>()
-        let orderedIDs =
-            targetRows.compactMap { row in
+        let comparisonIDs = targetIDs.union(sourceIDs)
+        let visibleOrder = (orderedVisibleRowIDs ?? []).compactMap {
+            comparisonIDs.contains($0) && seen.insert($0).inserted
+                ? $0
+                : nil
+        }
+        let orderedIDs = visibleOrder
+            + targetRows.compactMap { row in
                 seen.insert(row.id).inserted ? row.id : nil
             }
             + selectedSourceRows.compactMap { row in
-                guard !targetIDs.contains(row.id),
-                      seen.insert(row.id).inserted else {
-                    return nil
-                }
-                return row.id
+                seen.insert(row.id).inserted ? row.id : nil
             }
 
         comparisonRows = orderedIDs.compactMap { id in
