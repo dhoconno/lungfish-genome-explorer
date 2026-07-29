@@ -95,8 +95,9 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
         )
         defer {
             assert(
-                context.attempt.isFinalized,
-                "Valid-bundle workbook update attempt escaped without a terminal receipt."
+                context.attempt.isFinalized
+                    || context.attempt.hasPublicationFailure,
+                "Valid-bundle workbook update attempt escaped without a terminal publication attempt."
             )
         }
         do {
@@ -146,8 +147,9 @@ struct FastqUpdateCurrentWorkbookSubcommand: AsyncParsableCommand {
         )
         defer {
             assert(
-                context.attempt.isFinalized,
-                "Valid-bundle workbook update attempt escaped without a terminal receipt."
+                context.attempt.isFinalized
+                    || context.attempt.hasPublicationFailure,
+                "Valid-bundle workbook update attempt escaped without a terminal publication attempt."
             )
         }
         do {

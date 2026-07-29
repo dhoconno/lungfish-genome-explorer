@@ -45,6 +45,18 @@ public enum GenotypeWorkbookUpdateAttemptRecorderError:
     }
 }
 
+private struct GenotypeWorkbookUpdateAttemptRollbackError:
+    Error,
+    LocalizedError
+{
+    let path: String
+    let code: Int32
+
+    var errorDescription: String? {
+        "Could not remove an incomplete workbook update attempt terminal publication at \(path) (errno \(code))."
+    }
+}
+
 public struct GenotypeWorkbookUpdateAttemptRecorder: Sendable {
     private let dateProvider: @Sendable () -> Date
     private let uuidProvider: @Sendable () -> UUID
@@ -203,14 +215,20 @@ public final class GenotypeWorkbookUpdateAttemptHandle:
             return false
         }
     }
+    public var hasPublicationFailure: Bool {
+        lock.withLock { publicationFailureCount > 0 }
+    }
 
     private enum State {
         case recording
+        case publishing
+        case publicationFailed
         case finalized
     }
 
     private let lock = NSLock()
     private var state: State = .recording
+    private var publicationFailureCount = 0
     private let startedAt: Date
     private let argv: [String]
     private var attemptedInputPaths: [String]
@@ -339,7 +357,7 @@ public final class GenotypeWorkbookUpdateAttemptHandle:
                 throw GenotypeWorkbookUpdateAttemptRecorderError
                     .attemptAlreadyFinalized(attemptID)
             }
-            state = .finalized
+            state = .publishing
             return (
                 completedAt ?? dateProvider(),
                 attemptedInputPaths,
@@ -371,67 +389,121 @@ public final class GenotypeWorkbookUpdateAttemptHandle:
             stderr: Self.normalized(stderr),
             cleanupPendingWarning: Self.normalized(cleanupPendingWarning)
         )
-        let receiptURL = try atomicFileStore.create(
-            try ProvenanceJSON.encoder.encode(receipt),
-            named: "receipt.json",
-            in: directoryURL
-        )
-        let receiptDescriptor = try ProvenanceFileDescriptor.file(
-            url: receiptURL,
-            format: .json,
-            role: .output
-        )
-        let runtime = ProvenanceRuntimeIdentity(
-            appVersion:
-                snapshot.runtimeIdentity["appVersion"]
-                    ?? WorkflowRun.currentAppVersion,
-            executablePath:
-                snapshot.runtimeIdentity["executablePath"]
-                    ?? ProvenanceRuntimeIdentity.currentExecutablePath,
-            operatingSystemVersion:
-                snapshot.runtimeIdentity["operatingSystem"]
-                    ?? ProcessInfo.processInfo.operatingSystemVersionString,
-            architecture:
-                snapshot.runtimeIdentity["architecture"]
-                    ?? ProvenanceRuntimeIdentity.currentArchitecture,
-            gitRevision: snapshot.runtimeIdentity["gitRevision"],
-            condaEnvironment:
-                snapshot.runtimeIdentity["condaEnvironment"],
-            condaPrefix: snapshot.runtimeIdentity["condaPrefix"]
-        )
-        let options = ProvenanceOptions(
-            explicit: snapshot.resolvedOptions.mapValues {
-                ParameterValue.string($0)
+        var publishedNames: [String] = []
+        do {
+            let receiptURL = try atomicFileStore.create(
+                try ProvenanceJSON.encoder.encode(receipt),
+                named: "receipt.json",
+                in: directoryURL
+            )
+            publishedNames.append("receipt.json")
+            let receiptDescriptor = try ProvenanceFileDescriptor.file(
+                url: receiptURL,
+                format: .json,
+                role: .output
+            )
+            let runtime = ProvenanceRuntimeIdentity(
+                appVersion:
+                    snapshot.runtimeIdentity["appVersion"]
+                        ?? WorkflowRun.currentAppVersion,
+                executablePath:
+                    snapshot.runtimeIdentity["executablePath"]
+                        ?? ProvenanceRuntimeIdentity.currentExecutablePath,
+                operatingSystemVersion:
+                    snapshot.runtimeIdentity["operatingSystem"]
+                        ?? ProcessInfo.processInfo.operatingSystemVersionString,
+                architecture:
+                    snapshot.runtimeIdentity["architecture"]
+                        ?? ProvenanceRuntimeIdentity.currentArchitecture,
+                gitRevision: snapshot.runtimeIdentity["gitRevision"],
+                condaEnvironment:
+                    snapshot.runtimeIdentity["condaEnvironment"],
+                condaPrefix: snapshot.runtimeIdentity["condaPrefix"]
+            )
+            let options = ProvenanceOptions(
+                explicit: snapshot.resolvedOptions.mapValues {
+                    ParameterValue.string($0)
+                }
+            )
+            let envelope = ProvenanceEnvelope(
+                id: UUID(uuidString: attemptID) ?? UUID(),
+                createdAt: startedAt,
+                workflowName: "update-current-workbook attempt",
+                workflowVersion: WorkflowRun.currentAppVersion,
+                toolName: "lungfish-cli fastq update-current-workbook",
+                toolVersion: LungfishAppVersion.cliToolVersion,
+                tool: ProvenanceToolIdentity(
+                    name: "lungfish-cli fastq update-current-workbook",
+                    version: LungfishAppVersion.cliToolVersion,
+                    kind: "cli"
+                ),
+                argv: argv,
+                durableReplayArgv: argv,
+                reproducibleCommand: command,
+                options: options,
+                runtimeIdentity: runtime,
+                files: snapshot.inputs,
+                outputs: snapshot.outputs + [receiptDescriptor],
+                wallTimeSeconds: wallTime,
+                exitStatus: exitStatus,
+                stderr: Self.normalized(stderr)
+            )
+            _ = try atomicFileStore.create(
+                try ProvenanceJSON.encoder.encode(envelope),
+                named: "provenance.json",
+                in: directoryURL
+            )
+            publishedNames.append("provenance.json")
+            lock.withLock { state = .finalized }
+        } catch {
+            let publicationError = error
+            do {
+                try rollbackTerminalFiles(named: publishedNames)
+            } catch {
+                lock.withLock {
+                    publicationFailureCount += 1
+                    state = .publicationFailed
+                }
+                throw error
             }
+            lock.withLock {
+                publicationFailureCount += 1
+                state = .recording
+            }
+            throw publicationError
+        }
+    }
+
+    private func rollbackTerminalFiles(named names: [String]) throws {
+        guard !names.isEmpty else { return }
+        let directoryDescriptor = Darwin.open(
+            directoryURL.path,
+            O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
         )
-        let envelope = ProvenanceEnvelope(
-            id: UUID(uuidString: attemptID) ?? UUID(),
-            createdAt: startedAt,
-            workflowName: "update-current-workbook attempt",
-            workflowVersion: WorkflowRun.currentAppVersion,
-            toolName: "lungfish-cli fastq update-current-workbook",
-            toolVersion: LungfishAppVersion.cliToolVersion,
-            tool: ProvenanceToolIdentity(
-                name: "lungfish-cli fastq update-current-workbook",
-                version: LungfishAppVersion.cliToolVersion,
-                kind: "cli"
-            ),
-            argv: argv,
-            durableReplayArgv: argv,
-            reproducibleCommand: command,
-            options: options,
-            runtimeIdentity: runtime,
-            files: snapshot.inputs,
-            outputs: snapshot.outputs + [receiptDescriptor],
-            wallTimeSeconds: wallTime,
-            exitStatus: exitStatus,
-            stderr: Self.normalized(stderr)
-        )
-        _ = try atomicFileStore.create(
-            try ProvenanceJSON.encoder.encode(envelope),
-            named: "provenance.json",
-            in: directoryURL
-        )
+        guard directoryDescriptor >= 0 else {
+            throw GenotypeWorkbookUpdateAttemptRollbackError(
+                path: directoryURL.path,
+                code: errno
+            )
+        }
+        defer { Darwin.close(directoryDescriptor) }
+        for name in names.reversed() {
+            let status = name.withCString {
+                Darwin.unlinkat(directoryDescriptor, $0, 0)
+            }
+            guard status == 0 || errno == ENOENT else {
+                throw GenotypeWorkbookUpdateAttemptRollbackError(
+                    path: directoryURL.appendingPathComponent(name).path,
+                    code: errno
+                )
+            }
+        }
+        guard Darwin.fsync(directoryDescriptor) == 0 else {
+            throw GenotypeWorkbookUpdateAttemptRollbackError(
+                path: directoryURL.path,
+                code: errno
+            )
+        }
     }
 
     private func mutate(_ mutation: () -> Void) throws {

@@ -1,4 +1,6 @@
+import Darwin
 import Foundation
+import LungfishIO
 import XCTest
 @testable import LungfishWorkflow
 
@@ -114,6 +116,76 @@ final class GenotypeWorkbookUpdateAttemptRecorderTests: XCTestCase {
         }
     }
 
+    func testSecondPublicationFailureCannotLeaveSuccessfulTerminalReceipt() throws {
+        let bundle = try makeBundle()
+        defer {
+            try? FileManager.default.removeItem(
+                at: bundle.deletingLastPathComponent()
+            )
+        }
+        let publications = SendableIntegerCounter()
+        let store = DurableAtomicFileStore(
+            operations: .init(
+                renameExclusive: {
+                    sourceDirectory,
+                    source,
+                    destinationDirectory,
+                    destination,
+                    flags in
+                    if publications.incrementAndGet() == 2 {
+                        errno = EIO
+                        return -1
+                    }
+                    return Darwin.renameatx_np(
+                        sourceDirectory,
+                        source,
+                        destinationDirectory,
+                        destination,
+                        flags
+                    )
+                }
+            )
+        )
+        let handle = try GenotypeWorkbookUpdateAttemptRecorder(
+            atomicFileStore: store
+        ).begin(
+            bundleURL: bundle,
+            argv: ["lungfish-cli"]
+        )
+
+        XCTAssertThrowsError(try handle.finalize(exitStatus: 0))
+        XCTAssertFalse(handle.isFinalized)
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: handle.directoryURL
+                    .appendingPathComponent("receipt.json").path
+            )
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: handle.directoryURL
+                    .appendingPathComponent("provenance.json").path
+            )
+        )
+
+        try handle.finalize(
+            exitStatus: 1,
+            stderr: "terminal provenance publication failed"
+        )
+        let receipt = try ProvenanceJSON.decoder.decode(
+            GenotypeWorkbookUpdateAttemptReceipt.self,
+            from: Data(
+                contentsOf: handle.directoryURL
+                    .appendingPathComponent("receipt.json")
+            )
+        )
+        XCTAssertEqual(receipt.exitStatus, 1)
+        XCTAssertEqual(
+            receipt.stderr,
+            "terminal provenance publication failed"
+        )
+    }
+
     private func makeBundle() throws -> URL {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "WorkbookAttemptRecorderTests-\(UUID().uuidString)",
@@ -141,5 +213,17 @@ private final class SendableUUIDQueue: @unchecked Sendable {
 
     func removeFirst() -> UUID {
         lock.withLock { identifiers.removeFirst() }
+    }
+}
+
+private final class SendableIntegerCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+
+    func incrementAndGet() -> Int {
+        lock.withLock {
+            value += 1
+            return value
+        }
     }
 }

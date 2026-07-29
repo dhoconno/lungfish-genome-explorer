@@ -379,6 +379,22 @@ final class FastqGenotypingCommandTests: XCTestCase {
         )
         let callsURL = root.appendingPathComponent("calls.json")
         try Data("[]".utf8).write(to: callsURL)
+        let failingTransformPython = root.appendingPathComponent(
+            "probe-succeeds-transform-fails"
+        )
+        try Data(
+            """
+            #!/bin/sh
+            if [ "$1" = "-c" ]; then
+              exec "\(fixturePython.path)" "$@"
+            fi
+            exit 42
+            """.utf8
+        ).write(to: failingTransformPython)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: failingTransformPython.path
+        )
         let command = try FastqUpdateCurrentWorkbookSubcommand.parse([
             bundleURL.path,
             "--calls-json", callsURL.path,
@@ -386,7 +402,7 @@ final class FastqGenotypingCommandTests: XCTestCase {
 
         XCTAssertThrowsError(
             try command.runResolved(
-                pythonExecutableURL: URL(fileURLWithPath: "/usr/bin/false"),
+                pythonExecutableURL: failingTransformPython,
                 workbookAttestationRootURL: root.appendingPathComponent(
                     "attestations",
                     isDirectory: true
@@ -398,11 +414,17 @@ final class FastqGenotypingCommandTests: XCTestCase {
         XCTAssertEqual(receipt.exitStatus, 1)
         XCTAssertEqual(
             receipt.runtimeIdentity["pythonExecutable"],
-            "/usr/bin/false"
+            failingTransformPython.path
         )
         XCTAssertEqual(
             receipt.runtimeIdentity["condaEnvironment"],
             "openpyxl"
+        )
+        XCTAssertFalse(
+            try XCTUnwrap(receipt.runtimeIdentity["pythonVersion"]).isEmpty
+        )
+        XCTAssertFalse(
+            try XCTUnwrap(receipt.runtimeIdentity["openpyxlVersion"]).isEmpty
         )
         XCTAssertTrue(receipt.inputs.contains { $0.path == callsURL.path })
         XCTAssertTrue(receipt.inputs.contains {
