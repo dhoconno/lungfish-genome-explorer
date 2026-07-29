@@ -437,7 +437,8 @@ public struct GenotypeWorkbookRevisionService {
         fingerprintInputs: GenotypeWorkbookFingerprintInputs? = nil,
         provenanceContext: GenotypeWorkbookRevisionProvenanceContext? = nil,
         projectionMode:
-            GenotypeWorkbookHaplotypeProjectionMode = .haplotyped
+            GenotypeWorkbookHaplotypeProjectionMode = .haplotyped,
+        attempt: GenotypeWorkbookUpdateAttemptHandle? = nil
     ) throws -> GenotypeWorkbookRevisionOutcome {
         if fingerprintInputs != nil, !annotationOnly {
             throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
@@ -485,6 +486,10 @@ public struct GenotypeWorkbookRevisionService {
         }
         try recoverWorkbookRollbackFailureIfNeeded(for: bundle)
         try validateSourceBundleTree(bundle)
+        try attempt?.recordInputFile(
+            at: ONTGenotypeResultBundle.manifestURL(in: bundle),
+            format: .json
+        )
         let manifest = try ONTGenotypeResultBundle.loadManifest(from: bundle)
         if projectionMode == .manualGenotypeOnly {
             if case .ineligible(let reason) =
@@ -524,6 +529,7 @@ public struct GenotypeWorkbookRevisionService {
             sourceWorkbookURL = try ONTGenotypeResultBundle.primaryWorkbookURL(for: bundle)
         }
         try validateRegularBundleFile(sourceWorkbookURL, in: bundle, role: "workbook update source")
+        try attempt?.recordInputFile(at: sourceWorkbookURL)
         let annotationOnlyWorkbookRevision: ONTGenotypeWorkbookRevision?
         if annotationOnly {
             guard calls.isEmpty else {
@@ -601,6 +607,23 @@ public struct GenotypeWorkbookRevisionService {
             throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
                 "False-negative workbook updates require an attested reviewable-row catalog."
             )
+        }
+        if let reviewableRowCatalogInput {
+            try attempt?.recordInput(
+                ProvenanceFileDescriptor(
+                    path: reviewableRowCatalogInput.url.path,
+                    checksumSHA256:
+                        reviewableRowCatalogInput.witness.sha256,
+                    fileSize: UInt64(
+                        reviewableRowCatalogInput.witness.sizeBytes
+                    ),
+                    format: .json,
+                    role: .input
+                )
+            )
+        }
+        for scientificInput in workbookScientificInputs {
+            try attempt?.recordInputFile(at: scientificInput)
         }
         func requireCLIInputDescriptorsUnchanged() throws {
             for descriptor in provenanceContext?.cliInputDescriptors ?? [] {
@@ -750,6 +773,11 @@ public struct GenotypeWorkbookRevisionService {
         ]
         try checkCancellation()
         let executionRecord = try runPythonScript(scriptURL: scriptURL, arguments: scriptArguments)
+        try attempt?.recordRuntimeIdentity(
+            workbookAttemptRuntimeIdentity(
+                executionRecord: executionRecord
+            )
+        )
         try writeStagedFile(try encoder.encode(executionRecord), to: stagedRuntimeRecordURL)
         try validateWorkbook(patchedURL)
         let patchedWorkbookAttributes = try fileManager.attributesOfItem(
@@ -768,6 +796,11 @@ public struct GenotypeWorkbookRevisionService {
             try requireAnnotationSidecarUnchanged()
             try requireReviewableRowCatalogUnchanged()
             try requireWorkbookCSVProjectionUnchanged()
+            try recordWorkbookAttemptOutputs(
+                attempt,
+                manifest: manifest,
+                bundleURL: bundle
+            )
             return GenotypeWorkbookRevisionOutcome(
                 manifest: manifest,
                 cleanupPendingWarning: nil
@@ -1135,6 +1168,11 @@ public struct GenotypeWorkbookRevisionService {
                 ONTGenotypeResultBundleManifest.self,
                 from: revisedManifestData
             )
+            try recordWorkbookAttemptOutputs(
+                attempt,
+                manifest: committedManifest,
+                bundleURL: bundle
+            )
             do {
                 try ONTGenotypeWorkbookUpdateRecovery
                     .finalizeCommittedTransactionAssumingLock(
@@ -1425,6 +1463,57 @@ public struct GenotypeWorkbookRevisionService {
             stdout: out,
             stderr: err
         )
+    }
+
+    private func workbookAttemptRuntimeIdentity(
+        executionRecord: WorkbookOverrideExecutionRecord
+    ) -> [String: String] {
+        var identity = [
+            "pythonExecutable": executionRecord.executable,
+            "condaEnvironment": "openpyxl",
+            "condaPrefix": URL(fileURLWithPath: executionRecord.executable)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .path,
+        ]
+        if let data = executionRecord.stdout.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data)
+                as? [String: Any] {
+            if let pythonVersion = object["python_version"] as? String {
+                identity["pythonVersion"] = pythonVersion
+            }
+            if let openpyxlVersion = object["openpyxl_version"] as? String {
+                identity["openpyxlVersion"] = openpyxlVersion
+            }
+        }
+        return identity
+    }
+
+    private func recordWorkbookAttemptOutputs(
+        _ attempt: GenotypeWorkbookUpdateAttemptHandle?,
+        manifest: ONTGenotypeResultBundleManifest,
+        bundleURL: URL
+    ) throws {
+        guard let attempt else { return }
+        let manifestURL = ONTGenotypeResultBundle.manifestURL(in: bundleURL)
+        try attempt.recordOutputFile(at: manifestURL, format: .json)
+        if let currentPath = manifest.currentWorkbookPath {
+            try attempt.recordOutputFile(
+                at: ONTGenotypeResultBundle.resolvedURL(
+                    for: currentPath,
+                    in: bundleURL
+                )
+            )
+        }
+        if let provenancePath = manifest.workbookRevisions?.last?.provenancePath {
+            try attempt.recordOutputFile(
+                at: ONTGenotypeResultBundle.resolvedURL(
+                    for: provenancePath,
+                    in: bundleURL
+                ),
+                format: .json
+            )
+        }
     }
 
     private func loadAnnotationSidecarIfPresent(_ url: URL?) throws -> GenotypeAnnotationSidecar? {
