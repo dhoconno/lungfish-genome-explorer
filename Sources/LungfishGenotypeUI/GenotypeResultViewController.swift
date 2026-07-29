@@ -988,9 +988,11 @@ public final class GenotypeResultViewController: NSViewController {
         manualHaplotypeEligibility = GenotypeManualHaplotypeEligibility.evaluate(result)
         configureAvailableLensSegments()
         if case .eligible = manualHaplotypeEligibility {
+            // A newly viewed eligible bundle is collapsed. Only an existing
+            // window-owned, bundle-keyed presentation entry restores expansion.
             displayState.manualHaplotypeBandExpanded =
                 manualHaplotypeBandDisclosureStore?
-                    .expansion(for: result.bundleURL) ?? true
+                    .expansion(for: result.bundleURL) ?? false
         }
         hasHaplotypingResult = result.haplotypeAnalysis != nil
         quickFilterBar.configureSearchCapability(

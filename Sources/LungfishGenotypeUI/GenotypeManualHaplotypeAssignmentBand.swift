@@ -198,12 +198,37 @@ private final class GenotypeManualHaplotypeDisclosureButton: NSButton {
         performClick(nil)
         return true
     }
+
+    override func keyDown(with event: NSEvent) {
+        let characters = event.charactersIgnoringModifiers
+        if event.keyCode == 36
+            || event.keyCode == 76
+            || event.keyCode == 49
+            || characters == "\r"
+            || characters == "\n"
+            || characters == " " {
+            performClick(nil)
+            return
+        }
+        super.keyDown(with: event)
+    }
 }
 
 @MainActor
 final class GenotypeManualHaplotypePinnedBandView: NSView {
-    var font = NSFont.systemFont(ofSize: 11)
-    var rowHeight: CGFloat = 22
+    var font = NSFont.systemFont(ofSize: 11) {
+        didSet {
+            disclosureButton.font = font
+            needsLayout = true
+            needsDisplay = true
+        }
+    }
+    var rowHeight: CGFloat = 22 {
+        didSet {
+            needsLayout = true
+            needsDisplay = true
+        }
+    }
     var isExpanded = true {
         didSet {
             disclosureButton.state = isExpanded ? .on : .off
@@ -213,7 +238,7 @@ final class GenotypeManualHaplotypePinnedBandView: NSView {
     var onDisclosureChanged: ((Bool) -> Void)?
 
     private let disclosureButton = GenotypeManualHaplotypeDisclosureButton(
-        title: "Haplotype Assignments",
+        title: "Manual haplotypes (7 loci)",
         target: nil,
         action: nil
     )
@@ -228,12 +253,17 @@ final class GenotypeManualHaplotypePinnedBandView: NSView {
         disclosureButton.action = #selector(toggleDisclosure(_:))
         disclosureButton.setButtonType(.pushOnPushOff)
         disclosureButton.bezelStyle = .disclosure
+        disclosureButton.font = font
+        disclosureButton.cell?.lineBreakMode = .byWordWrapping
+        disclosureButton.cell?.usesSingleLineMode = false
         disclosureButton.state = .on
         disclosureButton.setAccessibilityElement(true)
         disclosureButton.setAccessibilityRole(.button)
-        disclosureButton.setAccessibilityLabel("Haplotype Assignments")
+        disclosureButton.setAccessibilityLabel(
+            "Manual haplotypes (7 loci)"
+        )
         disclosureButton.setAccessibilityHelp(
-            "Show or hide manual haplotype assignments."
+            "Shows seven locus-level manual haplotype assignment rows below the sample names."
         )
         disclosureButton.setAccessibilityIdentifier(
             "manual-haplotype-band-disclosure"
@@ -249,9 +279,9 @@ final class GenotypeManualHaplotypePinnedBandView: NSView {
         super.layout()
         disclosureButton.frame = NSRect(
             x: 6,
-            y: 1,
+            y: 0,
             width: max(0, bounds.width - 12),
-            height: rowHeight
+            height: min(rowHeight, bounds.height)
         )
     }
 

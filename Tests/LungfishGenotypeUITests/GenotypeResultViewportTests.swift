@@ -5972,6 +5972,7 @@ final class GenotypeResultViewportTests: XCTestCase {
             ),
             sidecar: sidecar
         )
+        matrix.testingSetManualHaplotypeBandDisclosureExpanded(true)
         matrix.layoutSubtreeIfNeeded()
 
         XCTAssertEqual(
@@ -6007,6 +6008,7 @@ final class GenotypeResultViewportTests: XCTestCase {
                 ]
             )
         )
+        matrix.testingSetManualHaplotypeBandDisclosureExpanded(true)
         matrix.layoutSubtreeIfNeeded()
 
         let snapshot = try XCTUnwrap(
@@ -6121,6 +6123,7 @@ final class GenotypeResultViewportTests: XCTestCase {
                 ]
             )
         )
+        matrix.testingSetManualHaplotypeBandDisclosureExpanded(true)
         matrix.layoutSubtreeIfNeeded()
 
         let header = try XCTUnwrap(
@@ -6157,6 +6160,8 @@ final class GenotypeResultViewportTests: XCTestCase {
             )
         )
         matrix.layoutSubtreeIfNeeded()
+        matrix.testingSetManualHaplotypeBandDisclosureExpanded(true)
+        matrix.layoutSubtreeIfNeeded()
         let expanded = try XCTUnwrap(
             matrix.testingFixedHeaderSnapshot(sample: "AnimalA")
         )
@@ -6171,6 +6176,94 @@ final class GenotypeResultViewportTests: XCTestCase {
                 - collapsed.totalNativeHeaderHeight,
             matrix.testingManualHaplotypeBandRowHeight * 7,
             accuracy: 0.5
+        )
+    }
+
+    func testCollapseRemovesSevenRowsAndPreservesSemanticViewportState()
+        throws
+    {
+        let samples = ["AnimalA", "AnimalB", "AnimalC", "AnimalD", "AnimalE"]
+        let calls = (0..<24).flatMap { row in
+            samples.enumerated().map { sampleIndex, sample in
+                makeCall(
+                    sample: sample,
+                    genotype: String(format: "%02d_Mafa_A1", row),
+                    reads: row + sampleIndex + 1
+                )
+            }
+        }
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.frame = NSRect(x: 0, y: 0, width: 560, height: 420)
+        matrix.configure(result: makeResult(samples: [], calls: calls))
+        matrix.testingSetManualHaplotypeBandDisclosureExpanded(true)
+        matrix.testingMoveSampleColumn(sample: "AnimalE", to: 0)
+        matrix.testingSetFilter("Mafa")
+        let sortKey = try XCTUnwrap(
+            matrix.testingSortKey(forSample: "AnimalC")
+        )
+        matrix.testingSetSortDescriptor(key: sortKey, ascending: false)
+        matrix.testingSelectMatrixTargets([
+            .cell(
+                locus: "MHC-A1",
+                genotype: "05_Mafa_A1",
+                sample: "AnimalB"
+            ),
+            .row(locus: "MHC-A1", genotype: "06_Mafa_A1"),
+        ])
+        matrix.layoutSubtreeIfNeeded()
+        matrix.testingSetContentScrollOrigins(
+            pinned: NSPoint(
+                x: 0,
+                y: matrix.testingMatrixRowHeight * 5 + 3
+            ),
+            samples: NSPoint(
+                x: 70,
+                y: matrix.testingMatrixRowHeight * 5 + 3
+            )
+        )
+        let expandedHeader = try XCTUnwrap(
+            matrix.testingFixedHeaderSnapshot(sample: "AnimalA")
+        )
+        let expectedAnchor = matrix.testingSemanticScrollAnchor
+        let expectedTargets = matrix.testingSelectedMatrixTargets
+        let expectedSamples = matrix.testingVisibleSampleColumnTitles
+        let expectedGenotypes = matrix.testingVisibleGenotypes
+        let expectedSort = matrix.testingActiveSortDescriptorKey
+        let expectedFilter = matrix.testingFilterModelText
+
+        matrix.testingSetManualHaplotypeBandDisclosureExpanded(false)
+        matrix.layoutSubtreeIfNeeded()
+
+        let collapsedHeader = try XCTUnwrap(
+            matrix.testingFixedHeaderSnapshot(sample: "AnimalA")
+        )
+        XCTAssertEqual(
+            expandedHeader.totalNativeHeaderHeight
+                - collapsedHeader.totalNativeHeaderHeight,
+            matrix.testingManualHaplotypeBandRowHeight * 7,
+            accuracy: 0.5
+        )
+        assertManualDisclosurePreservesViewport(
+            matrix,
+            anchor: expectedAnchor,
+            targets: expectedTargets,
+            samples: expectedSamples,
+            genotypes: expectedGenotypes,
+            sort: expectedSort,
+            filter: expectedFilter
+        )
+
+        matrix.testingSetManualHaplotypeBandDisclosureExpanded(true)
+        matrix.layoutSubtreeIfNeeded()
+
+        assertManualDisclosurePreservesViewport(
+            matrix,
+            anchor: expectedAnchor,
+            targets: expectedTargets,
+            samples: expectedSamples,
+            genotypes: expectedGenotypes,
+            sort: expectedSort,
+            filter: expectedFilter
         )
     }
 
@@ -6223,7 +6316,7 @@ final class GenotypeResultViewportTests: XCTestCase {
             )
         )
         matrix.layoutSubtreeIfNeeded()
-        XCTAssertTrue(matrix.testingManualHaplotypeBandIsExpanded)
+        XCTAssertFalse(matrix.testingManualHaplotypeBandIsExpanded)
         let baselineHeight = matrix.testingManualHaplotypeBandRowHeight
         let baselineFont = matrix.testingManualHaplotypeBandFontPointSize
 
@@ -6349,9 +6442,9 @@ final class GenotypeResultViewportTests: XCTestCase {
             )
         )
         firstController?
-            .testingSetManualHaplotypeBandDisclosureExpanded(false)
-        XCTAssertFalse(firstController?.testingDisplayState
-            .manualHaplotypeBandExpanded ?? true)
+            .testingSetManualHaplotypeBandDisclosureExpanded(true)
+        XCTAssertTrue(firstController?.testingDisplayState
+            .manualHaplotypeBandExpanded ?? false)
         firstController = nil
 
         let recreated = GenotypeResultViewController()
@@ -6370,7 +6463,7 @@ final class GenotypeResultViewportTests: XCTestCase {
                 ]
             )
         )
-        XCTAssertFalse(
+        XCTAssertTrue(
             recreated.testingDisplayState.manualHaplotypeBandExpanded
         )
 
@@ -6387,7 +6480,7 @@ final class GenotypeResultViewportTests: XCTestCase {
                 ]
             )
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             recreated.testingDisplayState.manualHaplotypeBandExpanded
         )
         recreated.configure(
@@ -6403,9 +6496,113 @@ final class GenotypeResultViewportTests: XCTestCase {
                 ]
             )
         )
+        XCTAssertTrue(
+            recreated.testingDisplayState.manualHaplotypeBandExpanded
+        )
+    }
+
+    func testNewBundleStartsCollapsedAndExpansionRemainsWindowBundlePresentationState()
+        throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "ManualHaplotypePresentation-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let firstBundle = root.appendingPathComponent(
+            "first.lungfishgenotype",
+            isDirectory: true
+        )
+        let secondBundle = root.appendingPathComponent(
+            "second.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: firstBundle,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: secondBundle,
+            withIntermediateDirectories: true
+        )
+        let annotationURL = firstBundle.appendingPathComponent(
+            "annotations.json"
+        )
+        let auditURL = firstBundle.appendingPathComponent("audit.jsonl")
+        let annotationSentinel = Data("annotation sentinel".utf8)
+        let auditSentinel = Data("audit sentinel".utf8)
+        try annotationSentinel.write(to: annotationURL)
+        try auditSentinel.write(to: auditURL)
+
+        let store = GenotypeManualHaplotypeBandDisclosureStore()
+        var controller: GenotypeResultViewController? =
+            GenotypeResultViewController()
+        controller?.manualHaplotypeBandDisclosureStore = store
+        _ = controller?.view
+        controller?.configure(
+            result: makeResult(
+                bundleURL: firstBundle,
+                samples: [],
+                calls: [
+                    makeCall(
+                        sample: "AnimalA",
+                        genotype: "01_Mafa_A1",
+                        reads: 42
+                    ),
+                ]
+            )
+        )
+        XCTAssertFalse(
+            controller?.testingDisplayState.manualHaplotypeBandExpanded
+                ?? true
+        )
+
+        controller?.testingSetManualHaplotypeBandDisclosureExpanded(true)
+        XCTAssertTrue(
+            controller?.testingDisplayState.manualHaplotypeBandExpanded
+                ?? false
+        )
+        controller = nil
+
+        let recreated = GenotypeResultViewController()
+        recreated.manualHaplotypeBandDisclosureStore = store
+        _ = recreated.view
+        recreated.configure(
+            result: makeResult(
+                bundleURL: firstBundle,
+                samples: [],
+                calls: [
+                    makeCall(
+                        sample: "AnimalA",
+                        genotype: "01_Mafa_A1",
+                        reads: 42
+                    ),
+                ]
+            )
+        )
+        XCTAssertTrue(
+            recreated.testingDisplayState.manualHaplotypeBandExpanded
+        )
+
+        recreated.configure(
+            result: makeResult(
+                bundleURL: secondBundle,
+                samples: [],
+                calls: [
+                    makeCall(
+                        sample: "AnimalB",
+                        genotype: "01_Mafa_A1",
+                        reads: 21
+                    ),
+                ]
+            )
+        )
         XCTAssertFalse(
             recreated.testingDisplayState.manualHaplotypeBandExpanded
         )
+        XCTAssertEqual(try Data(contentsOf: annotationURL), annotationSentinel)
+        XCTAssertEqual(try Data(contentsOf: auditURL), auditSentinel)
     }
 
     func testManualHaplotypeBandLeavesIneligibleAccessibilityAndScrollingUnchanged() {
@@ -6500,7 +6697,7 @@ final class GenotypeResultViewportTests: XCTestCase {
 
         XCTAssertEqual(
             matrix.testingManualHaplotypeBandDisclosureLabel,
-            "Haplotype Assignments"
+            "Manual haplotypes (7 loci)"
         )
         XCTAssertEqual(
             matrix.testingManualHaplotypeBandTooltip(
@@ -6548,6 +6745,7 @@ final class GenotypeResultViewportTests: XCTestCase {
             ),
             sidecar: sidecar
         )
+        matrix.testingSetManualHaplotypeBandDisclosureExpanded(true)
         matrix.layoutSubtreeIfNeeded()
 
         matrix.testingScrollSampleMatrix(
@@ -6754,6 +6952,7 @@ final class GenotypeResultViewportTests: XCTestCase {
             ),
             sidecar: sidecar
         )
+        matrix.testingSetManualHaplotypeBandDisclosureExpanded(true)
         matrix.layoutSubtreeIfNeeded()
 
         matrix.testingMoveSampleColumnThroughProductionCallback(
@@ -6812,6 +7011,7 @@ final class GenotypeResultViewportTests: XCTestCase {
             ),
             sidecar: sidecar
         )
+        matrix.testingSetManualHaplotypeBandDisclosureExpanded(true)
         matrix.layoutSubtreeIfNeeded()
         matrix.testingSetLeadingSampleScrollAnchor(
             sample: anchoredSample,
@@ -19156,6 +19356,75 @@ final class GenotypeResultViewportTests: XCTestCase {
         let dpSlot = try XCTUnwrap(controller.testingOutlineSlots(sample: "DW472").first { $0.locus == "MHC-DP" })
         XCTAssertEqual(dpSlot.h1.testingLabel, "?")
         XCTAssertTrue(dpSlot.h1.testingIsError)
+    }
+
+    private func assertManualDisclosurePreservesViewport(
+        _ matrix: GenotypeComparisonMatrixView,
+        anchor: GenotypeMatrixSemanticScrollSnapshot,
+        targets: [GenotypeAnnotationSidecar.MatrixTarget],
+        samples: [String],
+        genotypes: [String],
+        sort: String?,
+        filter: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(
+            matrix.testingSemanticScrollAnchor.rowID,
+            anchor.rowID,
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            matrix.testingSemanticScrollAnchor.withinRowOffset,
+            anchor.withinRowOffset,
+            accuracy: 0.01,
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            matrix.testingSemanticScrollAnchor.leadingSampleID,
+            anchor.leadingSampleID,
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            matrix.testingSemanticScrollAnchor.withinSampleOffset,
+            anchor.withinSampleOffset,
+            accuracy: 0.01,
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            matrix.testingSelectedMatrixTargets,
+            targets,
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            matrix.testingVisibleSampleColumnTitles,
+            samples,
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            matrix.testingVisibleGenotypes,
+            genotypes,
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            matrix.testingActiveSortDescriptorKey,
+            sort,
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            matrix.testingFilterModelText,
+            filter,
+            file: file,
+            line: line
+        )
     }
 
     private func makeResult(

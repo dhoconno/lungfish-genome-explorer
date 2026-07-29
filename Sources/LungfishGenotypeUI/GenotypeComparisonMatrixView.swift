@@ -529,8 +529,17 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         let previousState = displayState
         let previousSamples = activeSampleNames()
         let previousEffectiveCandidateSettings = effectiveCandidateDisplaySettings
+        let manualHaplotypeAnchor =
+            state.manualHaplotypeBandExpanded
+                != previousState.manualHaplotypeBandExpanded
+                ? captureSemanticScrollAnchor()
+                : nil
         displayState = state
         applyManualHaplotypeBandPresentation()
+        if manualHaplotypeAnchor != nil {
+            layoutSubtreeIfNeeded()
+            restoreSemanticScrollAnchor(manualHaplotypeAnchor)
+        }
         let nextEffectiveCandidateSettings = effectiveCandidateDisplaySettings
         let candidateVisibilityDidChange = candidateVisibilityChanged(
             from: previousEffectiveCandidateSettings,
@@ -972,8 +981,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         manualHaplotypePinnedBand.isHidden = true
         manualHaplotypePinnedBand.onDisclosureChanged = { [weak self] expanded in
             guard let self else { return }
-            self.displayState.manualHaplotypeBandExpanded = expanded
-            self.applyManualHaplotypeBandPresentation()
+            self.setManualHaplotypeBandExpandedPreservingViewport(expanded)
             self.onManualHaplotypeBandExpansionChanged?(expanded)
         }
         manualHaplotypeSampleBand.isHidden = true
@@ -4754,6 +4762,19 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         needsLayout = true
     }
 
+    private func setManualHaplotypeBandExpandedPreservingViewport(
+        _ expanded: Bool
+    ) {
+        guard displayState.manualHaplotypeBandExpanded != expanded else {
+            return
+        }
+        let anchor = captureSemanticScrollAnchor()
+        displayState.manualHaplotypeBandExpanded = expanded
+        applyManualHaplotypeBandPresentation()
+        layoutSubtreeIfNeeded()
+        restoreSemanticScrollAnchor(anchor)
+    }
+
     private func manualHaplotypeHeaderLayout(
         ordinaryHeight: CGFloat
     ) -> GenotypeManualHaplotypeHeaderLayout {
@@ -6538,8 +6559,7 @@ extension GenotypeComparisonMatrixView {
     func testingSetManualHaplotypeBandDisclosureExpanded(
         _ expanded: Bool
     ) {
-        displayState.manualHaplotypeBandExpanded = expanded
-        applyManualHaplotypeBandPresentation()
+        setManualHaplotypeBandExpandedPreservingViewport(expanded)
         onManualHaplotypeBandExpansionChanged?(expanded)
     }
 

@@ -128,9 +128,9 @@ public struct GenotypeResultDisplayState: Equatable {
     public var matrixRowFilterText: String = ""
     public var matrixSampleFilterText: String = ""
     /// Whether the manual haplotype summary band below matrix sample headers
-    /// is expanded. This presentation-only value is persisted with the
-    /// project/window display state.
-    public var manualHaplotypeBandExpanded: Bool = true
+    /// is expanded. This presentation-only value defaults to collapsed and is
+    /// restored only from an existing window-owned, bundle-keyed entry.
+    public var manualHaplotypeBandExpanded: Bool = false
     /// Optional live override for the bundle-scoped candidate viewport settings.
     /// `nil` preserves the settings loaded from this result bundle's annotation
     /// sidecar. Full-length MHC controls use this while an edit is being applied.
@@ -158,7 +158,7 @@ public struct GenotypeResultDisplayState: Equatable {
         matrixPercentDenominator: ONTGenotypeSupportDenominator = .viewedLocus,
         matrixRowFilterText: String = "",
         matrixSampleFilterText: String = "",
-        manualHaplotypeBandExpanded: Bool = true,
+        manualHaplotypeBandExpanded: Bool = false,
         mhcCandidateDisplaySettings: ONTMHCCandidateDisplaySettings? = nil,
         cohortFlagThreshold: Int = 5_000
     ) {

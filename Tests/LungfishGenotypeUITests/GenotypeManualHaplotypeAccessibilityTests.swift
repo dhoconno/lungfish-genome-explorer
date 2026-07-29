@@ -8,6 +8,32 @@ import LungfishKit
 
 @MainActor
 final class GenotypeManualHaplotypeAccessibilityTests: XCTestCase {
+    func testDisclosureNamesManualHaplotypesSevenLociAndExplainsRows()
+        throws
+    {
+        let view = GenotypeManualHaplotypePinnedBandView(
+            frame: NSRect(x: 0, y: 0, width: 360, height: 176)
+        )
+        let button = try XCTUnwrap(
+            view.subviews.compactMap { $0 as? NSButton }.first
+        )
+
+        XCTAssertEqual(button.title, "Manual haplotypes (7 loci)")
+        XCTAssertEqual(
+            button.accessibilityLabel(),
+            "Manual haplotypes (7 loci)"
+        )
+        XCTAssertEqual(
+            button.accessibilityHelp(),
+            "Shows seven locus-level manual haplotype assignment rows below the sample names."
+        )
+        XCTAssertEqual(
+            view.subviews.filter { $0.isAccessibilityElement() }.count,
+            1,
+            "The disclosure triangle and label must form one hit and focus target."
+        )
+    }
+
     func testDisclosureIsKeyboardFocusableAndAccessibilityOperable() throws {
         let view = GenotypeManualHaplotypePinnedBandView(
             frame: NSRect(x: 0, y: 0, width: 360, height: 176)
@@ -31,7 +57,10 @@ final class GenotypeManualHaplotypeAccessibilityTests: XCTestCase {
             "manual-haplotype-band-disclosure"
         )
         XCTAssertEqual(button.accessibilityRole(), .button)
-        XCTAssertEqual(button.accessibilityLabel(), "Haplotype Assignments")
+        XCTAssertEqual(
+            button.accessibilityLabel(),
+            "Manual haplotypes (7 loci)"
+        )
         XCTAssertEqual(button.state, .on)
         XCTAssertEqual(button.isAccessibilityExpanded(), true)
         XCTAssertEqual(
@@ -49,6 +78,59 @@ final class GenotypeManualHaplotypeAccessibilityTests: XCTestCase {
         XCTAssertEqual(
             (button.accessibilityValue() as? NSNumber)?.boolValue,
             false
+        )
+    }
+
+    func testDisclosureRespondsToSpaceReturnAndAccessibilityPress() throws {
+        let view = GenotypeManualHaplotypePinnedBandView(
+            frame: NSRect(x: 0, y: 0, width: 360, height: 176)
+        )
+        let window = NSWindow(
+            contentRect: view.frame,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = view
+        view.layoutSubtreeIfNeeded()
+        let button = try XCTUnwrap(
+            view.subviews.compactMap { $0 as? NSButton }.first
+        )
+        XCTAssertTrue(window.makeFirstResponder(button))
+
+        button.keyDown(withCharacters: " ", keyCode: 49, in: window)
+        XCTAssertEqual(button.state, .off)
+
+        button.keyDown(withCharacters: "\r", keyCode: 36, in: window)
+        XCTAssertEqual(button.state, .on)
+
+        XCTAssertTrue(button.accessibilityPerformPress())
+        XCTAssertEqual(button.state, .off)
+    }
+
+    func testDisclosureLabelWrapsAtTwoHundredPercentTextWithoutClipping()
+        throws
+    {
+        let view = GenotypeManualHaplotypePinnedBandView(
+            frame: NSRect(x: 0, y: 0, width: 280, height: 68)
+        )
+        view.font = .systemFont(ofSize: 26)
+        view.rowHeight = 68
+        view.layoutSubtreeIfNeeded()
+        let button = try XCTUnwrap(
+            view.subviews.compactMap { $0 as? NSButton }.first
+        )
+
+        XCTAssertEqual(button.cell?.lineBreakMode, .byWordWrapping)
+        XCTAssertFalse(button.cell?.usesSingleLineMode ?? true)
+        XCTAssertEqual(
+            try XCTUnwrap(button.font).pointSize,
+            26,
+            accuracy: 0.1
+        )
+        XCTAssertLessThanOrEqual(
+            button.cell?.cellSize(forBounds: button.bounds).height ?? .greatestFiniteMagnitude,
+            button.bounds.height
         )
     }
 
@@ -433,4 +515,29 @@ final class GenotypeManualHaplotypeAccessibilityTests: XCTestCase {
         return nil
     }
 
+}
+
+private extension NSButton {
+    func keyDown(
+        withCharacters characters: String,
+        keyCode: UInt16,
+        in window: NSWindow
+    ) {
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: characters,
+            isARepeat: false,
+            keyCode: keyCode
+        ) else {
+            XCTFail("Could not construct keyboard event")
+            return
+        }
+        keyDown(with: event)
+    }
 }
