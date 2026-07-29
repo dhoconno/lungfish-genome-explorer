@@ -303,6 +303,11 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
         XCTAssertEqual(item.state, .failed)
         XCTAssertTrue(item.outputURLs.isEmpty)
         XCTAssertTrue(item.errorDetail?.contains("payload") == true)
+        XCTAssertEqual(
+            try retainedInputSnapshots(in: bundleURL).count,
+            1,
+            "An exit-0 CLI result may already have committed the workbook, so its immutable provenance inputs must remain."
+        )
     }
 
     func testSuccessPayloadMissingHistoricalPathFailsOperationWithoutOpeningWorkbook() async throws {
@@ -410,6 +415,11 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
             let item = try XCTUnwrap(operationCenter.items.first)
             XCTAssertEqual(item.state, .failed, "\(invalidCase)")
             XCTAssertTrue(item.outputURLs.isEmpty, "\(invalidCase)")
+            XCTAssertEqual(
+                try retainedInputSnapshots(in: bundleURL).count,
+                1,
+                "\(invalidCase)"
+            )
         }
     }
 
@@ -869,6 +879,17 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
         )
         try Data("workbook".utf8).write(to: workbookURL)
         try Data("{}".utf8).write(to: canonicalManifestURL(for: bundleURL))
+    }
+
+    private func retainedInputSnapshots(in bundleURL: URL) throws -> [URL] {
+        let updatesURL = bundleURL
+            .appendingPathComponent("artifacts", isDirectory: true)
+            .appendingPathComponent("workbooks", isDirectory: true)
+            .appendingPathComponent("updates", isDirectory: true)
+        return try FileManager.default.contentsOfDirectory(
+            at: updatesURL,
+            includingPropertiesForKeys: nil
+        ).filter { $0.hasDirectoryPath }
     }
 
     private func canonicalWorkbookURL(for bundleURL: URL) -> URL {

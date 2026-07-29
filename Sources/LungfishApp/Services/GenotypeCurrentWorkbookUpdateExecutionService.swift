@@ -17,6 +17,8 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
     private let processRunner: LocalWorkflowCLIProcessRunning
     private let inputPreparationObserver:
         (@Sendable (GenotypeCurrentWorkbookInputPreparationEvent) throws -> Void)?
+    private let postPayloadValidationObserver:
+        (@MainActor @Sendable (URL) throws -> Void)?
     private let stagingDirectoryOpener: @Sendable (Int32, String) -> Int32
 
     init(
@@ -24,6 +26,8 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
         processRunner: LocalWorkflowCLIProcessRunning = ProcessLocalWorkflowCLIProcessRunner(),
         inputPreparationObserver:
             (@Sendable (GenotypeCurrentWorkbookInputPreparationEvent) throws -> Void)? = nil,
+        postPayloadValidationObserver:
+            (@MainActor @Sendable (URL) throws -> Void)? = nil,
         stagingDirectoryOpener: @escaping @Sendable (Int32, String) -> Int32 = {
             parentDescriptor, name in
             name.withCString {
@@ -38,6 +42,7 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
         self.operationCenter = operationCenter
         self.processRunner = processRunner
         self.inputPreparationObserver = inputPreparationObserver
+        self.postPayloadValidationObserver = postPayloadValidationObserver
         self.stagingDirectoryOpener = stagingDirectoryOpener
     }
 
@@ -103,6 +108,7 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
             operationCenter.log(id: operationID, level: .info, message: "Annotations: \(annotationSidecarURL.path)")
         }
 
+        var receivedSuccessfulProcessResult = false
         do {
             let result = try await processRunner.runLungfishCLI(
                 arguments: arguments,
@@ -125,16 +131,27 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
                 )
                 throw LocalWorkflowExecutionError.nonZeroExit(result.exitCode)
             }
-            let payload = try await Task.detached(priority: .utility) {
+            // An exit-0 command may already have committed the workbook even
+            // when app-side payload validation subsequently fails. Its
+            // immutable inputs are therefore durable provenance, not scratch.
+            receivedSuccessfulProcessResult = true
+            let validatedResult = try await Task.detached(priority: .utility) {
                 try Self.decodeAndValidateSuccessPayload(
                     from: result.standardOutput,
-                    requestedBundleURL: bundle
+                    requestedBundleURL: bundle,
+                    prepareImmutableOpenHandoff:
+                        syncIntent == .updateAndView
                 )
             }.value
+            let payload = validatedResult.payload
             let currentWorkbookURL = URL(
                 fileURLWithPath: payload.currentWorkbookPath,
                 isDirectory: false
             ).standardizedFileURL
+            try postPayloadValidationObserver?(currentWorkbookURL)
+            if let handoff = validatedResult.openHandoff {
+                GenotypeCurrentWorkbookOpenHandoffRegistry.register(handoff)
+            }
             if payload.cleanupPending {
                 operationCenter.log(
                     id: operationID,
@@ -155,16 +172,18 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
             )
             return currentWorkbookURL
         } catch {
-            do {
-                try await Task.detached(priority: .utility) {
-                    try Self.removeInputSnapshot(snapshot)
-                }.value
-            } catch let cleanupError {
-                operationCenter.log(
-                    id: operationID,
-                    level: .warning,
-                    message: "Could not remove failed current-workbook input snapshot: \(cleanupError.localizedDescription)"
-                )
+            if !receivedSuccessfulProcessResult {
+                do {
+                    try await Task.detached(priority: .utility) {
+                        try Self.removeInputSnapshot(snapshot)
+                    }.value
+                } catch let cleanupError {
+                    operationCenter.log(
+                        id: operationID,
+                        level: .warning,
+                        message: "Could not remove failed current-workbook input snapshot: \(cleanupError.localizedDescription)"
+                    )
+                }
             }
             if operationCenter.items.first(where: { $0.id == operationID })?.state == .running {
                 _ = operationCenter.fail(
@@ -686,8 +705,9 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
 
     private nonisolated static func decodeAndValidateSuccessPayload(
         from standardOutput: String,
-        requestedBundleURL: URL
-    ) throws -> FastqUpdateCurrentWorkbookPayload {
+        requestedBundleURL: URL,
+        prepareImmutableOpenHandoff: Bool
+    ) throws -> ValidatedFastqUpdateCurrentWorkbookPayload {
         let payload = try decodeSuccessPayload(from: standardOutput)
         let requestedBundle = requestedBundleURL.standardizedFileURL
         let canonicalWorkbook = requestedBundle
@@ -720,10 +740,15 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
             )
         }
 
-        try validateCanonicalOutputEntriesNoFollow(
-            requestedBundleURL: requestedBundle
+        let openHandoff = try validateCanonicalOutputEntriesNoFollow(
+            requestedBundleURL: requestedBundle,
+            canonicalWorkbookURL: canonicalWorkbook,
+            prepareImmutableOpenHandoff: prepareImmutableOpenHandoff
         )
-        return payload
+        return ValidatedFastqUpdateCurrentWorkbookPayload(
+            payload: payload,
+            openHandoff: openHandoff
+        )
     }
 
     private nonisolated static func decodeSuccessPayload(
@@ -767,8 +792,10 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
     }
 
     private nonisolated static func validateCanonicalOutputEntriesNoFollow(
-        requestedBundleURL: URL
-    ) throws {
+        requestedBundleURL: URL,
+        canonicalWorkbookURL: URL,
+        prepareImmutableOpenHandoff: Bool
+    ) throws -> GenotypeCurrentWorkbookOpenHandoff? {
         let rootDescriptor = Darwin.open(
             requestedBundleURL.path,
             O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
@@ -815,12 +842,18 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
             ownedDirectoryDescriptors.append(descriptor)
             parentDescriptor = descriptor
         }
-        try validateRegularFileNoFollow(
+        let workbookDescriptor = try openRegularFileNoFollow(
             named: "current.xlsx",
             parentDescriptor: parentDescriptor,
-            displayPath: displayDirectory
-                .appendingPathComponent("current.xlsx", isDirectory: false)
-                .path
+            displayPath: canonicalWorkbookURL.path
+        )
+        defer { Darwin.close(workbookDescriptor) }
+        guard prepareImmutableOpenHandoff else {
+            return nil
+        }
+        return try GenotypeCurrentWorkbookOpenHandoff.make(
+            borrowing: workbookDescriptor,
+            canonicalURL: canonicalWorkbookURL
         )
     }
 
@@ -829,6 +862,19 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
         parentDescriptor: Int32,
         displayPath: String
     ) throws {
+        let descriptor = try openRegularFileNoFollow(
+            named: name,
+            parentDescriptor: parentDescriptor,
+            displayPath: displayPath
+        )
+        Darwin.close(descriptor)
+    }
+
+    private nonisolated static func openRegularFileNoFollow(
+        named name: String,
+        parentDescriptor: Int32,
+        displayPath: String
+    ) throws -> Int32 {
         let descriptor = name.withCString {
             Darwin.openat(
                 parentDescriptor,
@@ -842,16 +888,17 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
                 reason: "the output is unavailable or is a symbolic link"
             )
         }
-        defer { Darwin.close(descriptor) }
 
         var metadata = stat()
         guard Darwin.fstat(descriptor, &metadata) == 0,
               metadata.st_mode & S_IFMT == S_IFREG else {
+            Darwin.close(descriptor)
             throw outputValidationError(
                 entry: displayPath,
                 reason: "the output is not a regular file"
             )
         }
+        return descriptor
     }
 
     private nonisolated static func outputValidationError(
@@ -974,6 +1021,11 @@ private struct FastqUpdateCurrentWorkbookPayload: Decodable, Sendable {
         ) ?? false
         warning = try container.decodeIfPresent(String.self, forKey: .warning)
     }
+}
+
+private struct ValidatedFastqUpdateCurrentWorkbookPayload: Sendable {
+    let payload: FastqUpdateCurrentWorkbookPayload
+    let openHandoff: GenotypeCurrentWorkbookOpenHandoff?
 }
 
 private struct GenotypeCurrentWorkbookUpdatePayloadError:
