@@ -1814,9 +1814,15 @@ enum ONTGenotypeWorkbookCleanupStateStore {
             // There is intentionally no injected callback, actor hop, or
             // allocation between these final descriptor/path witnesses and
             // the name-based unlink syscall.
-            let removeStatus = retryOnInterruption {
-                Darwin.unlinkat(descriptor, detachedName, 0)
-            }
+            // Do not retry EINTR here. A retry would be a second name-based
+            // removal after the final witness and could target a replacement.
+            // An interrupted result is therefore retained as cleanup-pending
+            // uncertainty for a newly witnessed recovery attempt.
+            let removeStatus = Darwin.unlinkat(
+                descriptor,
+                detachedName,
+                0
+            )
             guard removeStatus == 0 else {
                 let code = errno
                 throw CleanupTraversalError(

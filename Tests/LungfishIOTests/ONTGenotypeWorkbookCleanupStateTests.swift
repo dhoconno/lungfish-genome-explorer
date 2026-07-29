@@ -31,7 +31,7 @@ final class ONTGenotypeWorkbookCleanupStateTests: XCTestCase {
         )
     }
 
-    func testFallbackCleanupAcceptsOnlyWitnessedZeroByteRegularFileInodeRebase() {
+    func testFallbackCleanupAcceptsOnlyWitnessedZeroByteRegularFileInodeRebase() throws {
         let before = snapshot(inode: 101, type: mode_t(S_IFREG), size: 0)
         let post = snapshot(inode: 202, type: mode_t(S_IFREG), size: 0)
 
@@ -65,9 +65,29 @@ final class ONTGenotypeWorkbookCleanupStateTests: XCTestCase {
             ),
             .reject
         )
+
+        let fixture = try directoryFixture(fileContents: Data())
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let receivedBorrowedWitness = LockedFlag()
+        let operations = forcedFallbackOperations { witness in
+            receivedBorrowedWitness.value = witness != nil
+        }
+
+        try ONTGenotypeWorkbookCleanupStateStore
+            .removeContentsNoFollowForTesting(
+                at: fixture.directory,
+                cleanupOperations: operations
+            )
+
+        XCTAssertTrue(receivedBorrowedWitness.value)
+        XCTAssertTrue(
+            try FileManager.default.contentsOfDirectory(
+                atPath: fixture.directory.path
+            ).isEmpty
+        )
     }
 
-    func testFallbackCleanupRejectsNonzeroRegularFileInodeRebase() {
+    func testFallbackCleanupRejectsNonzeroRegularFileInodeRebase() throws {
         let before = snapshot(inode: 101, type: mode_t(S_IFREG), size: 7)
         let post = snapshot(inode: 202, type: mode_t(S_IFREG), size: 7)
 
@@ -81,9 +101,64 @@ final class ONTGenotypeWorkbookCleanupStateTests: XCTestCase {
             ),
             .reject
         )
+
+        let bytes = Data("nonzero".utf8)
+        let fixture = try directoryFixture(fileContents: bytes)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let held = fixture.root.appendingPathComponent("held-nonzero")
+        let swapped = LockedFlag()
+        var operations = ONTGenotypeWorkbookCleanupOperations.darwin
+        operations.renameExclusive = {
+            sourceParent,
+            source,
+            destinationParent,
+            destination,
+            flags,
+            witness in
+            let sourceName = String(cString: source)
+            var renameOperations = PortableExclusiveRename.Operations()
+            renameOperations.nativeRename = { _, _, _, _, _ in
+                errno = ENOTSUP
+                return -1
+            }
+            renameOperations.afterFinalWitnessValidation = {
+                guard !swapped.value else { return }
+                swapped.value = true
+                let sourceURL = fixture.directory.appendingPathComponent(
+                    sourceName
+                )
+                try? FileManager.default.moveItem(at: sourceURL, to: held)
+                try? bytes.write(to: sourceURL)
+            }
+            return PortableExclusiveRename.renameatxNPReporting(
+                sourceParent,
+                source,
+                destinationParent,
+                destination,
+                flags,
+                sourceWitness: witness,
+                operations: renameOperations
+            )
+        }
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookCleanupStateStore
+                .removeContentsNoFollowForTesting(
+                    at: fixture.directory,
+                    cleanupOperations: operations
+                )
+        )
+
+        XCTAssertEqual(try Data(contentsOf: held), bytes)
+        let preserved = try FileManager.default.contentsOfDirectory(
+            at: fixture.directory,
+            includingPropertiesForKeys: nil
+        )
+        XCTAssertEqual(preserved.count, 1)
+        XCTAssertEqual(try Data(contentsOf: preserved[0]), bytes)
     }
 
-    func testFallbackCleanupRejectsZeroByteMetadataChangeBeforeDetach() {
+    func testFallbackCleanupRejectsZeroByteMetadataChangeBeforeDetach() throws {
         let before = snapshot(inode: 101, type: mode_t(S_IFREG), size: 0)
         var post = snapshot(inode: 202, type: mode_t(S_IFREG), size: 0)
         post.st_mtimespec.tv_nsec += 1
@@ -98,9 +173,38 @@ final class ONTGenotypeWorkbookCleanupStateTests: XCTestCase {
             ),
             .reject
         )
+
+        let fixture = try directoryFixture(fileContents: Data())
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let renameWasCalled = LockedFlag()
+        let operations = forcedFallbackOperations { _ in
+            renameWasCalled.value = true
+        }
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookCleanupStateStore
+                .removeContentsNoFollowForTesting(
+                    at: fixture.directory,
+                    failureInjector: { checkpoint in
+                        guard checkpoint.hasPrefix(
+                            "before-workbook-cleanup-nondirectory-detach:"
+                        ) else { return }
+                        try FileManager.default.setAttributes(
+                            [.posixPermissions: NSNumber(value: 0o700)],
+                            ofItemAtPath: fixture.entry.path
+                        )
+                    },
+                    cleanupOperations: operations
+                )
+        )
+
+        XCTAssertFalse(renameWasCalled.value)
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: fixture.entry.path)
+        )
     }
 
-    func testFallbackCleanupRejectsDirectorySymlinkAndSpecialEntryRebase() {
+    func testFallbackCleanupRejectsDirectorySymlinkAndSpecialEntryRebase() throws {
         for type in [mode_t(S_IFDIR), mode_t(S_IFLNK), mode_t(S_IFIFO)] {
             let before = snapshot(inode: 101, type: type, size: 0)
             let post = snapshot(inode: 202, type: type, size: 0)
@@ -115,6 +219,52 @@ final class ONTGenotypeWorkbookCleanupStateTests: XCTestCase {
                 .reject
             )
         }
+
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "lungfish-cleanup-entry-types-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = root.appendingPathComponent(
+            "quarantine",
+            isDirectory: true
+        )
+        let child = directory.appendingPathComponent(
+            "nested",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: child,
+            withIntermediateDirectories: true
+        )
+        try Data("nested".utf8).write(
+            to: child.appendingPathComponent("entry.txt")
+        )
+        let outside = root.appendingPathComponent("outside.txt")
+        let outsideBytes = Data("must-survive".utf8)
+        try outsideBytes.write(to: outside)
+        let link = directory.appendingPathComponent("outside-link")
+        try FileManager.default.createSymbolicLink(
+            at: link,
+            withDestinationURL: outside
+        )
+        let fifo = directory.appendingPathComponent("entry.fifo")
+        guard Darwin.mkfifo(fifo.path, 0o600) == 0 else {
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(errno)
+            )
+        }
+
+        try ONTGenotypeWorkbookCleanupStateStore
+            .removeContentsNoFollowForTesting(at: directory)
+
+        XCTAssertTrue(
+            try FileManager.default.contentsOfDirectory(
+                atPath: directory.path
+            ).isEmpty
+        )
+        XCTAssertEqual(try Data(contentsOf: outside), outsideBytes)
     }
 
     func testFallbackCleanupRejectsSourceSubstitutionBeforeDetach() throws {
@@ -315,6 +465,38 @@ final class ONTGenotypeWorkbookCleanupStateTests: XCTestCase {
         value.st_mtimespec = timespec(tv_sec: 100, tv_nsec: 200)
         value.st_ctimespec = timespec(tv_sec: 300, tv_nsec: 400)
         return value
+    }
+
+    private func forcedFallbackOperations(
+        observeWitness: @escaping @Sendable (
+            PortableExclusiveRename.RegularSourceWitness?
+        ) -> Void = { _ in }
+    ) -> ONTGenotypeWorkbookCleanupOperations {
+        var operations = ONTGenotypeWorkbookCleanupOperations.darwin
+        operations.renameExclusive = {
+            sourceParent,
+            source,
+            destinationParent,
+            destination,
+            flags,
+            witness in
+            observeWitness(witness)
+            var renameOperations = PortableExclusiveRename.Operations()
+            renameOperations.nativeRename = { _, _, _, _, _ in
+                errno = ENOTSUP
+                return -1
+            }
+            return PortableExclusiveRename.renameatxNPReporting(
+                sourceParent,
+                source,
+                destinationParent,
+                destination,
+                flags,
+                sourceWitness: witness,
+                operations: renameOperations
+            )
+        }
+        return operations
     }
 
     private func directoryFixture(
