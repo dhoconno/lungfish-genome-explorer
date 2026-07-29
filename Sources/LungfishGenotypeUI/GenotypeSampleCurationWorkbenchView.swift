@@ -146,6 +146,7 @@ final class GenotypeSampleCurationHeaderView: NSView {
         label.maximumNumberOfLines = 0
         label.lineBreakMode = .byWordWrapping
         label.usesSingleLineMode = false
+        label.setAccessibilityElement(false)
         label.setContentCompressionResistancePriority(
             .defaultLow,
             for: .horizontal
@@ -163,6 +164,7 @@ final class GenotypeSampleCurationHeaderView: NSView {
             .defaultLow,
             for: .horizontal
         )
+        value.setAccessibilityElement(true)
         value.setAccessibilityLabel(
             "\(metric.label): \(metric.value)"
         )

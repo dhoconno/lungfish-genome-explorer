@@ -10060,6 +10060,10 @@ final class GenotypeResultViewportTests: XCTestCase {
             XCTAssertTrue(
                 controller.testingSampleHeaderFieldsAllowWrapping
             )
+            XCTAssertEqual(
+                controller.testingSampleHeaderSemanticElementCounts,
+                [1, 1, 1, 1]
+            )
         }
     }
 
@@ -10164,6 +10168,10 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
         XCTAssertTrue(
             controller.testingSampleHeaderFieldsAllowWrapping
+        )
+        XCTAssertEqual(
+            controller.testingSampleHeaderSemanticElementCounts,
+            [1, 1, 1, 1]
         )
     }
 

@@ -8991,6 +8991,18 @@ extension GenotypeResultViewController {
             }
     }
 
+    var testingSampleHeaderSemanticElementCounts: [Int] {
+        guard let header = sampleCurationWorkbench?.headerView
+            as? GenotypeSampleCurationHeaderView else {
+            return []
+        }
+        return header.metricFields.map { fields in
+            [fields.label, fields.value]
+                .filter { $0.isAccessibilityElement() }
+                .count
+        }
+    }
+
     var testingMountedSampleWorkbenchCount: Int {
         detailStack.arrangedSubviews
             .compactMap {
