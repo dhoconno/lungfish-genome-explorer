@@ -149,6 +149,72 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         XCTAssertEqual(inspection["abbreviatedDPHaplotype2"], "Latest-DP-2")
     }
 
+    func testCommittedCleanupPreparationFailureReturnsSuccessWarningAndRemainsRecoverable()
+        throws
+    {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(
+            in: root,
+            outputName: "committed-cleanup-preparation-warning"
+        )
+        let attestationRoot = root.appendingPathComponent(
+            "attestations",
+            isDirectory: true
+        )
+
+        let outcome = try GenotypeWorkbookRevisionService(
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL: attestationRoot,
+            workbookCleanupFailureInjector: { checkpoint in
+                guard checkpoint
+                    == "after-workbook-cleanup-detach-hard-stop" else {
+                    return
+                }
+                throw NSError(
+                    domain: "InjectedCommittedCleanupPreparationFailure",
+                    code: 5
+                )
+            }
+        ).applyHaplotypeOverridesWithOutcome(
+            [],
+            annotationSidecarURL: nil,
+            into: fixture.bundleURL
+        )
+
+        XCTAssertEqual(
+            outcome.cleanupPendingWarning,
+            "Workbook updated; retired-generation cleanup pending."
+        )
+        XCTAssertEqual(
+            outcome.manifest,
+            try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
+        )
+        XCTAssertTrue(
+            try workbookCleanupArtifacts(in: root).contains {
+                $0.lastPathComponent.hasPrefix(
+                    ".lungfish-workbook-cleanup-pending-"
+                )
+            }
+        )
+
+        let lock = try ONTGenotypeBundlePublicationLock.acquire(
+            for: fixture.bundleURL,
+            blocking: true,
+            createIfMissing: false
+        )
+        defer { lock.release() }
+        try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+            for: fixture.bundleURL,
+            attestationRootURL: attestationRoot
+        )
+        XCTAssertNoThrow(
+            try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+        )
+        try assertNoRetiredWorkbookGeneration(in: root)
+    }
+
     func testLegacyManifestWrapperReturnsCommittedManifestWhenCleanupRemainsPending()
         throws
     {

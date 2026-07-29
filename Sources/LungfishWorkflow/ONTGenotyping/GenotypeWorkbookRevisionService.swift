@@ -1188,20 +1188,18 @@ public struct GenotypeWorkbookRevisionService {
                     manifest: committedManifest,
                     cleanupPendingWarning: nil
                 )
-            } catch let recoveryError
-                as ONTGenotypeWorkbookUpdateRecoveryError {
-                switch recoveryError {
-                case .cleanupPendingWarning,
-                     .cleanupPendingWarningPersistenceFailure:
-                    removeStageOnExit = false
-                    return GenotypeWorkbookRevisionOutcome(
-                        manifest: committedManifest,
-                        cleanupPendingWarning:
-                            "Workbook updated; retired-generation cleanup pending."
-                    )
-                default:
-                    throw recoveryError
-                }
+            } catch {
+                // The workbook and its final manifest are already durable.
+                // Recovery authority remains in place until cleanup
+                // finalization completes, so every cleanup failure is a
+                // truthful success-with-warning rather than a publication
+                // failure.
+                removeStageOnExit = false
+                return GenotypeWorkbookRevisionOutcome(
+                    manifest: committedManifest,
+                    cleanupPendingWarning:
+                        "Workbook updated; retired-generation cleanup pending."
+                )
             }
         } catch {
             if finalManifestCommitted { throw error }
