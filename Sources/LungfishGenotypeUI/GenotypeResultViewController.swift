@@ -4367,79 +4367,33 @@ public final class GenotypeResultViewController: NSViewController {
         sample: String,
         summary: ONTGenotypeSampleResult?
     ) -> NSView {
-        let header = NSStackView()
-        header.orientation = .horizontal
-        header.alignment = .firstBaseline
-        header.distribution = .fillProportionally
-        header.spacing = 20
-        header.setContentCompressionResistancePriority(
-            .defaultLow,
-            for: .horizontal
-        )
-        header.addArrangedSubview(
-            sampleHeaderMetric(
+        var metrics = [
+            GenotypeSampleCurationHeaderView.Metric(
                 label: "Selected Sample",
                 value: sample,
                 emphasized: true
-            )
-        )
+            ),
+        ]
         if let summary {
-            header.addArrangedSubview(
-                sampleHeaderMetric(
+            metrics += [
+                .init(
                     label: "Retained Unique Reads",
                     value: integer(summary.passedUniqueReads)
-                )
-            )
-            header.addArrangedSubview(
-                sampleHeaderMetric(
+                ),
+                .init(
                     label: "Alignments",
                     value: integer(summary.passedAlignments)
-                )
-            )
-            header.addArrangedSubview(
-                sampleHeaderMetric(
+                ),
+                .init(
                     label: "QC",
                     value: summary.qcStatus.displayName
-                )
-            )
+                ),
+            ]
         }
-        return header
-    }
-
-    private func sampleHeaderMetric(
-        label: String,
-        value: String,
-        emphasized: Bool = false
-    ) -> NSView {
-        let metric = NSStackView()
-        metric.orientation = .vertical
-        metric.alignment = .leading
-        metric.spacing = 2
-        metric.setContentCompressionResistancePriority(
-            .defaultLow,
-            for: .horizontal
+        return GenotypeSampleCurationHeaderView(
+            metrics: metrics,
+            typographyScale: currentContentTypographyScale()
         )
-
-        let labelField = caption(label)
-        labelField.maximumNumberOfLines = 1
-        labelField.lineBreakMode = .byTruncatingTail
-        labelField.setContentCompressionResistancePriority(
-            .defaultLow,
-            for: .horizontal
-        )
-        let valueField = wrappingText(
-            value,
-            weight: emphasized ? .semibold : .regular,
-            maximumLines: 1
-        )
-        valueField.lineBreakMode = .byTruncatingMiddle
-        valueField.setContentCompressionResistancePriority(
-            .defaultLow,
-            for: .horizontal
-        )
-        metric.addArrangedSubview(labelField)
-        metric.addArrangedSubview(valueField)
-        return metric
     }
 
     private func makeSampleEvidenceColumn(
@@ -8981,6 +8935,60 @@ extension GenotypeResultViewController {
 
     var testingSampleWorkbenchIdentity: ObjectIdentifier? {
         sampleCurationWorkbench.map(ObjectIdentifier.init)
+    }
+
+    var testingSampleHeaderLayoutMode:
+        GenotypeSampleCurationHeaderView.LayoutMode? {
+        (sampleCurationWorkbench?.headerView
+            as? GenotypeSampleCurationHeaderView)?.layoutMode
+    }
+
+    var testingSampleHeaderMetricValues: [String: String] {
+        guard let header = sampleCurationWorkbench?.headerView
+            as? GenotypeSampleCurationHeaderView else {
+            return [:]
+        }
+        return Dictionary(
+            uniqueKeysWithValues: header.metricFields.map {
+                ($0.label.stringValue, $0.value.stringValue)
+            }
+        )
+    }
+
+    var testingSampleHeaderMetricIdentities: [ObjectIdentifier] {
+        guard let header = sampleCurationWorkbench?.headerView
+            as? GenotypeSampleCurationHeaderView else {
+            return []
+        }
+        return header.metricViews.map(ObjectIdentifier.init)
+    }
+
+    var testingSampleHeaderMetricFramesAreContained: Bool {
+        guard let header = sampleCurationWorkbench?.headerView
+            as? GenotypeSampleCurationHeaderView else {
+            return false
+        }
+        header.layoutSubtreeIfNeeded()
+        return header.metricViews.allSatisfy { metric in
+            let frame = metric.convert(metric.bounds, to: header)
+            return frame.minX >= header.bounds.minX - 0.5
+                && frame.maxX <= header.bounds.maxX + 0.5
+                && frame.minY >= header.bounds.minY - 0.5
+                && frame.maxY <= header.bounds.maxY + 0.5
+        }
+    }
+
+    var testingSampleHeaderFieldsAllowWrapping: Bool {
+        guard let header = sampleCurationWorkbench?.headerView
+            as? GenotypeSampleCurationHeaderView else {
+            return false
+        }
+        return header.metricFields.flatMap { [$0.label, $0.value] }
+            .allSatisfy {
+                $0.maximumNumberOfLines == 0
+                    && !$0.usesSingleLineMode
+                    && $0.lineBreakMode == .byWordWrapping
+            }
     }
 
     var testingMountedSampleWorkbenchCount: Int {

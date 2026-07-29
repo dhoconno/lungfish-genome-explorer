@@ -1,5 +1,178 @@
 import AppKit
 
+@MainActor
+final class GenotypeSampleCurationHeaderView: NSView {
+    enum LayoutMode: Equatable {
+        case sideBySide
+        case stacked
+    }
+
+    struct Metric: Equatable {
+        let label: String
+        let value: String
+        var emphasized = false
+    }
+
+    private(set) var layoutMode: LayoutMode = .stacked
+    let metricViews: [NSView]
+    let metricFields: [(label: NSTextField, value: NSTextField)]
+
+    private var typographyScale: CGFloat
+    private let rootStack = NSStackView()
+    private let statsStack = NSStackView()
+    private var stackedConstraints: [NSLayoutConstraint] = []
+
+    init(metrics: [Metric], typographyScale: CGFloat) {
+        precondition(!metrics.isEmpty)
+        self.typographyScale = max(1, typographyScale)
+        let content = metrics.map(Self.makeMetricView)
+        metricViews = content.map(\.view)
+        metricFields = content.map { ($0.label, $0.value) }
+        super.init(frame: .zero)
+        configure()
+        apply(.stacked)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        updateLayoutMode(for: newSize.width)
+    }
+
+    func updateContentTypographyScale(_ scale: CGFloat) {
+        let normalized = max(1, scale.isFinite ? scale : 1)
+        guard normalized != typographyScale else { return }
+        typographyScale = normalized
+        updateLayoutMode(for: bounds.width)
+    }
+
+    private func configure() {
+        translatesAutoresizingMaskIntoConstraints = false
+        rootStack.translatesAutoresizingMaskIntoConstraints = false
+        statsStack.translatesAutoresizingMaskIntoConstraints = false
+        rootStack.orientation = .vertical
+        rootStack.alignment = .leading
+        rootStack.spacing = 8
+        statsStack.spacing = 16
+
+        let sampleMetric = metricViews[0]
+        rootStack.addArrangedSubview(sampleMetric)
+        for metric in metricViews.dropFirst() {
+            statsStack.addArrangedSubview(metric)
+        }
+        if metricViews.count > 1 {
+            rootStack.addArrangedSubview(statsStack)
+        }
+        addSubview(rootStack)
+
+        NSLayoutConstraint.activate([
+            rootStack.topAnchor.constraint(equalTo: topAnchor),
+            rootStack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            rootStack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            rootStack.bottomAnchor.constraint(equalTo: bottomAnchor),
+            sampleMetric.widthAnchor.constraint(
+                equalTo: rootStack.widthAnchor
+            ),
+        ])
+        if metricViews.count > 1 {
+            statsStack.widthAnchor.constraint(
+                equalTo: rootStack.widthAnchor
+            ).isActive = true
+            stackedConstraints = metricViews.dropFirst().map {
+                $0.widthAnchor.constraint(
+                    equalTo: statsStack.widthAnchor
+                )
+            }
+        }
+    }
+
+    private func updateLayoutMode(for width: CGFloat) {
+        let adjustment = min(
+            320,
+            max(0, typographyScale - 1) * 320
+        )
+        let enterWide = 700 + adjustment
+        let leaveWide = 640 + adjustment
+        switch layoutMode {
+        case .stacked where width >= enterWide:
+            apply(.sideBySide)
+        case .sideBySide where width < leaveWide:
+            apply(.stacked)
+        default:
+            break
+        }
+    }
+
+    private func apply(_ mode: LayoutMode) {
+        NSLayoutConstraint.deactivate(stackedConstraints)
+        layoutMode = mode
+        switch mode {
+        case .sideBySide:
+            statsStack.orientation = .horizontal
+            statsStack.alignment = .top
+            statsStack.distribution = .fillEqually
+        case .stacked:
+            statsStack.orientation = .vertical
+            statsStack.alignment = .leading
+            statsStack.distribution = .fill
+            NSLayoutConstraint.activate(stackedConstraints)
+        }
+    }
+
+    private static func makeMetricView(
+        _ metric: Metric
+    ) -> (
+        view: NSView,
+        label: NSTextField,
+        value: NSTextField
+    ) {
+        let stack = NSStackView()
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 2
+        stack.setContentCompressionResistancePriority(
+            .defaultLow,
+            for: .horizontal
+        )
+
+        let label = NSTextField(wrappingLabelWithString: metric.label)
+        label.font = .systemFont(ofSize: 11)
+        label.textColor = .secondaryLabelColor
+        label.maximumNumberOfLines = 0
+        label.lineBreakMode = .byWordWrapping
+        label.usesSingleLineMode = false
+        label.setContentCompressionResistancePriority(
+            .defaultLow,
+            for: .horizontal
+        )
+
+        let value = NSTextField(wrappingLabelWithString: metric.value)
+        value.font = .systemFont(
+            ofSize: 11,
+            weight: metric.emphasized ? .semibold : .regular
+        )
+        value.maximumNumberOfLines = 0
+        value.lineBreakMode = .byWordWrapping
+        value.usesSingleLineMode = false
+        value.setContentCompressionResistancePriority(
+            .defaultLow,
+            for: .horizontal
+        )
+        value.setAccessibilityLabel(
+            "\(metric.label): \(metric.value)"
+        )
+
+        stack.addArrangedSubview(label)
+        stack.addArrangedSubview(value)
+        return (stack, label, value)
+    }
+}
+
 /// Hosts sample-level curation controls without taking ownership of scrolling.
 @MainActor
 public final class GenotypeSampleCurationWorkbenchView: NSView {
@@ -52,6 +225,8 @@ public final class GenotypeSampleCurationWorkbenchView: NSView {
         guard normalizedScale != typographyScale else { return }
 
         typographyScale = normalizedScale
+        (headerView as? GenotypeSampleCurationHeaderView)?
+            .updateContentTypographyScale(normalizedScale)
         updateLayoutMode(for: bounds.width)
     }
 

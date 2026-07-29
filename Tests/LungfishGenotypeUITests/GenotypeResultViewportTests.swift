@@ -9977,6 +9977,92 @@ final class GenotypeResultViewportTests: XCTestCase {
         }
     }
 
+    func testSelectedSampleWorkbenchHeaderKeepsEveryMetricReadableAtNarrowWidths()
+        throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "SelectedSampleHeaderNarrow-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent(
+            "example.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let call = makeCall(
+            sample: "AnimalA Long Sample Name",
+            genotype: "01_Mafa_A1_001_01",
+            reads: 42
+        )
+        let controller = GenotypeResultViewController()
+        controller.view.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: 420,
+            height: 1_000
+        )
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [
+                ONTGenotypeSampleResult(
+                    sample: "AnimalA Long Sample Name",
+                    passedAlignments: 45,
+                    passedUniqueReads: 42,
+                    sampleTotalReads: nil,
+                    sampleUniqueRetainedPercent: nil,
+                    calls: [call]
+                ),
+            ],
+            calls: [call]
+        ))
+        controller.testingApplyDisplayStateImmediately(
+            GenotypeResultDisplayState(
+                summaryViewMode: .matrix,
+                layout: .listTop
+            )
+        )
+        controller.testingSelectMatrixColumn(
+            sample: "AnimalA Long Sample Name"
+        )
+        controller.view.layoutSubtreeIfNeeded()
+
+        let identities =
+            controller.testingSampleHeaderMetricIdentities
+        for width in [420, 280] {
+            controller.view.frame.size.width = CGFloat(width)
+            controller.view.layoutSubtreeIfNeeded()
+
+            XCTAssertEqual(
+                controller.testingSampleHeaderLayoutMode,
+                .stacked
+            )
+            XCTAssertEqual(
+                controller.testingSampleHeaderMetricValues,
+                [
+                    "Selected Sample": "AnimalA Long Sample Name",
+                    "Retained Unique Reads": "42",
+                    "Alignments": "45",
+                    "QC": "Low Support",
+                ]
+            )
+            XCTAssertEqual(
+                controller.testingSampleHeaderMetricIdentities,
+                identities
+            )
+            XCTAssertTrue(
+                controller.testingSampleHeaderMetricFramesAreContained
+            )
+            XCTAssertTrue(
+                controller.testingSampleHeaderFieldsAllowWrapping
+            )
+        }
+    }
+
     func testSelectedSampleWorkbenchRespondsToLiveContentTypographyChanges()
         throws
     {
@@ -10017,7 +10103,16 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
         controller.configure(result: makeResult(
             bundleURL: bundleURL,
-            samples: [],
+            samples: [
+                ONTGenotypeSampleResult(
+                    sample: "AnimalA",
+                    passedAlignments: 45,
+                    passedUniqueReads: 42,
+                    sampleTotalReads: nil,
+                    sampleUniqueRetainedPercent: nil,
+                    calls: [call]
+                ),
+            ],
             calls: [call]
         ))
         controller.testingApplyDisplayStateImmediately(
@@ -10032,6 +10127,12 @@ final class GenotypeResultViewportTests: XCTestCase {
             controller.testingSampleWorkbenchLayoutMode,
             .sideBySide
         )
+        XCTAssertEqual(
+            controller.testingSampleHeaderLayoutMode,
+            .sideBySide
+        )
+        let headerMetricIdentities =
+            controller.testingSampleHeaderMetricIdentities
 
         settings.contentTextSizePreference = .custom(200)
         settings.save()
@@ -10040,6 +10141,29 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(
             controller.testingSampleWorkbenchLayoutMode,
             .stacked
+        )
+        XCTAssertEqual(
+            controller.testingSampleHeaderLayoutMode,
+            .stacked
+        )
+        XCTAssertEqual(
+            controller.testingSampleHeaderMetricIdentities,
+            headerMetricIdentities
+        )
+        XCTAssertEqual(
+            controller.testingSampleHeaderMetricValues,
+            [
+                "Selected Sample": "AnimalA",
+                "Retained Unique Reads": "42",
+                "Alignments": "45",
+                "QC": "Low Support",
+            ]
+        )
+        XCTAssertTrue(
+            controller.testingSampleHeaderMetricFramesAreContained
+        )
+        XCTAssertTrue(
+            controller.testingSampleHeaderFieldsAllowWrapping
         )
     }
 
