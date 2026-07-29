@@ -4,6 +4,41 @@ import Foundation
 /// Exclusively publishes immutable files and makes both file contents and the
 /// containing directory entry durable before returning.
 public struct DurableAtomicFileStore: Sendable {
+    /// A durable publication bound to the exact inode created by the store.
+    ///
+    /// The descriptor remains open across publication so callers never need
+    /// to reopen the destination pathname to establish its identity.
+    public final class OpenPublishedFile: @unchecked Sendable {
+        public let url: URL
+        public let identity: FileSystemObjectIdentity
+        public let fileDescriptor: Int32
+
+        private let closeLock = NSLock()
+        private var isOpen = true
+
+        fileprivate init(
+            url: URL,
+            identity: FileSystemObjectIdentity,
+            fileDescriptor: Int32
+        ) {
+            self.url = url
+            self.identity = identity
+            self.fileDescriptor = fileDescriptor
+        }
+
+        public func close() {
+            closeLock.withLock {
+                guard isOpen else { return }
+                Darwin.close(fileDescriptor)
+                isOpen = false
+            }
+        }
+
+        deinit {
+            close()
+        }
+    }
+
     public enum StoreError: Error, LocalizedError, Equatable {
         case invalidFileName(String)
         case unsafeDirectory(String)
@@ -106,6 +141,24 @@ public struct DurableAtomicFileStore: Sendable {
         inOpenDirectory directoryDescriptor: Int32,
         displayedAt directoryURL: URL
     ) throws -> URL {
+        let publication = try createWitnessed(
+            data,
+            named: fileName,
+            inOpenDirectory: directoryDescriptor,
+            displayedAt: directoryURL
+        )
+        publication.close()
+        return publication.url
+    }
+
+    /// Descriptor-relative publication that returns the still-open descriptor
+    /// used to create the file and its directly observed inode identity.
+    public func createWitnessed(
+        _ data: Data,
+        named fileName: String,
+        inOpenDirectory directoryDescriptor: Int32,
+        displayedAt directoryURL: URL
+    ) throws -> OpenPublishedFile {
         guard Self.isSinglePathComponent(fileName) else {
             throw StoreError.invalidFileName(fileName)
         }
@@ -134,17 +187,34 @@ public struct DurableAtomicFileStore: Sendable {
 
         var descriptorIsOpen = true
         var published = false
-        var publishedIdentity: FileSystemObjectIdentity?
+        var createdIdentity: FileSystemObjectIdentity?
         defer {
             if descriptorIsOpen {
                 Darwin.close(descriptor)
             }
-            if !published {
-                _ = temporaryName.withCString { Darwin.unlinkat(directoryDescriptor, $0, 0) }
+            if !published,
+               let createdIdentity,
+               Self.identity(
+                   named: temporaryName,
+                   inDirectory: directoryDescriptor
+               ) == createdIdentity {
+                _ = temporaryName.withCString {
+                    Darwin.unlinkat(directoryDescriptor, $0, 0)
+                }
             }
         }
 
         do {
+            var temporaryInfo = stat()
+            guard Darwin.fstat(descriptor, &temporaryInfo) == 0,
+                  temporaryInfo.st_mode & S_IFMT == S_IFREG else {
+                throw StoreError.systemFailure(
+                    path: destinationURL.path,
+                    operation: "inspect created durable file identity",
+                    code: errno == 0 ? EIO : errno
+                )
+            }
+            createdIdentity = FileSystemObjectIdentity(temporaryInfo)
             try Self.writeAll(data, descriptor: descriptor, path: destinationURL.path)
             guard operations.syncFile(descriptor) == 0 else {
                 throw StoreError.systemFailure(
@@ -153,25 +223,6 @@ public struct DurableAtomicFileStore: Sendable {
                     code: errno
                 )
             }
-            var temporaryInfo = stat()
-            guard Darwin.fstat(descriptor, &temporaryInfo) == 0,
-                  temporaryInfo.st_mode & S_IFMT == S_IFREG else {
-                throw StoreError.systemFailure(
-                    path: destinationURL.path,
-                    operation: "inspect durable file identity",
-                    code: errno == 0 ? EIO : errno
-                )
-            }
-            publishedIdentity = FileSystemObjectIdentity(temporaryInfo)
-            guard Darwin.close(descriptor) == 0 else {
-                descriptorIsOpen = false
-                throw StoreError.systemFailure(
-                    path: destinationURL.path,
-                    operation: "close durable file",
-                    code: errno
-                )
-            }
-            descriptorIsOpen = false
 
             var renameStatus = temporaryName.withCString { temporary in
                 fileName.withCString { destination in
@@ -211,10 +262,10 @@ public struct DurableAtomicFileStore: Sendable {
 
             guard operations.syncDirectory(directoryDescriptor) == 0 else {
                 let code = errno
-                if let publishedIdentity,
+                if let createdIdentity,
                    try rollbackPublishedFile(
                        named: fileName,
-                       expectedIdentity: publishedIdentity,
+                       expectedIdentity: createdIdentity,
                        inDirectory: directoryDescriptor,
                        displayedAt: directoryURL
                    ) {
@@ -226,7 +277,24 @@ public struct DurableAtomicFileStore: Sendable {
                     code: code
                 )
             }
-            return destinationURL
+
+            guard let createdIdentity,
+                  Self.identity(
+                      named: fileName,
+                      inDirectory: directoryDescriptor
+                  ) == createdIdentity else {
+                throw StoreError.systemFailure(
+                    path: destinationURL.path,
+                    operation: "validate durable published file identity",
+                    code: ESTALE
+                )
+            }
+            descriptorIsOpen = false
+            return OpenPublishedFile(
+                url: destinationURL,
+                identity: createdIdentity,
+                fileDescriptor: descriptor
+            )
         } catch {
             throw error
         }

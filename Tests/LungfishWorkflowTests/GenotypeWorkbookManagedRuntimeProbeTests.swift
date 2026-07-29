@@ -14,7 +14,7 @@ final class GenotypeWorkbookManagedRuntimeProbeTests: XCTestCase {
             """
             #!/bin/sh
             if [ "$1" = "-c" ]; then
-              dd if=/dev/zero bs=1024 count=256 1>&2 2>/dev/null
+              dd if=/dev/zero bs=1024 count=32 1>&2 2>/dev/null
               exec "\(python.path)" "$@"
             fi
             exec "\(python.path)" "$@"
@@ -58,6 +58,40 @@ final class GenotypeWorkbookManagedRuntimeProbeTests: XCTestCase {
             )
         ) { error in
             XCTAssertTrue(error is CancellationError)
+        }
+        XCTAssertLessThan(Date().timeIntervalSince(started), 3)
+    }
+
+    func testProbeTerminatesSustainedStderrAtBoundedOutputLimit() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let wrapper = root.appendingPathComponent("overflowing-python")
+        try writeExecutable(
+            """
+            #!/bin/sh
+            trap '' TERM
+            while true; do
+              printf '0123456789abcdef0123456789abcdef\\n' 1>&2
+            done
+            """,
+            to: wrapper
+        )
+        let started = Date()
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookManagedRuntimeProbe.probe(
+                pythonExecutableURL: wrapper,
+                timeout: 10
+            )
+        ) { error in
+            guard case let GenotypeWorkbookManagedRuntimeProbeError
+                .outputLimitExceeded(stream, maximumBytes, diagnostic) = error
+            else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertEqual(stream, "stderr")
+            XCTAssertLessThanOrEqual(diagnostic.utf8.count, maximumBytes)
+            XCTAssertLessThanOrEqual(maximumBytes, 131_072)
         }
         XCTAssertLessThan(Date().timeIntervalSince(started), 3)
     }

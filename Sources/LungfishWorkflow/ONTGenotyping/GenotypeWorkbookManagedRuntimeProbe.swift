@@ -8,6 +8,11 @@ public enum GenotypeWorkbookManagedRuntimeProbeError:
 {
     case timedOut(TimeInterval)
     case failed(exitStatus: Int32, stderr: String)
+    case outputLimitExceeded(
+        stream: String,
+        maximumBytes: Int,
+        diagnostic: String
+    )
     case invalidResponse
 
     public var errorDescription: String? {
@@ -21,6 +26,8 @@ public enum GenotypeWorkbookManagedRuntimeProbeError:
             return detail.isEmpty
                 ? "Managed openpyxl runtime identity probe failed with exit code \(exitStatus)."
                 : "Managed openpyxl runtime identity probe failed with exit code \(exitStatus): \(detail)"
+        case .outputLimitExceeded(let stream, let maximumBytes, _):
+            return "Managed openpyxl runtime identity probe exceeded the \(maximumBytes)-byte \(stream) limit."
         case .invalidResponse:
             return "Managed openpyxl runtime identity probe returned invalid JSON."
         }
@@ -28,6 +35,9 @@ public enum GenotypeWorkbookManagedRuntimeProbeError:
 }
 
 public enum GenotypeWorkbookManagedRuntimeProbe {
+    private static let stdoutLimit = 16_384
+    private static let stderrLimit = 65_536
+
     public static func probe(
         pythonExecutableURL: URL,
         timeout: TimeInterval = 15,
@@ -44,31 +54,40 @@ public enum GenotypeWorkbookManagedRuntimeProbe {
         let stderr = Pipe()
         process.standardOutput = stdout
         process.standardError = stderr
-        let stdoutData = LockedProbeData()
-        let stderrData = LockedProbeData()
+        let stdoutData = CappedProbeStream(maximumBytes: stdoutLimit)
+        let stderrData = CappedProbeStream(maximumBytes: stderrLimit)
         let drains = DispatchGroup()
         try process.run()
+        let stdoutDescriptor = stdout.fileHandleForReading.fileDescriptor
+        let stderrDescriptor = stderr.fileHandleForReading.fileDescriptor
         drains.enter()
         DispatchQueue.global(qos: .utility).async {
-            stdoutData.set(
-                stdout.fileHandleForReading.readDataToEndOfFile()
-            )
+            stdoutData.drain(fileDescriptor: stdoutDescriptor)
             drains.leave()
         }
         drains.enter()
         DispatchQueue.global(qos: .utility).async {
-            stderrData.set(
-                stderr.fileHandleForReading.readDataToEndOfFile()
-            )
+            stderrData.drain(fileDescriptor: stderrDescriptor)
             drains.leave()
         }
 
         let deadline = Date().addingTimeInterval(max(0.1, timeout))
         var cancellationRequested = false
         var timedOut = false
+        var overflow: (stream: String, maximumBytes: Int)?
         while process.isRunning {
             if cancellationCheck() {
                 cancellationRequested = true
+                terminate(process)
+                break
+            }
+            if stdoutData.didOverflow {
+                overflow = ("stdout", stdoutLimit)
+                terminate(process)
+                break
+            }
+            if stderrData.didOverflow {
+                overflow = ("stderr", stderrLimit)
                 terminate(process)
                 break
             }
@@ -80,8 +99,33 @@ public enum GenotypeWorkbookManagedRuntimeProbe {
             Darwin.usleep(20_000)
         }
         process.waitUntilExit()
-        _ = drains.wait(timeout: .now() + 2)
+        if drains.wait(timeout: .now() + 2) != .success {
+            try? stdout.fileHandleForReading.close()
+            try? stderr.fileHandleForReading.close()
+            _ = drains.wait(timeout: .now() + 1)
+        }
         if cancellationRequested { throw CancellationError() }
+        if overflow == nil {
+            if stdoutData.didOverflow {
+                overflow = ("stdout", stdoutLimit)
+            } else if stderrData.didOverflow {
+                overflow = ("stderr", stderrLimit)
+            }
+        }
+        if let overflow {
+            let diagnosticBytes = stderrData.value.prefix(
+                overflow.maximumBytes
+            )
+            throw GenotypeWorkbookManagedRuntimeProbeError
+                .outputLimitExceeded(
+                    stream: overflow.stream,
+                    maximumBytes: overflow.maximumBytes,
+                    diagnostic: String(
+                        decoding: diagnosticBytes,
+                        as: UTF8.self
+                    )
+                )
+        }
         if timedOut {
             throw GenotypeWorkbookManagedRuntimeProbeError.timedOut(timeout)
         }
@@ -136,13 +180,45 @@ public enum GenotypeWorkbookManagedRuntimeProbe {
         """
 }
 
-private final class LockedProbeData: @unchecked Sendable {
+private final class CappedProbeStream: @unchecked Sendable {
     private let lock = NSLock()
+    private let maximumBytes: Int
     private var storage = Data()
+    private var overflow = false
+
+    init(maximumBytes: Int) {
+        self.maximumBytes = maximumBytes
+        storage.reserveCapacity(maximumBytes)
+    }
 
     var value: Data { lock.withLock { storage } }
+    var didOverflow: Bool { lock.withLock { overflow } }
 
-    func set(_ data: Data) {
-        lock.withLock { storage = data }
+    func drain(fileDescriptor: Int32) {
+        var buffer = [UInt8](repeating: 0, count: 8_192)
+        while true {
+            let count = buffer.withUnsafeMutableBytes { rawBuffer in
+                Darwin.read(
+                    fileDescriptor,
+                    rawBuffer.baseAddress,
+                    rawBuffer.count
+                )
+            }
+            if count < 0 {
+                if errno == EINTR { continue }
+                return
+            }
+            if count == 0 { return }
+            lock.withLock {
+                let available = max(0, maximumBytes - storage.count)
+                let retained = min(available, count)
+                if retained > 0 {
+                    storage.append(contentsOf: buffer[0..<retained])
+                }
+                if retained < count {
+                    overflow = true
+                }
+            }
+        }
     }
 }

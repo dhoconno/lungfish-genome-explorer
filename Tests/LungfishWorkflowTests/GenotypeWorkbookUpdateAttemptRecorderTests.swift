@@ -292,6 +292,66 @@ final class GenotypeWorkbookUpdateAttemptRecorderTests: XCTestCase {
         XCTAssertTrue(handle.hasPublicationFailure)
     }
 
+    func testPostCreateReceiptSubstitutionCannotBecomeAcceptedWitness() throws {
+        let bundle = try makeBundle()
+        defer {
+            try? FileManager.default.removeItem(
+                at: bundle.deletingLastPathComponent()
+            )
+        }
+        let receiptURLBox = SendableURLBox()
+        let substituted = Data("substituted after create".utf8)
+        let substitutions = SendableIntegerCounter()
+        let store = DurableAtomicFileStore(
+            operations: .init(
+                renameExclusive: {
+                    sourceDirectory,
+                    source,
+                    destinationDirectory,
+                    destination,
+                    flags in
+                    let status = Darwin.renameatx_np(
+                        sourceDirectory,
+                        source,
+                        destinationDirectory,
+                        destination,
+                        flags
+                    )
+                    guard status == 0,
+                          String(cString: destination) == "receipt.json",
+                          substitutions.incrementAndGet() == 1,
+                          let receiptURL = receiptURLBox.value else {
+                        return status
+                    }
+                    try? FileManager.default.removeItem(at: receiptURL)
+                    try? substituted.write(to: receiptURL)
+                    return 0
+                }
+            )
+        )
+        let handle = try GenotypeWorkbookUpdateAttemptRecorder(
+            atomicFileStore: store
+        ).begin(
+            bundleURL: bundle,
+            argv: ["lungfish-cli"]
+        )
+        let receiptURL = handle.directoryURL.appendingPathComponent(
+            "receipt.json"
+        )
+        receiptURLBox.value = receiptURL
+
+        XCTAssertThrowsError(try handle.finalize(exitStatus: 0))
+        XCTAssertEqual(try Data(contentsOf: receiptURL), substituted)
+        XCTAssertFalse(handle.isFinalized)
+        XCTAssertTrue(handle.hasPublicationFailure)
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: handle.directoryURL
+                    .appendingPathComponent("provenance.json").path
+            )
+        )
+    }
+
     func testConcurrentFinalizeCallsPublishOneTerminalOutcome() throws {
         let bundle = try makeBundle()
         defer {

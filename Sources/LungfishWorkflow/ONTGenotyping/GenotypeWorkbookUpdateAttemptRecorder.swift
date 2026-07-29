@@ -315,8 +315,10 @@ public final class GenotypeWorkbookUpdateAttemptHandle:
 
     private struct PublishedFileWitness {
         let name: String
-        let descriptor: Int32
-        let identity: FileSystemObjectIdentity
+        let publication: DurableAtomicFileStore.OpenPublishedFile
+
+        var descriptor: Int32 { publication.fileDescriptor }
+        var identity: FileSystemObjectIdentity { publication.identity }
     }
 
     private let lock = NSLock()
@@ -555,22 +557,20 @@ public final class GenotypeWorkbookUpdateAttemptHandle:
         var published: [PublishedFileWitness] = []
         defer {
             for witness in published {
-                Darwin.close(witness.descriptor)
+                witness.publication.close()
             }
         }
         do {
             let receiptData = try ProvenanceJSON.encoder.encode(receipt)
-            _ = try atomicFileStore.create(
-                receiptData,
-                named: "receipt.json",
-                inOpenDirectory: directoryDescriptor,
-                displayedAt: displayedURL
-            )
             published.append(
-                try witness(
-                    named: "receipt.json",
-                    in: directoryDescriptor,
-                    displayedAt: displayedURL
+                PublishedFileWitness(
+                    name: "receipt.json",
+                    publication: try atomicFileStore.createWitnessed(
+                        receiptData,
+                        named: "receipt.json",
+                        inOpenDirectory: directoryDescriptor,
+                        displayedAt: displayedURL
+                    )
                 )
             )
             let receiptDescriptor = ProvenanceFileDescriptor(
@@ -628,18 +628,21 @@ public final class GenotypeWorkbookUpdateAttemptHandle:
                 exitStatus: exitStatus,
                 stderr: Self.normalized(stderr)
             )
-            _ = try atomicFileStore.create(
-                try ProvenanceJSON.encoder.encode(envelope),
-                named: "provenance.json",
-                inOpenDirectory: directoryDescriptor,
-                displayedAt: displayedURL
-            )
             published.append(
-                try witness(
-                    named: "provenance.json",
-                    in: directoryDescriptor,
-                    displayedAt: displayedURL
+                PublishedFileWitness(
+                    name: "provenance.json",
+                    publication: try atomicFileStore.createWitnessed(
+                        try ProvenanceJSON.encoder.encode(envelope),
+                        named: "provenance.json",
+                        inOpenDirectory: directoryDescriptor,
+                        displayedAt: displayedURL
+                    )
                 )
+            )
+            try validateTerminalFiles(
+                published,
+                directoryDescriptor: directoryDescriptor,
+                displayedURL: displayedURL
             )
         } catch {
             let publicationError = error
@@ -652,6 +655,25 @@ public final class GenotypeWorkbookUpdateAttemptHandle:
         }
     }
 
+    private func validateTerminalFiles(
+        _ witnesses: [PublishedFileWitness],
+        directoryDescriptor: Int32,
+        displayedURL: URL
+    ) throws {
+        for witness in witnesses {
+            guard isCurrent(
+                witness,
+                directoryDescriptor: directoryDescriptor
+            ) else {
+                throw GenotypeWorkbookUpdateAttemptRollbackError(
+                    path: displayedURL
+                        .appendingPathComponent(witness.name).path,
+                    code: ESTALE
+                )
+            }
+        }
+    }
+
     private func rollbackTerminalFiles(
         _ witnesses: [PublishedFileWitness],
         directoryDescriptor: Int32,
@@ -659,26 +681,10 @@ public final class GenotypeWorkbookUpdateAttemptHandle:
     ) throws {
         guard !witnesses.isEmpty else { return }
         for witness in witnesses.reversed() {
-            var openInformation = stat()
-            var entryInformation = stat()
-            guard Darwin.fstat(
-                witness.descriptor,
-                &openInformation
-            ) == 0,
-                  FileSystemObjectIdentity(
-                    from: openInformation
-                  ) == witness.identity,
-                  witness.name.withCString({
-                      Darwin.fstatat(
-                          directoryDescriptor,
-                          $0,
-                          &entryInformation,
-                          AT_SYMLINK_NOFOLLOW
-                      )
-                  }) == 0,
-                  FileSystemObjectIdentity(
-                    from: entryInformation
-                  ) == witness.identity else {
+            guard isCurrent(
+                witness,
+                directoryDescriptor: directoryDescriptor
+            ) else {
                 throw GenotypeWorkbookUpdateAttemptRollbackError(
                     path: displayedURL
                         .appendingPathComponent(witness.name).path,
@@ -702,6 +708,32 @@ public final class GenotypeWorkbookUpdateAttemptHandle:
                 code: errno
             )
         }
+    }
+
+    private func isCurrent(
+        _ witness: PublishedFileWitness,
+        directoryDescriptor: Int32
+    ) -> Bool {
+        var openInformation = stat()
+        var entryInformation = stat()
+        return Darwin.fstat(
+            witness.descriptor,
+            &openInformation
+        ) == 0
+            && FileSystemObjectIdentity(
+                from: openInformation
+            ) == witness.identity
+            && witness.name.withCString {
+                Darwin.fstatat(
+                    directoryDescriptor,
+                    $0,
+                    &entryInformation,
+                    AT_SYMLINK_NOFOLLOW
+                )
+            } == 0
+            && FileSystemObjectIdentity(
+                from: entryInformation
+            ) == witness.identity
     }
 
     private func bindCurrentAttemptDirectory() throws -> (
@@ -818,41 +850,6 @@ public final class GenotypeWorkbookUpdateAttemptHandle:
         return try ProvenanceJSON.decoder.decode(
             GenotypeWorkbookUpdateAttemptMarker.self,
             from: data
-        )
-    }
-
-    private func witness(
-        named name: String,
-        in directoryDescriptor: Int32,
-        displayedAt directoryURL: URL
-    ) throws -> PublishedFileWitness {
-        let descriptor = name.withCString {
-            Darwin.openat(
-                directoryDescriptor,
-                $0,
-                O_RDONLY | O_NOFOLLOW | O_CLOEXEC
-            )
-        }
-        guard descriptor >= 0 else {
-            throw GenotypeWorkbookUpdateAttemptRollbackError(
-                path: directoryURL.appendingPathComponent(name).path,
-                code: errno
-            )
-        }
-        var information = stat()
-        guard Darwin.fstat(descriptor, &information) == 0,
-              information.st_mode & S_IFMT == S_IFREG else {
-            let code = errno == 0 ? ESTALE : errno
-            Darwin.close(descriptor)
-            throw GenotypeWorkbookUpdateAttemptRollbackError(
-                path: directoryURL.appendingPathComponent(name).path,
-                code: code
-            )
-        }
-        return PublishedFileWitness(
-            name: name,
-            descriptor: descriptor,
-            identity: FileSystemObjectIdentity(from: information)
         )
     }
 
