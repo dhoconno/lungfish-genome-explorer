@@ -331,6 +331,65 @@ final class GenotypeSupportedAllelesPanelTests: XCTestCase {
         )
     }
 
+    func testSupportedAllelesCardInsetsAndBoundsItsFullWidthTable() throws {
+        XCTAssertEqual(
+            GenotypeSampleCurationCardStyle.cornerRadius,
+            8
+        )
+        XCTAssertEqual(
+            GenotypeSampleCurationCardStyle.internalPadding,
+            10
+        )
+        XCTAssertEqual(
+            GenotypeSampleCurationCardStyle.verticalOuterInset,
+            4
+        )
+        XCTAssertEqual(
+            GenotypeSampleCurationCardStyle.strokeLineWidth,
+            1
+        )
+        XCTAssertTrue(
+            GenotypeSampleCurationCardStyle.fillColor.isEqual(
+                to: NSColor.controlBackgroundColor
+            )
+        )
+        XCTAssertTrue(
+            GenotypeSampleCurationCardStyle.strokeColor.isEqual(
+                to: NSColor.separatorColor
+            )
+        )
+
+        let mounted = mount(
+            GenotypeSupportedAllelesPanel(
+                snapshot: .init(rows: makeRows(count: 1_001)),
+                availableHeight: 900
+            ),
+            width: 620
+        )
+        defer { close(mounted) }
+
+        let listHost = try XCTUnwrap(
+            descendants(of: mounted.host)
+                .compactMap { $0 as? GenotypeSupportedAllelesListHostView }
+                .first
+        )
+        let listFrame = listHost.convert(listHost.bounds, to: mounted.host)
+
+        XCTAssertEqual(listFrame.minX, 10, accuracy: 1)
+        XCTAssertEqual(
+            listFrame.width,
+            mounted.host.bounds.width - 20,
+            accuracy: 1,
+            "The virtualized table must fill the card's padded width."
+        )
+        XCTAssertEqual(
+            listFrame.height,
+            480,
+            accuracy: 1,
+            "The table must keep its existing bounded height inside the card."
+        )
+    }
+
     func testIdenticalUpdateDoesNotReloadInlineTable() throws {
         let snapshot = GenotypeSupportedAllelesSnapshot(
             rows: makeRows(count: 1_001)

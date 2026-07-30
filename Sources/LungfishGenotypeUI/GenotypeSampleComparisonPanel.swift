@@ -156,15 +156,7 @@ struct GenotypeSampleComparisonPanel: View {
                     )
             }
         }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(nsColor: .controlBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
-        )
+        .genotypeSampleCurationCardChrome()
         .confirmationDialog(
             model.pendingSelectiveCopy.map(Self.confirmationTitle)
                 ?? model.confirmationText

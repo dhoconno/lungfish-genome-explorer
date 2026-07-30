@@ -79,6 +79,54 @@ enum GenotypeSupportedAllelesListHeightPolicy {
     }
 }
 
+enum GenotypeSampleCurationCardStyle {
+    static let cornerRadius: CGFloat = 8
+    static let internalPadding: CGFloat = 10
+    static let verticalOuterInset: CGFloat = 4
+    static let strokeLineWidth: CGFloat = 1
+    static let fillColor = NSColor.controlBackgroundColor
+    static let strokeColor = NSColor.separatorColor
+}
+
+private struct GenotypeSampleCurationCardModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .padding(GenotypeSampleCurationCardStyle.internalPadding)
+            .background(
+                RoundedRectangle(
+                    cornerRadius: GenotypeSampleCurationCardStyle.cornerRadius
+                )
+                .fill(
+                    Color(
+                        nsColor: GenotypeSampleCurationCardStyle.fillColor
+                    )
+                )
+            )
+            .overlay(
+                RoundedRectangle(
+                    cornerRadius: GenotypeSampleCurationCardStyle.cornerRadius
+                )
+                .stroke(
+                    Color(
+                        nsColor: GenotypeSampleCurationCardStyle.strokeColor
+                    ),
+                    lineWidth: GenotypeSampleCurationCardStyle.strokeLineWidth
+                )
+            )
+            .padding(
+                .vertical,
+                GenotypeSampleCurationCardStyle.verticalOuterInset
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+extension View {
+    func genotypeSampleCurationCardChrome() -> some View {
+        modifier(GenotypeSampleCurationCardModifier())
+    }
+}
+
 struct GenotypeSupportedAllelesPanel: View {
     let snapshot: GenotypeSupportedAllelesSnapshot
     var typographyModel: ContentTypographyModel = .shared
@@ -126,6 +174,7 @@ struct GenotypeSupportedAllelesPanel: View {
             )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .genotypeSampleCurationCardChrome()
     }
 }
 

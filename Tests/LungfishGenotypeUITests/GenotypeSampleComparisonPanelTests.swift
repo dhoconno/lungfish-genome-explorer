@@ -887,6 +887,72 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
         XCTAssertEqual(ObjectIdentifier(workbench.evidenceView), evidenceIdentity)
     }
 
+    func testSideBySideWorkbenchAlignsAssignmentWithEvidenceAndComparisonCards()
+        throws
+    {
+        let comparison = makeComparison()
+        comparison.selectSource("Source")
+        let trailing = GenotypeSampleCurationTrailingModel(
+            evidenceSnapshot: .init(rows: [
+                .init(
+                    id: "evidence",
+                    allele: "Mafa-A1*001:01",
+                    readSupport: "12"
+                ),
+            ]),
+            comparison: comparison
+        )
+        let evidence = makeGenotypeSampleCurationTrailingHostingView(
+            model: trailing,
+            typographyModel: .shared
+        )
+        let assignments = makeGenotypeManualHaplotypeEditorHostingView(
+            model: makeManualHaplotypeEditorModel(),
+            typographyModel: .shared
+        )
+        let workbench = GenotypeSampleCurationWorkbenchView(
+            headerView: FixedIntrinsicView(
+                size: NSSize(width: 2_240, height: 140)
+            ),
+            assignmentView: assignments,
+            evidenceView: evidence
+        )
+        let mounted = mount(host: workbench, width: 2_240)
+        defer { mounted.window.close() }
+
+        let assignmentFrame = assignments.convert(
+            assignments.bounds,
+            to: workbench
+        )
+        let evidenceFrame = evidence.convert(
+            evidence.bounds,
+            to: workbench
+        )
+        XCTAssertEqual(
+            assignmentFrame.maxY
+                - GenotypeSampleCurationCardStyle.verticalOuterInset,
+            evidenceFrame.maxY
+                - GenotypeSampleCurationCardStyle.verticalOuterInset,
+            accuracy: 1,
+            "Assignment and evidence cards must share a top edge."
+        )
+
+        trailing.showCompareAndCopy()
+        flush(workbench)
+        let comparisonFrame = evidence.convert(
+            evidence.bounds,
+            to: workbench
+        )
+        XCTAssertEqual(
+            assignmentFrame.maxY
+                - GenotypeSampleCurationCardStyle.verticalOuterInset,
+            comparisonFrame.maxY
+                - GenotypeSampleCurationCardStyle.verticalOuterInset,
+            accuracy: 1,
+            "Assignment and comparison cards must share a top edge."
+        )
+    }
+
     func testTrailingPaneMeasuresOnlyTheActiveMode() {
         let comparison = makeKeyboardComparison()
         comparison.selectSource("Matching First")
