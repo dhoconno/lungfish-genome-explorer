@@ -363,6 +363,739 @@ final class GenotypeManualHaplotypeDraftTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: scratch), sentinel)
     }
 
+    func testSelectiveCopyAppliesIndependentH1AndH2Subsets() {
+        let targetAssignments = [
+            assignment(
+                sample: "Target",
+                locus: .a,
+                slot: .h1,
+                label: "Target-A-H1",
+                color: 1
+            ),
+            assignment(
+                sample: "Target",
+                locus: .a,
+                slot: .h2,
+                label: "Target-A-H2",
+                color: 2
+            ),
+        ]
+        let sourceAssignments = [
+            assignment(
+                sample: "Source",
+                locus: .a,
+                slot: .h1,
+                label: "Source-A-H1",
+                color: 3
+            ),
+            assignment(
+                sample: "Source",
+                locus: .a,
+                slot: .h2,
+                label: "Source-A-H2",
+                color: 4
+            ),
+        ]
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: targetAssignments + sourceAssignments
+        )
+        let h1 = GenotypeManualHaplotypeDraft.SlotAddress(
+            locus: .a,
+            slot: .h1
+        )
+        var h1Draft = GenotypeManualHaplotypeDraft(
+            sample: "Target",
+            index: index
+        )
+        var h2Draft = h1Draft
+
+        let h1Result = h1Draft.copySelectedAssignments(
+            from: index.sampleAssignments(for: "Source"),
+            addresses: [h1]
+        )
+        let h2 = GenotypeManualHaplotypeDraft.SlotAddress(
+            locus: .a,
+            slot: .h2
+        )
+        let h2Result = h2Draft.copySelectedAssignments(
+            from: index.sampleAssignments(for: "Source"),
+            addresses: [h2]
+        )
+
+        XCTAssertEqual(h1Result.applied, [h1])
+        XCTAssertEqual(h1Draft[.a, .h1]?.label, "Source-A-H1")
+        XCTAssertEqual(h1Draft[.a, .h2]?.label, "Target-A-H2")
+        XCTAssertEqual(h2Result.applied, [h2])
+        XCTAssertEqual(h2Draft[.a, .h1]?.label, "Target-A-H1")
+        XCTAssertEqual(h2Draft[.a, .h2]?.label, "Source-A-H2")
+    }
+
+    func testSelectiveCopyLeavesEveryUnselectedSlotExactlyEqual() {
+        let targetAssignments = [
+            assignment(
+                sample: "Target",
+                locus: .a,
+                slot: .h1,
+                label: "Target-A-H1",
+                color: 1
+            ),
+            assignment(
+                sample: "Target",
+                locus: .b,
+                slot: .h2,
+                label: "Target-B-H2",
+                color: 2,
+                diagnosticAlleles: ["B*001"],
+                notes: "Keep exactly"
+            ),
+        ]
+        let sourceAssignments = [
+            assignment(
+                sample: "Source",
+                locus: .a,
+                slot: .h1,
+                label: "Source-A-H1",
+                color: 3
+            ),
+            assignment(
+                sample: "Source",
+                locus: .b,
+                slot: .h2,
+                label: "Source-B-H2",
+                color: 4
+            ),
+        ]
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: targetAssignments + sourceAssignments
+        )
+        var draft = GenotypeManualHaplotypeDraft(
+            sample: "Target",
+            index: index
+        )
+        let selected = GenotypeManualHaplotypeDraft.SlotAddress(
+            locus: .a,
+            slot: .h1
+        )
+        let before = Dictionary(
+            uniqueKeysWithValues: draft.orderedSlots.map {
+                ($0.address, $0.value)
+            }
+        )
+
+        _ = draft.copySelectedAssignments(
+            from: index.sampleAssignments(for: "Source"),
+            addresses: [selected]
+        )
+
+        for slot in draft.orderedSlots where slot.address != selected {
+            XCTAssertEqual(slot.value, before[slot.address]!)
+        }
+    }
+
+    func testSelectiveCopyReportsBlankSourceWithoutClearingTarget() {
+        let target = assignment(
+            sample: "Target",
+            locus: .a,
+            slot: .h1,
+            label: "Keep",
+            color: 1
+        )
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: [target]
+        )
+        var draft = GenotypeManualHaplotypeDraft(
+            sample: "Target",
+            index: index
+        )
+        let address = GenotypeManualHaplotypeDraft.SlotAddress(
+            locus: .a,
+            slot: .h1
+        )
+
+        let result = draft.copySelectedAssignments(
+            from: index.sampleAssignments(for: "Blank Source"),
+            addresses: [address]
+        )
+
+        XCTAssertEqual(result.applied, [])
+        XCTAssertEqual(
+            result.skipped,
+            [.init(address: address, reason: .sourceMissing)]
+        )
+        XCTAssertEqual(draft[.a, .h1]?.label, "Keep")
+        XCTAssertFalse(draft.isDirty)
+    }
+
+    func testSelectiveCopyBlocksDifferentLabelOverDiagnosticAllelesOnly() {
+        assertSelectiveCopyBlockedByHiddenMetadata(
+            diagnosticAlleles: ["Mafa-A1*001:01"],
+            notes: ""
+        )
+    }
+
+    func testSelectiveCopyBlocksDifferentLabelOverNotesOnly() {
+        assertSelectiveCopyBlockedByHiddenMetadata(
+            diagnosticAlleles: [],
+            notes: "Analyst note"
+        )
+    }
+
+    func testSelectiveCopyBlocksDifferentLabelOverDiagnosticsAndNotes() {
+        assertSelectiveCopyBlockedByHiddenMetadata(
+            diagnosticAlleles: ["Mafa-A1*001:01"],
+            notes: "Analyst note"
+        )
+    }
+
+    func testSelectiveCopyAllowsSameNormalizedLabelAndPreservesTargetMetadata() throws {
+        let target = assignment(
+            sample: "Target",
+            locus: .a,
+            slot: .h1,
+            label: "Family One",
+            color: 1,
+            diagnosticAlleles: ["Mafa-A1*001:01"],
+            notes: "Target note",
+            assignmentID: "target-id",
+            updatedAt: "2026-07-25T10:00:00Z",
+            author: "Target Analyst"
+        )
+        let source = assignment(
+            sample: "Source",
+            locus: .a,
+            slot: .h1,
+            label: "family one",
+            color: 4,
+            diagnosticAlleles: ["source diagnostic"],
+            notes: "Source note",
+            assignmentID: "source-id",
+            updatedAt: "2026-07-25T11:00:00Z",
+            author: "Source Analyst"
+        )
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: [target, source]
+        )
+        var draft = GenotypeManualHaplotypeDraft(
+            sample: "Target",
+            index: index
+        )
+        let address = GenotypeManualHaplotypeDraft.SlotAddress(
+            locus: .a,
+            slot: .h1
+        )
+
+        let result = draft.copySelectedAssignments(
+            from: index.sampleAssignments(for: "Source"),
+            addresses: [address]
+        )
+
+        XCTAssertEqual(result.applied, [address])
+        XCTAssertEqual(result.skipped, [])
+        let value = try XCTUnwrap(draft[.a, .h1])
+        XCTAssertEqual(value.label, "family one")
+        XCTAssertEqual(value.diagnosticAlleles, target.diagnosticAlleles)
+        XCTAssertEqual(value.notes, target.notes)
+        XCTAssertEqual(value.assignmentID, target.assignmentID)
+        XCTAssertEqual(value.updatedAt, target.updatedAt)
+        XCTAssertEqual(value.author, target.author)
+    }
+
+    func testSelectiveCopyIntoEmptyTargetHasEmptyHiddenMetadata() throws {
+        let source = assignment(
+            sample: "Source",
+            locus: .a,
+            slot: .h1,
+            label: "Copied",
+            color: 4,
+            diagnosticAlleles: ["Do not copy"],
+            notes: "Do not copy",
+            assignmentID: "source-id",
+            updatedAt: "2026-07-25T11:00:00Z",
+            author: "Source Analyst"
+        )
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: [source]
+        )
+        var draft = GenotypeManualHaplotypeDraft(
+            sample: "Target",
+            index: index
+        )
+        let address = GenotypeManualHaplotypeDraft.SlotAddress(
+            locus: .a,
+            slot: .h1
+        )
+
+        let result = draft.copySelectedAssignments(
+            from: index.sampleAssignments(for: "Source"),
+            addresses: [address]
+        )
+
+        XCTAssertEqual(result.applied, [address])
+        let value = try XCTUnwrap(draft[.a, .h1])
+        XCTAssertEqual(value.diagnosticAlleles, [])
+        XCTAssertEqual(value.notes, "")
+        XCTAssertNil(value.assignmentID)
+        XCTAssertNil(value.updatedAt)
+        XCTAssertNil(value.author)
+    }
+
+    func testSelectiveCopyDoesNotCopySourceMetadataAndPreservesTargetIdentity() throws {
+        let target = assignment(
+            sample: "Target",
+            locus: .a,
+            slot: .h1,
+            label: "Old",
+            color: 1,
+            assignmentID: "target-id",
+            updatedAt: "2026-07-25T10:00:00Z",
+            author: "Target Analyst"
+        )
+        let source = assignment(
+            sample: "Source",
+            locus: .a,
+            slot: .h1,
+            label: "Copied",
+            color: 4,
+            diagnosticAlleles: ["Do not copy"],
+            notes: "Do not copy",
+            assignmentID: "source-id",
+            updatedAt: "2026-07-25T11:00:00Z",
+            author: "Source Analyst"
+        )
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: [target, source]
+        )
+        var draft = GenotypeManualHaplotypeDraft(
+            sample: "Target",
+            index: index
+        )
+        let address = GenotypeManualHaplotypeDraft.SlotAddress(
+            locus: .a,
+            slot: .h1
+        )
+
+        _ = draft.copySelectedAssignments(
+            from: index.sampleAssignments(for: "Source"),
+            addresses: [address]
+        )
+
+        let value = try XCTUnwrap(draft[.a, .h1])
+        XCTAssertEqual(value.diagnosticAlleles, [])
+        XCTAssertEqual(value.notes, "")
+        XCTAssertEqual(value.assignmentID, target.assignmentID)
+        XCTAssertEqual(value.updatedAt, target.updatedAt)
+        XCTAssertEqual(value.author, target.author)
+    }
+
+    func testSelectiveCopyBlocksLegacyMetadataThatWasClearedOnlyInDraft() {
+        let target = assignment(
+            sample: "Target",
+            locus: .a,
+            slot: .h1,
+            label: "Old",
+            color: 1,
+            diagnosticAlleles: ["Mafa-A1*001:01"]
+        )
+        let source = assignment(
+            sample: "Source",
+            locus: .a,
+            slot: .h1,
+            label: "Copied",
+            color: 4
+        )
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: [target, source]
+        )
+        var draft = GenotypeManualHaplotypeDraft(
+            sample: "Target",
+            index: index
+        )
+        let address = GenotypeManualHaplotypeDraft.SlotAddress(
+            locus: .a,
+            slot: .h1
+        )
+        draft.clear(locus: .a, slot: .h1)
+        XCTAssertTrue(
+            draft.slotSnapshot(at: address)
+                .hasHiddenCompatibilityMetadata
+        )
+
+        let result = draft.copySelectedAssignments(
+            from: index.sampleAssignments(for: "Source"),
+            addresses: [address]
+        )
+
+        XCTAssertEqual(result.applied, [])
+        XCTAssertEqual(
+            result.skipped,
+            [
+                .init(
+                    address: address,
+                    reason: .hiddenMetadataRequiresSavedClear
+                )
+            ]
+        )
+        XCTAssertNil(draft[.a, .h1])
+    }
+
+    func testSelectiveCopyRejectsSourceValueMissingFromExpectation() {
+        let source = assignment(
+            sample: "Source",
+            locus: .a,
+            slot: .h1,
+            label: "Current",
+            color: 4
+        )
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: [source]
+        )
+        var draft = GenotypeManualHaplotypeDraft(
+            sample: "Target",
+            index: index
+        )
+        let address = GenotypeManualHaplotypeDraft.SlotAddress(
+            locus: .a,
+            slot: .h1
+        )
+
+        let result = draft.copySelectedAssignments(
+            from: index.sampleAssignments(for: "Source"),
+            addresses: [address],
+            expectedSourceValues: [:]
+        )
+
+        XCTAssertEqual(result.applied, [])
+        XCTAssertEqual(
+            result.skipped,
+            [.init(address: address, reason: .sourceChanged)]
+        )
+        XCTAssertNil(draft[.a, .h1])
+    }
+
+    func testSelectiveCopyRejectsChangedExpectedSourceValue() {
+        let expected = assignment(
+            sample: "Source",
+            locus: .a,
+            slot: .h1,
+            label: "Expected",
+            color: 3
+        )
+        let current = assignment(
+            sample: "Source",
+            locus: .a,
+            slot: .h1,
+            label: "Current",
+            color: 4
+        )
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: [current]
+        )
+        var draft = GenotypeManualHaplotypeDraft(
+            sample: "Target",
+            index: index
+        )
+        let address = GenotypeManualHaplotypeDraft.SlotAddress(
+            locus: .a,
+            slot: .h1
+        )
+
+        let result = draft.copySelectedAssignments(
+            from: index.sampleAssignments(for: "Source"),
+            addresses: [address],
+            expectedSourceValues: [address: expected]
+        )
+
+        XCTAssertEqual(result.applied, [])
+        XCTAssertEqual(
+            result.skipped,
+            [.init(address: address, reason: .sourceChanged)]
+        )
+        XCTAssertNil(draft[.a, .h1])
+    }
+
+    func testCopySourceReportsOneSourceForEveryFinalDirtySlot() {
+        let sourceAssignments = [
+            assignment(
+                sample: " Source ",
+                locus: .a,
+                slot: .h1,
+                label: "Copied-A",
+                color: 3
+            ),
+            assignment(
+                sample: " Source ",
+                locus: .b,
+                slot: .h2,
+                label: "Copied-B",
+                color: 4
+            ),
+        ]
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: sourceAssignments
+        )
+        var draft = GenotypeManualHaplotypeDraft(
+            sample: "Target",
+            index: index
+        )
+        let addresses: Set<GenotypeManualHaplotypeDraft.SlotAddress> = [
+            .init(locus: .a, slot: .h1),
+            .init(locus: .b, slot: .h2),
+        ]
+
+        _ = draft.copySelectedAssignments(
+            from: index.sampleAssignments(for: " Source "),
+            addresses: addresses
+        )
+
+        XCTAssertEqual(draft.dirtySlotAddresses, addresses)
+        XCTAssertEqual(draft.copySource, "Source")
+    }
+
+    func testCopySourceIsNilForFinalDirtySlotsCopiedFromMixedSources() {
+        let sources = [
+            assignment(
+                sample: "Source-1",
+                locus: .a,
+                slot: .h1,
+                label: "Copied-A",
+                color: 3
+            ),
+            assignment(
+                sample: "Source-2",
+                locus: .b,
+                slot: .h2,
+                label: "Copied-B",
+                color: 4
+            ),
+        ]
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: sources
+        )
+        var draft = GenotypeManualHaplotypeDraft(
+            sample: "Target",
+            index: index
+        )
+
+        _ = draft.copySelectedAssignments(
+            from: index.sampleAssignments(for: "Source-1"),
+            addresses: [.init(locus: .a, slot: .h1)]
+        )
+        _ = draft.copySelectedAssignments(
+            from: index.sampleAssignments(for: "Source-2"),
+            addresses: [.init(locus: .b, slot: .h2)]
+        )
+
+        XCTAssertNil(draft.copySource)
+    }
+
+    func testCopySourceIsNilWhenFinalDirtySlotsMixManualAndCopiedEdits() {
+        let source = assignment(
+            sample: "Source",
+            locus: .a,
+            slot: .h1,
+            label: "Copied-A",
+            color: 3
+        )
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: [source]
+        )
+        var draft = GenotypeManualHaplotypeDraft(
+            sample: "Target",
+            index: index
+        )
+
+        _ = draft.copySelectedAssignments(
+            from: index.sampleAssignments(for: "Source"),
+            addresses: [.init(locus: .a, slot: .h1)]
+        )
+        draft.setLabel("Manual-B", locus: .b, slot: .h2)
+
+        XCTAssertNil(draft.copySource)
+    }
+
+    func testCopySourceTracksOverwrittenFinalOriginAndDropsRevertedOrigins() {
+        let sources = [
+            assignment(
+                sample: "Source-1",
+                locus: .a,
+                slot: .h1,
+                label: "Source One",
+                color: 3
+            ),
+            assignment(
+                sample: "Source-2",
+                locus: .a,
+                slot: .h1,
+                label: "Source Two",
+                color: 4
+            ),
+        ]
+        let original = assignment(
+            sample: "Target",
+            locus: .b,
+            slot: .h2,
+            label: "Original",
+            color: 2
+        )
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: sources + [original]
+        )
+        var draft = GenotypeManualHaplotypeDraft(
+            sample: "Target",
+            index: index
+        )
+        let copiedAddress = GenotypeManualHaplotypeDraft.SlotAddress(
+            locus: .a,
+            slot: .h1
+        )
+
+        _ = draft.copySelectedAssignments(
+            from: index.sampleAssignments(for: "Source-1"),
+            addresses: [copiedAddress]
+        )
+        _ = draft.copySelectedAssignments(
+            from: index.sampleAssignments(for: "Source-2"),
+            addresses: [copiedAddress]
+        )
+        XCTAssertEqual(draft.copySource, "Source-2")
+
+        draft.setLabel("Temporary", locus: .b, slot: .h2)
+        XCTAssertNil(draft.copySource)
+
+        draft.setLabel("Original", locus: .b, slot: .h2)
+        XCTAssertEqual(draft.copySource, "Source-2")
+
+        draft.clear(locus: .a, slot: .h1)
+        XCTAssertNil(draft.copySource)
+        XCTAssertFalse(draft.isDirty)
+        XCTAssertEqual(draft.dirtySlotAddresses, [])
+    }
+
+    func testManualOverwriteOfCopiedSlotRemovesCopySource() {
+        let source = assignment(
+            sample: "Source",
+            locus: .a,
+            slot: .h1,
+            label: "Copied",
+            color: 3
+        )
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: [source]
+        )
+        var draft = GenotypeManualHaplotypeDraft(
+            sample: "Target",
+            index: index
+        )
+        let address = GenotypeManualHaplotypeDraft.SlotAddress(
+            locus: .a,
+            slot: .h1
+        )
+        _ = draft.copySelectedAssignments(
+            from: index.sampleAssignments(for: "Source"),
+            addresses: [address]
+        )
+
+        draft.setLabel("Manual", locus: .a, slot: .h1)
+
+        XCTAssertNil(draft.copySource)
+    }
+
+    func testSlotSnapshotsExposeCanonicalDirtyAndHiddenMetadataState() {
+        let existing = assignment(
+            sample: "Target",
+            locus: .a,
+            slot: .h1,
+            label: "Existing",
+            color: 2,
+            notes: "Hidden"
+        )
+        var draft = makeDraft(
+            sample: "Target",
+            assignments: [existing]
+        )
+        let address = GenotypeManualHaplotypeDraft.SlotAddress(
+            locus: .a,
+            slot: .h1
+        )
+        draft.setLabel("Edited", locus: .a, slot: .h1)
+
+        XCTAssertEqual(
+            draft.slotSnapshots.map(\.address),
+            GenotypeManualHaplotypeDraft.orderedSlotAddresses
+        )
+        XCTAssertEqual(
+            draft.slotSnapshot(at: address),
+            .init(
+                address: address,
+                label: "Edited",
+                colorTokenIndex: draft[.a, .h1]?.colorTokenIndex,
+                hasHiddenCompatibilityMetadata: true,
+                isDirty: true
+            )
+        )
+        XCTAssertEqual(draft.dirtySlotAddresses, [address])
+    }
+
+    private func assertSelectiveCopyBlockedByHiddenMetadata(
+        diagnosticAlleles: [String],
+        notes: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let target = assignment(
+            sample: "Target",
+            locus: .a,
+            slot: .h1,
+            label: "Old",
+            color: 1,
+            diagnosticAlleles: diagnosticAlleles,
+            notes: notes
+        )
+        let source = assignment(
+            sample: "Source",
+            locus: .a,
+            slot: .h1,
+            label: "Copied",
+            color: 4
+        )
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: [target, source]
+        )
+        var draft = GenotypeManualHaplotypeDraft(
+            sample: "Target",
+            index: index
+        )
+        let address = GenotypeManualHaplotypeDraft.SlotAddress(
+            locus: .a,
+            slot: .h1
+        )
+
+        let result = draft.copySelectedAssignments(
+            from: index.sampleAssignments(for: "Source"),
+            addresses: [address]
+        )
+
+        XCTAssertEqual(result.applied, [], file: file, line: line)
+        XCTAssertEqual(
+            result.skipped,
+            [
+                .init(
+                    address: address,
+                    reason: .hiddenMetadataRequiresSavedClear
+                )
+            ],
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            draft[.a, .h1]?.label,
+            "Old",
+            file: file,
+            line: line
+        )
+        XCTAssertFalse(draft.isDirty, file: file, line: line)
+    }
+
     private func makeDraft(
         sample: String,
         assignments: [ManualHaplotypeAssignment]

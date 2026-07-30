@@ -124,6 +124,35 @@ struct GenotypeManualHaplotypeDraft: Equatable, Sendable {
         let value: SlotValue?
     }
 
+    struct SlotSnapshot: Equatable, Sendable {
+        let address: SlotAddress
+        let label: String?
+        let colorTokenIndex: Int?
+        let hasHiddenCompatibilityMetadata: Bool
+        let isDirty: Bool
+    }
+
+    enum SelectiveCopySkipReason: Equatable, Sendable {
+        case sourceMissing
+        case sourceChanged
+        case hiddenMetadataRequiresSavedClear
+    }
+
+    struct SelectiveCopySkip: Equatable, Sendable {
+        let address: SlotAddress
+        let reason: SelectiveCopySkipReason
+    }
+
+    struct SelectiveCopyResult: Equatable, Sendable {
+        let applied: Set<SlotAddress>
+        let skipped: [SelectiveCopySkip]
+    }
+
+    private enum MutationOrigin: Equatable, Sendable {
+        case manual
+        case copied(String)
+    }
+
     struct ValidationIssue: Equatable, Sendable {
         let address: SlotAddress
         let error:
@@ -145,7 +174,7 @@ struct GenotypeManualHaplotypeDraft: Equatable, Sendable {
     let original:
         GenotypeManualHaplotypeAssignmentIndex.SampleAssignments
     private(set) var values: [GenotypeManualHaplotypeLocus: SlotPair]
-    private(set) var copySource: String?
+    private var mutationOriginByAddress: [SlotAddress: MutationOrigin]
 
     private let originalValues:
         [GenotypeManualHaplotypeLocus: SlotPair]
@@ -169,7 +198,7 @@ struct GenotypeManualHaplotypeDraft: Equatable, Sendable {
         self.sample = sample
         self.original = original
         self.values = initialValues
-        self.copySource = nil
+        self.mutationOriginByAddress = [:]
         self.originalValues = initialValues
         self.labelCatalog = catalog
     }
@@ -191,6 +220,19 @@ struct GenotypeManualHaplotypeDraft: Equatable, Sendable {
         }
     }
 
+    var slotSnapshots: [SlotSnapshot] {
+        Self.orderedSlotAddresses.map(slotSnapshot(at:))
+    }
+
+    var dirtySlotAddresses: Set<SlotAddress> {
+        Set(
+            Self.orderedSlotAddresses.filter { address in
+                self[address.locus, address.slot]
+                    != originalValues[address.locus]?[address.slot]
+            }
+        )
+    }
+
     var totalSlotCount: Int {
         Self.orderedSlotAddresses.count
     }
@@ -209,6 +251,24 @@ struct GenotypeManualHaplotypeDraft: Equatable, Sendable {
 
     var isDirty: Bool {
         values != originalValues
+    }
+
+    var copySource: String? {
+        let dirty = dirtySlotAddresses
+        guard !dirty.isEmpty else { return nil }
+
+        var sharedSource: String?
+        for address in Self.orderedSlotAddresses where dirty.contains(address) {
+            guard case .copied(let source)? =
+                mutationOriginByAddress[address] else {
+                return nil
+            }
+            if let sharedSource, sharedSource != source {
+                return nil
+            }
+            sharedSource = source
+        }
+        return sharedSource
     }
 
     var validationIssues: [ValidationIssue] {
@@ -253,6 +313,22 @@ struct GenotypeManualHaplotypeDraft: Equatable, Sendable {
         }
     }
 
+    func slotSnapshot(at address: SlotAddress) -> SlotSnapshot {
+        let value = self[address.locus, address.slot]
+        let originalValue =
+            originalValues[address.locus]?[address.slot]
+        return SlotSnapshot(
+            address: address,
+            label: value?.label,
+            colorTokenIndex: value?.colorTokenIndex,
+            hasHiddenCompatibilityMetadata:
+                Self.hasHiddenCompatibilityMetadata(value)
+                || Self.hasHiddenCompatibilityMetadata(originalValue),
+            isDirty:
+                value != originalValue
+        )
+    }
+
     mutating func setLabel(
         _ rawLabel: String,
         locus: GenotypeManualHaplotypeLocus,
@@ -266,7 +342,7 @@ struct GenotypeManualHaplotypeDraft: Equatable, Sendable {
             for: label,
             retaining: current
         )
-        setValue(
+        let didChange = setValue(
             SlotValue(
                 label: label,
                 colorTokenIndex: colorTokenIndex,
@@ -280,13 +356,25 @@ struct GenotypeManualHaplotypeDraft: Equatable, Sendable {
             locus: locus,
             slot: slot
         )
+        if didChange {
+            recordMutation(
+                at: SlotAddress(locus: locus, slot: slot),
+                origin: .manual
+            )
+        }
     }
 
     mutating func clear(
         locus: GenotypeManualHaplotypeLocus,
         slot: HaplotypeSlot
     ) {
-        setValue(nil, locus: locus, slot: slot)
+        let didChange = setValue(nil, locus: locus, slot: slot)
+        if didChange {
+            recordMutation(
+                at: SlotAddress(locus: locus, slot: slot),
+                origin: .manual
+            )
+        }
     }
 
     func autocompleteSuggestions(
@@ -313,6 +401,9 @@ struct GenotypeManualHaplotypeDraft: Equatable, Sendable {
         from source:
             GenotypeManualHaplotypeAssignmentIndex.SampleAssignments
     ) {
+        let normalizedSource =
+            GenotypeManualHaplotypeAssignmentInputValidator
+                .normalizedSampleIdentity(source.sample)
         for address in Self.orderedSlotAddresses {
             guard let sourceAssignment =
                 source[address.locus, address.slot] else {
@@ -320,6 +411,10 @@ struct GenotypeManualHaplotypeDraft: Equatable, Sendable {
                     nil,
                     locus: address.locus,
                     slot: address.slot
+                )
+                recordMutation(
+                    at: address,
+                    origin: .copied(normalizedSource)
                 )
                 continue
             }
@@ -343,10 +438,93 @@ struct GenotypeManualHaplotypeDraft: Equatable, Sendable {
                 locus: address.locus,
                 slot: address.slot
             )
+            recordMutation(
+                at: address,
+                origin: .copied(normalizedSource)
+            )
         }
-        copySource =
+    }
+
+    mutating func copySelectedAssignments(
+        from source:
+            GenotypeManualHaplotypeAssignmentIndex.SampleAssignments,
+        addresses: Set<SlotAddress>,
+        expectedSourceValues:
+            [SlotAddress: ManualHaplotypeAssignment]? = nil
+    ) -> SelectiveCopyResult {
+        var applied: Set<SlotAddress> = []
+        var skipped: [SelectiveCopySkip] = []
+        let normalizedSource =
             GenotypeManualHaplotypeAssignmentInputValidator
                 .normalizedSampleIdentity(source.sample)
+
+        for address in Self.orderedSlotAddresses where addresses.contains(address) {
+            guard let sourceAssignment =
+                source[address.locus, address.slot] else {
+                skipped.append(
+                    SelectiveCopySkip(
+                        address: address,
+                        reason: .sourceMissing
+                    )
+                )
+                continue
+            }
+            if let expectedSourceValues,
+               expectedSourceValues[address] != sourceAssignment {
+                skipped.append(
+                    SelectiveCopySkip(
+                        address: address,
+                        reason: .sourceChanged
+                    )
+                )
+                continue
+            }
+
+            let sourceValue = Self.slotValue(
+                from: sourceAssignment,
+                labelCatalog: labelCatalog
+            )
+            let currentTarget = self[address.locus, address.slot]
+            let originalTarget =
+                originalValues[address.locus]?[address.slot]
+            if Self.hiddenMetadataBlocksCopy(
+                target: currentTarget,
+                sourceLabel: sourceValue.label
+            ) || Self.hiddenMetadataBlocksCopy(
+                target: originalTarget,
+                sourceLabel: sourceValue.label
+            ) {
+                skipped.append(
+                    SelectiveCopySkip(
+                        address: address,
+                        reason: .hiddenMetadataRequiresSavedClear
+                    )
+                )
+                continue
+            }
+            let targetMetadata = currentTarget ?? originalTarget
+            setValue(
+                SlotValue(
+                    label: sourceValue.label,
+                    colorTokenIndex: sourceValue.colorTokenIndex,
+                    diagnosticAlleles:
+                        targetMetadata?.diagnosticAlleles ?? [],
+                    notes: targetMetadata?.notes ?? "",
+                    assignmentID: targetMetadata?.assignmentID,
+                    updatedAt: targetMetadata?.updatedAt,
+                    author: targetMetadata?.author
+                ),
+                locus: address.locus,
+                slot: address.slot
+            )
+            recordMutation(
+                at: address,
+                origin: .copied(normalizedSource)
+            )
+            applied.insert(address)
+        }
+
+        return SelectiveCopyResult(applied: applied, skipped: skipped)
     }
 
     func validatedAssignments() throws -> [ManualHaplotypeAssignment] {
@@ -374,14 +552,29 @@ struct GenotypeManualHaplotypeDraft: Equatable, Sendable {
         }
     }
 
+    @discardableResult
     private mutating func setValue(
         _ value: SlotValue?,
         locus: GenotypeManualHaplotypeLocus,
         slot: HaplotypeSlot
-    ) {
+    ) -> Bool {
         var pair = values[locus] ?? SlotPair(h1: nil, h2: nil)
+        guard pair[slot] != value else { return false }
         pair[slot] = value
         values[locus] = pair
+        return true
+    }
+
+    private mutating func recordMutation(
+        at address: SlotAddress,
+        origin: MutationOrigin
+    ) {
+        if self[address.locus, address.slot]
+            == originalValues[address.locus]?[address.slot] {
+            mutationOriginByAddress.removeValue(forKey: address)
+        } else {
+            mutationOriginByAddress[address] = origin
+        }
     }
 
     private func resolvedColorTokenIndex(
@@ -427,6 +620,32 @@ struct GenotypeManualHaplotypeDraft: Equatable, Sendable {
             ).canonicalIndex
         }
         return HaplotypeColorToken.assigned(forName: label).canonicalIndex
+    }
+
+    private static func hiddenMetadataBlocksCopy(
+        target: SlotValue?,
+        sourceLabel: String
+    ) -> Bool {
+        guard let target,
+              hasHiddenCompatibilityMetadata(target) else {
+            return false
+        }
+        guard let targetKey = try?
+            GenotypeManualHaplotypeAssignmentInputValidator
+                .normalizedLabelKey(for: target.label),
+              let sourceKey = try?
+            GenotypeManualHaplotypeAssignmentInputValidator
+                .normalizedLabelKey(for: sourceLabel) else {
+            return true
+        }
+        return targetKey != sourceKey
+    }
+
+    private static func hasHiddenCompatibilityMetadata(
+        _ value: SlotValue?
+    ) -> Bool {
+        guard let value else { return false }
+        return !value.diagnosticAlleles.isEmpty || !value.notes.isEmpty
     }
 
     private func draftColorTokenIndex(for label: String) -> Int? {
