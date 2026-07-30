@@ -99,16 +99,16 @@ final class GenotypeResultViewportTests: XCTestCase {
     func testSampleCurationWorkbenchUsesHysteresisAcrossViewportWidths() {
         let workbench = makeSampleCurationWorkbench()
 
-        workbench.frame.size = NSSize(width: 779, height: 700)
+        workbench.frame.size = NSSize(width: 968, height: 700)
         XCTAssertEqual(workbench.layoutMode, .stacked)
 
-        workbench.frame.size = NSSize(width: 841, height: 700)
+        workbench.frame.size = NSSize(width: 1_000, height: 700)
         XCTAssertEqual(workbench.layoutMode, .sideBySide)
 
-        workbench.frame.size = NSSize(width: 800, height: 700)
+        workbench.frame.size = NSSize(width: 980, height: 700)
         XCTAssertEqual(workbench.layoutMode, .sideBySide)
 
-        workbench.frame.size = NSSize(width: 779, height: 700)
+        workbench.frame.size = NSSize(width: 968, height: 700)
         XCTAssertEqual(workbench.layoutMode, .stacked)
     }
 
@@ -122,8 +122,9 @@ final class GenotypeResultViewportTests: XCTestCase {
             evidenceView: evidence
         )
 
-        workbench.frame.size = NSSize(width: 841, height: 700)
-        workbench.frame.size = NSSize(width: 779, height: 700)
+        workbench.frame.size = NSSize(width: 1_000, height: 700)
+        workbench.frame.size = NSSize(width: 968, height: 700)
+        workbench.frame.size = NSSize(width: 1_000, height: 700)
 
         XCTAssertTrue(workbench.headerView === header)
         XCTAssertTrue(workbench.assignmentView === assignment)
@@ -142,14 +143,18 @@ final class GenotypeResultViewportTests: XCTestCase {
     func testSampleCurationWorkbenchTypographyScaleRaisesSideBySideThreshold() {
         let workbench = makeSampleCurationWorkbench(typographyScale: 2)
 
-        workbench.frame.size = NSSize(width: 841, height: 700)
+        workbench.frame.size = NSSize(width: 1_239, height: 700)
 
         XCTAssertEqual(workbench.layoutMode, .stacked)
+
+        workbench.frame.size = NSSize(width: 1_241, height: 700)
+
+        XCTAssertEqual(workbench.layoutMode, .sideBySide)
     }
 
     func testSampleCurationWorkbenchLiveTypographyScaleReevaluatesCurrentWidth() {
         let workbench = makeSampleCurationWorkbench(typographyScale: 1)
-        workbench.frame.size = NSSize(width: 841, height: 700)
+        workbench.frame.size = NSSize(width: 1_000, height: 700)
         XCTAssertEqual(workbench.layoutMode, .sideBySide)
 
         workbench.updateContentTypographyScale(2)
@@ -169,7 +174,7 @@ final class GenotypeResultViewportTests: XCTestCase {
             evidenceView: evidence
         )
 
-        workbench.frame.size = NSSize(width: 900, height: 700)
+        workbench.frame.size = NSSize(width: 1_000, height: 700)
         XCTAssertEqual(workbench.layoutMode, .sideBySide)
         XCTAssertEqual(evidence.availableHeight, 568, accuracy: 1)
         XCTAssertFalse(evidence.usesCompactHeight)
@@ -203,20 +208,29 @@ final class GenotypeResultViewportTests: XCTestCase {
 
     func testWideWorkbenchFillsAvailableWidthWithoutEditorCapOrDeadCenterGap() {
         let workbench = makeSampleCurationWorkbench()
-        workbench.frame.size = NSSize(width: 1_400, height: 700)
+        workbench.frame.size = NSSize(width: 2_240, height: 700)
 
         workbench.layoutSubtreeIfNeeded()
 
         XCTAssertEqual(workbench.layoutMode, .sideBySide)
-        XCTAssertGreaterThan(workbench.assignmentView.frame.width, 640.5)
-        XCTAssertGreaterThanOrEqual(workbench.assignmentView.frame.width, 419.5)
-        XCTAssertGreaterThanOrEqual(workbench.evidenceView.frame.width, 299.5)
+        XCTAssertGreaterThanOrEqual(workbench.assignmentView.frame.width, 519.5)
+        XCTAssertGreaterThanOrEqual(workbench.evidenceView.frame.width, 359.5)
         XCTAssertEqual(
             workbench.assignmentView.frame.width
                 + workbench.evidenceView.frame.width
                 + 16,
             workbench.frame.width,
             accuracy: 1
+        )
+        XCTAssertEqual(
+            workbench.evidenceView.frame.width / (workbench.bounds.width - 16),
+            0.38,
+            accuracy: 0.02
+        )
+        XCTAssertLessThan(
+            workbench.evidenceView.frame.minX
+                - workbench.assignmentView.frame.maxX,
+            17
         )
     }
 

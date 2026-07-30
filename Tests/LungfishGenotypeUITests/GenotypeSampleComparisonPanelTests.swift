@@ -805,22 +805,24 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
             model: trailing,
             typographyModel: .shared
         )
-        let header = FixedIntrinsicView(
-            size: NSSize(width: 1_200, height: 140)
+        let assignmentModel = makeManualHaplotypeEditorModel()
+        let assignments = makeGenotypeManualHaplotypeEditorHostingView(
+            model: assignmentModel,
+            typographyModel: .shared
         )
-        let assignments = FixedIntrinsicView(
-            size: NSSize(width: 800, height: 620)
+        let header = FixedIntrinsicView(
+            size: NSSize(width: 2_240, height: 140)
         )
         let workbench = GenotypeSampleCurationWorkbenchView(
             headerView: header,
             assignmentView: assignments,
             evidenceView: evidence
         )
-        let mounted = mount(host: workbench, width: 1_400)
+        let mounted = mount(host: workbench, width: 2_240)
         defer { mounted.window.close() }
-        trailing.showCompareAndCopy()
         flush(workbench)
 
+        XCTAssertEqual(trailing.mode, .evidence)
         XCTAssertEqual(workbench.layoutMode, .sideBySide)
         let headerFrame = header.convert(header.bounds, to: workbench)
         let assignmentFrame = assignments.convert(
@@ -828,6 +830,17 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
             to: workbench
         )
         let evidenceFrame = evidence.convert(evidence.bounds, to: workbench)
+        XCTAssertEqual(
+            assignmentFrame.width + evidenceFrame.width + 16,
+            workbench.bounds.width,
+            accuracy: 1
+        )
+        XCTAssertEqual(
+            evidenceFrame.width / (workbench.bounds.width - 16),
+            0.38,
+            accuracy: 0.02
+        )
+        XCTAssertLessThan(evidenceFrame.minX - assignmentFrame.maxX, 17)
         XCTAssertEqual(
             evidenceFrame.maxY,
             assignmentFrame.maxY,
@@ -840,6 +853,8 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
             "The comparison column must remain below the shared header."
         )
 
+        trailing.showCompareAndCopy()
+        flush(workbench)
         let back = try XCTUnwrap(
             concreteButton(
                 identifier: "sample-comparison-back-to-evidence",
@@ -861,6 +876,15 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
         back.performClick(nil)
         flush(workbench)
         XCTAssertEqual(trailing.mode, .evidence)
+
+        let assignmentIdentity = ObjectIdentifier(assignments)
+        let evidenceIdentity = ObjectIdentifier(evidence)
+        workbench.frame.size = NSSize(width: 968, height: 1_200)
+        XCTAssertEqual(workbench.layoutMode, .stacked)
+        workbench.frame.size = NSSize(width: 2_240, height: 1_200)
+        XCTAssertEqual(workbench.layoutMode, .sideBySide)
+        XCTAssertEqual(ObjectIdentifier(workbench.assignmentView), assignmentIdentity)
+        XCTAssertEqual(ObjectIdentifier(workbench.evidenceView), evidenceIdentity)
     }
 
     func testTrailingPaneMeasuresOnlyTheActiveMode() {
@@ -1156,6 +1180,25 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
                     : nil
             },
             stageSelectedAssignments: stage
+        )
+    }
+
+    private func makeManualHaplotypeEditorModel()
+        -> GenotypeManualHaplotypeEditorModel
+    {
+        let draft = GenotypeManualHaplotypeDraft(
+            sample: "Target",
+            index: GenotypeManualHaplotypeAssignmentIndex(assignments: [])
+        )
+        let snapshot = GenotypeManualHaplotypeEditorModel.Snapshot(
+            draft: draft,
+            copyCandidates: [],
+            isReadOnly: false
+        )
+        return GenotypeManualHaplotypeEditorModel(
+            snapshot: snapshot,
+            onSave: { $0 },
+            onReload: { snapshot }
         )
     }
 

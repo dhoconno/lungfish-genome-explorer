@@ -398,16 +398,26 @@ public final class GenotypeSampleCurationWorkbenchView: NSView {
         evidenceWidth.identifier = "GenotypeSampleCurationWorkbench.evidenceWidth"
         stackedConstraints = [assignmentWidth, evidenceWidth]
 
-        let preferredEditorWidth = assignmentView.widthAnchor.constraint(
+        let sideBySideAssignmentWidth = assignmentView.widthAnchor.constraint(
             equalTo: bodyStack.widthAnchor,
-            multiplier: 0.62
+            multiplier: 0.62,
+            constant: -8
         )
-        preferredEditorWidth.priority = .defaultHigh
+        sideBySideAssignmentWidth.identifier =
+            "GenotypeSampleCurationWorkbench.sideBySideAssignmentWidth"
+        let sideBySideEvidenceWidth = evidenceView.widthAnchor.constraint(
+            equalTo: bodyStack.widthAnchor,
+            multiplier: 0.38,
+            constant: -8
+        )
+        sideBySideEvidenceWidth.identifier =
+            "GenotypeSampleCurationWorkbench.sideBySideEvidenceWidth"
 
         sideBySideConstraints = [
-            assignmentView.widthAnchor.constraint(greaterThanOrEqualToConstant: 420),
-            evidenceView.widthAnchor.constraint(greaterThanOrEqualToConstant: 300),
-            preferredEditorWidth,
+            assignmentView.widthAnchor.constraint(greaterThanOrEqualToConstant: 520),
+            evidenceView.widthAnchor.constraint(greaterThanOrEqualToConstant: 360),
+            sideBySideAssignmentWidth,
+            sideBySideEvidenceWidth,
         ]
     }
 
@@ -483,11 +493,11 @@ public final class GenotypeSampleCurationWorkbenchView: NSView {
     }
 
     private var sideBySideEntryWidth: CGFloat {
-        840 + breakpointAdjustment
+        1_000 + breakpointAdjustment
     }
 
     private var stackedEntryWidth: CGFloat {
-        780 + breakpointAdjustment
+        969 + breakpointAdjustment
     }
 
     private static func normalizedTypographyScale(_ scale: CGFloat) -> CGFloat {
