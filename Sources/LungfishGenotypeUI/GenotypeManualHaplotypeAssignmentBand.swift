@@ -310,11 +310,11 @@ final class GenotypeManualHaplotypePinnedBandView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+        layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         disclosureButton.target = self
         disclosureButton.action = #selector(toggleDisclosure(_:))
         disclosureButton.setButtonType(.pushOnPushOff)
-        disclosureButton.bezelStyle = .accessoryBarAction
+        disclosureButton.isBordered = false
         disclosureButton.image = Self.makeDisclosureIcon(
             expanded: false
         )
@@ -348,10 +348,19 @@ final class GenotypeManualHaplotypePinnedBandView: NSView {
 
     override func layout() {
         super.layout()
+        let intrinsicWidth = disclosureButton.cell?.cellSize.width
+            ?? disclosureButton.intrinsicContentSize.width
         disclosureButton.frame = NSRect(
             x: 0,
             y: 0,
-            width: max(0, min(bounds.width, availableDisclosureWidth)),
+            width: max(
+                0,
+                min(
+                    bounds.width,
+                    availableDisclosureWidth,
+                    ceil(intrinsicWidth + 6)
+                )
+            ),
             height: min(disclosureHeight, bounds.height)
         )
     }
@@ -363,6 +372,13 @@ final class GenotypeManualHaplotypePinnedBandView: NSView {
     }
 
     var disclosureLabel: String { Self.disclosureTitle }
+
+#if DEBUG
+    var testingDisclosureFrame: NSRect { disclosureButton.frame }
+    var testingDisclosureIsBordered: Bool { disclosureButton.isBordered }
+    var testingStripBackgroundColor: NSColor { .windowBackgroundColor }
+    var testingStripSeparatorColor: NSColor { .separatorColor }
+#endif
 
     private static func makeDisclosureIcon(
         expanded: Bool
@@ -424,6 +440,7 @@ final class GenotypeManualHaplotypePinnedBandView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
+        drawStripChrome(in: dirtyRect)
         guard isExpanded else { return }
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
@@ -442,6 +459,20 @@ final class GenotypeManualHaplotypePinnedBandView: NSView {
                 withAttributes: attributes
             )
         }
+    }
+
+    private func drawStripChrome(in dirtyRect: NSRect) {
+        NSColor.windowBackgroundColor.setFill()
+        dirtyRect.intersection(bounds).fill()
+        let separatorRect = NSRect(
+            x: bounds.minX,
+            y: max(bounds.minY, bounds.maxY - 1),
+            width: bounds.width,
+            height: 1
+        )
+        guard separatorRect.intersects(dirtyRect) else { return }
+        NSColor.separatorColor.setFill()
+        separatorRect.fill()
     }
 }
 
@@ -474,7 +505,7 @@ final class GenotypeManualHaplotypeSampleBandView:
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+        layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         setAccessibilityElement(false)
     }
 
@@ -486,6 +517,11 @@ final class GenotypeManualHaplotypeSampleBandView:
         super.layout()
         refreshToolTipRegistration()
     }
+
+#if DEBUG
+    var testingStripBackgroundColor: NSColor { .windowBackgroundColor }
+    var testingStripSeparatorColor: NSColor { .separatorColor }
+#endif
 
     private func refreshToolTipRegistration() {
         if let tooltipTag {
@@ -595,6 +631,7 @@ final class GenotypeManualHaplotypeSampleBandView:
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
+        drawStripChrome(in: dirtyRect)
         guard isExpanded else { return }
         let attributes =
             GenotypeManualHaplotypeValueLayout.drawingAttributes(
@@ -618,5 +655,19 @@ final class GenotypeManualHaplotypeSampleBandView:
                 )
             }
         }
+    }
+
+    private func drawStripChrome(in dirtyRect: NSRect) {
+        NSColor.windowBackgroundColor.setFill()
+        dirtyRect.intersection(bounds).fill()
+        let separatorRect = NSRect(
+            x: bounds.minX,
+            y: max(bounds.minY, bounds.maxY - 1),
+            width: bounds.width,
+            height: 1
+        )
+        guard separatorRect.intersects(dirtyRect) else { return }
+        NSColor.separatorColor.setFill()
+        separatorRect.fill()
     }
 }

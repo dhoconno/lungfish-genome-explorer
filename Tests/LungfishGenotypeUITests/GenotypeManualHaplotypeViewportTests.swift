@@ -8,6 +8,33 @@ import LungfishKit
 
 @MainActor
 final class GenotypeManualHaplotypeViewportTests: XCTestCase {
+    func testPinnedAndSampleStripChromeUsesMatchingSemanticColorsInBothAppearances() {
+        let pinned = GenotypeManualHaplotypePinnedBandView()
+        let sample = GenotypeManualHaplotypeSampleBandView()
+
+        for appearanceName in [NSAppearance.Name.aqua, .darkAqua] {
+            let appearance = NSAppearance(named: appearanceName)
+            appearance?.performAsCurrentDrawingAppearance {
+                XCTAssertEqual(
+                    pinned.testingStripBackgroundColor,
+                    sample.testingStripBackgroundColor
+                )
+                XCTAssertEqual(
+                    pinned.testingStripSeparatorColor,
+                    sample.testingStripSeparatorColor
+                )
+                XCTAssertEqual(
+                    pinned.testingStripBackgroundColor,
+                    .windowBackgroundColor
+                )
+                XCTAssertEqual(
+                    pinned.testingStripSeparatorColor,
+                    .separatorColor
+                )
+            }
+        }
+    }
+
     func testLocusLayoutUsesScaledBreakpointAndKeepsChildrenInsideBounds() {
         let childSizes = [
             CGSize(width: 72, height: 20),

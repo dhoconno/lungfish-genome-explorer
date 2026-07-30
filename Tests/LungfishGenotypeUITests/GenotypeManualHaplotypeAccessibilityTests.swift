@@ -154,6 +154,30 @@ final class GenotypeManualHaplotypeAccessibilityTests: XCTestCase {
         )
     }
 
+    func testMountedEligibleMatrixUsesACompactFullWidthManualHaplotypeStrip()
+        throws
+    {
+        let fixture = GenotypeManualHaplotypeTask10Fixture(sampleCount: 8)
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.frame = NSRect(x: 0, y: 0, width: 1_200, height: 520)
+        matrix.configure(
+            result: fixture.result(workflowMode: .genotypeOnly),
+            sidecar: fixture.sidecar
+        )
+        matrix.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(
+            matrix.testingManualHaplotypeBandCoverageWidth,
+            matrix.testingVisibleMatrixWidth,
+            accuracy: 1
+        )
+        XCTAssertLessThan(
+            matrix.testingManualHaplotypeDisclosureFrame.width,
+            matrix.testingPinnedPaneWidth * 0.6
+        )
+        XCTAssertFalse(matrix.testingManualHaplotypeDisclosureIsBordered)
+    }
+
     func testBandCellsRemainNonFocusableAndExposeColumnSummaryThroughHeader()
         throws
     {

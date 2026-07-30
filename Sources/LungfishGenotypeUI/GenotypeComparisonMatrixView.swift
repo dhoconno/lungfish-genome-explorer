@@ -6985,6 +6985,32 @@ extension GenotypeComparisonMatrixView {
         displayState.manualHaplotypeBandExpanded
     }
 
+    var testingManualHaplotypeBandCoverageWidth: CGFloat {
+        let pinnedFrame = manualHaplotypePinnedBand.convert(
+            manualHaplotypePinnedBand.bounds,
+            to: self
+        )
+        let sampleFrame = manualHaplotypeSampleBand.convert(
+            manualHaplotypeSampleBand.visibleRect,
+            to: self
+        )
+        return pinnedFrame.union(sampleFrame).width
+    }
+
+    var testingVisibleMatrixWidth: CGFloat {
+        pinnedScrollView.frame.width
+            + paneDivider.frame.width
+            + scrollView.frame.width
+    }
+
+    var testingManualHaplotypeDisclosureFrame: NSRect {
+        manualHaplotypePinnedBand.testingDisclosureFrame
+    }
+
+    var testingManualHaplotypeDisclosureIsBordered: Bool {
+        manualHaplotypePinnedBand.testingDisclosureIsBordered
+    }
+
     func testingSetManualHaplotypeBandDisclosureExpanded(
         _ expanded: Bool
     ) {
