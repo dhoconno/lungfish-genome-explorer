@@ -14,6 +14,8 @@ final class GenotypeSampleCurationTrailingModel: ObservableObject {
     @Published var mode: Mode = .evidence
     @Published private(set) var evidenceSnapshot:
         GenotypeSupportedAllelesSnapshot
+    @Published private(set) var availableEvidenceHeight: CGFloat?
+    @Published private(set) var usesCompactEvidenceHeight = false
     let comparison: GenotypeSampleComparisonModel
 
     init(
@@ -26,6 +28,21 @@ final class GenotypeSampleCurationTrailingModel: ObservableObject {
 
     func showEvidence() { mode = .evidence }
     func showCompareAndCopy() { mode = .compareAndCopy }
+
+    func updateEvidenceAvailableHeight(
+        _ availableHeight: CGFloat,
+        compact: Bool
+    ) {
+        let normalizedHeight = availableHeight.isFinite
+            ? max(1, availableHeight)
+            : nil
+        guard self.availableEvidenceHeight != normalizedHeight
+                || usesCompactEvidenceHeight != compact else {
+            return
+        }
+        self.availableEvidenceHeight = normalizedHeight
+        usesCompactEvidenceHeight = compact
+    }
 
     func refreshEvidence(
         target: GenotypeSupportedAllelesSnapshot,
@@ -1241,7 +1258,9 @@ struct GenotypeSampleCurationTrailingPane: View {
         GenotypeSampleCurationModeOverlayLayout(mode: model.mode) {
             GenotypeSupportedAllelesPanel(
                 snapshot: model.evidenceSnapshot,
-                typographyModel: typographyModel
+                typographyModel: typographyModel,
+                availableHeight: model.availableEvidenceHeight,
+                usesCompactHeight: model.usesCompactEvidenceHeight
             )
             .opacity(model.mode == .evidence ? 1 : 0)
             .disabled(model.mode != .evidence)
@@ -1307,7 +1326,10 @@ func makeGenotypeSampleCurationTrailingHostingView(
 }
 
 @MainActor
-private final class GenotypeSampleCurationTrailingHostView: NSView {
+private final class GenotypeSampleCurationTrailingHostView:
+    NSView,
+    GenotypeSupportedAllelesAvailableHeightReceiving
+{
     private struct MeasurementState: Equatable {
         let mode: GenotypeSampleCurationTrailingModel.Mode
         let selectedSource: String?
@@ -1318,6 +1340,8 @@ private final class GenotypeSampleCurationTrailingHostView: NSView {
         let searchText: String
         let stagedStatus: String?
         let isPending: Bool
+        let availableEvidenceHeight: CGFloat?
+        let usesCompactEvidenceHeight: Bool
     }
 
     private let hostingController:
@@ -1428,6 +1452,16 @@ private final class GenotypeSampleCurationTrailingHostView: NSView {
         }
     }
 
+    func updateSupportedAllelesAvailableHeight(
+        _ availableHeight: CGFloat,
+        compact: Bool
+    ) {
+        model.updateEvidenceAvailableHeight(
+            availableHeight,
+            compact: compact
+        )
+    }
+
     private func invalidateWidthAwareIntrinsicSize() {
         cachedMeasurement = nil
         invalidateIntrinsicContentSize()
@@ -1446,7 +1480,10 @@ private final class GenotypeSampleCurationTrailingHostView: NSView {
                 comparison.filteredCandidates.count,
             searchText: comparison.searchText,
             stagedStatus: comparison.stagedStatus,
-            isPending: comparison.isInteractionPending
+            isPending: comparison.isInteractionPending,
+            availableEvidenceHeight: model.availableEvidenceHeight,
+            usesCompactEvidenceHeight:
+                model.usesCompactEvidenceHeight
         )
     }
 
@@ -1456,7 +1493,10 @@ private final class GenotypeSampleCurationTrailingHostView: NSView {
             return measuredHeight(
                 for: GenotypeSupportedAllelesPanel(
                     snapshot: model.evidenceSnapshot,
-                    typographyModel: typographyModel
+                    typographyModel: typographyModel,
+                    availableHeight: model.availableEvidenceHeight,
+                    usesCompactHeight:
+                        model.usesCompactEvidenceHeight
                 ),
                 width: width
             )

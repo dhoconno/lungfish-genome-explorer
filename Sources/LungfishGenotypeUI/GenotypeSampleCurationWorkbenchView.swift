@@ -1,6 +1,14 @@
 import AppKit
 import LungfishKit
 
+@MainActor
+protocol GenotypeSupportedAllelesAvailableHeightReceiving: AnyObject {
+    func updateSupportedAllelesAvailableHeight(
+        _ availableHeight: CGFloat,
+        compact: Bool
+    )
+}
+
 enum GenotypeCallSupportCheck: Equatable {
     case meetsThresholds
     case lowSupport
@@ -332,6 +340,7 @@ public final class GenotypeSampleCurationWorkbenchView: NSView {
     public override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         updateLayoutMode(for: newSize.width)
+        updateEvidenceAvailableHeight(for: newSize)
     }
 
     public func updateContentTypographyScale(_ newScale: CGFloat) {
@@ -342,6 +351,7 @@ public final class GenotypeSampleCurationWorkbenchView: NSView {
         (headerView as? GenotypeSampleCurationHeaderView)?
             .updateContentTypographyScale(normalizedScale)
         updateLayoutMode(for: bounds.width)
+        updateEvidenceAvailableHeight(for: bounds.size)
     }
 
     private func configureViewHierarchy() {
@@ -426,6 +436,45 @@ public final class GenotypeSampleCurationWorkbenchView: NSView {
             bodyStack.orientation = .horizontal
             bodyStack.alignment = .top
             NSLayoutConstraint.activate(sideBySideConstraints)
+        }
+        updateEvidenceAvailableHeight(for: bounds.size)
+    }
+
+    private func updateEvidenceAvailableHeight(for size: NSSize) {
+        guard size.height.isFinite, size.height > 0 else { return }
+        let measuredHeaderHeight = max(
+            0,
+            headerView.fittingSize.height
+        )
+        let availableHeight = max(
+            1,
+            size.height - measuredHeaderHeight - rootStack.spacing
+        )
+        notifyEvidenceHeightReceivers(
+            in: evidenceView,
+            availableHeight: availableHeight,
+            compact: layoutMode == .stacked
+        )
+    }
+
+    private func notifyEvidenceHeightReceivers(
+        in view: NSView,
+        availableHeight: CGFloat,
+        compact: Bool
+    ) {
+        if let receiver =
+            view as? GenotypeSupportedAllelesAvailableHeightReceiving {
+            receiver.updateSupportedAllelesAvailableHeight(
+                availableHeight,
+                compact: compact
+            )
+        }
+        for subview in view.subviews {
+            notifyEvidenceHeightReceivers(
+                in: subview,
+                availableHeight: availableHeight,
+                compact: compact
+            )
         }
     }
 

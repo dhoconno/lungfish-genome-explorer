@@ -7,12 +7,10 @@ import LungfishKit
 
 @MainActor
 final class GenotypeSupportedAllelesPanelTests: XCTestCase {
-    func testSupportedAllelesPanelSnapshotBoundsPreviewAndLabels() {
+    func testSupportedAllelesSnapshotPreservesAllRowsAndLabels() {
         let snapshot = GenotypeSupportedAllelesSnapshot(rows: makeRows(count: 1_001))
 
         XCTAssertEqual(snapshot.rows.count, 1_001)
-        XCTAssertEqual(snapshot.previewRows.count, 12)
-        XCTAssertEqual(snapshot.omittedRowCount, 989)
         XCTAssertEqual(snapshot.layoutMode(forWidth: 519), .compact)
         XCTAssertEqual(snapshot.layoutMode(forWidth: 520), .columns)
         XCTAssertEqual(
@@ -21,54 +19,104 @@ final class GenotypeSupportedAllelesPanelTests: XCTestCase {
         )
     }
 
-    func testEvidenceTableContainsOnlyAlleleAndReadSupport() throws {
-        let snapshot = GenotypeSupportedAllelesSnapshot(rows: [
-            .init(
-                id: "known:MHC-A:NHP01801",
-                allele: "Mafa-A1*018:01:01:01",
-                readSupport: "712"
-            ),
-        ])
+    func testInlineTableReportsEveryRowWithoutShowAllControl() throws {
+        let snapshot = GenotypeSupportedAllelesSnapshot(
+            rows: makeRows(count: 1_001)
+        )
         let mounted = mount(
             GenotypeSupportedAllelesPanel(snapshot: snapshot),
             width: 620
         )
         defer { close(mounted) }
+        let table = try XCTUnwrap(
+            descendants(of: mounted.host)
+                .compactMap { $0 as? NSTableView }
+                .first
+        )
+        let buttons = descendants(of: mounted.host)
+            .compactMap { $0 as? NSButton }
 
+        XCTAssertEqual(table.numberOfRows, 1_001)
+        XCTAssertFalse(
+            buttons.contains { $0.title.hasPrefix("Show All") }
+        )
         XCTAssertEqual(
             GenotypeSupportedAllelesSnapshot.columnTitles,
             ["Allele", "Read support"]
         )
-        XCTAssertEqual(
-            accessibilityLabels(in: mounted.host).filter {
-                $0 == "Mafa-A1*018:01:01:01, read support 712."
-            }.count,
-            1
+        let headerLabels = descendants(of: mounted.host)
+            .filter {
+                $0.accessibilityIdentifier()
+                    .hasPrefix("supported-alleles-header-")
+            }
+            .compactMap { $0.accessibilityLabel() }
+        XCTAssertEqual(headerLabels, ["Allele", "Read support"])
+
+        mounted.host.layoutSubtreeIfNeeded()
+        let mountedCells = (0..<table.numberOfRows).compactMap {
+            table.view(atColumn: 0, row: $0, makeIfNecessary: false)
+        }
+        XCTAssertGreaterThan(mountedCells.count, 0)
+        XCTAssertLessThan(
+            mountedCells.count,
+            1_001,
+            "The inline table must virtualize offscreen allele rows."
         )
     }
 
-    func testSupportedAllelesPanelMountedProductionBehavior() throws {
+    func testInlineTableReflowsWithoutReplacingTableOrCoordinator() throws {
         let thousandRows = GenotypeSupportedAllelesSnapshot(rows: makeRows(count: 1_001))
         let mounted = mount(
             GenotypeSupportedAllelesPanel(snapshot: thousandRows),
             width: 620
         )
         defer { close(mounted) }
+        let table = try XCTUnwrap(
+            descendants(of: mounted.host)
+                .compactMap { $0 as? NSTableView }
+                .first
+        )
+        let firstCell = try XCTUnwrap(
+            table.view(atColumn: 0, row: 0, makeIfNecessary: true)
+        )
+        let wideFields = descendants(of: firstCell)
+            .compactMap { $0 as? NSTextField }
+            .filter { !$0.isHidden }
+        XCTAssertEqual(wideFields.count, 2)
+        XCTAssertEqual(
+            wideFields.first { $0.stringValue == "100" }?.alignment,
+            .right
+        )
 
-        try assertBoundedInlineAccessibility(
-            snapshot: thousandRows,
-            mounted: mounted
+        resize(mounted, width: 519)
+        let compactTable = try XCTUnwrap(
+            descendants(of: mounted.host)
+                .compactMap { $0 as? NSTableView }
+                .first
         )
-        try assertRealShowAllPopover(
-            snapshot: thousandRows,
-            mounted: mounted
+        XCTAssertTrue(compactTable === table)
+        let compactCell = try XCTUnwrap(
+            compactTable.view(
+                atColumn: 0,
+                row: 0,
+                makeIfNecessary: true
+            )
         )
-        try assertActualLayoutBoundary(mounted: mounted)
-        try assertMountedTypographyObservation(mounted: mounted)
-        assertLargeSnapshotKeepsInlineHeightBounded(mounted: mounted)
+        let compactFields = descendants(of: compactCell)
+            .compactMap { $0 as? NSTextField }
+            .filter { !$0.isHidden }
+        let allele = try XCTUnwrap(
+            compactFields.first { $0.stringValue == "Allele 0" }
+        )
+        let support = try XCTUnwrap(
+            compactFields.first {
+                $0.stringValue == "Read support: 100"
+            }
+        )
+        XCTAssertLessThan(support.frame.maxY, allele.frame.minY)
     }
 
-    func testQualifiedPopoverRowUsesScaledLineMetricsWithoutClipping()
+    func testInlineTableUsesScaledLineMetricsWithoutClipping()
         throws
     {
         let notifications = NotificationCenter()
@@ -79,7 +127,7 @@ final class GenotypeSupportedAllelesPanelTests: XCTestCase {
             preferenceProvider: { preference.value },
             preferredFontProvider: provider
         )
-        var rows = makeRows(count: 13)
+        var rows = makeRows(count: 1_001)
         rows[0] = GenotypeSupportedAllelePresentation(
             id: "qualified",
             allele: "Mafa-A1*007:08:01:01_1nt_nov",
@@ -96,14 +144,14 @@ final class GenotypeSupportedAllelesPanelTests: XCTestCase {
         )
         let body = typography.resolvedNSFont(for: .body)
         let caption = typography.resolvedNSFont(for: .caption)
-        let host = NSHostingView(
-            rootView: GenotypeSupportedAllelesVirtualizedList(
+        let host = NSHostingView(rootView:
+            GenotypeSupportedAllelesVirtualizedList(
                 rows: rows,
                 bodyFont: body,
                 captionFont: caption
             )
         )
-        host.frame = NSRect(x: 0, y: 0, width: 520, height: 360)
+        host.frame = NSRect(x: 0, y: 0, width: 519, height: 360)
         let window = NSWindow(
             contentRect: host.frame,
             styleMask: [.titled],
@@ -119,6 +167,7 @@ final class GenotypeSupportedAllelesPanelTests: XCTestCase {
         let table = try XCTUnwrap(
             descendants(of: host).compactMap { $0 as? NSTableView }.first
         )
+        XCTAssertEqual(table.numberOfRows, 1_001)
         let cell = try XCTUnwrap(
             table.view(atColumn: 0, row: 0, makeIfNecessary: true)
         )
@@ -143,148 +192,74 @@ final class GenotypeSupportedAllelesPanelTests: XCTestCase {
         }
     }
 
-    private func assertBoundedInlineAccessibility(
-        snapshot: GenotypeSupportedAllelesSnapshot,
-        mounted: MountedPanel
-    ) throws {
-        let labels = accessibilityLabels(in: mounted.host)
-        let expected = ["Supported Alleles"]
-            + snapshot.previewRows.map(\.accessibilityLabel)
-            + ["Show All 1,001 Alleles…"]
-
-        for label in expected {
-            XCTAssertEqual(labels.filter { $0 == label }.count, 1, "Missing or duplicate \(label)")
-        }
-        try assertHeading(
-            labelled: "Supported Alleles",
-            level: 2,
-            in: mounted.host
-        )
-        XCTAssertFalse(labels.contains(snapshot.rows[12].accessibilityLabel))
-        XCTAssertFalse(descendants(of: mounted.host).contains { $0 is NSScrollView })
-    }
-
-    private func assertRealShowAllPopover(
-        snapshot: GenotypeSupportedAllelesSnapshot,
-        mounted: MountedPanel
-    ) throws {
-        let inlineHeight = mounted.host.fittingSize.height
-        let existingWindows = Set(NSApp.windows.map(ObjectIdentifier.init))
-        let button = try XCTUnwrap(
-            descendants(of: mounted.host)
-                .compactMap { $0 as? NSButton }
-                .first { $0.title == "Show All 1,001 Alleles…" }
-        )
-
-        button.performClick(nil)
-        let popoverWindow = try XCTUnwrap(
-            waitForWindow(excluding: existingWindows),
-            "The real button action should set the SwiftUI binding and present a popover."
-        )
-        let popoverContent = try XCTUnwrap(popoverWindow.contentView)
-        let popoverLabels = accessibilityLabels(in: popoverContent)
-        let table = try XCTUnwrap(
-            descendants(of: popoverContent).compactMap { $0 as? NSTableView }.first
-        )
-
-        XCTAssertNotEqual(popoverWindow, mounted.window)
-        XCTAssertTrue(popoverLabels.contains("All 1,001 Supported Alleles"))
-        try assertHeading(
-            labelled: "All 1,001 Supported Alleles",
-            level: 1,
-            in: popoverContent
-        )
-        XCTAssertTrue(popoverLabels.contains(snapshot.rows[0].accessibilityLabel))
-        XCTAssertTrue(descendants(of: popoverContent).contains { $0 is NSScrollView })
-        XCTAssertEqual(table.numberOfRows, 1_001)
-        XCTAssertEqual(mounted.host.fittingSize.height, inlineHeight, accuracy: 1)
-
-        popoverWindow.close()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.08))
-    }
-
-    private func assertActualLayoutBoundary(mounted: MountedPanel) throws {
-        let snapshot = GenotypeSupportedAllelesSnapshot(rows: makeRows(count: 2))
-        mounted.host.rootView = GenotypeSupportedAllelesPanel(snapshot: snapshot)
-
-        resize(mounted, width: 519)
-        let compactRow = try XCTUnwrap(
-            accessibilityView(
-                labelled: snapshot.rows[0].accessibilityLabel,
-                in: mounted.host
-            )
-        )
-        let compactHeight = compactRow.frame.height
-
-        resize(mounted, width: 520)
-        let columnRow = try XCTUnwrap(
-            accessibilityView(
-                labelled: snapshot.rows[0].accessibilityLabel,
-                in: mounted.host
-            )
-        )
-
-        XCTAssertEqual(snapshot.layoutMode(forWidth: 519), .compact)
-        XCTAssertEqual(snapshot.layoutMode(forWidth: 520), .columns)
-        XCTAssertGreaterThan(compactHeight, columnRow.frame.height)
-    }
-
-    private func assertMountedTypographyObservation(mounted: MountedPanel) throws {
-        let notifications = NotificationCenter()
-        let preference = MutableSupportedAllelesTextSizePreference(.custom(100))
-        let provider = MutableSupportedAllelesPreferredFonts(pointSize: 13)
-        let typography = ContentTypographyModel(
-            notificationCenter: notifications,
-            preferenceProvider: { preference.value },
-            preferredFontProvider: provider
-        )
-        let snapshot = GenotypeSupportedAllelesSnapshot(rows: makeRows(count: 2))
-        mounted.host.rootView = GenotypeSupportedAllelesPanel(
-            snapshot: snapshot,
-            typographyModel: typography
-        )
-        resize(mounted, width: 519)
-        let baselineRow = try XCTUnwrap(
-            accessibilityView(
-                labelled: snapshot.rows[0].accessibilityLabel,
-                in: mounted.host
-            )
-        )
-        let baselineHeight = baselineRow.frame.height
-
-        preference.value = .custom(200)
-        notifications.post(name: .contentTextSizeDidChange, object: nil)
-        flush(mounted)
-        let enlargedRow = try XCTUnwrap(
-            accessibilityView(
-                labelled: snapshot.rows[0].accessibilityLabel,
-                in: mounted.host
-            )
-        )
-
-        XCTAssertGreaterThan(enlargedRow.frame.height, baselineHeight)
-    }
-
-    private func assertLargeSnapshotKeepsInlineHeightBounded(
-        mounted: MountedPanel
-    ) {
-        resize(mounted, width: 620)
-        mounted.host.rootView = GenotypeSupportedAllelesPanel(
-            snapshot: GenotypeSupportedAllelesSnapshot(rows: makeRows(count: 13))
-        )
-        flush(mounted)
-        let thirteenRowHeight = mounted.host.fittingSize.height
-
-        mounted.host.rootView = GenotypeSupportedAllelesPanel(
-            snapshot: GenotypeSupportedAllelesSnapshot(rows: makeRows(count: 1_001))
-        )
-        flush(mounted)
-
+    func testListHeightPolicyUsesFiniteWorkbenchHeight() {
         XCTAssertEqual(
-            mounted.host.fittingSize.height,
-            thirteenRowHeight,
-            accuracy: 1
+            GenotypeSupportedAllelesListHeightPolicy.height(
+                availableHeight: nil,
+                compact: false
+            ),
+            360
         )
+        XCTAssertEqual(
+            GenotypeSupportedAllelesListHeightPolicy.height(
+                availableHeight: 120,
+                compact: true
+            ),
+            160
+        )
+        XCTAssertEqual(
+            GenotypeSupportedAllelesListHeightPolicy.height(
+                availableHeight: 240,
+                compact: true
+            ),
+            240
+        )
+        XCTAssertEqual(
+            GenotypeSupportedAllelesListHeightPolicy.height(
+                availableHeight: 120,
+                compact: false
+            ),
+            280
+        )
+        XCTAssertEqual(
+            GenotypeSupportedAllelesListHeightPolicy.height(
+                availableHeight: 900,
+                compact: false
+            ),
+            480
+        )
+    }
+
+    func testIdenticalUpdateDoesNotReloadInlineTable() throws {
+        let snapshot = GenotypeSupportedAllelesSnapshot(
+            rows: makeRows(count: 1_001)
+        )
+        let mounted = mount(
+            GenotypeSupportedAllelesPanel(snapshot: snapshot),
+            width: 620
+        )
+        defer { close(mounted) }
+        let table = try XCTUnwrap(
+            descendants(of: mounted.host)
+                .compactMap { $0 as? NSTableView }
+                .first
+        )
+        let listHost = try XCTUnwrap(
+            descendants(of: mounted.host)
+                .compactMap {
+                    $0 as? GenotypeSupportedAllelesListHostView
+                }
+                .first
+        )
+        let baselineReloadCount = listHost.reloadCount
+
+        mounted.host.rootView = GenotypeSupportedAllelesPanel(
+            snapshot: snapshot
+        )
+        flush(mounted)
+
+        XCTAssertEqual(listHost.reloadCount, baselineReloadCount)
+        XCTAssertEqual(table.numberOfRows, 1_001)
     }
 
     private func makeRows(count: Int) -> [GenotypeSupportedAllelePresentation] {
@@ -338,55 +313,6 @@ final class GenotypeSupportedAllelesPanelTests: XCTestCase {
         mounted.window.orderOut(nil)
         mounted.window.close()
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-    }
-
-    private func waitForWindow(
-        excluding existingWindows: Set<ObjectIdentifier>
-    ) -> NSWindow? {
-        let deadline = Date(timeIntervalSinceNow: 1)
-        repeat {
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
-            if let window = NSApp.windows.first(where: {
-                !existingWindows.contains(ObjectIdentifier($0)) && $0.isVisible
-            }) {
-                window.contentView?.layoutSubtreeIfNeeded()
-                return window
-            }
-        } while Date() < deadline
-        return nil
-    }
-
-    private func accessibilityLabels(in root: NSView) -> [String] {
-        ([root] + descendants(of: root))
-            .filter { $0.isAccessibilityElement() }
-            .compactMap { $0.accessibilityLabel() }
-    }
-
-    private func accessibilityView(
-        labelled label: String,
-        in root: NSView
-    ) -> NSView? {
-        ([root] + descendants(of: root)).first {
-            $0.isAccessibilityElement() && $0.accessibilityLabel() == label
-        }
-    }
-
-    private func assertHeading(
-        labelled label: String,
-        level: Int,
-        in root: NSView
-    ) throws {
-        let view = try XCTUnwrap(accessibilityView(labelled: label, in: root))
-        let headingRole = NSAccessibility.Role(rawValue: "AXHeading")
-        let headingLevelAttribute = NSAccessibility.Attribute(rawValue: "AXHeadingLevel")
-        let headingLevel = view.perform(
-            NSSelectorFromString("accessibilityAttributeValue:"),
-            with: headingLevelAttribute.rawValue
-        )?.takeUnretainedValue() as? NSNumber
-
-        XCTAssertEqual(view.accessibilityRole(), headingRole)
-        XCTAssertNil(view.accessibilitySubrole())
-        XCTAssertEqual(headingLevel?.intValue, level)
     }
 
     private func descendants(of root: NSView) -> [NSView] {

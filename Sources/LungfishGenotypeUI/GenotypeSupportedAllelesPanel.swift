@@ -27,45 +27,52 @@ struct GenotypeSupportedAllelesSnapshot: Equatable {
         case compact
     }
 
-    static let previewLimit = 12
     static let columnsMinimumWidth: CGFloat = 520
     static let columnTitles = ["Allele", "Read support"]
 
     let rows: [GenotypeSupportedAllelePresentation]
-
-    var previewRows: ArraySlice<GenotypeSupportedAllelePresentation> {
-        rows.prefix(Self.previewLimit)
-    }
-
-    var omittedRowCount: Int {
-        max(0, rows.count - Self.previewLimit)
-    }
 
     func layoutMode(forWidth width: CGFloat) -> LayoutMode {
         width >= Self.columnsMinimumWidth ? .columns : .compact
     }
 }
 
+enum GenotypeSupportedAllelesListHeightPolicy {
+    static func height(
+        availableHeight: CGFloat?,
+        compact: Bool
+    ) -> CGFloat {
+        guard let availableHeight,
+              availableHeight.isFinite,
+              availableHeight > 0 else {
+            return 360
+        }
+        let preferred = min(max(availableHeight, 280), 480)
+        guard compact else { return preferred }
+        return max(160, min(availableHeight, preferred))
+    }
+}
+
 struct GenotypeSupportedAllelesPanel: View {
     let snapshot: GenotypeSupportedAllelesSnapshot
     var typographyModel: ContentTypographyModel = .shared
-
-    @State private var showsAll = false
-
-    private var contentBodyFont: Font {
-        typographyModel.font(for: .body)
-    }
+    var availableHeight: CGFloat?
+    var usesCompactHeight = false
 
     private var contentEmphasizedFont: Font {
         typographyModel.font(for: .emphasizedBody)
     }
 
-    private var contentCaptionFont: Font {
-        typographyModel.font(for: .caption)
-    }
-
-    private var contentMonospacedFont: Font {
-        typographyModel.font(for: .monospaced)
+    init(
+        snapshot: GenotypeSupportedAllelesSnapshot,
+        typographyModel: ContentTypographyModel = .shared,
+        availableHeight: CGFloat? = nil,
+        usesCompactHeight: Bool = false
+    ) {
+        self.snapshot = snapshot
+        self.typographyModel = typographyModel
+        self.availableHeight = availableHeight
+        self.usesCompactHeight = usesCompactHeight
     }
 
     var body: some View {
@@ -80,157 +87,19 @@ struct GenotypeSupportedAllelesPanel: View {
                     )
                 )
 
-            ViewThatFits(in: .horizontal) {
-                columnPreview
-                    .frame(minWidth: GenotypeSupportedAllelesSnapshot.columnsMinimumWidth)
-                compactPreview
-            }
-
-            if let title = Self.showAllButtonTitle(for: snapshot) {
-                GenotypeSupportedAllelesShowAllButton(
-                    title: title,
-                    font: typographyModel.resolvedNSFont(for: .body),
-                    isPresented: $showsAll
-                )
-                .popover(isPresented: $showsAll) {
-                    fullList
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var columnPreview: some View {
-        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 7) {
-            GridRow {
-                columnHeader(GenotypeSupportedAllelesSnapshot.columnTitles[0])
-                columnHeader(GenotypeSupportedAllelesSnapshot.columnTitles[1])
-            }
-            .accessibilityHidden(true)
-
-            ForEach(Array(snapshot.previewRows)) { row in
-                GridRow {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(row.allele)
-                            .font(contentBodyFont)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        qualifierText(row)
-                    }
-                        .frame(
-                            minWidth: 150,
-                            maxWidth: .infinity,
-                            alignment: .leading
-                        )
-                        .accessibilityHidden(true)
-                        .background(
-                            GenotypeSupportedAllelesAccessibilityElement(
-                                label: row.accessibilityLabel
-                            )
-                        )
-                    Text(row.readSupport)
-                        .font(contentMonospacedFont.monospacedDigit())
-                        .italic(row.readSupportIsItalic)
-                        .foregroundStyle(
-                            row.readSupportIsSecondary
-                                ? .secondary
-                                : .primary
-                        )
-                        .frame(
-                            minWidth: 90,
-                            maxWidth: .infinity,
-                            alignment: .trailing
-                        )
-                        .accessibilityHidden(true)
-                }
-            }
-        }
-    }
-
-    private var compactPreview: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(snapshot.previewRows.enumerated()), id: \.element.id) { index, row in
-                compactRow(row)
-                    .padding(.vertical, 5)
-                if index < snapshot.previewRows.count - 1 {
-                    Divider()
-                        .accessibilityHidden(true)
-                }
-            }
-        }
-    }
-
-    private var fullList: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("All \(snapshot.rows.count.formatted(.number)) Supported Alleles")
-                .font(contentEmphasizedFont)
-                .accessibilityHidden(true)
-                .background(
-                    GenotypeSupportedAllelesAccessibilityElement(
-                        label: "All \(snapshot.rows.count.formatted(.number)) Supported Alleles",
-                        semanticRole: .heading(level: 1)
-                    )
-                )
-                .padding(.horizontal, 12)
-                .padding(.top, 12)
-
             GenotypeSupportedAllelesVirtualizedList(
                 rows: snapshot.rows,
                 bodyFont: typographyModel.resolvedNSFont(for: .body),
                 captionFont: typographyModel.resolvedNSFont(for: .caption)
             )
-        }
-        .frame(minWidth: 520, minHeight: 360)
-    }
-
-    private func columnHeader(_ title: String) -> some View {
-        Text(title)
-            .font(contentCaptionFont.weight(.semibold))
-            .foregroundStyle(.secondary)
-    }
-
-    private func compactRow(_ row: GenotypeSupportedAllelePresentation) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(row.allele)
-                .font(contentBodyFont)
-                .lineLimit(2)
-            Text("Read support: \(row.readSupport)")
-                .font(contentCaptionFont)
-                .italic(row.readSupportIsItalic)
-                .foregroundStyle(
-                    row.readSupportIsSecondary
-                        ? .secondary
-                        : .primary
+            .frame(
+                height: GenotypeSupportedAllelesListHeightPolicy.height(
+                    availableHeight: availableHeight,
+                    compact: usesCompactHeight
                 )
-            qualifierText(row)
-        }
-        .accessibilityHidden(true)
-        .background(
-            GenotypeSupportedAllelesAccessibilityElement(
-                label: row.accessibilityLabel
             )
-        )
-    }
-
-    @ViewBuilder
-    private func qualifierText(
-        _ row: GenotypeSupportedAllelePresentation
-    ) -> some View {
-        if !row.qualifiers.isEmpty {
-            Text(row.qualifiers.joined(separator: " \u{00b7} "))
-                .font(contentCaptionFont)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .accessibilityHidden(true)
         }
-    }
-
-    private static func showAllButtonTitle(
-        for snapshot: GenotypeSupportedAllelesSnapshot
-    ) -> String? {
-        guard snapshot.omittedRowCount > 0 else { return nil }
-        return "Show All \(snapshot.rows.count.formatted(.number)) Alleles…"
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -301,90 +170,34 @@ private extension NSAccessibility.Attribute {
     static let supportedAllelesHeadingLevel = Self(rawValue: "AXHeadingLevel")
 }
 
-private struct GenotypeSupportedAllelesShowAllButton: NSViewRepresentable {
-    let title: String
-    let font: NSFont
-    @Binding var isPresented: Bool
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(isPresented: $isPresented)
-    }
-
-    func makeNSView(context: Context) -> NSButton {
-        let button = NSButton(
-            title: title,
-            target: context.coordinator,
-            action: #selector(Coordinator.showAll)
-        )
-        button.bezelStyle = .rounded
-        button.controlSize = .small
-        configure(button, coordinator: context.coordinator)
-        return button
-    }
-
-    func updateNSView(_ button: NSButton, context: Context) {
-        configure(button, coordinator: context.coordinator)
-    }
-
-    private func configure(_ button: NSButton, coordinator: Coordinator) {
-        coordinator.isPresented = $isPresented
-        button.title = title
-        button.font = font
-        button.setAccessibilityElement(true)
-        button.setAccessibilityRole(.button)
-        button.setAccessibilityLabel(title)
-    }
-
-    @MainActor
-    final class Coordinator: NSObject {
-        var isPresented: Binding<Bool>
-
-        init(isPresented: Binding<Bool>) {
-            self.isPresented = isPresented
-        }
-
-        @objc func showAll() {
-            isPresented.wrappedValue = true
-        }
-    }
-}
-
 struct GenotypeSupportedAllelesVirtualizedList: NSViewRepresentable {
     let rows: [GenotypeSupportedAllelePresentation]
     let bodyFont: NSFont
     let captionFont: NSFont
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(rows: rows, bodyFont: bodyFont, captionFont: captionFont)
+        Coordinator(
+            rows: rows,
+            bodyFont: bodyFont,
+            captionFont: captionFont
+        )
     }
 
-    func makeNSView(context: Context) -> NSScrollView {
-        let column = NSTableColumn(identifier: .supportedAllele)
-        column.resizingMask = .autoresizingMask
-
-        let table = NSTableView(frame: .zero)
-        table.addTableColumn(column)
-        table.headerView = nil
-        table.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
-        table.usesAlternatingRowBackgroundColors = true
-        table.intercellSpacing = NSSize(width: 0, height: 1)
-        table.dataSource = context.coordinator
-        table.delegate = context.coordinator
-
-        let scrollView = NSScrollView(frame: .zero)
-        scrollView.hasVerticalScroller = true
-        scrollView.autohidesScrollers = true
-        scrollView.drawsBackground = false
-        scrollView.documentView = table
-        return scrollView
+    func makeNSView(context: Context) -> GenotypeSupportedAllelesListHostView {
+        GenotypeSupportedAllelesListHostView(
+            coordinator: context.coordinator
+        )
     }
 
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        context.coordinator.rows = rows
-        context.coordinator.bodyFont = bodyFont
-        context.coordinator.captionFont = captionFont
-        guard let table = scrollView.documentView as? NSTableView else { return }
-        table.reloadData()
+    func updateNSView(
+        _ host: GenotypeSupportedAllelesListHostView,
+        context: Context
+    ) {
+        host.update(
+            rows: rows,
+            bodyFont: bodyFont,
+            captionFont: captionFont
+        )
     }
 
     @MainActor
@@ -392,6 +205,7 @@ struct GenotypeSupportedAllelesVirtualizedList: NSViewRepresentable {
         var rows: [GenotypeSupportedAllelePresentation]
         var bodyFont: NSFont
         var captionFont: NSFont
+        var layoutMode: GenotypeSupportedAllelesSnapshot.LayoutMode = .columns
 
         init(
             rows: [GenotypeSupportedAllelePresentation],
@@ -411,22 +225,34 @@ struct GenotypeSupportedAllelesVirtualizedList: NSViewRepresentable {
             _ tableView: NSTableView,
             heightOfRow row: Int
         ) -> CGFloat {
-            let bodyLineHeight = ceil(
-                bodyFont.boundingRectForFont.height
-            )
-            guard rows.indices.contains(row),
-                  !rows[row].qualifiers.isEmpty else {
-                return max(38, bodyLineHeight + 8)
-            }
+            guard rows.indices.contains(row) else { return 38 }
+            let bodyLineHeight = ceil(bodyFont.boundingRectForFont.height)
             let captionLineHeight = ceil(
                 captionFont.boundingRectForFont.height
             )
-            return ceil(
-                bodyLineHeight
-                    + captionLineHeight
-                    + 1
-                    + 8
-            )
+            switch layoutMode {
+            case .columns:
+                guard !rows[row].qualifiers.isEmpty else {
+                    return max(38, bodyLineHeight + 8)
+                }
+                return ceil(
+                    bodyLineHeight
+                        + captionLineHeight
+                        + 1
+                        + 8
+                )
+            case .compact:
+                let qualifierHeight = rows[row].qualifiers.isEmpty
+                    ? 0
+                    : captionLineHeight + 1
+                return ceil(
+                    bodyLineHeight
+                        + captionLineHeight
+                        + qualifierHeight
+                        + 2
+                        + 8
+                )
+            }
         }
 
         func tableView(
@@ -445,9 +271,176 @@ struct GenotypeSupportedAllelesVirtualizedList: NSViewRepresentable {
             cell.configure(
                 row: rows[row],
                 bodyFont: bodyFont,
-                captionFont: captionFont
+                captionFont: captionFont,
+                layoutMode: layoutMode
             )
             return cell
+        }
+    }
+}
+
+@MainActor
+final class GenotypeSupportedAllelesListHostView: NSView {
+    private let alleleHeader = NSTextField(labelWithString: "Allele")
+    private let readSupportHeader = NSTextField(
+        labelWithString: "Read support"
+    )
+    let scrollView = NSScrollView(frame: .zero)
+    let tableView = NSTableView(frame: .zero)
+    private(set) var reloadCount = 0
+
+    private let coordinator:
+        GenotypeSupportedAllelesVirtualizedList.Coordinator
+    private var currentRows: [GenotypeSupportedAllelePresentation]
+    private var currentBodyFontSignature: FontSignature
+    private var currentCaptionFontSignature: FontSignature
+    private var currentLayoutMode:
+        GenotypeSupportedAllelesSnapshot.LayoutMode = .columns
+
+    init(
+        coordinator: GenotypeSupportedAllelesVirtualizedList.Coordinator
+    ) {
+        self.coordinator = coordinator
+        currentRows = coordinator.rows
+        currentBodyFontSignature = FontSignature(coordinator.bodyFont)
+        currentCaptionFontSignature = FontSignature(
+            coordinator.captionFont
+        )
+        super.init(frame: .zero)
+        configure()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        let layoutMode =
+            GenotypeSupportedAllelesSnapshot(rows: [])
+                .layoutMode(forWidth: newSize.width)
+        if layoutMode != currentLayoutMode {
+            currentLayoutMode = layoutMode
+            coordinator.layoutMode = layoutMode
+            reloadTable()
+        }
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        let headerHeight = max(
+            24,
+            ceil(coordinator.captionFont.boundingRectForFont.height) + 8
+        )
+        let supportWidth = min(160, max(100, bounds.width * 0.28))
+        alleleHeader.frame = NSRect(
+            x: 8,
+            y: 0,
+            width: max(0, bounds.width - supportWidth - 20),
+            height: headerHeight
+        )
+        readSupportHeader.frame = NSRect(
+            x: max(8, bounds.width - supportWidth - 8),
+            y: 0,
+            width: supportWidth,
+            height: headerHeight
+        )
+        scrollView.frame = NSRect(
+            x: 0,
+            y: headerHeight,
+            width: bounds.width,
+            height: max(0, bounds.height - headerHeight)
+        )
+    }
+
+    func update(
+        rows: [GenotypeSupportedAllelePresentation],
+        bodyFont: NSFont,
+        captionFont: NSFont
+    ) {
+        let bodySignature = FontSignature(bodyFont)
+        let captionSignature = FontSignature(captionFont)
+        let rowsChanged = currentRows != rows
+        let fontsChanged =
+            currentBodyFontSignature != bodySignature
+            || currentCaptionFontSignature != captionSignature
+        guard rowsChanged || fontsChanged else { return }
+
+        currentRows = rows
+        currentBodyFontSignature = bodySignature
+        currentCaptionFontSignature = captionSignature
+        coordinator.rows = rows
+        coordinator.bodyFont = bodyFont
+        coordinator.captionFont = captionFont
+        configureHeaderFonts()
+        reloadTable()
+        needsLayout = true
+    }
+
+    private func configure() {
+        let column = NSTableColumn(identifier: .supportedAllele)
+        column.resizingMask = .autoresizingMask
+        tableView.addTableColumn(column)
+        tableView.headerView = nil
+        tableView.columnAutoresizingStyle =
+            .lastColumnOnlyAutoresizingStyle
+        tableView.usesAlternatingRowBackgroundColors = true
+        tableView.intercellSpacing = NSSize(width: 0, height: 1)
+        tableView.dataSource = coordinator
+        tableView.delegate = coordinator
+        coordinator.layoutMode = currentLayoutMode
+
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.drawsBackground = false
+        scrollView.documentView = tableView
+
+        readSupportHeader.alignment = .right
+        for (field, identifier) in [
+            (alleleHeader, "supported-alleles-header-allele"),
+            (
+                readSupportHeader,
+                "supported-alleles-header-read-support"
+            ),
+        ] {
+            field.textColor = .secondaryLabelColor
+            field.setAccessibilityElement(true)
+            field.setAccessibilityRole(.staticText)
+            field.setAccessibilityLabel(field.stringValue)
+            field.setAccessibilityIdentifier(identifier)
+            addSubview(field)
+        }
+        addSubview(scrollView)
+        configureHeaderFonts()
+    }
+
+    private func configureHeaderFonts() {
+        let font = NSFontManager.shared.convert(
+            coordinator.captionFont,
+            toHaveTrait: .boldFontMask
+        )
+        alleleHeader.font = font
+        readSupportHeader.font = font
+    }
+
+    private func reloadTable() {
+        reloadCount += 1
+        tableView.reloadData()
+    }
+
+    private struct FontSignature: Equatable {
+        let name: String
+        let pointSize: CGFloat
+        let traits: NSFontDescriptor.SymbolicTraits
+
+        init(_ font: NSFont) {
+            name = font.fontName
+            pointSize = font.pointSize
+            traits = font.fontDescriptor.symbolicTraits
         }
     }
 }
@@ -456,8 +449,8 @@ private final class GenotypeSupportedAllelesTableCell: NSTableCellView {
     private let alleleLabel = NSTextField(labelWithString: "")
     private let qualifierLabel = NSTextField(labelWithString: "")
     private let readSupportLabel = NSTextField(labelWithString: "")
-    private var alleleTopConstraint: NSLayoutConstraint?
-    private var alleleCenterYConstraint: NSLayoutConstraint?
+    private var layoutMode:
+        GenotypeSupportedAllelesSnapshot.LayoutMode = .columns
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -468,45 +461,9 @@ private final class GenotypeSupportedAllelesTableCell: NSTableCellView {
         qualifierLabel.textColor = .secondaryLabelColor
         qualifierLabel.lineBreakMode = .byTruncatingTail
         for label in [alleleLabel, qualifierLabel, readSupportLabel] {
-            label.translatesAutoresizingMaskIntoConstraints = false
             label.setAccessibilityElement(false)
             addSubview(label)
         }
-        alleleTopConstraint = alleleLabel.topAnchor.constraint(
-            equalTo: topAnchor,
-            constant: 4
-        )
-        alleleCenterYConstraint = alleleLabel.centerYAnchor.constraint(
-            equalTo: centerYAnchor
-        )
-        NSLayoutConstraint.activate([
-            alleleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            qualifierLabel.leadingAnchor.constraint(
-                equalTo: alleleLabel.leadingAnchor
-            ),
-            qualifierLabel.trailingAnchor.constraint(
-                lessThanOrEqualTo: readSupportLabel.leadingAnchor,
-                constant: -12
-            ),
-            qualifierLabel.topAnchor.constraint(
-                equalTo: alleleLabel.bottomAnchor,
-                constant: 1
-            ),
-            qualifierLabel.bottomAnchor.constraint(
-                lessThanOrEqualTo: bottomAnchor,
-                constant: -4
-            ),
-            readSupportLabel.leadingAnchor.constraint(
-                greaterThanOrEqualTo: alleleLabel.trailingAnchor,
-                constant: 12
-            ),
-            readSupportLabel.trailingAnchor.constraint(
-                equalTo: trailingAnchor,
-                constant: -8
-            ),
-            readSupportLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            readSupportLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 90),
-        ])
         setAccessibilityElement(true)
         setAccessibilityRole(.staticText)
     }
@@ -518,23 +475,22 @@ private final class GenotypeSupportedAllelesTableCell: NSTableCellView {
     func configure(
         row: GenotypeSupportedAllelePresentation,
         bodyFont: NSFont,
-        captionFont: NSFont
+        captionFont: NSFont,
+        layoutMode: GenotypeSupportedAllelesSnapshot.LayoutMode
     ) {
+        self.layoutMode = layoutMode
         alleleLabel.stringValue = row.allele
         alleleLabel.font = bodyFont
         let hasQualifiers = !row.qualifiers.isEmpty
-        alleleTopConstraint?.isActive = false
-        alleleCenterYConstraint?.isActive = false
-        if hasQualifiers {
-            alleleTopConstraint?.isActive = true
-        } else {
-            alleleCenterYConstraint?.isActive = true
-        }
         qualifierLabel.isHidden = !hasQualifiers
         qualifierLabel.stringValue =
             row.qualifiers.joined(separator: " \u{00b7} ")
         qualifierLabel.font = captionFont
-        readSupportLabel.stringValue = row.readSupport
+        readSupportLabel.stringValue = layoutMode == .compact
+            ? "Read support: \(row.readSupport)"
+            : row.readSupport
+        readSupportLabel.alignment =
+            layoutMode == .compact ? .left : .right
         readSupportLabel.font = row.readSupportIsItalic
             ? NSFontManager.shared.convert(
                 captionFont,
@@ -546,6 +502,77 @@ private final class GenotypeSupportedAllelesTableCell: NSTableCellView {
             : .labelColor
         setAccessibilityIdentifier(row.id)
         setAccessibilityLabel(row.accessibilityLabel)
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        let padding: CGFloat = 8
+        let bodyHeight = ceil(
+            alleleLabel.font?.boundingRectForFont.height ?? 17
+        )
+        let captionHeight = ceil(
+            qualifierLabel.font?.boundingRectForFont.height ?? 14
+        )
+        switch layoutMode {
+        case .columns:
+            let supportWidth = min(160, max(90, bounds.width * 0.28))
+            let alleleWidth = max(
+                0,
+                bounds.width - supportWidth - padding * 2 - 12
+            )
+            if qualifierLabel.isHidden {
+                alleleLabel.frame = NSRect(
+                    x: padding,
+                    y: (bounds.height - bodyHeight) / 2,
+                    width: alleleWidth,
+                    height: bodyHeight
+                )
+            } else {
+                alleleLabel.frame = NSRect(
+                    x: padding,
+                    y: bounds.height - padding / 2 - bodyHeight,
+                    width: alleleWidth,
+                    height: bodyHeight
+                )
+                qualifierLabel.frame = NSRect(
+                    x: padding,
+                    y: padding / 2,
+                    width: alleleWidth,
+                    height: captionHeight
+                )
+            }
+            readSupportLabel.frame = NSRect(
+                x: max(padding, bounds.width - supportWidth - padding),
+                y: (bounds.height - captionHeight) / 2,
+                width: supportWidth,
+                height: captionHeight
+            )
+        case .compact:
+            var y = bounds.height - padding / 2 - bodyHeight
+            alleleLabel.frame = NSRect(
+                x: padding,
+                y: y,
+                width: max(0, bounds.width - padding * 2),
+                height: bodyHeight
+            )
+            if !qualifierLabel.isHidden {
+                y -= captionHeight + 1
+                qualifierLabel.frame = NSRect(
+                    x: padding,
+                    y: y,
+                    width: max(0, bounds.width - padding * 2),
+                    height: captionHeight
+                )
+            }
+            y -= captionHeight + 1
+            readSupportLabel.frame = NSRect(
+                x: padding,
+                y: max(padding / 2, y),
+                width: max(0, bounds.width - padding * 2),
+                height: captionHeight
+            )
+        }
     }
 }
 

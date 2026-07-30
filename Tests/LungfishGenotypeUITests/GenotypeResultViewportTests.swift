@@ -159,6 +159,27 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(workbench.layoutMode, .sideBySide)
     }
 
+    func testSampleCurationWorkbenchSuppliesFiniteEvidenceHeight() {
+        let header = FixedViewportIntrinsicView(height: 120)
+        let assignments = FixedViewportIntrinsicView(height: 360)
+        let evidence = EvidenceAvailableHeightSpy()
+        let workbench = GenotypeSampleCurationWorkbenchView(
+            headerView: header,
+            assignmentView: assignments,
+            evidenceView: evidence
+        )
+
+        workbench.frame.size = NSSize(width: 900, height: 700)
+        XCTAssertEqual(workbench.layoutMode, .sideBySide)
+        XCTAssertEqual(evidence.availableHeight, 568, accuracy: 1)
+        XCTAssertFalse(evidence.usesCompactHeight)
+
+        workbench.frame.size = NSSize(width: 700, height: 500)
+        XCTAssertEqual(workbench.layoutMode, .stacked)
+        XCTAssertEqual(evidence.availableHeight, 368, accuracy: 1)
+        XCTAssertTrue(evidence.usesCompactHeight)
+    }
+
     func testSampleCurationWorkbenchStackedModeUsesRequiredFillWidthEqualities() {
         let workbench = makeSampleCurationWorkbench()
         workbench.frame.size = NSSize(width: 700, height: 700)
@@ -22400,6 +22421,42 @@ private actor ManualHaplotypeViewportDecisionGate {
     func resume(with decision: GenotypeManualHaplotypeDraftDecision) {
         continuation?.resume(returning: decision)
         continuation = nil
+    }
+}
+
+@MainActor
+private final class FixedViewportIntrinsicView: NSView {
+    private let height: CGFloat
+
+    init(height: CGFloat) {
+        self.height = height
+        super.init(frame: .zero)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: height)
+    }
+}
+
+@MainActor
+private final class EvidenceAvailableHeightSpy:
+    NSView,
+    GenotypeSupportedAllelesAvailableHeightReceiving
+{
+    private(set) var availableHeight: CGFloat = 0
+    private(set) var usesCompactHeight = false
+
+    func updateSupportedAllelesAvailableHeight(
+        _ availableHeight: CGFloat,
+        compact: Bool
+    ) {
+        self.availableHeight = availableHeight
+        usesCompactHeight = compact
     }
 }
 
