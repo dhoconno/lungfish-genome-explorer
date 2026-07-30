@@ -403,6 +403,34 @@ final class GenotypeSampleComparisonModelTests: XCTestCase {
         XCTAssertFalse(choice(model, .a, .h1).isSelectable)
     }
 
+    func testWhitespaceOnlyStoredSourceAssignmentCannotBeSelectedOrStaged() {
+        var stagedCount = 0
+        let model = makeSelectiveModel(
+            sourceAssignments: [
+                assignment(
+                    sample: "Source",
+                    locus: .a,
+                    slot: .h1,
+                    label: "   \n\t"
+                ),
+            ],
+            stage: {
+                stagedCount += 1
+                return .init(applied: $0.addresses, skipped: [])
+            }
+        )
+
+        model.selectSource("Source")
+        model.selectAllAssigned()
+        model.requestStageSelected()
+
+        XCTAssertFalse(choice(model, .a, .h1).isSelectable)
+        XCTAssertTrue(model.selectedSlotAddresses.isEmpty)
+        XCTAssertFalse(model.canStageSelected)
+        XCTAssertNil(model.pendingSelectiveCopy)
+        XCTAssertEqual(stagedCount, 0)
+    }
+
     func testSelectionsAreIndependentAndBulkSelectionUsesEligibleAssignedSlots() {
         let source = [
             assignment(

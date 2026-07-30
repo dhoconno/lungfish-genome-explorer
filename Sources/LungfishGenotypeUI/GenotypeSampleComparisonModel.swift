@@ -339,11 +339,20 @@ final class GenotypeSampleComparisonModel: ObservableObject {
             return
         }
         let addresses = selectedSlotAddresses
-        let sourceValues = Dictionary(
+        let sourceValues: [
+            GenotypeManualHaplotypeDraft.SlotAddress:
+                ManualHaplotypeAssignment
+        ] = Dictionary(
             uniqueKeysWithValues: addresses.compactMap { address in
-                selectedSourceAssignments[address.locus, address.slot].map {
-                    (address, $0)
+                guard let assignment =
+                    selectedSourceAssignments[
+                        address.locus,
+                        address.slot
+                    ],
+                    Self.validatedSourceLabel(assignment) != nil else {
+                    return nil
                 }
+                return (address, assignment)
             }
         )
         guard sourceValues.count == addresses.count else {
@@ -557,18 +566,20 @@ final class GenotypeSampleComparisonModel: ObservableObject {
                         address.locus,
                         address.slot
                     ]
+                let sourceLabel =
+                    source.flatMap(Self.validatedSourceLabel)
                 let target = targetSlots[address]
                 let outcome = slotOutcome(
-                    sourceLabel: source?.label,
+                    sourceLabel: sourceLabel,
                     target: target
                 )
                 return AssignmentChoice(
                     address: address,
-                    sourceLabel: source?.label,
+                    sourceLabel: sourceLabel,
                     targetLabel: target?.label,
                     outcome: outcome,
                     isSelectable:
-                        source != nil
+                        sourceLabel != nil
                         && outcome != .unavailableHiddenMetadata
                 )
             }
@@ -769,6 +780,13 @@ final class GenotypeSampleComparisonModel: ObservableObject {
             return normalized
         }
         return normalizedSearchKey(value)
+    }
+
+    private static func validatedSourceLabel(
+        _ assignment: ManualHaplotypeAssignment
+    ) -> String? {
+        try? GenotypeManualHaplotypeAssignmentInputValidator
+            .validatedLabel(assignment.label)
     }
 
     private static func candidateRecords(
