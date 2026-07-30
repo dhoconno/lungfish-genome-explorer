@@ -394,6 +394,77 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
         )
     }
 
+    func testSideBySideWorkbenchKeepsComparisonBelowHeaderAndBackButtonHittable()
+        throws
+    {
+        let comparison = makeComparison()
+        comparison.selectSource("Source")
+        let trailing = GenotypeSampleCurationTrailingModel(
+            evidenceSnapshot: .init(rows: []),
+            comparison: comparison
+        )
+        let evidence = makeGenotypeSampleCurationTrailingHostingView(
+            model: trailing,
+            typographyModel: .shared
+        )
+        let header = FixedIntrinsicView(
+            size: NSSize(width: 1_200, height: 140)
+        )
+        let assignments = FixedIntrinsicView(
+            size: NSSize(width: 800, height: 620)
+        )
+        let workbench = GenotypeSampleCurationWorkbenchView(
+            headerView: header,
+            assignmentView: assignments,
+            evidenceView: evidence
+        )
+        let mounted = mount(host: workbench, width: 1_400)
+        defer { mounted.window.close() }
+        trailing.showCompareAndCopy()
+        flush(workbench)
+
+        XCTAssertEqual(workbench.layoutMode, .sideBySide)
+        let headerFrame = header.convert(header.bounds, to: workbench)
+        let assignmentFrame = assignments.convert(
+            assignments.bounds,
+            to: workbench
+        )
+        let evidenceFrame = evidence.convert(evidence.bounds, to: workbench)
+        XCTAssertEqual(
+            evidenceFrame.maxY,
+            assignmentFrame.maxY,
+            accuracy: 1,
+            "Side-by-side columns must share a top edge."
+        )
+        XCTAssertLessThanOrEqual(
+            evidenceFrame.maxY,
+            headerFrame.minY - 11,
+            "The comparison column must remain below the shared header."
+        )
+
+        let back = try XCTUnwrap(
+            concreteButton(
+                identifier: "sample-comparison-back-to-evidence",
+                in: workbench
+            )
+        )
+        let buttonCenter = back.convert(back.bounds.center, to: workbench)
+        let hit = try XCTUnwrap(workbench.hitTest(buttonCenter))
+        XCTAssertTrue(
+            hit === back || hit.isDescendant(of: back),
+            "The real mouse hit must reach Back to Evidence, not \(hit). "
+                + "header=\(headerFrame), assignments=\(assignmentFrame), "
+                + "evidence=\(evidenceFrame), buttonCenter=\(buttonCenter), "
+                + "button=\(back.convert(back.bounds, to: workbench)), "
+                + "evidenceFittingSize=\(evidence.fittingSize), "
+                + "evidenceIntrinsic=\(evidence.intrinsicContentSize), "
+                + "ancestry=\(ancestryDescription(of: back, in: workbench))."
+        )
+        back.performClick(nil)
+        flush(workbench)
+        XCTAssertEqual(trailing.mode, .evidence)
+    }
+
     func testTrailingPaneMeasuresOnlyTheActiveMode() {
         let comparison = makeKeyboardComparison()
         comparison.selectSource("Matching First")
@@ -939,6 +1010,23 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
             $0.accessibilityIdentifier() == identifier
         }
     }
+
+    private func ancestryDescription(
+        of view: NSView,
+        in root: NSView
+    ) -> String {
+        var descriptions: [String] = []
+        var current: NSView? = view
+        while let item = current {
+            descriptions.append(
+                "\(type(of: item)):"
+                    + "\(item.convert(item.bounds, to: root))"
+            )
+            if item === root { break }
+            current = item.superview
+        }
+        return descriptions.joined(separator: " <- ")
+    }
 }
 
 private extension NSRect {
@@ -954,6 +1042,24 @@ private final class MutableComparisonTextSizePreference {
         self.value = value
     }
 
+}
+
+private final class FixedIntrinsicView: NSView {
+    private let size: NSSize
+
+    init(size: NSSize) {
+        self.size = size
+        super.init(frame: NSRect(origin: .zero, size: size))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var intrinsicContentSize: NSSize {
+        size
+    }
 }
 
 @MainActor

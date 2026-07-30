@@ -424,7 +424,7 @@ public final class GenotypeSampleCurationWorkbenchView: NSView {
             NSLayoutConstraint.activate(stackedConstraints)
         case .sideBySide:
             bodyStack.orientation = .horizontal
-            bodyStack.alignment = .height
+            bodyStack.alignment = .top
             NSLayoutConstraint.activate(sideBySideConstraints)
         }
     }

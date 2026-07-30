@@ -4502,7 +4502,6 @@ public final class GenotypeResultViewController: NSViewController {
         )
         panel.identifier = Self.generatedContentHostingViewIdentifier
         panel.translatesAutoresizingMaskIntoConstraints = false
-        panel.sizingOptions = [.intrinsicContentSize]
         panel.setContentHuggingPriority(
             .defaultLow,
             for: .horizontal

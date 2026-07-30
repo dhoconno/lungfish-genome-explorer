@@ -229,6 +229,72 @@ final class DurableAtomicFileStoreTests: XCTestCase {
         )
     }
 
+    func testPublishedIdentityMayRenumberAcrossRenameWhenDescriptorAndPathAgree()
+        throws
+    {
+        let renumberedIdentity = FileSystemObjectIdentity(
+            device: 9_001,
+            inode: 9_002
+        )
+        let store = DurableAtomicFileStore(operations: .init(
+            publishedDescriptorIdentity: { _ in renumberedIdentity },
+            publishedEntryIdentity: { _, _ in renumberedIdentity }
+        ))
+        let directoryDescriptor = try NoFollowFileSystem
+            .openDirectoryHierarchy(root)
+        defer { Darwin.close(directoryDescriptor) }
+
+        let publication = try store.createWitnessed(
+            Data("published".utf8),
+            named: "record.json",
+            inOpenDirectory: directoryDescriptor,
+            displayedAt: root
+        )
+        defer { publication.close() }
+
+        XCTAssertEqual(publication.identity, renumberedIdentity)
+        XCTAssertEqual(
+            try Data(contentsOf: root.appendingPathComponent("record.json")),
+            Data("published".utf8)
+        )
+    }
+
+    func testPublishedIdentityRenumberingStillRejectsPathSubstitution() throws {
+        let descriptorIdentity = FileSystemObjectIdentity(
+            device: 9_001,
+            inode: 9_002
+        )
+        let substitutedPathIdentity = FileSystemObjectIdentity(
+            device: 9_001,
+            inode: 9_003
+        )
+        let store = DurableAtomicFileStore(operations: .init(
+            publishedDescriptorIdentity: { _ in descriptorIdentity },
+            publishedEntryIdentity: { _, _ in substitutedPathIdentity }
+        ))
+
+        XCTAssertThrowsError(
+            try store.create(
+                Data("published".utf8),
+                named: "record.json",
+                in: root
+            )
+        ) { error in
+            guard case let DurableAtomicFileStore.StoreError.systemFailure(
+                _,
+                operation,
+                code
+            ) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertEqual(
+                operation,
+                "validate durable published file identity"
+            )
+            XCTAssertEqual(code, ESTALE)
+        }
+    }
+
     func testExclusiveRenameFallbackPublishesDirectoryContents() throws {
         let source = root.appendingPathComponent("source", isDirectory: true)
         let destination = root.appendingPathComponent("destination", isDirectory: true)

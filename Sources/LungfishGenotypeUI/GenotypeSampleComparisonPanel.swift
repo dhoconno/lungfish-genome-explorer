@@ -959,19 +959,105 @@ private struct GenotypeSampleCurationModeOverlayLayout: Layout {
 func makeGenotypeSampleCurationTrailingHostingView(
     model: GenotypeSampleCurationTrailingModel,
     typographyModel: ContentTypographyModel
-) -> NSHostingView<GenotypeSampleCurationTrailingPane> {
-    let host = NSHostingView(
-        rootView: GenotypeSampleCurationTrailingPane(
-            model: model,
-            typographyModel: typographyModel
+) -> NSView {
+    GenotypeSampleCurationTrailingHostView(
+        model: model,
+        typographyModel: typographyModel
+    )
+}
+
+@MainActor
+private final class GenotypeSampleCurationTrailingHostView: NSView {
+    private let hostingController:
+        NSHostingController<GenotypeSampleCurationTrailingPane>
+    private var cancellables: Set<AnyCancellable> = []
+    private var cachedMeasurement: (width: CGFloat, height: CGFloat)?
+
+    init(
+        model: GenotypeSampleCurationTrailingModel,
+        typographyModel: ContentTypographyModel
+    ) {
+        hostingController = NSHostingController(
+            rootView: GenotypeSampleCurationTrailingPane(
+                model: model,
+                typographyModel: typographyModel
+            )
         )
-    )
-    host.sizingOptions = [.intrinsicContentSize]
-    host.setContentHuggingPriority(.defaultLow, for: .horizontal)
-    host.setContentCompressionResistancePriority(
-        .defaultLow,
-        for: .horizontal
-    )
-    host.setAccessibilityIdentifier("sample-curation-trailing-pane")
-    return host
+        super.init(frame: .zero)
+
+        let hostedView = hostingController.view
+        hostedView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(hostedView)
+        NSLayoutConstraint.activate([
+            hostedView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            hostedView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            hostedView.topAnchor.constraint(equalTo: topAnchor),
+            hostedView.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+        setContentHuggingPriority(.defaultLow, for: .horizontal)
+        setContentCompressionResistancePriority(
+            .defaultLow,
+            for: .horizontal
+        )
+        setAccessibilityIdentifier("sample-curation-trailing-pane")
+
+        model.objectWillChange
+            .sink { [weak self] in
+                DispatchQueue.main.async {
+                    self?.invalidateWidthAwareIntrinsicSize()
+                }
+            }
+            .store(in: &cancellables)
+        NotificationCenter.default.publisher(
+            for: .contentTextSizeDidChange
+        )
+            .sink { [weak self] _ in
+                DispatchQueue.main.async {
+                    self?.invalidateWidthAwareIntrinsicSize()
+                }
+            }
+            .store(in: &cancellables)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var intrinsicContentSize: NSSize {
+        let proposedWidth = bounds.width > 0 ? bounds.width : 420
+        if let cachedMeasurement,
+           abs(cachedMeasurement.width - proposedWidth) <= 0.5 {
+            return NSSize(
+                width: NSView.noIntrinsicMetric,
+                height: cachedMeasurement.height
+            )
+        }
+        let measured = hostingController.sizeThatFits(
+            in: NSSize(
+                width: proposedWidth,
+                height: .greatestFiniteMagnitude
+            )
+        )
+        let measuredHeight = ceil(measured.height)
+        cachedMeasurement = (proposedWidth, measuredHeight)
+        return NSSize(
+            width: NSView.noIntrinsicMetric,
+            height: measuredHeight
+        )
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let widthChanged = abs(newSize.width - frame.width) > 0.5
+        super.setFrameSize(newSize)
+        if widthChanged {
+            invalidateWidthAwareIntrinsicSize()
+        }
+    }
+
+    private func invalidateWidthAwareIntrinsicSize() {
+        cachedMeasurement = nil
+        invalidateIntrinsicContentSize()
+        superview?.needsLayout = true
+    }
 }

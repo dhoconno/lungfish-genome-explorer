@@ -68,6 +68,10 @@ public struct DurableAtomicFileStore: Sendable {
     public struct Operations: Sendable {
         public typealias Synchronizer = @Sendable (Int32) -> Int32
         public typealias EntryRemover = @Sendable (Int32, String) -> Int32
+        public typealias PublishedDescriptorIdentityReader =
+            @Sendable (Int32) -> FileSystemObjectIdentity?
+        public typealias PublishedEntryIdentityReader =
+            @Sendable (Int32, String) -> FileSystemObjectIdentity?
         public typealias ExclusiveRenamer = @Sendable (
             Int32,
             UnsafePointer<CChar>,
@@ -81,6 +85,9 @@ public struct DurableAtomicFileStore: Sendable {
         public var syncRollbackDirectory: Synchronizer
         public var removeRollbackFile: EntryRemover
         public var beforeRollbackDetach: @Sendable () -> Void
+        public var publishedDescriptorIdentity:
+            PublishedDescriptorIdentityReader
+        public var publishedEntryIdentity: PublishedEntryIdentityReader
         public var renameExclusive: ExclusiveRenamer
 
         public init(
@@ -91,6 +98,34 @@ public struct DurableAtomicFileStore: Sendable {
                 name.withCString { Darwin.unlinkat(descriptor, $0, 0) }
             },
             beforeRollbackDetach: @escaping @Sendable () -> Void = {},
+            publishedDescriptorIdentity:
+                @escaping PublishedDescriptorIdentityReader = {
+                    var info = stat()
+                    guard Darwin.fstat($0, &info) == 0 else { return nil }
+                    return FileSystemObjectIdentity(
+                        device: UInt64(info.st_dev),
+                        inode: UInt64(info.st_ino)
+                    )
+                },
+            publishedEntryIdentity:
+                @escaping PublishedEntryIdentityReader = {
+                    directoryDescriptor,
+                    fileName in
+                    var info = stat()
+                    let status = fileName.withCString {
+                        Darwin.fstatat(
+                            directoryDescriptor,
+                            $0,
+                            &info,
+                            AT_SYMLINK_NOFOLLOW
+                        )
+                    }
+                    guard status == 0 else { return nil }
+                    return FileSystemObjectIdentity(
+                        device: UInt64(info.st_dev),
+                        inode: UInt64(info.st_ino)
+                    )
+                },
             renameExclusive: @escaping ExclusiveRenamer = {
                 PortableExclusiveRename.renameatxNP($0, $1, $2, $3, $4)
             }
@@ -100,6 +135,8 @@ public struct DurableAtomicFileStore: Sendable {
             self.syncRollbackDirectory = syncRollbackDirectory
             self.removeRollbackFile = removeRollbackFile
             self.beforeRollbackDetach = beforeRollbackDetach
+            self.publishedDescriptorIdentity = publishedDescriptorIdentity
+            self.publishedEntryIdentity = publishedEntryIdentity
             self.renameExclusive = renameExclusive
         }
     }
@@ -260,12 +297,20 @@ public struct DurableAtomicFileStore: Sendable {
             }
             published = true
 
+            guard let publishedIdentity =
+                operations.publishedDescriptorIdentity(descriptor) else {
+                throw StoreError.systemFailure(
+                    path: destinationURL.path,
+                    operation: "inspect durable published file identity",
+                    code: errno == 0 ? EIO : errno
+                )
+            }
+
             guard operations.syncDirectory(directoryDescriptor) == 0 else {
                 let code = errno
-                if let createdIdentity,
-                   try rollbackPublishedFile(
+                if try rollbackPublishedFile(
                        named: fileName,
-                       expectedIdentity: createdIdentity,
+                       expectedIdentity: publishedIdentity,
                        inDirectory: directoryDescriptor,
                        displayedAt: directoryURL
                    ) {
@@ -278,11 +323,10 @@ public struct DurableAtomicFileStore: Sendable {
                 )
             }
 
-            guard let createdIdentity,
-                  Self.identity(
-                      named: fileName,
-                      inDirectory: directoryDescriptor
-                  ) == createdIdentity else {
+            guard operations.publishedEntryIdentity(
+                directoryDescriptor,
+                fileName
+            ) == publishedIdentity else {
                 throw StoreError.systemFailure(
                     path: destinationURL.path,
                     operation: "validate durable published file identity",
@@ -292,7 +336,7 @@ public struct DurableAtomicFileStore: Sendable {
             descriptorIsOpen = false
             return OpenPublishedFile(
                 url: destinationURL,
-                identity: createdIdentity,
+                identity: publishedIdentity,
                 fileDescriptor: descriptor
             )
         } catch {
