@@ -813,6 +813,101 @@ final class GenotypeManualHaplotypeDraftTests: XCTestCase {
         XCTAssertNil(draft[.a, .h1])
     }
 
+    func testSelectiveNoOpCopyKeepsManualDirtyOrigin() {
+        let source = assignment(
+            sample: "Source",
+            locus: .a,
+            slot: .h1,
+            label: "Same Value",
+            color: 3
+        )
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: [source]
+        )
+        var draft = GenotypeManualHaplotypeDraft(
+            sample: "Target",
+            index: index
+        )
+        let address = GenotypeManualHaplotypeDraft.SlotAddress(
+            locus: .a,
+            slot: .h1
+        )
+        draft.setLabel("Same Value", locus: .a, slot: .h1)
+        XCTAssertNil(draft.copySource)
+
+        _ = draft.copySelectedAssignments(
+            from: index.sampleAssignments(for: "Source"),
+            addresses: [address]
+        )
+
+        XCTAssertNil(draft.copySource)
+        XCTAssertEqual(draft.dirtySlotAddresses, [address])
+    }
+
+    func testLegacyNoOpCopyKeepsManualDirtyOrigin() {
+        let source = assignment(
+            sample: "Source",
+            locus: .a,
+            slot: .h1,
+            label: "Same Value",
+            color: 3
+        )
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: [source]
+        )
+        var draft = GenotypeManualHaplotypeDraft(
+            sample: "Target",
+            index: index
+        )
+        let address = GenotypeManualHaplotypeDraft.SlotAddress(
+            locus: .a,
+            slot: .h1
+        )
+        draft.setLabel("Same Value", locus: .a, slot: .h1)
+        XCTAssertNil(draft.copySource)
+
+        draft.copyAssignments(
+            from: index.sampleAssignments(for: "Source")
+        )
+
+        XCTAssertNil(draft.copySource)
+        XCTAssertEqual(draft.dirtySlotAddresses, [address])
+    }
+
+    func testSelectiveCopyReportsChangedWhenExpectedSourceDisappeared() {
+        let expected = assignment(
+            sample: "Source",
+            locus: .a,
+            slot: .h1,
+            label: "Expected",
+            color: 3
+        )
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: []
+        )
+        var draft = GenotypeManualHaplotypeDraft(
+            sample: "Target",
+            index: index
+        )
+        let address = GenotypeManualHaplotypeDraft.SlotAddress(
+            locus: .a,
+            slot: .h1
+        )
+
+        let result = draft.copySelectedAssignments(
+            from: index.sampleAssignments(for: "Source"),
+            addresses: [address],
+            expectedSourceValues: [address: expected]
+        )
+
+        XCTAssertEqual(result.applied, [])
+        XCTAssertEqual(
+            result.skipped,
+            [.init(address: address, reason: .sourceChanged)]
+        )
+        XCTAssertFalse(draft.isDirty)
+    }
+
     func testCopySourceReportsOneSourceForEveryFinalDirtySlot() {
         let sourceAssignments = [
             assignment(

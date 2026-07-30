@@ -407,15 +407,17 @@ struct GenotypeManualHaplotypeDraft: Equatable, Sendable {
         for address in Self.orderedSlotAddresses {
             guard let sourceAssignment =
                 source[address.locus, address.slot] else {
-                setValue(
+                let didChange = setValue(
                     nil,
                     locus: address.locus,
                     slot: address.slot
                 )
-                recordMutation(
-                    at: address,
-                    origin: .copied(normalizedSource)
-                )
+                if didChange {
+                    recordMutation(
+                        at: address,
+                        origin: .copied(normalizedSource)
+                    )
+                }
                 continue
             }
             let sourceValue = Self.slotValue(
@@ -424,7 +426,7 @@ struct GenotypeManualHaplotypeDraft: Equatable, Sendable {
             )
             let targetMetadata =
                 originalValues[address.locus]?[address.slot]
-            setValue(
+            let didChange = setValue(
                 SlotValue(
                     label: sourceValue.label,
                     colorTokenIndex: sourceValue.colorTokenIndex,
@@ -438,10 +440,12 @@ struct GenotypeManualHaplotypeDraft: Equatable, Sendable {
                 locus: address.locus,
                 slot: address.slot
             )
-            recordMutation(
-                at: address,
-                origin: .copied(normalizedSource)
-            )
+            if didChange {
+                recordMutation(
+                    at: address,
+                    origin: .copied(normalizedSource)
+                )
+            }
         }
     }
 
@@ -459,22 +463,22 @@ struct GenotypeManualHaplotypeDraft: Equatable, Sendable {
                 .normalizedSampleIdentity(source.sample)
 
         for address in Self.orderedSlotAddresses where addresses.contains(address) {
-            guard let sourceAssignment =
-                source[address.locus, address.slot] else {
-                skipped.append(
-                    SelectiveCopySkip(
-                        address: address,
-                        reason: .sourceMissing
-                    )
-                )
-                continue
-            }
+            let sourceAssignment = source[address.locus, address.slot]
             if let expectedSourceValues,
                expectedSourceValues[address] != sourceAssignment {
                 skipped.append(
                     SelectiveCopySkip(
                         address: address,
                         reason: .sourceChanged
+                    )
+                )
+                continue
+            }
+            guard let sourceAssignment else {
+                skipped.append(
+                    SelectiveCopySkip(
+                        address: address,
+                        reason: .sourceMissing
                     )
                 )
                 continue
@@ -503,7 +507,7 @@ struct GenotypeManualHaplotypeDraft: Equatable, Sendable {
                 continue
             }
             let targetMetadata = currentTarget ?? originalTarget
-            setValue(
+            let didChange = setValue(
                 SlotValue(
                     label: sourceValue.label,
                     colorTokenIndex: sourceValue.colorTokenIndex,
@@ -517,10 +521,12 @@ struct GenotypeManualHaplotypeDraft: Equatable, Sendable {
                 locus: address.locus,
                 slot: address.slot
             )
-            recordMutation(
-                at: address,
-                origin: .copied(normalizedSource)
-            )
+            if didChange {
+                recordMutation(
+                    at: address,
+                    origin: .copied(normalizedSource)
+                )
+            }
             applied.insert(address)
         }
 
