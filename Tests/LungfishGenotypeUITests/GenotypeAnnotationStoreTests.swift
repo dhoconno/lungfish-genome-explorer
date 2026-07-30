@@ -1994,6 +1994,212 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         XCTAssertEqual(try replayed.encoded(), try Data(contentsOf: annotationURL))
     }
 
+    func testSelectiveSaveAuditAttributesOnlyOneCleanSourceAndExactlyReplaysEveryFinalDiff()
+        throws
+    {
+        struct Scenario {
+            let name: String
+            let edit: (
+                inout GenotypeManualHaplotypeDraft,
+                GenotypeManualHaplotypeAssignmentIndex
+            ) -> Void
+            let expectedCopySource: String?
+            let expectedLabels: Set<String>
+        }
+
+        let sourceAssignments = [
+            ManualHaplotypeAssignment(
+                sample: "Source-1",
+                locus: "MHC-A",
+                slot: .h1,
+                label: "Source-1 A",
+                colorTokenIndex: 1,
+                diagnosticAlleles: [],
+                notes: ""
+            ),
+            ManualHaplotypeAssignment(
+                sample: "Source-1",
+                locus: "MHC-B",
+                slot: .h1,
+                label: "Source-1 B",
+                colorTokenIndex: 2,
+                diagnosticAlleles: [],
+                notes: ""
+            ),
+            ManualHaplotypeAssignment(
+                sample: "Source-2",
+                locus: "MHC-B",
+                slot: .h1,
+                label: "Source-2 B",
+                colorTokenIndex: 3,
+                diagnosticAlleles: [],
+                notes: ""
+            ),
+        ]
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: sourceAssignments
+        )
+        let aH1 = GenotypeManualHaplotypeDraft.SlotAddress(
+            locus: .a,
+            slot: .h1
+        )
+        let bH1 = GenotypeManualHaplotypeDraft.SlotAddress(
+            locus: .b,
+            slot: .h1
+        )
+        let scenarios = [
+            Scenario(
+                name: "single source",
+                edit: { draft, index in
+                    _ = draft.copySelectedAssignments(
+                        from: index.sampleAssignments(for: "Source-1"),
+                        addresses: [aH1, bH1]
+                    )
+                },
+                expectedCopySource: "Source-1",
+                expectedLabels: ["Source-1 A", "Source-1 B"]
+            ),
+            Scenario(
+                name: "mixed sources",
+                edit: { draft, index in
+                    _ = draft.copySelectedAssignments(
+                        from: index.sampleAssignments(for: "Source-1"),
+                        addresses: [aH1]
+                    )
+                    _ = draft.copySelectedAssignments(
+                        from: index.sampleAssignments(for: "Source-2"),
+                        addresses: [bH1]
+                    )
+                },
+                expectedCopySource: nil,
+                expectedLabels: ["Source-1 A", "Source-2 B"]
+            ),
+            Scenario(
+                name: "manual and copied",
+                edit: { draft, index in
+                    _ = draft.copySelectedAssignments(
+                        from: index.sampleAssignments(for: "Source-1"),
+                        addresses: [aH1]
+                    )
+                    draft.setLabel(
+                        "Manual B",
+                        locus: .b,
+                        slot: .h1
+                    )
+                },
+                expectedCopySource: nil,
+                expectedLabels: ["Source-1 A", "Manual B"]
+            ),
+        ]
+
+        for scenario in scenarios {
+            let dir = try makeBundleURL()
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let manifestURL = dir.appendingPathComponent(
+                ONTGenotypeResultBundleManifest.filename
+            )
+            try Data("{}".utf8).write(to: manifestURL)
+            let store = try GenotypeAnnotationStore(
+                bundleURL: dir,
+                author: "Audit Analyst"
+            )
+            let annotationURL = dir.appendingPathComponent(
+                GenotypeAnnotationSidecar.filename
+            )
+            let priorData = try Data(contentsOf: annotationURL)
+            let manifestData = try Data(contentsOf: manifestURL)
+            var draft = GenotypeManualHaplotypeDraft(
+                sample: "Target",
+                index: index
+            )
+
+            scenario.edit(&draft, index)
+
+            XCTAssertEqual(
+                draft.copySource,
+                scenario.expectedCopySource,
+                scenario.name
+            )
+            let replacement = try store.replaceManualHaplotypeAssignments(
+                for: draft.sample,
+                with: try draft.validatedAssignments(),
+                copySource: draft.copySource,
+                author: "Audit Analyst"
+            )
+            let operationID = try XCTUnwrap(
+                replacement.operationID,
+                scenario.name
+            )
+            let operationAudits = store.sidecar.auditLog.filter {
+                $0.manualHaplotypeAssignment?.operationID == operationID
+            }
+            XCTAssertFalse(operationAudits.isEmpty, scenario.name)
+            XCTAssertEqual(
+                Set(operationAudits.map {
+                    $0.manualHaplotypeAssignment?.copySourceSample
+                }),
+                [scenario.expectedCopySource],
+                scenario.name
+            )
+            XCTAssertEqual(
+                Set(
+                    store.sidecar.manualHaplotypeAssignments
+                        .filter { $0.sample == "Target" }
+                        .map(\.label)
+                ),
+                scenario.expectedLabels,
+                scenario.name
+            )
+
+            let provenanceURL = ProvenanceRecorder.fileSidecarURL(
+                for: annotationURL
+            )
+            let envelope = try XCTUnwrap(
+                ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL),
+                scenario.name
+            )
+            let replayData = try XCTUnwrap(
+                Data(base64Encoded: try XCTUnwrap(
+                    envelope.options.explicit[
+                        "replayPayloadBase64"
+                    ]?.stringValue,
+                    scenario.name
+                )),
+                scenario.name
+            )
+            let replay =
+                try GenotypeManualHaplotypeAssignmentReplayPayload.decode(
+                    replayData
+                )
+            XCTAssertEqual(
+                replay.operation.copySourceSample,
+                scenario.expectedCopySource,
+                scenario.name
+            )
+            XCTAssertEqual(
+                replay.beforeAssignments,
+                [],
+                scenario.name
+            )
+            XCTAssertEqual(
+                replay.afterAssignments,
+                store.sidecar.manualHaplotypeAssignments,
+                scenario.name
+            )
+            let replayed = try replay.applying(
+                to: priorData,
+                targetBundleURL: dir,
+                targetManifestData: manifestData
+            )
+            XCTAssertEqual(replayed, store.sidecar, scenario.name)
+            XCTAssertEqual(
+                try replayed.encoded(),
+                try Data(contentsOf: annotationURL),
+                scenario.name
+            )
+        }
+    }
+
     func testReplacingManualHaplotypeAssignmentsNoOpWritesNothing() throws {
         let dir = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: dir) }
