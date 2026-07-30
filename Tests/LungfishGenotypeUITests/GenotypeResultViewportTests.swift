@@ -6370,6 +6370,103 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
     }
 
+    func testSavedMaximumLengthHaplotypeSettlesColumnAndBandGeometryImmediately()
+        throws
+    {
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.frame = NSRect(x: 0, y: 0, width: 760, height: 520)
+        matrix.configure(
+            result: makeResult(
+                samples: [],
+                calls: ["AnimalA", "AnimalB"].map {
+                    makeCall(
+                        sample: $0,
+                        genotype: "01_Mafa_A1_001_01",
+                        reads: 42
+                    )
+                }
+            )
+        )
+        matrix.testingSetManualHaplotypeBandDisclosureExpanded(true)
+        matrix.layoutSubtreeIfNeeded()
+
+        let beforeA = try XCTUnwrap(
+            matrix.testingFixedHeaderSnapshot(sample: "AnimalA")
+        )
+        let beforeB = try XCTUnwrap(
+            matrix.testingFixedHeaderSnapshot(sample: "AnimalB")
+        )
+        let beforeBandFrames =
+            matrix.testingRenderedManualHaplotypeBandColumnFrames
+        let beforeBandB = try XCTUnwrap(beforeBandFrames["AnimalB"])
+        let beforeColumnWidth =
+            matrix.testingSampleColumnWidth(sample: "AnimalA")
+        XCTAssertEqual(
+            matrix.testingUserPreferredSampleColumnWidth(sample: "AnimalA"),
+            68,
+            accuracy: 0.5
+        )
+
+        matrix.applyManualHaplotypeAssignments([
+            ManualHaplotypeAssignment(
+                sample: "AnimalA",
+                locus: "MHC-A",
+                slot: .h1,
+                label: String(repeating: "W", count: 128),
+                colorTokenIndex: 0,
+                diagnosticAlleles: [],
+                notes: ""
+            ),
+        ])
+
+        // Deliberately do not call layoutSubtreeIfNeeded: a completed save must
+        // leave the native table, fixed header, and manual band synchronized.
+        let afterA = try XCTUnwrap(
+            matrix.testingFixedHeaderSnapshot(sample: "AnimalA")
+        )
+        let afterB = try XCTUnwrap(
+            matrix.testingFixedHeaderSnapshot(sample: "AnimalB")
+        )
+        let afterBandFrames =
+            matrix.testingRenderedManualHaplotypeBandColumnFrames
+        let afterBandA = try XCTUnwrap(afterBandFrames["AnimalA"])
+        let afterBandB = try XCTUnwrap(afterBandFrames["AnimalB"])
+        let widthIncrease =
+            afterA.sampleColumnRect.width - beforeA.sampleColumnRect.width
+
+        XCTAssertGreaterThan(
+            matrix.testingSampleColumnWidth(sample: "AnimalA"),
+            beforeColumnWidth
+        )
+        XCTAssertGreaterThan(widthIncrease, 0)
+        XCTAssertEqual(
+            afterB.sampleColumnRect.width,
+            beforeB.sampleColumnRect.width,
+            accuracy: 0.5
+        )
+        XCTAssertEqual(
+            matrix.testingUserPreferredSampleColumnWidth(sample: "AnimalA"),
+            68,
+            accuracy: 0.5,
+            "Auto-fit is presentation state, not a user width preference."
+        )
+        XCTAssertEqual(
+            afterB.sampleColumnRect.minX - beforeB.sampleColumnRect.minX,
+            widthIncrease,
+            accuracy: 0.5
+        )
+        XCTAssertEqual(
+            afterBandA.width,
+            matrix.testingSampleColumnWidth(sample: "AnimalA"),
+            accuracy: 0.5
+        )
+        XCTAssertEqual(
+            afterBandB.minX - beforeBandB.minX,
+            widthIncrease,
+            accuracy: 0.5
+        )
+    }
+
     func testUserResizeToExpandedTransientFloorBecomesPreferredWidth() {
         var sidecar = GenotypeAnnotationSidecar.empty(
             generatedAt: "2026-07-29T00:00:00Z"

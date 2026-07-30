@@ -5353,6 +5353,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         let visible = Set(visibleSampleNames)
         let affectedSamples = samples.intersection(visible)
         guard !affectedSamples.isEmpty else { return }
+        let semanticScrollAnchor = captureSemanticScrollAnchor()
         if remeasure {
             measureManualHaplotypeTransientMinimumWidths(
                 samples: affectedSamples
@@ -5362,12 +5363,13 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         let headerFont = resolvedContentTypography().font(for: .tableHeader)
         isApplyingManualHaplotypeAutoFit = true
         defer { isApplyingManualHaplotypeAutoFit = false }
+        var changedColumnGeometry = false
         for column in tableView.tableColumns {
             guard let sample = sampleColumnLookup[column.identifier],
                   affectedSamples.contains(sample) else {
                 continue
             }
-            let baselineWidth =
+            let preferredWidth =
                 (sampleColumnWidthsByStableID[sample] ?? 68) * scale
             let baselineMinimum =
                 (typographyBaselineColumnMinWidths[
@@ -5385,18 +5387,55 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 displayState.manualHaplotypeBandExpanded
                     ? manualHaplotypeTransientMinimumWidths[sample] ?? 0
                     : 0
-            let minimum = max(
-                baselineMinimum,
-                headerWidth,
-                transientMinimum
+            let headerMinimum = max(baselineMinimum, headerWidth)
+            let assignmentMinimum = transientMinimum
+            let minimum = max(headerMinimum, assignmentMinimum)
+            let width = max(
+                headerMinimum,
+                preferredWidth,
+                assignmentMinimum
             )
-            column.minWidth = minimum
-            column.width = max(baselineWidth, minimum)
+            guard abs(column.minWidth - minimum) > 0.5
+                    || abs(column.width - width) > 0.5 else {
+                continue
+            }
+            if width > column.width {
+                // Raising minWidth first silently clamps NSTableColumn.width
+                // before NSTableView observes a width change, leaving its live
+                // column rectangles stale. Publish the width first on growth.
+                column.width = width
+                column.minWidth = minimum
+            } else {
+                // Lower the transient floor first so a genuine narrower user
+                // preference is not clamped by the old assignment minimum.
+                column.minWidth = minimum
+                column.width = width
+            }
+            changedColumnGeometry = true
         }
+        guard changedColumnGeometry else { return }
+
+        // NSTableColumn accepts its new width before NSTableView has rebuilt
+        // column rectangles. Finish that native layout synchronously so the
+        // fixed header and its manual-assignment band cannot render one frame
+        // behind a completed save.
         manualHaplotypeBandGeometryDirty = true
         manualHaplotypeBandCachedCoverageRect = .zero
         manualHaplotypeBandCachedOverscanWidth = nil
+        tableView.needsLayout = true
+        tableView.headerView?.needsLayout = true
+        manualHaplotypeSampleBand.needsLayout = true
+        tableView.tile()
+        scrollView.tile()
+        tableView.layoutSubtreeIfNeeded()
+        tableView.headerView?.layoutSubtreeIfNeeded()
+        scrollView.contentView.layoutSubtreeIfNeeded()
+        scrollView.layoutSubtreeIfNeeded()
+        layoutSubtreeIfNeeded()
         updateManualHaplotypeBandColumnGeometry()
+        restoreSemanticScrollAnchor(semanticScrollAnchor)
+        updateManualHaplotypeBandColumnGeometry()
+        manualHaplotypeSampleBand.needsDisplay = true
         setHeaderViewsNeedDisplay()
     }
 
