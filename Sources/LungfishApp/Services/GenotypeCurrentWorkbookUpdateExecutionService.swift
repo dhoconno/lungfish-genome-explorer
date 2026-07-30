@@ -715,8 +715,8 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
             .appendingPathComponent("workbooks", isDirectory: true)
             .appendingPathComponent("current.xlsx", isDirectory: false)
             .standardizedFileURL
-        let canonicalManifest = requestedBundle
-            .appendingPathComponent("manifest.json", isDirectory: false)
+        let canonicalManifest = ONTGenotypeResultBundle
+            .manifestURL(in: requestedBundle)
             .standardizedFileURL
 
         let payloadBundle = URL(
@@ -743,6 +743,7 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
         let openHandoff = try validateCanonicalOutputEntriesNoFollow(
             requestedBundleURL: requestedBundle,
             canonicalWorkbookURL: canonicalWorkbook,
+            canonicalManifestURL: canonicalManifest,
             prepareImmutableOpenHandoff: prepareImmutableOpenHandoff
         )
         return ValidatedFastqUpdateCurrentWorkbookPayload(
@@ -794,6 +795,7 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
     private nonisolated static func validateCanonicalOutputEntriesNoFollow(
         requestedBundleURL: URL,
         canonicalWorkbookURL: URL,
+        canonicalManifestURL: URL,
         prepareImmutableOpenHandoff: Bool
     ) throws -> GenotypeCurrentWorkbookOpenHandoff? {
         let rootDescriptor = Darwin.open(
@@ -809,11 +811,9 @@ final class GenotypeCurrentWorkbookUpdateExecutionService {
         defer { Darwin.close(rootDescriptor) }
 
         try validateRegularFileNoFollow(
-            named: "manifest.json",
+            named: canonicalManifestURL.lastPathComponent,
             parentDescriptor: rootDescriptor,
-            displayPath: requestedBundleURL
-                .appendingPathComponent("manifest.json", isDirectory: false)
-                .path
+            displayPath: canonicalManifestURL.path
         )
 
         var ownedDirectoryDescriptors: [Int32] = []

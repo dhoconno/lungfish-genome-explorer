@@ -258,35 +258,13 @@ private final class GenotypeManualHaplotypeDisclosureButton: NSButton {
 @MainActor
 final class GenotypeManualHaplotypePinnedBandView: NSView {
     static let disclosureTitle = "Manual haplotypes (7 loci)"
-    static let disclosureHorizontalTextAllowance: CGFloat = 40
-    static let disclosureVerticalPadding: CGFloat = 4
 
     static func requiredDisclosureHeight(
-        font: NSFont,
-        availableWidth: CGFloat,
+        font _: NSFont,
+        availableWidth _: CGFloat,
         minimumHeight: CGFloat
     ) -> CGFloat {
-        let attributedTitle = NSAttributedString(
-            string: disclosureTitle,
-            attributes: [.font: font]
-        )
-        let bounds = attributedTitle.boundingRect(
-            with: NSSize(
-                width: max(
-                    1,
-                    availableWidth
-                        - disclosureHorizontalTextAllowance
-                ),
-                height: .greatestFiniteMagnitude
-            ),
-            options: [.usesLineFragmentOrigin, .usesFontLeading]
-        )
-        return ceil(
-            max(
-                minimumHeight,
-                bounds.height + disclosureVerticalPadding
-            )
-        )
+        ceil(minimumHeight)
     }
 
     var font = NSFont.systemFont(ofSize: 11) {
@@ -322,7 +300,7 @@ final class GenotypeManualHaplotypePinnedBandView: NSView {
     var onDisclosureChanged: ((Bool) -> Void)?
 
     private let disclosureButton = GenotypeManualHaplotypeDisclosureButton(
-        title: disclosureTitle,
+        title: "Haplotypes",
         target: nil,
         action: nil
     )
@@ -336,10 +314,19 @@ final class GenotypeManualHaplotypePinnedBandView: NSView {
         disclosureButton.target = self
         disclosureButton.action = #selector(toggleDisclosure(_:))
         disclosureButton.setButtonType(.pushOnPushOff)
-        disclosureButton.bezelStyle = .disclosure
+        disclosureButton.bezelStyle = .accessoryBarAction
+        disclosureButton.image = Self.makeDisclosureIcon(
+            expanded: false
+        )
+        disclosureButton.alternateImage = Self.makeDisclosureIcon(
+            expanded: true
+        )
+        disclosureButton.imagePosition = .imageLeading
+        disclosureButton.imageScaling = .scaleProportionallyDown
+        disclosureButton.toolTip = Self.disclosureTitle
         disclosureButton.font = font
-        disclosureButton.cell?.lineBreakMode = .byWordWrapping
-        disclosureButton.cell?.usesSingleLineMode = false
+        disclosureButton.cell?.lineBreakMode = .byTruncatingTail
+        disclosureButton.cell?.usesSingleLineMode = true
         disclosureButton.state = .on
         disclosureButton.setAccessibilityElement(true)
         disclosureButton.setAccessibilityRole(.button)
@@ -362,12 +349,9 @@ final class GenotypeManualHaplotypePinnedBandView: NSView {
     override func layout() {
         super.layout()
         disclosureButton.frame = NSRect(
-            x: 6,
+            x: 0,
             y: 0,
-            width: max(
-                0,
-                min(bounds.width, availableDisclosureWidth) - 12
-            ),
+            width: max(0, min(bounds.width, availableDisclosureWidth)),
             height: min(disclosureHeight, bounds.height)
         )
     }
@@ -378,7 +362,65 @@ final class GenotypeManualHaplotypePinnedBandView: NSView {
         onDisclosureChanged?(expanded)
     }
 
-    var disclosureLabel: String { disclosureButton.title }
+    var disclosureLabel: String { Self.disclosureTitle }
+
+    private static func makeDisclosureIcon(
+        expanded: Bool
+    ) -> NSImage {
+        let size = NSSize(width: 26, height: 12)
+        let image = NSImage(
+            size: size,
+            flipped: false
+        ) { _ in
+            let chevron = NSBezierPath()
+            if expanded {
+                chevron.move(to: NSPoint(x: 0.5, y: 7.5))
+                chevron.line(to: NSPoint(x: 3.25, y: 4.5))
+                chevron.line(to: NSPoint(x: 6, y: 7.5))
+            } else {
+                chevron.move(to: NSPoint(x: 1.5, y: 10))
+                chevron.line(to: NSPoint(x: 4.5, y: 6))
+                chevron.line(to: NSPoint(x: 1.5, y: 2))
+            }
+            chevron.lineWidth = 1.5
+            chevron.lineCapStyle = .round
+            chevron.lineJoinStyle = .round
+            NSColor.black.setStroke()
+            chevron.stroke()
+
+            NSColor.black.setFill()
+            let segmentWidth: CGFloat = 5
+            let segmentHeight: CGFloat = 4.5
+            let horizontalGap: CGFloat = 1.5
+            let verticalGap: CGFloat = 1.5
+            let segmentOriginX: CGFloat = 8
+            let lowerY = (size.height
+                - segmentHeight * 2
+                - verticalGap) / 2
+            for row in 0..<2 {
+                for column in 0..<3 {
+                    let rect = NSRect(
+                        x: segmentOriginX
+                            + CGFloat(column)
+                            * (segmentWidth + horizontalGap),
+                        y: lowerY
+                            + CGFloat(row)
+                            * (segmentHeight + verticalGap),
+                        width: segmentWidth,
+                        height: segmentHeight
+                    )
+                    NSBezierPath(
+                        roundedRect: rect,
+                        xRadius: segmentHeight / 2,
+                        yRadius: segmentHeight / 2
+                    ).fill()
+                }
+            }
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)

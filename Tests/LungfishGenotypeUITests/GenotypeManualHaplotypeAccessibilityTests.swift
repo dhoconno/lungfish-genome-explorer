@@ -18,7 +18,21 @@ final class GenotypeManualHaplotypeAccessibilityTests: XCTestCase {
             view.subviews.compactMap { $0 as? NSButton }.first
         )
 
-        XCTAssertEqual(button.title, "Manual haplotypes (7 loci)")
+        XCTAssertEqual(button.title, "Haplotypes")
+        XCTAssertEqual(button.imagePosition, .imageLeading)
+        let image = try XCTUnwrap(button.image)
+        let alternateImage = try XCTUnwrap(button.alternateImage)
+        XCTAssertTrue(
+            image.isTemplate,
+            "The icon must follow the current macOS control tint."
+        )
+        XCTAssertTrue(alternateImage.isTemplate)
+        XCTAssertFalse(
+            image === alternateImage,
+            "Collapsed and expanded states need distinct chevrons."
+        )
+        XCTAssertEqual(image.size, NSSize(width: 26, height: 12))
+        XCTAssertEqual(alternateImage.size, image.size)
         XCTAssertEqual(
             button.accessibilityLabel(),
             "Manual haplotypes (7 loci)"
@@ -108,11 +122,11 @@ final class GenotypeManualHaplotypeAccessibilityTests: XCTestCase {
         XCTAssertEqual(button.state, .off)
     }
 
-    func testDisclosureLabelWrapsAtTwoHundredPercentTextWithoutClipping()
+    func testDisclosureIconFitsAtTwoHundredPercentTextWithoutClipping()
         throws
     {
         let view = GenotypeManualHaplotypePinnedBandView(
-            frame: NSRect(x: 0, y: 0, width: 280, height: 68)
+            frame: NSRect(x: 0, y: 0, width: 180, height: 68)
         )
         view.font = .systemFont(ofSize: 26)
         view.rowHeight = 68
@@ -122,16 +136,21 @@ final class GenotypeManualHaplotypeAccessibilityTests: XCTestCase {
             view.subviews.compactMap { $0 as? NSButton }.first
         )
 
-        XCTAssertEqual(button.cell?.lineBreakMode, .byWordWrapping)
-        XCTAssertFalse(button.cell?.usesSingleLineMode ?? true)
+        XCTAssertEqual(button.title, "Haplotypes")
+        XCTAssertEqual(button.imagePosition, .imageLeading)
         XCTAssertEqual(
-            try XCTUnwrap(button.font).pointSize,
-            26,
-            accuracy: 0.1
+            try XCTUnwrap(button.image).size,
+            NSSize(width: 26, height: 12)
         )
         XCTAssertLessThanOrEqual(
             button.cell?.cellSize(forBounds: button.bounds).height ?? .greatestFiniteMagnitude,
             button.bounds.height
+        )
+        XCTAssertLessThanOrEqual(
+            button.cell?.cellSize.width
+                ?? .greatestFiniteMagnitude,
+            button.bounds.width,
+            "The visible title must fit the narrowest supported pinned pane."
         )
     }
 

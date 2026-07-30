@@ -6836,7 +6836,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
     }
 
-    func testManualHaplotypeDisclosureMeasuresWrappedLabelAtTwoHundredPercent()
+    func testManualHaplotypeDisclosureKeepsCompactIconRowAtTwoHundredPercent()
         throws
     {
         let matrix = GenotypeComparisonMatrixView()
@@ -6860,29 +6860,12 @@ final class GenotypeResultViewportTests: XCTestCase {
         let collapsed = try XCTUnwrap(
             matrix.testingFixedHeaderSnapshot(sample: "AnimalA")
         )
-        let font = NSFont.systemFont(
-            ofSize: matrix.testingManualHaplotypeBandFontPointSize
-        )
-        let attributedTitle = NSAttributedString(
-            string: "Manual haplotypes (7 loci)",
-            attributes: [.font: font]
-        )
-        let wrappedBounds = attributedTitle.boundingRect(
-            with: NSSize(
-                width: matrix.testingPinnedPaneWidth - 40,
-                height: .greatestFiniteMagnitude
-            ),
-            options: [.usesLineFragmentOrigin, .usesFontLeading]
-        )
-        XCTAssertGreaterThan(
-            wrappedBounds.height,
-            matrix.testingManualHaplotypeBandRowHeight,
-            "The narrow 200% title must exercise the wrapped production path."
-        )
-        XCTAssertGreaterThanOrEqual(
+        XCTAssertEqual(
             collapsed.manualSectionRect.height,
-            ceil(wrappedBounds.height) + 4,
-            "The collapsed disclosure row must contain its wrapped title."
+            matrix.testingManualHaplotypeBandRowHeight,
+            accuracy: 0.5,
+            "The icon-only disclosure row should not grow because a hidden "
+                + "accessibility label would have wrapped."
         )
 
         matrix.testingSetManualHaplotypeBandDisclosureExpanded(true)
@@ -6899,7 +6882,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
     }
 
-    func testManualHaplotypeDisclosureWidthChangesRetileOnlyAcrossWrapThreshold()
+    func testManualHaplotypeDisclosureWidthChangesDoNotRetileCompactIcon()
         throws
     {
         let samples = ["AnimalA", "AnimalB", "AnimalC", "AnimalD"]
@@ -6957,23 +6940,24 @@ final class GenotypeResultViewportTests: XCTestCase {
 
         let anchor = matrix.testingSemanticScrollAnchor
         matrix.testingSetPinnedPaneWidth(180)
-        let wrappedHeader = try XCTUnwrap(
+        let narrowHeader = try XCTUnwrap(
             matrix.testingFixedHeaderSnapshot(sample: "AnimalA")
         )
 
-        XCTAssertGreaterThan(
-            wrappedHeader.manualSectionRect.height,
-            sameLineHeader.manualSectionRect.height
+        XCTAssertEqual(
+            narrowHeader.manualSectionRect.height,
+            sameLineHeader.manualSectionRect.height,
+            accuracy: 0.5
         )
         XCTAssertEqual(
             matrix.testingManualHaplotypeDisclosureLayoutCounters
                 .headerRelayouts,
-            1
+            0
         )
         XCTAssertEqual(
             matrix.testingManualHaplotypeDisclosureLayoutCounters
                 .anchorPreservations,
-            1
+            0
         )
         XCTAssertEqual(
             matrix.testingSemanticScrollAnchor.rowID,
@@ -11193,6 +11177,92 @@ final class GenotypeResultViewportTests: XCTestCase {
                 )
             }
         }
+    }
+
+    func testSelectedSampleEvidenceIsNotVerticallyCompressedInDetailScrollPane()
+        throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "SelectedSampleEvidenceGeometry-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent(
+            "example.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let calls = (1...12).map { index in
+            makeCall(
+                sample: "CR1178",
+                genotype: "Mafa-A1*\(String(format: "%03d", index)):01:01:01",
+                reads: index * 50
+            )
+        }
+        let controller = GenotypeResultViewController()
+        let window = NSWindow(
+            contentRect: NSRect(
+                x: 0,
+                y: 0,
+                width: 1_020,
+                height: 720
+            ),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        window.contentView = controller.view
+        controller.view.frame = window.contentView?.bounds ?? .zero
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [
+                ONTGenotypeSampleResult(
+                    sample: "CR1178",
+                    passedAlignments: 14_734,
+                    passedUniqueReads: 14_734,
+                    sampleTotalReads: nil,
+                    sampleUniqueRetainedPercent: nil,
+                    calls: calls
+                ),
+            ],
+            calls: calls
+        ))
+        controller.testingApplyDisplayStateImmediately(
+            GenotypeResultDisplayState(
+                summaryViewMode: .matrix,
+                layout: .listTop
+            )
+        )
+        controller.testingSelectMatrixColumn(sample: "CR1178")
+        window.makeKeyAndOrderFront(nil)
+        controller.view.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+
+        let trailingHost = try XCTUnwrap(
+            ([controller.view] + descendants(of: controller.view)).first {
+                $0.accessibilityIdentifier()
+                    == "sample-curation-trailing-pane"
+            }
+        )
+        let intrinsicHeight = trailingHost.intrinsicContentSize.height
+        XCTAssertGreaterThan(
+            intrinsicHeight,
+            0,
+            "The supported-alleles host must publish its measured height."
+        )
+        XCTAssertGreaterThanOrEqual(
+            trailingHost.bounds.height + 0.5,
+            intrinsicHeight,
+            "The detail scroll pane compressed Supported Alleles from "
+                + "\(intrinsicHeight) points to "
+                + "\(trailingHost.bounds.height), which lets its content "
+                + "draw over the sample summary."
+        )
     }
 
     func testSelectedSampleWorkbenchResizePreservesDraftAndEditorIdentities()

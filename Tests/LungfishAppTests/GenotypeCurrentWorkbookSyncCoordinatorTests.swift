@@ -28,7 +28,7 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
         let validatedBytes = Data("validated workbook identity".utf8)
         try validatedBytes.write(to: canonicalWorkbook)
         try Data("{}".utf8).write(
-            to: bundle.appendingPathComponent("manifest.json")
+            to: ONTGenotypeResultBundle.manifestURL(in: bundle)
         )
         try GenotypeAnnotationSidecar.empty(
             generatedAt: "2026-07-29T00:00:00Z"
@@ -1573,8 +1573,8 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
             "currentWorkbookPath": bundleURL
                 .appendingPathComponent("artifacts/workbooks/current.xlsx")
                 .standardizedFileURL.path,
-            "manifestPath": bundleURL
-                .appendingPathComponent("manifest.json")
+            "manifestPath": ONTGenotypeResultBundle
+                .manifestURL(in: bundleURL)
                 .standardizedFileURL.path,
             "cleanupPending": false,
         ]

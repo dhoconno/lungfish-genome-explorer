@@ -999,6 +999,10 @@ private final class GenotypeSampleCurationTrailingHostView: NSView {
             .defaultLow,
             for: .horizontal
         )
+        setContentCompressionResistancePriority(
+            .required,
+            for: .vertical
+        )
         setAccessibilityIdentifier("sample-curation-trailing-pane")
 
         model.objectWillChange

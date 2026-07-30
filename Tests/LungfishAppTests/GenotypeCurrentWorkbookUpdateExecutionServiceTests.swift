@@ -7,6 +7,50 @@ import LungfishKit
 
 @MainActor
 final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
+    func testAcceptsCanonicalGenotypeResultManifestReturnedByCLI()
+        async throws
+    {
+        let temp = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let bundleURL = temp.appendingPathComponent(
+            "canonical-manifest.lungfishgenotype",
+            isDirectory: true
+        )
+        let workbookURL = canonicalWorkbookURL(for: bundleURL)
+        try FileManager.default.createDirectory(
+            at: workbookURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("workbook".utf8).write(to: workbookURL)
+        let manifestURL = ONTGenotypeResultBundle.manifestURL(
+            in: bundleURL
+        )
+        try Data("{}".utf8).write(to: manifestURL)
+        let operationCenter = OperationCenter()
+        let runner = StubGenotypeWorkbookUpdateCLIProcessRunner(result: .init(
+            exitCode: 0,
+            standardOutput: try payloadJSON(
+                bundlePath: bundleURL.standardizedFileURL.path,
+                workbookPath: workbookURL.path,
+                manifestPath: manifestURL.path
+            ),
+            standardError: "[100%] Updated current.xlsx\n"
+        ))
+        let service = GenotypeCurrentWorkbookUpdateExecutionService(
+            operationCenter: operationCenter,
+            processRunner: runner
+        )
+
+        let returnedURL = try await service.run(
+            bundleURL: bundleURL,
+            calls: [],
+            annotationSidecarURL: nil
+        )
+
+        XCTAssertEqual(returnedURL, workbookURL)
+        XCTAssertEqual(operationCenter.items.first?.state, .completed)
+    }
+
     func testRunInvokesCLIAndRecordsOperationMetadata() async throws {
         let temp = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: temp) }
@@ -901,8 +945,8 @@ final class GenotypeCurrentWorkbookUpdateExecutionServiceTests: XCTestCase {
     }
 
     private func canonicalManifestURL(for bundleURL: URL) -> URL {
-        bundleURL.standardizedFileURL
-            .appendingPathComponent("manifest.json", isDirectory: false)
+        ONTGenotypeResultBundle
+            .manifestURL(in: bundleURL.standardizedFileURL)
             .standardizedFileURL
     }
 
