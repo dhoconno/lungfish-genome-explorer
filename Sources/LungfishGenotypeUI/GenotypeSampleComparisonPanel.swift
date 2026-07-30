@@ -127,6 +127,13 @@ struct GenotypeSampleComparisonPanel: View {
                     .accessibilityIdentifier(
                         "sample-comparison-read-only-status"
                     )
+                    .background(
+                        GenotypeSampleComparisonStatusAccessibilityView(
+                            label: readOnlyStatus,
+                            identifier:
+                                "sample-comparison-read-only-status"
+                        )
+                    )
             }
         }
         .padding(10)
@@ -358,6 +365,9 @@ struct GenotypeSampleComparisonPanel: View {
         _ choice: GenotypeSampleComparisonModel.AssignmentChoice
     ) -> some View {
         let description = assignmentChoiceDescription(choice)
+        let accessibilityDescription =
+            "Source sample: \(model.selectedSource ?? "None"). "
+            + description
         return HStack(alignment: .top, spacing: 6) {
             GenotypeSampleAssignmentCheckbox(
                 isOn: model.selectedSlotAddresses.contains(
@@ -374,8 +384,8 @@ struct GenotypeSampleComparisonPanel: View {
                 accessibilityLabel:
                     "\(choice.address.locus.workbookLabel) "
                     + "\(choice.address.slot.displayName). "
-                    + description,
-                accessibilityValue: description,
+                    + accessibilityDescription,
+                accessibilityValue: accessibilityDescription,
                 onChange: {
                     model.setSelected($0, at: choice.address)
                 }
@@ -1121,11 +1131,55 @@ private struct GenotypeSampleAssignmentCheckbox:
         override func keyDown(with event: NSEvent) {
             switch event.keyCode {
             case 123, 126:
-                window?.selectPreviousKeyView(self)
+                moveAssignmentFocus(by: -1)
             case 124, 125:
-                window?.selectNextKeyView(self)
+                moveAssignmentFocus(by: 1)
             default:
                 super.keyDown(with: event)
+            }
+        }
+
+        private func moveAssignmentFocus(by offset: Int) {
+            guard let window,
+                  let root = window.contentView else {
+                return
+            }
+            let checkboxes = Self.descendants(of: root)
+                .compactMap { $0 as? KeyboardCheckbox }
+                .filter {
+                    $0.interactionEnabled
+                        && !$0.isHidden
+                        && $0.window === window
+                }
+            let byIdentifier: [String: KeyboardCheckbox] = Dictionary(
+                uniqueKeysWithValues: checkboxes.map { checkbox in
+                    (checkbox.accessibilityIdentifier(), checkbox)
+                }
+            )
+            let ordered = GenotypeManualHaplotypeDraft
+                .orderedSlotAddresses
+                .compactMap { address in
+                    byIdentifier[
+                        "sample-comparison-choice-"
+                            + address.locus.rawValue
+                            + "-"
+                            + address.slot.rawValue
+                    ]
+                }
+            guard let index = ordered.firstIndex(where: { $0 === self })
+            else {
+                return
+            }
+            let destination = min(
+                max(index + offset, ordered.startIndex),
+                ordered.index(before: ordered.endIndex)
+            )
+            _ = window.makeFirstResponder(ordered[destination])
+        }
+
+        private static func descendants(of root: NSView) -> [NSView] {
+            root.subviews.flatMap {
+                [$0] + descendants(of: $0)
             }
         }
     }
@@ -1149,6 +1203,31 @@ private struct GenotypeSampleSourceSelectorIdentityView:
         view.setAccessibilityIdentifier(
             "sample-comparison-source-selector"
         )
+    }
+}
+
+@MainActor
+private struct GenotypeSampleComparisonStatusAccessibilityView:
+    NSViewRepresentable
+{
+    let label: String
+    let identifier: String
+
+    func makeNSView(context _: Context) -> NSView {
+        let view = NSView()
+        configure(view)
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context _: Context) {
+        configure(view)
+    }
+
+    private func configure(_ view: NSView) {
+        view.setAccessibilityElement(true)
+        view.setAccessibilityRole(.staticText)
+        view.setAccessibilityLabel(label)
+        view.setAccessibilityIdentifier(identifier)
     }
 }
 

@@ -419,6 +419,147 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
         }, "\(choiceFrames), host=\(mounted.host.bounds)")
     }
 
+    func testMountedChoiceAnnouncesSelectedSourceSample() throws {
+        let model = makeSelectiveComparison()
+        model.selectSource("Source")
+        let mounted = mount(model: model, width: 841)
+        defer { mounted.window.close() }
+
+        let choice = try XCTUnwrap(
+            assignmentCheckbox(
+                locus: .a,
+                slot: .h1,
+                in: mounted.host
+            )
+        )
+        XCTAssertTrue(
+            choice.accessibilityLabel()?.contains(
+                "Source sample: Source."
+            ) == true,
+            choice.accessibilityLabel() ?? "Missing accessibility label"
+        )
+        XCTAssertTrue(
+            String(describing: choice.accessibilityValue()).contains(
+                "Source sample: Source."
+            ),
+            String(describing: choice.accessibilityValue())
+        )
+    }
+
+    func testMountedAssignmentCheckboxesToggleWithSpaceAndMoveWithArrows()
+        throws
+    {
+        let model = makeSelectiveComparison()
+        model.selectSource("Source")
+        let mounted = mount(model: model, width: 841)
+        defer { mounted.window.close() }
+        let first = try XCTUnwrap(
+            assignmentCheckbox(
+                locus: .a,
+                slot: .h1,
+                in: mounted.host
+            )
+        )
+        let second = try XCTUnwrap(
+            assignmentCheckbox(
+                locus: .a,
+                slot: .h2,
+                in: mounted.host
+            )
+        )
+
+        XCTAssertTrue(mounted.window.makeFirstResponder(first))
+        first.keyDown(
+            withCharacters: " ",
+            keyCode: 49,
+            in: mounted.window
+        )
+        flush(mounted.host)
+        XCTAssertTrue(
+            model.selectedSlotAddresses.contains(
+                .init(locus: .a, slot: .h1)
+            )
+        )
+
+        first.keyDown(
+            withCharacters: String(
+                UnicodeScalar(NSRightArrowFunctionKey)!
+            ),
+            keyCode: 124,
+            in: mounted.window
+        )
+        flush(mounted.host)
+        XCTAssertTrue(
+            mounted.window.firstResponder === second,
+            "Right arrow did not move to the next assignment checkbox."
+        )
+
+        second.keyDown(
+            withCharacters: String(
+                UnicodeScalar(NSLeftArrowFunctionKey)!
+            ),
+            keyCode: 123,
+            in: mounted.window
+        )
+        flush(mounted.host)
+        XCTAssertTrue(
+            mounted.window.firstResponder === first,
+            "Left arrow did not return to the previous assignment checkbox."
+        )
+    }
+
+    func testMountedReadOnlyComparisonCanBrowseButCannotStage() throws {
+        let model = makeSelectiveComparison(isReadOnly: true)
+        let mounted = mount(model: model, width: 841)
+        defer { mounted.window.close() }
+        let search = try XCTUnwrap(
+            descendants(of: mounted.host)
+                .compactMap { $0 as? NSSearchField }
+                .first {
+                    $0.accessibilityIdentifier()
+                        == "sample-comparison-source-search"
+                }
+        )
+        XCTAssertTrue(search.isEnabled)
+        XCTAssertTrue(mounted.window.makeFirstResponder(search))
+        let editor = try XCTUnwrap(search.currentEditor())
+        editor.doCommand(by: #selector(NSResponder.moveDown(_:)))
+        editor.doCommand(
+            by: #selector(NSResponder.insertNewline(_:))
+        )
+        flush(mounted.host)
+        XCTAssertEqual(model.selectedSource, "Source")
+
+        let choice = try XCTUnwrap(
+            assignmentCheckbox(
+                locus: .a,
+                slot: .h1,
+                in: mounted.host
+            )
+        )
+        let stage = try XCTUnwrap(
+            concreteButton(
+                identifier: "sample-comparison-stage-selected",
+                in: mounted.host
+            )
+        )
+        XCTAssertTrue(choice.isEnabled)
+        XCTAssertTrue(mounted.window.makeFirstResponder(choice))
+        let labels = accessibilityLabels(in: mounted.host)
+        XCTAssertTrue(
+            labels.contains { $0.contains("Target only") },
+            "Comparison evidence was not available while read-only."
+        )
+        XCTAssertFalse(stage.isEnabled)
+        XCTAssertTrue(
+            labels.contains {
+                $0.contains("read-only")
+                    && $0.contains("cannot stage or save")
+            },
+            "Missing read-only status announcement: \(labels)"
+        )
+    }
+
     func testEvidenceCompareEvidenceCycleKeepsBothModeTreesMounted() {
         let comparison = makeComparison()
         comparison.selectSource("Source")
@@ -1275,6 +1416,19 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
         }
     }
 
+    private func assignmentCheckbox(
+        locus: GenotypeManualHaplotypeLocus,
+        slot: HaplotypeSlot,
+        in root: NSView
+    ) -> NSButton? {
+        concreteButton(
+            identifier:
+                "sample-comparison-choice-\(locus.rawValue)-"
+                + slot.rawValue,
+            in: root
+        )
+    }
+
     private func ancestryDescription(
         of view: NSView,
         in root: NSView
@@ -1290,6 +1444,31 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
             current = item.superview
         }
         return descriptions.joined(separator: " <- ")
+    }
+}
+
+private extension NSButton {
+    func keyDown(
+        withCharacters characters: String,
+        keyCode: UInt16,
+        in window: NSWindow
+    ) {
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: characters,
+            isARepeat: false,
+            keyCode: keyCode
+        ) else {
+            XCTFail("Could not construct keyboard event")
+            return
+        }
+        keyDown(with: event)
     }
 }
 
