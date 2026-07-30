@@ -4751,7 +4751,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(matrix.testingRenderedTextColor(rowID: .candidate(stableClusterID: "semi"), column: .alleleName)).hexString, "#000000")
         XCTAssertEqual(try XCTUnwrap(matrix.testingRenderedTextColor(rowID: .candidate(stableClusterID: "manual"), column: .alleleName)).hexString, "#CC1933")
         XCTAssertNil(matrix.testingBackgroundColor(rowID: .candidate(stableClusterID: "dark"), column: .locus))
-        XCTAssertNil(matrix.testingBackgroundColor(rowID: .candidate(stableClusterID: "dark"), column: .sample("AnimalA")))
+        XCTAssertNotNil(matrix.testingBackgroundColor(rowID: .candidate(stableClusterID: "dark"), column: .sample("AnimalA")))
         XCTAssertNil(matrix.testingRenderedTextColor(rowID: .candidate(stableClusterID: "dark"), column: .locus))
     }
 
@@ -4956,8 +4956,118 @@ final class GenotypeResultViewportTests: XCTestCase {
             XCTAssertEqual(color.blueComponent, expected.blue, accuracy: 0.000_000_1)
             XCTAssertEqual(color.alphaComponent, expected.alpha, accuracy: 0.000_000_1)
             XCTAssertNil(matrix.testingBackgroundColor(rowID: rowID, column: .locus))
-            XCTAssertNil(matrix.testingBackgroundColor(rowID: rowID, column: .sample("AnimalA")))
+            XCTAssertNotNil(matrix.testingBackgroundColor(rowID: rowID, column: .sample("AnimalA")))
         }
+    }
+
+    func testAutomaticSupportFillIsUniformAcrossEveryProjectedAlleleKind() throws {
+        let namedGenotype = "Mafa-A1*001:01"
+        let provisionalGenotype = "Mafa-A1*007:08:01:01_1nt_nov"
+        let zeroSupportGenotype = "Mafa-A1*999:01"
+        let named = makeCall(
+            sample: "AnimalA",
+            genotype: namedGenotype,
+            reads: 1
+        )
+        let provisional = makeCall(
+            sample: "AnimalA",
+            genotype: provisionalGenotype,
+            reads: 1_200
+        )
+        let zeroSupport = makeCall(
+            sample: "AnimalA",
+            genotype: zeroSupportGenotype,
+            reads: 0
+        )
+        let extensionCandidate = makeCandidate(
+            id: "uniform-extension",
+            name: "Mafa-A1*007:06_ext",
+            classification: .extension,
+            support: .singleton,
+            samples: ["AnimalA"]
+        )
+        let novel = makeCandidate(
+            id: "uniform-novel",
+            name: "Mafa-A1*018:01:01:01_5nt_nov",
+            classification: .novel,
+            support: .shared,
+            samples: ["AnimalA", "AnimalB"]
+        )
+        let matrix = GenotypeComparisonMatrixView()
+        matrix.configure(result: makeCandidateResult(
+            calls: [named, provisional, zeroSupport],
+            candidates: [extensionCandidate, novel],
+            observations: [
+                makeCandidateObservation(
+                    cluster: "uniform-extension",
+                    sample: "AnimalA",
+                    reads: 7
+                ),
+                makeCandidateObservation(
+                    cluster: "uniform-novel",
+                    sample: "AnimalA",
+                    reads: 300
+                ),
+                makeCandidateObservation(
+                    cluster: "uniform-novel",
+                    sample: "AnimalB",
+                    reads: 2
+                ),
+            ],
+            provisionalExon2SequencesByGenotype: [
+                provisionalGenotype: ONTGenotypeProvisionalExon2Sequence(
+                    genotype: provisionalGenotype,
+                    locus: provisional.locusGroup,
+                    sequence: "AACCGGTT",
+                    sequenceSHA256: String(repeating: "a", count: 64),
+                    sampleSupport: [
+                        .init(
+                            sample: "AnimalA",
+                            passedAlignments: 1_200,
+                            passedUniqueReads: 1_200
+                        ),
+                    ]
+                ),
+            ]
+        ))
+
+        let supportedColors = try [
+            GenotypeCandidateMatrixRowID.known(
+                locus: named.locusGroup,
+                genotype: namedGenotype
+            ),
+            .candidate(stableClusterID: "uniform-extension"),
+            .candidate(stableClusterID: "uniform-novel"),
+            .known(
+                locus: provisional.locusGroup,
+                genotype: provisionalGenotype
+            ),
+        ].map {
+            try XCTUnwrap(
+                matrix.testingBackgroundColor(
+                    rowID: $0,
+                    column: .sample("AnimalA")
+                )
+            )
+        }
+        for color in supportedColors.dropFirst() {
+            XCTAssertEqual(color, supportedColors[0])
+        }
+
+        XCTAssertNil(matrix.testingBackgroundColor(
+            rowID: .known(
+                locus: zeroSupport.locusGroup,
+                genotype: zeroSupportGenotype
+            ),
+            column: .sample("AnimalA")
+        ))
+        XCTAssertNil(matrix.testingBackgroundColor(
+            rowID: .known(
+                locus: named.locusGroup,
+                genotype: namedGenotype
+            ),
+            column: .sample("AnimalB")
+        ))
     }
 
     func testMHCCandidateTintIsBelowKnownAnnotationAndSelectionFocus() throws {

@@ -5518,25 +5518,14 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             return Self.color(from: tint)
         }
 
-        // Candidate population fractions drive percentage filtering but do not
-        // introduce the known-call blue support heatmap. Their configurable
-        // category tint remains confined to the allele-name cell.
-        guard row.population == .known,
-              displayState.cellColorMode == .support,
+        guard displayState.cellColorMode == .support,
               let sample = sampleColumnLookup[identifier],
-              let fraction = supportFractionByCell[
-                CellKey(
-                    locus: row.locus,
-                    genotype: row.genotype,
-                    sample: sample,
-                    stableClusterID: row.stableClusterID
-                )
-              ] else {
+              let support = supportByRowAndSample[row.id]?[sample],
+              support.passedUniqueReads > 0 else {
             return nil
         }
 
-        let alpha = min(0.20, max(0.06, 0.05 + fraction * 0.22))
-        return NSColor.systemBlue.withAlphaComponent(alpha)
+        return NSColor.systemBlue.withAlphaComponent(0.20)
     }
 
     private func borderColor(
