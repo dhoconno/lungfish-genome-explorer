@@ -551,12 +551,13 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
             "Comparison evidence was not available while read-only."
         )
         XCTAssertFalse(stage.isEnabled)
-        XCTAssertTrue(
-            labels.contains {
+        XCTAssertEqual(
+            labels.filter {
                 $0.contains("read-only")
                     && $0.contains("cannot stage or save")
-            },
-            "Missing read-only status announcement: \(labels)"
+            }.count,
+            1,
+            "Expected one read-only status announcement: \(labels)"
         )
     }
 
@@ -781,6 +782,61 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
             restoredEvidenceHeight,
             evidenceHeight,
             accuracy: 1
+        )
+    }
+
+    func testTrailingPaneInvalidatesHeightWhenComparisonContentChanges() {
+        let comparison = makeComparison()
+        let trailing = GenotypeSampleCurationTrailingModel(
+            evidenceSnapshot: .init(rows: []),
+            comparison: comparison
+        )
+        trailing.showCompareAndCopy()
+        let host = makeGenotypeSampleCurationTrailingHostingView(
+            model: trailing,
+            typographyModel: .shared
+        )
+        let mounted = mount(host: host, width: 841)
+        defer { mounted.window.close() }
+
+        let emptyComparisonHeight = host.intrinsicContentSize.height
+        comparison.selectSource("Source")
+        flush(host)
+        XCTAssertEqual(
+            descendants(of: host).filter {
+                $0.accessibilityIdentifier()
+                    .hasPrefix("sample-comparison-choice-")
+            }.count,
+            14,
+            "The chooser had not rendered before height measurement."
+        )
+        let populatedComparisonHeight = host.intrinsicContentSize.height
+
+        XCTAssertGreaterThan(
+            populatedComparisonHeight,
+            emptyComparisonHeight,
+            "Adding the chooser did not invalidate the cached host height."
+        )
+
+        trailing.showEvidence()
+        flush(host)
+        let evidenceHeight = host.intrinsicContentSize.height
+        XCTAssertLessThan(evidenceHeight, populatedComparisonHeight)
+
+        trailing.showCompareAndCopy()
+        flush(host)
+        XCTAssertEqual(
+            host.intrinsicContentSize.height,
+            populatedComparisonHeight,
+            accuracy: 1
+        )
+
+        comparison.refreshCandidates([])
+        flush(host)
+        XCTAssertLessThan(
+            host.intrinsicContentSize.height,
+            populatedComparisonHeight,
+            "Clearing the comparison did not restore a compact height."
         )
     }
 

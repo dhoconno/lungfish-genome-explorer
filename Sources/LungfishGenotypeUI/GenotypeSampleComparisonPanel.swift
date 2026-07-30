@@ -127,6 +127,7 @@ struct GenotypeSampleComparisonPanel: View {
                     .accessibilityIdentifier(
                         "sample-comparison-read-only-status"
                     )
+                    .accessibilityHidden(true)
                     .background(
                         GenotypeSampleComparisonStatusAccessibilityView(
                             label: readOnlyStatus,
@@ -1307,15 +1308,35 @@ func makeGenotypeSampleCurationTrailingHostingView(
 
 @MainActor
 private final class GenotypeSampleCurationTrailingHostView: NSView {
+    private struct MeasurementState: Equatable {
+        let mode: GenotypeSampleCurationTrailingModel.Mode
+        let selectedSource: String?
+        let assignmentChoiceCount: Int
+        let comparisonRowCount: Int
+        let selectedSlotCount: Int
+        let filteredCandidateCount: Int
+        let searchText: String
+        let stagedStatus: String?
+        let isPending: Bool
+    }
+
     private let hostingController:
         NSHostingController<GenotypeSampleCurationTrailingPane>
+    private let model: GenotypeSampleCurationTrailingModel
+    private let typographyModel: ContentTypographyModel
     private var cancellables: Set<AnyCancellable> = []
-    private var cachedMeasurement: (width: CGFloat, height: CGFloat)?
+    private var cachedMeasurement: (
+        width: CGFloat,
+        height: CGFloat,
+        state: MeasurementState
+    )?
 
     init(
         model: GenotypeSampleCurationTrailingModel,
         typographyModel: ContentTypographyModel
     ) {
+        self.model = model
+        self.typographyModel = typographyModel
         hostingController = NSHostingController(
             rootView: GenotypeSampleCurationTrailingPane(
                 model: model,
@@ -1351,6 +1372,13 @@ private final class GenotypeSampleCurationTrailingHostView: NSView {
                 }
             }
             .store(in: &cancellables)
+        model.comparison.objectWillChange
+            .sink { [weak self] in
+                DispatchQueue.main.async {
+                    self?.invalidateWidthAwareIntrinsicSize()
+                }
+            }
+            .store(in: &cancellables)
         NotificationCenter.default.publisher(
             for: .contentTextSizeDidChange
         )
@@ -1369,21 +1397,23 @@ private final class GenotypeSampleCurationTrailingHostView: NSView {
 
     override var intrinsicContentSize: NSSize {
         let proposedWidth = bounds.width > 0 ? bounds.width : 420
+        let measurementState = currentMeasurementState
         if let cachedMeasurement,
-           abs(cachedMeasurement.width - proposedWidth) <= 0.5 {
+           abs(cachedMeasurement.width - proposedWidth) <= 0.5,
+           cachedMeasurement.state == measurementState {
             return NSSize(
                 width: NSView.noIntrinsicMetric,
                 height: cachedMeasurement.height
             )
         }
-        let measured = hostingController.sizeThatFits(
-            in: NSSize(
-                width: proposedWidth,
-                height: .greatestFiniteMagnitude
-            )
+        let measuredHeight = ceil(
+            measureActiveContent(width: proposedWidth)
         )
-        let measuredHeight = ceil(measured.height)
-        cachedMeasurement = (proposedWidth, measuredHeight)
+        cachedMeasurement = (
+            proposedWidth,
+            measuredHeight,
+            measurementState
+        )
         return NSSize(
             width: NSView.noIntrinsicMetric,
             height: measuredHeight
@@ -1402,5 +1432,56 @@ private final class GenotypeSampleCurationTrailingHostView: NSView {
         cachedMeasurement = nil
         invalidateIntrinsicContentSize()
         superview?.needsLayout = true
+    }
+
+    private var currentMeasurementState: MeasurementState {
+        let comparison = model.comparison
+        return MeasurementState(
+            mode: model.mode,
+            selectedSource: comparison.selectedSource,
+            assignmentChoiceCount: comparison.assignmentChoices.count,
+            comparisonRowCount: comparison.comparisonRows.count,
+            selectedSlotCount: comparison.selectedSlotAddresses.count,
+            filteredCandidateCount:
+                comparison.filteredCandidates.count,
+            searchText: comparison.searchText,
+            stagedStatus: comparison.stagedStatus,
+            isPending: comparison.isInteractionPending
+        )
+    }
+
+    private func measureActiveContent(width: CGFloat) -> CGFloat {
+        switch model.mode {
+        case .evidence:
+            return measuredHeight(
+                for: GenotypeSupportedAllelesPanel(
+                    snapshot: model.evidenceSnapshot,
+                    typographyModel: typographyModel
+                ),
+                width: width
+            )
+        case .compareAndCopy:
+            return measuredHeight(
+                for: GenotypeSampleComparisonPanel(
+                    model: model.comparison,
+                    typographyModel: typographyModel,
+                    onBackToEvidence: {}
+                ),
+                width: width
+            )
+        }
+    }
+
+    private func measuredHeight<Content: View>(
+        for rootView: Content,
+        width: CGFloat
+    ) -> CGFloat {
+        let controller = NSHostingController(rootView: rootView)
+        return controller.sizeThatFits(
+            in: NSSize(
+                width: width,
+                height: .greatestFiniteMagnitude
+            )
+        ).height
     }
 }
