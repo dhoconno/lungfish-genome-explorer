@@ -319,6 +319,12 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
         )
         XCTAssertEqual(stage.title, "Stage 0 Selected Assignments")
         XCTAssertFalse(stage.isEnabled)
+        XCTAssertTrue(stage.isAccessibilityElement())
+        XCTAssertEqual(
+            stage.accessibilityHelp(),
+            "Select at least one assigned haplotype slot to stage."
+        )
+        XCTAssertFalse(stage.accessibilityPerformPress())
 
         let aH1 = try XCTUnwrap(
             concreteButton(
@@ -352,6 +358,11 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
         flush(mounted.host)
         XCTAssertNotNil(model.pendingSelectiveCopy)
         XCTAssertFalse(stage.isEnabled)
+        XCTAssertTrue(stage.isAccessibilityElement())
+        XCTAssertEqual(
+            stage.accessibilityHelp(),
+            "Confirm or cancel the pending assignments before staging again."
+        )
         XCTAssertFalse(aH1.isEnabled)
         let search = try XCTUnwrap(
             descendants(of: mounted.host).first {
@@ -402,8 +413,17 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
             $0.contains("Same assignment")
         }, "\(labels)")
         XCTAssertTrue(labels.contains {
-            $0.contains("Unavailable until hidden legacy metadata is cleared")
+            $0.contains(
+                "Clear and save the existing assignment first so older "
+                    + "notes or details cannot attach to a new label"
+            )
         }, "\(labels)")
+        XCTAssertFalse(
+            labels.contains {
+                $0.localizedCaseInsensitiveContains("hidden legacy metadata")
+            },
+            "\(labels)"
+        )
 
         let choiceViews = descendants(of: mounted.host).filter {
             $0.accessibilityIdentifier()
@@ -551,6 +571,13 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
             "Comparison evidence was not available while read-only."
         )
         XCTAssertFalse(stage.isEnabled)
+        XCTAssertTrue(stage.isAccessibilityElement())
+        XCTAssertEqual(
+            stage.accessibilityHelp(),
+            "This bundle is read-only. You can compare assignments, "
+                + "but you cannot stage or save changes."
+        )
+        XCTAssertFalse(stage.accessibilityPerformPress())
         XCTAssertEqual(
             labels.filter {
                 $0.contains("read-only")
@@ -558,6 +585,87 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
             }.count,
             1,
             "Expected one read-only status announcement: \(labels)"
+        )
+    }
+
+    func testCleanFillStagesImmediatelyWithoutConfirmation() {
+        var staged: [
+            GenotypeSampleComparisonModel.PendingSelectiveCopy
+        ] = []
+        let model = makeSelectiveComparison(stage: {
+            staged.append($0)
+            return .init(applied: $0.addresses, skipped: [])
+        })
+        model.selectSource("Source")
+        model.setSelected(
+            true,
+            at: .init(locus: .a, slot: .h1)
+        )
+
+        model.requestStageSelected()
+
+        XCTAssertEqual(staged.count, 1)
+        XCTAssertNil(model.pendingSelectiveCopy)
+        XCTAssertNil(model.confirmationText)
+        XCTAssertEqual(
+            staged.first?.assignmentSummaries.map(\.address),
+            [.init(locus: .a, slot: .h1)]
+        )
+    }
+
+    func testReplacementConfirmationNamesSourceTargetAndOutcome() throws {
+        let model = makeSelectiveComparison()
+        model.selectSource("Source")
+        model.setSelected(
+            true,
+            at: .init(locus: .a, slot: .h2)
+        )
+
+        model.requestStageSelected()
+
+        let pending = try XCTUnwrap(model.pendingSelectiveCopy)
+        XCTAssertEqual(
+            GenotypeSampleComparisonPanel.confirmationTitle(
+                for: pending
+            ),
+            "Stage 1 assignment from Source?"
+        )
+        XCTAssertEqual(
+            GenotypeSampleComparisonPanel.confirmationDetails(
+                for: pending
+            ),
+            "MHC-A H2: source “Source A2” → target “Target A2” "
+                + "(replaces target)"
+        )
+    }
+
+    func testDirtyMatchingTargetStillRequiresExplicitConfirmation()
+        throws
+    {
+        var stagedCount = 0
+        let model = makeSelectiveComparison(
+            dirtyMatchingTarget: true,
+            stage: {
+                stagedCount += 1
+                return .init(applied: $0.addresses, skipped: [])
+            }
+        )
+        model.selectSource("Source")
+        model.setSelected(
+            true,
+            at: .init(locus: .a, slot: .h1)
+        )
+
+        model.requestStageSelected()
+
+        let pending = try XCTUnwrap(model.pendingSelectiveCopy)
+        XCTAssertEqual(stagedCount, 0)
+        XCTAssertEqual(
+            GenotypeSampleComparisonPanel.confirmationDetails(
+                for: pending
+            ),
+            "MHC-A H1: source “Source A1” → target “Source A1” "
+                + "(already matches target)"
         )
     }
 
@@ -1078,6 +1186,7 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
 
     private func makeSelectiveComparison(
         isReadOnly: Bool = false,
+        dirtyMatchingTarget: Bool = false,
         stage: @escaping (
             GenotypeSampleComparisonModel.PendingSelectiveCopy
         ) -> GenotypeManualHaplotypeDraft.SelectiveCopyResult = {
@@ -1110,7 +1219,7 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
                 label: "Source DRB1"
             ),
         ]
-        let targetAssignments = [
+        var targetAssignments = [
             assignment(
                 sample: "Target",
                 locus: .a,
@@ -1131,14 +1240,31 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
                 notes: "Hidden legacy note"
             ),
         ]
+        if dirtyMatchingTarget {
+            targetAssignments.append(
+                assignment(
+                    sample: "Target",
+                    locus: .a,
+                    slot: .h1,
+                    label: "Original Target A1"
+                )
+            )
+        }
         let all = targetAssignments + sourceAssignments
         let index = GenotypeManualHaplotypeAssignmentIndex(
             assignments: all
         )
-        let targetDraft = GenotypeManualHaplotypeDraft(
+        var targetDraft = GenotypeManualHaplotypeDraft(
             sample: "Target",
             index: index
         )
+        if dirtyMatchingTarget {
+            targetDraft.setLabel(
+                "Source A1",
+                locus: .a,
+                slot: .h1
+            )
+        }
         return GenotypeSampleComparisonModel(
             targetSample: "Target",
             targetRows: [

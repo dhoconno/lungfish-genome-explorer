@@ -116,6 +116,8 @@ struct GenotypeSampleComparisonPanel: View {
                     isEnabled: model.canStageSelected,
                     accessibilityIdentifier:
                         "sample-comparison-stage-selected",
+                    accessibilityDisabledReason: stageDisabledReason,
+                    isAccessibilityDiscoverableWhenDisabled: true,
                     action: model.requestStageSelected
                 )
             } else {
@@ -164,7 +166,9 @@ struct GenotypeSampleComparisonPanel: View {
                 .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
         )
         .confirmationDialog(
-            model.confirmationText ?? "",
+            model.pendingSelectiveCopy.map(Self.confirmationTitle)
+                ?? model.confirmationText
+                ?? "",
             isPresented: Binding(
                 get: { model.confirmationText != nil },
                 set: { presented in
@@ -181,8 +185,65 @@ struct GenotypeSampleComparisonPanel: View {
             Button("Cancel", role: .cancel) {
                 model.cancelStageSelected()
             }
+        } message: {
+            if let pending = model.pendingSelectiveCopy {
+                Text(Self.confirmationDetails(for: pending))
+            }
         }
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var stageDisabledReason: String? {
+        guard !model.canStageSelected else { return nil }
+        if let readOnlyStatus = model.readOnlyStatus {
+            return readOnlyStatus
+        }
+        if model.isInteractionPending {
+            return "Confirm or cancel the pending assignments before "
+                + "staging again."
+        }
+        if model.selectedSlotAddresses.isEmpty {
+            return "Select at least one assigned haplotype slot to stage."
+        }
+        return "Staging is not available for the current selection."
+    }
+
+    static func confirmationTitle(
+        for request:
+            GenotypeSampleComparisonModel.PendingSelectiveCopy
+    ) -> String {
+        let count = request.assignmentSummaries.count
+        return "Stage \(count) assignment"
+            + "\(count == 1 ? "" : "s") from "
+            + "\(request.sourceSample)?"
+    }
+
+    static func confirmationDetails(
+        for request:
+            GenotypeSampleComparisonModel.PendingSelectiveCopy
+    ) -> String {
+        request.assignmentSummaries.map { summary in
+            let slot =
+                "\(summary.address.locus.workbookLabel) "
+                + summary.address.slot.displayName
+            let target = summary.targetLabel ?? "unassigned"
+            let outcome: String
+            switch summary.outcome {
+            case .fillsEmpty:
+                outcome = "fills empty target"
+            case .replaces:
+                outcome = "replaces target"
+            case .sameAssignment:
+                outcome = "already matches target"
+            case .unavailableHiddenMetadata:
+                outcome =
+                    "clear and save the existing assignment first so "
+                    + "older notes or details cannot attach to a new label"
+            }
+            return "\(slot): source “\(summary.sourceLabel)” → "
+                + "target “\(target)” (\(outcome))"
+        }
+        .joined(separator: "\n")
     }
 
     private var sourceSelector: some View {
@@ -441,7 +502,8 @@ struct GenotypeSampleComparisonPanel: View {
                 outcome = "Same assignment."
             case .unavailableHiddenMetadata:
                 outcome =
-                    "Unavailable until hidden legacy metadata is cleared."
+                    "Clear and save the existing assignment first so "
+                    + "older notes or details cannot attach to a new label."
             }
         }
         return "Source: \(source). Target: \(target). \(outcome)"
@@ -1001,6 +1063,8 @@ private struct GenotypeSampleComparisonActionButton:
     let font: NSFont
     let isEnabled: Bool
     let accessibilityIdentifier: String
+    var accessibilityDisabledReason: String? = nil
+    var isAccessibilityDiscoverableWhenDisabled = false
     let action: () -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -1036,9 +1100,27 @@ private struct GenotypeSampleComparisonActionButton:
         button.font = font
         button.isEnabled = interactionEnabled
         button.allowsUserInteraction = interactionEnabled
-        button.setAccessibilityElement(interactionEnabled)
+        button.setAccessibilityElement(
+            environmentIsEnabled
+                && (
+                    interactionEnabled
+                        || isAccessibilityDiscoverableWhenDisabled
+                )
+        )
         button.setAccessibilityRole(.button)
         button.setAccessibilityLabel(title)
+        button.setAccessibilityHelp(
+            interactionEnabled ? nil : accessibilityDisabledReason
+        )
+        if interactionEnabled {
+            button.setAccessibilityValue(nil)
+        } else if let accessibilityDisabledReason {
+            button.setAccessibilityValue(
+                "Disabled. \(accessibilityDisabledReason)"
+            )
+        } else {
+            button.setAccessibilityValue("Disabled")
+        }
         button.setAccessibilityIdentifier(accessibilityIdentifier)
     }
 
