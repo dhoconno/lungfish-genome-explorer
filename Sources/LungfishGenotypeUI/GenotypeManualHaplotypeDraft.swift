@@ -130,6 +130,37 @@ struct GenotypeManualHaplotypeDraft: Equatable, Sendable {
         let colorTokenIndex: Int?
         let hasHiddenCompatibilityMetadata: Bool
         let isDirty: Bool
+        private let hiddenCompatibilityLabels: [String?]
+
+        init(
+            address: SlotAddress,
+            label: String?,
+            colorTokenIndex: Int?,
+            hasHiddenCompatibilityMetadata: Bool,
+            isDirty: Bool,
+            hiddenCompatibilityLabels: [String?]? = nil
+        ) {
+            self.address = address
+            self.label = label
+            self.colorTokenIndex = colorTokenIndex
+            self.hasHiddenCompatibilityMetadata =
+                hasHiddenCompatibilityMetadata
+            self.isDirty = isDirty
+            self.hiddenCompatibilityLabels =
+                hiddenCompatibilityLabels
+                ?? (hasHiddenCompatibilityMetadata ? [label] : [])
+        }
+
+        func blocksSelectiveCopy(sourceLabel: String) -> Bool {
+            hiddenCompatibilityLabels.contains { targetLabel in
+                GenotypeManualHaplotypeDraft
+                    .hiddenMetadataBlocksCopy(
+                        targetLabel: targetLabel,
+                        hasHiddenCompatibilityMetadata: true,
+                        sourceLabel: sourceLabel
+                    )
+            }
+        }
     }
 
     enum SelectiveCopySkipReason: Equatable, Sendable {
@@ -318,6 +349,13 @@ struct GenotypeManualHaplotypeDraft: Equatable, Sendable {
         let value = self[address.locus, address.slot]
         let originalValue =
             originalValues[address.locus]?[address.slot]
+        var hiddenCompatibilityLabels: [String?] = []
+        if Self.hasHiddenCompatibilityMetadata(value) {
+            hiddenCompatibilityLabels.append(value?.label)
+        }
+        if Self.hasHiddenCompatibilityMetadata(originalValue) {
+            hiddenCompatibilityLabels.append(originalValue?.label)
+        }
         return SlotSnapshot(
             address: address,
             label: value?.label,
@@ -326,7 +364,8 @@ struct GenotypeManualHaplotypeDraft: Equatable, Sendable {
                 Self.hasHiddenCompatibilityMetadata(value)
                 || Self.hasHiddenCompatibilityMetadata(originalValue),
             isDirty:
-                value != originalValue
+                value != originalValue,
+            hiddenCompatibilityLabels: hiddenCompatibilityLabels
         )
     }
 
@@ -633,17 +672,28 @@ struct GenotypeManualHaplotypeDraft: Equatable, Sendable {
         target: SlotValue?,
         sourceLabel: String
     ) -> Bool {
-        guard let target,
-              hasHiddenCompatibilityMetadata(target) else {
-            return false
-        }
-        guard let targetKey = try?
+        hiddenMetadataBlocksCopy(
+            targetLabel: target?.label,
+            hasHiddenCompatibilityMetadata:
+                hasHiddenCompatibilityMetadata(target),
+            sourceLabel: sourceLabel
+        )
+    }
+
+    private static func hiddenMetadataBlocksCopy(
+        targetLabel: String?,
+        hasHiddenCompatibilityMetadata: Bool,
+        sourceLabel: String
+    ) -> Bool {
+        guard hasHiddenCompatibilityMetadata,
+              let targetLabel,
+              let targetKey = try?
             GenotypeManualHaplotypeAssignmentInputValidator
-                .normalizedLabelKey(for: target.label),
+                .normalizedLabelKey(for: targetLabel),
               let sourceKey = try?
             GenotypeManualHaplotypeAssignmentInputValidator
                 .normalizedLabelKey(for: sourceLabel) else {
-            return true
+            return hasHiddenCompatibilityMetadata
         }
         return targetKey != sourceKey
     }

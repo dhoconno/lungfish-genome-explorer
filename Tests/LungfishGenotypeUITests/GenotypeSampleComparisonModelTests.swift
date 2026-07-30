@@ -427,6 +427,206 @@ final class GenotypeSampleComparisonModelTests: XCTestCase {
         XCTAssertEqual(stagedCount, 0)
     }
 
+    func testUnsavedRelabelOfProtectedTargetRemainsUnavailableToMatchingSource() {
+        let target = assignment(
+            sample: "Target",
+            locus: .a,
+            slot: .h1,
+            label: "Old",
+            diagnosticAlleles: ["Mafa-A1*001:01"],
+            notes: "Older notes"
+        )
+        let source = assignment(
+            sample: "Source",
+            locus: .a,
+            slot: .h1,
+            label: "New"
+        )
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: [target, source]
+        )
+        var draft = GenotypeManualHaplotypeDraft(
+            sample: "Target",
+            index: index
+        )
+        draft.setLabel("New", locus: .a, slot: .h1)
+        let editedSlots = Dictionary(
+            uniqueKeysWithValues: draft.slotSnapshots.map {
+                ($0.address, $0)
+            }
+        )
+        let model = makeSelectiveModel(
+            targetAssignments: [target],
+            targetSlotOverrides: editedSlots,
+            sourceAssignments: [source]
+        )
+
+        model.selectSource("Source")
+
+        XCTAssertEqual(
+            choice(model, .a, .h1).outcome,
+            .unavailableHiddenMetadata
+        )
+        XCTAssertFalse(choice(model, .a, .h1).isSelectable)
+
+        let unchangedModel = makeSelectiveModel(
+            targetAssignments: [target],
+            sourceAssignments: [
+                assignment(
+                    sample: "Source",
+                    locus: .a,
+                    slot: .h1,
+                    label: " old "
+                ),
+            ]
+        )
+        unchangedModel.selectSource("Source")
+        XCTAssertEqual(
+            choice(unchangedModel, .a, .h1).outcome,
+            .sameAssignment
+        )
+        XCTAssertTrue(choice(unchangedModel, .a, .h1).isSelectable)
+    }
+
+    func testCleanFillAndTrueSameAssignmentStageWithoutConfirmation() {
+        var fillRequests: [
+            GenotypeSampleComparisonModel.PendingSelectiveCopy
+        ] = []
+        let fillModel = makeSelectiveModel(
+            sourceAssignments: [
+                assignment(
+                    sample: "Source",
+                    locus: .a,
+                    slot: .h1,
+                    label: "A1"
+                ),
+            ],
+            stage: {
+                fillRequests.append($0)
+                return .init(applied: $0.addresses, skipped: [])
+            }
+        )
+        fillModel.selectSource("Source")
+        fillModel.selectAllAssigned()
+        fillModel.requestStageSelected()
+
+        XCTAssertNil(fillModel.pendingSelectiveCopy)
+        XCTAssertNil(fillModel.confirmationText)
+        XCTAssertEqual(fillRequests.count, 1)
+
+        var sameRequests: [
+            GenotypeSampleComparisonModel.PendingSelectiveCopy
+        ] = []
+        let same = assignment(
+            sample: "Target",
+            locus: .a,
+            slot: .h1,
+            label: "A1"
+        )
+        let sameModel = makeSelectiveModel(
+            targetAssignments: [same],
+            sourceAssignments: [
+                assignment(
+                    sample: "Source",
+                    locus: .a,
+                    slot: .h1,
+                    label: " a1 "
+                ),
+            ],
+            stage: {
+                sameRequests.append($0)
+                return .init(applied: $0.addresses, skipped: [])
+            }
+        )
+        sameModel.selectSource("Source")
+        sameModel.selectAllAssigned()
+        sameModel.requestStageSelected()
+
+        XCTAssertNil(sameModel.pendingSelectiveCopy)
+        XCTAssertEqual(sameRequests.count, 1)
+    }
+
+    func testReplacementConfirmationIncludesStructuredExactLabels() {
+        let model = makeSelectiveModel(
+            targetAssignments: [
+                assignment(
+                    sample: "Target",
+                    locus: .a,
+                    slot: .h1,
+                    label: "Target Old"
+                ),
+            ],
+            sourceAssignments: [
+                assignment(
+                    sample: "Source",
+                    locus: .a,
+                    slot: .h1,
+                    label: "Source New"
+                ),
+            ]
+        )
+        model.selectSource("Source")
+        model.selectAllAssigned()
+        model.requestStageSelected()
+
+        let summary = model.pendingSelectiveCopy?
+            .assignmentSummaries.first
+        XCTAssertEqual(summary?.address, address(.a, .h1))
+        XCTAssertEqual(summary?.sourceLabel, "Source New")
+        XCTAssertEqual(summary?.targetLabel, "Target Old")
+        XCTAssertEqual(summary?.outcome, .replaces("Target Old"))
+        XCTAssertTrue(
+            model.confirmationText?.contains("Source New") == true
+        )
+        XCTAssertTrue(
+            model.confirmationText?.contains("Target Old") == true
+        )
+    }
+
+    func testUnsavedTargetEditRequiresConfirmationEvenWhenLabelsMatch() {
+        let target = assignment(
+            sample: "Target",
+            locus: .a,
+            slot: .h1,
+            label: "Old"
+        )
+        let source = assignment(
+            sample: "Source",
+            locus: .a,
+            slot: .h1,
+            label: "New"
+        )
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: [target, source]
+        )
+        var draft = GenotypeManualHaplotypeDraft(
+            sample: "Target",
+            index: index
+        )
+        draft.setLabel("New", locus: .a, slot: .h1)
+        let editedSlots = Dictionary(
+            uniqueKeysWithValues: draft.slotSnapshots.map {
+                ($0.address, $0)
+            }
+        )
+        var stagedCount = 0
+        let model = makeSelectiveModel(
+            targetAssignments: [target],
+            targetSlotOverrides: editedSlots,
+            sourceAssignments: [source],
+            stage: {
+                stagedCount += 1
+                return .init(applied: $0.addresses, skipped: [])
+            }
+        )
+        model.selectSource("Source")
+        model.selectAllAssigned()
+        model.requestStageSelected()
+
+        XCTAssertNotNil(model.pendingSelectiveCopy)
+        XCTAssertEqual(stagedCount, 0)
+    }
+
     func testSelectionsAreIndependentAndBulkSelectionUsesEligibleAssignedSlots() {
         let source = [
             assignment(
@@ -561,6 +761,14 @@ final class GenotypeSampleComparisonModelTests: XCTestCase {
             ),
         ]
         let model = makeSelectiveModel(
+            targetAssignments: [
+                assignment(
+                    sample: "Target",
+                    locus: .a,
+                    slot: .h1,
+                    label: "Existing"
+                ),
+            ],
             sourceAssignments: source,
             stage: {
                 staged.append($0)
@@ -607,6 +815,20 @@ final class GenotypeSampleComparisonModelTests: XCTestCase {
             ),
         ]
         let model = makeSelectiveModel(
+            targetAssignments: [
+                assignment(
+                    sample: "Target",
+                    locus: .a,
+                    slot: .h1,
+                    label: "Old A"
+                ),
+                assignment(
+                    sample: "Target",
+                    locus: .b,
+                    slot: .h2,
+                    label: "Old B"
+                ),
+            ],
             sourceSamples: ["Source A", "Source B"],
             sourceAssignments: source,
             revision: revision,
@@ -627,10 +849,8 @@ final class GenotypeSampleComparisonModelTests: XCTestCase {
         model.selectAllAssigned()
         model.requestStageSelected()
         let request = model.pendingSelectiveCopy
-        XCTAssertTrue(
-            model.confirmationText?.contains("MHC-A H1, MHC-B H2")
-                == true
-        )
+        XCTAssertTrue(model.confirmationText?.contains("A1") == true)
+        XCTAssertTrue(model.confirmationText?.contains("Old A") == true)
 
         model.setSelected(false, at: address(.a, .h1))
         model.selectSource("Source B")
@@ -666,9 +886,15 @@ final class GenotypeSampleComparisonModelTests: XCTestCase {
         XCTAssertEqual(staged, [request].compactMap { $0 })
         XCTAssertNil(model.pendingSelectiveCopy)
         XCTAssertTrue(model.selectedSlotAddresses.isEmpty)
-        XCTAssertEqual(
-            model.stagedStatus,
-            "1 assignment staged, 1 skipped from Source A."
+        XCTAssertTrue(
+            model.stagedStatus?.contains(
+                "1 assignment staged from Source A."
+            ) == true
+        )
+        XCTAssertTrue(
+            model.stagedStatus?.contains(
+                "MHC-B H2: the source assignment changed"
+            ) == true
         )
     }
 
@@ -682,6 +908,14 @@ final class GenotypeSampleComparisonModelTests: XCTestCase {
             ),
         ]
         let model = makeSelectiveModel(
+            targetAssignments: [
+                assignment(
+                    sample: "Target",
+                    locus: .a,
+                    slot: .h1,
+                    label: "Old"
+                ),
+            ],
             sourceAssignments: source,
             stage: { request in
                 .init(
@@ -703,8 +937,99 @@ final class GenotypeSampleComparisonModelTests: XCTestCase {
 
         XCTAssertEqual(
             model.stagedStatus,
-            "Assignments changed while confirmation was open. "
-                + "Review the current target choices and try again."
+            "Skipped MHC-A H1: the target assignment changed while "
+                + "confirmation was open. Review it and try again."
+        )
+    }
+
+    func testSkippedStatusNamesEverySlotAndUsesPlainReasons() {
+        let source = [
+            assignment(
+                sample: "Source",
+                locus: .a,
+                slot: .h1,
+                label: "A1"
+            ),
+            assignment(
+                sample: "Source",
+                locus: .b,
+                slot: .h2,
+                label: "B2"
+            ),
+            assignment(
+                sample: "Source",
+                locus: .drb,
+                slot: .h1,
+                label: "DRB1"
+            ),
+        ]
+        let target = [
+            assignment(
+                sample: "Target",
+                locus: .a,
+                slot: .h1,
+                label: "Old A"
+            ),
+            assignment(
+                sample: "Target",
+                locus: .b,
+                slot: .h2,
+                label: "Old B"
+            ),
+            assignment(
+                sample: "Target",
+                locus: .drb,
+                slot: .h1,
+                label: "Old DRB"
+            ),
+        ]
+        let model = makeSelectiveModel(
+            targetAssignments: target,
+            sourceAssignments: source,
+            stage: { _ in
+                .init(
+                    applied: [],
+                    skipped: [
+                        .init(
+                            address: self.address(.a, .h1),
+                            reason: .sourceChanged
+                        ),
+                        .init(
+                            address: self.address(.b, .h2),
+                            reason: .hiddenMetadataRequiresSavedClear
+                        ),
+                        .init(
+                            address: self.address(.drb, .h1),
+                            reason: .targetChanged
+                        ),
+                    ]
+                )
+            }
+        )
+        model.selectSource("Source")
+        model.selectAllAssigned()
+        model.requestStageSelected()
+        model.confirmStageSelected()
+
+        XCTAssertTrue(
+            model.stagedStatus?.contains(
+                "MHC-A H1: the source assignment changed"
+            ) == true
+        )
+        XCTAssertTrue(
+            model.stagedStatus?.contains(
+                "MHC-B H2: clear and save the existing assignment first"
+            ) == true
+        )
+        XCTAssertTrue(
+            model.stagedStatus?.contains(
+                "older notes cannot attach to a new label"
+            ) == true
+        )
+        XCTAssertTrue(
+            model.stagedStatus?.contains(
+                "MHC-DRB H1: the target assignment changed"
+            ) == true
         )
     }
 
@@ -812,6 +1137,10 @@ final class GenotypeSampleComparisonModelTests: XCTestCase {
 
     private func makeSelectiveModel(
         targetAssignments: [ManualHaplotypeAssignment] = [],
+        targetSlotOverrides: [
+            GenotypeManualHaplotypeDraft.SlotAddress:
+                GenotypeManualHaplotypeDraft.SlotSnapshot
+        ]? = nil,
         sourceSamples: [String] = ["Source"],
         sourceAssignments: [ManualHaplotypeAssignment],
         revision: UUID = UUID(),
@@ -836,10 +1165,12 @@ final class GenotypeSampleComparisonModelTests: XCTestCase {
             targetRows: [],
             candidates: sourceSamples.map { candidate($0) },
             rowsForSource: { _ in [] },
-            targetSlots: targetSlotSnapshots(
-                targetAssignments,
-                index: index
-            ),
+            targetSlots:
+                targetSlotOverrides
+                ?? targetSlotSnapshots(
+                    targetAssignments,
+                    index: index
+                ),
             targetDraftRevision: revision,
             isReadOnly: isReadOnly,
             assignmentsForSource: { sourceBySample[$0] },

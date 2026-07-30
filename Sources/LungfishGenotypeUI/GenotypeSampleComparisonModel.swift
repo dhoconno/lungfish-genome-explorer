@@ -65,6 +65,15 @@ final class GenotypeSampleComparisonModel: ObservableObject {
         case replaces(String)
         case sameAssignment
         case unavailableHiddenMetadata
+
+        fileprivate var requiresConfirmation: Bool {
+            switch self {
+            case .replaces, .unavailableHiddenMetadata:
+                true
+            case .fillsEmpty, .sameAssignment:
+                false
+            }
+        }
     }
 
     struct AssignmentChoice: Identifiable, Equatable, Sendable {
@@ -77,6 +86,15 @@ final class GenotypeSampleComparisonModel: ObservableObject {
         var id: GenotypeManualHaplotypeDraft.SlotAddress { address }
     }
 
+    struct AssignmentSummary: Identifiable, Equatable, Sendable {
+        let address: GenotypeManualHaplotypeDraft.SlotAddress
+        let sourceLabel: String
+        let targetLabel: String?
+        let outcome: SlotOutcome
+
+        var id: GenotypeManualHaplotypeDraft.SlotAddress { address }
+    }
+
     struct PendingSelectiveCopy: Equatable, Sendable {
         let sourceSample: String
         let addresses: Set<GenotypeManualHaplotypeDraft.SlotAddress>
@@ -85,6 +103,7 @@ final class GenotypeSampleComparisonModel: ObservableObject {
                 ManualHaplotypeAssignment
         ]
         let targetDraftRevision: UUID
+        let assignmentSummaries: [AssignmentSummary]
     }
 
     struct Summary: Equatable, Sendable {
@@ -365,25 +384,35 @@ final class GenotypeSampleComparisonModel: ObservableObject {
             sourceSample: selectedSource,
             addresses: addresses,
             sourceValues: sourceValues,
-            targetDraftRevision: targetDraftRevision
+            targetDraftRevision: targetDraftRevision,
+            assignmentSummaries:
+                assignmentChoices.compactMap { choice in
+                    guard addresses.contains(choice.address),
+                          let sourceLabel = choice.sourceLabel else {
+                        return nil
+                    }
+                    return AssignmentSummary(
+                        address: choice.address,
+                        sourceLabel: sourceLabel,
+                        targetLabel: choice.targetLabel,
+                        outcome: choice.outcome
+                    )
+                }
         )
+        let requiresConfirmation =
+            request.assignmentSummaries.contains { summary in
+                targetSlots[summary.address]?.isDirty == true
+                    || summary.outcome.requiresConfirmation
+            }
+        guard requiresConfirmation else {
+            stage(request)
+            return
+        }
         pendingSelectiveCopy = request
         pendingSource = selectedSource
         let count = addresses.count
-        let selectedSlots = addresses
-            .sorted {
-                let lhsLocus = GenotypeManualHaplotypeLocus.allCases
-                    .firstIndex(of: $0.locus) ?? 0
-                let rhsLocus = GenotypeManualHaplotypeLocus.allCases
-                    .firstIndex(of: $1.locus) ?? 0
-                if lhsLocus != rhsLocus {
-                    return lhsLocus < rhsLocus
-                }
-                return $0.slot == .h1 && $1.slot == .h2
-            }
-            .map {
-                "\($0.locus.workbookLabel) \($0.slot.displayName)"
-            }
+        let selectedSlots = request.assignmentSummaries
+            .map(Self.confirmationSummary)
             .joined(separator: ", ")
         confirmationText =
             "Stage \(count) selected assignment"
@@ -392,10 +421,12 @@ final class GenotypeSampleComparisonModel: ObservableObject {
     }
 
     func confirmStageSelected() {
-        guard let request = pendingSelectiveCopy,
-              let stageSelectedAssignments else {
-            return
-        }
+        guard let request = pendingSelectiveCopy else { return }
+        stage(request)
+    }
+
+    private func stage(_ request: PendingSelectiveCopy) {
+        guard let stageSelectedAssignments else { return }
         pendingSelectiveCopy = nil
         pendingSource = nil
         confirmationText = nil
@@ -403,20 +434,10 @@ final class GenotypeSampleComparisonModel: ObservableObject {
         selectedSlotAddresses = []
         rebuildAssignmentChoices()
 
-        let applied = result.applied.count
-        let skipped = result.skipped.count
-        if !result.skipped.isEmpty,
-           result.skipped.allSatisfy({
-               $0.reason == .targetChanged
-           }) {
-            stagedStatus =
-                "Assignments changed while confirmation was open. "
-                + "Review the current target choices and try again."
-        } else {
-            stagedStatus =
-                "\(applied) assignment\(applied == 1 ? "" : "s") staged, "
-                + "\(skipped) skipped from \(request.sourceSample)."
-        }
+        stagedStatus = Self.stagedStatus(
+            result: result,
+            sourceSample: request.sourceSample
+        )
     }
 
     func cancelStageSelected() {
@@ -576,8 +597,7 @@ final class GenotypeSampleComparisonModel: ObservableObject {
         guard let sourceLabel else {
             return .sameAssignment
         }
-        if target?.hasHiddenCompatibilityMetadata == true,
-           target?.label == nil {
+        if target?.blocksSelectiveCopy(sourceLabel: sourceLabel) == true {
             return .unavailableHiddenMetadata
         }
         guard let targetLabel = target?.label else {
@@ -586,9 +606,6 @@ final class GenotypeSampleComparisonModel: ObservableObject {
         if Self.normalizedLabel(sourceLabel)
             == Self.normalizedLabel(targetLabel) {
             return .sameAssignment
-        }
-        if target?.hasHiddenCompatibilityMetadata == true {
-            return .unavailableHiddenMetadata
         }
         return .replaces(targetLabel)
     }
@@ -765,6 +782,72 @@ final class GenotypeSampleComparisonModel: ObservableObject {
     ) -> String? {
         try? GenotypeManualHaplotypeAssignmentInputValidator
             .validatedLabel(assignment.label)
+    }
+
+    private static func confirmationSummary(
+        _ summary: AssignmentSummary
+    ) -> String {
+        let slot =
+            "\(summary.address.locus.workbookLabel) "
+            + summary.address.slot.displayName
+        switch summary.outcome {
+        case .fillsEmpty:
+            return "\(slot): “\(summary.sourceLabel)” fills the empty target"
+        case .replaces:
+            return "\(slot): “\(summary.sourceLabel)” replaces "
+                + "“\(summary.targetLabel ?? "unassigned")”"
+        case .sameAssignment:
+            return "\(slot): “\(summary.sourceLabel)” already matches "
+                + "“\(summary.targetLabel ?? "unassigned")”"
+        case .unavailableHiddenMetadata:
+            return "\(slot): “\(summary.sourceLabel)” is unavailable"
+        }
+    }
+
+    private static func stagedStatus(
+        result: GenotypeManualHaplotypeDraft.SelectiveCopyResult,
+        sourceSample: String
+    ) -> String {
+        let applied = result.applied.count
+        let appliedText =
+            "\(applied) assignment\(applied == 1 ? "" : "s") staged "
+            + "from \(sourceSample)."
+        guard !result.skipped.isEmpty else { return appliedText }
+
+        let skipped = result.skipped
+            .sorted {
+                GenotypeManualHaplotypeDraft.orderedSlotAddresses
+                    .firstIndex(of: $0.address) ?? 0
+                < GenotypeManualHaplotypeDraft.orderedSlotAddresses
+                    .firstIndex(of: $1.address) ?? 0
+            }
+            .map { skip in
+                let slot =
+                    "\(skip.address.locus.workbookLabel) "
+                    + skip.address.slot.displayName
+                return "\(slot): \(skipReasonDescription(skip.reason))"
+            }
+            .joined(separator: "; ")
+        return (applied == 0 ? "" : "\(appliedText) ")
+            + "Skipped \(skipped)."
+    }
+
+    private static func skipReasonDescription(
+        _ reason: GenotypeManualHaplotypeDraft.SelectiveCopySkipReason
+    ) -> String {
+        switch reason {
+        case .sourceMissing:
+            return "the source assignment is no longer available"
+        case .sourceChanged:
+            return "the source assignment changed while confirmation "
+                + "was open. Review it and try again"
+        case .targetChanged:
+            return "the target assignment changed while confirmation "
+                + "was open. Review it and try again"
+        case .hiddenMetadataRequiresSavedClear:
+            return "clear and save the existing assignment first because "
+                + "older notes cannot attach to a new label"
+        }
     }
 
     private static func candidateRecords(

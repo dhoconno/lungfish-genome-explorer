@@ -1125,10 +1125,69 @@ final class GenotypeManualHaplotypeDraftTests: XCTestCase {
                 label: "Edited",
                 colorTokenIndex: draft[.a, .h1]?.colorTokenIndex,
                 hasHiddenCompatibilityMetadata: true,
-                isDirty: true
+                isDirty: true,
+                hiddenCompatibilityLabels: ["Edited", "Existing"]
             )
         )
         XCTAssertEqual(draft.dirtySlotAddresses, [address])
+    }
+
+    func testSnapshotKeepsPersistedHiddenLabelProtectionAfterUnsavedRelabel() {
+        let target = assignment(
+            sample: "Target",
+            locus: .a,
+            slot: .h1,
+            label: "Old",
+            color: 1,
+            diagnosticAlleles: ["Mafa-A1*001:01"],
+            notes: "Older notes"
+        )
+        let source = assignment(
+            sample: "Source",
+            locus: .a,
+            slot: .h1,
+            label: "New",
+            color: 2
+        )
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: [target, source]
+        )
+        var draft = GenotypeManualHaplotypeDraft(
+            sample: "Target",
+            index: index
+        )
+        let address = GenotypeManualHaplotypeDraft.SlotAddress(
+            locus: .a,
+            slot: .h1
+        )
+        draft.setLabel("New", locus: .a, slot: .h1)
+
+        XCTAssertTrue(
+            draft.slotSnapshot(at: address)
+                .blocksSelectiveCopy(sourceLabel: "New")
+        )
+        let result = draft.copySelectedAssignments(
+            from: index.sampleAssignments(for: "Source"),
+            addresses: [address]
+        )
+        XCTAssertEqual(
+            result.skipped,
+            [
+                .init(
+                    address: address,
+                    reason: .hiddenMetadataRequiresSavedClear
+                ),
+            ]
+        )
+
+        let unchanged = GenotypeManualHaplotypeDraft(
+            sample: "Target",
+            index: index
+        )
+        XCTAssertFalse(
+            unchanged.slotSnapshot(at: address)
+                .blocksSelectiveCopy(sourceLabel: " old ")
+        )
     }
 
     private func assertSelectiveCopyBlockedByHiddenMetadata(
