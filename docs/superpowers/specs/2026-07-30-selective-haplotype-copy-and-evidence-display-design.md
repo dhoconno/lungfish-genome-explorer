@@ -54,6 +54,13 @@ The table has a fixed header and uses the available trailing-pane height. It
 continues to reflow to the existing compact row presentation at narrow widths
 and at larger content text sizes.
 
+The workbench supplies a finite available height to the virtualized list. The
+list is at least 280 points high when that space is available, prefers 360
+points, and never exceeds 480 points before using its own vertical scroller.
+When the compact workbench is shorter than 280 points, the list uses the
+remaining finite height with a 160-point minimum. Larger content text increases
+row height and therefore shows fewer simultaneous rows without clipping.
+
 ### Selective Compare & Copy
 
 Selecting a comparison sample continues to show its genotype evidence beside
@@ -72,6 +79,14 @@ Only populated source assignments are selectable. Nothing is selected when a
 source is first chosen. Empty source slots are shown as unassigned but cannot
 clear target values. Changing the comparison source clears the selection.
 
+A legacy target slot that contains hidden diagnostic metadata or notes cannot
+be replaced with a different label through Compare & Copy. It is shown as
+**Unavailable—clear the existing assignment first**, with an explanation that
+clearing is required to avoid attaching older hidden information to a different
+haplotype. Copying the same label remains available and preserves the target
+metadata. The disabled reason is included in the checkbox's accessibility
+description.
+
 A per-locus **Select assigned** control is available when that locus has at
 least one populated source slot. A pane-level **Select all assigned** control is
 available as a convenience, but is never the default.
@@ -83,8 +98,10 @@ The action button reads:
 It remains disabled when `N` is zero. Staging copies only the selected source
 labels and their established color tokens into the corresponding target slots.
 Every unselected target slot remains byte-for-byte unchanged. Existing hidden
-assignment metadata follows the current compatibility behavior; this feature
-does not create, merge, or infer diagnostic allele definitions.
+source metadata is never copied. An empty target receives no hidden metadata.
+An eligible populated target retains its existing metadata only when the source
+label represents the same normalized haplotype label. This feature does not
+create, merge, infer, or silently delete diagnostic allele definitions.
 
 Staging is still reversible and does not write the sidecar, update
 `current.xlsx`, or run the CLI. **Save Assignments** remains the only persistence
@@ -94,23 +111,39 @@ the affected locus/slot values. Cancelling leaves the draft unchanged.
 
 After staging, the editor reports how many assignments were staged and from
 which sample. The normal saved before/after assignment audit, author, timestamp,
-and source-sample context remain intact.
+and source-sample context remain intact. The draft reports one operation-wide
+copy source only when every staged copied slot came from the same source and no
+manual edit is mixed into that save. Staging from a second source or manually
+editing any assignment after staging clears the operation-wide copy source.
+The saved before/after values remain the authoritative audit record, and the
+audit never attributes manually edited or mixed-source slots to one sample.
 
 ### Removed export control
 
 The genotype-only editor no longer displays **Export All Haplotype
-Assignments…**. Removing the control does not delete stored assignments, legacy
-diagnostic metadata, audit events, provenance, or existing files that an
-analyst exported previously.
+Assignments…**. The genotype-only artifact-lens manual-haplotype section also
+removes its **Export Manual Definitions…** control and callback. Removing these
+two GUI entry points does not delete stored assignments, legacy diagnostic
+metadata, audit events, provenance, or existing files that an analyst exported
+previously.
 
 The older haplotyped-analysis UI is outside this scope and is not changed.
 
 ### Consistent read-support color
 
-In **Cell Color: Support** mode, every genotype cell that meets the active read
-and percent thresholds uses the same existing blue support scale. The rule no
-longer depends on whether the row is a named allele, extension, novel candidate,
-or provisional exon-2 sequence.
+In **Cell Color: Support** mode, every projected sample cell with positive read
+support uses the same blue support color. The rule no longer depends on whether
+the row is a named allele, extension, novel candidate, or provisional exon-2
+sequence.
+
+The derived matrix projection remains the scientific eligibility boundary. Its
+existing read and percentage filters continue to decide which rows and
+sample-support entries survive; this change does not reinterpret candidate
+population percentages as per-sample read percentages. Once a support entry
+survives that projection and has `passedUniqueReads > 0`, it receives a fixed
+blue support fill at the existing maximum support opacity. Fill intensity does
+not encode a percentage or denominator. A missing or zero-read support entry
+receives no automatic fill.
 
 Allele type remains visible in the allele-name column through its existing text,
 qualifier, and tint treatment. The support fill does not replace these cues.
@@ -123,10 +156,9 @@ Presentation precedence remains:
 4. ordinary row background.
 
 False-positive cells retain faded italic bracketed read counts, even when their
-underlying read support qualifies for the support fill. False negatives retain
-their no-read display and border. Comments, selection borders, and accessibility
-descriptions remain unchanged. Cells below the active thresholds do not receive
-the automatic support fill.
+projected positive read support qualifies for the support fill. False negatives
+retain their no-read display and border. Comments, selection borders, and
+accessibility descriptions remain unchanged.
 
 ### Immediate sample-column auto-fit after save
 
@@ -134,11 +166,16 @@ After a successful manual assignment save, the matrix remeasures only samples
 whose displayed assignment pairs changed.
 
 For each changed, visible sample while the haplotype band is expanded, the
-column minimum is the widest of:
+current column width is the widest of:
 
 - the sample name and retained-read header;
 - the analyst’s stored preferred width; and
 - all seven displayed `H1 · H2` assignment pairs.
+
+The enforced minimum width is the wider of the header and displayed assignment
+pairs; it does not include the stored preferred width. A genuine user drag may
+therefore narrow a previously wide preference down to that visible-content
+minimum and records the new preference.
 
 The table and scroll document complete their native layout before the pinned
 haplotype band reads the updated column geometry. The affected column therefore
@@ -156,7 +193,9 @@ semantic horizontal anchor so columns do not appear to jump during the update.
 
 `GenotypeSupportedAllelesSnapshot` remains the ordered value snapshot.
 `GenotypeSupportedAllelesVirtualizedList` becomes the sole row renderer used by
-the inline panel. The popover-only state and button wrapper are deleted.
+the inline panel. It gains a native fixed header and width-aware compact cell
+layout because those behaviors currently exist only in the preview. The
+popover-only state and button wrapper are deleted.
 
 The inline list receives stable rows, fonts, and a bounded height. Snapshot
 changes update the existing table/coordinator rather than remounting the
@@ -177,14 +216,27 @@ adds a value-semantic operation that copies a provided set of locus/slot
 addresses from one source snapshot. The controller continues to provide source
 assignments and connects the staged operation to the existing draft.
 
+The comparison model receives the current target slot snapshot and draft
+revision whenever the editor changes. Fill/replace/same/unavailable outcomes
+therefore update while Compare & Copy remains open.
+
 Selection state is presentation-only. It is discarded when the source changes,
 the workbench changes target samples, the bundle changes, or staging completes.
+A source refresh API replaces candidate snapshots and clears a selected source
+that no longer exists.
+
+Requesting confirmation captures the source sample, selected slot addresses,
+source assignment values, and target draft revision as one immutable pending
+request. Source and checkbox controls are disabled while it is pending. Confirm
+revalidates the request against the live source snapshot and target draft.
+Staging returns applied and skipped slot addresses so disappeared or newly
+ineligible values are reported without clearing targets.
 
 ### Support-color rule
 
 The automatic support background remains centralized in
-`GenotypeComparisonMatrixView`. One eligibility function decides whether a
-sample cell has threshold-qualified support, independent of row population.
+`GenotypeComparisonMatrixView`. One eligibility function decides whether the
+projected sample cell has positive read support, independent of row population.
 Manual style, review, and selection layers continue to use their existing
 rendering paths.
 
@@ -210,6 +262,9 @@ manual-band frames and headers are refreshed.
   relying on color.
 - At 200% content text, labels wrap or reflow; controls do not clip and the
   workbench does not remount or lose its draft.
+- Read-only bundles may open and navigate Compare & Copy. Source selection and
+  evidence remain available, while every Stage and Save action is disabled and
+  announced as read-only.
 
 ## Performance requirements
 
@@ -232,6 +287,9 @@ manual-band frames and headers are refreshed.
   slot selection without changing the draft.
 - A selected source assignment that disappears before staging is skipped and
   reported; no target slot is cleared.
+- A legacy target containing hidden diagnostic metadata or notes is unavailable
+  for a different-label replacement until the analyst explicitly clears and
+  saves that assignment.
 - Read-only bundles show the evidence and comparison but keep staging and save
   actions disabled.
 - Legacy assignments and unrecognized loci continue to round-trip under the
@@ -243,11 +301,14 @@ manual-band frames and headers are refreshed.
 
 Selective staging itself is not persisted. Saving uses the existing atomic
 annotation-sidecar transaction and audit event containing author, timestamp,
-source context, and before/after assignment values. Workbook dirty tracking and
-the subsequent audited `current.xlsx` update remain unchanged.
+and before/after assignment values. The existing single source field is written
+only for a clean, single-source copied draft; it is omitted for manual or
+mixed-source edits so the audit never makes a false attribution. Workbook dirty
+tracking and the subsequent audited `current.xlsx` update remain unchanged.
 
-Removing the export button eliminates that GUI export entry point; it does not
-weaken provenance for any remaining scientific command or workflow.
+Removing the two genotype-only export controls eliminates those GUI export
+entry points; it does not weaken provenance for any remaining scientific
+command or workflow.
 
 ## Verification
 
@@ -261,18 +322,31 @@ Automated coverage must include:
 4. default-zero selection and disabled stage action;
 5. selected-slot staging that leaves all unselected and blank-source target
    slots unchanged;
-6. narrowed dirty-draft confirmation and cancellation with no draft mutation;
-7. no writes, CLI calls, or workbook dirtying before Save;
-8. audited persistence after Save for ONT and miSeq genotype-only fixtures;
-9. unchanged ineligibility and presentation for haplotyped fixtures;
-10. equal support fill for threshold-qualified named, extension, novel, and
-    provisional exon-2 cells;
-11. no automatic fill below thresholds, plus unchanged manual-fill,
+6. a different-label replacement blocked when the target contains legacy
+   diagnostic-only metadata, notes-only metadata, or both, with same-label
+   preservation, empty-target eligibility, and no copied source metadata;
+7. live chooser outcomes after manual draft changes, plus an immutable pending
+   confirmation and revalidation when source assignments change;
+8. accurate single-source audit context and omitted source attribution for
+   mixed-source or manually mixed drafts;
+9. narrowed dirty-draft confirmation and cancellation with no draft mutation;
+10. no writes, CLI calls, or workbook dirtying before Save;
+11. audited persistence after Save for ONT and miSeq genotype-only fixtures;
+12. unchanged ineligibility and presentation for haplotyped fixtures;
+13. equal fixed support fill for projected positive-read named, extension,
+    novel, and provisional exon-2 cells;
+14. no automatic fill for missing/zero support, no candidate population
+    percentage used as cell intensity, plus unchanged manual-fill,
     false-positive, false-negative, comment, and selection precedence;
-12. immediate expanded-band widening after saving a maximum-length label,
+15. removal of both genotype-only export controls while the legacy haplotyped
+    presentation remains unchanged;
+16. read-only comparison browsing with disabled Stage and Save actions;
+17. immediate expanded-band widening after saving a maximum-length label,
     without a resize callback;
-13. unchanged user-preferred width, only one sample remeasured, correct collapse
-    restoration, and preserved horizontal anchor; and
-14. focused responsiveness/performance checks for large allele lists,
+18. unchanged user-preferred width during automatic sizing, user-driven
+    preference reduction down to the visible-content minimum, only one sample
+    remeasured, correct collapse restoration, and preserved horizontal anchor;
+19. a fixed-header, compact-reflow virtualized list within the specified
+    160/280/360/480-point height rules; and
+20. focused responsiveness/performance checks for large allele lists,
     comparison selection, support-color drawing, and post-save auto-fit.
-
