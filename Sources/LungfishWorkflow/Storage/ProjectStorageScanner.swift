@@ -513,21 +513,12 @@ public struct ProjectStorageScanner {
                 exactOwnedPattern: false
             )
         }
-        let stagingPrefixPattern =
-            #"^\..+\.lungfishgenotype\.run-staging-"#
-        if name.range(
-            of: stagingPrefixPattern,
-            options: .regularExpression
-        ) != nil {
-            let exactPattern =
-                #"^\..+\.lungfishgenotype\.run-staging-[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$"#
+        if name.contains(".lungfishgenotype.run-staging-") {
             return Candidate(
                 url: url,
                 category: .workflowStaging,
-                exactOwnedPattern: name.range(
-                    of: exactPattern,
-                    options: .regularExpression
-                ) != nil
+                exactOwnedPattern:
+                    ProjectStorageLegacyWorkflowAuthority.parse(name) != nil
             )
         }
         guard name.hasPrefix(".") else { return nil }
@@ -535,15 +526,17 @@ public struct ProjectStorageScanner {
             ".cohort-alignment-work",
             ".candidate-artifact-work",
         ] where name.hasSuffix(suffix) {
-            let exactPattern =
-                #"^\..+\.lungfishgenotype\#(suffix)$"#
+            let markerOwnedPattern =
+                #"^\..+\.lungfishgenotype\.(?:cohort-alignment-work|candidate-artifact-work)$"#
             return Candidate(
                 url: url,
                 category: .workflowStaging,
-                exactOwnedPattern: name.range(
-                    of: exactPattern,
-                    options: .regularExpression
-                ) != nil
+                exactOwnedPattern:
+                    ProjectStorageLegacyWorkflowAuthority.parse(name) != nil
+                    || name.range(
+                        of: markerOwnedPattern,
+                        options: .regularExpression
+                    ) != nil
             )
         }
         return nil
@@ -577,11 +570,7 @@ public struct ProjectStorageScanner {
                 expectedProjectURL: projectURL
             )
         } catch OwnedWorkDirectoryMarkerError.missingMarker {
-            return .notRemovable(
-                .missingOwnershipMarker,
-                reason:
-                    "The owned work-directory marker is missing."
-            )
+            return classifyLegacyMarkerlessWork(url)
         } catch {
             return .notRemovable(
                 .invalidOwnershipMarker,
@@ -719,6 +708,55 @@ public struct ProjectStorageScanner {
                 "The creating process is conclusively dead, the lock is "
                 + "unlocked, and no live operation history remains."
         )
+    }
+
+    private func classifyLegacyMarkerlessWork(
+        _ url: URL
+    ) -> ProjectStorageClassification {
+        guard let authority =
+                ProjectStorageLegacyWorkflowAuthority.parse(
+                    url.lastPathComponent
+                ) else {
+            return .notRemovable(
+                .missingOwnershipMarker,
+                reason:
+                    "The owned work-directory marker is missing and the "
+                    + "folder is not an exact legacy Lungfish pattern."
+            )
+        }
+        let lockURL = authority.runLockURL(for: url)
+        do {
+            switch try lockProbe(lockURL) {
+            case .held:
+                return .notRemovable(
+                    .heldLock,
+                    reason: "The matching workflow lock is held."
+                )
+            case .missing:
+                return .notRemovable(
+                    .unsafeLock,
+                    reason:
+                        "The legacy folder has no matching workflow lock, "
+                        + "so it cannot be safely identified."
+                )
+            case .unlocked:
+                return .reviewRequired(
+                    .legacyUnverifiedOwnedWork,
+                    reason:
+                        "This is an older Lungfish workflow folder created "
+                        + "before ownership markers were added. Its matching "
+                        + "workflow lock is not active. Review it before "
+                        + "moving it to Trash."
+                )
+            }
+        } catch {
+            return .notRemovable(
+                .unsafeLock,
+                reason:
+                    "The matching workflow lock could not be checked: "
+                    + error.localizedDescription
+            )
+        }
     }
 
     private func operationHistoryClaimsLiveWork(

@@ -374,6 +374,57 @@ final class ProjectStorageCleanupExecutorTests: XCTestCase {
         )
     }
 
+    func testProductionCleanupCanMoveSelectedLegacyMarkerlessStaging()
+        async throws
+    {
+        let runID = UUID()
+        let name =
+            ".legacy.lungfishgenotype.run-staging-\(runID.uuidString)"
+        let legacy = project.appendingPathComponent(name, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: legacy,
+            withIntermediateDirectories: false
+        )
+        try Data("legacy payload".utf8).write(
+            to: legacy.appendingPathComponent("payload.txt")
+        )
+        let lockURL = project.appendingPathComponent(
+            ".legacy.lungfishgenotype.full-length-ont-mhc-run.lock"
+        )
+        let initialLock = try OwnedRunLock.acquire(at: lockURL)
+        initialLock.release()
+
+        let entry = try XCTUnwrap(
+            ProjectStorageScanner().scan(projectURL: project)
+                .entries.first { $0.relativePath == name }
+        )
+        XCTAssertEqual(entry.classification.disposition, .reviewRequired)
+        let prepared = try prepareCleanup(entries: [entry])
+        let executor = ProjectStorageCleanupExecutor(
+            operations: .init(
+                cancellationCheck: {},
+                trashItem: { quarantine in
+                    let destination = self.fakeTrash.appendingPathComponent(
+                        quarantine.lastPathComponent
+                    )
+                    try FileManager.default.moveItem(
+                        at: quarantine,
+                        to: destination
+                    )
+                    return destination
+                }
+            ),
+            usesProductionAssociatedLocks: true
+        )
+
+        let result = try await executor.execute(
+            executionRequest(cleanupID: prepared.journal.cleanupID)
+        )
+
+        XCTAssertEqual(result.summary.items.singleValue?.state, .movedToTrash)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacy.path))
+    }
+
     func testMissingOrTamperedPreparationAuthorityNeverMutatesSource()
         async throws
     {

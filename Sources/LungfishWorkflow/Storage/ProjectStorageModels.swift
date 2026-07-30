@@ -5,6 +5,7 @@ import LungfishIO
 public struct ProjectStorageClassification: Codable, Equatable, Sendable {
     public enum Disposition: String, Codable, Equatable, Sendable {
         case removable
+        case reviewRequired
         case notRemovable
     }
 
@@ -12,6 +13,7 @@ public struct ProjectStorageClassification: Codable, Equatable, Sendable {
         case completedOwnedWork
         case conclusivelyOrphanedOwnedWork
         case retainedWorkbookRevision
+        case legacyUnverifiedOwnedWork
         case missingOwnershipMarker
         case invalidOwnershipMarker
         case explicitlyRetained
@@ -32,7 +34,11 @@ public struct ProjectStorageClassification: Codable, Equatable, Sendable {
     public let code: Code
     public let reason: String
 
-    public var isRemovable: Bool { disposition == .removable }
+    /// Whether the user may explicitly include this entry in a cleanup.
+    public var isRemovable: Bool { disposition != .notRemovable }
+
+    /// Whether a fresh storage scan should select the entry automatically.
+    public var isSelectedByDefault: Bool { disposition == .removable }
 
     public static func removable(
         _ code: Code,
@@ -51,6 +57,17 @@ public struct ProjectStorageClassification: Codable, Equatable, Sendable {
     ) -> Self {
         Self(
             disposition: .notRemovable,
+            code: code,
+            reason: reason
+        )
+    }
+
+    public static func reviewRequired(
+        _ code: Code,
+        reason: String
+    ) -> Self {
+        Self(
+            disposition: .reviewRequired,
             code: code,
             reason: reason
         )
@@ -166,7 +183,8 @@ public struct ProjectStorageScanResult: Equatable, Sendable {
         keyPath: KeyPath<ProjectStorageEntry, UInt64>
     ) -> UInt64 {
         var total: UInt64 = 0
-        for entry in entries where entry.classification.isRemovable {
+        for entry in entries
+        where entry.classification.isSelectedByDefault {
             let (sum, overflow) = total.addingReportingOverflow(
                 entry[keyPath: keyPath]
             )

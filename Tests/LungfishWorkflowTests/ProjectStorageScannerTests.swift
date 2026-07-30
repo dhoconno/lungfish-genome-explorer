@@ -1,4 +1,5 @@
 import Darwin
+import CryptoKit
 import Foundation
 import LungfishIO
 import XCTest
@@ -143,6 +144,52 @@ final class ProjectStorageScannerTests: XCTestCase {
             result.entries.contains {
                 $0.relativePath.contains("lungfish-operation-history")
                     || $0.relativePath.contains("live.lungfishgenotype/")
+            }
+        )
+    }
+
+    func testLegacyMarkerlessStagingIsAvailableOnlyForManualReviewWhenUnlocked()
+        throws
+    {
+        let runID = UUID().uuidString
+        let rootName =
+            ".legacy.lungfishgenotype.run-staging-\(runID)"
+        let associatedName = ".\(rootName).cohort-alignment-work"
+        for name in [rootName, associatedName] {
+            try FileManager.default.createDirectory(
+                at: project.appendingPathComponent(name, isDirectory: true),
+                withIntermediateDirectories: true
+            )
+        }
+
+        let unlocked = try ProjectStorageScanner(
+            lockProbe: { url in
+                XCTAssertEqual(
+                    url.lastPathComponent,
+                    ".legacy.lungfishgenotype.full-length-ont-mhc-run.lock"
+                )
+                return .unlocked
+            }
+        ).scan(projectURL: project)
+
+        XCTAssertEqual(unlocked.entries.count, 2)
+        for entry in unlocked.entries {
+            XCTAssertEqual(entry.classification.disposition, .reviewRequired)
+            XCTAssertEqual(
+                entry.classification.code,
+                .legacyUnverifiedOwnedWork
+            )
+            XCTAssertTrue(entry.classification.isRemovable)
+            XCTAssertFalse(entry.classification.isSelectedByDefault)
+        }
+
+        let held = try ProjectStorageScanner(
+            lockProbe: { _ in .held }
+        ).scan(projectURL: project)
+        XCTAssertTrue(
+            held.entries.allSatisfy {
+                $0.classification.code == .heldLock
+                    && !$0.classification.isRemovable
             }
         )
     }
@@ -766,6 +813,8 @@ final class ProjectStorageScannerTests: XCTestCase {
     func testLegacyArchiveRequiresOneNestedBundleAndOneLiveRevisionMatch()
         throws
     {
+        let bytes = Data("retired-workbook".utf8)
+        let checksum = sha256(bytes)
         let transactionID = legacyTransactionID()
         let archive = project.appendingPathComponent(
             ".lungfish-workbook-generation-archive-"
@@ -780,8 +829,8 @@ final class ProjectStorageScannerTests: XCTestCase {
             archivedBundle,
             currentPath: "artifacts/workbooks/current.xlsx",
             revisionPath: "artifacts/workbooks/current.xlsx",
-            bytes: Data("retired-workbook".utf8),
-            checksum: String(repeating: "a", count: 64)
+            bytes: bytes,
+            checksum: checksum
         )
         let liveBundle = project.appendingPathComponent(
             "sample.lungfishgenotype",
@@ -791,8 +840,8 @@ final class ProjectStorageScannerTests: XCTestCase {
             liveBundle,
             currentPath: "artifacts/workbooks/current.xlsx",
             revisionPath: "artifacts/workbooks/revisions/retired.xlsx",
-            bytes: Data("retired-workbook".utf8),
-            checksum: String(repeating: "a", count: 64)
+            bytes: bytes,
+            checksum: checksum
         )
 
         let classification =
@@ -804,10 +853,124 @@ final class ProjectStorageScannerTests: XCTestCase {
         XCTAssertTrue(classification.isRemovable, classification.reason)
     }
 
+    func testLegacyArchiveUsesLatestRepeatedCurrentWorkbookDescriptor()
+        throws
+    {
+        let transactionID = legacyTransactionID()
+        let bytes = Data("latest-retired-workbook".utf8)
+        let checksum = sha256(bytes)
+        let archive = project.appendingPathComponent(
+            ".lungfish-workbook-generation-archive-\(transactionID)",
+            isDirectory: true
+        )
+        let archivedBundle = archive.appendingPathComponent(
+            "repeated-current.lungfishgenotype",
+            isDirectory: true
+        )
+        let currentPath = "artifacts/workbooks/current.xlsx"
+        try writeBundle(
+            archivedBundle,
+            currentPath: currentPath,
+            revisionPath: currentPath,
+            bytes: bytes,
+            checksum: checksum
+        )
+        let manifestURL = archivedBundle.appendingPathComponent(
+            ONTGenotypeResultBundleManifest.filename
+        )
+        let manifest = try JSONDecoder().decode(
+            ONTGenotypeResultBundleManifest.self,
+            from: Data(contentsOf: manifestURL)
+        )
+        let latest = try XCTUnwrap(manifest.workbookRevisions?.last)
+        let stale = ONTGenotypeWorkbookRevision(
+            id: UUID().uuidString,
+            role: .externalEditSnapshot,
+            path: currentPath,
+            label: "Older current workbook",
+            createdAt: "2026-07-26T00:00:00Z",
+            sha256: String(repeating: "8", count: 64),
+            sizeBytes: latest.sizeBytes + 1
+        )
+        try JSONEncoder().encode(
+            manifest.replacingWorkbookFields(
+                currentWorkbookPath: currentPath,
+                workbookRevisions: [stale, latest]
+            )
+        ).write(to: manifestURL)
+
+        try writeBundle(
+            project.appendingPathComponent(
+                "repeated-current.lungfishgenotype",
+                isDirectory: true
+            ),
+            currentPath: currentPath,
+            revisionPath: "artifacts/workbooks/revisions/retired.xlsx",
+            bytes: bytes,
+            checksum: checksum
+        )
+
+        let classification =
+            try ProjectStorageLegacyWorkbookClassifier().classify(
+                archiveURL: archive,
+                projectURL: project
+            )
+
+        XCTAssertTrue(classification.isRemovable, classification.reason)
+    }
+
+    func testLegacyArchiveRejectsSameSizeWorkbookContentTampering()
+        throws
+    {
+        let transactionID = legacyTransactionID()
+        let original = Data("retired-workbook-A".utf8)
+        let replacement = Data("retired-workbook-B".utf8)
+        XCTAssertEqual(original.count, replacement.count)
+        let checksum = sha256(original)
+        let archive = project.appendingPathComponent(
+            ".lungfish-workbook-generation-archive-\(transactionID)",
+            isDirectory: true
+        )
+        let archivedBundle = archive.appendingPathComponent(
+            "same-size-tamper.lungfishgenotype",
+            isDirectory: true
+        )
+        try writeBundle(
+            archivedBundle,
+            currentPath: "artifacts/workbooks/current.xlsx",
+            revisionPath: "artifacts/workbooks/current.xlsx",
+            bytes: original,
+            checksum: checksum
+        )
+        try replacement.write(
+            to: archivedBundle.appendingPathComponent(
+                "artifacts/workbooks/current.xlsx"
+            )
+        )
+        try writeBundle(
+            project.appendingPathComponent(
+                "same-size-tamper.lungfishgenotype",
+                isDirectory: true
+            ),
+            currentPath: "artifacts/workbooks/current.xlsx",
+            revisionPath: "artifacts/workbooks/revisions/retired.xlsx",
+            bytes: original,
+            checksum: checksum
+        )
+
+        let classification =
+            try ProjectStorageLegacyWorkbookClassifier().classify(
+                archiveURL: archive,
+                projectURL: project
+            )
+
+        XCTAssertFalse(classification.isRemovable)
+        XCTAssertEqual(classification.code, .ambiguousWorkbookArchive)
+    }
+
     func testLegacyArchiveFailsClosedForMissingDuplicatePreparedAndTamperedContent()
         throws
     {
-        let checksum = String(repeating: "b", count: 64)
         func makeArchive(_ name: String, bytes: Data) throws -> URL {
             let archive = project.appendingPathComponent(
                 ".lungfish-workbook-generation-archive-"
@@ -822,7 +985,7 @@ final class ProjectStorageScannerTests: XCTestCase {
                 currentPath: "artifacts/workbooks/current.xlsx",
                 revisionPath: "artifacts/workbooks/current.xlsx",
                 bytes: bytes,
-                checksum: checksum
+                checksum: sha256(bytes)
             )
             return archive
         }
@@ -840,7 +1003,7 @@ final class ProjectStorageScannerTests: XCTestCase {
                 currentPath: "artifacts/workbooks/current.xlsx",
                 revisionPath: "artifacts/workbooks/revisions/old.xlsx",
                 bytes: Data("duplicate".utf8),
-                checksum: checksum
+                checksum: sha256(Data("duplicate".utf8))
             )
         }
         let tampered = try makeArchive(
@@ -855,7 +1018,7 @@ final class ProjectStorageScannerTests: XCTestCase {
             currentPath: "artifacts/workbooks/current.xlsx",
             revisionPath: "artifacts/workbooks/revisions/old.xlsx",
             bytes: Data("original".utf8),
-            checksum: checksum
+            checksum: sha256(Data("original".utf8))
         )
         try Data("different-size-content".utf8).write(
             to: tampered
@@ -877,7 +1040,7 @@ final class ProjectStorageScannerTests: XCTestCase {
             currentPath: "artifacts/workbooks/current.xlsx",
             revisionPath: "artifacts/workbooks/revisions/old.xlsx",
             bytes: Data("old-live".utf8),
-            checksum: String(repeating: "c", count: 64)
+            checksum: sha256(Data("old-live".utf8))
         )
 
         let classifier = ProjectStorageLegacyWorkbookClassifier()
@@ -1119,8 +1282,8 @@ final class ProjectStorageScannerTests: XCTestCase {
             transaction: workbookTransaction(
                 transactionID: acceptedID,
                 liveBundle: acceptedPair.liveBundle,
-                workbookChecksum: String(repeating: "f", count: 64),
-                workbookSize: Int64(Data("retired-workbook".utf8).count)
+                workbookChecksum: sha256(legacyWorkbookBytes("manual-save")),
+                workbookSize: Int64(legacyWorkbookBytes("manual-save").count)
             ),
             liveBundle: acceptedPair.liveBundle,
             action: "manual-save-winner-restored"
@@ -1144,8 +1307,12 @@ final class ProjectStorageScannerTests: XCTestCase {
             transaction: workbookTransaction(
                 transactionID: legacyTransactionID(),
                 liveBundle: rejectedPair.liveBundle,
-                workbookChecksum: String(repeating: "1", count: 64),
-                workbookSize: Int64(Data("retired-workbook".utf8).count)
+                workbookChecksum: sha256(
+                    legacyWorkbookBytes("receipt-mismatch")
+                ),
+                workbookSize: Int64(
+                    legacyWorkbookBytes("receipt-mismatch").count
+                )
             ),
             liveBundle: rejectedPair.liveBundle,
             action: "committed"
@@ -1169,8 +1336,12 @@ final class ProjectStorageScannerTests: XCTestCase {
             transaction: workbookTransaction(
                 transactionID: reverseID,
                 liveBundle: reversePair.liveBundle,
-                workbookChecksum: String(repeating: "3", count: 64),
-                workbookSize: Int64(Data("retired-workbook".utf8).count)
+                workbookChecksum: sha256(
+                    legacyWorkbookBytes("receipt-reverse-mismatch")
+                ),
+                workbookSize: Int64(
+                    legacyWorkbookBytes("receipt-reverse-mismatch").count
+                )
             ),
             liveBundle: reversePair.liveBundle,
             action: "committed"
@@ -1265,12 +1436,23 @@ final class ProjectStorageScannerTests: XCTestCase {
             ).prefix(8)
     }
 
+    private func sha256(_ data: Data) -> String {
+        SHA256.hash(data: data)
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
+    private func legacyWorkbookBytes(_ stem: String) -> Data {
+        Data("retired-workbook-\(stem)".utf8)
+    }
+
     private func makeValidLegacyPair(
         transactionID: String,
         stem: String,
-        checksum: String
+        checksum _: String
     ) throws -> (archive: URL, liveBundle: URL) {
-        let bytes = Data("retired-workbook".utf8)
+        let bytes = legacyWorkbookBytes(stem)
+        let checksum = sha256(bytes)
         let archive = project.appendingPathComponent(
             ".lungfish-workbook-generation-archive-\(transactionID)",
             isDirectory: true

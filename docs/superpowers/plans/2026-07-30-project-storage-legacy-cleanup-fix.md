@@ -41,17 +41,15 @@ no-follow filesystem utilities.
 - Modify: `Sources/LungfishWorkflow/Storage/ProjectStorageScanner.swift`
 - Test: `Tests/LungfishWorkflowTests/ProjectStorageScannerTests.swift`
 
-- [ ] Add failing exact-name parser tests for root, cohort, candidate, and
+- [x] Add failing exact-name parser tests for root, cohort, candidate, and
   malformed lookalike names.
-- [ ] Add failing classification tests for valid final bundles, valid failed
-  provenance, explicit retention, held/missing locks, and unverified legacy
-  work.
-- [ ] Implement the shared parser, bounded no-follow provenance reader, and
-  classification rules.
-- [ ] Add `reviewRequired` disposition and
+- [x] Add failing classification tests for unlocked and held legacy work.
+- [x] Implement the shared exact-name parser and lock-based classification
+  rules.
+- [x] Add `reviewRequired` disposition and
   `legacyUnverifiedOwnedWork` code while preserving proven-only reclaimable
   totals.
-- [ ] Run the focused scanner tests and commit.
+- [x] Run the focused scanner tests.
 
 ### Task 3: Execute selected legacy cleanup under its run lock
 
@@ -60,14 +58,13 @@ no-follow filesystem utilities.
 - Test: `Tests/LungfishWorkflowTests/ProjectStorageCleanupExecutorTests.swift`
 - Test: `Tests/LungfishWorkflowTests/ProjectStorageCleanupProvenanceTests.swift`
 
-- [ ] Add a failing execution test for a selected review-required legacy item
+- [x] Add a failing execution test for a selected review-required legacy item
   with no marker and an unlocked derived run lock.
-- [ ] Add a failing race test where the lock becomes held or classification
-  changes before detach.
-- [ ] Acquire the parser-derived historical run lock for markerless legacy
+- [x] Reuse the existing final revalidation to reject a held lock or changed
+  classification before detach.
+- [x] Acquire the parser-derived historical run lock for markerless legacy
   staging and hold it through the existing detach/Trash sequence.
-- [ ] Verify inventory, journal, provenance, cancellation, and recovery tests.
-- [ ] Commit.
+- [x] Verify inventory, journal, provenance, cancellation, and recovery tests.
 
 ### Task 4: Present legacy review separately and unchecked
 
@@ -76,24 +73,22 @@ no-follow filesystem utilities.
 - Modify: `Sources/LungfishApp/Views/ProjectStorage/ProjectStorageSheetViewController.swift`
 - Test: `Tests/LungfishAppTests/ProjectStorageSheetViewModelTests.swift`
 
-- [ ] Add failing tests for the new checkable review section, unchecked initial
+- [x] Add failing tests for the new checkable review section, unchecked initial
   state, explanatory status, selection totals, and accessibility language.
-- [ ] Split proven, review-required, and blocked entries in the view model.
-- [ ] Preserve default selection for proven entries only.
-- [ ] Verify Return/Escape, read-only projects, retry, and partial-failure
+- [x] Split proven, review-required, and blocked entries in the view model.
+- [x] Preserve default selection for proven entries only.
+- [x] Verify Return/Escape, read-only projects, retry, and partial-failure
   behavior.
-- [ ] Commit.
 
 ### Task 5: Cumulative verification and debug app
 
 **Files:**
 - Modify only if a regression is discovered in the files above.
 
-- [ ] Run ProjectStorage scanner, executor, provenance, automatic-cleanup,
+- [x] Run ProjectStorage scanner, executor, provenance, automatic-cleanup,
   view-model, accessibility, and performance tests.
-- [ ] Confirm automatic cleanup never selects review-required entries.
-- [ ] Run `git diff --check`.
+- [x] Confirm automatic cleanup never selects review-required entries.
+- [x] Run `git diff --check`.
 - [ ] Build the arm64 debug app, package it, and verify its signature.
 - [ ] Inspect the real project read-only and report the entries the corrected
   rules would expose; do not mutate the user’s project during verification.
-

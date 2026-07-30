@@ -1,4 +1,5 @@
 import Darwin
+import CryptoKit
 import Foundation
 import LungfishIO
 
@@ -95,27 +96,27 @@ public struct ProjectStorageLegacyWorkbookClassifier {
                   Self.isSafeRelativePath(archivedCurrentPath),
                   let archivedRevisions =
                     archivedManifest.workbookRevisions,
-                  archivedRevisions.count(where: {
-                    $0.path == archivedCurrentPath
-                  }) == 1,
-                  let archivedRevision = archivedRevisions.first(
+                  let archivedRevision = archivedRevisions.last(
                     where: { $0.path == archivedCurrentPath }
                   ),
                   archivedRevision.sizeBytes >= 0,
                   Self.isDigest(archivedRevision.sha256) else {
                 return blocked(
-                    "The archived current workbook has no unique, valid "
+                    "The archived current workbook has no valid latest "
                         + "manifest descriptor."
                 )
             }
             let archivedWorkbook = archivedBundle.appendingPathComponent(
                 archivedCurrentPath
             )
-            guard try regularFileSizeNoFollow(archivedWorkbook)
-                    == archivedRevision.sizeBytes else {
+            guard try regularFileMatchesDescriptorNoFollow(
+                archivedWorkbook,
+                sizeBytes: archivedRevision.sizeBytes,
+                sha256: archivedRevision.sha256
+            ) else {
                 return blocked(
                     "The archived current workbook content does not match "
-                        + "its descriptor size."
+                        + "its descriptor."
                 )
             }
 
@@ -150,9 +151,11 @@ public struct ProjectStorageLegacyWorkbookClassifier {
                     let revisionURL = liveBundle.appendingPathComponent(
                         revision.path
                     )
-                    if let actualSize =
-                        try? regularFileSizeNoFollow(revisionURL),
-                       actualSize == revision.sizeBytes {
+                    if (try? regularFileMatchesDescriptorNoFollow(
+                        revisionURL,
+                        sizeBytes: revision.sizeBytes,
+                        sha256: revision.sha256
+                    )) == true {
                         matchCount += 1
                         if matchCount == 1 {
                             matchedLiveBundle = liveBundle
@@ -351,6 +354,70 @@ public struct ProjectStorageLegacyWorkbookClassifier {
             throw CocoaError(.fileReadUnsupportedScheme)
         }
         return information.st_size
+    }
+
+    private func regularFileMatchesDescriptorNoFollow(
+        _ url: URL,
+        sizeBytes: Int64,
+        sha256: String
+    ) throws -> Bool {
+        guard sizeBytes >= 0, Self.isDigest(sha256) else {
+            return false
+        }
+        let parentDescriptor = try NoFollowFileSystem
+            .openDirectoryHierarchy(
+                url.standardizedFileURL.deletingLastPathComponent()
+            )
+        defer { Darwin.close(parentDescriptor) }
+        let descriptor = url.lastPathComponent.withCString {
+            Darwin.openat(
+                parentDescriptor,
+                $0,
+                O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC
+            )
+        }
+        guard descriptor >= 0 else {
+            throw POSIXError(.init(rawValue: errno) ?? .EIO)
+        }
+        defer { Darwin.close(descriptor) }
+        var before = stat()
+        guard Darwin.fstat(descriptor, &before) == 0,
+              before.st_mode & S_IFMT == S_IFREG,
+              before.st_size == sizeBytes else {
+            throw CocoaError(.fileReadUnsupportedScheme)
+        }
+        var hasher = SHA256()
+        var total: Int64 = 0
+        var buffer = [UInt8](repeating: 0, count: 64 * 1_024)
+        while true {
+            try cancellationCheck()
+            let count = Darwin.read(descriptor, &buffer, buffer.count)
+            if count == 0 { break }
+            guard count > 0 else {
+                if errno == EINTR { continue }
+                throw POSIXError(.init(rawValue: errno) ?? .EIO)
+            }
+            let (next, overflow) = total.addingReportingOverflow(
+                Int64(count)
+            )
+            guard !overflow, next <= sizeBytes else {
+                return false
+            }
+            total = next
+            hasher.update(data: Data(buffer.prefix(count)))
+        }
+        var after = stat()
+        guard Darwin.fstat(descriptor, &after) == 0,
+              before.st_dev == after.st_dev,
+              before.st_ino == after.st_ino,
+              before.st_size == after.st_size,
+              total == sizeBytes else {
+            return false
+        }
+        let actual = hasher.finalize()
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return actual.caseInsensitiveCompare(sha256) == .orderedSame
     }
 
     private static func transactionID(

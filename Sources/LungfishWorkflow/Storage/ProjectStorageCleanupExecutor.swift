@@ -2292,16 +2292,31 @@ public struct ProjectStorageCleanupExecutor: Sendable {
             )
             switch item.sourceCategory {
             case .workflowStaging:
-                let marker = try OwnedWorkDirectoryMarkerStore.load(
-                    from: source,
-                    expectedProjectURL: authority.project
-                )
-                guard let relative = marker.lockRelativePath else {
-                    throw OwnedRunLockError.unsafeLockFile(
-                        "No run lock is recorded for \(item.sourceRelativePath)"
+                let lock: URL
+                do {
+                    let marker = try OwnedWorkDirectoryMarkerStore.load(
+                        from: source,
+                        expectedProjectURL: authority.project
                     )
+                    guard let relative = marker.lockRelativePath else {
+                        throw OwnedRunLockError.unsafeLockFile(
+                            "No run lock is recorded for "
+                                + item.sourceRelativePath
+                        )
+                    }
+                    lock = authority.project.appendingPathComponent(relative)
+                } catch OwnedWorkDirectoryMarkerError.missingMarker {
+                    guard let legacy =
+                            ProjectStorageLegacyWorkflowAuthority.parse(
+                                source.lastPathComponent
+                            ) else {
+                        throw OwnedRunLockError.unsafeLockFile(
+                            "The markerless folder is not an exact legacy "
+                                + "Lungfish workflow path."
+                        )
+                    }
+                    lock = legacy.runLockURL(for: source)
                 }
-                let lock = authority.project.appendingPathComponent(relative)
                 targetsByPath[lock.standardizedFileURL.path] = .run(lock)
             case .temporary:
                 _ = try OwnedWorkDirectoryMarkerStore.load(

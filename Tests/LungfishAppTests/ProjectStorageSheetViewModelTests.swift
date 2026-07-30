@@ -256,6 +256,44 @@ final class ProjectStorageSheetViewModelTests: XCTestCase {
         XCTAssertEqual(model.selectedLogicalBytes, 40)
     }
 
+    func testLegacyWorkflowReviewEntriesAreCheckableButStartUnchecked() {
+        let legacy = entry(
+            path: ".legacy.lungfishgenotype.run-staging-"
+                + UUID().uuidString,
+            category: .workflowStaging,
+            logical: 100,
+            allocated: 80,
+            classification: .reviewRequired(
+                .legacyUnverifiedOwnedWork,
+                reason: "Review this older workflow folder."
+            )
+        )
+        let model = makeModel()
+
+        model.receiveScanResult(
+            .init(
+                projectIdentity: projectIdentity,
+                entries: [legacy]
+            )
+        )
+
+        XCTAssertTrue(model.selectedEntryIDs.isEmpty)
+        let section = try! XCTUnwrap(
+            model.categorySections.first(where: {
+                $0.kind == .legacyWorkflowReview
+            })
+        )
+        XCTAssertTrue(section.isCheckable)
+        XCTAssertEqual(section.entries, [legacy])
+        XCTAssertEqual(
+            model.cleanupStatusText(for: legacy),
+            "Review required"
+        )
+
+        model.toggleSelection(for: legacy.id)
+        XCTAssertEqual(model.selectedEntryIDs, [legacy.id])
+    }
+
     func testCategoryHierarchyAndLocalizedLogicalAllocatedValues() {
         let workbook = entry(
             path: ".archive.lungfishgenotype",
@@ -297,6 +335,7 @@ final class ProjectStorageSheetViewModelTests: XCTestCase {
             [
                 "Completed workbook publication archives",
                 "Orphaned workflow staging data",
+                "Legacy workflow staging — review before moving",
                 "Temporary files",
                 "Not Removable",
             ]

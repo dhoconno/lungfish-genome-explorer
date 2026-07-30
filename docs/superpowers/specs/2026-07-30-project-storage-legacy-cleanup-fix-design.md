@@ -36,17 +36,14 @@ so changing preview classification alone would still make cleanup fail.
 Use three cleanup confidence levels:
 
 1. **Proven removable** — selected by default. This includes marker-backed
-   terminal work, checksum-verified retired workbook generations, and legacy
-   staging tied to a valid surviving result or a valid failed-run provenance
-   record with `Keep Intermediates` false.
+   terminal work and checksum-verified retired workbook generations.
 2. **Legacy review required** — manually selectable, unchecked by default.
    This is limited to an exact historical staging name with a parseable run
    UUID and an existing, non-held historical run lock. It is never eligible
    for automatic cleanup.
 3. **Not removable** — unselectable. This continues to include malformed
    names, missing or unsafe locks, held locks, symlinks, special files,
-   identity changes, explicit retention, inconsistent provenance, and live or
-   ambiguous workbook authority.
+   identity changes, and live or ambiguous workbook authority.
 
 Age and the number of visible bundles are never deletion authority.
 
@@ -82,18 +79,11 @@ Classification requires the lock to exist and be safely probeable:
 - missing or unsafe: not removable;
 - unlocked: continue.
 
-An unlocked legacy item is proven removable when either:
-
-- the intended visible result is a real, structurally valid genotype bundle;
-  or
-- a bounded, no-follow canonical failed-run provenance sidecar names the exact
-  output bundle, has nonzero exit status, identifies the full-length ONT MHC
-  workflow, and records `Keep Intermediates` false.
-
-A valid provenance record with `Keep Intermediates` true remains not removable.
-Malformed or contradictory provenance remains not removable. When no result or
-provenance record exists, the exact-pattern unlocked entry becomes
-manual-review cleanup, not proven cleanup.
+Every exact-pattern, markerless legacy item with an unlocked historical lock
+is manual-review cleanup. It is never promoted to automatic or default-selected
+cleanup merely because a result bundle or failure sidecar exists. This keeps
+the rule easy to understand and avoids treating incomplete historical metadata
+as deletion authority.
 
 ## User Interface
 
@@ -133,15 +123,11 @@ entries and cannot select legacy-review staging.
 - Same-size tampering, multiple live bundles, missing retained files, live
   authority, and malformed descriptors remain blocked.
 - Legacy staging parser accepts only the three exact patterns.
-- Valid final bundle and valid failed provenance with `Keep Intermediates`
-  false are proven removable.
-- Missing provenance plus an unlocked historical lock is review-required and
+- An exact legacy path plus an unlocked historical lock is review-required and
   unchecked by default.
-- Held, missing, unsafe, malformed, contradictory, or explicitly retained
-  cases remain blocked.
+- Held, missing, unsafe, and malformed cases remain blocked.
 - The executor acquires the derived legacy lock and rejects a classification
   change between preview and execution.
 - Cleanup preparation and receipts preserve full provenance requirements.
 - Existing scanner, executor, view-model, accessibility, and performance
   suites remain green.
-

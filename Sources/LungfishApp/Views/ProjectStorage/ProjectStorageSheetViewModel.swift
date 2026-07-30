@@ -28,6 +28,7 @@ final class ProjectStorageSheetViewModel {
         enum Kind: String {
             case workbookArchive
             case workflowStaging
+            case legacyWorkflowReview
             case temporary
             case notRemovable
         }
@@ -111,7 +112,12 @@ final class ProjectStorageSheetViewModel {
     }
 
     var categorySections: [CategorySection] {
-        let removable = entries.filter(\.classification.isRemovable)
+        let removable = entries.filter(
+            \.classification.isSelectedByDefault
+        )
+        let reviewRequired = entries.filter {
+            $0.classification.disposition == .reviewRequired
+        }
         let notRemovable = entries.filter {
             !$0.classification.isRemovable
         }
@@ -131,6 +137,16 @@ final class ProjectStorageSheetViewModel {
                     removable,
                     category: .workflowStaging
                 )
+            ),
+            CategorySection(
+                kind: .legacyWorkflowReview,
+                title:
+                    "Legacy workflow staging — review before moving",
+                entries: reviewRequired.sorted {
+                    $0.relativePath.localizedStandardCompare(
+                        $1.relativePath
+                    ) == .orderedAscending
+                }
             ),
             CategorySection(
                 kind: .temporary,
@@ -242,9 +258,14 @@ final class ProjectStorageSheetViewModel {
 
     func cleanupStatusText(for entry: ProjectStorageEntry) -> String {
         guard let item = cleanupItems[entry.id] else {
-            return entry.classification.isRemovable
-                ? "Proven removable"
-                : entry.classification.reason
+            switch entry.classification.disposition {
+            case .removable:
+                return "Proven removable"
+            case .reviewRequired:
+                return "Review required"
+            case .notRemovable:
+                return entry.classification.reason
+            }
         }
         switch item.state {
         case .movedToTrash:
@@ -296,7 +317,9 @@ final class ProjectStorageSheetViewModel {
             } else {
                 selection = "partially selected"
             }
-            safety = "individually proven removable"
+            safety = section.kind == .legacyWorkflowReview
+                ? "requires individual review before moving"
+                : "individually proven removable"
         } else {
             selection = "not checkable"
             safety = "not removable"
@@ -686,7 +709,7 @@ final class ProjectStorageSheetViewModel {
         }
         selectedEntryIDs = Set(
             entries
-                .filter(\.classification.isRemovable)
+                .filter(\.classification.isSelectedByDefault)
                 .map(\.id)
         )
     }
