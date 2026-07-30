@@ -215,29 +215,6 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
         self.announcementPoster = announcementPoster
     }
 
-    /// Source compatibility for callers compiled against the former
-    /// genotype-only export action. The callback is intentionally ignored;
-    /// genotype-only haplotype export is no longer presented or invoked.
-    convenience init(
-        snapshot: Snapshot,
-        onSave: @escaping (
-            GenotypeManualHaplotypeDraft
-        ) throws -> GenotypeManualHaplotypeDraft,
-        onReload: @escaping () throws -> Snapshot,
-        onExport _: @escaping () -> Void,
-        onDidSave: @escaping () -> Void = {},
-        announcementPoster: any AccessibilityAnnouncementPosting =
-            AccessibilityAnnouncementPoster()
-    ) {
-        self.init(
-            snapshot: snapshot,
-            onSave: onSave,
-            onReload: onReload,
-            onDidSave: onDidSave,
-            announcementPoster: announcementPoster
-        )
-    }
-
     private var snapshot: Snapshot { editorState.snapshot }
 
     var draft: GenotypeManualHaplotypeDraft { snapshot.draft }

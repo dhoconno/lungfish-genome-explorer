@@ -252,8 +252,7 @@ final class GenotypeManualHaplotypeViewportTests: XCTestCase {
         return GenotypeManualHaplotypeEditorModel(
             snapshot: snapshot,
             onSave: { $0 },
-            onReload: { snapshot },
-            onExport: {}
+            onReload: { snapshot }
         )
     }
 

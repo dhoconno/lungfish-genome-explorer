@@ -178,8 +178,7 @@ final class GenotypeManualHaplotypePerformanceTests: XCTestCase {
                     copyCandidates: [],
                     isReadOnly: false
                 )
-            },
-            onExport: {}
+            }
         )
         for locus in GenotypeManualHaplotypeLocus.allCases {
             for slot in HaplotypeSlot.allCases {

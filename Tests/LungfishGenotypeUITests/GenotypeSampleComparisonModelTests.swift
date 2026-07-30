@@ -314,8 +314,7 @@ final class GenotypeSampleComparisonModelTests: XCTestCase {
                     copyCandidates: [index.sampleAssignments(for: "Source")],
                     isReadOnly: false
                 )
-            },
-            onExport: {}
+            }
         )
         let model = makeModel(
             candidates: [candidate("Source")],
