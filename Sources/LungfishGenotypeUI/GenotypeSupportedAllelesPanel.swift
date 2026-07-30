@@ -28,12 +28,38 @@ struct GenotypeSupportedAllelesSnapshot: Equatable {
     }
 
     static let columnsMinimumWidth: CGFloat = 520
+    private static let columnsWidthGrowthPerTextScale: CGFloat = 140
     static let columnTitles = ["Allele", "Read support"]
 
     let rows: [GenotypeSupportedAllelePresentation]
 
     func layoutMode(forWidth width: CGFloat) -> LayoutMode {
         width >= Self.columnsMinimumWidth ? .columns : .compact
+    }
+
+    func layoutMode(
+        forWidth width: CGFloat,
+        bodyFont: NSFont,
+        captionFont: NSFont
+    ) -> LayoutMode {
+        let standardLineHeight = max(
+            NSFont.systemFont(
+                ofSize: NSFont.systemFontSize
+            ).boundingRectForFont.height,
+            1
+        )
+        let resolvedLineHeight = max(
+            bodyFont.boundingRectForFont.height,
+            captionFont.boundingRectForFont.height
+        )
+        let textScale = max(1, resolvedLineHeight / standardLineHeight)
+        let responsiveMinimumWidth =
+            Self.columnsMinimumWidth
+                + (
+                    (textScale - 1)
+                        * Self.columnsWidthGrowthPerTextScale
+                )
+        return width >= responsiveMinimumWidth ? .columns : .compact
     }
 }
 
@@ -319,12 +345,7 @@ final class GenotypeSupportedAllelesListHostView: NSView {
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
-        let layoutMode =
-            GenotypeSupportedAllelesSnapshot(rows: [])
-                .layoutMode(forWidth: newSize.width)
-        if layoutMode != currentLayoutMode {
-            currentLayoutMode = layoutMode
-            coordinator.layoutMode = layoutMode
+        if reconcileLayoutMode(forWidth: newSize.width) {
             reloadTable()
         }
         needsLayout = true
@@ -377,6 +398,7 @@ final class GenotypeSupportedAllelesListHostView: NSView {
         coordinator.bodyFont = bodyFont
         coordinator.captionFont = captionFont
         configureHeaderFonts()
+        _ = reconcileLayoutMode(forWidth: bounds.width)
         reloadTable()
         needsLayout = true
     }
@@ -425,6 +447,21 @@ final class GenotypeSupportedAllelesListHostView: NSView {
         )
         alleleHeader.font = font
         readSupportHeader.font = font
+    }
+
+    @discardableResult
+    private func reconcileLayoutMode(forWidth width: CGFloat) -> Bool {
+        let layoutMode =
+            GenotypeSupportedAllelesSnapshot(rows: [])
+                .layoutMode(
+                    forWidth: width,
+                    bodyFont: coordinator.bodyFont,
+                    captionFont: coordinator.captionFont
+                )
+        guard layoutMode != currentLayoutMode else { return false }
+        currentLayoutMode = layoutMode
+        coordinator.layoutMode = layoutMode
+        return true
     }
 
     private func reloadTable() {

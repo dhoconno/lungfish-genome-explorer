@@ -116,6 +116,80 @@ final class GenotypeSupportedAllelesPanelTests: XCTestCase {
         XCTAssertLessThan(support.frame.maxY, allele.frame.minY)
     }
 
+    func testInlineTableReflowsAtTwoHundredPercentWithoutReplacingMountedTable()
+        throws
+    {
+        let notifications = NotificationCenter()
+        let preference = MutableSupportedAllelesTextSizePreference(
+            .custom(100)
+        )
+        let provider = MutableSupportedAllelesPreferredFonts(pointSize: 13)
+        let typography = ContentTypographyModel(
+            notificationCenter: notifications,
+            preferenceProvider: { preference.value },
+            preferredFontProvider: provider
+        )
+        let snapshot = GenotypeSupportedAllelesSnapshot(
+            rows: makeRows(count: 20)
+        )
+        let mounted = mount(
+            GenotypeSupportedAllelesPanel(
+                snapshot: snapshot,
+                typographyModel: typography
+            ),
+            width: 650
+        )
+        defer { close(mounted) }
+        let listHost = try XCTUnwrap(
+            descendants(of: mounted.host)
+                .compactMap {
+                    $0 as? GenotypeSupportedAllelesListHostView
+                }
+                .first
+        )
+        let table = listHost.tableView
+        let coordinator = try XCTUnwrap(table.delegate as AnyObject?)
+        let wideCell = try XCTUnwrap(
+            table.view(atColumn: 0, row: 0, makeIfNecessary: true)
+        )
+        XCTAssertNotNil(
+            descendants(of: wideCell)
+                .compactMap { $0 as? NSTextField }
+                .first { $0.stringValue == "100" }
+        )
+
+        preference.value = .custom(200)
+        notifications.post(name: .contentTextSizeDidChange, object: nil)
+        flush(mounted)
+
+        let updatedListHost = try XCTUnwrap(
+            descendants(of: mounted.host)
+                .compactMap {
+                    $0 as? GenotypeSupportedAllelesListHostView
+                }
+                .first
+        )
+        XCTAssertTrue(updatedListHost === listHost)
+        XCTAssertTrue(updatedListHost.tableView === table)
+        XCTAssertTrue(
+            (updatedListHost.tableView.delegate as AnyObject?)
+                === coordinator
+        )
+        let compactCell = try XCTUnwrap(
+            table.view(atColumn: 0, row: 0, makeIfNecessary: true)
+        )
+        let fields = descendants(of: compactCell)
+            .compactMap { $0 as? NSTextField }
+            .filter { !$0.isHidden }
+        let allele = try XCTUnwrap(
+            fields.first { $0.stringValue == "Allele 0" }
+        )
+        let support = try XCTUnwrap(
+            fields.first { $0.stringValue == "Read support: 100" }
+        )
+        XCTAssertLessThan(support.frame.maxY, allele.frame.minY)
+    }
+
     func testInlineTableUsesScaledLineMetricsWithoutClipping()
         throws
     {
