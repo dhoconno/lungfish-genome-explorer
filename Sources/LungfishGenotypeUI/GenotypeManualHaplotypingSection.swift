@@ -4,7 +4,7 @@ import SwiftUI
 
 /// Artifact-lens summary for assignments edited in the selected sample's
 /// Detail Inspector. Assignment creation belongs to the sample-scoped editor;
-/// this section deliberately exposes only canonical saved state and export.
+/// this section deliberately exposes only canonical saved state.
 struct GenotypeManualHaplotypingSection: View {
     /// Retained as a compatibility value for callers that still build a
     /// genotype digest. The artifact-lens UI no longer offers bulk creation
@@ -18,11 +18,6 @@ struct GenotypeManualHaplotypingSection: View {
     }
 
     let manualAssignments: [ManualHaplotypeAssignment]
-    var onExportDefinitions: () -> Void
-
-    var exportIsDisabled: Bool {
-        manualAssignments.isEmpty
-    }
 
     var assignmentSummary: String {
         let count = manualAssignments.count
@@ -60,14 +55,6 @@ struct GenotypeManualHaplotypingSection: View {
                     }
                 }
             }
-
-            Button(
-                "Export Manual Definitions\u{2026}",
-                action: onExportDefinitions
-            )
-            .controlSize(.small)
-            .disabled(exportIsDisabled)
-            .accessibilityIdentifier("manual-haplotype-export-definitions")
         }
     }
 
@@ -115,6 +102,10 @@ struct GenotypeLegacyManualHaplotypingSection: View {
     var onCreateHaplotype: () -> Void
     var onDeleteAssignment: (ManualHaplotypeAssignment) -> Void
     var onExportDefinitions: () -> Void
+
+    var exportIsDisabled: Bool {
+        manualAssignments.isEmpty
+    }
 
     private var loci: [String] {
         var seen = Set<String>()
@@ -211,7 +202,7 @@ struct GenotypeLegacyManualHaplotypingSection: View {
                 action: onExportDefinitions
             )
             .controlSize(.small)
-            .disabled(manualAssignments.isEmpty)
+            .disabled(exportIsDisabled)
         }
     }
 

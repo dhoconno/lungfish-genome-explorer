@@ -179,16 +179,15 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
     @Published private var editorState: EditorState
     @Published private(set) var persistenceErrorMessage: String?
     @Published private(set) var copySearchText = ""
+    @Published private(set) var draftRevisionToken = UUID()
 
     private let onSave:
         (GenotypeManualHaplotypeDraft) throws
             -> GenotypeManualHaplotypeDraft
     private let onReload: () throws -> Snapshot
-    private let onExport: () -> Void
     private let onDidSave: () -> Void
     private let announcementPoster: any AccessibilityAnnouncementPosting
     private var preparedDraft: GenotypeManualHaplotypeDraft?
-    private(set) var draftRevisionToken = UUID()
 
     private(set) var copyCandidatePresentationBuildCount: Int
     private(set) var copyFilterEvaluationCount = 1
@@ -200,7 +199,6 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
             GenotypeManualHaplotypeDraft
         ) throws -> GenotypeManualHaplotypeDraft,
         onReload: @escaping () throws -> Snapshot,
-        onExport: @escaping () -> Void,
         onDidSave: @escaping () -> Void = {},
         announcementPoster: any AccessibilityAnnouncementPosting =
             AccessibilityAnnouncementPoster()
@@ -213,9 +211,31 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
             snapshot.copyCandidateCount
         self.onSave = onSave
         self.onReload = onReload
-        self.onExport = onExport
         self.onDidSave = onDidSave
         self.announcementPoster = announcementPoster
+    }
+
+    /// Source compatibility for callers compiled against the former
+    /// genotype-only export action. The callback is intentionally ignored;
+    /// genotype-only haplotype export is no longer presented or invoked.
+    convenience init(
+        snapshot: Snapshot,
+        onSave: @escaping (
+            GenotypeManualHaplotypeDraft
+        ) throws -> GenotypeManualHaplotypeDraft,
+        onReload: @escaping () throws -> Snapshot,
+        onExport _: @escaping () -> Void,
+        onDidSave: @escaping () -> Void = {},
+        announcementPoster: any AccessibilityAnnouncementPosting =
+            AccessibilityAnnouncementPoster()
+    ) {
+        self.init(
+            snapshot: snapshot,
+            onSave: onSave,
+            onReload: onReload,
+            onDidSave: onDidSave,
+            announcementPoster: announcementPoster
+        )
     }
 
     private var snapshot: Snapshot { editorState.snapshot }
@@ -243,11 +263,20 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
         snapshot.copyCandidates
     }
 
+    var selectiveCopyTargetSlots: [
+        GenotypeManualHaplotypeDraft.SlotAddress:
+            GenotypeManualHaplotypeDraft.SlotSnapshot
+    ] {
+        Dictionary(
+            uniqueKeysWithValues: draft.slotSnapshots.map {
+                ($0.address, $0)
+            }
+        )
+    }
+
     var canSave: Bool {
         !isReadOnly && draft.isDirty && draft.isValid
     }
-
-    var canExport: Bool { true }
 
     var emptyStateMessage: String? {
         guard draft.assignedSlotCount == 0,
@@ -331,6 +360,45 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
             "Copied \(copyCandidate(for: sample).completenessSummary) from \(source.sample).",
             priority: .medium
         )
+    }
+
+    func copyAssignmentsSnapshot(
+        for sample: String
+    ) -> GenotypeManualHaplotypeAssignmentIndex.SampleAssignments? {
+        snapshot.copyAssignments(for: sample)
+    }
+
+    @discardableResult
+    func stageSelectedAssignments(
+        from sample: String,
+        addresses: Set<GenotypeManualHaplotypeDraft.SlotAddress>,
+        expectedSourceValues: [
+            GenotypeManualHaplotypeDraft.SlotAddress:
+                ManualHaplotypeAssignment
+        ]
+    ) -> GenotypeManualHaplotypeDraft.SelectiveCopyResult {
+        guard !isReadOnly,
+              let source = snapshot.copyAssignments(for: sample) else {
+            return .init(applied: [], skipped: [])
+        }
+        var updated = draft
+        let result = updated.copySelectedAssignments(
+            from: source,
+            addresses: addresses,
+            expectedSourceValues: expectedSourceValues
+        )
+        replaceDraft(updated)
+        persistenceErrorMessage = nil
+
+        let appliedCount = result.applied.count
+        let skippedCount = result.skipped.count
+        let appliedDescription =
+            "\(appliedCount) assignment\(appliedCount == 1 ? "" : "s") staged"
+        announcementPoster.post(
+            "\(appliedDescription), \(skippedCount) skipped from \(source.sample).",
+            priority: .medium
+        )
+        return result
     }
 
     func save() {
@@ -426,10 +494,6 @@ final class GenotypeManualHaplotypeEditorModel: ObservableObject {
                 priority: .high
             )
         }
-    }
-
-    func export() {
-        onExport()
     }
 
     private func slotPresentation(
@@ -931,25 +995,16 @@ struct GenotypeManualHaplotypeEditor: View {
                 }
             }
 
-            HStack(spacing: 8) {
-                ManualHaplotypeActionButton(
-                    title: "Compare & Copy\u{2026}",
-                    accessibilityLabel:
-                        "Compare genotypes and copy haplotype assignments",
-                    accessibilityIdentifier:
-                        "manual-haplotype-compare-copy",
-                    font: comboFieldFont,
-                    isEnabled: !model.isReadOnly,
-                    action: onCompareAndCopy
-                )
-
-                ManualHaplotypeExportButton(
-                    title: "Export All Haplotype Assignments\u{2026}",
-                    font: comboFieldFont,
-                    isEnabled: model.canExport,
-                    onExport: model.export
-                )
-            }
+            ManualHaplotypeActionButton(
+                title: "Compare & Copy\u{2026}",
+                accessibilityLabel:
+                    "Compare genotypes and copy haplotype assignments",
+                accessibilityIdentifier:
+                    "manual-haplotype-compare-copy",
+                font: comboFieldFont,
+                isEnabled: !model.copyCandidates.isEmpty,
+                action: onCompareAndCopy
+            )
 
             if let error = model.persistenceErrorMessage {
                 VStack(alignment: .leading, spacing: 6) {
@@ -1123,63 +1178,6 @@ private struct ManualHaplotypeActionButton: NSViewRepresentable {
 
         @objc func performAction() {
             action()
-        }
-    }
-}
-
-@MainActor
-private struct ManualHaplotypeExportButton: NSViewRepresentable {
-    let title: String
-    let font: NSFont
-    let isEnabled: Bool
-    let onExport: () -> Void
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(onExport: onExport)
-    }
-
-    func makeNSView(context: Context) -> NSButton {
-        let button = NSButton(
-            title: title,
-            target: context.coordinator,
-            action: #selector(Coordinator.export)
-        )
-        button.bezelStyle = .rounded
-        button.controlSize = .small
-        configure(button, coordinator: context.coordinator)
-        return button
-    }
-
-    func updateNSView(_ button: NSButton, context: Context) {
-        configure(button, coordinator: context.coordinator)
-    }
-
-    private func configure(
-        _ button: NSButton,
-        coordinator: Coordinator
-    ) {
-        coordinator.onExport = onExport
-        button.title = title
-        button.font = font
-        button.isEnabled = isEnabled
-        button.setAccessibilityElement(true)
-        button.setAccessibilityRole(.button)
-        button.setAccessibilityLabel(title)
-        button.setAccessibilityIdentifier(
-            "manual-haplotype-export-all"
-        )
-    }
-
-    @MainActor
-    final class Coordinator: NSObject {
-        var onExport: () -> Void
-
-        init(onExport: @escaping () -> Void) {
-            self.onExport = onExport
-        }
-
-        @objc func export() {
-            onExport()
         }
     }
 }

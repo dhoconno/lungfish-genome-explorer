@@ -28,7 +28,6 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
                     isReadOnly: false
                 )
             },
-            onExport: {},
             onDidSave: { didSaveCount += 1 }
         )
 
@@ -149,6 +148,119 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
         XCTAssertNotEqual(model.draftRevisionToken, edited)
     }
 
+    func testStageSelectedAssignmentsUpdatesDraftWithoutSaving() {
+        let address = GenotypeManualHaplotypeDraft.SlotAddress(
+            locus: .a,
+            slot: .h1
+        )
+        let sourceAssignment = assignment(
+            sample: "Animal-2",
+            locus: .a,
+            slot: .h1,
+            label: "Source A1",
+            color: 3
+        )
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: [sourceAssignment]
+        )
+        var saveCount = 0
+        let announcements = RecordingManualHaplotypeAnnouncements()
+        let model = GenotypeManualHaplotypeEditorModel(
+            snapshot: .init(
+                draft: makeDraft(sample: "Animal-1", assignments: []),
+                copyCandidates: [
+                    index.sampleAssignments(for: "Animal-2"),
+                ],
+                isReadOnly: false
+            ),
+            onSave: {
+                saveCount += 1
+                return $0
+            },
+            onReload: {
+                XCTFail("Staging must not reload.")
+                throw CocoaError(.fileReadUnknown)
+            },
+            announcementPoster: announcements
+        )
+        let initialRevision = model.draftRevisionToken
+
+        XCTAssertEqual(model.selectiveCopyTargetSlots.count, 14)
+        XCTAssertEqual(
+            model.selectiveCopyTargetSlots[address],
+            model.draft.slotSnapshot(at: address)
+        )
+        XCTAssertEqual(
+            model.copyAssignmentsSnapshot(for: "Animal-2"),
+            index.sampleAssignments(for: "Animal-2")
+        )
+
+        let result = model.stageSelectedAssignments(
+            from: "Animal-2",
+            addresses: [address],
+            expectedSourceValues: [address: sourceAssignment]
+        )
+
+        XCTAssertEqual(result.applied, [address])
+        XCTAssertTrue(result.skipped.isEmpty)
+        XCTAssertEqual(model.draft[.a, .h1]?.label, "Source A1")
+        XCTAssertNotEqual(model.draftRevisionToken, initialRevision)
+        XCTAssertEqual(saveCount, 0)
+        XCTAssertEqual(
+            announcements.messages.last,
+            "1 assignment staged, 0 skipped from Animal-2."
+        )
+    }
+
+    func testReadOnlyStageSelectedAssignmentsIsNoOp() {
+        let address = GenotypeManualHaplotypeDraft.SlotAddress(
+            locus: .b,
+            slot: .h2
+        )
+        let sourceAssignment = assignment(
+            sample: "Animal-2",
+            locus: .b,
+            slot: .h2,
+            label: "Source B2",
+            color: 5
+        )
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: [sourceAssignment]
+        )
+        var saveCount = 0
+        let model = GenotypeManualHaplotypeEditorModel(
+            snapshot: .init(
+                draft: makeDraft(sample: "Animal-1", assignments: []),
+                copyCandidates: [
+                    index.sampleAssignments(for: "Animal-2"),
+                ],
+                isReadOnly: true
+            ),
+            onSave: {
+                saveCount += 1
+                return $0
+            },
+            onReload: {
+                XCTFail("Read-only staging must not reload.")
+                throw CocoaError(.fileReadUnknown)
+            }
+        )
+        let initialDraft = model.draft
+        let initialRevision = model.draftRevisionToken
+
+        let result = model.stageSelectedAssignments(
+            from: "Animal-2",
+            addresses: [address],
+            expectedSourceValues: [address: sourceAssignment]
+        )
+
+        XCTAssertTrue(result.applied.isEmpty)
+        XCTAssertTrue(result.skipped.isEmpty)
+        XCTAssertEqual(model.draft, initialDraft)
+        XCTAssertEqual(model.draftRevisionToken, initialRevision)
+        XCTAssertEqual(saveCount, 0)
+    }
+
     func testPreparedThenCancelledSaveDoesNotPublishSidecarOrAudit()
         throws
     {
@@ -192,8 +304,7 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
             onReload: {
                 XCTFail("Cancellation must not reload the store.")
                 throw CocoaError(.fileReadUnknown)
-            },
-            onExport: {}
+            }
         )
         model.updateLabel("Haplotype A", locus: .a, slot: .h1)
         let annotationURL = bundleURL.appendingPathComponent(
@@ -336,7 +447,6 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
                 return self.cleanDraft(from: $0)
             },
             onReload: { nextSnapshot },
-            onExport: {},
             announcementPoster: RecordingManualHaplotypeAnnouncements()
         )
 
@@ -401,7 +511,6 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
                     candidateSamples: assignments.map(\.sample)
                 )
             },
-            onExport: {},
             announcementPoster: RecordingManualHaplotypeAnnouncements()
         )
         let initialBuilds = model.copyCandidatePresentationBuildCount
@@ -510,7 +619,6 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
                     isReadOnly: false
                 )
             },
-            onExport: {},
             announcementPoster: announcements
         )
         model.updateLabel("M2", locus: .a, slot: .h1)
@@ -548,19 +656,9 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
         )
     }
 
-    func testEmptyCopyStateAndExportActionRemainAvailable() {
-        var exportCount = 0
-        let model = makeModel(
-            sample: "Animal-1",
-            onExport: { exportCount += 1 }
-        )
-
+    func testEmptyCopyStateExplainsNoOtherSamples() {
+        let model = makeModel(sample: "Animal-1")
         XCTAssertEqual(model.copyEmptyStateMessage, "No other samples are available to copy.")
-        XCTAssertTrue(model.canExport)
-
-        model.export()
-
-        XCTAssertEqual(exportCount, 1)
     }
 
     func testOrphanOnlyLegacyAssignmentsAreReadOnlyAndNotReportedAsEmpty() {
@@ -592,7 +690,6 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
                     isReadOnly: false
                 )
             },
-            onExport: {},
             announcementPoster: RecordingManualHaplotypeAnnouncements()
         )
 
@@ -617,7 +714,6 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
         copyCandidates:
             [GenotypeManualHaplotypeAssignmentIndex.SampleAssignments] = [],
         isReadOnly: Bool = false,
-        onExport: @escaping () -> Void = {},
         announcements: any AccessibilityAnnouncementPosting =
             RecordingManualHaplotypeAnnouncements()
     ) -> GenotypeManualHaplotypeEditorModel {
@@ -636,7 +732,6 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
                     isReadOnly: isReadOnly
                 )
             },
-            onExport: onExport,
             announcementPoster: announcements
         )
     }

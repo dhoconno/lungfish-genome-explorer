@@ -5927,9 +5927,6 @@ public final class GenotypeResultViewController: NSViewController {
                     store: reloadedStore
                 )
             },
-            onExport: { [weak self] in
-                self?.exportManualDefinitions()
-            },
             onDidSave: { [weak self] in
                 self?.sampleComparisonModel?.saveCompleted()
             }
@@ -6286,11 +6283,7 @@ public final class GenotypeResultViewController: NSViewController {
         ).currentAssignments
         return AnyView(
             GenotypeManualHaplotypingSection(
-                manualAssignments: assignments,
-                onExportDefinitions: {
-                    [weak self] in
-                    self?.exportManualDefinitions()
-                }
+                manualAssignments: assignments
             )
         )
     }

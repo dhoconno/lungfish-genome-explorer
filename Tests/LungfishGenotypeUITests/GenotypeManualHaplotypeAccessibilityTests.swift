@@ -208,8 +208,7 @@ final class GenotypeManualHaplotypeAccessibilityTests: XCTestCase {
                     copyCandidates: [],
                     isReadOnly: false
                 )
-            },
-            onExport: {}
+            }
         )
         let slots = model.rows.flatMap { [$0.h1, $0.h2] }
 
@@ -242,8 +241,7 @@ final class GenotypeManualHaplotypeAccessibilityTests: XCTestCase {
         let model = GenotypeManualHaplotypeEditorModel(
             snapshot: snapshot,
             onSave: { $0 },
-            onReload: { snapshot },
-            onExport: {}
+            onReload: { snapshot }
         )
         model.updateLabel(
             String(repeating: "x", count: 129),
@@ -307,8 +305,7 @@ final class GenotypeManualHaplotypeAccessibilityTests: XCTestCase {
                     copyCandidates: [],
                     isReadOnly: false
                 )
-            },
-            onExport: {}
+            }
         )
         let presentation =
             GenotypeManualHaplotypeMultiSamplePresentation(
@@ -334,7 +331,7 @@ final class GenotypeManualHaplotypeAccessibilityTests: XCTestCase {
         )
     }
 
-    func testExportAllHaplotypeAssignmentsIsVisibleSecondaryActionWithExistingCallback()
+    func testGenotypeOnlyEditorOmitsExportAndKeepsReadOnlyCompareAvailable()
         throws
     {
         let fixture = GenotypeManualHaplotypeTask10Fixture()
@@ -345,14 +342,13 @@ final class GenotypeManualHaplotypeAccessibilityTests: XCTestCase {
             sample: fixture.samples[0],
             index: index
         )
-        var exportCount = 0
         let model = GenotypeManualHaplotypeEditorModel(
             snapshot: .init(
                 draft: draft,
                 copyCandidates: [
                     index.sampleAssignments(for: fixture.samples[1]),
                 ],
-                isReadOnly: false
+                isReadOnly: true
             ),
             onSave: { $0 },
             onReload: {
@@ -361,8 +357,7 @@ final class GenotypeManualHaplotypeAccessibilityTests: XCTestCase {
                     copyCandidates: [],
                     isReadOnly: false
                 )
-            },
-            onExport: { exportCount += 1 }
+            }
         )
         var compareCount = 0
         let host = makeGenotypeManualHaplotypeEditorHostingView(
@@ -389,24 +384,18 @@ final class GenotypeManualHaplotypeAccessibilityTests: XCTestCase {
                     == "manual-haplotype-compare-copy"
             }
         )
-        let exportButton = try XCTUnwrap(
-            buttons.first {
+        XCTAssertFalse(
+            buttons.contains {
                 $0.accessibilityIdentifier()
                     == "manual-haplotype-export-all"
             }
         )
-        XCTAssertEqual(
-            exportButton.title,
-            "Export All Haplotype Assignments…"
-        )
-        exportButton.performClick(nil)
-        XCTAssertEqual(exportCount, 1)
 
         XCTAssertEqual(compareButton.title, "Compare & Copy…")
+        XCTAssertTrue(compareButton.isEnabled)
         compareButton.performClick(nil)
         XCTAssertEqual(compareCount, 1)
         XCTAssertFalse(model.draft.isDirty)
-        XCTAssertEqual(exportCount, 1)
     }
 
     func testMountedDetailViewBoundsOneHundredSelectedSampleSummaries()
