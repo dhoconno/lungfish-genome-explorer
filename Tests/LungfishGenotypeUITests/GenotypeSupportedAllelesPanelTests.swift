@@ -175,6 +175,29 @@ final class GenotypeSupportedAllelesPanelTests: XCTestCase {
             (updatedListHost.tableView.delegate as AnyObject?)
                 === coordinator
         )
+        let visibleHeaders = descendants(of: updatedListHost)
+            .compactMap { $0 as? NSTextField }
+            .filter {
+                $0.accessibilityIdentifier()
+                    .hasPrefix("supported-alleles-header-")
+                    && !$0.isHidden
+            }
+        XCTAssertEqual(
+            visibleHeaders.map(\.stringValue),
+            ["Allele"]
+        )
+        for header in visibleHeaders {
+            XCTAssertGreaterThanOrEqual(
+                header.frame.width + 0.5,
+                header.intrinsicContentSize.width,
+                "\(header.stringValue) header is horizontally clipped"
+            )
+            XCTAssertGreaterThanOrEqual(
+                header.frame.height + 0.5,
+                header.intrinsicContentSize.height,
+                "\(header.stringValue) header is vertically clipped"
+            )
+        }
         let compactCell = try XCTUnwrap(
             table.view(atColumn: 0, row: 0, makeIfNecessary: true)
         )
@@ -186,6 +209,10 @@ final class GenotypeSupportedAllelesPanelTests: XCTestCase {
         )
         let support = try XCTUnwrap(
             fields.first { $0.stringValue == "Read support: 100" }
+        )
+        XCTAssertEqual(
+            compactCell.accessibilityLabel(),
+            "Allele 0, read support 100."
         )
         XCTAssertLessThan(support.frame.maxY, allele.frame.minY)
     }

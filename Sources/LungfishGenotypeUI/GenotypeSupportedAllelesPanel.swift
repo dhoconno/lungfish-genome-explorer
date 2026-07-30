@@ -358,10 +358,15 @@ final class GenotypeSupportedAllelesListHostView: NSView {
             ceil(coordinator.captionFont.boundingRectForFont.height) + 8
         )
         let supportWidth = min(160, max(100, bounds.width * 0.28))
+        let compact = currentLayoutMode == .compact
+        readSupportHeader.isHidden = compact
         alleleHeader.frame = NSRect(
             x: 8,
             y: 0,
-            width: max(0, bounds.width - supportWidth - 20),
+            width: max(
+                0,
+                bounds.width - (compact ? 16 : supportWidth + 20)
+            ),
             height: headerHeight
         )
         readSupportHeader.frame = NSRect(

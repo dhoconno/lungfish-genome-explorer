@@ -4960,7 +4960,9 @@ final class GenotypeResultViewportTests: XCTestCase {
         }
     }
 
-    func testAutomaticSupportFillIsUniformAcrossEveryProjectedAlleleKind() throws {
+    func testAutomaticSupportFillIsUniformAcrossEveryProjectedAlleleKindForGenotypeOnlyONTAndMiSeq()
+        throws
+    {
         let namedGenotype = "Mafa-A1*001:01"
         let provisionalGenotype = "Mafa-A1*007:08:01:01_1nt_nov"
         let zeroSupportGenotype = "Mafa-A1*999:01"
@@ -4993,81 +4995,173 @@ final class GenotypeResultViewportTests: XCTestCase {
             support: .shared,
             samples: ["AnimalA", "AnimalB"]
         )
-        let matrix = GenotypeComparisonMatrixView()
-        matrix.configure(result: makeCandidateResult(
-            calls: [named, provisional, zeroSupport],
-            candidates: [extensionCandidate, novel],
-            observations: [
-                makeCandidateObservation(
-                    cluster: "uniform-extension",
-                    sample: "AnimalA",
-                    reads: 7
-                ),
-                makeCandidateObservation(
-                    cluster: "uniform-novel",
-                    sample: "AnimalA",
-                    reads: 300
-                ),
-                makeCandidateObservation(
-                    cluster: "uniform-novel",
-                    sample: "AnimalB",
-                    reads: 2
-                ),
-            ],
-            provisionalExon2SequencesByGenotype: [
-                provisionalGenotype: ONTGenotypeProvisionalExon2Sequence(
-                    genotype: provisionalGenotype,
-                    locus: provisional.locusGroup,
-                    sequence: "AACCGGTT",
-                    sequenceSHA256: String(repeating: "a", count: 64),
-                    sampleSupport: [
-                        .init(
-                            sample: "AnimalA",
-                            passedAlignments: 1_200,
-                            passedUniqueReads: 1_200
-                        ),
-                    ]
-                ),
-            ]
-        ))
+        for kind in [
+            GenotypeResultWorkflowKind.fullLengthONTMHCGenotype,
+            .miSeqAmpliconMHCGenotype,
+        ] {
+            let extensionCall = makeCall(
+                sample: "AnimalA",
+                genotype: extensionCandidate.provisionalName,
+                reads: 7
+            )
+            let novelCall = makeCall(
+                sample: "AnimalA",
+                genotype: novel.provisionalName,
+                reads: 300
+            )
+            let usesCandidateRows = kind == .fullLengthONTMHCGenotype
+            let calls = [named, provisional, zeroSupport]
+                + (usesCandidateRows ? [] : [extensionCall, novelCall])
+            let matrix = GenotypeComparisonMatrixView()
+            matrix.configure(result: makeCandidateResult(
+                calls: calls,
+                candidates:
+                    usesCandidateRows ? [extensionCandidate, novel] : [],
+                observations: usesCandidateRows ? [
+                    makeCandidateObservation(
+                        cluster: "uniform-extension",
+                        sample: "AnimalA",
+                        reads: 7
+                    ),
+                    makeCandidateObservation(
+                        cluster: "uniform-novel",
+                        sample: "AnimalA",
+                        reads: 300
+                    ),
+                    makeCandidateObservation(
+                        cluster: "uniform-novel",
+                        sample: "AnimalB",
+                        reads: 2
+                    ),
+                ] : [],
+                provisionalExon2SequencesByGenotype: [
+                    provisionalGenotype: ONTGenotypeProvisionalExon2Sequence(
+                        genotype: provisionalGenotype,
+                        locus: provisional.locusGroup,
+                        sequence: "AACCGGTT",
+                        sequenceSHA256: String(repeating: "a", count: 64),
+                        sampleSupport: [
+                            .init(
+                                sample: "AnimalA",
+                                passedAlignments: 1_200,
+                                passedUniqueReads: 1_200
+                            ),
+                        ]
+                    ),
+                ],
+                kind: kind
+            ))
 
-        let supportedColors = try [
-            GenotypeCandidateMatrixRowID.known(
-                locus: named.locusGroup,
-                genotype: namedGenotype
-            ),
-            .candidate(stableClusterID: "uniform-extension"),
-            .candidate(stableClusterID: "uniform-novel"),
-            .known(
-                locus: provisional.locusGroup,
-                genotype: provisionalGenotype
-            ),
-        ].map {
-            try XCTUnwrap(
-                matrix.testingBackgroundColor(
-                    rowID: $0,
-                    column: .sample("AnimalA")
+            let supportedColors = try [
+                GenotypeCandidateMatrixRowID.known(
+                    locus: named.locusGroup,
+                    genotype: namedGenotype
+                ),
+                usesCandidateRows
+                    ? .candidate(stableClusterID: "uniform-extension")
+                    : .known(
+                        locus: extensionCall.locusGroup,
+                        genotype: extensionCall.genotype
+                    ),
+                usesCandidateRows
+                    ? .candidate(stableClusterID: "uniform-novel")
+                    : .known(
+                        locus: novelCall.locusGroup,
+                        genotype: novelCall.genotype
+                    ),
+                .known(
+                    locus: provisional.locusGroup,
+                    genotype: provisionalGenotype
+                ),
+            ].map {
+                try XCTUnwrap(
+                    matrix.testingBackgroundColor(
+                        rowID: $0,
+                        column: .sample("AnimalA")
+                    ),
+                    kind.rawValue
                 )
+            }
+            for color in supportedColors.dropFirst() {
+                XCTAssertEqual(
+                    color,
+                    supportedColors[0],
+                    kind.rawValue
+                )
+            }
+
+            XCTAssertNil(matrix.testingBackgroundColor(
+                rowID: .known(
+                    locus: zeroSupport.locusGroup,
+                    genotype: zeroSupportGenotype
+                ),
+                column: .sample("AnimalA")
+            ))
+            XCTAssertNil(matrix.testingBackgroundColor(
+                rowID: .known(
+                    locus: named.locusGroup,
+                    genotype: namedGenotype
+                ),
+                column: .sample("AnimalB")
+            ))
+        }
+    }
+
+    func testAuthoritativeHaplotypedResultRetainsFractionBasedSupportFill() throws {
+        let low = makeCall(
+            sample: "AnimalA",
+            genotype: "Mafa-A1*001:01",
+            reads: 10
+        )
+        let high = makeCall(
+            sample: "AnimalA",
+            genotype: "Mafa-A1*002:01",
+            reads: 90
+        )
+        for kind in [
+            GenotypeResultWorkflowKind.fullLengthONTMHCGenotype,
+            .miSeqAmpliconMHCGenotype,
+        ] {
+            let matrix = GenotypeComparisonMatrixView()
+            matrix.configure(result: makeResult(
+                samples: [],
+                calls: [low, high],
+                kind: kind.rawValue,
+                haplotypeAnalysis: makeEmptyHaplotypeAnalysis()
+            ))
+
+            let lowColor = try XCTUnwrap(
+                matrix.testingBackgroundColor(
+                    rowID: .known(
+                        locus: low.locusGroup,
+                        genotype: low.genotype
+                    ),
+                    column: .sample("AnimalA")
+                ),
+                kind.rawValue
+            )
+            let highColor = try XCTUnwrap(
+                matrix.testingBackgroundColor(
+                    rowID: .known(
+                        locus: high.locusGroup,
+                        genotype: high.genotype
+                    ),
+                    column: .sample("AnimalA")
+                ),
+                kind.rawValue
+            )
+
+            XCTAssertLessThan(
+                lowColor.alphaComponent,
+                highColor.alphaComponent,
+                kind.rawValue
+            )
+            XCTAssertLessThan(
+                lowColor.alphaComponent,
+                0.20,
+                kind.rawValue
             )
         }
-        for color in supportedColors.dropFirst() {
-            XCTAssertEqual(color, supportedColors[0])
-        }
-
-        XCTAssertNil(matrix.testingBackgroundColor(
-            rowID: .known(
-                locus: zeroSupport.locusGroup,
-                genotype: zeroSupportGenotype
-            ),
-            column: .sample("AnimalA")
-        ))
-        XCTAssertNil(matrix.testingBackgroundColor(
-            rowID: .known(
-                locus: named.locusGroup,
-                genotype: namedGenotype
-            ),
-            column: .sample("AnimalB")
-        ))
     }
 
     func testMHCCandidateTintIsBelowKnownAnnotationAndSelectionFocus() throws {
@@ -22138,7 +22232,8 @@ final class GenotypeResultViewportTests: XCTestCase {
         referenceMetadata: ONTGenotypeReferenceMetadata? = nil,
         mhcCandidateGenBankArtifactURLs: ONTMHCCandidateGenBankArtifactURLs = .empty,
         provisionalExon2SequencesByGenotype:
-            [String: ONTGenotypeProvisionalExon2Sequence] = [:]
+            [String: ONTGenotypeProvisionalExon2Sequence] = [:],
+        kind: GenotypeResultWorkflowKind = .fullLengthONTMHCGenotype
     ) -> ONTGenotypeResultBundleData {
         let sampleIDs = Set(calls.map(\.sample) + observations.map(\.sampleID))
         let samples = sampleIDs.sorted().map { sample in
@@ -22166,7 +22261,7 @@ final class GenotypeResultViewportTests: XCTestCase {
             bundleURL: bundleURL,
             samples: samples,
             calls: calls,
-            kind: "full-length-ont-mhc-genotype",
+            kind: kind.rawValue,
             mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest(
                 schemaVersion: candidateArtifactManifestSchemaVersion,
                 genotypingEvidence: ONTMHCBAMArtifactPair(

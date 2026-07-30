@@ -5558,13 +5558,33 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
 
         guard displayState.cellColorMode == .support,
-              let sample = sampleColumnLookup[identifier],
-              let support = supportByRowAndSample[row.id]?[sample],
-              support.passedUniqueReads > 0 else {
+              let sample = sampleColumnLookup[identifier] else {
             return nil
         }
 
-        return NSColor.systemBlue.withAlphaComponent(0.20)
+        if manualHaplotypeEditingEligible {
+            guard let support = supportByRowAndSample[row.id]?[sample],
+                  support.passedUniqueReads > 0 else {
+                return nil
+            }
+            return NSColor.systemBlue.withAlphaComponent(0.20)
+        }
+
+        // Authoritative haplotyped results keep their established known-call
+        // heatmap. The fixed fill is a genotype-only review affordance.
+        guard row.population == .known,
+              let fraction = supportFractionByCell[
+                CellKey(
+                    locus: row.locus,
+                    genotype: row.genotype,
+                    sample: sample,
+                    stableClusterID: row.stableClusterID
+                )
+              ] else {
+            return nil
+        }
+        let alpha = min(0.20, max(0.06, 0.05 + fraction * 0.22))
+        return NSColor.systemBlue.withAlphaComponent(alpha)
     }
 
     private func borderColor(
