@@ -135,6 +135,7 @@ struct GenotypeManualHaplotypeDraft: Equatable, Sendable {
     enum SelectiveCopySkipReason: Equatable, Sendable {
         case sourceMissing
         case sourceChanged
+        case targetChanged
         case hiddenMetadataRequiresSavedClear
     }
 

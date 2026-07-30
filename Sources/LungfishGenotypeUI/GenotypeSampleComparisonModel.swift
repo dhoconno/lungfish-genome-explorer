@@ -148,8 +148,6 @@ final class GenotypeSampleComparisonModel: ObservableObject {
     private let stageSelectedAssignments:
         ((PendingSelectiveCopy) ->
             GenotypeManualHaplotypeDraft.SelectiveCopyResult)?
-    private let isDraftDirty: () -> Bool
-    private let legacyStageAssignments: ((String) -> Void)?
 
 #if DEBUG
     private(set) var candidateSearchKeyBuildCount = 0
@@ -171,6 +169,16 @@ final class GenotypeSampleComparisonModel: ObservableObject {
             && !selectedSlotAddresses.isEmpty
     }
 
+    var isInteractionPending: Bool {
+        pendingSelectiveCopy != nil
+    }
+
+    var readOnlyStatus: String? {
+        guard isReadOnly else { return nil }
+        return "This bundle is read-only. You can compare assignments, "
+            + "but you cannot stage or save changes."
+    }
+
     init(
         targetSample: String,
         targetRows: [GenotypeSampleEvidenceRow],
@@ -178,19 +186,15 @@ final class GenotypeSampleComparisonModel: ObservableObject {
             GenotypeManualHaplotypeEditorModel.CopyCandidate
         ],
         orderedVisibleRowIDs: [GenotypeCandidateMatrixRowID]? = nil,
-        rowsForSource: @escaping (String) -> [GenotypeSampleEvidenceRow],
-        isDraftDirty: @escaping () -> Bool,
-        stageAssignments: @escaping (String) -> Void
+        rowsForSource: @escaping (String) -> [GenotypeSampleEvidenceRow]
     ) {
         self.targetSample = targetSample
         self.targetRows = targetRows
         self.orderedVisibleRowIDs = orderedVisibleRowIDs
         self.rowsForSource = rowsForSource
-        self.isDraftDirty = isDraftDirty
-        self.legacyStageAssignments = stageAssignments
         self.targetSlots = [:]
         self.targetDraftRevision = UUID()
-        self.isReadOnly = false
+        self.isReadOnly = true
         self.assignmentsForSource = nil
         self.selectedSourceAssignments = nil
         self.stageSelectedAssignments = nil
@@ -237,8 +241,6 @@ final class GenotypeSampleComparisonModel: ObservableObject {
         self.assignmentsForSource = assignmentsForSource
         self.selectedSourceAssignments = nil
         self.stageSelectedAssignments = stageSelectedAssignments
-        self.isDraftDirty = { false }
-        self.legacyStageAssignments = nil
 
         let records = Self.candidateRecords(
             from: candidates,
@@ -368,9 +370,25 @@ final class GenotypeSampleComparisonModel: ObservableObject {
         pendingSelectiveCopy = request
         pendingSource = selectedSource
         let count = addresses.count
+        let selectedSlots = addresses
+            .sorted {
+                let lhsLocus = GenotypeManualHaplotypeLocus.allCases
+                    .firstIndex(of: $0.locus) ?? 0
+                let rhsLocus = GenotypeManualHaplotypeLocus.allCases
+                    .firstIndex(of: $1.locus) ?? 0
+                if lhsLocus != rhsLocus {
+                    return lhsLocus < rhsLocus
+                }
+                return $0.slot == .h1 && $1.slot == .h2
+            }
+            .map {
+                "\($0.locus.workbookLabel) \($0.slot.displayName)"
+            }
+            .joined(separator: ", ")
         confirmationText =
             "Stage \(count) selected assignment"
-            + "\(count == 1 ? "" : "s") from \(selectedSource)?"
+            + "\(count == 1 ? "" : "s") from \(selectedSource): "
+            + "\(selectedSlots)?"
     }
 
     func confirmStageSelected() {
@@ -387,52 +405,23 @@ final class GenotypeSampleComparisonModel: ObservableObject {
 
         let applied = result.applied.count
         let skipped = result.skipped.count
-        stagedStatus =
-            "\(applied) assignment\(applied == 1 ? "" : "s") staged, "
-            + "\(skipped) skipped from \(request.sourceSample)."
+        if !result.skipped.isEmpty,
+           result.skipped.allSatisfy({
+               $0.reason == .targetChanged
+           }) {
+            stagedStatus =
+                "Assignments changed while confirmation was open. "
+                + "Review the current target choices and try again."
+        } else {
+            stagedStatus =
+                "\(applied) assignment\(applied == 1 ? "" : "s") staged, "
+                + "\(skipped) skipped from \(request.sourceSample)."
+        }
     }
 
     func cancelStageSelected() {
         guard pendingSelectiveCopy != nil else { return }
         pendingSelectiveCopy = nil
-        pendingSource = nil
-        confirmationText = nil
-    }
-
-    func requestUseAssignments() {
-        if stageSelectedAssignments != nil {
-            requestStageSelected()
-            return
-        }
-        guard pendingSource == nil,
-              let selectedSource else {
-            return
-        }
-        pendingSource = selectedSource
-        if isDraftDirty() {
-            confirmationText =
-                "Replace the current draft with all 14 haplotype slots from "
-                + "\(selectedSource)? Blank source slots will clear the "
-                + "corresponding draft slots."
-            return
-        }
-        consumePendingCopy()
-    }
-
-    func confirmUseAssignments() {
-        if pendingSelectiveCopy != nil {
-            confirmStageSelected()
-            return
-        }
-        guard pendingSource != nil else { return }
-        consumePendingCopy()
-    }
-
-    func cancelUseAssignments() {
-        if pendingSelectiveCopy != nil {
-            cancelStageSelected()
-            return
-        }
         pendingSource = nil
         confirmationText = nil
     }
@@ -538,17 +527,6 @@ final class GenotypeSampleComparisonModel: ObservableObject {
 
     func saveCompleted() {
         stagedStatus = nil
-    }
-
-    private func consumePendingCopy() {
-        guard let source = pendingSource,
-              let legacyStageAssignments else {
-            return
-        }
-        pendingSource = nil
-        confirmationText = nil
-        legacyStageAssignments(source)
-        stagedStatus = "Assignments staged from \(source)."
     }
 
     private func rebuildAssignmentChoices() {

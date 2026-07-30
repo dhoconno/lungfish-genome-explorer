@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import LungfishIO
 import LungfishKit
 import SwiftUI
 
@@ -88,14 +89,17 @@ struct GenotypeSampleComparisonPanel: View {
             sourceSelector
             if let source = model.selectedSource {
                 summary(source: source)
+                assignmentChooser
                 rows
                 GenotypeSampleComparisonActionButton(
-                    title: "Use \(source) Assignments",
+                    title:
+                        "Stage \(model.selectedSlotAddresses.count) "
+                        + "Selected Assignments",
                     font: typographyModel.resolvedNSFont(for: .body),
-                    isEnabled: model.pendingSource == nil,
+                    isEnabled: model.canStageSelected,
                     accessibilityIdentifier:
-                        "sample-comparison-use-assignments",
-                    action: model.requestUseAssignments
+                        "sample-comparison-stage-selected",
+                    action: model.requestStageSelected
                 )
             } else {
                 Text("Choose a source sample to compare genotypes.")
@@ -103,11 +107,25 @@ struct GenotypeSampleComparisonPanel: View {
                     .foregroundStyle(.secondary)
             }
             if let status = model.stagedStatus {
-                Label(status, systemImage: "checkmark.circle")
+                Label(
+                    status,
+                    systemImage:
+                        status.contains("Review")
+                        ? "exclamationmark.triangle"
+                        : "checkmark.circle"
+                )
                     .font(captionFont)
                     .foregroundStyle(.secondary)
                     .accessibilityIdentifier(
                         "sample-comparison-staged-status"
+                    )
+            }
+            if let readOnlyStatus = model.readOnlyStatus {
+                Label(readOnlyStatus, systemImage: "lock")
+                    .font(captionFont)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier(
+                        "sample-comparison-read-only-status"
                     )
             }
         }
@@ -126,17 +144,17 @@ struct GenotypeSampleComparisonPanel: View {
                 get: { model.confirmationText != nil },
                 set: { presented in
                     if !presented, model.confirmationText != nil {
-                        model.cancelUseAssignments()
+                        model.cancelStageSelected()
                     }
                 }
             ),
             titleVisibility: .visible
         ) {
-            Button("Replace Draft", role: .destructive) {
-                model.confirmUseAssignments()
+            Button("Stage Selected Assignments") {
+                model.confirmStageSelected()
             }
             Button("Cancel", role: .cancel) {
-                model.cancelUseAssignments()
+                model.cancelStageSelected()
             }
         }
         .fixedSize(horizontal: false, vertical: true)
@@ -157,6 +175,7 @@ struct GenotypeSampleComparisonPanel: View {
                 onMove: moveKeyboardHighlight,
                 onCommit: selectKeyboardHighlightedSource
             )
+            .disabled(model.isInteractionPending)
             .frame(
                 minHeight: max(
                     22,
@@ -217,6 +236,7 @@ struct GenotypeSampleComparisonPanel: View {
                                             )
                                     )
                                 }
+                                .disabled(model.isInteractionPending)
                                 .buttonStyle(.plain)
                                 .accessibilityLabel(
                                     candidate.accessibilityLabel
@@ -251,6 +271,152 @@ struct GenotypeSampleComparisonPanel: View {
             }
         }
         .background(GenotypeSampleSourceSelectorIdentityView())
+    }
+
+    private var assignmentChooser: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("Choose Haplotype Assignments")
+                    .font(headingFont)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer(minLength: 4)
+                GenotypeSampleComparisonActionButton(
+                    title: "Select All Assigned",
+                    font: typographyModel.resolvedNSFont(for: .caption),
+                    isEnabled:
+                        !model.isInteractionPending
+                        && model.assignmentChoices.contains(
+                            where: \.isSelectable
+                        ),
+                    accessibilityIdentifier:
+                        "sample-comparison-select-all-assigned",
+                    action: model.selectAllAssigned
+                )
+            }
+            Text(
+                "Select only the locus and haplotype slots you want to "
+                    + "stage. Nothing is selected automatically."
+            )
+            .font(captionFont)
+            .foregroundStyle(.secondary)
+
+            LazyVStack(alignment: .leading, spacing: 8) {
+                ForEach(
+                    GenotypeManualHaplotypeLocus.allCases,
+                    id: \.self
+                ) { locus in
+                    assignmentLocus(locus)
+                }
+            }
+            .accessibilityIdentifier(
+                "sample-comparison-assignment-chooser"
+            )
+        }
+    }
+
+    private func assignmentLocus(
+        _ locus: GenotypeManualHaplotypeLocus
+    ) -> some View {
+        let choices = model.assignmentChoices.filter {
+            $0.address.locus == locus
+        }
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .center, spacing: 8) {
+                Text(locus.workbookLabel)
+                    .font(headingFont)
+                Spacer(minLength: 4)
+                GenotypeSampleComparisonActionButton(
+                    title: "Select Assigned",
+                    font: typographyModel.resolvedNSFont(for: .caption),
+                    isEnabled:
+                        !model.isInteractionPending
+                        && choices.contains(where: \.isSelectable),
+                    accessibilityIdentifier:
+                        "sample-comparison-select-locus-"
+                        + locus.rawValue,
+                    action: { model.selectAssigned(in: locus) }
+                )
+            }
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 8) {
+                    ForEach(choices) { choice in
+                        assignmentChoice(choice)
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                VStack(alignment: .leading, spacing: 5) {
+                    ForEach(choices) { choice in
+                        assignmentChoice(choice)
+                    }
+                }
+            }
+            Divider()
+        }
+    }
+
+    private func assignmentChoice(
+        _ choice: GenotypeSampleComparisonModel.AssignmentChoice
+    ) -> some View {
+        let description = assignmentChoiceDescription(choice)
+        return HStack(alignment: .top, spacing: 6) {
+            GenotypeSampleAssignmentCheckbox(
+                isOn: model.selectedSlotAddresses.contains(
+                    choice.address
+                ),
+                isEnabled:
+                    choice.isSelectable
+                    && !model.isInteractionPending,
+                accessibilityIdentifier:
+                    "sample-comparison-choice-"
+                    + choice.address.locus.rawValue
+                    + "-"
+                    + choice.address.slot.rawValue,
+                accessibilityLabel:
+                    "\(choice.address.locus.workbookLabel) "
+                    + "\(choice.address.slot.displayName). "
+                    + description,
+                accessibilityValue: description,
+                onChange: {
+                    model.setSelected($0, at: choice.address)
+                }
+            )
+            VStack(alignment: .leading, spacing: 1) {
+                Text(choice.address.slot.displayName)
+                    .font(headingFont)
+                Text(description)
+                    .font(captionFont)
+                    .foregroundStyle(
+                        choice.isSelectable ? .primary : .secondary
+                    )
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .accessibilityHidden(true)
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private func assignmentChoiceDescription(
+        _ choice: GenotypeSampleComparisonModel.AssignmentChoice
+    ) -> String {
+        let source = choice.sourceLabel ?? "Unassigned"
+        let target = choice.targetLabel ?? "Unassigned"
+        let outcome: String
+        if choice.sourceLabel == nil {
+            outcome = "Source slot is unassigned."
+        } else {
+            switch choice.outcome {
+            case .fillsEmpty:
+                outcome = "Fills empty slot."
+            case .replaces(let label):
+                outcome = "Replaces \(label)."
+            case .sameAssignment:
+                outcome = "Same assignment."
+            case .unavailableHiddenMetadata:
+                outcome =
+                    "Unavailable until hidden legacy metadata is cleared."
+            }
+        }
+        return "Source: \(source). Target: \(target). \(outcome)"
     }
 
     private func moveKeyboardHighlight(_ direction: Int) -> Bool {
@@ -865,8 +1031,102 @@ private struct GenotypeSampleComparisonActionButton:
     final class InteractionButton: NSButton {
         var allowsUserInteraction = true
 
+        override var isEnabled: Bool {
+            get { allowsUserInteraction && super.isEnabled }
+            set { super.isEnabled = newValue }
+        }
+
         override func hitTest(_ point: NSPoint) -> NSView? {
             allowsUserInteraction ? super.hitTest(point) : nil
+        }
+    }
+}
+
+@MainActor
+private struct GenotypeSampleAssignmentCheckbox:
+    NSViewRepresentable
+{
+    let isOn: Bool
+    let isEnabled: Bool
+    let accessibilityIdentifier: String
+    let accessibilityLabel: String
+    let accessibilityValue: String
+    let onChange: (Bool) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onChange: onChange)
+    }
+
+    func makeNSView(context: Context) -> KeyboardCheckbox {
+        let button = KeyboardCheckbox(
+            checkboxWithTitle: "",
+            target: context.coordinator,
+            action: #selector(Coordinator.performAction(_:))
+        )
+        button.controlSize = .small
+        configure(button, coordinator: context.coordinator)
+        return button
+    }
+
+    func updateNSView(
+        _ button: KeyboardCheckbox,
+        context: Context
+    ) {
+        configure(button, coordinator: context.coordinator)
+    }
+
+    private func configure(
+        _ button: KeyboardCheckbox,
+        coordinator: Coordinator
+    ) {
+        coordinator.onChange = onChange
+        button.state = isOn ? .on : .off
+        button.interactionEnabled = isEnabled
+        button.isEnabled = isEnabled
+        button.setAccessibilityElement(true)
+        button.setAccessibilityRole(.checkBox)
+        button.setAccessibilityLabel(accessibilityLabel)
+        button.setAccessibilityValue(
+            "\(isOn ? "Selected" : "Not selected"). "
+                + accessibilityValue
+        )
+        button.setAccessibilityIdentifier(accessibilityIdentifier)
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        var onChange: (Bool) -> Void
+
+        init(onChange: @escaping (Bool) -> Void) {
+            self.onChange = onChange
+        }
+
+        @objc func performAction(_ sender: NSButton) {
+            onChange(sender.state == .on)
+        }
+    }
+
+    @MainActor
+    final class KeyboardCheckbox: NSButton {
+        override var acceptsFirstResponder: Bool { isEnabled }
+        var interactionEnabled = true {
+            didSet { super.isEnabled = interactionEnabled }
+        }
+
+        override var isEnabled: Bool {
+            get { interactionEnabled && super.isEnabled }
+            set { super.isEnabled = newValue }
+        }
+
+        override func keyDown(with event: NSEvent) {
+            switch event.keyCode {
+            case 123, 126:
+                window?.selectPreviousKeyView(self)
+            case 124, 125:
+                window?.selectNextKeyView(self)
+            default:
+                super.keyDown(with: event)
+            }
         }
     }
 }

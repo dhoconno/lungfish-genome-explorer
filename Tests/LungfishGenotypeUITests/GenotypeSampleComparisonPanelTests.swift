@@ -131,9 +131,7 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
             orderedVisibleRowIDs: matrix.visibleComparisonRowIDs,
             rowsForSource: {
                 matrix.visibleSampleEvidenceRows(sample: $0)
-            },
-            isDraftDirty: { false },
-            stageAssignments: { _ in }
+            }
         )
         model.selectSource("Source")
         let mounted = mount(model: model, width: 841)
@@ -206,6 +204,10 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
         )
         let comparison = makeComparison()
         comparison.selectSource("Source")
+        comparison.setSelected(
+            true,
+            at: .init(locus: .a, slot: .h1)
+        )
         let trailing = GenotypeSampleCurationTrailingModel(
             evidenceSnapshot: .init(rows: []),
             comparison: comparison
@@ -223,7 +225,7 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
                 "sample-comparison-back-to-evidence",
                 "sample-comparison-source-search",
                 "sample-comparison-source-selector",
-                "sample-comparison-use-assignments",
+                "sample-comparison-stage-selected",
             ]
         )
 
@@ -276,6 +278,147 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
         }
     }
 
+    func testMountedSelectiveChooserExposesFourteenStableChoicesAndStagesOnlySelection()
+        throws
+    {
+        var staged: [
+            GenotypeSampleComparisonModel.PendingSelectiveCopy
+        ] = []
+        let model = makeSelectiveComparison(stage: {
+            staged.append($0)
+            return .init(applied: $0.addresses, skipped: [])
+        })
+        model.selectSource("Source")
+        let mounted = mount(model: model, width: 841)
+        defer { mounted.window.close() }
+
+        let choiceIdentifiers = Set(
+            descendants(of: mounted.host).compactMap {
+                $0.accessibilityIdentifier()
+            }.filter {
+                $0.hasPrefix("sample-comparison-choice-")
+            }
+        )
+        XCTAssertEqual(choiceIdentifiers.count, 14)
+        XCTAssertEqual(
+            choiceIdentifiers,
+            Set(
+                GenotypeManualHaplotypeDraft.orderedSlotAddresses.map {
+                    "sample-comparison-choice-\($0.locus.rawValue)-"
+                        + $0.slot.rawValue
+                }
+            )
+        )
+        XCTAssertTrue(model.selectedSlotAddresses.isEmpty)
+
+        let stage = try XCTUnwrap(
+            concreteButton(
+                identifier: "sample-comparison-stage-selected",
+                in: mounted.host
+            )
+        )
+        XCTAssertEqual(stage.title, "Stage 0 Selected Assignments")
+        XCTAssertFalse(stage.isEnabled)
+
+        let aH1 = try XCTUnwrap(
+            concreteButton(
+                identifier: "sample-comparison-choice-MHC-A-h1",
+                in: mounted.host
+            )
+        )
+        let aH1Value = aH1.accessibilityValue() as? String
+        XCTAssertTrue(
+            aH1Value?.contains(
+                "Source: Source A1. Target: Unassigned. Fills empty slot."
+            ) == true,
+            aH1Value ?? "nil"
+        )
+        aH1.performClick(nil)
+        flush(mounted.host)
+        XCTAssertEqual(stage.title, "Stage 1 Selected Assignments")
+        XCTAssertTrue(stage.isEnabled)
+
+        let selectA = try XCTUnwrap(
+            concreteButton(
+                identifier: "sample-comparison-select-locus-MHC-A",
+                in: mounted.host
+            )
+        )
+        selectA.performClick(nil)
+        flush(mounted.host)
+        XCTAssertEqual(stage.title, "Stage 2 Selected Assignments")
+
+        stage.performClick(nil)
+        flush(mounted.host)
+        XCTAssertNotNil(model.pendingSelectiveCopy)
+        XCTAssertFalse(stage.isEnabled)
+        XCTAssertFalse(aH1.isEnabled)
+        let search = try XCTUnwrap(
+            descendants(of: mounted.host).first {
+                $0.accessibilityIdentifier()
+                    == "sample-comparison-source-search"
+            } as? NSSearchField
+        )
+        XCTAssertFalse(search.isEnabled)
+
+        model.confirmStageSelected()
+        flush(mounted.host)
+        XCTAssertEqual(staged.count, 1)
+        XCTAssertEqual(
+            staged.first?.addresses,
+            [
+                .init(locus: .a, slot: .h1),
+                .init(locus: .a, slot: .h2),
+            ]
+        )
+    }
+
+    func testSelectiveChooserShowsReplaceSameAndUnavailableReasonsAndReflowsAtTwoHundredPercent()
+        throws
+    {
+        let model = makeSelectiveComparison()
+        model.selectSource("Source")
+        let notifications = NotificationCenter()
+        let preference = MutableComparisonTextSizePreference(.custom(200))
+        let typography = ContentTypographyModel(
+            notificationCenter: notifications,
+            preferenceProvider: { preference.value },
+            preferredFontProvider:
+                ComparisonPreferredFontProvider(pointSize: 13)
+        )
+        let mounted = mount(
+            model: model,
+            width: 420,
+            typography: typography
+        )
+        defer { mounted.window.close() }
+        flush(mounted.host)
+
+        let labels = accessibilityLabels(in: mounted.host)
+        XCTAssertTrue(labels.contains {
+            $0.contains("Replaces Target A2")
+        }, "\(labels)")
+        XCTAssertTrue(labels.contains {
+            $0.contains("Same assignment")
+        }, "\(labels)")
+        XCTAssertTrue(labels.contains {
+            $0.contains("Unavailable until hidden legacy metadata is cleared")
+        }, "\(labels)")
+
+        let choiceViews = descendants(of: mounted.host).filter {
+            $0.accessibilityIdentifier()
+                .hasPrefix("sample-comparison-choice-")
+        }
+        XCTAssertEqual(choiceViews.count, 14)
+        let choiceFrames = choiceViews.map {
+            $0.convert($0.bounds, to: mounted.host)
+        }
+        XCTAssertTrue(choiceFrames.allSatisfy { frame in
+            return frame.minX >= -4
+                && frame.maxX <= mounted.host.bounds.maxX + 4
+        }, "\(choiceFrames), host=\(mounted.host.bounds)")
+    }
+
     func testEvidenceCompareEvidenceCycleKeepsBothModeTreesMounted() {
         let comparison = makeComparison()
         comparison.selectSource("Source")
@@ -324,11 +467,14 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
     }
 
     func testModeActionsAreConcreteStableButtonsAndInactiveModeIsDisabled() {
-        var staged: [String] = []
+        var staged:
+            [GenotypeSampleComparisonModel.PendingSelectiveCopy] = []
         let comparison = makeComparison(stage: {
             staged.append($0)
+            return .init(applied: $0.addresses, skipped: [])
         })
         comparison.selectSource("Source")
+        comparison.selectAllAssigned()
         let trailing = GenotypeSampleCurationTrailingModel(
             evidenceSnapshot: .init(rows: []),
             comparison: comparison
@@ -345,7 +491,7 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
             in: host
         ),
         let use = concreteButton(
-            identifier: "sample-comparison-use-assignments",
+            identifier: "sample-comparison-stage-selected",
             in: host
         ),
         let search = descendants(of: host).first(where: {
@@ -373,7 +519,9 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
         assertComparisonControlsArePresentInAXTree(host: host)
 
         use.performClick(nil)
-        XCTAssertEqual(staged, ["Source"])
+        comparison.confirmStageSelected()
+        XCTAssertEqual(staged.count, 1)
+        XCTAssertEqual(staged.first?.sourceSample, "Source")
         back.performClick(nil)
         flush(host)
         XCTAssertEqual(trailing.mode, .evidence)
@@ -388,7 +536,7 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
         )
         XCTAssertTrue(
             use === concreteButton(
-                identifier: "sample-comparison-use-assignments",
+                identifier: "sample-comparison-stage-selected",
                 in: host
             )
         )
@@ -633,33 +781,27 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
         )
     }
 
-    func testUseAssignmentsStagesOnlyAfterDirtyConfirmationAndCancelIsNoOp() {
-        var dirty = true
-        var staged: [String] = []
-        let model = makeComparison(
-            isDirty: { dirty },
-            stage: { staged.append($0) }
-        )
-        model.selectSource("Source")
-        model.requestUseAssignments()
-
-        XCTAssertNotNil(model.confirmationText)
-        XCTAssertTrue(staged.isEmpty)
-        model.cancelUseAssignments()
-        XCTAssertTrue(staged.isEmpty)
-        XCTAssertNil(model.pendingSource)
-
-        model.requestUseAssignments()
-        model.confirmUseAssignments()
-        XCTAssertEqual(staged, ["Source"])
-        dirty = false
-    }
-
     private func makeComparison(
-        isDirty: @escaping () -> Bool = { false },
-        stage: @escaping (String) -> Void = { _ in }
+        stage: @escaping (
+            GenotypeSampleComparisonModel.PendingSelectiveCopy
+        ) -> GenotypeManualHaplotypeDraft.SelectiveCopyResult = {
+            .init(applied: $0.addresses, skipped: [])
+        }
     ) -> GenotypeSampleComparisonModel {
-        GenotypeSampleComparisonModel(
+        let source = assignment(
+            sample: "Source",
+            locus: .a,
+            slot: .h1,
+            label: "Source A1"
+        )
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: [source]
+        )
+        let targetDraft = GenotypeManualHaplotypeDraft(
+            sample: "Target",
+            index: index
+        )
+        return GenotypeSampleComparisonModel(
             targetSample: "Target",
             targetRows: [
                 row(id: targetID, allele: "Target only", reads: 9),
@@ -696,8 +838,19 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
                     ),
                 ]
             },
-            isDraftDirty: isDirty,
-            stageAssignments: stage
+            targetSlots: Dictionary(
+                uniqueKeysWithValues: targetDraft.slotSnapshots.map {
+                    ($0.address, $0)
+                }
+            ),
+            targetDraftRevision: UUID(),
+            isReadOnly: false,
+            assignmentsForSource: {
+                $0 == "Source"
+                    ? index.sampleAssignments(for: "Source")
+                    : nil
+            },
+            stageSelectedAssignments: stage
         )
     }
 
@@ -722,9 +875,120 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
                 row(id: targetID, allele: "Target only", reads: 9),
             ],
             candidates: candidates,
+            rowsForSource: { _ in [] }
+        )
+    }
+
+    private func makeSelectiveComparison(
+        isReadOnly: Bool = false,
+        stage: @escaping (
+            GenotypeSampleComparisonModel.PendingSelectiveCopy
+        ) -> GenotypeManualHaplotypeDraft.SelectiveCopyResult = {
+            .init(applied: $0.addresses, skipped: [])
+        }
+    ) -> GenotypeSampleComparisonModel {
+        let sourceAssignments = [
+            assignment(
+                sample: "Source",
+                locus: .a,
+                slot: .h1,
+                label: "Source A1"
+            ),
+            assignment(
+                sample: "Source",
+                locus: .a,
+                slot: .h2,
+                label: "Source A2"
+            ),
+            assignment(
+                sample: "Source",
+                locus: .b,
+                slot: .h1,
+                label: "Same B1"
+            ),
+            assignment(
+                sample: "Source",
+                locus: .drb,
+                slot: .h1,
+                label: "Source DRB1"
+            ),
+        ]
+        let targetAssignments = [
+            assignment(
+                sample: "Target",
+                locus: .a,
+                slot: .h2,
+                label: "Target A2"
+            ),
+            assignment(
+                sample: "Target",
+                locus: .b,
+                slot: .h1,
+                label: "Same B1"
+            ),
+            assignment(
+                sample: "Target",
+                locus: .drb,
+                slot: .h1,
+                label: "Protected DRB1",
+                notes: "Hidden legacy note"
+            ),
+        ]
+        let all = targetAssignments + sourceAssignments
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: all
+        )
+        let targetDraft = GenotypeManualHaplotypeDraft(
+            sample: "Target",
+            index: index
+        )
+        return GenotypeSampleComparisonModel(
+            targetSample: "Target",
+            targetRows: [
+                row(id: targetID, allele: "Target only", reads: 9),
+            ],
+            candidates: [
+                .init(
+                    sample: "Source",
+                    assignedSlotCount: 4,
+                    completenessSummary: "4 of 14 assigned",
+                    compactSummary: "A H1 Source A1",
+                    accessibilityLabel:
+                        "Source, 4 of 14 assigned, A H1 Source A1"
+                ),
+            ],
             rowsForSource: { _ in [] },
-            isDraftDirty: { false },
-            stageAssignments: { _ in }
+            targetSlots: Dictionary(
+                uniqueKeysWithValues: targetDraft.slotSnapshots.map {
+                    ($0.address, $0)
+                }
+            ),
+            targetDraftRevision: UUID(),
+            isReadOnly: isReadOnly,
+            assignmentsForSource: {
+                $0 == "Source"
+                    ? index.sampleAssignments(for: "Source")
+                    : nil
+            },
+            stageSelectedAssignments: stage
+        )
+    }
+
+    private func assignment(
+        sample: String,
+        locus: GenotypeManualHaplotypeLocus,
+        slot: HaplotypeSlot,
+        label: String,
+        notes: String = ""
+    ) -> ManualHaplotypeAssignment {
+        ManualHaplotypeAssignment(
+            sample: sample,
+            locus: locus.rawValue,
+            slot: slot,
+            label: label,
+            colorTokenIndex: 0,
+            diagnosticAlleles: [],
+            notes: notes
         )
     }
 
@@ -948,7 +1212,7 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
             "sample-comparison-back-to-evidence",
             "sample-comparison-source-search",
             "sample-comparison-source-selector",
-            "sample-comparison-use-assignments",
+            "sample-comparison-stage-selected",
         ]
         return Dictionary(uniqueKeysWithValues: identifiers.compactMap {
             identifier in
@@ -966,7 +1230,7 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
         for identifier in [
             "sample-comparison-back-to-evidence",
             "sample-comparison-source-search",
-            "sample-comparison-use-assignments",
+            "sample-comparison-stage-selected",
         ] {
             let control = descendants(of: host).first {
                 $0.accessibilityIdentifier() == identifier
@@ -988,7 +1252,7 @@ final class GenotypeSampleComparisonPanelTests: XCTestCase {
         for identifier in [
             "sample-comparison-back-to-evidence",
             "sample-comparison-source-search",
-            "sample-comparison-use-assignments",
+            "sample-comparison-stage-selected",
         ] {
             let control = descendants(of: host).first {
                 $0.accessibilityIdentifier() == identifier

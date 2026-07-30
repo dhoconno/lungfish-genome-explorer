@@ -601,9 +601,7 @@ final class GenotypeManualHaplotypePerformanceTests: XCTestCase {
             targetSample: "TARGET",
             targetRows: rows,
             candidates: candidates,
-            rowsForSource: { _ in rows },
-            isDraftDirty: { false },
-            stageAssignments: { _ in }
+            rowsForSource: { _ in rows }
         )
     }
 #endif
@@ -681,9 +679,7 @@ private final class MatrixInteractionHarness {
                             "\(secondarySample), 14 of 14 assigned"
                     ),
                 ],
-                rowsForSource: { _ in sourceRows },
-                isDraftDirty: { false },
-                stageAssignments: { _ in }
+                rowsForSource: { _ in sourceRows }
             )
         }
     }

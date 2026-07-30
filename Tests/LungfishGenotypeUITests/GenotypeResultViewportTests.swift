@@ -11375,7 +11375,7 @@ final class GenotypeResultViewportTests: XCTestCase {
                 "manual-haplotype-compare-copy",
                 "sample-comparison-back-to-evidence",
                 "sample-comparison-source-search",
-                "sample-comparison-use-assignments",
+                "sample-comparison-stage-selected",
             ]).isSubset(of: Set(controlIdentities.keys))
         )
 
@@ -12341,7 +12341,13 @@ final class GenotypeResultViewportTests: XCTestCase {
             )
         )
         flushMountedController(controller)
-        XCTAssertTrue(controller.testingPerformUseSampleAssignments())
+        controller.testingSetSampleComparisonAssignmentSelected(
+            true,
+            locus: .a,
+            slot: .h1
+        )
+        controller.testingRequestStageSelectedSampleAssignments()
+        controller.testingConfirmStageSelectedSampleAssignments()
         flushMountedController(controller)
 
         XCTAssertTrue(controller.testingManualHaplotypeEditorIsDirty)
@@ -21247,7 +21253,13 @@ final class GenotypeResultViewportTests: XCTestCase {
                 kind.rawValue
             )
 
-            controller.testingRequestUseSampleAssignments()
+            controller.testingSetSampleComparisonAssignmentSelected(
+                true,
+                locus: .a,
+                slot: .h1
+            )
+            controller.testingRequestStageSelectedSampleAssignments()
+            controller.testingConfirmStageSelectedSampleAssignments()
             XCTAssertTrue(
                 controller.testingManualHaplotypeEditorIsDirty,
                 kind.rawValue
@@ -21260,6 +21272,19 @@ final class GenotypeResultViewportTests: XCTestCase {
                 "Source haplotype with a deliberately wide label",
                 kind.rawValue
             )
+            let stagedButUnsaved = try ONTGenotypeResultBundleData
+                .loadOrCreateAnnotationSidecar(forBundleAt: bundleURL)
+            XCTAssertTrue(
+                stagedButUnsaved.manualHaplotypeAssignments
+                    .filter { $0.sample == "Target" }
+                    .isEmpty,
+                kind.rawValue
+            )
+            XCTAssertFalse(
+                controller.testingCurrentWorkbookNeedsRefresh,
+                kind.rawValue
+            )
+            XCTAssertTrue(workbookActions.isEmpty, kind.rawValue)
             controller.testingSaveManualHaplotypeDraft()
 
             XCTAssertFalse(
@@ -21376,7 +21401,13 @@ final class GenotypeResultViewportTests: XCTestCase {
             controller.testingSampleComparisonRows.map(\.allele),
             [genotype]
         )
-        controller.testingRequestUseSampleAssignments()
+        controller.testingSetSampleComparisonAssignmentSelected(
+            true,
+            locus: .a,
+            slot: .h1
+        )
+        controller.testingRequestStageSelectedSampleAssignments()
+        controller.testingConfirmStageSelectedSampleAssignments()
         controller.testingSaveManualHaplotypeDraft()
         controller.testingSelectMatrixCell(
             genotype: genotype,

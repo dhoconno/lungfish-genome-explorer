@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import LungfishCore
 import LungfishIO
@@ -317,6 +318,8 @@ public final class GenotypeResultViewController: NSViewController {
         GenotypeManualHaplotypeEditorModel?
     private var sampleComparisonModel:
         GenotypeSampleComparisonModel?
+    private var manualHaplotypeDraftRevisionCancellable:
+        AnyCancellable?
     private var sampleCurationTrailingModel:
         GenotypeSampleCurationTrailingModel?
     private weak var manualHaplotypeEditorHostView: NSView?
@@ -3828,6 +3831,7 @@ public final class GenotypeResultViewController: NSViewController {
         currentSelectedSample = nil
         manualHaplotypeEditorModel = nil
         sampleComparisonModel = nil
+        manualHaplotypeDraftRevisionCancellable = nil
         sampleCurationTrailingModel = nil
         manualHaplotypeEditorHostView = nil
         alleleSequenceDetailWidthConstraint?.isActive = false
@@ -4078,6 +4082,7 @@ public final class GenotypeResultViewController: NSViewController {
         }
         manualHaplotypeEditorModel = nil
         sampleComparisonModel = nil
+        manualHaplotypeDraftRevisionCancellable = nil
         sampleCurationTrailingModel = nil
         manualHaplotypeEditorHostView = nil
         removeArrangedSubviews(from: detailStack)
@@ -5921,11 +5926,26 @@ public final class GenotypeResultViewController: NSViewController {
                     reload: false
                 )
                 self.rebuildArtifactLens()
-                return self.manualHaplotypeEditorSnapshot(
+                let snapshot = self.manualHaplotypeEditorSnapshot(
                     sample: sample,
                     result: currentResult,
                     store: reloadedStore
                 )
+                DispatchQueue.main.async { [weak self] in
+                    guard let self,
+                          let editor =
+                            self.manualHaplotypeEditorModel else {
+                        return
+                    }
+                    self.sampleComparisonModel?.refreshCandidates(
+                        editor.copyCandidates,
+                        assignmentsForSource: {
+                            [weak editor] source in
+                            editor?.copyAssignmentsSnapshot(for: source)
+                        }
+                    )
+                }
+                return snapshot
             },
             onDidSave: { [weak self] in
                 self?.sampleComparisonModel?.saveCompleted()
@@ -5946,14 +5966,51 @@ public final class GenotypeResultViewController: NSViewController {
                     sample: source
                 ) ?? []
             },
-            isDraftDirty: { [weak model] in
-                model?.draft.isDirty == true
+            targetSlots: model.selectiveCopyTargetSlots,
+            targetDraftRevision: model.draftRevisionToken,
+            isReadOnly: model.isReadOnly,
+            assignmentsForSource: { [weak model] source in
+                model?.copyAssignmentsSnapshot(for: source)
             },
-            stageAssignments: { [weak model] source in
-                model?.copyAssignments(from: source)
+            stageSelectedAssignments: {
+                [weak self, weak model] request in
+                guard let model else {
+                    return .init(applied: [], skipped: [])
+                }
+                guard request.targetDraftRevision
+                        == model.draftRevisionToken else {
+                    self?.sampleComparisonModel?.refreshTargetDraft(
+                        slots: model.selectiveCopyTargetSlots,
+                        revision: model.draftRevisionToken
+                    )
+                    return .init(
+                        applied: [],
+                        skipped: request.addresses.map {
+                            .init(
+                                address: $0,
+                                reason: .targetChanged
+                            )
+                        }
+                    )
+                }
+                return model.stageSelectedAssignments(
+                    from: request.sourceSample,
+                    addresses: request.addresses,
+                    expectedSourceValues: request.sourceValues
+                )
             }
         )
         sampleComparisonModel = comparisonModel
+        manualHaplotypeDraftRevisionCancellable =
+            model.$draftRevisionToken
+                .dropFirst()
+                .sink { [weak model, weak comparisonModel] revision in
+                    guard let model else { return }
+                    comparisonModel?.refreshTargetDraft(
+                        slots: model.selectiveCopyTargetSlots,
+                        revision: revision
+                    )
+                }
         sampleCurationTrailingModel =
             GenotypeSampleCurationTrailingModel(
                 evidenceSnapshot: supportedAllelesSnapshot(
@@ -8896,6 +8953,7 @@ public final class GenotypeResultViewController: NSViewController {
         sampleSupportedAllelesSnapshot = nil
         manualHaplotypeEditorModel = nil
         sampleComparisonModel = nil
+        manualHaplotypeDraftRevisionCancellable = nil
         sampleCurationTrailingModel = nil
         manualHaplotypeEditorHostView = nil
     }
@@ -9304,8 +9362,23 @@ extension GenotypeResultViewController {
         sampleComparisonModel?.selectedSource
     }
 
-    func testingRequestUseSampleAssignments() {
-        sampleComparisonModel?.requestUseAssignments()
+    func testingSetSampleComparisonAssignmentSelected(
+        _ isSelected: Bool,
+        locus: GenotypeManualHaplotypeLocus,
+        slot: HaplotypeSlot
+    ) {
+        sampleComparisonModel?.setSelected(
+            isSelected,
+            at: .init(locus: locus, slot: slot)
+        )
+    }
+
+    func testingRequestStageSelectedSampleAssignments() {
+        sampleComparisonModel?.requestStageSelected()
+    }
+
+    func testingConfirmStageSelectedSampleAssignments() {
+        sampleComparisonModel?.confirmStageSelected()
     }
 
     var testingSampleComparisonRowIDs:
@@ -9327,7 +9400,7 @@ extension GenotypeResultViewController {
             "sample-comparison-back-to-evidence",
             "sample-comparison-source-search",
             "sample-comparison-source-selector",
-            "sample-comparison-use-assignments",
+            "sample-comparison-stage-selected",
         ]
         return Dictionary(
             uniqueKeysWithValues: identifiers.compactMap { identifier in
@@ -9395,23 +9468,6 @@ extension GenotypeResultViewController {
         editor.doCommand(by: #selector(NSResponder.moveDown(_:)))
         editor.doCommand(by: #selector(NSResponder.insertNewline(_:)))
         return sampleComparisonModel?.selectedSource == sample
-    }
-
-    @discardableResult
-    func testingPerformUseSampleAssignments() -> Bool {
-        guard let workbench = sampleCurationWorkbench,
-              let control = descendantView(
-                in: workbench,
-                accessibilityIdentifier:
-                    "sample-comparison-use-assignments"
-              ) else {
-            return false
-        }
-        if let button = control as? NSButton {
-            button.performClick(nil)
-            return true
-        }
-        return control.accessibilityPerformPress()
     }
 
     func testingManualHaplotypeDraftLabel(

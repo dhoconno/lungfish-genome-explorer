@@ -226,9 +226,7 @@ final class GenotypeSampleComparisonModelTests: XCTestCase {
             rowsForSource: { _ in
                 sourceBuilds += 1
                 return []
-            },
-            isDraftDirty: { false },
-            stageAssignments: { _ in }
+            }
         )
 
 #if DEBUG
@@ -261,9 +259,7 @@ final class GenotypeSampleComparisonModelTests: XCTestCase {
             rowsForSource: { sample in
                 builtSamples.append(sample)
                 return []
-            },
-            isDraftDirty: { false },
-            stageAssignments: { _ in }
+            }
         )
 
         model.selectSource("B")
@@ -631,6 +627,10 @@ final class GenotypeSampleComparisonModelTests: XCTestCase {
         model.selectAllAssigned()
         model.requestStageSelected()
         let request = model.pendingSelectiveCopy
+        XCTAssertTrue(
+            model.confirmationText?.contains("MHC-A H1, MHC-B H2")
+                == true
+        )
 
         model.setSelected(false, at: address(.a, .h1))
         model.selectSource("Source B")
@@ -669,6 +669,42 @@ final class GenotypeSampleComparisonModelTests: XCTestCase {
         XCTAssertEqual(
             model.stagedStatus,
             "1 assignment staged, 1 skipped from Source A."
+        )
+    }
+
+    func testStaleTargetRevisionReportsReviewStatusInsteadOfSuccess() {
+        let source = [
+            assignment(
+                sample: "Source",
+                locus: .a,
+                slot: .h1,
+                label: "A1"
+            ),
+        ]
+        let model = makeSelectiveModel(
+            sourceAssignments: source,
+            stage: { request in
+                .init(
+                    applied: [],
+                    skipped: request.addresses.map {
+                        .init(
+                            address: $0,
+                            reason: .targetChanged
+                        )
+                    }
+                )
+            }
+        )
+        model.selectSource("Source")
+        model.selectAllAssigned()
+        model.requestStageSelected()
+
+        model.confirmStageSelected()
+
+        XCTAssertEqual(
+            model.stagedStatus,
+            "Assignments changed while confirmation was open. "
+                + "Review the current target choices and try again."
         )
     }
 
@@ -727,14 +763,10 @@ final class GenotypeSampleComparisonModelTests: XCTestCase {
             rowsForSource: { sample in
                 requestedSources.append(sample)
                 return sample == "Source" ? sourceRows : []
-            },
-            isDraftDirty: { false },
-            stageAssignments: { _ in }
+            }
         )
         model.selectSource("Source")
-        model.requestUseAssignments()
         XCTAssertEqual(requestedSources, ["Source"])
-        XCTAssertEqual(model.stagedStatus, "Assignments staged from Source.")
 
         sourceRows = [
             row(
@@ -751,7 +783,7 @@ final class GenotypeSampleComparisonModelTests: XCTestCase {
 
         XCTAssertEqual(requestedSources, ["Source", "Source"])
         XCTAssertEqual(model.selectedSource, "Source")
-        XCTAssertEqual(model.stagedStatus, "Assignments staged from Source.")
+        XCTAssertNil(model.stagedStatus)
         XCTAssertEqual(
             model.comparisonRows.map(\.id),
             [sharedID, targetID, replacementSourceID]
@@ -767,16 +799,14 @@ final class GenotypeSampleComparisonModelTests: XCTestCase {
         targetRows: [GenotypeSampleEvidenceRow] = [],
         candidates: [GenotypeManualHaplotypeEditorModel.CopyCandidate] = [],
         rows: [String: [GenotypeSampleEvidenceRow]],
-        isDirty: @escaping () -> Bool = { false },
-        stage: @escaping (String) -> Void = { _ in }
+        isDirty _: @escaping () -> Bool = { false },
+        stage _: @escaping (String) -> Void = { _ in }
     ) -> GenotypeSampleComparisonModel {
         GenotypeSampleComparisonModel(
             targetSample: "Target",
             targetRows: targetRows,
             candidates: candidates,
-            rowsForSource: { rows[$0] ?? [] },
-            isDraftDirty: isDirty,
-            stageAssignments: stage
+            rowsForSource: { rows[$0] ?? [] }
         )
     }
 
