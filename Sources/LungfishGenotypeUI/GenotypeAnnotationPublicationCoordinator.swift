@@ -92,38 +92,11 @@ struct GenotypeAnnotationPublicationCoordinator {
     }
 
     private func readRegularFile(_ filename: String, directoryFD: Int32) throws -> Data? {
-        let url = bundleURL.appendingPathComponent(filename)
-        let descriptor = filename.withCString {
-            Darwin.openat(directoryFD, $0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
-        }
-        guard descriptor >= 0 else {
-            if errno == ENOENT { return nil }
-            if errno == ELOOP { throw GenotypeAnnotationPublicationCoordinatorError.unsafeFile(url.path) }
-            throw systemError("open publication file without following links", url.path)
-        }
-        defer { Darwin.close(descriptor) }
-        var status = stat()
-        guard Darwin.fstat(descriptor, &status) == 0,
-              status.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG) else {
-            throw GenotypeAnnotationPublicationCoordinatorError.unsafeFile(url.path)
-        }
-        var data = Data()
-        if status.st_size > 0, status.st_size <= Int.max {
-            data.reserveCapacity(Int(status.st_size))
-        }
-        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
-        while true {
-            let count = buffer.withUnsafeMutableBytes {
-                Darwin.read(descriptor, $0.baseAddress, $0.count)
-            }
-            if count == 0 { break }
-            if count < 0 {
-                if errno == EINTR { continue }
-                throw systemError("read publication file", url.path)
-            }
-            data.append(contentsOf: buffer.prefix(count))
-        }
-        return data
+        return try GenotypeAnnotationPublicationFileAccess.readFileIfPresent(
+            named: filename,
+            inBundleAt: bundleURL,
+            openedBundleDirectoryFD: directoryFD
+        )
     }
 
     private func atomicWrite(_ data: Data, filename: String, directoryFD: Int32) throws {
@@ -180,19 +153,11 @@ struct GenotypeAnnotationPublicationCoordinator {
     }
 
     private func validateExistingRegularFile(_ filename: String, directoryFD: Int32) throws {
-        var status = stat()
-        let result = filename.withCString {
-            Darwin.fstatat(directoryFD, $0, &status, AT_SYMLINK_NOFOLLOW)
-        }
-        if result == 0 {
-            guard status.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG) else {
-                throw GenotypeAnnotationPublicationCoordinatorError.unsafeFile(
-                    bundleURL.appendingPathComponent(filename).path
-                )
-            }
-        } else if errno != ENOENT {
-            throw systemError("inspect publication destination", bundleURL.appendingPathComponent(filename).path)
-        }
+        _ = try GenotypeAnnotationPublicationFileAccess.entryKind(
+            named: filename,
+            inBundleAt: bundleURL,
+            openedBundleDirectoryFD: directoryFD
+        )
     }
 
     private func rollback(

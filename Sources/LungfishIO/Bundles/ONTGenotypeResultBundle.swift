@@ -3857,65 +3857,10 @@ public extension ONTGenotypeResultBundleData {
     }
 
     private static func readAnnotationSidecarDataIfPresent(forBundleAt bundleURL: URL) throws -> Data? {
-        let directoryFD = bundleURL.path.withCString {
-            Darwin.open($0, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
-        }
-        guard directoryFD >= 0 else {
-            throw annotationSidecarPOSIXError(
-                operation: "open bundle directory without following symbolic links",
-                path: bundleURL.path
-            )
-        }
-        defer { Darwin.close(directoryFD) }
-
-        let filename = GenotypeAnnotationSidecar.filename
-        let sidecarFD = filename.withCString {
-            Darwin.openat(directoryFD, $0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
-        }
-        guard sidecarFD >= 0 else {
-            if errno == ENOENT { return nil }
-            throw annotationSidecarPOSIXError(
-                operation: "open annotation sidecar without following symbolic links",
-                path: annotationSidecarURL(forBundleAt: bundleURL).path
-            )
-        }
-        defer { Darwin.close(sidecarFD) }
-
-        var status = stat()
-        guard Darwin.fstat(sidecarFD, &status) == 0 else {
-            throw annotationSidecarPOSIXError(
-                operation: "inspect annotation sidecar",
-                path: annotationSidecarURL(forBundleAt: bundleURL).path
-            )
-        }
-        guard (status.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG) else {
-            throw annotationSidecarPOSIXError(
-                operation: "validate annotation sidecar as a regular file",
-                path: annotationSidecarURL(forBundleAt: bundleURL).path,
-                code: EINVAL
-            )
-        }
-
-        var data = Data()
-        if status.st_size > 0, status.st_size <= Int.max {
-            data.reserveCapacity(Int(status.st_size))
-        }
-        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
-        while true {
-            let count = buffer.withUnsafeMutableBytes { rawBuffer in
-                Darwin.read(sidecarFD, rawBuffer.baseAddress, rawBuffer.count)
-            }
-            if count == 0 { break }
-            if count < 0 {
-                if errno == EINTR { continue }
-                throw annotationSidecarPOSIXError(
-                    operation: "read annotation sidecar",
-                    path: annotationSidecarURL(forBundleAt: bundleURL).path
-                )
-            }
-            data.append(contentsOf: buffer.prefix(count))
-        }
-        return data
+        try GenotypeAnnotationPublicationFileAccess.readFileIfPresent(
+            named: GenotypeAnnotationSidecar.filename,
+            inBundleAt: bundleURL
+        )
     }
 
     static func writeAnnotationSidecar(
@@ -4036,24 +3981,11 @@ public extension ONTGenotypeResultBundleData {
         defer { Darwin.close(directoryFD) }
 
         let filename = GenotypeAnnotationSidecar.filename
-        var existingStatus = stat()
-        let existingResult = filename.withCString {
-            Darwin.fstatat(directoryFD, $0, &existingStatus, AT_SYMLINK_NOFOLLOW)
-        }
-        if existingResult == 0 {
-            guard (existingStatus.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG) else {
-                throw annotationSidecarPOSIXError(
-                    operation: "validate existing sidecar as a regular file",
-                    path: annotationSidecarURL(forBundleAt: bundleURL).path,
-                    code: ELOOP
-                )
-            }
-        } else if errno != ENOENT {
-            throw annotationSidecarPOSIXError(
-                operation: "inspect existing sidecar without following symbolic links",
-                path: annotationSidecarURL(forBundleAt: bundleURL).path
-            )
-        }
+        _ = try GenotypeAnnotationPublicationFileAccess.entryKind(
+            named: filename,
+            inBundleAt: bundleURL,
+            openedBundleDirectoryFD: directoryFD
+        )
 
         let temporaryName = data.map { _ in
             ".\(filename).\(UUID().uuidString).tmp"
@@ -4111,9 +4043,12 @@ public extension ONTGenotypeResultBundleData {
             }
         }
 
-        let currentData = try readAnnotationSidecarDataIfPresent(
-            forBundleAt: bundleURL
-        )
+        let currentData = try GenotypeAnnotationPublicationFileAccess
+            .readFileIfPresent(
+                named: filename,
+                inBundleAt: bundleURL,
+                openedBundleDirectoryFD: directoryFD
+            )
         if let currentData {
             var current = try GenotypeAnnotationSidecar.decode(currentData)
             try current.promoteToCurrentSchema()

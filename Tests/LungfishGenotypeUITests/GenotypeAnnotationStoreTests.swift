@@ -248,6 +248,73 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         return url
     }
 
+    func testMutationMigratesTrustedGenerationLinkedAnnotationPublication() throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let initial = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-31T12:00:00Z"
+        )
+        let annotationURL = dir.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
+        let generationURL = try installTrustedGenerationLinkedPublication(
+            annotationData: initial.encoded(),
+            provenanceData: Data(#"{"legacy":"preserved"}"#.utf8),
+            annotationFilename: annotationURL.lastPathComponent,
+            provenanceFilename: provenanceURL.lastPathComponent,
+            in: dir
+        )
+        let store = try GenotypeAnnotationStore(
+            bundleURL: dir,
+            author: "analyst",
+            seedBuiltInSmartCohorts: false
+        )
+
+        try store.applyOverride(
+            sample: "CR1178",
+            locus: "MHC-A",
+            slot: .h1,
+            originalCall: "A1",
+            overrideCall: "A2",
+            reasonTag: .misCall,
+            rationale: "manual review"
+        )
+
+        for url in [annotationURL, provenanceURL] {
+            let values = try url.resourceValues(forKeys: [
+                .isRegularFileKey,
+                .isSymbolicLinkKey,
+            ])
+            XCTAssertEqual(values.isRegularFile, true)
+            XCTAssertEqual(values.isSymbolicLink, false)
+        }
+        XCTAssertEqual(store.sidecar.callOverrides.count, 1)
+        XCTAssertEqual(
+            try GenotypeAnnotationSidecar.decode(
+                Data(contentsOf: annotationURL)
+            ),
+            store.sidecar
+        )
+        XCTAssertNotNil(
+            try ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL)
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: generationURL
+                    .appendingPathComponent(annotationURL.lastPathComponent)
+                    .path
+            )
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: generationURL
+                    .appendingPathComponent(provenanceURL.lastPathComponent)
+                    .path
+            )
+        )
+    }
+
     func testLoadEmptyAndAppendOverride() throws {
         let dir = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -266,6 +333,45 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
 
         let reloaded = try GenotypeAnnotationStore(bundleURL: dir, author: "test")
         XCTAssertEqual(reloaded.sidecar.callOverrides.count, 1)
+    }
+
+    @discardableResult
+    private func installTrustedGenerationLinkedPublication(
+        annotationData: Data,
+        provenanceData: Data,
+        annotationFilename: String,
+        provenanceFilename: String,
+        in bundle: URL
+    ) throws -> URL {
+        let annotationRoot = bundle
+            .appendingPathComponent("artifacts", isDirectory: true)
+            .appendingPathComponent("genotype-annotations", isDirectory: true)
+        let generationID = "46fc3db4-ea08-483d-9f6c-f67f4e2d6caa"
+        let generationURL = annotationRoot
+            .appendingPathComponent("generations", isDirectory: true)
+            .appendingPathComponent(generationID, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: generationURL,
+            withIntermediateDirectories: true
+        )
+        try annotationData.write(
+            to: generationURL.appendingPathComponent(annotationFilename)
+        )
+        try provenanceData.write(
+            to: generationURL.appendingPathComponent(provenanceFilename)
+        )
+        try FileManager.default.createSymbolicLink(
+            atPath: annotationRoot.appendingPathComponent("active").path,
+            withDestinationPath: "generations/\(generationID)"
+        )
+        for filename in [annotationFilename, provenanceFilename] {
+            try FileManager.default.createSymbolicLink(
+                atPath: bundle.appendingPathComponent(filename).path,
+                withDestinationPath:
+                    "artifacts/genotype-annotations/active/\(filename)"
+            )
+        }
+        return generationURL
     }
 
     func testApplyOverrideTwiceReplacesSameCellEntry() throws {

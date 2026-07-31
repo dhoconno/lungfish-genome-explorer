@@ -6219,6 +6219,87 @@ final class GenotypeResultViewportTests: XCTestCase {
         }
     }
 
+    func testManualHaplotypeEditorLoadsTrustedGenerationLinkedAnnotations()
+        throws
+    {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "LinkedManualHaplotypeEditor-\(UUID().uuidString).lungfishgenotype",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let annotationRoot = bundleURL
+            .appendingPathComponent("artifacts", isDirectory: true)
+            .appendingPathComponent("genotype-annotations", isDirectory: true)
+        let generationID = "46fc3db4-ea08-483d-9f6c-f67f4e2d6caa"
+        let generationURL = annotationRoot
+            .appendingPathComponent("generations", isDirectory: true)
+            .appendingPathComponent(generationID, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: generationURL,
+            withIntermediateDirectories: true
+        )
+        let annotationFilename = GenotypeAnnotationSidecar.filename
+        let provenanceFilename =
+            "\(GenotypeAnnotationSidecar.filename).lungfish-provenance.json"
+        try GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-31T12:00:00Z"
+        ).encoded().write(
+            to: generationURL.appendingPathComponent(annotationFilename)
+        )
+        try Data(#"{"legacy":"preserved"}"#.utf8).write(
+            to: generationURL.appendingPathComponent(provenanceFilename)
+        )
+        try FileManager.default.createSymbolicLink(
+            atPath: annotationRoot.appendingPathComponent("active").path,
+            withDestinationPath: "generations/\(generationID)"
+        )
+        for filename in [annotationFilename, provenanceFilename] {
+            try FileManager.default.createSymbolicLink(
+                atPath: bundleURL.appendingPathComponent(filename).path,
+                withDestinationPath:
+                    "artifacts/genotype-annotations/active/\(filename)"
+            )
+        }
+        let manifest = ONTGenotypeResultBundleManifest(
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
+            workflowKind: .fullLengthONTMHCGenotype,
+            workflowMode: .genotypeOnly,
+            outputName: "linked-layout",
+            analysisName: "Linked layout",
+            primaryWorkbookPath: "result.xlsx",
+            longSummaryCSVPath: "calls.csv",
+            sampleSummaryCSVPath: "samples.csv",
+            statsJSONPath: "stats.json",
+            provenancePath: "provenance.json"
+        )
+        let result = makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [
+                makeCall(
+                    sample: "CR1178",
+                    genotype: "01_Mafa_A1_001_01",
+                    reads: 42
+                ),
+            ],
+            manifest: manifest
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: result)
+
+        controller.testingShowMatrixTargetSelection([
+            .column(sample: "CR1178"),
+        ])
+
+        XCTAssertEqual(
+            controller.testingManualHaplotypeEditorSample,
+            "CR1178"
+        )
+        XCTAssertNotNil(controller.testingSampleWorkbenchLayoutMode)
+    }
+
     func testHaplotypedMiSeqExcludesManualHaplotypeEditorAndContextCommand()
         throws
     {

@@ -45,6 +45,74 @@ final class ONTGenotypeResultBundleAnnotationSidecarTests: XCTestCase {
         XCTAssertEqual(reloaded.sampleNotes[0].body, "note")
     }
 
+    func testLoadReadsTrustedGenerationLinkedSidecar() throws {
+        let bundle = try makeBundle()
+        defer { try? FileManager.default.removeItem(at: bundle) }
+        let expected = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-31T12:00:00Z"
+        )
+        try installTrustedGenerationLinkedSidecar(
+            expected.encoded(),
+            in: bundle
+        )
+
+        let snapshot = try ONTGenotypeResultBundleData
+            .loadAnnotationSidecarSnapshot(forBundleAt: bundle)
+
+        XCTAssertEqual(snapshot.sidecar, expected)
+        XCTAssertEqual(snapshot.data, try expected.encoded())
+    }
+
+    func testWriteMigratesTrustedGenerationLinkedSidecarToRegularFile() throws {
+        let bundle = try makeBundle()
+        defer { try? FileManager.default.removeItem(at: bundle) }
+        let initial = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-31T12:00:00Z"
+        )
+        let generationURL = try installTrustedGenerationLinkedSidecar(
+            initial.encoded(),
+            in: bundle
+        )
+        let snapshot = try ONTGenotypeResultBundleData
+            .loadAnnotationSidecarSnapshot(forBundleAt: bundle)
+        var updated = snapshot.sidecar
+        updated.sampleNotes.append(.init(
+            sample: "CR1178",
+            body: "Manual haplotypes reviewed.",
+            author: "analyst",
+            timestamp: "2026-07-31T12:01:00Z"
+        ))
+
+        try ONTGenotypeResultBundleData.writeAnnotationSidecar(
+            updated,
+            expectedRevision: snapshot.revision,
+            forBundleAt: bundle
+        )
+
+        let annotationURL = ONTGenotypeResultBundleData
+            .annotationSidecarURL(forBundleAt: bundle)
+        let values = try annotationURL.resourceValues(forKeys: [
+            .isRegularFileKey,
+            .isSymbolicLinkKey,
+        ])
+        XCTAssertEqual(values.isRegularFile, true)
+        XCTAssertEqual(values.isSymbolicLink, false)
+        XCTAssertEqual(
+            try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(
+                forBundleAt: bundle
+            ),
+            updated
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: generationURL
+                    .appendingPathComponent(GenotypeAnnotationSidecar.filename)
+                    .path
+            ),
+            "Migration must preserve the prior generation for traceability."
+        )
+    }
+
     func testWriteRejectsStaleV3WhenDiskAdvancedToFutureSchema() throws {
         let bundle = try makeBundle()
         defer { try? FileManager.default.removeItem(at: bundle) }
@@ -227,5 +295,39 @@ final class ONTGenotypeResultBundleAnnotationSidecarTests: XCTestCase {
             withIntermediateDirectories: true
         )
         return bundle
+    }
+
+    @discardableResult
+    private func installTrustedGenerationLinkedSidecar(
+        _ data: Data,
+        in bundle: URL
+    ) throws -> URL {
+        let annotationRoot = bundle
+            .appendingPathComponent("artifacts", isDirectory: true)
+            .appendingPathComponent("genotype-annotations", isDirectory: true)
+        let generationID = "46fc3db4-ea08-483d-9f6c-f67f4e2d6caa"
+        let generationURL = annotationRoot
+            .appendingPathComponent("generations", isDirectory: true)
+            .appendingPathComponent(generationID, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: generationURL,
+            withIntermediateDirectories: true
+        )
+        try data.write(
+            to: generationURL.appendingPathComponent(
+                GenotypeAnnotationSidecar.filename
+            )
+        )
+        try FileManager.default.createSymbolicLink(
+            atPath: annotationRoot.appendingPathComponent("active").path,
+            withDestinationPath: "generations/\(generationID)"
+        )
+        try FileManager.default.createSymbolicLink(
+            atPath: ONTGenotypeResultBundleData
+                .annotationSidecarURL(forBundleAt: bundle).path,
+            withDestinationPath:
+                "artifacts/genotype-annotations/active/\(GenotypeAnnotationSidecar.filename)"
+        )
+        return generationURL
     }
 }
