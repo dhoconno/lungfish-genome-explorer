@@ -4516,6 +4516,9 @@ public final class GenotypeResultViewController: NSViewController {
             for: .horizontal
         )
         evidence.addArrangedSubview(panel)
+        panel.widthAnchor.constraint(
+            equalTo: evidence.widthAnchor
+        ).isActive = true
 
         if !comments.isEmpty {
             evidence.addArrangedSubview(sectionTitle("Comments"))

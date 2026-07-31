@@ -11469,7 +11469,7 @@ final class GenotypeResultViewportTests: XCTestCase {
             .listLeading,
             .listTrailing,
         ] {
-            for width in [280, 420, 779, 841, 1_200, 2_300] {
+            for width in [280, 420, 779, 841, 1_200, 1_720, 2_300] {
                 let controller = GenotypeResultViewController()
                 controller.view.frame = NSRect(
                     x: 0,
@@ -11511,6 +11511,22 @@ final class GenotypeResultViewportTests: XCTestCase {
                     controller.testingDetailStackFrame.maxX + 1,
                     "\(layout) at \(width)"
                 )
+                if layout == .listTop, width == 1_720 {
+                    let supportedAllelesList = try XCTUnwrap(
+                        descendants(of: controller.view)
+                            .compactMap {
+                                $0 as?
+                                    GenotypeSupportedAllelesListHostView
+                            }
+                            .first
+                    )
+                    XCTAssertGreaterThanOrEqual(
+                        supportedAllelesList.bounds.width,
+                        500,
+                        "Supported Alleles collapsed despite a wide "
+                            + "sample-detail pane."
+                    )
+                }
             }
         }
     }
