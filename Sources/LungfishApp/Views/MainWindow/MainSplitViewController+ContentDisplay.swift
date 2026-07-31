@@ -14,6 +14,17 @@ import os.log
 
 extension MainSplitViewController {
     func displayContent(for item: SidebarItem) {
+        if let genotypeController =
+            viewerController.genotypeResultViewController,
+           genotypeController.deferManualHaplotypeTransition(
+            .bundleSwitch,
+            mutation: { [weak self] in
+                guard let self else { return }
+                self.displayContent(for: item)
+            }
+           ) {
+            return
+        }
         mainSplitLogger.info("displayContent: Selected '\(item.title, privacy: .public)' type=\(String(describing: item.type))")
         let displayIdentity = contentSelectionIdentity(for: item)
         let displayToken = beginDisplayRequest(identity: displayIdentity)
@@ -432,7 +443,13 @@ extension MainSplitViewController {
                         calls: request.snapshot.calls,
                         includedLoci: request.snapshot.includedLoci,
                         annotationSidecar: request.snapshot.annotationSidecar,
-                        candidateArtifacts: request.snapshot.candidateArtifacts
+                        candidateArtifacts: request.snapshot.candidateArtifacts,
+                        reviewableRowCatalog:
+                            request.snapshot.reviewableRowCatalog,
+                        reviewableRowCatalogSchemaVersion:
+                            request.snapshot.reviewableRowCatalogSchemaVersion,
+                        haplotypeProjectionMode:
+                            request.snapshot.haplotypeProjectionMode
                     )
                 }.value
                 guard let self,
@@ -456,6 +473,8 @@ extension MainSplitViewController {
                     annotationSidecarURL: pending.snapshot.annotationSidecarURL,
                     annotationSidecarData: pending.snapshot.annotationSidecarData,
                     annotationOnly: pending.snapshot.annotationOnly,
+                    haplotypeProjectionMode:
+                        pending.snapshot.haplotypeProjectionMode,
                     fingerprint: fingerprint,
                     routeContext: pending.routeContext,
                     mayUpdate: self.mayUpdateGenotypeCurrentWorkbook(
@@ -617,6 +636,16 @@ extension MainSplitViewController {
             return
         }
         let expectedGeneration = context.generation
+        let expectedControllerAuthority =
+            controller.desiredResultConfigurationAuthority
+        guard expectedControllerAuthority.bundleURL?.standardizedFileURL
+            == bundleURL.standardizedFileURL else {
+            cleanupGenotypeCurrentWorkbookTerminalState(
+                for: key,
+                bundleURL: bundleURL
+            )
+            return
+        }
         genotypeCurrentWorkbookResultReloadTasks
             .removeValue(forKey: key)?
             .task
@@ -641,6 +670,9 @@ extension MainSplitViewController {
                         .generation == expectedGeneration,
                       self.viewerController.genotypeResultViewController
                         === controller,
+                      controller.ownsDesiredResultConfiguration(
+                        expectedControllerAuthority
+                      ),
                       updated.bundleURL.standardizedFileURL
                         == bundleURL.standardizedFileURL
                 else {

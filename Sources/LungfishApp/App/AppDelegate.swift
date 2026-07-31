@@ -43,6 +43,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     private let projectSessionRegistry = ProjectSessionRegistry()
     internal let projectOpenCoordinator = ProjectOpenCoordinator()
+    private var projectStorageCoordinators:
+        [ObjectIdentifier: ProjectStorageCoordinator] = [:]
+    private var projectStorageBindingGenerations:
+        [ObjectIdentifier: UInt64] = [:]
 
     /// Welcome window controller for project selection
     internal var welcomeWindowController: WelcomeWindowController?
@@ -78,13 +82,27 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     private var workflowLibraryEnablementObserver: AppDelegateNotificationObserver?
 
-    /// Repeating timer that cleans stale project temp directories (>24 h old) every 4 hours.
-    private var projectTempCleanupTimer: Timer?
+    /// Repeating timer that requests conservative project storage cleanup.
+    private var projectTempCleanupTimers: [URL: Timer] = [:]
+    private var projectStorageAutomaticCleanupTasks:
+        [URL: Task<Void, Never>] = [:]
+    private var projectStorageAutomaticCleanupGenerations:
+        [URL: UUID] = [:]
+    internal var projectStorageAutomaticCleanupRunner:
+        @Sendable (URL) async -> ProjectStorageAutomaticCleanupResult = {
+            await ProjectStorageAutomaticCleanupService().run(
+                projectURL: $0
+            )
+        }
+    internal var projectStorageAutomaticCleanupDidProcessCompletion:
+        (@MainActor @Sendable (URL, Bool) -> Void)?
 #if DEBUG
     /// Repeating debug-only scan for temp directories that escaped project-local storage.
     private var debugTempEscapeScanTimer: Timer?
 #endif
     private var isTerminating = false
+    private var manualHaplotypeTerminationTask: Task<Void, Never>?
+    private var isReenteringManualHaplotypeTermination = false
 
     /// Temporary storage for download URL while sheet is dismissing
     /// (relocated from the Direct-Launch Classification section; extensions cannot hold stored properties).
@@ -382,11 +400,21 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     internal func openProject(_ projectURL: URL, in controller: MainWindowController) {
+        if controller.deferManualHaplotypeTransition(
+            .projectSwitch,
+            mutation: { [weak self, weak controller] in
+                guard let self, let controller else { return }
+                self.openProject(projectURL, in: controller)
+            }
+        ) {
+            return
+        }
+        invalidateProjectStorage(for: controller)
+        let previousProjectURL = controller.projectSession.projectURL
+            .map(ProjectSessionRegistry.canonicalProjectURL)
         // Keep global working directory in sync with most recently activated project.
         workingDirectoryURL = projectURL
         mainWindowController = controller
-        let shouldCleanProjectTemp = shouldCleanProjectTempOnOpen(projectURL, excluding: controller)
-
         // Migrate analysis results from legacy derivatives/ location to Analyses/.
         // This is idempotent and safe to run on every project open.
         if let count = try? AnalysesMigration.migrateProject(at: projectURL), count > 0 {
@@ -396,43 +424,43 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         let result = projectOpenCoordinator.openProject(at: projectURL, using: controller.projectSession)
         switch result {
         case .opened(let project):
+            let openedProjectURL =
+                ProjectSessionRegistry.canonicalProjectURL(project.url)
             DocumentManager.shared.mirrorProjectSession(controller.projectSession)
             projectSessionRegistry.register(controller.projectSession, projectURL: project.url)
+            if let previousProjectURL,
+               previousProjectURL != openedProjectURL,
+               projectSessionRegistry
+                .sessions(forProjectURL: previousProjectURL)
+                .isEmpty {
+                stopAutomaticProjectStorageCleanup(
+                    for: previousProjectURL
+                )
+            }
             controller.mainSplitViewController?.applyProjectSessionState()
             updateProjectWindowTitle(controller)
+            startProjectTempCleanupTimer(for: openedProjectURL)
             debugLog("openProject: Opened project via ProjectSession")
         case .filesystemFallback(let fallback):
+            projectSessionRegistry.unregister(controller.projectSession)
+            controller.projectSession.closeProject()
+            if let previousProjectURL,
+               projectSessionRegistry
+                .sessions(forProjectURL: previousProjectURL)
+                .isEmpty {
+                stopAutomaticProjectStorageCleanup(
+                    for: previousProjectURL
+                )
+            }
             controller.window?.title = "\(fallback.name) - Lungfish Genome Explorer"
             debugLog("openProject: Failed via ProjectSession, falling back to filesystem sidebar: \(fallback.error.localizedDescription)")
             controller.mainSplitViewController?.sidebarController.openProject(at: fallback.url)
         }
 
-        // Clean stale project temp files only for the first open session. Duplicate
-        // same-project windows may be observing active workflow temp state.
-        if shouldCleanProjectTemp {
-            cleanProjectTempOnOpen(projectURL)
-        } else {
-            debugLog("openProject: Skipping project temp purge because project is already open")
-            startProjectTempCleanupTimer(for: projectURL)
-        }
+        // Opening is deliberately read-only with respect to project storage.
+        // The timer's first fire occurs later and runs the proof-based cleanup
+        // service off the main actor.
         saveApplicationState()
-    }
-
-    private func shouldCleanProjectTempOnOpen(_ projectURL: URL, excluding controller: MainWindowController) -> Bool {
-        let existingSessions = projectSessionRegistry
-            .sessions(forProjectURL: projectURL)
-            .filter { $0.id != controller.projectSession.id }
-        if !existingSessions.isEmpty {
-            return false
-        }
-
-        let canonicalProjectURL = ProjectSessionRegistry.canonicalProjectURL(projectURL)
-        return !mainWindowControllers.contains { candidate in
-            guard candidate !== controller else { return false }
-            let candidateProjectURL = candidate.projectSession.projectURL
-                ?? candidate.mainSplitViewController?.sidebarController?.currentProjectURL
-            return candidateProjectURL.map(ProjectSessionRegistry.canonicalProjectURL) == canonicalProjectURL
-        }
     }
 
     internal func updateProjectWindowTitle(_ controller: MainWindowController) {
@@ -512,6 +540,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     public func applicationWillTerminate(_ notification: Notification) {
         isTerminating = true
 
+        // Cancel and invalidate project-bound storage work before AppKit tears
+        // down its originating windows.
+        let storageCoordinators = Array(projectStorageCoordinators.values)
+        projectStorageCoordinators.removeAll()
+        storageCoordinators.forEach { $0.invalidate() }
+        projectStorageBindingGenerations.removeAll()
+
         // Ensure app-managed imports/workflows and any native tool descendants
         // are stopped before AppKit tears down the process.
         OperationCenter.shared.cancelAll()
@@ -521,8 +556,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         saveApplicationState()
 
         // Stop periodic project temp cleanup timer.
-        projectTempCleanupTimer?.invalidate()
-        projectTempCleanupTimer = nil
+        projectTempCleanupTimers.values.forEach { $0.invalidate() }
+        projectTempCleanupTimers.removeAll()
+        projectStorageAutomaticCleanupTasks.values.forEach { $0.cancel() }
+        projectStorageAutomaticCleanupTasks.removeAll()
+        projectStorageAutomaticCleanupGenerations.removeAll()
 #if DEBUG
         debugTempEscapeScanTimer?.invalidate()
         debugTempEscapeScanTimer = nil
@@ -533,6 +571,295 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         Task {
             await TempFileManager.shared.cleanupSessionFiles()
         }
+    }
+
+    public func applicationShouldTerminate(
+        _ sender: NSApplication
+    ) -> NSApplication.TerminateReply {
+        applicationShouldTerminate {
+            [weak sender] shouldTerminate in
+            sender?.reply(
+                toApplicationShouldTerminate: shouldTerminate
+            )
+        }
+    }
+
+    private func applicationShouldTerminate(
+        reply: @escaping @MainActor (Bool) -> Void
+    ) -> NSApplication.TerminateReply {
+        if isReenteringManualHaplotypeTermination {
+            isReenteringManualHaplotypeTermination = false
+            return .terminateNow
+        }
+        if manualHaplotypeTerminationTask != nil {
+            return .terminateLater
+        }
+        let dirtyControllers = mainWindowControllers.filter(
+            \.requiresManualHaplotypeTransitionCoordination
+        )
+        guard !dirtyControllers.isEmpty else {
+            return .terminateNow
+        }
+        manualHaplotypeTerminationTask =
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let allowed =
+                    await self
+                        .prepareForManualHaplotypeTermination(
+                            controllers: { [weak self] in
+                                self?.mainWindowControllers ?? []
+                            }
+                        )
+                self.manualHaplotypeTerminationTask = nil
+                if allowed {
+                    self.isReenteringManualHaplotypeTermination = true
+                }
+                reply(allowed)
+            }
+        return .terminateLater
+    }
+
+    private func prepareForManualHaplotypeTermination(
+        controllers controllerSnapshot:
+            @escaping @MainActor () -> [MainWindowController]
+    ) async -> Bool {
+        typealias PendingResolution = (
+            controller: MainWindowController,
+            resolution:
+                MainWindowController
+                    .ManualHaplotypeTransitionResolution
+        )
+        struct FinalizedDraftState {
+            let revisionToken: UUID?
+        }
+        var resolutions: [ObjectIdentifier: PendingResolution] = [:]
+        var finalizedDrafts:
+            [ObjectIdentifier: FinalizedDraftState] = [:]
+
+        func cancelAllResolutions() {
+            for item in resolutions.values {
+                item.controller.cancelManualHaplotypeTransitionCommit(
+                    item.resolution
+                )
+            }
+            resolutions.removeAll()
+        }
+
+        func pruneInvalidResolutions(
+            currentControllerIDs: Set<ObjectIdentifier>
+        ) {
+            let invalid = resolutions.compactMap {
+                identifier, item -> ObjectIdentifier? in
+                guard currentControllerIDs.contains(identifier),
+                      item.controller
+                        .isManualHaplotypeTransitionResolutionCurrent(
+                            item.resolution
+                        ) else {
+                    return identifier
+                }
+                return nil
+            }
+            for identifier in invalid {
+                guard let item = resolutions.removeValue(
+                    forKey: identifier
+                ) else {
+                    continue
+                }
+                item.controller.cancelManualHaplotypeTransitionCommit(
+                    item.resolution
+                )
+            }
+        }
+
+        func pruneInvalidFinalizedDrafts(
+            controllers: [MainWindowController]
+        ) {
+            let currentByID = Dictionary(
+                uniqueKeysWithValues: controllers.map {
+                    (ObjectIdentifier($0), $0)
+                }
+            )
+            let invalid = finalizedDrafts.compactMap {
+                identifier, finalized -> ObjectIdentifier? in
+                guard let controller = currentByID[identifier],
+                      controller.manualHaplotypeDraftRevisionToken
+                        == finalized.revisionToken else {
+                    return identifier
+                }
+                return nil
+            }
+            for identifier in invalid {
+                finalizedDrafts[identifier] = nil
+            }
+        }
+
+        func hasStableSnapshot(
+            _ controllers: [MainWindowController]
+        ) -> Bool {
+            let currentControllers = controllerSnapshot()
+            guard Set(currentControllers.map(ObjectIdentifier.init))
+                == Set(controllers.map(ObjectIdentifier.init)) else {
+                return false
+            }
+            for controller in currentControllers {
+                let identifier = ObjectIdentifier(controller)
+                if controller.requiresManualHaplotypeTransitionCoordination,
+                   resolutions[identifier] == nil,
+                   finalizedDrafts[identifier] == nil {
+                    return false
+                }
+            }
+            guard resolutions.values.allSatisfy({
+                $0.controller
+                    .isManualHaplotypeTransitionResolutionCurrent(
+                        $0.resolution
+                    )
+            }) else {
+                return false
+            }
+            return finalizedDrafts.allSatisfy {
+                identifier, finalized in
+                guard let controller = currentControllers.first(where: {
+                    ObjectIdentifier($0) == identifier
+                }) else {
+                    return false
+                }
+                return controller.manualHaplotypeDraftRevisionToken
+                    == finalized.revisionToken
+            }
+        }
+
+        // A continuously mutating draft must veto termination rather than
+        // spin forever or commit a stale decision.
+        let maximumResolutionPasses = 32
+        for _ in 0..<maximumResolutionPasses {
+            let controllers = controllerSnapshot()
+            let controllerIDs = Set(
+                controllers.map(ObjectIdentifier.init)
+            )
+            pruneInvalidResolutions(
+                currentControllerIDs: controllerIDs
+            )
+            pruneInvalidFinalizedDrafts(
+                controllers: controllers
+            )
+
+            var sawCancellation = false
+            for controller in controllers {
+                let identifier = ObjectIdentifier(controller)
+                guard controller
+                    .requiresManualHaplotypeTransitionCoordination,
+                      resolutions[identifier] == nil,
+                      finalizedDrafts[identifier] == nil else {
+                    continue
+                }
+                let resolution =
+                    await controller.resolveManualHaplotypeTransition(
+                        .appQuit
+                    )
+                if resolution.isCancelled {
+                    controller.cancelManualHaplotypeTransitionCommit(
+                        resolution
+                    )
+                    sawCancellation = true
+                    continue
+                }
+                resolutions[identifier] = (controller, resolution)
+            }
+            if sawCancellation {
+                cancelAllResolutions()
+                return false
+            }
+
+            guard hasStableSnapshot(controllers) else {
+                pruneInvalidResolutions(
+                    currentControllerIDs: Set(
+                        controllerSnapshot().map(
+                            ObjectIdentifier.init
+                        )
+                    )
+                )
+                await Task.yield()
+                continue
+            }
+            guard !resolutions.isEmpty else {
+                return true
+            }
+
+            let ordered = controllers.compactMap {
+                resolutions[ObjectIdentifier($0)]
+            }
+            let saves = ordered.filter {
+                $0.resolution.decision == .save
+            }
+            let discards = ordered.filter {
+                $0.resolution.decision == .discard
+            }
+            var savePreflightFailed = false
+            var draftChangedDuringSavePreflight = false
+            for item in saves {
+                guard item.controller
+                    .isManualHaplotypeTransitionResolutionCurrent(
+                        item.resolution
+                    ) else {
+                    draftChangedDuringSavePreflight = true
+                    break
+                }
+                let prepared = await item.controller
+                    .prepareManualHaplotypeTransitionCommit(
+                        item.resolution
+                    )
+                guard item.controller
+                    .isManualHaplotypeTransitionResolutionCurrent(
+                        item.resolution
+                    ) else {
+                    draftChangedDuringSavePreflight = true
+                    break
+                }
+                guard prepared else {
+                    savePreflightFailed = true
+                    break
+                }
+            }
+            if draftChangedDuringSavePreflight {
+                cancelAllResolutions()
+                await Task.yield()
+                continue
+            }
+            if savePreflightFailed {
+                cancelAllResolutions()
+                return false
+            }
+
+            guard hasStableSnapshot(controllerSnapshot()) else {
+                cancelAllResolutions()
+                await Task.yield()
+                continue
+            }
+
+            for item in saves + discards {
+                guard item.controller
+                    .isManualHaplotypeTransitionResolutionCurrent(
+                        item.resolution
+                    ),
+                      await item.controller
+                        .finalizeManualHaplotypeTransitionCommit(
+                            item.resolution
+                        ) else {
+                    cancelAllResolutions()
+                    return false
+                }
+                resolutions[ObjectIdentifier(item.controller)] = nil
+                finalizedDrafts[ObjectIdentifier(item.controller)] =
+                    FinalizedDraftState(
+                        revisionToken:
+                            item.controller
+                                .manualHaplotypeDraftRevisionToken
+                    )
+            }
+        }
+        cancelAllResolutions()
+        return false
     }
 
     public func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -750,33 +1077,22 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     // MARK: - Project Temp Cleanup
 
-    /// Cleans the project `.tmp/` directory when a project is explicitly opened and starts
-    /// a periodic timer that removes stale (>24 h) subdirectories every 4 hours.
-    private func cleanProjectTempOnOpen(_ projectURL: URL) {
-        // Remove the entire .tmp/ directory left from previous sessions.
-        do {
-            try ProjectTempDirectory.cleanAll(in: projectURL)
-            debugLog("cleanProjectTempOnOpen: cleaned project temp files")
-        } catch {
-            debugLog("cleanProjectTempOnOpen: failed to clean project temp: \(error.localizedDescription)")
-        }
-
-        startProjectTempCleanupTimer(for: projectURL)
-    }
-
     private func startProjectTempCleanupTimer(for projectURL: URL) {
-        // Invalidate any previous timer (e.g. switching projects).
-        projectTempCleanupTimer?.invalidate()
+        let key = ProjectSessionRegistry.canonicalProjectURL(projectURL)
+        guard projectTempCleanupTimers[key] == nil else { return }
 
-        // Schedule periodic stale-file cleanup every 4 hours.
-        projectTempCleanupTimer = Timer.scheduledTimer(
+        // Schedule proof-based cleanup every 4 hours. Project open itself
+        // performs no storage traversal or mutation.
+        projectTempCleanupTimers[key] = Timer.scheduledTimer(
             withTimeInterval: 4 * 60 * 60,
             repeats: true
         ) { [weak self] _ in
             guard let self else { return }
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    self.cleanStaleProjectTemp(projectURL)
+                    self.scheduleAutomaticProjectStorageCleanup(
+                        projectURL
+                    )
                 }
             }
         }
@@ -794,14 +1110,99 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 #endif
     }
 
-    /// Removes subdirectories inside the project `.tmp/` folder that are older than 24 hours.
-    private func cleanStaleProjectTemp(_ projectURL: URL) {
-        do {
-            try ProjectTempDirectory.cleanStale(in: projectURL, olderThan: 24 * 60 * 60)
-            debugLog("cleanStaleProjectTemp: cleaned stale project temp files")
-        } catch {
-            debugLog("cleanStaleProjectTemp: failed: \(error.localizedDescription)")
+    private func scheduleAutomaticProjectStorageCleanup(
+        _ projectURL: URL
+    ) {
+        let key = ProjectSessionRegistry.canonicalProjectURL(projectURL)
+        projectStorageAutomaticCleanupTasks[key]?.cancel()
+        let generation = UUID()
+        projectStorageAutomaticCleanupGenerations[key] = generation
+        let runner = projectStorageAutomaticCleanupRunner
+        projectStorageAutomaticCleanupTasks[key] =
+            Task.detached(priority: .utility) { [weak self] in
+                let result = await runner(key)
+                await MainActor.run {
+                    guard let self else { return }
+                    let isCurrent =
+                        self
+                        .projectStorageAutomaticCleanupGenerations[key]
+                        == generation
+                    self
+                        .projectStorageAutomaticCleanupDidProcessCompletion?(
+                            key,
+                            isCurrent
+                        )
+                    guard isCurrent else {
+                        return
+                    }
+                    self.projectStorageAutomaticCleanupTasks[key] = nil
+                    self.projectStorageAutomaticCleanupGenerations[key] = nil
+                    switch result.state {
+                    case .noEligibleEntries:
+                        debugLog(
+                            "Automatic project storage cleanup found "
+                                + "no proven removable temporary entries"
+                        )
+                    case .completed:
+                        debugLog(
+                            "Automatic project storage cleanup moved "
+                                + "\(result.selectedEntryCount) "
+                                + "proven entries to Trash"
+                        )
+                    case .retryRecommended:
+                        for warning in result.warnings {
+                            let path =
+                                warning.relativePath ?? "<project>"
+                            appDelegateLogger.warning(
+                                "Automatic project storage cleanup will retry \(path, privacy: .public): \(warning.message, privacy: .public)"
+                            )
+                        }
+                    case .cancelled:
+                        break
+                    }
+                }
+            }
+    }
+
+    private func stopAutomaticProjectStorageCleanup(
+        for projectURL: URL
+    ) {
+        let key = ProjectSessionRegistry.canonicalProjectURL(projectURL)
+        projectTempCleanupTimers.removeValue(forKey: key)?.invalidate()
+        projectStorageAutomaticCleanupTasks.removeValue(forKey: key)?
+            .cancel()
+        projectStorageAutomaticCleanupGenerations[key] = nil
+    }
+
+    internal func testingRunAutomaticProjectStorageCleanup(
+        _ projectURL: URL
+    ) {
+        scheduleAutomaticProjectStorageCleanup(projectURL)
+    }
+
+    internal func testingWaitForAutomaticProjectStorageCleanup(
+        _ projectURL: URL
+    ) async {
+        let key = ProjectSessionRegistry.canonicalProjectURL(projectURL)
+        while let task = projectStorageAutomaticCleanupTasks[key] {
+            await task.value
         }
+    }
+
+    internal func testingHasTrackedAutomaticProjectStorageCleanup(
+        _ projectURL: URL
+    ) -> Bool {
+        let key = ProjectSessionRegistry.canonicalProjectURL(projectURL)
+        return projectStorageAutomaticCleanupTasks[key] != nil
+    }
+
+    internal func testingHasAutomaticProjectStorageCleanupLifecycle(
+        _ projectURL: URL
+    ) -> Bool {
+        let key = ProjectSessionRegistry.canonicalProjectURL(projectURL)
+        return projectTempCleanupTimers[key] != nil
+            || projectStorageAutomaticCleanupTasks[key] != nil
+            || projectStorageAutomaticCleanupGenerations[key] != nil
     }
 
 #if DEBUG
@@ -893,10 +1294,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 #endif
 
-    /// Clears all project temporary files after user confirmation.
-    ///
-    /// Shows an alert with the current disk usage, then removes the entire `.tmp/` directory
-    /// on confirmation. Called from the File > Clear Temporary Files menu item.
+    /// Reviews project temporary files after user confirmation and moves only
+    /// individually proven, unlocked, non-retained children to Trash.
     @objc func clearProjectTempFiles(_ sender: Any?) {
         guard let projectURL = mainWindowController?.mainSplitViewController?.sidebarController?.currentProjectURL else {
             let alert = NSAlert()
@@ -911,52 +1310,112 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return
         }
 
-        let usageBytes = ProjectTempDirectory.diskUsage(in: projectURL)
-        let sizeString = Self.formatBytes(usageBytes)
         let projectName = projectURL.deletingPathExtension().lastPathComponent
 
         let alert = NSAlert()
-        alert.messageText = "Clear Temporary Files"
-        if usageBytes == 0 {
-            alert.informativeText = "There are no temporary files in \"\(projectName)\"."
-            alert.alertStyle = .informational
-            alert.addButton(withTitle: "OK")
-        } else {
-            alert.informativeText = "Remove \(sizeString) of temporary files from \"\(projectName)\"?"
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "Clear")
-            alert.addButton(withTitle: "Cancel")
-        }
+        alert.messageText = "Review Temporary Files"
+        alert.informativeText =
+            "Move temporary items in \"\(projectName)\" to Trash only "
+            + "when Lungfish can prove they are completed or orphaned, "
+            + "unlocked, and not retained? Active, unmarked, or unsafe "
+            + "items will remain."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Review and Clear")
+        alert.addButton(withTitle: "Cancel")
         alert.applyLungfishBranding()
 
         guard let window = mainWindowController?.window ?? NSApp.keyWindow else { return }
 
-        alert.beginSheetModal(for: window) { [weak self] response in
-            guard response == .alertFirstButtonReturn, usageBytes > 0 else { return }
+        alert.beginSheetModal(for: window) { [weak window] response in
+            guard response == .alertFirstButtonReturn else { return }
 
-            do {
-                try ProjectTempDirectory.cleanAll(in: projectURL)
-                debugLog("clearProjectTempFiles: removed \(sizeString) of temp files")
-
-                let doneAlert = NSAlert()
-                doneAlert.messageText = "Temporary Files Cleared"
-                doneAlert.informativeText = "Removed \(sizeString) of temporary files."
-                doneAlert.alertStyle = .informational
-                doneAlert.addButton(withTitle: "OK")
-                doneAlert.applyLungfishBranding()
-                doneAlert.beginSheetModal(for: window)
-            } catch {
-                debugLog("clearProjectTempFiles: failed: \(error.localizedDescription)")
-
-                let errorAlert = NSAlert()
-                errorAlert.messageText = "Failed to Clear Temporary Files"
-                errorAlert.informativeText = error.localizedDescription
-                errorAlert.alertStyle = .critical
-                errorAlert.addButton(withTitle: "OK")
-                errorAlert.applyLungfishBranding()
-                errorAlert.beginSheetModal(for: window)
+            Task { @MainActor in
+                let result = await Task.detached(priority: .userInitiated) {
+                    await ProjectStorageAutomaticCleanupService().run(
+                        projectURL: projectURL,
+                        trigger: .userRequested
+                    )
+                }.value
+                guard let window else { return }
+                let resultAlert = NSAlert()
+                switch result.state {
+                case .completed:
+                    resultAlert.messageText = "Temporary Files Moved to Trash"
+                    resultAlert.informativeText =
+                        "Moved \(result.selectedEntryCount) verified "
+                        + "temporary item"
+                        + (result.selectedEntryCount == 1 ? "" : "s")
+                        + " to Trash. Active, retained, unmarked, or unsafe "
+                        + "items were left unchanged."
+                    resultAlert.alertStyle = .informational
+                case .noEligibleEntries:
+                    resultAlert.messageText = "No Safe Cleanup Available"
+                    resultAlert.informativeText =
+                        "No temporary items could be proven safe to remove. "
+                        + "Active, retained, unmarked, and unsafe items remain."
+                    resultAlert.alertStyle = .informational
+                case .retryRecommended:
+                    resultAlert.messageText = "Cleanup Needs Attention"
+                    let details = result.warnings
+                        .prefix(3)
+                        .map(\.message)
+                        .joined(separator: "\n")
+                    resultAlert.informativeText =
+                        details.isEmpty
+                        ? "Cleanup could not safely complete and can be retried."
+                        : details
+                    resultAlert.alertStyle = .warning
+                case .cancelled:
+                    return
+                }
+                resultAlert.addButton(withTitle: "OK")
+                resultAlert.applyLungfishBranding()
+                resultAlert.beginSheetModal(for: window) { _ in }
             }
-            _ = self  // prevent unused capture warning
+        }
+    }
+
+    /// Presents a window-bound preview of all classified project storage.
+    ///
+    /// The originating controller is resolved from the sender/key window and
+    /// never from the mutable global `mainWindowController` fallback.
+    @objc func manageProjectStorage(_ sender: Any?) {
+        guard let controller = projectStorageOriginController(sender: sender),
+              let window = controller.window,
+              let projectURL = successfullyOwnedProjectURL(
+                  for: controller
+              ),
+              let identity = try? FileSystemObjectIdentity.noFollow(
+                  ProjectSessionRegistry.canonicalProjectURL(projectURL)
+              ) else {
+            return
+        }
+        let windowID = ObjectIdentifier(window)
+        guard projectStorageCoordinators[windowID] == nil else { return }
+        let generation = projectStorageBindingGenerations[windowID, default: 0]
+        let coordinator = ProjectStorageCoordinator(
+            presentingWindow: window,
+            controller: controller,
+            projectURL: projectURL,
+            projectIdentity: identity,
+            generation: generation,
+            generationProvider: { [weak self, weak window] in
+                guard let self, let window else { return .max }
+                return self.projectStorageBindingGenerations[
+                    ObjectIdentifier(window),
+                    default: 0
+                ]
+            },
+            completion: { [weak self, weak window] in
+                guard let self, let window else { return }
+                self.projectStorageCoordinators.removeValue(
+                    forKey: ObjectIdentifier(window)
+                )
+            }
+        )
+        projectStorageCoordinators[windowID] = coordinator
+        if !coordinator.present() {
+            projectStorageCoordinators.removeValue(forKey: windowID)
         }
     }
 
@@ -975,12 +1434,19 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     @objc private func windowWillClose(_ notification: Notification) {
-        guard !isTerminating else { return }
         guard let closedWindow = notification.object as? NSWindow else { return }
 
         let closedControllers = mainWindowControllers.filter { controller in
             controller.window === closedWindow
         }
+        for controller in closedControllers {
+            invalidateProjectStorage(for: controller)
+        }
+        projectStorageBindingGenerations.removeValue(
+            forKey: ObjectIdentifier(closedWindow)
+        )
+        guard !isTerminating else { return }
+
         let affectedProjectURLs = Set(closedControllers.compactMap { $0.projectSession.projectURL })
         for controller in closedControllers {
             projectSessionRegistry.unregister(controller.projectSession)
@@ -995,6 +1461,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             mainWindowController = mainWindowControllers.first(where: { $0.window?.isMainWindow == true }) ?? mainWindowControllers.last
         }
         for projectURL in affectedProjectURLs {
+            if projectSessionRegistry
+                .sessions(forProjectURL: projectURL)
+                .isEmpty {
+                stopAutomaticProjectStorageCleanup(for: projectURL)
+            }
             refreshProjectWindowTitles(forProjectURL: projectURL)
         }
         saveApplicationState()
@@ -1079,6 +1550,41 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     var testingMainWindowControllers: [MainWindowController] {
         mainWindowControllers
+    }
+
+    func testingPrepareForManualHaplotypeTermination(
+        in controllers: [MainWindowController]
+    ) async -> Bool {
+        await prepareForManualHaplotypeTermination(
+            controllers: { controllers }
+        )
+    }
+
+    func testingPrepareForManualHaplotypeTermination(
+        controllers:
+            @escaping @MainActor () -> [MainWindowController]
+    ) async -> Bool {
+        await prepareForManualHaplotypeTermination(
+            controllers: controllers
+        )
+    }
+
+    func testingSetMainWindowControllers(
+        _ controllers: [MainWindowController]
+    ) {
+        mainWindowControllers = controllers
+    }
+
+    func testingWaitForManualHaplotypeTermination() async {
+        while manualHaplotypeTerminationTask != nil {
+            await Task.yield()
+        }
+    }
+
+    func testingApplicationShouldTerminate(
+        reply: @escaping @MainActor (Bool) -> Void
+    ) -> NSApplication.TerminateReply {
+        applicationShouldTerminate(reply: reply)
     }
 
     @discardableResult
@@ -1319,9 +1825,15 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return OperationCenter.shared.items.contains { !$0.state.isActive }
         }
 
-        // "Clear Temporary Files..." requires an open project
-        if menuItem.action == #selector(clearProjectTempFiles(_:)) {
-            return activeMainWindowController()?.mainSplitViewController?.sidebarController?.currentProjectURL != nil
+        // Storage preview requires a project successfully owned by the exact
+        // originating window/session (filesystem fallback roots do not count).
+        if menuItem.action == #selector(manageProjectStorage(_:)) {
+            guard let controller = projectStorageOriginController(
+                sender: menuItem
+            ) else {
+                return false
+            }
+            return successfullyOwnedProjectURL(for: controller) != nil
         }
 
         if menuItem.action == #selector(showWindowSizeDialog(_:)) {
@@ -1335,6 +1847,42 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
 
         return true
+    }
+
+    private func projectStorageOriginController(
+        sender: Any?
+    ) -> MainWindowController? {
+        if let view = sender as? NSView {
+            return view.window?.windowController as? MainWindowController
+        }
+        if let window = sender as? NSWindow {
+            return window.windowController as? MainWindowController
+        }
+        return (NSApp.keyWindow?.windowController as? MainWindowController)
+            ?? (NSApp.mainWindow?.windowController as? MainWindowController)
+    }
+
+    private func successfullyOwnedProjectURL(
+        for controller: MainWindowController
+    ) -> URL? {
+        guard let sessionURL = controller.projectSession.projectURL,
+              let sidebarURL = controller.mainSplitViewController?
+                .sidebarController?
+                .currentProjectURL,
+              ProjectSessionRegistry.canonicalProjectURL(sessionURL)
+                == ProjectSessionRegistry.canonicalProjectURL(sidebarURL) else {
+            return nil
+        }
+        return sessionURL
+    }
+
+    private func invalidateProjectStorage(
+        for controller: MainWindowController
+    ) {
+        guard let window = controller.window else { return }
+        let windowID = ObjectIdentifier(window)
+        projectStorageBindingGenerations[windowID, default: 0] &+= 1
+        projectStorageCoordinators.removeValue(forKey: windowID)?.invalidate()
     }
 
     func canNavigateToPosition(viewerController: ViewerViewController?) -> Bool {

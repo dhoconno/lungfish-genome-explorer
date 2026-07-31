@@ -235,6 +235,20 @@ final class GenotypeQuickFilterBarView: NSView, NSSearchFieldDelegate {
         emitChange()
     }
 
+    func restoreStateWithoutEmitting(_ state: FilterState) {
+        NSObject.cancelPreviousPerformRequests(
+            withTarget: self,
+            selector: #selector(emitDebouncedSearchChange),
+            object: nil
+        )
+        currentSearchText = state.searchText
+        searchField.stringValue = state.searchText
+        activePills = state.activePills
+        for (pill, button) in pillButtons {
+            button.state = state.activePills.contains(pill) ? .on : .off
+        }
+    }
+
     func configureSearchCapability(hasHaplotypingResult: Bool) {
         self.hasHaplotypingResult = hasHaplotypingResult
         let label = hasHaplotypingResult

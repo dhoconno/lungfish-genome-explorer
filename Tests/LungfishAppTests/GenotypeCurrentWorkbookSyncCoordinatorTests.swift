@@ -1,4 +1,5 @@
 import XCTest
+import Darwin
 import LungfishIO
 import LungfishKit
 import LungfishWorkflow
@@ -6,6 +7,236 @@ import LungfishWorkflow
 
 @MainActor
 final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
+    func testUpdateAndViewOpensValidatedIdentityWhenWorkbookPathIsSwappedAfterValidation() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "GenotypeCurrentWorkbookIdentityHandoff-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = root.appendingPathComponent(
+            "identity-handoff.lungfishgenotype",
+            isDirectory: true
+        )
+        let canonicalWorkbook = bundle.appendingPathComponent(
+            "artifacts/workbooks/current.xlsx"
+        )
+        try FileManager.default.createDirectory(
+            at: canonicalWorkbook.deletingLastPathComponent()
+                .appendingPathComponent("updates", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        let validatedBytes = Data("validated workbook identity".utf8)
+        try validatedBytes.write(to: canonicalWorkbook)
+        try Data("{}".utf8).write(
+            to: ONTGenotypeResultBundle.manifestURL(in: bundle)
+        )
+        try GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-29T00:00:00Z"
+        ).encoded().write(
+            to: bundle.appendingPathComponent("annotations.json")
+        )
+        let unvalidatedWorkbook = root.appendingPathComponent(
+            "unvalidated-replacement.xlsx"
+        )
+        try Data("must never be opened".utf8).write(to: unvalidatedWorkbook)
+
+        let payload = try workbookUpdatePayloadJSON(for: bundle)
+        let processRunner = IdentityHandoffCLIProcessRunner(
+            result: .init(
+                exitCode: 0,
+                standardOutput: payload,
+                standardError: "[100%] Updated current.xlsx\n"
+            )
+        )
+        var didSwapPath = false
+        let executionService = GenotypeCurrentWorkbookUpdateExecutionService(
+            operationCenter: OperationCenter(),
+            processRunner: processRunner,
+            postPayloadValidationObserver: { validatedURL in
+                XCTAssertEqual(
+                    validatedURL.standardizedFileURL,
+                    canonicalWorkbook.standardizedFileURL
+                )
+                try FileManager.default.removeItem(at: validatedURL)
+                try FileManager.default.createSymbolicLink(
+                    at: validatedURL,
+                    withDestinationURL: unvalidatedWorkbook
+                )
+                didSwapPath = true
+            }
+        )
+        var openedURLs: [URL] = []
+        var openedBytes: [Data] = []
+        let coordinator = GenotypeCurrentWorkbookSyncCoordinator(
+            recordedFingerprintLoader: { _ in nil },
+            currentWorkbookResolver: { _ in nil },
+            updateRunner: { request, intent in
+                try await executionService.run(
+                    bundleURL: request.bundleURL,
+                    calls: request.calls,
+                    includedLoci: request.includedLoci,
+                    annotationSidecarURL: request.annotationSidecarURL,
+                    annotationSidecarData: request.annotationSidecarData,
+                    annotationOnly: request.annotationOnly,
+                    haplotypeProjectionMode: request.haplotypeProjectionMode,
+                    inputFingerprint: request.fingerprint,
+                    syncIntent: intent,
+                    routeContext: request.routeContext
+                )
+            },
+            workbookOpener: { url in
+                openedURLs.append(url)
+                if let data = try? Data(contentsOf: url) {
+                    openedBytes.append(data)
+                }
+            },
+            idleScheduler: TestIdleScheduler().schedule
+        )
+
+        let returnedURL = try await coordinator.synchronize(
+            makeRequest(
+                bundle: bundle,
+                fingerprint: try makeFingerprint("a")
+            ),
+            intent: .updateAndView
+        )
+
+        XCTAssertTrue(didSwapPath)
+        XCTAssertEqual(
+            returnedURL.standardizedFileURL,
+            canonicalWorkbook.standardizedFileURL
+        )
+        XCTAssertEqual(openedURLs.count, 1)
+        XCTAssertNotEqual(
+            openedURLs.first?.standardizedFileURL,
+            canonicalWorkbook.standardizedFileURL
+        )
+        XCTAssertEqual(openedBytes, [validatedBytes])
+        var openedInformation = stat()
+        XCTAssertEqual(
+            Darwin.lstat(try XCTUnwrap(openedURLs.first).path, &openedInformation),
+            0
+        )
+        XCTAssertEqual(openedInformation.st_mode & S_IFMT, S_IFREG)
+        XCTAssertEqual(openedInformation.st_mode & S_IWUSR, 0)
+    }
+
+    func testImmutableWorkbookViewCleanupRemovesOnlyStaleOwnedDirectChildDirectories() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "GenotypeCurrentWorkbookViewCleanup-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let prefix = GenotypeCurrentWorkbookOpenHandoff.directoryPrefix
+        let stale = root.appendingPathComponent(
+            "\(prefix)ABC123",
+            isDirectory: true
+        )
+        let fresh = root.appendingPathComponent(
+            "\(prefix)DEF456",
+            isDirectory: true
+        )
+        let unrelated = root.appendingPathComponent(
+            "unrelated.ABC123",
+            isDirectory: true
+        )
+        let unownedLookalike = root.appendingPathComponent(
+            "\(prefix)JKL012",
+            isDirectory: true
+        )
+        for directory in [stale, fresh, unrelated, unownedLookalike] {
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: false
+            )
+            try Data("view".utf8).write(
+                to: directory.appendingPathComponent("current.xlsx")
+            )
+        }
+        for directory in [stale, fresh] {
+            try Data("Lungfish current workbook view v1\n".utf8).write(
+                to: directory.appendingPathComponent(
+                    GenotypeCurrentWorkbookOpenHandoff.ownershipMarkerName
+                )
+            )
+        }
+        let symlink = root.appendingPathComponent(
+            "\(prefix)GHI789",
+            isDirectory: true
+        )
+        try FileManager.default.createSymbolicLink(
+            at: symlink,
+            withDestinationURL: stale
+        )
+        let now = Date()
+        let oldDate = now.addingTimeInterval(-48 * 60 * 60)
+        try FileManager.default.setAttributes(
+            [.modificationDate: oldDate],
+            ofItemAtPath: stale.path
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: now],
+            ofItemAtPath: fresh.path
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: oldDate],
+            ofItemAtPath: unrelated.path
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: oldDate],
+            ofItemAtPath: unownedLookalike.path
+        )
+
+        let removed =
+            GenotypeCurrentWorkbookOpenHandoffRegistry.cleanupStaleViews(
+                in: root,
+                olderThan: now.addingTimeInterval(-24 * 60 * 60)
+            )
+
+        XCTAssertEqual(removed, [stale.standardizedFileURL])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stale.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fresh.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: unrelated.path))
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: unownedLookalike.path)
+        )
+        var symlinkInformation = stat()
+        XCTAssertEqual(Darwin.lstat(symlink.path, &symlinkInformation), 0)
+        XCTAssertEqual(symlinkInformation.st_mode & S_IFMT, S_IFLNK)
+    }
+
+    func testChangedReviewableRowCatalogDescriptorMarksWorkbookDirtyAndRunsUpdate() async throws {
+        let bundle = bundleURL("catalog-dirty")
+        let original = try makeCatalogFingerprint(
+            path: "artifacts/review/catalog.json",
+            checksumCharacter: "a",
+            size: 100,
+            schemaVersion: 1
+        )
+        let changed = try makeCatalogFingerprint(
+            path: "artifacts/review/catalog.json",
+            checksumCharacter: "b",
+            size: 100,
+            schemaVersion: 1
+        )
+        let runner = ControlledRunner()
+        runner.automaticallySucceed = true
+        let coordinator = makeCoordinator(recorded: original, runner: runner)
+
+        _ = try await coordinator.synchronize(
+            makeRequest(bundle: bundle, fingerprint: changed),
+            intent: .automaticIdle
+        )
+
+        XCTAssertEqual(runner.invocations.count, 1)
+        XCTAssertEqual(runner.invocations.first?.request.fingerprint, changed)
+        XCTAssertEqual(coordinator.phase(for: bundle), .current)
+    }
+
     func testCleanFingerprintAvoidsRunnerAndOnlyUpdateAndViewOpensResolvedWorkbook() async throws {
         let bundle = bundleURL("clean")
         let workbook = bundle.appendingPathComponent("custom/current.xlsx")
@@ -29,6 +260,87 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(opened, [workbook.standardizedFileURL])
         XCTAssertEqual(coordinator.phase(for: bundle), .current)
         XCTAssertFalse(coordinator.testingHasRetainedRequest(for: bundle))
+    }
+
+    func testCleanUpdateAndViewRejectsIntermediateWorkbookDirectorySwapAfterResolution() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "GenotypeCurrentWorkbookCleanIntermediateSwap-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = root.appendingPathComponent(
+            "clean-swap.lungfishgenotype",
+            isDirectory: true
+        )
+        try writeManifest(
+            in: bundle,
+            currentWorkbookPath: "artifacts/workbooks/current.xlsx"
+        )
+        let workbooks = bundle.appendingPathComponent(
+            "artifacts/workbooks",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: workbooks,
+            withIntermediateDirectories: true
+        )
+        let canonicalWorkbook = workbooks.appendingPathComponent("current.xlsx")
+        try Data("validated workbook".utf8).write(to: canonicalWorkbook)
+        let outsideWorkbooks = root.appendingPathComponent(
+            "outside-workbooks",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: outsideWorkbooks,
+            withIntermediateDirectories: true
+        )
+        let maliciousWorkbook = outsideWorkbooks.appendingPathComponent(
+            "current.xlsx"
+        )
+        try Data("must never open".utf8).write(to: maliciousWorkbook)
+
+        let fingerprint = try makeFingerprint("a")
+        var opened: [URL] = []
+        var openedBytes: [Data] = []
+        let coordinator = GenotypeCurrentWorkbookSyncCoordinator(
+            recordedFingerprintLoader: { _ in fingerprint },
+            updateRunner: { _, _ in
+                XCTFail("A clean workbook must not run an update")
+                return canonicalWorkbook
+            },
+            workbookOpener: { url in
+                opened.append(url)
+                if let bytes = try? Data(contentsOf: url) {
+                    openedBytes.append(bytes)
+                }
+            },
+            postWorkbookResolutionObserver: { resolvedURL in
+                XCTAssertEqual(
+                    resolvedURL.standardizedFileURL,
+                    canonicalWorkbook.standardizedFileURL
+                )
+                try FileManager.default.removeItem(at: workbooks)
+                try FileManager.default.createSymbolicLink(
+                    at: workbooks,
+                    withDestinationURL: outsideWorkbooks
+                )
+            },
+            idleScheduler: TestIdleScheduler().schedule
+        )
+
+        do {
+            _ = try await coordinator.synchronize(
+                makeRequest(bundle: bundle, fingerprint: fingerprint),
+                intent: .updateAndView
+            )
+            XCTFail("Expected the swapped intermediate directory to be rejected")
+        } catch {
+            // The canonical workbook was resolved before the directory swap,
+            // but opening must fail rather than follow the new symlink.
+        }
+
+        XCTAssertTrue(opened.isEmpty)
+        XCTAssertTrue(openedBytes.isEmpty)
     }
 
     func testCleanFingerprintWithInvalidWorkbookUpdatesBeforeOpening() async throws {
@@ -1255,6 +1567,24 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
         try ONTGenotypeResultBundle.writeManifest(manifest, to: bundleURL)
     }
 
+    private func workbookUpdatePayloadJSON(for bundleURL: URL) throws -> String {
+        let object: [String: Any] = [
+            "bundlePath": bundleURL.standardizedFileURL.path,
+            "currentWorkbookPath": bundleURL
+                .appendingPathComponent("artifacts/workbooks/current.xlsx")
+                .standardizedFileURL.path,
+            "manifestPath": ONTGenotypeResultBundle
+                .manifestURL(in: bundleURL)
+                .standardizedFileURL.path,
+            "cleanupPending": false,
+        ]
+        let data = try JSONSerialization.data(
+            withJSONObject: object,
+            options: [.sortedKeys]
+        )
+        return try XCTUnwrap(String(data: data, encoding: .utf8))
+    }
+
     private func makeRequest(
         bundle: URL,
         fingerprint: GenotypeCurrentWorkbookInputFingerprint,
@@ -1291,6 +1621,26 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
         try GenotypeCurrentWorkbookInputFingerprint(
             schemaVersion: GenotypeCurrentWorkbookInputFingerprint.schemaVersion,
             sha256: String(repeating: character, count: 64)
+        )
+    }
+
+    private func makeCatalogFingerprint(
+        path: String,
+        checksumCharacter: Character,
+        size: Int64,
+        schemaVersion: Int
+    ) throws -> GenotypeCurrentWorkbookInputFingerprint {
+        try GenotypeCurrentWorkbookInputFingerprint.make(
+            calls: [],
+            includedLoci: [],
+            annotationSidecar: nil,
+            candidateArtifacts: nil,
+            reviewableRowCatalog: ONTMHCArtifactReference(
+                path: path,
+                sha256: String(repeating: checksumCharacter, count: 64),
+                sizeBytes: size
+            ),
+            reviewableRowCatalogSchemaVersion: schemaVersion
         )
     }
 
@@ -1360,6 +1710,38 @@ private final class ControlledRunner {
         for request: GenotypeCurrentWorkbookSyncCoordinator.Request
     ) -> URL {
         request.bundleURL.appendingPathComponent("artifacts/workbooks/current.xlsx")
+    }
+}
+
+@MainActor
+private final class IdentityHandoffCLIProcessRunner:
+    LocalWorkflowCLIProcessRunning {
+    let result: LocalWorkflowCLIProcessResult
+
+    init(result: LocalWorkflowCLIProcessResult) {
+        self.result = result
+    }
+
+    func runLungfishCLI(
+        arguments: [String],
+        workingDirectory: URL,
+        outputHandler:
+            (@MainActor @Sendable (ViralReconWorkflowProcessOutput) -> Void)?
+    ) async throws -> LocalWorkflowCLIProcessResult {
+        if let outputHandler {
+            for line in result.standardError.split(whereSeparator: \.isNewline) {
+                outputHandler(.standardError(String(line)))
+            }
+            for line in result.standardOutput.split(whereSeparator: \.isNewline) {
+                outputHandler(.standardOutput(String(line)))
+            }
+        }
+        return LocalWorkflowCLIProcessResult(
+            exitCode: result.exitCode,
+            standardOutput: result.standardOutput,
+            standardError: result.standardError,
+            didStreamOutput: outputHandler != nil
+        )
     }
 }
 

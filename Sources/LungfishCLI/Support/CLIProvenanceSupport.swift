@@ -114,13 +114,16 @@ enum CLIProvenanceSupport {
         extraSteps: [ProvenanceStep] = [],
         inputs: [FileRecord],
         outputs: [FileRecord],
+        consumedInputSnapshotPaths: Set<String> = [],
         exitCode: Int32,
         wallTime: TimeInterval,
         peakMemoryBytes: UInt64? = nil,
         stderr: String?,
         status: RunStatus,
         outputDirectory: URL,
-        writeFileSidecars: Bool = true
+        writeFileSidecars: Bool = true,
+        publicationArtifactDidWrite:
+            (@Sendable (ProvenanceWriterMutation) throws -> Void)? = nil
     ) async throws -> ProvenanceEnvelope {
         let startedAt = Date().addingTimeInterval(-wallTime)
         let completedAt = Date()
@@ -180,7 +183,13 @@ enum CLIProvenanceSupport {
         .runtime(runtimeIdentity)
 
         for input in inputs {
-            builder = try appendInputRecord(input, to: builder)
+            builder = try appendInputRecord(
+                input,
+                to: builder,
+                consumedSnapshot: consumedInputSnapshotPaths.contains(
+                    URL(fileURLWithPath: input.path).standardizedFileURL.path
+                )
+            )
         }
         for output in outputs {
             builder = try appendOutputRecord(output, to: builder)
@@ -200,7 +209,9 @@ enum CLIProvenanceSupport {
             legacyWorkflowRun: compatibilityRun
         )
 
-        let writer = ProvenanceWriter()
+        let writer = publicationArtifactDidWrite.map {
+            ProvenanceWriter(publicationMutationDidOccur: $0)
+        } ?? ProvenanceWriter()
         try writer.write(envelope, to: outputDirectory)
 
         guard writeFileSidecars else { return envelope }
@@ -226,9 +237,16 @@ enum CLIProvenanceSupport {
 
     private static func appendInputRecord(
         _ record: FileRecord,
-        to builder: ProvenanceRunBuilder
+        to builder: ProvenanceRunBuilder,
+        consumedSnapshot: Bool = false
     ) throws -> ProvenanceRunBuilder {
-        if shouldUseDescriptorVerbatim(for: record.path) || isDirectoryRecord(record) {
+        if consumedSnapshot {
+            return try builder.consumedInputSnapshot(
+                ProvenanceFileDescriptor(fileRecord: record)
+            )
+        }
+        if shouldUseDescriptorVerbatim(for: record.path)
+            || isDirectoryRecord(record) {
             return try builder.input(ProvenanceFileDescriptor(fileRecord: record))
         }
         return try builder.input(URL(fileURLWithPath: record.path), format: record.format, role: record.role)

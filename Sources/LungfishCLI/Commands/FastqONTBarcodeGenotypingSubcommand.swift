@@ -55,6 +55,9 @@ struct FastqONTBarcodeGenotypingSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("min-support"), help: "Minimum retained unique-read support required for a genotype row in the report and workbook")
     var minSupport: Int = 1
 
+    @Flag(name: .customLong("keep-intermediates"), help: "Keep regenerable workflow intermediates for troubleshooting")
+    var keepIntermediates = false
+
     @Option(name: .customLong("haplotype-min-sample-percent"), help: "Drop genotype rows below this percent of retained genotyping reads for the sample; 0 disables")
     var haplotypeMinSamplePercent: Double = 0
 
@@ -148,6 +151,7 @@ struct FastqONTBarcodeGenotypingSubcommand: AsyncParsableCommand {
             threads: threads,
             sortThreads: sortThreads,
             minSupport: minSupport,
+            keepIntermediates: keepIntermediates,
             haplotypeDropoutSampleFraction: Self.fraction(fromPercent: haplotypeMinSamplePercent),
             haplotypeDropoutLocusFraction: Self.fraction(fromPercent: haplotypeMinLocusPercent),
             haplotypeDropoutLocusFractionOverrides: parsedLocusOverrides,

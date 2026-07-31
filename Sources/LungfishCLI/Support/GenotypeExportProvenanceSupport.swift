@@ -14,12 +14,28 @@ enum GenotypeExportProvenanceSupport {
         defaults: [String: ParameterValue] = [:],
         resolvedOptions: [String: ParameterValue]? = nil,
         additionalInputURLs: [URL] = [],
-        startedAt: Date
+        additionalInputRecords: [FileRecord] = [],
+        excludedInputURLs: [URL] = [],
+        startedAt: Date,
+        publicationArtifactDidWrite:
+            (@Sendable (ProvenanceWriterMutation) throws -> Void)? = nil
     ) async throws {
         guard !outputURLs.isEmpty else { return }
         var parameters = optionPaths.mapValues { ParameterValue.file($0) }
         parameters.merge(explicitOptions) { _, explicit in explicit }
         parameters["outputCount"] = .integer(outputURLs.count)
+        let consumedInputSnapshotPaths = Set(
+            additionalInputRecords.map {
+                URL(fileURLWithPath: $0.path).standardizedFileURL.path
+            }
+        )
+
+        let excludedInputPaths = Set(
+            excludedInputURLs.map(\.standardizedFileURL.path)
+                + additionalInputRecords.map {
+                    URL(fileURLWithPath: $0.path).standardizedFileURL.path
+                }
+        )
 
         try await CLIProvenanceSupport.recordSingleStepRun(
             name: workflowName,
@@ -29,22 +45,30 @@ enum GenotypeExportProvenanceSupport {
             toolName: toolName,
             toolVersion: WorkflowRun.currentAppVersion,
             command: command,
-            inputs: inputRecords(bundleURL: bundleURL) + additionalInputURLs.map {
+            inputs: inputRecords(
+                bundleURL: bundleURL,
+                excluding: excludedInputPaths
+            ) + additionalInputURLs.map {
                 ProvenanceRecorder.fileRecord(url: $0, role: .input)
-            },
+            } + additionalInputRecords,
             outputs: outputURLs.map {
                 ProvenanceRecorder.fileRecord(url: $0, role: .output)
             },
+            consumedInputSnapshotPaths: consumedInputSnapshotPaths,
             exitCode: 0,
             wallTime: max(0, Date().timeIntervalSince(startedAt)),
             stderr: nil,
             status: .completed,
             outputDirectory: outputDirectory,
-            writeFileSidecars: true
+            writeFileSidecars: true,
+            publicationArtifactDidWrite: publicationArtifactDidWrite
         )
     }
 
-    private static func inputRecords(bundleURL: URL) -> [FileRecord] {
+    private static func inputRecords(
+        bundleURL: URL,
+        excluding excludedPaths: Set<String> = []
+    ) -> [FileRecord] {
         let fileManager = FileManager.default
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: bundleURL.path, isDirectory: &isDirectory) else {
@@ -81,6 +105,9 @@ enum GenotypeExportProvenanceSupport {
 
         var records: [FileRecord] = []
         for case let url as URL in enumerator {
+            guard !excludedPaths.contains(url.standardizedFileURL.path) else {
+                continue
+            }
             guard let values = try? url.resourceValues(forKeys: Set(resourceKeys)),
                   values.isRegularFile == true,
                   values.isHidden != true else {

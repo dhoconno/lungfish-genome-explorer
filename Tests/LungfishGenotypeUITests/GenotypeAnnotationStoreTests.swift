@@ -30,6 +30,20 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         }
     }
 
+    private final class FailOncePublication: @unchecked Sendable {
+        private let lock = NSLock()
+        private var shouldFail = true
+
+        func inject(_ point: GenotypeAnnotationPublicationFaultPoint) -> Error? {
+            guard point == .beforeProvenancePublication else { return nil }
+            lock.lock()
+            defer { lock.unlock() }
+            guard shouldFail else { return nil }
+            shouldFail = false
+            return InjectedPublicationFailure()
+        }
+    }
+
     func testSynchronousControllerReviewBridgeRevalidatesEvidenceBeforePublication() throws {
         let dir = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -153,6 +167,78 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
             GenotypeAnnotationSidecar.currentSchemaVersion
         )
         XCTAssertEqual(replayed.matrixReviews, [review])
+    }
+
+    func testSemanticMatrixReplayRejectsFutureSchemaWithoutChangingInput() throws {
+        var prior = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-24T00:00:00Z"
+        )
+        prior.schemaVersion = GenotypeAnnotationSidecar.currentSchemaVersion + 1
+        let original = prior
+        let replay = GenotypeMatrixAnnotationReplayPayload(
+            action: .setMatrixReview,
+            author: "reviewer",
+            timestamp: "2026-07-24T00:01:00Z",
+            targetMutations: []
+        )
+
+        XCTAssertThrowsError(try replay.applying(to: prior)) { error in
+            XCTAssertEqual(
+                error as? GenotypeAnnotationSidecar.SchemaMutationError,
+                .unsupportedFutureSchemaVersion(
+                    found: prior.schemaVersion,
+                    current: GenotypeAnnotationSidecar.currentSchemaVersion
+                )
+            )
+        }
+        XCTAssertEqual(prior, original)
+    }
+
+    func testStoreRejectsFutureSchemaBeforeAnnotationOrProvenanceWrite() throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let annotationURL = dir.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
+        var future = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-24T00:00:00Z"
+        )
+        future.schemaVersion = GenotypeAnnotationSidecar.currentSchemaVersion + 1
+        let originalData = try future.encoded()
+        try originalData.write(to: annotationURL, options: .atomic)
+        let originalHash = SHA256.hash(data: originalData)
+        let store = try GenotypeAnnotationStore(
+            bundleURL: dir,
+            author: "reviewer",
+            seedBuiltInSmartCohorts: false
+        )
+
+        XCTAssertThrowsError(
+            try store.applyOverride(
+                sample: "Animal-1",
+                locus: "MHC-A",
+                slot: .h1,
+                originalCall: "M1",
+                overrideCall: "M2",
+                reasonTag: .misCall,
+                rationale: "review"
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? GenotypeAnnotationSidecar.SchemaMutationError,
+                .unsupportedFutureSchemaVersion(
+                    found: future.schemaVersion,
+                    current: GenotypeAnnotationSidecar.currentSchemaVersion
+                )
+            )
+        }
+
+        let storedData = try Data(contentsOf: annotationURL)
+        XCTAssertEqual(storedData, originalData)
+        XCTAssertEqual(SHA256.hash(data: storedData), originalHash)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: provenanceURL.path))
+        XCTAssertEqual(store.sidecar, future)
     }
 
     private func makeBundleURL() throws -> URL {
@@ -1667,5 +1753,895 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         XCTAssertEqual(envelope.runtimeIdentity.user, WorkflowRun.currentUser)
         XCTAssertEqual(envelope.exitStatus, 0)
         XCTAssertGreaterThanOrEqual(envelope.wallTimeSeconds ?? -1, 0)
+    }
+
+    func testReplacingManualHaplotypeAssignmentsPublishesOneAtomicAuditedReplay() throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let manifestData = Data(#"{"schema":"manual-assignment-test"}"#.utf8)
+        try manifestData.write(
+            to: dir.appendingPathComponent(
+                ONTGenotypeResultBundleManifest.filename
+            )
+        )
+        let seeded = try GenotypeAnnotationStore(
+            bundleURL: dir,
+            author: "seed"
+        )
+        let retainedID = "assignment-existing"
+        let removedID = "assignment-removed"
+        var initial = seeded.sidecar
+        initial.manualHaplotypeAssignments = [
+            ManualHaplotypeAssignment(
+                sample: "Animal-1",
+                locus: "MHC-A",
+                slot: .h1,
+                label: "Old-A",
+                colorTokenIndex: 1,
+                diagnosticAlleles: ["Mafa-A1*001:01"],
+                notes: "Preserve this scientific note.",
+                assignmentID: retainedID,
+                updatedAt: "2026-07-25T10:00:00Z",
+                author: "Earlier Analyst"
+            ),
+            ManualHaplotypeAssignment(
+                sample: "Animal-1",
+                locus: "MHC-B",
+                slot: .h2,
+                label: "Remove-B",
+                colorTokenIndex: 3,
+                diagnosticAlleles: ["Mafa-B*002:01"],
+                notes: "Removal must retain this in audit.",
+                assignmentID: removedID,
+                updatedAt: "2026-07-25T10:01:00Z",
+                author: "Earlier Analyst"
+            ),
+            ManualHaplotypeAssignment(
+                sample: "Animal-2",
+                locus: "MHC-A",
+                slot: .h1,
+                label: "Other-Sample",
+                colorTokenIndex: 4,
+                diagnosticAlleles: [],
+                notes: "",
+                assignmentID: "assignment-other",
+                updatedAt: "2026-07-25T10:02:00Z",
+                author: "Earlier Analyst"
+            ),
+        ]
+        let annotationURL = dir.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        try initial.encoded().write(to: annotationURL, options: .atomic)
+
+        let publications = PublicationCounter()
+        let store = try GenotypeAnnotationStore(
+            bundleURL: dir,
+            author: "construction-author",
+            publicationFaultInjector: publications.inject
+        )
+        let priorData = try Data(contentsOf: annotationURL)
+        let result = try store.replaceManualHaplotypeAssignments(
+            for: " Animal-1 ",
+            with: [
+                ManualHaplotypeAssignment(
+                    sample: "Animal-1",
+                    locus: " mhc_a ",
+                    slot: .h1,
+                    label: "  New-A  ",
+                    colorTokenIndex: 2,
+                    diagnosticAlleles: ["must", "be", "ignored"],
+                    notes: "must be ignored"
+                ),
+                ManualHaplotypeAssignment(
+                    sample: " Animal-1 ",
+                    locus: "MHC DQB",
+                    slot: .h2,
+                    label: " New-DQB ",
+                    colorTokenIndex: 5,
+                    diagnosticAlleles: ["must be empty for a new slot"],
+                    notes: "must be empty for a new slot"
+                ),
+            ],
+            copySource: " Animal-9 ",
+            author: " Resolved Analyst "
+        )
+
+        XCTAssertTrue(result.didChange)
+        XCTAssertEqual(result.sample, "Animal-1")
+        XCTAssertEqual(result.added.count, 1)
+        XCTAssertEqual(result.updated.count, 1)
+        XCTAssertEqual(result.removed.count, 1)
+        XCTAssertNotNil(result.operationID)
+        XCTAssertNotNil(result.timestamp)
+        XCTAssertEqual(publications.count, 1)
+        XCTAssertEqual(store.manualHaplotypeAssignmentMutationRevision, 1)
+
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: store.sidecar.manualHaplotypeAssignments
+        )
+        let updated = try XCTUnwrap(index.assignment(
+            sample: "Animal-1",
+            locus: .a,
+            slot: .h1
+        ))
+        XCTAssertEqual(updated.label, "New-A")
+        XCTAssertEqual(updated.colorTokenIndex, 2)
+        XCTAssertEqual(updated.diagnosticAlleles, ["Mafa-A1*001:01"])
+        XCTAssertEqual(updated.notes, "Preserve this scientific note.")
+        XCTAssertEqual(updated.assignmentID, retainedID)
+        XCTAssertEqual(updated.author, "Resolved Analyst")
+        XCTAssertEqual(updated.updatedAt, result.timestamp)
+        let added = try XCTUnwrap(index.assignment(
+            sample: "Animal-1",
+            locus: .dqb,
+            slot: .h2
+        ))
+        XCTAssertEqual(added.label, "New-DQB")
+        XCTAssertEqual(added.colorTokenIndex, 5)
+        XCTAssertTrue(added.diagnosticAlleles.isEmpty)
+        XCTAssertTrue(added.notes.isEmpty)
+        XCTAssertFalse(try XCTUnwrap(added.assignmentID).isEmpty)
+        XCTAssertEqual(added.author, "Resolved Analyst")
+        XCTAssertEqual(added.updatedAt, result.timestamp)
+        XCTAssertNotNil(index.assignment(
+            sample: "Animal-2",
+            locus: .a,
+            slot: .h1
+        ))
+
+        let operationID = try XCTUnwrap(result.operationID)
+        let audits = store.sidecar.auditLog.filter {
+            $0.manualHaplotypeAssignment?.operationID == operationID
+        }
+        XCTAssertEqual(audits.count, 4)
+        XCTAssertEqual(Set(audits.map(\.timestamp)), [try XCTUnwrap(result.timestamp)])
+        XCTAssertEqual(Set(audits.map(\.author)), ["Resolved Analyst"])
+        XCTAssertEqual(
+            Set(audits.map { $0.manualHaplotypeAssignment?.copySourceSample }),
+            ["Animal-9"]
+        )
+        XCTAssertEqual(
+            audits.filter { $0.action == "replaceManualHaplotypeAssignments" }.count,
+            1
+        )
+        let removalAudit = try XCTUnwrap(audits.first {
+            $0.action == "removeManualHaplotypeAssignment"
+        })
+        XCTAssertEqual(
+            removalAudit.manualHaplotypeAssignment?.before?.assignmentID,
+            removedID
+        )
+        XCTAssertEqual(
+            removalAudit.manualHaplotypeAssignment?.before?.diagnosticAlleles,
+            ["Mafa-B*002:01"]
+        )
+        XCTAssertEqual(
+            removalAudit.manualHaplotypeAssignment?.before?.notes,
+            "Removal must retain this in audit."
+        )
+        XCTAssertNil(removalAudit.manualHaplotypeAssignment?.after)
+
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(
+            for: annotationURL
+        )
+        let envelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL)
+        )
+        let replayOutputURL =
+            GenotypeManualHaplotypeAssignmentReplayPayload
+                .replayOutputProvenanceURL(forBundleAt: dir)
+        let expectedReplayArgv = [
+            CLICommandIdentity.executableName,
+            "genotype",
+            GenotypeManualHaplotypeAssignmentReplayPayload.cliSubcommandName,
+            "--provenance", provenanceURL.path,
+            "--bundle", dir.standardizedFileURL.path,
+        ]
+        XCTAssertEqual(envelope.durableReplayArgv, expectedReplayArgv)
+        XCTAssertEqual(
+            envelope.reproducibleCommand,
+            expectedReplayArgv.map(shellEscape).joined(separator: " ")
+        )
+        XCTAssertEqual(
+            envelope.options.explicit["replayFormat"],
+            .string(GenotypeManualHaplotypeAssignmentReplayPayload.format)
+        )
+        XCTAssertEqual(
+            envelope.options.explicit["replayOutputProvenance"],
+            .file(replayOutputURL)
+        )
+        XCTAssertEqual(
+            envelope.options.resolvedDefaults["author"],
+            .string("Resolved Analyst")
+        )
+        let replayData = try XCTUnwrap(Data(
+            base64Encoded: try XCTUnwrap(
+                envelope.options.explicit["replayPayloadBase64"]?.stringValue
+            )
+        ))
+        XCTAssertEqual(
+            envelope.options.explicit["replayPayloadSHA256"],
+            .string(SHA256.hash(data: replayData).map {
+                String(format: "%02x", $0)
+            }.joined())
+        )
+        let replay =
+            try GenotypeManualHaplotypeAssignmentReplayPayload.decode(
+                replayData
+            )
+        XCTAssertEqual(replay.operation.operationID, operationID)
+        XCTAssertEqual(replay.operation.sample, "Animal-1")
+        XCTAssertEqual(replay.operation.copySourceSample, "Animal-9")
+        XCTAssertEqual(
+            replay.priorSidecar.descriptor.checksumSHA256,
+            SHA256.hash(data: priorData).map {
+                String(format: "%02x", $0)
+            }.joined()
+        )
+        XCTAssertEqual(
+            replay.targetBundle.manifest.checksumSHA256,
+            SHA256.hash(data: manifestData).map {
+                String(format: "%02x", $0)
+            }.joined()
+        )
+        let replayed = try replay.applying(
+            to: priorData,
+            targetBundleURL: dir,
+            targetManifestData: manifestData
+        )
+        XCTAssertEqual(replayed, store.sidecar)
+        XCTAssertEqual(try replayed.encoded(), try Data(contentsOf: annotationURL))
+    }
+
+    func testSelectiveSaveAuditAttributesOnlyOneCleanSourceAndExactlyReplaysEveryFinalDiff()
+        throws
+    {
+        struct Scenario {
+            let name: String
+            let edit: (
+                inout GenotypeManualHaplotypeDraft,
+                GenotypeManualHaplotypeAssignmentIndex
+            ) -> Void
+            let expectedCopySource: String?
+            let expectedLabels: Set<String>
+        }
+
+        let sourceAssignments = [
+            ManualHaplotypeAssignment(
+                sample: "Source-1",
+                locus: "MHC-A",
+                slot: .h1,
+                label: "Source-1 A",
+                colorTokenIndex: 1,
+                diagnosticAlleles: [],
+                notes: ""
+            ),
+            ManualHaplotypeAssignment(
+                sample: "Source-1",
+                locus: "MHC-B",
+                slot: .h1,
+                label: "Source-1 B",
+                colorTokenIndex: 2,
+                diagnosticAlleles: [],
+                notes: ""
+            ),
+            ManualHaplotypeAssignment(
+                sample: "Source-2",
+                locus: "MHC-B",
+                slot: .h1,
+                label: "Source-2 B",
+                colorTokenIndex: 3,
+                diagnosticAlleles: [],
+                notes: ""
+            ),
+        ]
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: sourceAssignments
+        )
+        let aH1 = GenotypeManualHaplotypeDraft.SlotAddress(
+            locus: .a,
+            slot: .h1
+        )
+        let bH1 = GenotypeManualHaplotypeDraft.SlotAddress(
+            locus: .b,
+            slot: .h1
+        )
+        let scenarios = [
+            Scenario(
+                name: "single source",
+                edit: { draft, index in
+                    _ = draft.copySelectedAssignments(
+                        from: index.sampleAssignments(for: "Source-1"),
+                        addresses: [aH1, bH1]
+                    )
+                },
+                expectedCopySource: "Source-1",
+                expectedLabels: ["Source-1 A", "Source-1 B"]
+            ),
+            Scenario(
+                name: "mixed sources",
+                edit: { draft, index in
+                    _ = draft.copySelectedAssignments(
+                        from: index.sampleAssignments(for: "Source-1"),
+                        addresses: [aH1]
+                    )
+                    _ = draft.copySelectedAssignments(
+                        from: index.sampleAssignments(for: "Source-2"),
+                        addresses: [bH1]
+                    )
+                },
+                expectedCopySource: nil,
+                expectedLabels: ["Source-1 A", "Source-2 B"]
+            ),
+            Scenario(
+                name: "manual and copied",
+                edit: { draft, index in
+                    _ = draft.copySelectedAssignments(
+                        from: index.sampleAssignments(for: "Source-1"),
+                        addresses: [aH1]
+                    )
+                    draft.setLabel(
+                        "Manual B",
+                        locus: .b,
+                        slot: .h1
+                    )
+                },
+                expectedCopySource: nil,
+                expectedLabels: ["Source-1 A", "Manual B"]
+            ),
+        ]
+
+        for scenario in scenarios {
+            let dir = try makeBundleURL()
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let manifestURL = dir.appendingPathComponent(
+                ONTGenotypeResultBundleManifest.filename
+            )
+            try Data("{}".utf8).write(to: manifestURL)
+            let store = try GenotypeAnnotationStore(
+                bundleURL: dir,
+                author: "Audit Analyst"
+            )
+            let annotationURL = dir.appendingPathComponent(
+                GenotypeAnnotationSidecar.filename
+            )
+            let priorData = try Data(contentsOf: annotationURL)
+            let manifestData = try Data(contentsOf: manifestURL)
+            var draft = GenotypeManualHaplotypeDraft(
+                sample: "Target",
+                index: index
+            )
+
+            scenario.edit(&draft, index)
+
+            XCTAssertEqual(
+                draft.copySource,
+                scenario.expectedCopySource,
+                scenario.name
+            )
+            let replacement = try store.replaceManualHaplotypeAssignments(
+                for: draft.sample,
+                with: try draft.validatedAssignments(),
+                copySource: draft.copySource,
+                author: "Audit Analyst"
+            )
+            let operationID = try XCTUnwrap(
+                replacement.operationID,
+                scenario.name
+            )
+            let operationAudits = store.sidecar.auditLog.filter {
+                $0.manualHaplotypeAssignment?.operationID == operationID
+            }
+            XCTAssertFalse(operationAudits.isEmpty, scenario.name)
+            XCTAssertEqual(
+                Set(operationAudits.map {
+                    $0.manualHaplotypeAssignment?.copySourceSample
+                }),
+                [scenario.expectedCopySource],
+                scenario.name
+            )
+            XCTAssertEqual(
+                Set(
+                    store.sidecar.manualHaplotypeAssignments
+                        .filter { $0.sample == "Target" }
+                        .map(\.label)
+                ),
+                scenario.expectedLabels,
+                scenario.name
+            )
+
+            let provenanceURL = ProvenanceRecorder.fileSidecarURL(
+                for: annotationURL
+            )
+            let envelope = try XCTUnwrap(
+                ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL),
+                scenario.name
+            )
+            let replayData = try XCTUnwrap(
+                Data(base64Encoded: try XCTUnwrap(
+                    envelope.options.explicit[
+                        "replayPayloadBase64"
+                    ]?.stringValue,
+                    scenario.name
+                )),
+                scenario.name
+            )
+            let replay =
+                try GenotypeManualHaplotypeAssignmentReplayPayload.decode(
+                    replayData
+                )
+            XCTAssertEqual(
+                replay.operation.copySourceSample,
+                scenario.expectedCopySource,
+                scenario.name
+            )
+            XCTAssertEqual(
+                replay.beforeAssignments,
+                [],
+                scenario.name
+            )
+            XCTAssertEqual(
+                replay.afterAssignments,
+                store.sidecar.manualHaplotypeAssignments,
+                scenario.name
+            )
+            let replayed = try replay.applying(
+                to: priorData,
+                targetBundleURL: dir,
+                targetManifestData: manifestData
+            )
+            XCTAssertEqual(replayed, store.sidecar, scenario.name)
+            XCTAssertEqual(
+                try replayed.encoded(),
+                try Data(contentsOf: annotationURL),
+                scenario.name
+            )
+        }
+    }
+
+    func testReplacingManualHaplotypeAssignmentsNoOpWritesNothing() throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Data("{}".utf8).write(
+            to: dir.appendingPathComponent(
+                ONTGenotypeResultBundleManifest.filename
+            )
+        )
+        let seeded = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        let existing = ManualHaplotypeAssignment(
+            sample: "Animal-1",
+            locus: "MHC-A",
+            slot: .h1,
+            label: "Manual-A",
+            colorTokenIndex: 2,
+            diagnosticAlleles: ["A1"],
+            notes: "Existing note",
+            assignmentID: "stable-id",
+            updatedAt: "2026-07-25T10:00:00Z",
+            author: "Earlier Analyst"
+        )
+        var initial = seeded.sidecar
+        initial.manualHaplotypeAssignments = [existing]
+        let annotationURL = dir.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        try initial.encoded().write(to: annotationURL, options: .atomic)
+        let store = try GenotypeAnnotationStore(bundleURL: dir, author: "test")
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
+        let beforeAnnotation = try Data(contentsOf: annotationURL)
+        let beforeProvenance = try Data(contentsOf: provenanceURL)
+
+        let result = try store.replaceManualHaplotypeAssignments(
+            for: "Animal-1",
+            with: [existing],
+            copySource: "Animal-8",
+            author: "Someone Else"
+        )
+
+        XCTAssertFalse(result.didChange)
+        XCTAssertNil(result.operationID)
+        XCTAssertNil(result.timestamp)
+        XCTAssertTrue(result.added.isEmpty)
+        XCTAssertTrue(result.updated.isEmpty)
+        XCTAssertTrue(result.removed.isEmpty)
+        XCTAssertEqual(store.manualHaplotypeAssignmentMutationRevision, 0)
+        XCTAssertEqual(try Data(contentsOf: annotationURL), beforeAnnotation)
+        XCTAssertEqual(try Data(contentsOf: provenanceURL), beforeProvenance)
+        XCTAssertEqual(store.sidecar, initial)
+    }
+
+    func testFirstManualHaplotypeSaveCanonicalizesLegacyDuplicatesWithoutErasingHistory() throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Data("{}".utf8).write(
+            to: dir.appendingPathComponent(
+                ONTGenotypeResultBundleManifest.filename
+            )
+        )
+        let seeded = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        var initial = seeded.sidecar
+        let historicalAudit = GenotypeAnnotationSidecar.AuditEntry(
+            action: "legacyManualAssignmentImport",
+            sample: "Animal-1",
+            locus: "MHC-A",
+            slot: .h1,
+            before: nil,
+            after: "Older",
+            color: "1",
+            reason: "legacy-import",
+            rationale: "Keep this historical record.",
+            author: "Legacy Analyst",
+            timestamp: "2025-01-01T00:00:00Z"
+        )
+        initial.append(audit: historicalAudit)
+        initial.manualHaplotypeAssignments = [
+            ManualHaplotypeAssignment(
+                sample: "Animal-1",
+                locus: "MHC_A",
+                slot: .h1,
+                label: "Older",
+                colorTokenIndex: 1,
+                diagnosticAlleles: ["older-allele"],
+                notes: "older note",
+                assignmentID: nil,
+                updatedAt: "2025-01-01T00:00:00Z",
+                author: "Legacy Analyst"
+            ),
+            ManualHaplotypeAssignment(
+                sample: "Animal-1",
+                locus: "MHC-A",
+                slot: .h1,
+                label: "Current",
+                colorTokenIndex: 2,
+                diagnosticAlleles: ["current-allele"],
+                notes: "current note",
+                assignmentID: " stable-exact-id ",
+                updatedAt: "2025-02-01T00:00:00Z",
+                author: "Legacy Analyst"
+            ),
+        ]
+        let annotationURL = dir.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        try initial.encoded().write(to: annotationURL, options: .atomic)
+        let store = try GenotypeAnnotationStore(bundleURL: dir, author: "test")
+
+        let result = try store.replaceManualHaplotypeAssignments(
+            for: "Animal-1",
+            with: [
+                ManualHaplotypeAssignment(
+                    sample: "Animal-1",
+                    locus: "MHC-A",
+                    slot: .h1,
+                    label: "Current",
+                    colorTokenIndex: 2,
+                    diagnosticAlleles: [],
+                    notes: ""
+                ),
+            ],
+            copySource: nil,
+            author: "Canonicalizing Analyst"
+        )
+
+        XCTAssertTrue(result.didChange)
+        XCTAssertTrue(result.added.isEmpty)
+        XCTAssertEqual(result.updated.count, 1)
+        XCTAssertTrue(result.removed.isEmpty)
+        let selected = store.sidecar.manualHaplotypeAssignments.filter {
+            $0.sample == "Animal-1"
+        }
+        XCTAssertEqual(selected.count, 1)
+        XCTAssertEqual(selected[0].locus, "MHC-A")
+        XCTAssertEqual(selected[0].assignmentID, " stable-exact-id ")
+        XCTAssertEqual(selected[0].diagnosticAlleles, ["current-allele"])
+        XCTAssertEqual(selected[0].notes, "current note")
+        XCTAssertEqual(store.sidecar.auditLog.first, historicalAudit)
+        let operationID = try XCTUnwrap(result.operationID)
+        let operationAudits = store.sidecar.auditLog.filter {
+            $0.manualHaplotypeAssignment?.operationID == operationID
+        }
+        XCTAssertEqual(
+            operationAudits.map(\.action),
+            [
+                "updateManualHaplotypeAssignment",
+                "replaceManualHaplotypeAssignments",
+            ]
+        )
+    }
+
+    func testEmptyDraftRemovesWhitespaceAndDecomposedLegacySampleWhilePreservingSelectedOrphanAndExactReplay() throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let manifestData = Data(#"{"revision":"legacy-sample"}"#.utf8)
+        try manifestData.write(
+            to: dir.appendingPathComponent(
+                ONTGenotypeResultBundleManifest.filename
+            )
+        )
+        let seeded = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        let canonicalSample = "\u{00C1}nimal-1"
+        let legacySample = "  A\u{0301}nimal-1  "
+        let recognized = ManualHaplotypeAssignment(
+            sample: legacySample,
+            locus: "MHC-A",
+            slot: .h1,
+            label: "Legacy-A",
+            colorTokenIndex: 2,
+            diagnosticAlleles: ["Mafa-A1*001:01"],
+            notes: "remove but audit exactly",
+            assignmentID: "legacy-a-id",
+            updatedAt: "2026-07-26T15:02:00Z",
+            author: "Legacy Analyst"
+        )
+        let selectedOrphan = ManualHaplotypeAssignment(
+            sample: legacySample,
+            locus: "MHC-OPAQUE",
+            slot: .h2,
+            label: "Opaque",
+            colorTokenIndex: 8,
+            diagnosticAlleles: ["opaque"],
+            notes: "preserve exact orphan",
+            assignmentID: nil,
+            updatedAt: "not-a-date",
+            author: "Legacy Analyst"
+        )
+        let unrelated = ManualHaplotypeAssignment(
+            sample: "Animal-2",
+            locus: "MHC-B",
+            slot: .h1,
+            label: "Other",
+            colorTokenIndex: 4,
+            diagnosticAlleles: ["other"],
+            notes: "unrelated exact",
+            assignmentID: "other-id",
+            updatedAt: "2026-07-26T15:03:00Z",
+            author: "Other Analyst"
+        )
+        var initial = seeded.sidecar
+        initial.manualHaplotypeAssignments = [
+            recognized,
+            selectedOrphan,
+            unrelated,
+        ]
+        let annotationURL = dir.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        try initial.encoded().write(to: annotationURL, options: .atomic)
+        let priorData = try Data(contentsOf: annotationURL)
+        let store = try GenotypeAnnotationStore(bundleURL: dir, author: "test")
+
+        let result = try store.replaceManualHaplotypeAssignments(
+            for: canonicalSample,
+            with: [],
+            copySource: nil,
+            author: "Canonicalizing Analyst"
+        )
+
+        XCTAssertTrue(result.didChange)
+        XCTAssertEqual(result.removed, [recognized])
+        XCTAssertEqual(
+            store.sidecar.manualHaplotypeAssignments,
+            [unrelated, selectedOrphan]
+        )
+        let removalAudit = try XCTUnwrap(store.sidecar.auditLog.last {
+            $0.action == "removeManualHaplotypeAssignment"
+        })
+        XCTAssertEqual(
+            removalAudit.manualHaplotypeAssignment?.before,
+            recognized
+        )
+        XCTAssertNil(removalAudit.manualHaplotypeAssignment?.after)
+        let envelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(
+                fromSidecar: ProvenanceRecorder.fileSidecarURL(
+                    for: annotationURL
+                )
+            )
+        )
+        let replayData = try XCTUnwrap(Data(
+            base64Encoded: try XCTUnwrap(
+                envelope.options.explicit["replayPayloadBase64"]?.stringValue
+            )
+        ))
+        let replay =
+            try GenotypeManualHaplotypeAssignmentReplayPayload.decode(
+                replayData
+            )
+        let replayed = try replay.applying(
+            to: priorData,
+            targetBundleURL: dir,
+            targetManifestData: manifestData
+        )
+        XCTAssertEqual(replayed, store.sidecar)
+    }
+
+    func testManualHaplotypePublicationFailurePreservesBytesAndObservableStateThenRetrySucceedsOnce() throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Data("{}".utf8).write(
+            to: dir.appendingPathComponent(
+                ONTGenotypeResultBundleManifest.filename
+            )
+        )
+        let seeded = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        var initial = seeded.sidecar
+        initial.manualHaplotypeAssignments = [
+            ManualHaplotypeAssignment(
+                sample: "Animal-1",
+                locus: "MHC-A",
+                slot: .h1,
+                label: "Remove-Me",
+                colorTokenIndex: 2,
+                diagnosticAlleles: ["Mafa-A1*001:01"],
+                notes: "rollback me",
+                assignmentID: "remove-me-id",
+                updatedAt: "2026-07-26T15:02:00Z",
+                author: "Legacy Analyst"
+            ),
+        ]
+        let annotationURL = dir.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        try initial.encoded().write(to: annotationURL, options: .atomic)
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(
+            for: annotationURL
+        )
+        let failure = FailOncePublication()
+        let store = try GenotypeAnnotationStore(
+            bundleURL: dir,
+            author: "test",
+            publicationFaultInjector: failure.inject
+        )
+        let sidecarBefore = store.sidecar
+        let annotationBefore = try Data(contentsOf: annotationURL)
+        let provenanceBefore = try Data(contentsOf: provenanceURL)
+
+        XCTAssertThrowsError(try store.replaceManualHaplotypeAssignments(
+            for: "Animal-1",
+            with: [],
+            copySource: nil,
+            author: "Retry Analyst"
+        ))
+        XCTAssertEqual(try Data(contentsOf: annotationURL), annotationBefore)
+        XCTAssertEqual(try Data(contentsOf: provenanceURL), provenanceBefore)
+        XCTAssertEqual(store.sidecar, sidecarBefore)
+        XCTAssertEqual(store.manualHaplotypeAssignmentMutationRevision, 0)
+
+        let retry = try store.replaceManualHaplotypeAssignments(
+            for: "Animal-1",
+            with: [],
+            copySource: nil,
+            author: "Retry Analyst"
+        )
+        XCTAssertTrue(retry.didChange)
+        XCTAssertTrue(store.sidecar.manualHaplotypeAssignments.isEmpty)
+        XCTAssertEqual(store.manualHaplotypeAssignmentMutationRevision, 1)
+    }
+
+    func testReplacingManualHaplotypeAssignmentsRejectsInvalidAndDuplicateDraftKeys() throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Data("{}".utf8).write(
+            to: dir.appendingPathComponent(
+                ONTGenotypeResultBundleManifest.filename
+            )
+        )
+        let store = try GenotypeAnnotationStore(bundleURL: dir, author: "test")
+        let annotationURL = dir.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
+        let beforeAnnotation = try Data(contentsOf: annotationURL)
+        let beforeProvenance = try Data(contentsOf: provenanceURL)
+        let assignment = ManualHaplotypeAssignment(
+            sample: "Animal-1",
+            locus: "MHC-A",
+            slot: .h1,
+            label: "Manual-A",
+            colorTokenIndex: 2,
+            diagnosticAlleles: [],
+            notes: ""
+        )
+
+        XCTAssertThrowsError(try store.replaceManualHaplotypeAssignments(
+            for: " \n ",
+            with: [assignment],
+            copySource: nil,
+            author: nil
+        )) {
+            XCTAssertEqual(
+                $0 as? ManualHaplotypeReplacementError,
+                .emptySample
+            )
+        }
+        var invalidLocus = assignment
+        invalidLocus.locus = " "
+        XCTAssertThrowsError(try store.replaceManualHaplotypeAssignments(
+            for: "Animal-1",
+            with: [invalidLocus],
+            copySource: nil,
+            author: nil
+        )) {
+            XCTAssertEqual(
+                $0 as? ManualHaplotypeReplacementError,
+                .invalidLocus(" ")
+            )
+        }
+        var aliasDuplicate = assignment
+        aliasDuplicate.locus = "MHC A"
+        XCTAssertThrowsError(try store.replaceManualHaplotypeAssignments(
+            for: "Animal-1",
+            with: [assignment, aliasDuplicate],
+            copySource: nil,
+            author: nil
+        )) {
+            XCTAssertEqual(
+                $0 as? ManualHaplotypeReplacementError,
+                .duplicateKey(
+                    sample: "Animal-1",
+                    locus: .a,
+                    slot: .h1
+                )
+            )
+        }
+        XCTAssertEqual(try Data(contentsOf: annotationURL), beforeAnnotation)
+        XCTAssertEqual(try Data(contentsOf: provenanceURL), beforeProvenance)
+        XCTAssertEqual(store.manualHaplotypeAssignmentMutationRevision, 0)
+    }
+
+    func testStaleManualHaplotypeReplacementLeavesPublishedBytesUntouched() throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Data("{}".utf8).write(
+            to: dir.appendingPathComponent(
+                ONTGenotypeResultBundleManifest.filename
+            )
+        )
+        _ = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        let stale = try GenotypeAnnotationStore(bundleURL: dir, author: "stale")
+        let staleBefore = stale.sidecar
+        let fresh = try GenotypeAnnotationStore(bundleURL: dir, author: "fresh")
+        let freshDraft = [
+            ManualHaplotypeAssignment(
+                sample: "Animal-1",
+                locus: "MHC-A",
+                slot: .h1,
+                label: "Fresh",
+                colorTokenIndex: 2,
+                diagnosticAlleles: [],
+                notes: ""
+            )
+        ]
+        _ = try fresh.replaceManualHaplotypeAssignments(
+            for: "Animal-1",
+            with: freshDraft,
+            copySource: nil,
+            author: "Fresh Analyst"
+        )
+        let annotationURL = dir.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
+        let freshAnnotation = try Data(contentsOf: annotationURL)
+        let freshProvenance = try Data(contentsOf: provenanceURL)
+
+        var staleDraft = freshDraft
+        staleDraft[0].label = "Stale"
+        XCTAssertThrowsError(try stale.replaceManualHaplotypeAssignments(
+            for: "Animal-1",
+            with: staleDraft,
+            copySource: nil,
+            author: "Stale Analyst"
+        )) {
+            XCTAssertEqual(
+                $0.localizedDescription,
+                "The genotype annotations changed in another process. Reload the bundle before saving this edit."
+            )
+        }
+        XCTAssertEqual(try Data(contentsOf: annotationURL), freshAnnotation)
+        XCTAssertEqual(try Data(contentsOf: provenanceURL), freshProvenance)
+        XCTAssertEqual(stale.sidecar, staleBefore)
+        XCTAssertEqual(stale.manualHaplotypeAssignmentMutationRevision, 0)
     }
 }

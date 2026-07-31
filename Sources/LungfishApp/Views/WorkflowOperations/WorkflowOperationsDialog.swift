@@ -427,6 +427,10 @@ private struct WorkflowOperationsDetailPane: View {
             DisclosureGroup("Advanced Options", isExpanded: $state.advancedOptionsExpanded) {
                 VStack(alignment: .leading, spacing: 8) {
                     labeledTextField("minimap2 arguments", text: $state.extraArgumentsText)
+                    Toggle("Keep Intermediates", isOn: $state.keepIntermediates)
+                    Text("Keeps large regenerable work files for troubleshooting. Off is recommended for normal runs.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     Text("Arguments are passed to minimap2 after the ONT mapping preset.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -436,6 +440,10 @@ private struct WorkflowOperationsDetailPane: View {
         case .fullLengthONTMHCGenotyping:
             DisclosureGroup("Advanced Options", isExpanded: $state.advancedOptionsExpanded) {
                 VStack(alignment: .leading, spacing: 8) {
+                    Toggle("Keep Intermediates", isOn: $state.keepIntermediates)
+                    Text("Keeps large regenerable work files for troubleshooting. Off is recommended for normal runs.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     fullLengthPrimerRow(
                         title: "Orient Reference",
                         url: state.fullLengthOrientReferenceURL,

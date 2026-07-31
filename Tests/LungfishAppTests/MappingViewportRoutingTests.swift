@@ -102,6 +102,37 @@ final class MappingViewportRoutingTests: XCTestCase {
         }
     }
 
+    private actor ManualHaplotypeConfigurationGate {
+        private var continuation:
+            CheckedContinuation<GenotypeManualHaplotypeDraftDecision, Never>?
+        private var decisionCount = 0
+
+        func decide() async -> GenotypeManualHaplotypeDraftDecision {
+            decisionCount += 1
+            guard decisionCount == 1 else {
+                return .cancel
+            }
+            return await withCheckedContinuation { continuation in
+                self.continuation = continuation
+            }
+        }
+
+        func waitUntilPending() async -> Bool {
+            for _ in 0..<1_000 {
+                if continuation != nil {
+                    return true
+                }
+                try? await Task.sleep(nanoseconds: 1_000_000)
+            }
+            return false
+        }
+
+        func resume(with decision: GenotypeManualHaplotypeDraftDecision) {
+            continuation?.resume(returning: decision)
+            continuation = nil
+        }
+    }
+
     func testViewerDisplaysLegacyMappingResultInMappingMode() throws {
         let resultDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("mapping-legacy-route-\(UUID().uuidString)", isDirectory: true)
@@ -1674,6 +1705,203 @@ final class MappingViewportRoutingTests: XCTestCase {
         XCTAssertEqual(diagnostics.completionContextCount, 0)
     }
 
+    func testCompletedWorkbookReloadCannotApplyAfterReplacementConfigurationIsQueued()
+        async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "GenotypeWorkbookQueuedConfiguration-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let firstBundle = try makeGenotypeResultBundle(
+            root: root,
+            name: "host-authority-first",
+            haplotypeAnalysisPath: nil,
+            genotypeOnlyWorkflowKind: .fullLengthONTMHCGenotype
+        )
+        let secondBundle = try makeGenotypeResultBundle(
+            root: root,
+            name: "host-authority-second",
+            haplotypeAnalysisPath: nil,
+            genotypeOnlyWorkflowKind: .fullLengthONTMHCGenotype
+        )
+        let secondResult = try await ONTGenotypeResultBundle.loadResultAsync(
+            from: secondBundle
+        )
+        let coordinator = GenotypeCurrentWorkbookSyncCoordinator(
+            recordedFingerprintLoader: { _ in nil },
+            idleScheduler: { _, _ in IdleCancellation() }
+        )
+        let splitController = MainSplitViewController()
+        splitController.genotypeCurrentWorkbookSyncCoordinator = coordinator
+        _ = splitController.view
+        await splitController.testingDisplayGenotypeResultBundleAndWait(
+            firstBundle
+        )
+        let registered = await eventually {
+            splitController
+                .testingGenotypeCurrentWorkbookRetentionDiagnostics
+                .completionContextCount == 1
+        }
+        XCTAssertTrue(registered)
+        let resultController = try XCTUnwrap(
+            splitController.viewerController.genotypeResultViewController
+        )
+        resultController.testingSelectMatrixColumn(sample: "DW472")
+        resultController.testingUpdateManualHaplotypeLabel("H1")
+        XCTAssertTrue(resultController.testingManualHaplotypeEditorIsDirty)
+
+        let reloadGate = WorkbookResultReloadGate()
+        splitController.genotypeResultLoader = { _ in
+            try await reloadGate.load()
+        }
+        splitController.applyGenotypeCurrentWorkbookSyncPhase(
+            .current,
+            bundleURL: firstBundle
+        )
+        let reloadStarted = await eventually { reloadGate.loadCount == 1 }
+        XCTAssertTrue(reloadStarted)
+
+        let configurationGate = ManualHaplotypeConfigurationGate()
+        resultController.testingSetManualHaplotypeDraftDecisionProvider { _ in
+            await configurationGate.decide()
+        }
+        resultController.configure(result: secondResult)
+        let configurationIsPending =
+            await configurationGate.waitUntilPending()
+        XCTAssertTrue(configurationIsPending)
+        guard configurationIsPending else {
+            return
+        }
+        XCTAssertEqual(
+            resultController.testingPendingManualHaplotypeMutationCount,
+            1
+        )
+
+        let updatedStatsURL = firstBundle.appendingPathComponent(
+            "host-authority-first.retained-demux-stats.json"
+        )
+        try #"{"totalInputReads":999,"retainedUniqueReads":8}"#
+            .write(
+                to: updatedStatsURL,
+                atomically: true,
+                encoding: .utf8
+            )
+        let updatedFirstResult =
+            try await ONTGenotypeResultBundle.loadResultAsync(from: firstBundle)
+        reloadGate.succeed(at: 0, with: updatedFirstResult)
+        let reloadFinished = await eventually {
+            splitController
+                .testingGenotypeCurrentWorkbookRetentionDiagnostics
+                .reloadTaskCount == 0
+        }
+        XCTAssertTrue(reloadFinished)
+
+        XCTAssertEqual(resultController.testingResultTotalInputReads, 10)
+
+        await configurationGate.resume(with: .discard)
+        await resultController.testingWaitForManualHaplotypeTransitions()
+        XCTAssertEqual(
+            resultController.testingResultBundleURL,
+            secondBundle.standardizedFileURL,
+            "The old host reload must not replace the already-queued bundle configuration."
+        )
+    }
+
+    func testQueuedReplacementConfigurationRejectsOlderWorkbookReloadBeforeItStarts()
+        async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "GenotypeWorkbookDesiredConfiguration-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let firstBundle = try makeGenotypeResultBundle(
+            root: root,
+            name: "desired-authority-first",
+            haplotypeAnalysisPath: nil,
+            genotypeOnlyWorkflowKind: .fullLengthONTMHCGenotype
+        )
+        let secondBundle = try makeGenotypeResultBundle(
+            root: root,
+            name: "desired-authority-second",
+            haplotypeAnalysisPath: nil,
+            genotypeOnlyWorkflowKind: .fullLengthONTMHCGenotype
+        )
+        let firstResult = try await ONTGenotypeResultBundle.loadResultAsync(
+            from: firstBundle
+        )
+        let secondResult = try await ONTGenotypeResultBundle.loadResultAsync(
+            from: secondBundle
+        )
+        let coordinator = GenotypeCurrentWorkbookSyncCoordinator(
+            recordedFingerprintLoader: { _ in nil },
+            idleScheduler: { _, _ in IdleCancellation() }
+        )
+        let splitController = MainSplitViewController()
+        splitController.genotypeCurrentWorkbookSyncCoordinator = coordinator
+        _ = splitController.view
+        await splitController.testingDisplayGenotypeResultBundleAndWait(
+            firstBundle
+        )
+        let registered = await eventually {
+            splitController
+                .testingGenotypeCurrentWorkbookRetentionDiagnostics
+                .completionContextCount == 1
+        }
+        XCTAssertTrue(registered)
+        let resultController = try XCTUnwrap(
+            splitController.viewerController.genotypeResultViewController
+        )
+        resultController.testingSelectMatrixColumn(sample: "DW472")
+        resultController.testingUpdateManualHaplotypeLabel("H1")
+        XCTAssertTrue(resultController.testingManualHaplotypeEditorIsDirty)
+
+        let configurationGate = ManualHaplotypeConfigurationGate()
+        resultController.testingSetManualHaplotypeDraftDecisionProvider { _ in
+            await configurationGate.decide()
+        }
+        resultController.configure(result: secondResult)
+        let configurationIsPending =
+            await configurationGate.waitUntilPending()
+        XCTAssertTrue(configurationIsPending)
+        guard configurationIsPending else {
+            return
+        }
+
+        let reloadGate = WorkbookResultReloadGate()
+        splitController.genotypeResultLoader = { _ in
+            try await reloadGate.load()
+        }
+        splitController.applyGenotypeCurrentWorkbookSyncPhase(
+            .current,
+            bundleURL: firstBundle
+        )
+        let staleReloadStarted = await eventually {
+            reloadGate.loadCount == 1
+        }
+        XCTAssertFalse(
+            staleReloadStarted,
+            "Requesting bundle B must immediately revoke host reload authority for displayed bundle A."
+        )
+
+        if staleReloadStarted {
+            reloadGate.succeed(at: 0, with: firstResult)
+            _ = await eventually {
+                splitController
+                    .testingGenotypeCurrentWorkbookRetentionDiagnostics
+                    .reloadTaskCount == 0
+            }
+        }
+        await configurationGate.resume(with: .discard)
+        await resultController.testingWaitForManualHaplotypeTransitions()
+        XCTAssertEqual(
+            resultController.testingResultBundleURL,
+            secondBundle.standardizedFileURL,
+            "The older host reload must not replace the already-queued bundle configuration."
+        )
+    }
+
     func testAIHaplotypingGUIUsesReplayableCLICommandPreviewAndSanitizedFailureDetail() throws {
         let source = try loadSource(at: "Sources/LungfishApp/Services/GenotypeAIHaplotypingExecutionService.swift")
 
@@ -2043,7 +2271,8 @@ final class MappingViewportRoutingTests: XCTestCase {
         root: URL,
         name: String,
         haplotypeAnalysisPath: String?,
-        includeGenotypeCalls: Bool = true
+        includeGenotypeCalls: Bool = true,
+        genotypeOnlyWorkflowKind: GenotypeResultWorkflowKind? = nil
     ) throws -> URL {
         let bundleURL = root.appendingPathComponent("\(name).lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
@@ -2077,6 +2306,12 @@ final class MappingViewportRoutingTests: XCTestCase {
             .write(to: provenanceJSON, atomically: true, encoding: .utf8)
 
         let manifest = ONTGenotypeResultBundleManifest(
+            kind: genotypeOnlyWorkflowKind?.rawValue
+                ?? "ont-barcode-genotype",
+            workflowKind: genotypeOnlyWorkflowKind,
+            workflowMode: genotypeOnlyWorkflowKind == nil
+                ? nil
+                : .genotypeOnly,
             outputName: name,
             analysisName: name,
             primaryWorkbookPath: workbookURL.lastPathComponent,

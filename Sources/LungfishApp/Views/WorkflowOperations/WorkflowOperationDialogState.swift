@@ -119,6 +119,7 @@ final class WorkflowOperationDialogState {
     var outputName: String
     var threads: Int
     var minSupport: Int
+    var keepIntermediates: Bool
     var haplotypeDropoutSamplePercent: Double
     var haplotypeDropoutLocusPercent: Double
     var haplotypeDropoutLocusOverridePercents: [String: Double]
@@ -179,6 +180,7 @@ final class WorkflowOperationDialogState {
         self.outputName = Self.defaultONTGenotypingOutputName(for: standardizedReadURLs)
         self.threads = max(1, ProcessInfo.processInfo.activeProcessorCount)
         self.minSupport = 1
+        self.keepIntermediates = false
         self.haplotypeDropoutSamplePercent = 0.0
         self.haplotypeDropoutLocusPercent = 1.0
         self.haplotypeDropoutLocusOverridePercents = [:]
@@ -1122,6 +1124,7 @@ final class WorkflowOperationDialogState {
                     projectURL: projectURL,
                     threads: threads,
                     minSupport: minSupport,
+                    keepIntermediates: keepIntermediates,
                     haplotypeDropoutSampleFraction: nil,
                     haplotypeDropoutLocusFraction: nil,
                     haplotypeDropoutLocusFractionOverrides: [:],
@@ -1142,6 +1145,7 @@ final class WorkflowOperationDialogState {
                     projectURL: projectURL,
                     threads: threads,
                     minSupport: minSupport,
+                    keepIntermediates: keepIntermediates,
                     haplotypeDropoutSampleFraction: Self.fraction(fromPercent: haplotypeDropoutSamplePercent),
                     haplotypeDropoutLocusFraction: Self.fraction(fromPercent: haplotypeDropoutLocusPercent),
                     haplotypeDropoutLocusFractionOverrides: Self.fractionOverrides(
@@ -1166,6 +1170,7 @@ final class WorkflowOperationDialogState {
                     projectURL: projectURL,
                     threads: threads,
                     minSupport: minSupport,
+                    keepIntermediates: keepIntermediates,
                     extraArguments: parsedExtraArguments,
                     mode: launchMode,
                     readType: readType
@@ -1195,6 +1200,7 @@ final class WorkflowOperationDialogState {
                 threads: threads,
                 minimumLength: fullLengthMinimumLength,
                 maximumLength: fullLengthMaximumLength,
+                keepIntermediates: keepIntermediates,
                 haplotypeDropoutSampleFraction: nil,
                 haplotypeDropoutLocusFraction: selectedHaplotypeDefinitionSetID == nil
                     ? nil

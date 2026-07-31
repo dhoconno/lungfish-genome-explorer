@@ -462,7 +462,13 @@ extension InspectorViewController {
         state.defaultIncludedHaplotypeLoci = defaultIncludedLoci
         state.includedHaplotypeLoci = selectedIncludedLoci
         viewModel.documentSectionViewModel.updateGenotypeResultDocument(state)
-        let isGenotypeOnlyResult = result.haplotypeAnalysis == nil && !result.calls.isEmpty
+        let isGenotypeOnlyResult: Bool
+        switch GenotypeManualHaplotypeEligibility.evaluate(result) {
+        case .eligible:
+            isGenotypeOnlyResult = true
+        case .ineligible:
+            isGenotypeOnlyResult = false
+        }
         viewModel.genotypeResultDisplaySectionViewModel.update(
             isAvailable: true,
             state: currentDisplay,

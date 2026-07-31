@@ -335,6 +335,36 @@ final class InspectorProvenanceTabTests: XCTestCase {
         XCTAssertEqual(try recursiveBytes(at: bundleURL), before)
     }
 
+    func testAmbiguousLegacyONTBarcodeResultIsNotTreatedAsGenotypeOnly() {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("inspector-ambiguous-legacy-\(UUID().uuidString).lungfishgenotype")
+        let call = ONTGenotypeCall(
+            sample: "AnimalA",
+            genotype: "01_Mafa_A1_001_01",
+            passedAlignments: 42,
+            passedUniqueReads: 42,
+            sampleTotalReads: nil,
+            sampleUniqueRetainedReads: 42,
+            sampleUniqueRetainedPercent: nil,
+            overallInputReads: nil,
+            overallUniqueRetainedReads: nil,
+            overallUniqueRetainedPercent: nil
+        )
+        let inspector = InspectorViewController()
+        _ = inspector.view
+        inspector.viewModel.contentMode = .genotype
+
+        inspector.updateGenotypeResultDocument(makeGenotypeResult(
+            bundleURL: bundleURL,
+            haplotypeAnalysis: nil,
+            calls: [call],
+            workflowKind: nil,
+            workflowMode: nil
+        ))
+
+        XCTAssertFalse(inspector.viewModel.genotypeResultDisplaySectionViewModel.isGenotypeOnlyResult)
+    }
+
     func testMiSeqScientificArtifactsRespectGenotypeOnlyBoundary() throws {
         let bundleURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(
@@ -405,11 +435,16 @@ final class InspectorProvenanceTabTests: XCTestCase {
         samples: [ONTGenotypeSampleResult] = [],
         alignmentArtifactURLs: ONTMHCAlignmentArtifactURLs = .empty,
         provisionalExon2ArtifactURLs:
-            ONTGenotypeProvisionalExon2ArtifactURLs = .empty
+            ONTGenotypeProvisionalExon2ArtifactURLs = .empty,
+        workflowKind: GenotypeResultWorkflowKind? = .miSeqAmpliconMHCGenotype,
+        workflowMode: GenotypeResultWorkflowMode? = .genotypeOnly
     ) -> ONTGenotypeResultBundleData {
         ONTGenotypeResultBundleData(
             bundleURL: bundleURL,
             manifest: ONTGenotypeResultBundleManifest(
+                kind: workflowKind?.rawValue ?? "ont-barcode-genotype",
+                workflowKind: workflowKind,
+                workflowMode: workflowMode,
                 outputName: "test",
                 analysisName: "Test",
                 primaryWorkbookPath: "test.xlsx",

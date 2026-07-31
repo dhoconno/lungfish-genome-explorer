@@ -733,6 +733,52 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
         XCTAssertEqual(known.count, 3, "Distinct raw references must not be merged when display labels collide")
     }
 
+    func testManualHaplotypeWorkbookMappingUsesCanonicalFourteenRows() {
+        XCTAssertEqual(
+            FullLengthONTMHCManualHaplotypeWorkbookMapping.rows.map {
+                "\($0.locus)|\($0.slot.rawValue)|\($0.rowLabel)"
+            },
+            [
+                "MHC-A|h1|MHC-A Haplotype 1",
+                "MHC-A|h2|MHC-A Haplotype 2",
+                "MHC-B|h1|MHC-B Haplotype 1",
+                "MHC-B|h2|MHC-B Haplotype 2",
+                "MHC-DRB|h1|MHC-DRB Haplotype 1",
+                "MHC-DRB|h2|MHC-DRB Haplotype 2",
+                "MHC-DQA|h1|MHC-DQA Haplotype 1",
+                "MHC-DQA|h2|MHC-DQA Haplotype 2",
+                "MHC-DQB|h1|MHC-DQB Haplotype 1",
+                "MHC-DQB|h2|MHC-DQB Haplotype 2",
+                "MHC-DPA|h1|MHC-DPA Haplotype 1",
+                "MHC-DPA|h2|MHC-DPA Haplotype 2",
+                "MHC-DPB|h1|MHC-DPB Haplotype 1",
+                "MHC-DPB|h2|MHC-DPB Haplotype 2",
+            ]
+        )
+        XCTAssertEqual(
+            FullLengthONTMHCManualHaplotypeWorkbookMapping
+                .legacyCombinedRows.map {
+                    $0.componentLoci.joined(separator: "+")
+                        + "|\($0.slot.rawValue)|\($0.rowLabel)"
+                        + "|\($0.compositionPolicy)"
+                },
+            [
+                "MHC-DQA+MHC-DQB|h1|MHC-DQA/B Haplotype 1|collapse-identical-otherwise-locus-tagged",
+                "MHC-DQA+MHC-DQB|h2|MHC-DQA/B Haplotype 2|collapse-identical-otherwise-locus-tagged",
+                "MHC-DPA+MHC-DPB|h1|MHC-DPA/B Haplotype 1|collapse-identical-otherwise-locus-tagged",
+                "MHC-DPA+MHC-DPB|h2|MHC-DPA/B Haplotype 2|collapse-identical-otherwise-locus-tagged",
+            ]
+        )
+        let encoded = try! JSONEncoder().encode(
+            FullLengthONTMHCManualHaplotypeWorkbookMapping
+                .legacyCombinedRows
+        )
+        let json = String(decoding: encoded, as: UTF8.self)
+        XCTAssertTrue(json.contains(#""component_loci""#))
+        XCTAssertTrue(json.contains(#""row_label""#))
+        XCTAssertTrue(json.contains(#""composition_policy""#))
+    }
+
     func testUnifiedWorkbookAnalystSummaryUsesTypedNumbersWithoutParsingIdentifiers() throws {
         let documents = makeDocuments()
         let projection = try FullLengthONTMHCWorkbookProjection(

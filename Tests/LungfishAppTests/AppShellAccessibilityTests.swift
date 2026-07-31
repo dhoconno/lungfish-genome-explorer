@@ -21,10 +21,17 @@ final class AppShellAccessibilityTests: XCTestCase {
         let fileMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "File" })?.submenu)
         let openProjectFolderItem = try XCTUnwrap(fileMenu.items.first(where: { $0.title == "Open Project Folder..." }))
         let importCenterItem = try XCTUnwrap(fileMenu.items.first(where: { $0.title == "Import Center…" }))
-        let clearTemporaryFilesItem = try XCTUnwrap(fileMenu.items.first(where: { $0.title == "Clear Temporary Files…" }))
+        let manageProjectStorageItem = try XCTUnwrap(fileMenu.items.first(where: { $0.title == "Manage Project Storage…" }))
         XCTAssertEqual(openProjectFolderItem.identifier?.rawValue, "file-menu-open-project-folder")
         XCTAssertEqual(importCenterItem.identifier?.rawValue, "file-menu-import-center")
-        XCTAssertEqual(clearTemporaryFilesItem.identifier?.rawValue, "file-menu-clear-temporary-files")
+        XCTAssertEqual(
+            manageProjectStorageItem.identifier?.rawValue,
+            "file-menu-manage-project-storage"
+        )
+        XCTAssertEqual(
+            manageProjectStorageItem.action,
+            #selector(AppDelegate.manageProjectStorage(_:))
+        )
 
         let viewMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "View" })?.submenu)
         let focusViewerItem = try XCTUnwrap(viewMenu.items.first(where: { $0.title == "Focus Viewer" }))

@@ -215,6 +215,45 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
         let timestamp: String
     }
 
+    struct ReviewableRowIdentity: Equatable, Sendable {
+        let kind: String
+        let callID: String
+        let displayName: String
+        let locus: String
+        let stableID: String?
+    }
+
+    struct NativeSynthesizedRowDecision: Equatable, Sendable {
+        let identity: ReviewableRowIdentity
+        let cells: [String]
+    }
+
+    struct NativeTargetCellDecision: Equatable, Sendable {
+        let target: GenotypeAnnotationSidecar.MatrixTarget
+        let cell: String?
+        let status: String
+        let reason: String
+        let synthetic: Bool
+        let presentationPrecedence: String
+    }
+
+    struct ViewProjectionWriteReport: Equatable, Sendable {
+        static let adapterVersion = "native-view-projection-v1"
+        static let restorationDecision =
+            "fresh-projection-rebuild-no-managed-state-restoration"
+
+        let synthesizedRows: [NativeSynthesizedRowDecision]
+        let targetCells: [NativeTargetCellDecision]
+
+        var adapterVersion: String { Self.adapterVersion }
+        var restorationDecision: String { Self.restorationDecision }
+
+        static let empty = ViewProjectionWriteReport(
+            synthesizedRows: [],
+            targetCells: []
+        )
+    }
+
     // MARK: - Projection helpers
 
     /// The sample columns the projection resolves to, in display order.
@@ -293,11 +332,13 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
     /// directly (NOT funneled through `MatrixBuilder`) so the export shows
     /// exactly what the analyst saw, including ad-hoc row/cell highlights
     /// that the canonical palette would not reproduce.
+    @discardableResult
     func writeViewProjection(
         _ projection: GenotypeViewProjection,
         to outputURL: URL,
-        annotations sidecar: GenotypeAnnotationSidecar? = nil
-    ) throws {
+        annotations sidecar: GenotypeAnnotationSidecar? = nil,
+        reviewableRowCatalog: GenotypeReviewableRowCatalog? = nil
+    ) throws -> ViewProjectionWriteReport {
         let buildDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("lungfish-genotype-view-xlsx-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: buildDir) }
@@ -308,11 +349,25 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
         try fm.createDirectory(at: buildDir.appendingPathComponent("xl/_rels"), withIntermediateDirectories: true)
         try fm.createDirectory(at: buildDir.appendingPathComponent("xl/worksheets"), withIntermediateDirectories: true)
 
+        let preparation = try prepareProjection(
+            projection,
+            sidecar: sidecar,
+            reviewableRowCatalog: reviewableRowCatalog
+        )
+        let resolvedProjection = preparation.projection
+
         // The view sheet draws ad-hoc colors from the projection, so it
         // carries its own dynamic style table built from the hex strings
         // present in the projection (plus the canonical body/header styles).
-        let semantics = ProjectionSemantics(projection: projection, sidecar: sidecar)
-        let palette = ProjectionPalette(projection: projection, reviews: semantics.validReviews)
+        let semantics = ProjectionSemantics(
+            projection: resolvedProjection,
+            sidecar: sidecar,
+            falseNegativeValidation: preparation.validationByTarget
+        )
+        let palette = ProjectionPalette(
+            projection: resolvedProjection,
+            reviews: semantics.validReviews
+        )
 
         let annotationRows = matrixAnnotationRows(
             from: sidecar,
@@ -344,7 +399,7 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
             .write(to: buildDir.appendingPathComponent("xl/_rels/workbook.xml.rels"), atomically: true, encoding: .utf8)
         try palette.stylesXML.write(to: buildDir.appendingPathComponent("xl/styles.xml"), atomically: true, encoding: .utf8)
         try makeProjectionSheet(
-            projection,
+            resolvedProjection,
             palette: palette,
             semantics: semantics,
             includeLegacyDrawing: !semantics.notes.isEmpty
@@ -406,6 +461,7 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
         }
 
         try zipBuildDir(buildDir, to: outputURL)
+        return preparation.report
     }
 
     /// Renders the projection's rows into delimited text (CSV/TSV). The
@@ -751,6 +807,315 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
         }
     }
 
+    private struct PreparedProjection {
+        let projection: GenotypeViewProjection
+        let validationByTarget: [
+            GenotypeAnnotationSidecar.MatrixTarget: (status: String, reason: String)
+        ]
+        let report: ViewProjectionWriteReport
+    }
+
+    private struct CatalogRowKey: Hashable {
+        let kind: GenotypeReviewableRowCatalog.RowKind
+        let locus: String
+        let callID: String
+        let stableID: String?
+    }
+
+    private struct ProjectionRowKey: Hashable {
+        let locus: String?
+        let label: String
+        let stableClusterID: String?
+    }
+
+    private func prepareProjection(
+        _ projection: GenotypeViewProjection,
+        sidecar: GenotypeAnnotationSidecar?,
+        reviewableRowCatalog: GenotypeReviewableRowCatalog?
+    ) throws -> PreparedProjection {
+        let falseNegativeReviews = sidecar?.matrixReviews.filter {
+            $0.disposition == .falseNegative
+        } ?? []
+        guard !falseNegativeReviews.isEmpty else {
+            return PreparedProjection(
+                projection: projection,
+                validationByTarget: [:],
+                report: .empty
+            )
+        }
+        let duplicateTargets = Dictionary(
+            grouping: sidecar?.matrixReviews ?? [],
+            by: \.target
+        ).mapValues(\.count)
+        let needsCatalogAuthority = falseNegativeReviews.contains {
+            duplicateTargets[$0.target, default: 0] == 1
+        }
+        let resolver: GenotypeReviewableRowResolver?
+        if needsCatalogAuthority {
+            guard let reviewableRowCatalog else {
+                throw GenotypeXlsxWorkbookWriterError.missingReviewableRowCatalog
+            }
+            resolver = try GenotypeReviewableRowResolver(
+                catalog: reviewableRowCatalog
+            )
+        } else {
+            resolver = nil
+        }
+        let sampleIndices = Dictionary(
+            grouping: projection.sampleColumns.indices,
+            by: { projection.sampleColumns[$0] }
+        )
+        let projectionRowsByKey = Dictionary(
+            grouping: projection.rows.indices,
+            by: {
+                let row = projection.rows[$0]
+                return ProjectionRowKey(
+                    locus: row.locus,
+                    label: row.label,
+                    stableClusterID: row.stableClusterID
+                )
+            }
+        )
+        var validation: [
+            GenotypeAnnotationSidecar.MatrixTarget: (status: String, reason: String)
+        ] = [:]
+        var authoritativeRows: [
+            GenotypeAnnotationSidecar.MatrixTarget:
+                GenotypeReviewableRowCatalog.Row
+        ] = [:]
+        var rowsToSynthesize: [
+            CatalogRowKey: GenotypeReviewableRowCatalog.Row
+        ] = [:]
+
+        for review in falseNegativeReviews {
+            let target = review.target
+            guard duplicateTargets[target, default: 0] == 1 else {
+                validation[target] = (
+                    "invalid",
+                    "Conflicting duplicate review records target the same projection cell."
+                )
+                continue
+            }
+            guard case let .cell(
+                locus,
+                genotype,
+                sample,
+                stableClusterID
+            ) = target else {
+                validation[target] = (
+                    "invalid",
+                    "Matrix reviews require an exact cell target."
+                )
+                continue
+            }
+            let matchingRows = projectionRowsByKey[
+                ProjectionRowKey(
+                    locus: locus,
+                    label: genotype,
+                    stableClusterID: stableClusterID
+                )
+            ] ?? []
+            guard sampleIndices[sample]?.count == 1 else {
+                validation[target] = (
+                    "invalid",
+                    "No unique projection sample column matches the false-negative target."
+                )
+                continue
+            }
+            guard matchingRows.count <= 1 else {
+                validation[target] = (
+                    "invalid",
+                    "More than one projection row matches the false-negative target."
+                )
+                continue
+            }
+            guard let resolver else {
+                validation[target] = (
+                    "invalid",
+                    "No authoritative reviewable-row catalog is available."
+                )
+                continue
+            }
+            do {
+                let catalogRow = try resolver.resolveFalseNegative(
+                    target: target,
+                    requiresCohortZero: matchingRows.isEmpty
+                )
+                if let existingRow = matchingRows.first,
+                   let sampleIndex = sampleIndices[sample]?.first {
+                    let rawValue = sampleIndex
+                        < projection.rows[existingRow].cells.count
+                        ? projection.rows[existingRow].cells[sampleIndex]
+                        : ""
+                    let trimmed = rawValue.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                    let evidence = ProjectionSemantics.numericEvidence(rawValue)
+                    guard trimmed.isEmpty || trimmed == "-" || evidence == 0 else {
+                        validation[target] = (
+                            "invalid",
+                            "Projection evidence conflicts with the authoritative zero-support catalog."
+                        )
+                        continue
+                    }
+                } else {
+                    let key = CatalogRowKey(
+                        kind: catalogRow.kind,
+                        locus: catalogRow.locus,
+                        callID: catalogRow.callID,
+                        stableID: catalogRow.stableID
+                    )
+                    rowsToSynthesize[key] = catalogRow
+                }
+                authoritativeRows[target] = catalogRow
+                validation[target] = ("valid", "")
+            } catch {
+                validation[target] = (
+                    "invalid",
+                    error.localizedDescription
+                )
+            }
+        }
+
+        let sortedSyntheticRows = rowsToSynthesize.values.sorted {
+            if $0.sortKey != $1.sortKey {
+                return $0.sortKey < $1.sortKey
+            }
+            return $0.callID < $1.callID
+        }
+        var resolvedRows = projection.rows
+        if !sortedSyntheticRows.isEmpty {
+            resolvedRows.append(GenotypeViewProjectionRow(
+                label: "Analyst annotation-only rows",
+                cells: Array(
+                    repeating: "",
+                    count: projection.sampleColumns.count
+                )
+            ))
+            for row in sortedSyntheticRows {
+                resolvedRows.append(GenotypeViewProjectionRow(
+                    label: row.displayName,
+                    locus: row.locus,
+                    stableClusterID: row.stableID,
+                    cells: Array(
+                        repeating: "",
+                        count: projection.sampleColumns.count
+                    )
+                ))
+            }
+        }
+        let resolvedProjection = GenotypeViewProjection(
+            lens: projection.lens,
+            sampleColumns: projection.sampleColumns,
+            rows: resolvedRows,
+            cellColorMode: projection.cellColorMode
+        )
+        let resolvedRowsByKey = Dictionary(
+            grouping: resolvedProjection.rows.indices,
+            by: {
+                let row = resolvedProjection.rows[$0]
+                return ProjectionRowKey(
+                    locus: row.locus,
+                    label: row.label,
+                    stableClusterID: row.stableClusterID
+                )
+            }
+        )
+        let syntheticKeys = Set(rowsToSynthesize.keys)
+        let synthesizedDecisions = sortedSyntheticRows.compactMap { row
+            -> NativeSynthesizedRowDecision? in
+            let rowKey = ProjectionRowKey(
+                locus: row.locus,
+                label: row.displayName,
+                stableClusterID: row.stableID
+            )
+            guard resolvedRowsByKey[rowKey]?.count == 1,
+                  let rowIndex = resolvedRowsByKey[rowKey]?.first else {
+                return nil
+            }
+            let workbookRow = rowIndex + 2
+            let cells = projection.sampleColumns.indices.map {
+                "\(ProjectionSemantics.columnName($0 + 4))\(workbookRow)"
+            }
+            return NativeSynthesizedRowDecision(
+                identity: ReviewableRowIdentity(
+                    kind: row.kind.rawValue,
+                    callID: row.callID,
+                    displayName: row.displayName,
+                    locus: row.locus,
+                    stableID: row.stableID
+                ),
+                cells: cells
+            )
+        }
+        let targetDecisions = falseNegativeReviews.map { review
+            -> NativeTargetCellDecision in
+            let status = validation[review.target]?.status ?? "invalid"
+            let reason = validation[review.target]?.reason
+                ?? "No authoritative false-negative decision was produced."
+            func notAppliedDecision() -> NativeTargetCellDecision {
+                NativeTargetCellDecision(
+                    target: review.target,
+                    cell: nil,
+                    status: status,
+                    reason: reason,
+                    synthetic: false,
+                    presentationPrecedence: "not-applied"
+                )
+            }
+            guard status == "valid",
+                  case let .cell(
+                    locus,
+                    genotype,
+                    sample,
+                    stableClusterID
+                  ) = review.target
+            else {
+                return notAppliedDecision()
+            }
+            let matchingRows = resolvedRowsByKey[
+                ProjectionRowKey(
+                    locus: locus,
+                    label: genotype,
+                    stableClusterID: stableClusterID
+                )
+            ] ?? []
+            guard matchingRows.count == 1,
+                  let rowIndex = matchingRows.first,
+                  sampleIndices[sample]?.count == 1,
+                  let sampleIndex = sampleIndices[sample]?.first
+            else {
+                return notAppliedDecision()
+            }
+            let catalogRow = authoritativeRows[review.target]
+            let key = catalogRow.map {
+                CatalogRowKey(
+                    kind: $0.kind,
+                    locus: $0.locus,
+                    callID: $0.callID,
+                    stableID: $0.stableID
+                )
+            }
+            return NativeTargetCellDecision(
+                target: review.target,
+                cell: "\(ProjectionSemantics.columnName(sampleIndex + 4))\(rowIndex + 2)",
+                status: status,
+                reason: reason,
+                synthetic: key.map(syntheticKeys.contains) ?? false,
+                presentationPrecedence:
+                    "false-negative-over-viewport-style"
+            )
+        }
+        return PreparedProjection(
+            projection: resolvedProjection,
+            validationByTarget: validation,
+            report: ViewProjectionWriteReport(
+                synthesizedRows: synthesizedDecisions,
+                targetCells: targetDecisions
+            )
+        )
+    }
+
     private func makeProjectionSheet(
         _ projection: GenotypeViewProjection,
         palette: ProjectionPalette,
@@ -784,9 +1149,8 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
                 let displayValue: String
                 if review == .falsePositive {
                     displayValue = "[\(value)]"
-                } else if review == .falseNegative,
-                          value.trimmingCharacters(in: .whitespacesAndNewlines) == "-" {
-                    displayValue = ""
+                } else if review == .falseNegative {
+                    displayValue = "FN"
                 } else {
                     displayValue = value
                 }
@@ -841,7 +1205,13 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
 
         init(
             projection: GenotypeViewProjection,
-            sidecar: GenotypeAnnotationSidecar?
+            sidecar: GenotypeAnnotationSidecar?,
+            falseNegativeValidation: [
+                GenotypeAnnotationSidecar.MatrixTarget: (
+                    status: String,
+                    reason: String
+                )
+            ] = [:]
         ) {
             guard let sidecar else {
                 validReviews = [:]
@@ -860,6 +1230,21 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
                 grouping: sidecar.matrixReviews,
                 by: \.target
             ).mapValues(\.count)
+            let projectionRowsByKey = Dictionary(
+                grouping: projection.rows.indices,
+                by: {
+                    let row = projection.rows[$0]
+                    return ProjectionRowKey(
+                        locus: row.locus,
+                        label: row.label,
+                        stableClusterID: row.stableClusterID
+                    )
+                }
+            )
+            let sampleIndices = Dictionary(
+                grouping: projection.sampleColumns.indices,
+                by: { projection.sampleColumns[$0] }
+            )
             for review in sidecar.matrixReviews {
                 if reviewCountByTarget[review.target, default: 0] > 1 {
                     validation[review.target] = (
@@ -875,15 +1260,16 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
                     )
                     continue
                 }
-                let matchingRows = projection.rows.indices.filter { index in
-                    let row = projection.rows[index]
-                    return row.locus == locus
-                        && row.label == genotype
-                        && row.stableClusterID == stableClusterID
-                }
+                let matchingRows = projectionRowsByKey[
+                    ProjectionRowKey(
+                        locus: locus,
+                        label: genotype,
+                        stableClusterID: stableClusterID
+                    )
+                ] ?? []
                 guard matchingRows.count == 1,
-                      let sampleColumn = projection.sampleColumns.firstIndex(of: sample),
-                      projection.sampleColumns.lastIndex(of: sample) == sampleColumn else {
+                      sampleIndices[sample]?.count == 1,
+                      let sampleColumn = sampleIndices[sample]?.first else {
                     validation[review.target] = (
                         "invalid",
                         "No unique projection cell matches the exact locus, genotype, sample, and stable cluster ID."
@@ -905,6 +1291,13 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
                         continue
                     }
                 case .falseNegative:
+                    if let authoritative = falseNegativeValidation[review.target] {
+                        guard authoritative.status == "valid" else {
+                            validation[review.target] = authoritative
+                            continue
+                        }
+                        break
+                    }
                     let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard trimmed.isEmpty
                             || trimmed == "-"
@@ -930,28 +1323,32 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
             for comment in comments.values {
                 switch comment.target {
                 case let .row(locus, genotype, stableClusterID):
-                    let matches = projection.rows.indices.filter {
-                        projection.rows[$0].locus == locus
-                            && projection.rows[$0].label == genotype
-                            && projection.rows[$0].stableClusterID == stableClusterID
-                    }
+                    let matches = projectionRowsByKey[
+                        ProjectionRowKey(
+                            locus: locus,
+                            label: genotype,
+                            stableClusterID: stableClusterID
+                        )
+                    ] ?? []
                     if matches.count == 1 {
                         rowComments[matches[0]] = comment
                     }
                 case let .column(sample):
-                    if let index = projection.sampleColumns.firstIndex(of: sample),
-                       projection.sampleColumns.lastIndex(of: sample) == index {
+                    if sampleIndices[sample]?.count == 1,
+                       let index = sampleIndices[sample]?.first {
                         columnComments[index] = comment
                     }
                 case let .cell(locus, genotype, sample, stableClusterID):
-                    let matches = projection.rows.indices.filter {
-                        projection.rows[$0].locus == locus
-                            && projection.rows[$0].label == genotype
-                            && projection.rows[$0].stableClusterID == stableClusterID
-                    }
+                    let matches = projectionRowsByKey[
+                        ProjectionRowKey(
+                            locus: locus,
+                            label: genotype,
+                            stableClusterID: stableClusterID
+                        )
+                    ] ?? []
                     if matches.count == 1,
-                       let sampleIndex = projection.sampleColumns.firstIndex(of: sample),
-                       projection.sampleColumns.lastIndex(of: sample) == sampleIndex {
+                       sampleIndices[sample]?.count == 1,
+                       let sampleIndex = sampleIndices[sample]?.first {
                         cellComments[
                             ProjectionCoordinate(row: matches[0], sampleColumn: sampleIndex)
                         ] = comment
@@ -1031,7 +1428,7 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
             }
         }
 
-        private static func numericEvidence(_ value: String) -> Int? {
+        fileprivate static func numericEvidence(_ value: String) -> Int? {
             let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
             let unwrapped: String
             if trimmed.hasPrefix("["), trimmed.hasSuffix("]") {
@@ -1042,7 +1439,7 @@ struct GenotypeXlsxWorkbookWriter: Sendable {
             return Int(unwrapped)
         }
 
-        private static func columnName(_ oneBased: Int) -> String {
+        fileprivate static func columnName(_ oneBased: Int) -> String {
             var value = oneBased
             var result = ""
             while value > 0 {
@@ -1545,7 +1942,7 @@ private struct ProjectionPalette {
     }
 
     var stylesXML: String {
-        // Fills: [none, gray125, <one solid per registered hex>].
+        // Fills: [none, gray125, <one solid per registered hex>, FN].
         var fills = [
             #"<fill><patternFill patternType="none"/></fill>"#,
             #"<fill><patternFill patternType="gray125"/></fill>"#,
@@ -1553,18 +1950,21 @@ private struct ProjectionPalette {
         for hex in orderedHex {
             fills.append(GenotypeXlsxWorkbookWriter.solidFill(hex: hex))
         }
+        let falseNegativeFillID = fills.count
+        fills.append(GenotypeXlsxWorkbookWriter.solidFill(hex: "FFF2CC"))
         let fillsXML = fills.joined()
 
         let fonts = [
             #"<font><sz val="11"/><name val="Aptos"/></font>"#,
             #"<font><b/><sz val="11"/><name val="Aptos"/></font>"#,
             #"<font><i/><sz val="11"/><color rgb="FF767676"/><name val="Aptos"/></font>"#,
+            #"<font><b/><sz val="11"/><color rgb="FF7F6000"/><name val="Aptos"/></font>"#,
         ]
         let fontsXML = fonts.joined()
 
         let borders = [
             #"<border><left/><right/><top/><bottom/><diagonal/></border>"#,
-            #"<border><left style="thick"><color rgb="FF000000"/></left><right style="thick"><color rgb="FF000000"/></right><top style="thick"><color rgb="FF000000"/></top><bottom style="thick"><color rgb="FF000000"/></bottom><diagonal/></border>"#,
+            #"<border><left style="mediumDashed"><color rgb="FFC65911"/></left><right style="mediumDashed"><color rgb="FFC65911"/></right><top style="mediumDashed"><color rgb="FFC65911"/></top><bottom style="mediumDashed"><color rgb="FFC65911"/></bottom><diagonal/></border>"#,
         ]
         let bordersXML = borders.joined()
 
@@ -1575,17 +1975,21 @@ private struct ProjectionPalette {
             #"<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>"#,
         ]
         for key in orderedKeys {
-            let fillID = key.hex.flatMap { fillIDByHex[$0] } ?? 0
+            let viewportFillID = key.hex.flatMap { fillIDByHex[$0] } ?? 0
+            let fillID: Int
             let fontID: Int
             let borderID: Int
             switch key.review {
             case .falsePositive:
+                fillID = viewportFillID
                 fontID = 2
                 borderID = 0
             case .falseNegative:
-                fontID = key.bold ? 1 : 0
+                fillID = falseNegativeFillID
+                fontID = 3
                 borderID = 1
             case nil:
+                fillID = viewportFillID
                 fontID = key.bold ? 1 : 0
                 borderID = 0
             }
@@ -1614,10 +2018,13 @@ private struct ProjectionPalette {
 
 enum GenotypeXlsxWorkbookWriterError: Error, LocalizedError {
     case zipFailed
+    case missingReviewableRowCatalog
 
     var errorDescription: String? {
         switch self {
         case .zipFailed: return "Failed to zip the XLSX archive."
+        case .missingReviewableRowCatalog:
+            return "False-negative workbook export requires the bundle's attested reviewable-row catalog."
         }
     }
 }

@@ -3,6 +3,45 @@ import Darwin
 import LungfishCore
 import LungfishIO
 
+struct GenotypeReviewableReferenceAuthority: Sendable {
+    let records: [MHCReferenceRecord]
+    let descriptors: [ProvenanceFileDescriptor]
+    let snapshots: [GenotypeReviewAuthorityFileSnapshot]
+
+    func requireUnchanged() throws {
+        for snapshot in snapshots {
+            try snapshot.requireUnchanged()
+        }
+    }
+}
+
+enum GenotypeReviewableReferenceAuthorityPhase: Equatable, Sendable {
+    case afterSnapshotBeforeSemanticLoad
+    case beforeFinalVerification
+}
+
+private struct GenotypeReviewableReferenceManifestProjection: Decodable {
+    struct Genome: Decodable {
+        let path: String
+    }
+
+    struct RecordStore: Decodable {
+        let databasePath: String
+
+        enum CodingKeys: String, CodingKey {
+            case databasePath = "database_path"
+        }
+    }
+
+    let genome: Genome?
+    let recordStore: RecordStore?
+
+    enum CodingKeys: String, CodingKey {
+        case genome
+        case recordStore = "record_store"
+    }
+}
+
 public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable {
     public let inputFASTQURL: URL
     public let inputFASTQURLs: [URL]
@@ -18,6 +57,7 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
     public let threads: Int
     public let sortThreads: Int
     public let minSupport: Int
+    public let keepIntermediates: Bool
     public let haplotypeDropoutSampleFraction: Double?
     public let haplotypeDropoutLocusFraction: Double?
     public let haplotypeDropoutLocusFractionOverrides: [String: Double]
@@ -47,6 +87,7 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
         threads: Int = max(1, ProcessInfo.processInfo.activeProcessorCount),
         sortThreads: Int = 4,
         minSupport: Int = 1,
+        keepIntermediates: Bool = false,
         haplotypeDropoutSampleFraction: Double? = nil,
         haplotypeDropoutLocusFraction: Double? = nil,
         haplotypeDropoutLocusFractionOverrides: [String: Double] = [:],
@@ -74,6 +115,7 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
             threads: threads,
             sortThreads: sortThreads,
             minSupport: minSupport,
+            keepIntermediates: keepIntermediates,
             haplotypeDropoutSampleFraction: haplotypeDropoutSampleFraction,
             haplotypeDropoutLocusFraction: haplotypeDropoutLocusFraction,
             haplotypeDropoutLocusFractionOverrides: haplotypeDropoutLocusFractionOverrides,
@@ -105,6 +147,7 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
         threads: Int = max(1, ProcessInfo.processInfo.activeProcessorCount),
         sortThreads: Int = 4,
         minSupport: Int = 1,
+        keepIntermediates: Bool = false,
         haplotypeDropoutSampleFraction: Double? = nil,
         haplotypeDropoutLocusFraction: Double? = nil,
         haplotypeDropoutLocusFractionOverrides: [String: Double] = [:],
@@ -153,6 +196,7 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
         self.threads = max(1, threads)
         self.sortThreads = max(1, sortThreads)
         self.minSupport = max(1, minSupport)
+        self.keepIntermediates = keepIntermediates
         self.haplotypeDropoutSampleFraction = Self.normalizedFraction(haplotypeDropoutSampleFraction)
         self.haplotypeDropoutLocusFraction = Self.normalizedFraction(haplotypeDropoutLocusFraction)
         self.haplotypeDropoutLocusFractionOverrides = Self.normalizedFractionOverrides(haplotypeDropoutLocusFractionOverrides)
@@ -203,6 +247,7 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
             threads: threads,
             sortThreads: sortThreads,
             minSupport: minSupport,
+            keepIntermediates: keepIntermediates,
             haplotypeDropoutSampleFraction: haplotypeDropoutSampleFraction,
             haplotypeDropoutLocusFraction: haplotypeDropoutLocusFraction,
             haplotypeDropoutLocusFractionOverrides: haplotypeDropoutLocusFractionOverrides,
@@ -412,6 +457,9 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
         }
         if let projectURL {
             values += ["--project", projectURL.path]
+        }
+        if keepIntermediates {
+            values += ["--keep-intermediates"]
         }
         if !extraArguments.isEmpty {
             values += ["--extra-args", AdvancedCommandLineOptions.join(extraArguments)]
@@ -693,10 +741,43 @@ private final class ONTGenotypingMappingProcessGroup: @unchecked Sendable {
     }
 }
 
+private struct AmpliconWorkDirectoryDisposition: Codable, Sendable {
+    let path: String
+    let disposition: String
+    let error: String?
+}
+
+private struct AmpliconWorkDirectoryDispositionEnvelope: Codable, Sendable {
+    let schemaVersion: Int
+    let runID: UUID
+    let entries: [AmpliconWorkDirectoryDisposition]
+}
+
+private struct AmpliconFailureProvenancePreparationError: Error, LocalizedError {
+    let inputPath: String
+    let operation: String
+    let underlyingDescription: String
+
+    var errorDescription: String? {
+        "Incomplete failure-provenance input preparation for \(inputPath): "
+            + "\(operation) failed (\(underlyingDescription))"
+    }
+}
+
 public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     private let condaManager: CondaManager
     private let referenceImporter: ReferenceBundleImportService
     private let fileRemover: @Sendable (URL) throws -> Void
+    private let cleanupJournalObserver:
+        @Sendable (GenotypingCleanupJournalEvent) throws -> Void
+    private let workDirectoryMarkerBinder:
+        @Sendable (URL, OwnedWorkDirectoryCreationRequest) throws -> Void
+    private let reviewableRowCatalogPublisher:
+        @Sendable (
+            GenotypeReviewableRowCatalogInputs,
+            URL,
+            @escaping @Sendable () throws -> Void
+        ) throws -> GenotypeReviewableRowCatalogPublication
     private static let mappingProcessTimeout: TimeInterval = 86_400
 
     public init(
@@ -708,16 +789,60 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         self.fileRemover = { url in
             try FileManager.default.removeItem(at: url)
         }
+        self.cleanupJournalObserver = { _ in }
+        self.workDirectoryMarkerBinder = { directory, request in
+            try OwnedWorkDirectoryMarkerStore.bindExistingDirectory(
+                directory,
+                request: request
+            )
+        }
+        self.reviewableRowCatalogPublisher = {
+            inputs, outputDirectory, authorityCheck in
+            try GenotypeReviewableRowCatalogPublisher().publish(
+                inputs,
+                to: outputDirectory,
+                postPublicationAuthorityCheck: authorityCheck
+            )
+        }
     }
 
     init(
         condaManager: CondaManager,
         referenceImporter: ReferenceBundleImportService = .shared,
-        fileRemover: @escaping @Sendable (URL) throws -> Void
+        fileRemover: @escaping @Sendable (URL) throws -> Void = {
+            try FileManager.default.removeItem(at: $0)
+        },
+        cleanupJournalObserver:
+            @escaping @Sendable (GenotypingCleanupJournalEvent) throws -> Void = { _ in },
+        workDirectoryMarkerBinder:
+            @escaping @Sendable (
+                URL,
+                OwnedWorkDirectoryCreationRequest
+            ) throws -> Void = {
+                try OwnedWorkDirectoryMarkerStore.bindExistingDirectory(
+                    $0,
+                    request: $1
+                )
+            },
+        reviewableRowCatalogPublisher:
+            @escaping @Sendable (
+                GenotypeReviewableRowCatalogInputs,
+                URL,
+                @escaping @Sendable () throws -> Void
+            ) throws -> GenotypeReviewableRowCatalogPublication = {
+                try GenotypeReviewableRowCatalogPublisher().publish(
+                    $0,
+                    to: $1,
+                    postPublicationAuthorityCheck: $2
+                )
+            }
     ) {
         self.condaManager = condaManager
         self.referenceImporter = referenceImporter
         self.fileRemover = fileRemover
+        self.cleanupJournalObserver = cleanupJournalObserver
+        self.workDirectoryMarkerBinder = workDirectoryMarkerBinder
+        self.reviewableRowCatalogPublisher = reviewableRowCatalogPublisher
     }
 
     public func run(
@@ -725,6 +850,16 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> ONTBarcodeDemuxGenotypingResult {
         let startedAt = Date()
+        let runID = UUID()
+        let processIdentity = try OwnedProcessIdentity.current()
+        let outputParent = request.outputDirectory.deletingLastPathComponent().standardizedFileURL
+        try FileManager.default.createDirectory(at: outputParent, withIntermediateDirectories: true)
+        let projectRoot = (request.projectURL ?? outputParent).standardizedFileURL
+        let lockURL = outputParent.appendingPathComponent(
+            ".\(request.outputDirectory.lastPathComponent).amplicon-genotyping-run.lock"
+        )
+        let runLock = try OwnedRunLock.acquire(at: lockURL)
+        defer { runLock.release() }
         let resolvedMode = try resolveMode(for: request)
         let resolvedReadType = resolveReadType(for: request, mode: resolvedMode)
         progressHandler?(0.01, "Validating amplicon genotyping inputs.")
@@ -746,11 +881,43 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             throw ONTBarcodeDemuxGenotypingError.missingComparisonWorkbook(comparisonWorkbookURL)
         }
         _ = try resolveHaplotypeDefinitionSet(for: request)
+        let failureScientificFASTQURLs = try request.inputFASTQURLs.flatMap {
+            let resolved = try Self.resolveInputFASTQURLs(for: $0)
+            guard !resolved.isEmpty else {
+                throw ONTBarcodeDemuxGenotypingError.noFASTQSources($0)
+            }
+            return resolved
+        }
         try FileManager.default.createDirectory(at: request.outputDirectory, withIntermediateDirectories: true)
         progressHandler?(0.04, "Preparing amplicon genotyping output workspace.")
         _ = try copySpecialistPromptSnapshotIfNeeded(for: request)
         let supportDirectory = request.outputDirectory
             .appendingPathComponent(".amplicon-genotyping", isDirectory: true)
+        var failureCleanupDispositions: [AmpliconWorkDirectoryDisposition] = []
+        var successfulCleanupPlan: GenotypingCleanupPlan?
+        do {
+        try FileManager.default.createDirectory(
+            at: supportDirectory,
+            withIntermediateDirectories: false
+        )
+        try workDirectoryMarkerBinder(
+            supportDirectory,
+            OwnedWorkDirectoryCreationRequest(
+                projectURL: projectRoot,
+                parentDirectoryURL: request.outputDirectory,
+                prefix: ".amplicon-genotyping-",
+                runID: runID,
+                processIdentity: processIdentity,
+                state: .active,
+                lockRelativePath: Self.projectRelativePath(
+                    lockURL,
+                    projectRoot: projectRoot
+                ),
+                keepIntermediates: request.keepIntermediates,
+                toolName: Self.analysisToolName(for: resolvedMode),
+                toolVersion: WorkflowRun.currentAppVersion
+            )
+        )
         let scriptURL = supportDirectory.appendingPathComponent("filter-demux-retained-bam.py")
         try Self.writeFilterScript(to: scriptURL)
         let reportScriptURL = supportDirectory.appendingPathComponent("write-retained-demux-workbook.py")
@@ -872,6 +1039,13 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 fromReferenceBundle: reference.sourceReferenceBundleURL ?? request.referenceSourceURL,
                 toResultBundle: request.outputDirectory
             )
+            let reviewableRowCatalogPublication =
+                try publishReviewableRowCatalogIfNeeded(
+                    request: request,
+                    resolvedMode: resolvedMode,
+                    reference: reference,
+                    scientificArtifactPublication: scientificArtifactPublication
+                )
             let completedAt = Date()
             progressHandler?(0.93, "Writing reproducibility provenance and bundle manifest.")
             let provenanceURL = try writeProvenance(
@@ -897,6 +1071,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 haplotypeAnalysis: haplotypeAnalysis,
                 referenceRecordStoreSnapshot: referenceRecordStoreSnapshot,
                 scientificArtifactPublication: scientificArtifactPublication,
+                reviewableRowCatalogPublication: reviewableRowCatalogPublication,
                 startedAt: startedAt,
                 completedAt: completedAt
             )
@@ -907,6 +1082,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 workbookRevision: workbookCopy.revision,
                 referenceRecordStore: referenceRecordStoreSnapshot?.info,
                 scientificArtifactPublication: scientificArtifactPublication,
+                reviewableRowCatalogPublication: reviewableRowCatalogPublication,
                 completedAt: completedAt
             )
             preserveRetainedEvidence = scientificArtifactPublication != nil
@@ -932,23 +1108,740 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 unassignedUniqueRetainedReads: filter.stats.unassignedUniqueRetainedReads
             )
         } catch {
+            var reportedError: Error = error
             if resolvedMode == .illuminaPaired {
-                rollbackScientificOutputsAfterFinalizationFailure(
+                let dispositions = rollbackScientificOutputsAfterFinalizationFailure(
                     request: request,
-                    mapping: mapping
+                    mapping: mapping,
+                    preserveReviewableRowCatalog:
+                        error is GenotypeReviewableRowCatalogPublicationFailure
                 )
+                failureCleanupDispositions.append(contentsOf: dispositions)
+                let cleanupFailures = dispositions.filter { $0.error != nil }
+                if !cleanupFailures.isEmpty {
+                    let details = cleanupFailures.map {
+                        "\($0.path): \($0.error ?? "unknown cleanup error")"
+                    }.joined(separator: "; ")
+                    reportedError = ONTBarcodeDemuxGenotypingError.reportFailed(
+                        status: 1,
+                        stderr:
+                            "\(error.localizedDescription); scientific-output rollback cleanup failed: \(details)"
+                    )
+                }
             }
-            throw error
+            if let failure =
+                error as? GenotypeReviewableRowCatalogPublicationFailure {
+                do {
+                    try ProvenanceWriter(signingProvider: nil).write(
+                        failure.provenance,
+                        to: request.outputDirectory
+                    )
+                } catch let provenanceError {
+                    throw ONTBarcodeDemuxGenotypingError.reportFailed(
+                        status: 1,
+                        stderr:
+                            "\(reportedError.localizedDescription); failed-run provenance also could not be written (\(provenanceError.localizedDescription))."
+                    )
+                }
+            }
+            throw reportedError
         }
 
         progressHandler?(0.97, "Removing regenerable alignment intermediates.")
-        try? removeGeneratedAlignmentIntermediates(
+        let cleanupPlan = try beginSuccessfulCleanupJournal(
+            runID: runID,
+            projectRoot: projectRoot,
+            request: request,
+            mapping: mapping,
+            preserveRetainedEvidence: preserveRetainedEvidence,
+            supportDirectory: supportDirectory
+        )
+        successfulCleanupPlan = cleanupPlan
+        let alignmentDispositions = cleanupGeneratedAlignmentIntermediates(
             for: request,
             mapping: mapping,
-            preserveRetainedEvidence: preserveRetainedEvidence
+            preserveRetainedEvidence: preserveRetainedEvidence,
+            cleanupPlan: cleanupPlan
+        )
+        failureCleanupDispositions.append(contentsOf: alignmentDispositions)
+        if let cleanupFailure = alignmentDispositions.first(where: {
+            $0.error != nil
+        }) {
+            throw ONTBarcodeDemuxGenotypingError.reportFailed(
+                status: 1,
+                stderr:
+                    "Automatic intermediate cleanup failed for "
+                    + "\(cleanupFailure.path): "
+                    + "\(cleanupFailure.error ?? "unknown cleanup error")"
+            )
+        }
+        let supportPath = supportDirectory.standardizedFileURL.path
+        if request.keepIntermediates {
+            failureCleanupDispositions.append(
+                identityBoundRetainedDisposition(
+                    plan: cleanupPlan,
+                    url: supportDirectory
+                ) { detachedURL in
+                    try OwnedWorkDirectoryMarkerStore.transition(
+                        detachedURL,
+                        expectedProjectURL: projectRoot,
+                        expectedRunID: runID,
+                        to: .completed
+                    )
+                }
+            )
+        } else {
+            let disposition = identityBoundRemovalDisposition(
+                plan: cleanupPlan,
+                url: supportDirectory,
+                successDisposition: "removed"
+            ) { detachedURL in
+                try OwnedWorkDirectoryMarkerStore.transition(
+                    detachedURL,
+                    expectedProjectURL: projectRoot,
+                    expectedRunID: runID,
+                    to: .completed
+                )
+                try fileRemover(detachedURL)
+            }
+            failureCleanupDispositions.append(disposition)
+            if let error = disposition.error {
+                throw ONTBarcodeDemuxGenotypingError.reportFailed(
+                    status: 1,
+                    stderr:
+                        "Automatic support-directory cleanup failed for "
+                        + "\(supportPath): \(error)"
+                )
+            }
+        }
+        try appendSuccessfulCleanupDisposition(
+            runID: runID,
+            projectRoot: projectRoot,
+            outputBundleURL: request.outputDirectory,
+            dispositions: failureCleanupDispositions
         )
         progressHandler?(0.98, "Finalizing amplicon genotyping outputs.")
         return finalizedResult
+        } catch let journalError as GenotypingCleanupJournalError {
+            throw journalError
+        } catch {
+            throw recordFailedRunAndCleanupSupportDirectory(
+                originalError: error,
+                request: request,
+                runID: runID,
+                projectRoot: projectRoot,
+                supportDirectory: supportDirectory,
+                startedAt: startedAt,
+                resolvedMode: resolvedMode,
+                resolvedReadType: resolvedReadType,
+                failureScientificFASTQURLs: failureScientificFASTQURLs,
+                cleanupPlan: successfulCleanupPlan,
+                additionalDispositions: failureCleanupDispositions
+            )
+        }
+    }
+
+    private static func projectRelativePath(_ url: URL, projectRoot: URL) -> String? {
+        let rootPath = projectRoot.standardizedFileURL.path
+        let path = url.standardizedFileURL.path
+        guard path.hasPrefix(rootPath + "/") else { return nil }
+        return String(path.dropFirst(rootPath.count + 1))
+    }
+
+    private func recordFailedRunAndCleanupSupportDirectory(
+        originalError: Error,
+        request: ONTBarcodeDemuxGenotypingRunRequest,
+        runID: UUID,
+        projectRoot: URL,
+        supportDirectory: URL,
+        startedAt: Date,
+        resolvedMode: AmpliconGenotypingMode,
+        resolvedReadType: AmpliconGenotypingReadType,
+        failureScientificFASTQURLs: [URL],
+        cleanupPlan: GenotypingCleanupPlan?,
+        additionalDispositions: [AmpliconWorkDirectoryDisposition]
+    ) -> Error {
+        let historyWriter = ProjectOperationHistoryWriter(
+            projectURL: projectRoot
+        )
+        var reportedError: Error = originalError
+        do {
+            try writeCompactFailureHistory(
+                request: request,
+                runID: runID,
+                projectRoot: projectRoot,
+                startedAt: startedAt,
+                resolvedMode: resolvedMode,
+                resolvedReadType: resolvedReadType,
+                failureScientificFASTQURLs: failureScientificFASTQURLs,
+                error: originalError
+            )
+        } catch let preparationError as AmpliconFailureProvenancePreparationError {
+            reportedError = ONTBarcodeDemuxGenotypingError.reportFailed(
+                status: 1,
+                stderr:
+                    "\(originalError.localizedDescription); "
+                    + "\(preparationError.localizedDescription)"
+            )
+            do {
+                let receipt = try failureProvenancePreparationReceiptData(
+                    request: request,
+                    runID: runID,
+                    startedAt: startedAt,
+                    resolvedMode: resolvedMode,
+                    resolvedReadType: resolvedReadType,
+                    originalError: originalError,
+                    preparationError: preparationError
+                )
+                let cleanupPlanURL = historyWriter.operationDirectoryURL(
+                    for: runID
+                ).appendingPathComponent(
+                    GenotypingCleanupJournal.planPayloadName
+                )
+                if FileManager.default.fileExists(
+                    atPath: cleanupPlanURL.path
+                ) {
+                    try historyWriter.append(
+                        receipt,
+                        named:
+                            "failure-provenance-preparation-error.json",
+                        toOperation: runID
+                    )
+                } else {
+                    _ = try historyWriter.createOperation(
+                        operationID: runID,
+                        payloads: [
+                            "failure-provenance-preparation-error.json":
+                                receipt,
+                        ]
+                    )
+                }
+            } catch {
+                return ONTBarcodeDemuxGenotypingError.reportFailed(
+                    status: 1,
+                    stderr:
+                        "\(reportedError.localizedDescription); incomplete "
+                        + "failure-provenance preparation receipt could not be "
+                        + "durably published (\(error.localizedDescription)); "
+                        + "retained current-run support directory: "
+                        + supportDirectory.standardizedFileURL.path
+                )
+            }
+        } catch {
+            return ONTBarcodeDemuxGenotypingError.reportFailed(
+                status: 1,
+                stderr:
+                    "\(originalError.localizedDescription); failed-run provenance could not be durably published (\(error.localizedDescription)); retained current-run support directory: \(supportDirectory.standardizedFileURL.path)"
+            )
+        }
+
+        let supportPath = supportDirectory.standardizedFileURL.path
+        var supportDisposition = AmpliconWorkDirectoryDisposition(
+            path: supportPath,
+            disposition: "already-removed",
+            error: nil
+        )
+        if FileManager.default.fileExists(atPath: supportPath)
+            || cleanupPlan?.entry(for: supportDirectory) != nil {
+            if let cleanupPlan {
+                if request.keepIntermediates {
+                    supportDisposition = identityBoundRetainedDisposition(
+                        plan: cleanupPlan,
+                        url: supportDirectory
+                    ) { detachedURL in
+                        try OwnedWorkDirectoryMarkerStore.transition(
+                            detachedURL,
+                            expectedProjectURL: projectRoot,
+                            expectedRunID: runID,
+                            to: .failed
+                        )
+                    }
+                } else {
+                    supportDisposition = identityBoundRemovalDisposition(
+                        plan: cleanupPlan,
+                        url: supportDirectory,
+                        successDisposition: "removed"
+                    ) { detachedURL in
+                        try OwnedWorkDirectoryMarkerStore.transition(
+                            detachedURL,
+                            expectedProjectURL: projectRoot,
+                            expectedRunID: runID,
+                            to: .failed
+                        )
+                        try fileRemover(detachedURL)
+                    }
+                }
+            } else {
+                do {
+                    let marker = try OwnedWorkDirectoryMarkerStore.load(
+                        from: supportDirectory,
+                        expectedProjectURL: projectRoot
+                    )
+                    if marker.state == .active {
+                        try OwnedWorkDirectoryMarkerStore.transition(
+                            supportDirectory,
+                            expectedProjectURL: projectRoot,
+                            expectedRunID: runID,
+                            to: .failed
+                        )
+                    }
+                    if request.keepIntermediates {
+                        supportDisposition = .init(
+                            path: supportPath,
+                            disposition: "retained-by-request",
+                            error: nil
+                        )
+                    } else {
+                        try fileRemover(supportDirectory)
+                        supportDisposition = .init(
+                            path: supportPath,
+                            disposition: "removed",
+                            error: nil
+                        )
+                    }
+                } catch {
+                    supportDisposition = .init(
+                        path: supportPath,
+                        disposition: "retained-cleanup-failed",
+                        error: error.localizedDescription
+                    )
+                }
+            }
+        }
+
+        let dispositions = additionalDispositions + [supportDisposition]
+        do {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(
+                AmpliconWorkDirectoryDispositionEnvelope(
+                    schemaVersion: 1,
+                    runID: runID,
+                    entries: dispositions
+                )
+            )
+            try historyWriter.append(
+                data,
+                named: "cleanup-disposition.json",
+                toOperation: runID
+            )
+        } catch {
+            return ONTBarcodeDemuxGenotypingError.reportFailed(
+                status: 1,
+                stderr:
+                    "\(reportedError.localizedDescription); cleanup disposition for \(supportPath) could not be durably appended (\(error.localizedDescription))"
+            )
+        }
+
+        let cleanupFailures = dispositions.filter { $0.error != nil }
+        if !cleanupFailures.isEmpty {
+            let details = cleanupFailures.map {
+                "\($0.path): \($0.error ?? "unknown cleanup error")"
+            }.joined(separator: "; ")
+            return ONTBarcodeDemuxGenotypingError.reportFailed(
+                status: 1,
+                stderr:
+                    "\(reportedError.localizedDescription); current-run cleanup failed: \(details)"
+            )
+        }
+        return reportedError
+    }
+
+    private func failureProvenancePreparationReceiptData(
+        request: ONTBarcodeDemuxGenotypingRunRequest,
+        runID: UUID,
+        startedAt: Date,
+        resolvedMode: AmpliconGenotypingMode,
+        resolvedReadType: AmpliconGenotypingReadType,
+        originalError: Error,
+        preparationError: AmpliconFailureProvenancePreparationError
+    ) throws -> Data {
+        let completedAt = Date()
+        let payload: [String: Any] = [
+            "schemaVersion": 1,
+            "kind": "incomplete-failure-provenance-preparation",
+            "runID": runID.uuidString.lowercased(),
+            "workflowName": Self.workflowName(for: resolvedMode),
+            "workflowVersion": "1",
+            "toolName": "lungfish fastq genotype",
+            "toolVersion": WorkflowRun.currentAppVersion,
+            "argv": request.argv,
+            "durableReplayArgv": request.argv,
+            "reproducibleCommand":
+                request.argv.map(shellEscape).joined(separator: " "),
+            "resolvedOptions": failureResolvedOptions(
+                request: request,
+                resolvedMode: resolvedMode,
+                resolvedReadType: resolvedReadType
+            ),
+            "resolvedDefaults": failureResolvedDefaults(),
+            "runtimeIdentity": [
+                "executablePath": CommandLine.arguments.first
+                    ?? CLICommandIdentity.executableName,
+                "operatingSystem":
+                    ProcessInfo.processInfo.operatingSystemVersionString,
+                "processIdentifier":
+                    ProcessInfo.processInfo.processIdentifier,
+                "condaRoot": condaManager.rootPrefix.path,
+                "condaEnvironments": [
+                    "minimap2", "samtools", "pysam", "openpyxl",
+                ],
+            ],
+            "inputPath": preparationError.inputPath,
+            "output": request.outputDirectory.path,
+            "preparationError": preparationError.localizedDescription,
+            "originalError": originalError.localizedDescription,
+            "startedAt": ISO8601DateFormatter().string(from: startedAt),
+            "completedAt": ISO8601DateFormatter().string(from: completedAt),
+            "wallTimeSeconds": completedAt.timeIntervalSince(startedAt),
+            "exitStatus": 1,
+            "stderr": [
+                originalError.localizedDescription,
+                preparationError.localizedDescription,
+            ].joined(separator: "\n"),
+        ]
+        return try JSONSerialization.data(
+            withJSONObject: payload,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+    }
+
+    private func failureScientificInputDescriptors(
+        for request: ONTBarcodeDemuxGenotypingRunRequest,
+        failureScientificFASTQURLs: [URL]
+    ) throws -> [[String: Any]] {
+        let canonicalProvenanceURL = request.outputDirectory
+            .appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let authoritativeDescriptors: [String: ProvenanceFileDescriptor]
+        do {
+            let envelope = try ProvenanceEnvelopeReader.load(
+                from: request.outputDirectory
+            )
+            authoritativeDescriptors = (envelope?.files ?? []).reduce(
+                into: [:]
+            ) { result, descriptor in
+                guard descriptor.checksumSHA256 != nil,
+                      descriptor.fileSize != nil else {
+                    return
+                }
+                let path = URL(fileURLWithPath: descriptor.path)
+                    .standardizedFileURL.path
+                result[path] = result[path] ?? descriptor
+            }
+        } catch {
+            throw AmpliconFailureProvenancePreparationError(
+                inputPath: canonicalProvenanceURL.path,
+                operation: "load authoritative scientific-input descriptors",
+                underlyingDescription: error.localizedDescription
+            )
+        }
+        var candidates = failureScientificFASTQURLs.map { ($0, "input") }
+
+        let referenceURL: URL
+        if let bundledReference = MHCAmpliconReferenceBundle.referenceFASTAURL(
+            in: request.referenceSourceURL
+        ) {
+            referenceURL = bundledReference
+        } else if let primaryReference = SequenceInputResolver
+            .resolvePrimarySequenceURL(for: request.referenceSourceURL) {
+            referenceURL = primaryReference
+        } else {
+            referenceURL = request.referenceSourceURL
+        }
+        candidates.append((referenceURL, "reference"))
+        for url in [
+            request.barcodeDefinitionsURL,
+            request.demuxManifestURL,
+            request.comparisonWorkbookURL,
+        ].compactMap({ $0 }) {
+            candidates.append((url, "input"))
+        }
+
+        var seen = Set<String>()
+        return try candidates.compactMap { candidate in
+            let url = candidate.0.standardizedFileURL
+            guard seen.insert(url.path).inserted else { return nil }
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(
+                atPath: url.path,
+                isDirectory: &isDirectory
+            ), !isDirectory.boolValue else {
+                throw AmpliconFailureProvenancePreparationError(
+                    inputPath: url.path,
+                    operation: "locate required scientific input",
+                    underlyingDescription: "file is missing or is not a regular file"
+                )
+            }
+            do {
+                let descriptor = try failureFileDescriptor(
+                    url,
+                    role: candidate.1
+                )
+                if let authoritative = authoritativeDescriptors[url.path],
+                   (
+                       descriptor["sha256"] as? String
+                           != authoritative.checksumSHA256
+                           || descriptor["fileSize"] as? UInt64
+                               != authoritative.fileSize
+                   ) {
+                    throw AmpliconFailureProvenancePreparationError(
+                        inputPath: url.path,
+                        operation:
+                            "verify scientific input against the finalized "
+                            + "provenance authority",
+                        underlyingDescription:
+                            "the file changed after the successful provenance "
+                            + "snapshot"
+                    )
+                }
+                return descriptor
+            } catch let preparationError
+                as AmpliconFailureProvenancePreparationError {
+                throw preparationError
+            } catch {
+                throw AmpliconFailureProvenancePreparationError(
+                    inputPath: url.path,
+                    operation: "hash required scientific input",
+                    underlyingDescription: error.localizedDescription
+                )
+            }
+        }
+    }
+
+    private func failureScientificOutputDescriptors(
+        for request: ONTBarcodeDemuxGenotypingRunRequest
+    ) throws -> [[String: Any]] {
+        let canonicalProvenanceURL = request.outputDirectory
+            .appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let sequenceDirectory = request.outputDirectory.appendingPathComponent(
+            "artifacts/sequences",
+            isDirectory: true
+        )
+        let candidates = [
+            request.retainedBAMURL,
+            request.retainedBAIURL,
+            request.reportCSVURL,
+            request.sampleSummaryCSVURL,
+            request.statsJSONURL,
+            request.workbookURL,
+            request.currentWorkbookURL,
+            request.reportProvenanceURL,
+            request.currentWorkbookProvenanceURL,
+            request.haplotypeAnalysisURL,
+            request.currentHaplotypeAnalysisURL,
+            request.specialistPromptSnapshotURL,
+            request.provenanceURL,
+            canonicalProvenanceURL,
+            ProvenanceSigningConfiguration.signatureURL(
+                for: canonicalProvenanceURL
+            ),
+            ProvenanceSigningConfiguration.publicKeyURL(
+                for: canonicalProvenanceURL
+            ),
+            ONTGenotypeResultBundle.manifestURL(in: request.outputDirectory),
+            request.outputDirectory.appendingPathComponent(
+                GenotypeReferenceRecordStoreSnapshot.relativeDatabasePath
+            ),
+            sequenceDirectory.appendingPathComponent(
+                "observed-provisional-exon2.json"
+            ),
+            sequenceDirectory.appendingPathComponent(
+                "observed-provisional-exon2.fasta"
+            ),
+            request.outputDirectory.appendingPathComponent(
+                "artifacts/projections/genotype-reviewable-rows.json"
+            ),
+        ]
+        var seen = Set<String>()
+        return try candidates.compactMap { candidate in
+            let url = candidate.standardizedFileURL
+            guard seen.insert(url.path).inserted else { return nil }
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(
+                atPath: url.path,
+                isDirectory: &isDirectory
+            ), !isDirectory.boolValue else {
+                return nil
+            }
+            return try failureFileDescriptor(url, role: "output")
+        }
+    }
+
+    private func failureFileDescriptor(
+        _ url: URL,
+        role: String
+    ) throws -> [String: Any] {
+        [
+            "path": url.standardizedFileURL.path,
+            "role": role,
+            "fileSize": try ProvenanceFileHasher.fileSize(of: url),
+            "sha256": try ProvenanceFileHasher.sha256(of: url),
+        ]
+    }
+
+    private func failureResolvedOptions(
+        request: ONTBarcodeDemuxGenotypingRunRequest,
+        resolvedMode: AmpliconGenotypingMode,
+        resolvedReadType: AmpliconGenotypingReadType
+    ) -> [String: Any] {
+        [
+            "inputFASTQs": request.inputFASTQURLs.map(\.path),
+            "referenceSource": request.referenceSourceURL.path,
+            "barcodeDefinitions":
+                request.barcodeDefinitionsURL?.path as Any? ?? NSNull(),
+            "outputDirectory": request.outputDirectory.path,
+            "outputName": request.outputName,
+            "demuxManifest":
+                request.demuxManifestURL?.path as Any? ?? NSNull(),
+            "analysisName": request.analysisName,
+            "comparisonWorkbook":
+                request.comparisonWorkbookURL?.path as Any? ?? NSNull(),
+            "comparisonName": request.comparisonName as Any? ?? NSNull(),
+            "project": request.projectURL?.path as Any? ?? NSNull(),
+            "threads": request.threads,
+            "sortThreads": request.sortThreads,
+            "minSupport": request.minSupport,
+            "keepIntermediates": request.keepIntermediates,
+            "haplotypeDropoutSampleFraction":
+                request.haplotypeDropoutSampleFraction as Any? ?? NSNull(),
+            "haplotypeDropoutLocusFraction":
+                request.haplotypeDropoutLocusFraction as Any? ?? NSNull(),
+            "haplotypeDropoutLocusFractionOverrides":
+                request.haplotypeDropoutLocusFractionOverrides,
+            "haplotypeAssayID":
+                request.haplotypeAssayID as Any? ?? NSNull(),
+            "haplotypeSpeciesCode":
+                request.haplotypeSpeciesCode as Any? ?? NSNull(),
+            "haplotypeDefinitionScope":
+                request.haplotypeDefinitionScope?.rawValue as Any? ?? NSNull(),
+            "haplotypeDefinitionSetID":
+                request.haplotypeDefinitionSetID as Any? ?? NSNull(),
+            "presetID": request.presetID as Any? ?? NSNull(),
+            "presetVersion": request.presetVersion as Any? ?? NSNull(),
+            "lockedReferenceSHA256":
+                request.lockedReferenceSHA256 as Any? ?? NSNull(),
+            "extraArguments": request.extraArguments,
+            "mode": request.mode.rawValue,
+            "resolvedMode": resolvedMode.rawValue,
+            "readType": request.readType.rawValue,
+            "resolvedReadType": resolvedReadType.rawValue,
+            "aiSpecialistPresetID":
+                request.aiSpecialistPresetID as Any? ?? NSNull(),
+        ]
+    }
+
+    private func failureResolvedDefaults() -> [String: Any] {
+        [
+            "inputFASTQs": [],
+            "referenceSource": NSNull(),
+            "barcodeDefinitions": NSNull(),
+            "outputDirectory": NSNull(),
+            "outputName": "amplicon-genotyping",
+            "demuxManifest": NSNull(),
+            "analysisName": "amplicon-genotyping",
+            "comparisonWorkbook": NSNull(),
+            "comparisonName": "Illumina-31262",
+            "project": NSNull(),
+            "threads": max(1, ProcessInfo.processInfo.activeProcessorCount),
+            "sortThreads": 4,
+            "minSupport": 1,
+            "keepIntermediates": false,
+            "haplotypeDropoutSampleFraction": NSNull(),
+            "haplotypeDropoutLocusFraction": NSNull(),
+            "haplotypeDropoutLocusFractionOverrides": [:],
+            "haplotypeAssayID": NSNull(),
+            "haplotypeSpeciesCode": NSNull(),
+            "haplotypeDefinitionScope": NSNull(),
+            "haplotypeDefinitionSetID": NSNull(),
+            "presetID": NSNull(),
+            "presetVersion": NSNull(),
+            "lockedReferenceSHA256": NSNull(),
+            "extraArguments": [],
+            "mode": AmpliconGenotypingMode.auto.rawValue,
+            "resolvedMode": AmpliconGenotypingMode.auto.rawValue,
+            "readType": AmpliconGenotypingReadType.auto.rawValue,
+            "resolvedReadType": AmpliconGenotypingReadType.auto.rawValue,
+            "aiSpecialistPresetID": NSNull(),
+        ]
+    }
+
+    private func writeCompactFailureHistory(
+        request: ONTBarcodeDemuxGenotypingRunRequest,
+        runID: UUID,
+        projectRoot: URL,
+        startedAt: Date,
+        resolvedMode: AmpliconGenotypingMode,
+        resolvedReadType: AmpliconGenotypingReadType,
+        failureScientificFASTQURLs: [URL],
+        error: Error
+    ) throws {
+        let completedAt = Date()
+        let inputs = try failureScientificInputDescriptors(
+            for: request,
+            failureScientificFASTQURLs: failureScientificFASTQURLs
+        )
+        let outputs = try failureScientificOutputDescriptors(for: request)
+        let resolvedOptions = failureResolvedOptions(
+            request: request,
+            resolvedMode: resolvedMode,
+            resolvedReadType: resolvedReadType
+        )
+        let resolvedDefaults = failureResolvedDefaults()
+        let payload: [String: Any] = [
+            "schemaVersion": 1,
+            "runID": runID.uuidString.lowercased(),
+            "toolName": "lungfish fastq genotype",
+            "toolVersion": WorkflowRun.currentAppVersion,
+            "workflowName": Self.workflowName(for: resolvedMode),
+            "workflowVersion": "1",
+            "argv": request.argv,
+            "durableReplayArgv": request.argv,
+            "reproducibleCommand": request.argv.map(shellEscape).joined(separator: " "),
+            "resolvedOptions": resolvedOptions,
+            "resolvedDefaults": resolvedDefaults,
+            "runtimeIdentity": [
+                "executablePath": CommandLine.arguments.first
+                    ?? CLICommandIdentity.executableName,
+                "operatingSystem": ProcessInfo.processInfo.operatingSystemVersionString,
+                "processIdentifier": ProcessInfo.processInfo.processIdentifier,
+                "condaRoot": condaManager.rootPrefix.path,
+                "condaEnvironments": [
+                    "minimap2",
+                    "samtools",
+                    "pysam",
+                    "openpyxl",
+                ],
+            ],
+            "inputs": inputs,
+            "files": inputs + outputs,
+            "outputs": outputs,
+            "output": request.outputDirectory.path,
+            "startedAt": ISO8601DateFormatter().string(from: startedAt),
+            "completedAt": ISO8601DateFormatter().string(from: completedAt),
+            "wallTimeSeconds": completedAt.timeIntervalSince(startedAt),
+            "exitStatus": 1,
+            "stderr": error.localizedDescription,
+        ]
+        let data = try JSONSerialization.data(
+            withJSONObject: payload,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        let writer = ProjectOperationHistoryWriter(projectURL: projectRoot)
+        let cleanupPlanURL = writer.operationDirectoryURL(
+            for: runID
+        ).appendingPathComponent(GenotypingCleanupJournal.planPayloadName)
+        if FileManager.default.fileExists(atPath: cleanupPlanURL.path) {
+            try writer.append(
+                data,
+                named: "failure-provenance.json",
+                toOperation: runID
+            )
+        } else {
+            _ = try writer.createOperation(
+                operationID: runID,
+                payloads: ["failure-provenance.json": data]
+            )
+        }
     }
 
     public static func resolveInputFASTQURLs(for inputURL: URL) throws -> [URL] {
@@ -2484,6 +3377,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         try writeHaplotypeDefinitionSnapshot(definitionSet, supportDirectory: supportDirectory)
 
         let manifest = ONTGenotypeResultBundleManifest(
+            kind: GenotypeResultWorkflowKind.miSeqAmpliconMHCGenotype.rawValue,
+            workflowKind: .miSeqAmpliconMHCGenotype,
+            workflowMode: .haplotyped,
             outputName: request.outputName,
             analysisName: request.analysisName,
             primaryWorkbookPath: relativePath(from: request.outputDirectory, to: request.workbookURL),
@@ -2508,6 +3404,377 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let data = try encoder.encode(analysis)
         try data.write(to: request.haplotypeAnalysisURL, options: .atomic)
         return analysis
+    }
+
+    private func publishReviewableRowCatalogIfNeeded(
+        request: ONTBarcodeDemuxGenotypingRunRequest,
+        resolvedMode: AmpliconGenotypingMode,
+        reference: ReferenceResolution,
+        scientificArtifactPublication: AmpliconGenotypeScientificArtifactPublication?
+    ) throws -> GenotypeReviewableRowCatalogPublication? {
+        guard resolvedMode == .illuminaPaired,
+              request.haplotypeDefinitionSetID == nil,
+              let scientificArtifactPublication else {
+            return nil
+        }
+        let projectionManifest = ONTGenotypeResultBundleManifest(
+            kind: GenotypeResultWorkflowKind.miSeqAmpliconMHCGenotype.rawValue,
+            workflowKind: .miSeqAmpliconMHCGenotype,
+            workflowMode: .genotypeOnly,
+            outputName: request.outputName,
+            analysisName: request.analysisName,
+            primaryWorkbookPath: relativePath(
+                from: request.outputDirectory,
+                to: request.workbookURL
+            ),
+            longSummaryCSVPath: relativePath(
+                from: request.outputDirectory,
+                to: request.reportCSVURL
+            ),
+            sampleSummaryCSVPath: relativePath(
+                from: request.outputDirectory,
+                to: request.sampleSummaryCSVURL
+            ),
+            statsJSONPath: relativePath(
+                from: request.outputDirectory,
+                to: request.statsJSONURL
+            ),
+            provenancePath: relativePath(
+                from: request.outputDirectory,
+                to: request.provenanceURL
+            )
+        )
+        let csvAuthority = try GenotypeReviewCSVSemanticAuthority.capture(
+            sampleSummaryURL: request.sampleSummaryCSVURL,
+            reportURL: request.reportCSVURL
+        )
+        let result = try ONTGenotypeResultBundle.loadResult(
+            from: request.outputDirectory,
+            manifest: projectionManifest
+        )
+        let expectedCalls = result.locusSummaries.flatMap(\.sharedCalls)
+            .flatMap { call in
+                call.sampleSupport.map { support in
+                    ONTGenotypeCall(
+                        sample: support.sample,
+                        genotype: call.genotype,
+                        passedAlignments: support.passedAlignments,
+                        passedUniqueReads: support.passedUniqueReads,
+                        sampleTotalReads: nil,
+                        sampleUniqueRetainedReads: nil,
+                        sampleUniqueRetainedPercent: nil,
+                        overallInputReads: nil,
+                        overallUniqueRetainedReads: nil,
+                        overallUniqueRetainedPercent: nil
+                    )
+                }
+            }
+        try csvAuthority.requireMatches(
+            expectedRoster: result.sampleNames,
+            expectedCalls: expectedCalls
+        )
+        let referenceAuthority = try Self.reviewableReferenceAuthority(
+            referenceFASTAURL: reference.referenceFASTAURL,
+            sourceReferenceBundleURL: reference.sourceReferenceBundleURL
+        )
+        let referenceRecords = referenceAuthority.records.filter {
+            !$0.alleleName.localizedCaseInsensitiveContains("_nov")
+        }
+        let candidateSnapshot = try scientificArtifactPublication.catalogJSONURL.map {
+            try GenotypeReviewAuthorityFileSnapshot.capture($0)
+        }
+        let exactCandidateDocument = try candidateSnapshot.map {
+            try JSONDecoder().decode(
+                ONTGenotypeProvisionalExon2Document.self,
+                from: $0.data
+            )
+        }
+        guard exactCandidateDocument
+            == scientificArtifactPublication.provisionalExon2Document else {
+            throw GenotypeReviewableRowCatalogPublisherError.authorityChanged(
+                scientificArtifactPublication.catalogJSONURL?.path
+                    ?? "missing provisional exon 2 authority"
+            )
+        }
+        let candidates = exactCandidateDocument?.records.map(
+            GenotypeReviewableRowCandidate.init(provisionalExon2:)
+        ) ?? []
+        struct CallIdentity: Hashable {
+            let locus: String
+            let genotype: String
+        }
+        let groupedCalls = Dictionary(
+            grouping: csvAuthority.calls,
+            by: { CallIdentity(locus: $0.locusGroup, genotype: $0.genotype) }
+        )
+        let exactCalls = try groupedCalls.map { identity, calls in
+            ONTGenotypeSharedCall(
+                locus: identity.locus,
+                genotype: identity.genotype,
+                sampleSupport: try Dictionary(grouping: calls, by: \.sample)
+                    .map { sample, rows in
+                        ONTGenotypeSampleSupport(
+                            sample: sample,
+                            passedAlignments: try checkedSupportSum(
+                                rows.map(\.passedAlignments),
+                                sample: sample
+                            ),
+                            passedUniqueReads: try checkedSupportSum(
+                                rows.map(\.passedUniqueReads),
+                                sample: sample
+                            )
+                        )
+                    }
+            )
+        }
+        let outputURL = request.outputDirectory
+            .appendingPathComponent("artifacts", isDirectory: true)
+            .appendingPathComponent("projections", isDirectory: true)
+            .appendingPathComponent("genotype-reviewable-rows.json")
+        let argv = [
+            "lungfish-internal", "publish-genotype-reviewable-rows",
+            "--reference-fasta", reference.referenceFASTAURL.path,
+            "--sample-roster", request.sampleSummaryCSVURL.path,
+            "--calls", request.reportCSVURL.path,
+            "--provisional-exon-2",
+            scientificArtifactPublication.catalogJSONURL?.path ?? "none",
+            "--output", outputURL.path,
+            "--support-metric", "passed-unique-reads",
+        ]
+        var descriptors = referenceAuthority.descriptors + [
+            csvAuthority.sampleSnapshot.descriptor(format: .text, role: .input),
+            csvAuthority.reportSnapshot.descriptor(format: .text, role: .input),
+        ]
+        if let candidateSnapshot {
+            descriptors.append(
+                candidateSnapshot.descriptor(format: .json, role: .input)
+            )
+        }
+        let publication = try reviewableRowCatalogPublisher(
+            GenotypeReviewableRowCatalogInputs(
+                referenceRecords: referenceRecords,
+                authoritativeSamples: csvAuthority.roster,
+                calls: exactCalls,
+                candidates: candidates,
+                inputDescriptors: descriptors,
+                workflowName: Self.workflowName(for: resolvedMode),
+                workflowVersion: "1",
+                toolVersion: WorkflowRun.currentAppVersion,
+                argv: argv,
+                userVisibleOptions: [
+                    "workflowMode": .string(GenotypeResultWorkflowMode.genotypeOnly.rawValue),
+                    "candidateDesignation": .string("provisional-exon-2"),
+                ],
+                resolvedDefaults: [
+                    "supportMetric": .string("passed-unique-reads"),
+                    "referenceRowScope": .string("all-exact-run-reference-records"),
+                    "candidateDatabaseResolution": .boolean(false),
+                ],
+                runtimeIdentity: ProvenanceRuntimeIdentity(
+                    appVersion: WorkflowRun.currentAppVersion,
+                    executablePath: CommandLine.arguments.first
+                        ?? ProvenanceRuntimeIdentity.currentExecutablePath,
+                    operatingSystemVersion: WorkflowRun.currentHostOS,
+                    user: NSUserName(),
+                    condaEnvironment: "lungfish-managed-tools",
+                    condaPrefix: condaManager.rootPrefix.path
+                )
+            ),
+            request.outputDirectory,
+            {
+                try csvAuthority.requireUnchanged()
+                try referenceAuthority.requireUnchanged()
+                try candidateSnapshot?.requireUnchanged()
+            }
+        )
+        return publication
+    }
+
+    private func checkedSupportSum(
+        _ values: [Int],
+        sample: String
+    ) throws -> Int {
+        var result = 0
+        for value in values {
+            let addition = result.addingReportingOverflow(value)
+            guard !addition.overflow else {
+                throw GenotypeReviewableRowCatalogPublisherError
+                    .invalidSupport(sample: sample, value: Int.max)
+            }
+            result = addition.partialValue
+        }
+        return result
+    }
+
+    static func reviewableReferenceAuthority(
+        referenceFASTAURL: URL,
+        sourceReferenceBundleURL: URL?,
+        authorityObserver:
+            @Sendable (GenotypeReviewableReferenceAuthorityPhase) throws -> Void = { _ in }
+    ) throws -> GenotypeReviewableReferenceAuthority {
+        let catalogBundleURL: URL?
+        var authorityURLs = [referenceFASTAURL.standardizedFileURL]
+        var preCapturedSnapshots:
+            [String: GenotypeReviewAuthorityFileSnapshot] = [:]
+        if let source = sourceReferenceBundleURL,
+           MHCAmpliconReferenceBundle.isBundleURL(source) {
+            authorityURLs.append(
+                MHCAmpliconReferenceBundle.manifestURL(in: source)
+                    .standardizedFileURL
+            )
+            catalogBundleURL = MHCAmpliconReferenceBundle.referenceBundleURL(in: source)
+        } else if sourceReferenceBundleURL?.pathExtension.lowercased()
+            == "lungfishref" {
+            catalogBundleURL = sourceReferenceBundleURL
+        } else {
+            catalogBundleURL = nil
+        }
+        if let catalogBundleURL {
+            let manifestURL = catalogBundleURL
+                .appendingPathComponent(BundleManifest.filename)
+                .standardizedFileURL
+            let manifestSnapshot = try GenotypeReviewAuthorityFileSnapshot.capture(
+                manifestURL
+            )
+            preCapturedSnapshots[manifestURL.path] = manifestSnapshot
+            let manifest = try JSONDecoder().decode(
+                GenotypeReviewableReferenceManifestProjection.self,
+                from: manifestSnapshot.data
+            )
+            authorityURLs.append(manifestURL)
+            if let genomePath = manifest.genome?.path {
+                authorityURLs.append(try BundleManifest.validatedBundleMemberURL(
+                    for: genomePath,
+                    in: catalogBundleURL,
+                    field: "genome.path"
+                ))
+            }
+            if let databasePath = manifest.recordStore?.databasePath {
+                authorityURLs.append(try BundleManifest.validatedBundleMemberURL(
+                    for: databasePath,
+                    in: catalogBundleURL,
+                    field: "record_store.database_path"
+                ))
+            }
+        }
+        var seenPaths = Set<String>()
+        let snapshots = try authorityURLs
+            .map(\.standardizedFileURL)
+            .filter { seenPaths.insert($0.path).inserted }
+            .map {
+                if let captured = preCapturedSnapshots[$0.path] {
+                    return captured
+                }
+                return try GenotypeReviewAuthorityFileSnapshot.capture($0)
+            }
+        try authorityObserver(.afterSnapshotBeforeSemanticLoad)
+        let records: [MHCReferenceRecord]
+        if let catalogBundleURL {
+            records = try recordsFromRetainedCatalogSnapshots(
+                snapshots,
+                catalogBundleURL: catalogBundleURL
+            )
+        } else {
+            guard let fastaSnapshot = snapshots.first(where: {
+                $0.url.standardizedFileURL
+                    == referenceFASTAURL.standardizedFileURL
+            }) else {
+                throw GenotypeReviewableRowCatalogPublisherError
+                    .invalidInputDescriptor(referenceFASTAURL.path)
+            }
+            records = try recordsFromRetainedFASTASnapshot(fastaSnapshot)
+        }
+        try authorityObserver(.beforeFinalVerification)
+        for snapshot in snapshots {
+            try snapshot.requireUnchanged()
+        }
+        let descriptors = snapshots.map {
+            $0.descriptor(
+                    format: $0.url.pathExtension.lowercased() == "json"
+                        ? .json
+                        : ($0.url.pathExtension.lowercased().contains("fa") ? .fasta : nil),
+                    role: .reference
+                )
+        }
+        return GenotypeReviewableReferenceAuthority(
+            records: records,
+            descriptors: descriptors,
+            snapshots: snapshots
+        )
+    }
+
+    private static func recordsFromRetainedCatalogSnapshots(
+        _ snapshots: [GenotypeReviewAuthorityFileSnapshot],
+        catalogBundleURL: URL
+    ) throws -> [MHCReferenceRecord] {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(
+            "lungfish-review-reference-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(
+            at: temporaryRoot,
+            withIntermediateDirectories: true
+        )
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        let bundleRoot = catalogBundleURL.standardizedFileURL
+        let bundlePrefix = bundleRoot.path.hasSuffix("/")
+            ? bundleRoot.path
+            : bundleRoot.path + "/"
+        for snapshot in snapshots {
+            let sourcePath = snapshot.url.standardizedFileURL.path
+            guard sourcePath.hasPrefix(bundlePrefix) else { continue }
+            let relativePath = String(sourcePath.dropFirst(bundlePrefix.count))
+            guard !relativePath.isEmpty else { continue }
+            let destination = temporaryRoot.appendingPathComponent(relativePath)
+            try fileManager.createDirectory(
+                at: destination.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try snapshot.data.write(to: destination, options: .atomic)
+        }
+        return try MHCReferenceRecordCatalog.load(from: temporaryRoot).records
+    }
+
+    private static func recordsFromRetainedFASTASnapshot(
+        _ snapshot: GenotypeReviewAuthorityFileSnapshot
+    ) throws -> [MHCReferenceRecord] {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory.appendingPathComponent(
+            "lungfish-review-fasta-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(
+            at: temporaryRoot,
+            withIntermediateDirectories: true
+        )
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        let fastaURL = temporaryRoot.appendingPathComponent(
+            snapshot.url.lastPathComponent
+        )
+        try snapshot.data.write(to: fastaURL, options: .atomic)
+        return try FASTAReader(url: fastaURL).readAllSync().map {
+                let locus = ONTGenotypeCall(
+                    sample: "catalog-projection",
+                    genotype: $0.name,
+                    passedAlignments: 0,
+                    passedUniqueReads: 0,
+                    sampleTotalReads: nil,
+                    sampleUniqueRetainedReads: nil,
+                    sampleUniqueRetainedPercent: nil,
+                    overallInputReads: nil,
+                    overallUniqueRetainedReads: nil,
+                    overallUniqueRetainedPercent: nil
+                ).locusGroup
+                return MHCReferenceRecord(
+                    sequenceID: $0.name,
+                    alleleName: $0.name,
+                    locus: locus,
+                    moleculeClass: .genomicDNA,
+                    classEvidence: .lengthThresholdFallback,
+                    sequenceLength: $0.length
+                )
+            }
     }
 
     private func resolveHaplotypeDefinitionSet(
@@ -2834,6 +4101,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             return nil
         }
         let manifest = ONTGenotypeResultBundleManifest(
+            kind: GenotypeResultWorkflowKind.miSeqAmpliconMHCGenotype.rawValue,
+            workflowKind: .miSeqAmpliconMHCGenotype,
+            workflowMode: .haplotyped,
             outputName: request.outputName,
             analysisName: request.analysisName,
             primaryWorkbookPath: relativePath(from: request.outputDirectory, to: request.workbookURL),
@@ -2882,6 +4152,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         haplotypeAnalysis: GenotypeHaplotypeAnalysis?,
         referenceRecordStoreSnapshot: GenotypeReferenceRecordStoreSnapshot.PublishedSnapshot?,
         scientificArtifactPublication: AmpliconGenotypeScientificArtifactPublication?,
+        reviewableRowCatalogPublication: GenotypeReviewableRowCatalogPublication?,
         startedAt: Date,
         completedAt: Date
     ) throws -> URL {
@@ -3006,6 +4277,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "threads": request.threads,
             "sortThreads": request.sortThreads,
             "minSupport": request.minSupport,
+            "keepIntermediates": request.keepIntermediates,
             "haplotypeDropoutSampleFraction": request.haplotypeDropoutSampleFraction as Any? ?? NSNull(),
             "haplotypeDropoutLocusFraction": request.haplotypeDropoutLocusFraction as Any? ?? NSNull(),
             "haplotypeDropoutLocusFractionOverrides": request.haplotypeDropoutLocusFractionOverrides,
@@ -3038,6 +4310,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "specialistPromptSHA256": NSNull(),
             "sortThreads": 4,
             "minSupport": 1,
+            "keepIntermediates": false,
             "haplotypeDropoutSampleFraction": NSNull(),
             "haplotypeDropoutLocusFraction": NSNull(),
             "haplotypeDropoutLocusFractionOverrides": [:],
@@ -3070,6 +4343,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         } ?? []
         let scientificArtifactOutputs = scientificArtifactPublication?.outputURLs.map {
             fileDescriptorDictionary(url: $0, role: $0.pathExtension.lowercased() == "json" ? "report" : "output")
+        } ?? []
+        let reviewableRowCatalogOutputs = reviewableRowCatalogPublication.map {
+            [fileDescriptorDictionary(url: $0.outputURL, role: "report")]
         } ?? []
         let durableAlignmentOutputs: [[String: Any]] = scientificArtifactPublication == nil
             ? []
@@ -3109,6 +4385,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             + recordStoreOutputs
             + durableAlignmentOutputs
             + scientificArtifactOutputs
+            + reviewableRowCatalogOutputs
         let primaryOutput = fileDescriptorDictionary(url: request.outputDirectory, role: "output")
         let provenanceFiles = provenanceInputs + transientAlignmentOutputs + provenanceOutputs
         let statistics: [String: Any] = [
@@ -3196,6 +4473,21 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 "completedAt": ISO8601DateFormatter().string(from: publication.completedAt),
             ]]
         } ?? []
+        let reviewableRowCatalogSteps: [[String: Any]] =
+            reviewableRowCatalogPublication.map { publication in
+                [[
+                    "toolName": publication.provenance.toolName,
+                    "toolVersion": publication.provenance.toolVersion,
+                    "argv": publication.provenance.argv,
+                    "durableReplayArgv": publication.provenance.durableReplayArgv
+                        ?? publication.provenance.argv,
+                    "reproducibleCommand": publication.provenance.reproducibleCommand,
+                    "outputs": reviewableRowCatalogOutputs,
+                    "exitStatus": publication.provenance.exitStatus ?? 0,
+                    "wallTimeSeconds": publication.provenance.wallTimeSeconds ?? 0,
+                    "stderr": publication.provenance.stderr ?? "",
+                ]]
+            } ?? []
         let steps: [[String: Any]] = mappingProcessSteps + mergeStep + [
             [
                 "toolName": "samtools index",
@@ -3213,6 +4505,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 "stderr": filter.stderr,
             ],
         ] + scientificArtifactSteps
+            + reviewableRowCatalogSteps
             + haplotypeSteps
             + currentHaplotypeSteps
             + specialistPromptSteps
@@ -3311,6 +4604,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             haplotypeAnalysis: haplotypeAnalysis,
             referenceRecordStoreSnapshot: referenceRecordStoreSnapshot,
             scientificArtifactPublication: scientificArtifactPublication,
+            reviewableRowCatalogPublication: reviewableRowCatalogPublication,
             legacyProvenanceURL: provenanceURL,
             options: options,
             resolvedDefaults: resolvedDefaults,
@@ -3343,6 +4637,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         haplotypeAnalysis: GenotypeHaplotypeAnalysis?,
         referenceRecordStoreSnapshot: GenotypeReferenceRecordStoreSnapshot.PublishedSnapshot?,
         scientificArtifactPublication: AmpliconGenotypeScientificArtifactPublication?,
+        reviewableRowCatalogPublication: GenotypeReviewableRowCatalogPublication?,
         legacyProvenanceURL: URL,
         options: [String: Any],
         resolvedDefaults: [String: Any],
@@ -3413,6 +4708,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 role: $0.pathExtension.lowercased() == "json" ? .report : .output
             )
         } ?? []
+        let reviewableRowCatalogOutputs =
+            reviewableRowCatalogPublication?.provenance.outputs ?? []
         let durableAlignmentOutputs = scientificArtifactPublication == nil
             ? []
             : [retainedBAM, retainedBAI]
@@ -3430,6 +4727,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 + (recordStoreOutput.map { [$0] } ?? [])
                 + durableAlignmentOutputs
                 + scientificArtifactOutputs
+                + reviewableRowCatalogOutputs
         )
         let outputDirectory = ProvenanceFileDescriptor(
             path: request.outputDirectory.standardizedFileURL.path,
@@ -3467,6 +4765,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 ),
             ]
         }
+        canonicalSteps += reviewableRowCatalogPublication?.provenance.steps ?? []
         if let mergeArguments = mapping.samtoolsMergeArguments {
             canonicalSteps.append(
                 ProvenanceStep(
@@ -3671,10 +4970,18 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         workbookRevision: ONTGenotypeWorkbookRevision,
         referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo?,
         scientificArtifactPublication: AmpliconGenotypeScientificArtifactPublication?,
+        reviewableRowCatalogPublication: GenotypeReviewableRowCatalogPublication?,
         completedAt: Date
     ) throws {
         let resolvedHaplotypeDefinitionSet = try resolveHaplotypeDefinitionSet(for: request)
         let manifest = ONTGenotypeResultBundleManifest(
+            kind: resolvedMode == .illuminaPaired
+                ? GenotypeResultWorkflowKind.miSeqAmpliconMHCGenotype.rawValue
+                : "ont-barcode-genotype",
+            workflowKind: resolvedMode == .illuminaPaired ? .miSeqAmpliconMHCGenotype : nil,
+            workflowMode: resolvedMode == .illuminaPaired
+                ? (request.haplotypeDefinitionSetID == nil ? .genotypeOnly : .haplotyped)
+                : nil,
             outputName: request.outputName,
             analysisName: request.analysisName,
             primaryWorkbookPath: relativePath(from: request.outputDirectory, to: request.workbookURL),
@@ -3694,7 +5001,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             createdAt: ISO8601DateFormatter().string(from: completedAt),
             referenceRecordStore: referenceRecordStore,
             alignmentArtifacts: scientificArtifactPublication?.alignmentArtifacts,
-            provisionalExon2Artifacts: scientificArtifactPublication?.provisionalExon2Artifacts
+            provisionalExon2Artifacts: scientificArtifactPublication?.provisionalExon2Artifacts,
+            reviewableRowCatalog: reviewableRowCatalogPublication?.artifact
         )
         try ONTGenotypeResultBundle.writeManifest(manifest, to: request.outputDirectory)
 
@@ -3711,11 +5019,11 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         }
     }
 
-    private func removeGeneratedAlignmentIntermediates(
+    private func generatedAlignmentIntermediateURLs(
         for request: ONTBarcodeDemuxGenotypingRunRequest,
         mapping: MappingStepResult,
         preserveRetainedEvidence: Bool
-    ) throws {
+    ) -> [URL] {
         var removableURLs = [
             request.mappingBAMURL,
             request.mappingBAIURL,
@@ -3726,15 +5034,270 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 request.retainedBAIURL,
             ]
         }
-        for url in removableURLs where FileManager.default.fileExists(atPath: url.path) {
-            try fileRemover(url)
+        return removableURLs
+    }
+
+    private func cleanupGeneratedAlignmentIntermediates(
+        for request: ONTBarcodeDemuxGenotypingRunRequest,
+        mapping: MappingStepResult,
+        preserveRetainedEvidence: Bool,
+        cleanupPlan: GenotypingCleanupPlan
+    ) -> [AmpliconWorkDirectoryDisposition] {
+        let removableURLs = generatedAlignmentIntermediateURLs(
+            for: request,
+            mapping: mapping,
+            preserveRetainedEvidence: preserveRetainedEvidence
+        )
+        var seen = Set<String>()
+        var dispositions: [AmpliconWorkDirectoryDisposition] = []
+        for url in removableURLs.map(\.standardizedFileURL)
+        where seen.insert(url.path).inserted
+            && cleanupPlan.entry(for: url) != nil {
+            if request.keepIntermediates {
+                dispositions.append(
+                    identityBoundRetainedDisposition(
+                        plan: cleanupPlan,
+                        url: url,
+                        mutation: { _ in }
+                    )
+                )
+                continue
+            }
+            dispositions.append(
+                identityBoundRemovalDisposition(
+                    plan: cleanupPlan,
+                    url: url,
+                    successDisposition: "removed",
+                    remover: fileRemover
+                )
+            )
+        }
+        return dispositions
+    }
+
+    private func beginSuccessfulCleanupJournal(
+        runID: UUID,
+        projectRoot: URL,
+        request: ONTBarcodeDemuxGenotypingRunRequest,
+        mapping: MappingStepResult,
+        preserveRetainedEvidence: Bool,
+        supportDirectory: URL
+    ) throws -> GenotypingCleanupPlan {
+        var candidates: [
+            (
+                url: URL,
+                intendedAction: GenotypingCleanupIntendedAction
+            )
+        ] = generatedAlignmentIntermediateURLs(
+            for: request,
+            mapping: mapping,
+            preserveRetainedEvidence: preserveRetainedEvidence
+        ).map {
+            (
+                url: $0,
+                intendedAction:
+                    request.keepIntermediates
+                        ? .retainByRequest
+                        : .removeRegenerableAlignmentIntermediate
+            )
+        }
+        candidates.append(
+            (
+                url: supportDirectory,
+                intendedAction:
+                    request.keepIntermediates
+                        ? .retainByRequestAfterMarkerCompletion
+                        : .removeOwnedSupportDirectoryAfterMarkerCompletion
+            )
+        )
+        do {
+            let entries = try GenotypingCleanupJournal.planEntries(candidates)
+            try cleanupJournalObserver(.beforeInitialCreation)
+            let writer = ProjectOperationHistoryWriter(
+                projectURL: projectRoot
+            )
+            _ = try writer.createOperation(
+                operationID: runID,
+                payloads: [
+                    GenotypingCleanupJournal.planPayloadName:
+                        try GenotypingCleanupJournal.planData(
+                            runID: runID,
+                            entries: entries
+                        ),
+                ]
+            )
+            let plan = GenotypingCleanupPlan(
+                runID: runID,
+                operationURL: writer.operationDirectoryURL(for: runID),
+                outputBundleURL: request.outputDirectory,
+                entriesByPath: Dictionary(
+                    uniqueKeysWithValues: entries.map { ($0.path, $0) }
+                )
+            )
+            try cleanupJournalObserver(
+                .afterInitialCreationBeforeMutation
+            )
+            return plan
+        } catch {
+            let operationURL = ProjectOperationHistoryWriter(
+                projectURL: projectRoot
+            ).operationDirectoryURL(for: runID)
+            throw GenotypingCleanupJournalError(
+                runID: runID,
+                operationPath: operationURL.path,
+                cleanupPlanPath: operationURL.appendingPathComponent(
+                    GenotypingCleanupJournal.planPayloadName
+                ).path,
+                outputBundlePath: request.outputDirectory.path,
+                phase: .initialCreation,
+                publishedArtifactsValid: true,
+                retainedRootPaths: candidates.map {
+                    $0.url.standardizedFileURL.path
+                },
+                underlyingDescription: error.localizedDescription
+            )
+        }
+    }
+
+    private func appendSuccessfulCleanupDisposition(
+        runID: UUID,
+        projectRoot: URL,
+        outputBundleURL: URL,
+        dispositions: [AmpliconWorkDirectoryDisposition]
+    ) throws {
+        do {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(
+                AmpliconWorkDirectoryDispositionEnvelope(
+                    schemaVersion: 1,
+                    runID: runID,
+                    entries: dispositions
+                )
+            )
+            try cleanupJournalObserver(.beforeTerminalAppend)
+            try ProjectOperationHistoryWriter(
+                projectURL: projectRoot
+            ).append(
+                data,
+                named: GenotypingCleanupJournal.terminalPayloadName,
+                toOperation: runID
+            )
+        } catch {
+            throw GenotypingCleanupJournalError(
+                runID: runID,
+                operationPath: ProjectOperationHistoryWriter(
+                    projectURL: projectRoot
+                ).operationDirectoryURL(for: runID).path,
+                cleanupPlanPath: ProjectOperationHistoryWriter(
+                    projectURL: projectRoot
+                ).operationDirectoryURL(for: runID).appendingPathComponent(
+                    GenotypingCleanupJournal.planPayloadName
+                ).path,
+                outputBundlePath: outputBundleURL.path,
+                phase: .terminalAppend,
+                publishedArtifactsValid: true,
+                retainedRootPaths: dispositions.filter {
+                    $0.disposition != "removed"
+                }.map(\.path),
+                underlyingDescription: error.localizedDescription
+            )
+        }
+    }
+
+    private func identityBoundRemovalDisposition(
+        plan: GenotypingCleanupPlan,
+        url: URL,
+        successDisposition: String,
+        remover: (URL) throws -> Void
+    ) -> AmpliconWorkDirectoryDisposition {
+        let path = url.standardizedFileURL.path
+        guard let entry = plan.entry(for: url) else {
+            return .init(
+                path: path,
+                disposition: "retained-identity-mismatch",
+                error: "No immutable cleanup-plan identity exists for \(path)."
+            )
+        }
+        switch GenotypingIdentityBoundCleanup.remove(entry, remover: remover) {
+        case .removed:
+            return .init(
+                path: path,
+                disposition: successDisposition,
+                error: nil
+            )
+        case .identityMismatch(let detail):
+            return .init(
+                path: path,
+                disposition: "retained-identity-mismatch",
+                error: detail
+            )
+        case .failed(let detail):
+            return .init(
+                path: path,
+                disposition: "retained-cleanup-failed",
+                error: detail
+            )
+        case .retained(let quarantinePath):
+            return .init(
+                path: path,
+                disposition: "retained-cleanup-failed",
+                error: quarantinePath.map {
+                    "Unexpectedly retained at \($0)."
+                } ?? "Unexpectedly retained."
+            )
+        }
+    }
+
+    private func identityBoundRetainedDisposition(
+        plan: GenotypingCleanupPlan,
+        url: URL,
+        mutation: (URL) throws -> Void
+    ) -> AmpliconWorkDirectoryDisposition {
+        let path = url.standardizedFileURL.path
+        guard let entry = plan.entry(for: url) else {
+            return .init(
+                path: path,
+                disposition: "retained-identity-mismatch",
+                error: "No immutable cleanup-plan identity exists for \(path)."
+            )
+        }
+        switch GenotypingIdentityBoundCleanup.mutateAndRetain(
+            entry,
+            mutation: mutation
+        ) {
+        case .retained:
+            return .init(
+                path: path,
+                disposition: "retained-by-request",
+                error: nil
+            )
+        case .identityMismatch(let detail):
+            return .init(
+                path: path,
+                disposition: "retained-identity-mismatch",
+                error: detail
+            )
+        case .failed(let detail):
+            return .init(
+                path: path,
+                disposition: "retained-cleanup-failed",
+                error: detail
+            )
+        case .removed(let quarantinePath):
+            return .init(
+                path: path,
+                disposition: "retained-cleanup-failed",
+                error: "Unexpectedly removed via \(quarantinePath)."
+            )
         }
     }
 
     private func rollbackScientificOutputsAfterFinalizationFailure(
         request: ONTBarcodeDemuxGenotypingRunRequest,
-        mapping: MappingStepResult
-    ) {
+        mapping: MappingStepResult,
+        preserveReviewableRowCatalog: Bool
+    ) -> [AmpliconWorkDirectoryDisposition] {
         let alignmentURLs = [
             request.mappingBAMURL,
             request.mappingBAIURL,
@@ -3745,7 +5308,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             .appendingPathComponent("artifacts/sequences", isDirectory: true)
         let canonicalProvenanceURL = request.outputDirectory
             .appendingPathComponent(ProvenanceWriter.provenanceFilename)
-        let removableURLs = alignmentURLs + [
+        var removableURLs = alignmentURLs + [
             request.reportCSVURL,
             request.sampleSummaryCSVURL,
             request.statsJSONURL,
@@ -3775,9 +5338,34 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 isDirectory: true
             ),
         ]
-        for url in removableURLs where FileManager.default.fileExists(atPath: url.path) {
-            try? fileRemover(url)
+        if !preserveReviewableRowCatalog {
+            removableURLs.append(
+                request.outputDirectory.appendingPathComponent(
+                    "artifacts/projections/genotype-reviewable-rows.json"
+                )
+            )
         }
+        var dispositions: [AmpliconWorkDirectoryDisposition] = []
+        var seen = Set<String>()
+        for url in removableURLs.map(\.standardizedFileURL)
+            where seen.insert(url.path).inserted
+                && FileManager.default.fileExists(atPath: url.path) {
+            do {
+                try fileRemover(url)
+                dispositions.append(.init(
+                    path: url.path,
+                    disposition: "removed",
+                    error: nil
+                ))
+            } catch {
+                dispositions.append(.init(
+                    path: url.path,
+                    disposition: "retained-cleanup-failed",
+                    error: error.localizedDescription
+                ))
+            }
+        }
+        return dispositions
     }
 
     private func relativePath(from directoryURL: URL, to fileURL: URL) -> String {

@@ -158,7 +158,71 @@ final class GenotypeAnnotationSidecarTests: XCTestCase {
         XCTAssertTrue(decoded.matrixReviews.isEmpty)
     }
 
-    func testVersionTwoSidecarRoundTripsStableIdentityReview() throws {
+    func testMissingSchemaVersionDecodesAsOldestSupportedLegacyVersion() throws {
+        let json = Data(
+            """
+            {
+              "generatedAt": "2026-06-30T00:00:00Z"
+            }
+            """.utf8
+        )
+
+        let decoded = try GenotypeAnnotationSidecar.decode(json)
+
+        XCTAssertEqual(
+            GenotypeAnnotationSidecar.oldestSupportedSchemaVersion,
+            1
+        )
+        XCTAssertEqual(
+            decoded.schemaVersion,
+            GenotypeAnnotationSidecar.oldestSupportedSchemaVersion
+        )
+    }
+
+    func testVersionOneAndTwoPromoteToCurrentSchemaForMutation() throws {
+        for legacyVersion in [1, 2] {
+            var sidecar = GenotypeAnnotationSidecar.empty(
+                generatedAt: "2026-06-30T00:00:00Z"
+            )
+            sidecar.schemaVersion = legacyVersion
+
+            try sidecar.promoteToCurrentSchema()
+
+            XCTAssertEqual(
+                sidecar.schemaVersion,
+                GenotypeAnnotationSidecar.currentSchemaVersion
+            )
+        }
+    }
+
+    func testFutureSchemaDecodesForReadingButRejectsMutationPromotion() throws {
+        let futureVersion = GenotypeAnnotationSidecar.currentSchemaVersion + 1
+        let json = Data(
+            """
+            {
+              "schemaVersion": \(futureVersion),
+              "generatedAt": "2026-06-30T00:00:00Z",
+              "futureField": {"mustRemain": true}
+            }
+            """.utf8
+        )
+        var decoded = try GenotypeAnnotationSidecar.decode(json)
+
+        XCTAssertEqual(decoded.schemaVersion, futureVersion)
+        XCTAssertThrowsError(try decoded.promoteToCurrentSchema()) { error in
+            XCTAssertEqual(
+                error as? GenotypeAnnotationSidecar.SchemaMutationError,
+                .unsupportedFutureSchemaVersion(
+                    found: futureVersion,
+                    current: GenotypeAnnotationSidecar.currentSchemaVersion
+                )
+            )
+            XCTAssertNotNil((error as? LocalizedError)?.errorDescription)
+        }
+        XCTAssertEqual(decoded.schemaVersion, futureVersion)
+    }
+
+    func testVersionThreeSidecarRoundTripsStableIdentityReview() throws {
         var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-01T00:00:00Z")
         let review = GenotypeAnnotationSidecar.MatrixReviewAnnotation(
             target: .cell(
@@ -175,9 +239,97 @@ final class GenotypeAnnotationSidecarTests: XCTestCase {
 
         let decoded = try GenotypeAnnotationSidecar.decode(sidecar.encoded())
 
-        XCTAssertEqual(GenotypeAnnotationSidecar.currentSchemaVersion, 2)
-        XCTAssertEqual(decoded.schemaVersion, 2)
+        XCTAssertEqual(GenotypeAnnotationSidecar.currentSchemaVersion, 3)
+        XCTAssertEqual(decoded.schemaVersion, 3)
         XCTAssertEqual(decoded.matrixReviews, [review])
+    }
+
+    func testVersionThreeRoundTripsStructuredManualAssignmentAuditPayload() throws {
+        let before = ManualHaplotypeAssignment(
+            sample: "AnimalA",
+            locus: "MHC-A",
+            slot: .h1,
+            label: "Family A",
+            colorTokenIndex: 2,
+            diagnosticAlleles: ["A1*001"],
+            notes: "preserved",
+            assignmentID: "assignment-001",
+            updatedAt: "2026-07-26T11:00:00Z",
+            author: "Alice"
+        )
+        let after = ManualHaplotypeAssignment(
+            sample: before.sample,
+            locus: before.locus,
+            slot: before.slot,
+            label: "Family B",
+            colorTokenIndex: 7,
+            diagnosticAlleles: before.diagnosticAlleles,
+            notes: before.notes,
+            assignmentID: before.assignmentID,
+            updatedAt: "2026-07-26T12:00:00Z",
+            author: "Bob"
+        )
+        let payload = GenotypeAnnotationSidecar.ManualHaplotypeAssignmentAuditPayload(
+            operationID: "operation-001",
+            priorSidecarSHA256: String(repeating: "a", count: 64),
+            before: before,
+            after: after,
+            copySourceSample: "AnimalB"
+        )
+        let audit = GenotypeAnnotationSidecar.AuditEntry(
+            action: "updateManualHaplotypeAssignment",
+            sample: "AnimalA",
+            locus: "MHC-A",
+            slot: .h1,
+            before: "Family A",
+            after: "Family B",
+            color: "7",
+            reason: "manual-haplotype-assignment",
+            rationale: nil,
+            author: "Bob",
+            timestamp: "2026-07-26T12:00:00Z",
+            manualHaplotypeAssignment: payload
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-26T10:00:00Z")
+        sidecar.append(audit: audit)
+
+        let decoded = try GenotypeAnnotationSidecar.decode(sidecar.encoded())
+
+        XCTAssertEqual(decoded.schemaVersion, 3)
+        XCTAssertEqual(decoded.auditLog, [audit])
+        XCTAssertEqual(
+            decoded.auditLog[0].manualHaplotypeAssignment?.before?.diagnosticAlleles,
+            ["A1*001"]
+        )
+        XCTAssertEqual(decoded.auditLog[0].manualHaplotypeAssignment?.after?.assignmentID, "assignment-001")
+        XCTAssertEqual(decoded.auditLog[0].manualHaplotypeAssignment?.copySourceSample, "AnimalB")
+    }
+
+    func testLegacyAuditEntryDecodesWithoutStructuredManualAssignmentPayload() throws {
+        let json = Data(
+            #"""
+            {
+              "schemaVersion": 2,
+              "generatedAt": "2026-07-01T00:00:00Z",
+              "auditLog": [{
+                "action": "highlight",
+                "sample": "S1",
+                "locus": "MHC-A",
+                "slot": "h1",
+                "color": "#FFEB3B",
+                "author": "Analyst",
+                "timestamp": "2026-07-01T01:00:00Z"
+              }]
+            }
+            """#.utf8
+        )
+
+        let decoded = try GenotypeAnnotationSidecar.decode(json)
+
+        XCTAssertEqual(decoded.schemaVersion, 2)
+        XCTAssertEqual(decoded.auditLog.count, 1)
+        XCTAssertNil(decoded.auditLog[0].manualHaplotypeAssignment)
+        XCTAssertEqual(decoded.auditLog[0].action, "highlight")
     }
 
     func testResolvedMatrixCommentsUsesLatestParseableTimestamp() {

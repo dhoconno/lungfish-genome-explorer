@@ -41,34 +41,13 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
         let startedAt = Date()
         let bundleURL = URL(fileURLWithPath: bundle, isDirectory: true)
         let patchURL = URL(fileURLWithPath: patch)
-        let sidecarURL = ONTGenotypeResultBundleData.annotationSidecarURL(
-            forBundleAt: bundleURL
-        )
-        let priorSidecarInput = FileManager.default.fileExists(atPath: sidecarURL.path)
-            ? ProvenanceRecorder.fileRecord(url: sidecarURL, format: .json, role: .input)
-            : nil
-
-        let patchData = try Data(contentsOf: patchURL)
-        let patchSidecar = try GenotypeAnnotationSidecar.decode(patchData)
-
-        var sidecar = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(
-            forBundleAt: bundleURL
-        )
-
-        let merge = Self.merge(existing: sidecar, patch: patchSidecar)
-        sidecar = merge.sidecar
-
-        try ONTGenotypeResultBundleData.writeAnnotationSidecar(
-            sidecar,
-            forBundleAt: bundleURL
-        )
-        try await recordApplyAnnotationsProvenance(
+        let merge = try await Self.apply(
             bundleURL: bundleURL,
             patchURL: patchURL,
-            sidecarURL: sidecarURL,
-            priorSidecarInput: priorSidecarInput,
-            merge: merge,
             startedAt: startedAt
+        )
+        let sidecarURL = ONTGenotypeResultBundleData.annotationSidecarURL(
+            forBundleAt: bundleURL
         )
 
         let summary = MergeSummary(
@@ -84,7 +63,54 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
         FileHandle.standardOutput.write(Data("\n".utf8))
     }
 
-    private func recordApplyAnnotationsProvenance(
+    static func apply(
+        bundleURL: URL,
+        patchURL: URL,
+        startedAt: Date = Date(),
+        beforePublication: () throws -> Void = {}
+    ) async throws -> MergeResult {
+        let patchData = try Data(contentsOf: patchURL)
+        let patchSidecar = try GenotypeAnnotationSidecar.decode(patchData)
+        let publicationLock = try ONTGenotypeBundlePublicationLock.acquire(
+            for: bundleURL
+        )
+        defer { publicationLock.release() }
+
+        let snapshot = try ONTGenotypeResultBundleData
+            .loadAnnotationSidecarSnapshot(forBundleAt: bundleURL)
+        let sidecarURL = ONTGenotypeResultBundleData.annotationSidecarURL(
+            forBundleAt: bundleURL
+        )
+        let priorSidecarInput = snapshot.data.map { _ in
+            ProvenanceRecorder.fileRecord(
+                url: sidecarURL,
+                format: .json,
+                role: .input
+            )
+        }
+        let merge = try Self.merge(
+            existing: snapshot.sidecar,
+            patch: patchSidecar
+        )
+        try beforePublication()
+        try ONTGenotypeResultBundleData.writeAnnotationSidecar(
+            merge.sidecar,
+            expectedRevision: snapshot.revision,
+            forBundleAt: bundleURL,
+            assuming: publicationLock
+        )
+        try await recordApplyAnnotationsProvenance(
+            bundleURL: bundleURL,
+            patchURL: patchURL,
+            sidecarURL: sidecarURL,
+            priorSidecarInput: priorSidecarInput,
+            merge: merge,
+            startedAt: startedAt
+        )
+        return merge
+    }
+
+    private static func recordApplyAnnotationsProvenance(
         bundleURL: URL,
         patchURL: URL,
         sidecarURL: URL,
@@ -165,73 +191,72 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
     static func merge(
         existing: GenotypeAnnotationSidecar,
         patch: GenotypeAnnotationSidecar
-    ) -> MergeResult {
+    ) throws -> MergeResult {
         var merged = existing
-        merged.schemaVersion = max(
-            merged.schemaVersion,
-            GenotypeAnnotationSidecar.currentSchemaVersion
-        )
+        try merged.promoteToCurrentSchema()
+        var validatedPatch = patch
+        try validatedPatch.promoteToCurrentSchema()
         var appended = AnnotationCategoryCounts()
         var skipped = AnnotationCategoryCounts()
 
-        Self.mergeArray(into: &merged.callOverrides, from: patch.callOverrides,
+        Self.mergeArray(into: &merged.callOverrides, from: validatedPatch.callOverrides,
                         key: callOverrideKey,
                         appended: &appended.callOverrides,
                         skipped: &skipped.callOverrides)
-        Self.mergeArray(into: &merged.cellHighlights, from: patch.cellHighlights,
+        Self.mergeArray(into: &merged.cellHighlights, from: validatedPatch.cellHighlights,
                         key: cellHighlightKey,
                         appended: &appended.cellHighlights,
                         skipped: &skipped.cellHighlights)
-        Self.mergeArray(into: &merged.rowHighlights, from: patch.rowHighlights,
+        Self.mergeArray(into: &merged.rowHighlights, from: validatedPatch.rowHighlights,
                         key: rowHighlightKey,
                         appended: &appended.rowHighlights,
                         skipped: &skipped.rowHighlights)
-        Self.mergeArray(into: &merged.sampleNotes, from: patch.sampleNotes,
+        Self.mergeArray(into: &merged.sampleNotes, from: validatedPatch.sampleNotes,
                         key: sampleNoteKey,
                         appended: &appended.sampleNotes,
                         skipped: &skipped.sampleNotes)
-        Self.mergeArray(into: &merged.cellComments, from: patch.cellComments,
+        Self.mergeArray(into: &merged.cellComments, from: validatedPatch.cellComments,
                         key: cellCommentKey,
                         appended: &appended.cellComments,
                         skipped: &skipped.cellComments)
-        Self.mergeArray(into: &merged.sampleStatusFlags, from: patch.sampleStatusFlags,
+        Self.mergeArray(into: &merged.sampleStatusFlags, from: validatedPatch.sampleStatusFlags,
                         key: sampleStatusFlagKey,
                         appended: &appended.sampleStatusFlags,
                         skipped: &skipped.sampleStatusFlags)
-        Self.mergeArray(into: &merged.callStatusFlags, from: patch.callStatusFlags,
+        Self.mergeArray(into: &merged.callStatusFlags, from: validatedPatch.callStatusFlags,
                         key: callStatusFlagKey,
                         appended: &appended.callStatusFlags,
                         skipped: &skipped.callStatusFlags)
-        Self.mergeArray(into: &merged.smartCohorts, from: patch.smartCohorts,
+        Self.mergeArray(into: &merged.smartCohorts, from: validatedPatch.smartCohorts,
                         key: { $0.name + "|" + $0.scope },
                         appended: &appended.smartCohorts,
                         skipped: &skipped.smartCohorts)
         Self.mergeMatrixStyles(
             into: &merged.matrixStyles,
-            from: patch.matrixStyles,
+            from: validatedPatch.matrixStyles,
             changed: &appended.matrixStyles,
             skipped: &skipped.matrixStyles
         )
         Self.mergeCurrentMatrixEntries(
             into: &merged.matrixComments,
-            from: patch.matrixComments,
+            from: validatedPatch.matrixComments,
             target: { $0.target },
             changed: &appended.matrixComments,
             skipped: &skipped.matrixComments
         )
         Self.mergeCurrentMatrixEntries(
             into: &merged.matrixReviews,
-            from: patch.matrixReviews,
+            from: validatedPatch.matrixReviews,
             target: { $0.target },
             changed: &appended.matrixReviews,
             skipped: &skipped.matrixReviews
         )
         Self.mergeArray(into: &merged.manualHaplotypeAssignments,
-                        from: patch.manualHaplotypeAssignments,
+                        from: validatedPatch.manualHaplotypeAssignments,
                         key: manualHaplotypeKey,
                         appended: &appended.manualHaplotypeAssignments,
                         skipped: &skipped.manualHaplotypeAssignments)
-        Self.mergeArray(into: &merged.auditLog, from: patch.auditLog,
+        Self.mergeArray(into: &merged.auditLog, from: validatedPatch.auditLog,
                         key: auditEntryKey,
                         appended: &appended.auditLog,
                         skipped: &skipped.auditLog)

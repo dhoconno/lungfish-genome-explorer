@@ -1,0 +1,814 @@
+import Foundation
+import LungfishCore
+import LungfishIO
+
+extension GenotypeManualHaplotypeAssignmentIndex {
+    /// Canonical, immutable assignments for one sample.
+    ///
+    /// This snapshot intentionally has no store or bundle reference. Editors
+    /// can therefore prepare and compare a complete sample without causing
+    /// persistence as a side effect.
+    struct SampleAssignments: Equatable, Sendable {
+        let sample: String
+        private let values: [
+            GenotypeManualHaplotypeLocus:
+                GenotypeManualHaplotypeSlotAssignments
+        ]
+
+        fileprivate init(
+            sample: String,
+            values: [
+                GenotypeManualHaplotypeLocus:
+                    GenotypeManualHaplotypeSlotAssignments
+            ]
+        ) {
+            self.sample = sample
+            self.values = values
+        }
+
+        subscript(
+            locus: GenotypeManualHaplotypeLocus,
+            slot: HaplotypeSlot
+        ) -> ManualHaplotypeAssignment? {
+            values[locus]?[slot]
+        }
+
+        var assignments: [ManualHaplotypeAssignment] {
+            GenotypeManualHaplotypeLocus.allCases.flatMap { locus in
+                HaplotypeSlot.allCases.compactMap { slot in
+                    self[locus, slot]
+                }
+            }
+        }
+    }
+
+    func sampleAssignments(for rawSample: String) -> SampleAssignments {
+        let sample =
+            GenotypeManualHaplotypeAssignmentInputValidator
+                .normalizedSampleIdentity(rawSample)
+        let values = Dictionary(
+            uniqueKeysWithValues:
+                GenotypeManualHaplotypeLocus.allCases.map { locus in
+                    (
+                        locus,
+                        assignments(sample: sample, locus: locus)
+                    )
+                }
+        )
+        return SampleAssignments(sample: sample, values: values)
+    }
+}
+
+/// A pure, value-semantic editing buffer for one sample's fourteen manual
+/// haplotype assignment slots.
+///
+/// The draft contains no persistence closure, annotation store, or bundle URL.
+/// Callers explicitly pass `validatedAssignments()` to the atomic store
+/// operation only after the analyst chooses Save.
+struct GenotypeManualHaplotypeDraft: Equatable, Sendable {
+    struct SlotAddress: Equatable, Hashable, Sendable {
+        let locus: GenotypeManualHaplotypeLocus
+        let slot: HaplotypeSlot
+    }
+
+    struct SlotValue: Equatable, Sendable {
+        var label: String
+        var colorTokenIndex: Int
+        let diagnosticAlleles: [String]
+        let notes: String
+        let assignmentID: String?
+        let updatedAt: String?
+        let author: String?
+
+        fileprivate init(
+            label: String,
+            colorTokenIndex: Int,
+            diagnosticAlleles: [String],
+            notes: String,
+            assignmentID: String?,
+            updatedAt: String?,
+            author: String?
+        ) {
+            self.label = label
+            self.colorTokenIndex = colorTokenIndex
+            self.diagnosticAlleles = diagnosticAlleles
+            self.notes = notes
+            self.assignmentID = assignmentID
+            self.updatedAt = updatedAt
+            self.author = author
+        }
+    }
+
+    struct SlotPair: Equatable, Sendable {
+        var h1: SlotValue?
+        var h2: SlotValue?
+
+        subscript(slot: HaplotypeSlot) -> SlotValue? {
+            get {
+                switch slot {
+                case .h1: h1
+                case .h2: h2
+                }
+            }
+            set {
+                switch slot {
+                case .h1: h1 = newValue
+                case .h2: h2 = newValue
+                }
+            }
+        }
+    }
+
+    struct OrderedSlot: Equatable, Sendable {
+        let address: SlotAddress
+        let value: SlotValue?
+    }
+
+    struct SlotSnapshot: Equatable, Sendable {
+        let address: SlotAddress
+        let label: String?
+        let colorTokenIndex: Int?
+        let hasHiddenCompatibilityMetadata: Bool
+        let isDirty: Bool
+        private let hiddenCompatibilityLabels: [String?]
+
+        init(
+            address: SlotAddress,
+            label: String?,
+            colorTokenIndex: Int?,
+            hasHiddenCompatibilityMetadata: Bool,
+            isDirty: Bool,
+            hiddenCompatibilityLabels: [String?]? = nil
+        ) {
+            self.address = address
+            self.label = label
+            self.colorTokenIndex = colorTokenIndex
+            self.hasHiddenCompatibilityMetadata =
+                hasHiddenCompatibilityMetadata
+            self.isDirty = isDirty
+            self.hiddenCompatibilityLabels =
+                hiddenCompatibilityLabels
+                ?? (hasHiddenCompatibilityMetadata ? [label] : [])
+        }
+
+        func blocksSelectiveCopy(sourceLabel: String) -> Bool {
+            hiddenCompatibilityLabels.contains { targetLabel in
+                GenotypeManualHaplotypeDraft
+                    .hiddenMetadataBlocksCopy(
+                        targetLabel: targetLabel,
+                        hasHiddenCompatibilityMetadata: true,
+                        sourceLabel: sourceLabel
+                    )
+            }
+        }
+    }
+
+    enum SelectiveCopySkipReason: Equatable, Sendable {
+        case sourceMissing
+        case sourceChanged
+        case targetChanged
+        case hiddenMetadataRequiresSavedClear
+    }
+
+    struct SelectiveCopySkip: Equatable, Sendable {
+        let address: SlotAddress
+        let reason: SelectiveCopySkipReason
+    }
+
+    struct SelectiveCopyResult: Equatable, Sendable {
+        let applied: Set<SlotAddress>
+        let skipped: [SelectiveCopySkip]
+    }
+
+    private enum MutationOrigin: Equatable, Sendable {
+        case manual
+        case copied(String)
+    }
+
+    struct ValidationIssue: Equatable, Sendable {
+        let address: SlotAddress
+        let error:
+            GenotypeManualHaplotypeAssignmentInputValidator.ValidationError
+    }
+
+    struct InvalidDraftError: Error, Equatable, LocalizedError, Sendable {
+        let issues: [ValidationIssue]
+
+        var errorDescription: String? {
+            guard let first = issues.first else {
+                return "The manual haplotype draft is invalid."
+            }
+            return first.error.localizedDescription
+        }
+    }
+
+    let sample: String
+    let original:
+        GenotypeManualHaplotypeAssignmentIndex.SampleAssignments
+    private(set) var values: [GenotypeManualHaplotypeLocus: SlotPair]
+    private var mutationOriginByAddress: [SlotAddress: MutationOrigin]
+
+    private let originalValues:
+        [GenotypeManualHaplotypeLocus: SlotPair]
+    private let labelCatalog:
+        [GenotypeManualHaplotypeAssignmentIndex.LabelCatalogEntry]
+
+    init(
+        sample rawSample: String,
+        index: GenotypeManualHaplotypeAssignmentIndex
+    ) {
+        let sample =
+            GenotypeManualHaplotypeAssignmentInputValidator
+                .normalizedSampleIdentity(rawSample)
+        let original = index.sampleAssignments(for: sample)
+        let catalog = index.labelCatalog
+        let initialValues = Self.makeValues(
+            from: original,
+            labelCatalog: catalog
+        )
+
+        self.sample = sample
+        self.original = original
+        self.values = initialValues
+        self.mutationOriginByAddress = [:]
+        self.originalValues = initialValues
+        self.labelCatalog = catalog
+    }
+
+    static let orderedSlotAddresses: [SlotAddress] =
+        GenotypeManualHaplotypeLocus.allCases.flatMap { locus in
+            [
+                SlotAddress(locus: locus, slot: .h1),
+                SlotAddress(locus: locus, slot: .h2),
+            ]
+        }
+
+    var orderedSlots: [OrderedSlot] {
+        Self.orderedSlotAddresses.map { address in
+            OrderedSlot(
+                address: address,
+                value: self[address.locus, address.slot]
+            )
+        }
+    }
+
+    var slotSnapshots: [SlotSnapshot] {
+        Self.orderedSlotAddresses.map(slotSnapshot(at:))
+    }
+
+    var dirtySlotAddresses: Set<SlotAddress> {
+        Set(
+            Self.orderedSlotAddresses.filter { address in
+                self[address.locus, address.slot]
+                    != originalValues[address.locus]?[address.slot]
+            }
+        )
+    }
+
+    var totalSlotCount: Int {
+        Self.orderedSlotAddresses.count
+    }
+
+    var assignedSlotCount: Int {
+        orderedSlots.lazy.compactMap(\.value).count
+    }
+
+    var isComplete: Bool {
+        assignedSlotCount == totalSlotCount
+    }
+
+    var completenessSummary: String {
+        "\(assignedSlotCount) of \(totalSlotCount) assigned"
+    }
+
+    var isDirty: Bool {
+        values != originalValues
+    }
+
+    var copySource: String? {
+        let dirty = dirtySlotAddresses
+        guard !dirty.isEmpty else { return nil }
+
+        var sharedSource: String?
+        for address in Self.orderedSlotAddresses where dirty.contains(address) {
+            guard case .copied(let source)? =
+                mutationOriginByAddress[address] else {
+                return nil
+            }
+            if let sharedSource, sharedSource != source {
+                return nil
+            }
+            sharedSource = source
+        }
+        return sharedSource
+    }
+
+    var validationIssues: [ValidationIssue] {
+        orderedSlots.compactMap { orderedSlot in
+            guard let value = orderedSlot.value else { return nil }
+            do {
+                _ = try GenotypeManualHaplotypeAssignmentInputValidator
+                    .validatedLabel(value.label)
+                return nil
+            } catch let error as
+                GenotypeManualHaplotypeAssignmentInputValidator
+                    .ValidationError {
+                return ValidationIssue(
+                    address: orderedSlot.address,
+                    error: error
+                )
+            } catch {
+                preconditionFailure(
+                    "Manual haplotype label validation emitted an unexpected error: \(error)"
+                )
+            }
+        }
+    }
+
+    var isValid: Bool {
+        validationIssues.isEmpty
+    }
+
+    subscript(
+        locus: GenotypeManualHaplotypeLocus,
+        slot: HaplotypeSlot
+    ) -> SlotValue? {
+        values[locus]?[slot]
+    }
+
+    func validationIssue(
+        locus: GenotypeManualHaplotypeLocus,
+        slot: HaplotypeSlot
+    ) -> ValidationIssue? {
+        validationIssues.first {
+            $0.address == SlotAddress(locus: locus, slot: slot)
+        }
+    }
+
+    func slotSnapshot(at address: SlotAddress) -> SlotSnapshot {
+        let value = self[address.locus, address.slot]
+        let originalValue =
+            originalValues[address.locus]?[address.slot]
+        var hiddenCompatibilityLabels: [String?] = []
+        if Self.hasHiddenCompatibilityMetadata(value) {
+            hiddenCompatibilityLabels.append(value?.label)
+        }
+        if Self.hasHiddenCompatibilityMetadata(originalValue) {
+            hiddenCompatibilityLabels.append(originalValue?.label)
+        }
+        return SlotSnapshot(
+            address: address,
+            label: value?.label,
+            colorTokenIndex: value?.colorTokenIndex,
+            hasHiddenCompatibilityMetadata:
+                Self.hasHiddenCompatibilityMetadata(value)
+                || Self.hasHiddenCompatibilityMetadata(originalValue),
+            isDirty:
+                value != originalValue,
+            hiddenCompatibilityLabels: hiddenCompatibilityLabels
+        )
+    }
+
+    mutating func setLabel(
+        _ rawLabel: String,
+        locus: GenotypeManualHaplotypeLocus,
+        slot: HaplotypeSlot
+    ) {
+        let label = Self.normalizedDraftLabel(rawLabel)
+        let current = self[locus, slot]
+        let originalValue = originalValues[locus]?[slot]
+        let metadataSource = current ?? originalValue
+        let colorTokenIndex = resolvedColorTokenIndex(
+            for: label,
+            retaining: current
+        )
+        let didChange = setValue(
+            SlotValue(
+                label: label,
+                colorTokenIndex: colorTokenIndex,
+                diagnosticAlleles:
+                    metadataSource?.diagnosticAlleles ?? [],
+                notes: metadataSource?.notes ?? "",
+                assignmentID: metadataSource?.assignmentID,
+                updatedAt: metadataSource?.updatedAt,
+                author: metadataSource?.author
+            ),
+            locus: locus,
+            slot: slot
+        )
+        if didChange {
+            recordMutation(
+                at: SlotAddress(locus: locus, slot: slot),
+                origin: .manual
+            )
+        }
+    }
+
+    mutating func clear(
+        locus: GenotypeManualHaplotypeLocus,
+        slot: HaplotypeSlot
+    ) {
+        let didChange = setValue(nil, locus: locus, slot: slot)
+        if didChange {
+            recordMutation(
+                at: SlotAddress(locus: locus, slot: slot),
+                origin: .manual
+            )
+        }
+    }
+
+    func autocompleteSuggestions(
+        matching rawQuery: String
+    ) -> [GenotypeManualHaplotypeAssignmentIndex.LabelCatalogEntry] {
+        let query = Self.normalizedDraftLabel(rawQuery)
+        guard !query.isEmpty else { return labelCatalog }
+        guard let normalizedQuery = try?
+            GenotypeManualHaplotypeAssignmentInputValidator
+                .normalizedLabelKey(for: query) else {
+            return []
+        }
+        return labelCatalog.filter { entry in
+            guard let normalizedLabel = try?
+                GenotypeManualHaplotypeAssignmentInputValidator
+                    .normalizedLabelKey(for: entry.label) else {
+                return false
+            }
+            return normalizedLabel.contains(normalizedQuery)
+        }
+    }
+
+    mutating func copyAssignments(
+        from source:
+            GenotypeManualHaplotypeAssignmentIndex.SampleAssignments
+    ) {
+        let normalizedSource =
+            GenotypeManualHaplotypeAssignmentInputValidator
+                .normalizedSampleIdentity(source.sample)
+        for address in Self.orderedSlotAddresses {
+            guard let sourceAssignment =
+                source[address.locus, address.slot] else {
+                let didChange = setValue(
+                    nil,
+                    locus: address.locus,
+                    slot: address.slot
+                )
+                if didChange {
+                    recordMutation(
+                        at: address,
+                        origin: .copied(normalizedSource)
+                    )
+                }
+                continue
+            }
+            let sourceValue = Self.slotValue(
+                from: sourceAssignment,
+                labelCatalog: labelCatalog
+            )
+            let targetMetadata =
+                originalValues[address.locus]?[address.slot]
+            let didChange = setValue(
+                SlotValue(
+                    label: sourceValue.label,
+                    colorTokenIndex: sourceValue.colorTokenIndex,
+                    diagnosticAlleles:
+                        targetMetadata?.diagnosticAlleles ?? [],
+                    notes: targetMetadata?.notes ?? "",
+                    assignmentID: targetMetadata?.assignmentID,
+                    updatedAt: targetMetadata?.updatedAt,
+                    author: targetMetadata?.author
+                ),
+                locus: address.locus,
+                slot: address.slot
+            )
+            if didChange {
+                recordMutation(
+                    at: address,
+                    origin: .copied(normalizedSource)
+                )
+            }
+        }
+    }
+
+    mutating func copySelectedAssignments(
+        from source:
+            GenotypeManualHaplotypeAssignmentIndex.SampleAssignments,
+        addresses: Set<SlotAddress>,
+        expectedSourceValues:
+            [SlotAddress: ManualHaplotypeAssignment]? = nil
+    ) -> SelectiveCopyResult {
+        var applied: Set<SlotAddress> = []
+        var skipped: [SelectiveCopySkip] = []
+        let normalizedSource =
+            GenotypeManualHaplotypeAssignmentInputValidator
+                .normalizedSampleIdentity(source.sample)
+
+        for address in Self.orderedSlotAddresses where addresses.contains(address) {
+            let sourceAssignment = source[address.locus, address.slot]
+            if let expectedSourceValues,
+               expectedSourceValues[address] != sourceAssignment {
+                skipped.append(
+                    SelectiveCopySkip(
+                        address: address,
+                        reason: .sourceChanged
+                    )
+                )
+                continue
+            }
+            guard let sourceAssignment else {
+                skipped.append(
+                    SelectiveCopySkip(
+                        address: address,
+                        reason: .sourceMissing
+                    )
+                )
+                continue
+            }
+
+            let sourceValue = Self.slotValue(
+                from: sourceAssignment,
+                labelCatalog: labelCatalog
+            )
+            let currentTarget = self[address.locus, address.slot]
+            let originalTarget =
+                originalValues[address.locus]?[address.slot]
+            if Self.hiddenMetadataBlocksCopy(
+                target: currentTarget,
+                sourceLabel: sourceValue.label
+            ) || Self.hiddenMetadataBlocksCopy(
+                target: originalTarget,
+                sourceLabel: sourceValue.label
+            ) {
+                skipped.append(
+                    SelectiveCopySkip(
+                        address: address,
+                        reason: .hiddenMetadataRequiresSavedClear
+                    )
+                )
+                continue
+            }
+            let targetMetadata = currentTarget ?? originalTarget
+            let didChange = setValue(
+                SlotValue(
+                    label: sourceValue.label,
+                    colorTokenIndex: sourceValue.colorTokenIndex,
+                    diagnosticAlleles:
+                        targetMetadata?.diagnosticAlleles ?? [],
+                    notes: targetMetadata?.notes ?? "",
+                    assignmentID: targetMetadata?.assignmentID,
+                    updatedAt: targetMetadata?.updatedAt,
+                    author: targetMetadata?.author
+                ),
+                locus: address.locus,
+                slot: address.slot
+            )
+            if didChange {
+                recordMutation(
+                    at: address,
+                    origin: .copied(normalizedSource)
+                )
+            }
+            applied.insert(address)
+        }
+
+        return SelectiveCopyResult(applied: applied, skipped: skipped)
+    }
+
+    func validatedAssignments() throws -> [ManualHaplotypeAssignment] {
+        let issues = validationIssues
+        guard issues.isEmpty else {
+            throw InvalidDraftError(issues: issues)
+        }
+        return try orderedSlots.compactMap { orderedSlot in
+            guard let value = orderedSlot.value else { return nil }
+            let label =
+                try GenotypeManualHaplotypeAssignmentInputValidator
+                    .validatedLabel(value.label)
+            return ManualHaplotypeAssignment(
+                sample: sample,
+                locus: orderedSlot.address.locus.rawValue,
+                slot: orderedSlot.address.slot,
+                label: label,
+                colorTokenIndex: value.colorTokenIndex,
+                diagnosticAlleles: value.diagnosticAlleles,
+                notes: value.notes,
+                assignmentID: value.assignmentID,
+                updatedAt: value.updatedAt,
+                author: value.author
+            )
+        }
+    }
+
+    @discardableResult
+    private mutating func setValue(
+        _ value: SlotValue?,
+        locus: GenotypeManualHaplotypeLocus,
+        slot: HaplotypeSlot
+    ) -> Bool {
+        var pair = values[locus] ?? SlotPair(h1: nil, h2: nil)
+        guard pair[slot] != value else { return false }
+        pair[slot] = value
+        values[locus] = pair
+        return true
+    }
+
+    private mutating func recordMutation(
+        at address: SlotAddress,
+        origin: MutationOrigin
+    ) {
+        if self[address.locus, address.slot]
+            == originalValues[address.locus]?[address.slot] {
+            mutationOriginByAddress.removeValue(forKey: address)
+        } else {
+            mutationOriginByAddress[address] = origin
+        }
+    }
+
+    private func resolvedColorTokenIndex(
+        for label: String,
+        retaining current: SlotValue?
+    ) -> Int {
+        if let current,
+           let currentKey = try?
+            GenotypeManualHaplotypeAssignmentInputValidator
+                .normalizedLabelKey(for: current.label),
+           let nextKey = try?
+            GenotypeManualHaplotypeAssignmentInputValidator
+                .normalizedLabelKey(for: label),
+           currentKey == nextKey {
+            return current.colorTokenIndex
+        }
+        if let entry = catalogEntry(for: label) {
+            return entry.colorTokenIndex
+        }
+        if let draftColor = draftColorTokenIndex(for: label) {
+            return draftColor
+        }
+        return Self.deterministicColorTokenIndex(for: label)
+    }
+
+    private static func deterministicColorTokenIndex(
+        for label: String
+    ) -> Int {
+        if let normalizedLabel = try?
+            GenotypeManualHaplotypeAssignmentInputValidator
+                .normalizedLabelKey(for: label),
+           let canonicalIndex = HaplotypeColorToken.canonicalByName[
+                normalizedLabel.uppercased(
+                    with: Locale(identifier: "en_US_POSIX")
+                )
+           ] {
+            return canonicalIndex
+        } else if let normalizedLabel = try?
+            GenotypeManualHaplotypeAssignmentInputValidator
+                .normalizedLabelKey(for: label) {
+            return HaplotypeColorToken.assigned(
+                forName: normalizedLabel
+            ).canonicalIndex
+        }
+        return HaplotypeColorToken.assigned(forName: label).canonicalIndex
+    }
+
+    private static func hiddenMetadataBlocksCopy(
+        target: SlotValue?,
+        sourceLabel: String
+    ) -> Bool {
+        hiddenMetadataBlocksCopy(
+            targetLabel: target?.label,
+            hasHiddenCompatibilityMetadata:
+                hasHiddenCompatibilityMetadata(target),
+            sourceLabel: sourceLabel
+        )
+    }
+
+    private static func hiddenMetadataBlocksCopy(
+        targetLabel: String?,
+        hasHiddenCompatibilityMetadata: Bool,
+        sourceLabel: String
+    ) -> Bool {
+        guard hasHiddenCompatibilityMetadata,
+              let targetLabel,
+              let targetKey = try?
+            GenotypeManualHaplotypeAssignmentInputValidator
+                .normalizedLabelKey(for: targetLabel),
+              let sourceKey = try?
+            GenotypeManualHaplotypeAssignmentInputValidator
+                .normalizedLabelKey(for: sourceLabel) else {
+            return hasHiddenCompatibilityMetadata
+        }
+        return targetKey != sourceKey
+    }
+
+    private static func hasHiddenCompatibilityMetadata(
+        _ value: SlotValue?
+    ) -> Bool {
+        guard let value else { return false }
+        return !value.diagnosticAlleles.isEmpty || !value.notes.isEmpty
+    }
+
+    private func draftColorTokenIndex(for label: String) -> Int? {
+        guard let normalizedLabel = try?
+            GenotypeManualHaplotypeAssignmentInputValidator
+                .normalizedLabelKey(for: label) else {
+            return nil
+        }
+        for address in Self.orderedSlotAddresses {
+            guard let candidate = self[address.locus, address.slot],
+                  let candidateLabel = try?
+                    GenotypeManualHaplotypeAssignmentInputValidator
+                        .normalizedLabelKey(for: candidate.label),
+                  candidateLabel == normalizedLabel else {
+                continue
+            }
+            return candidate.colorTokenIndex
+        }
+        return nil
+    }
+
+    private func catalogEntry(
+        for label: String
+    ) -> GenotypeManualHaplotypeAssignmentIndex.LabelCatalogEntry? {
+        guard let normalizedLabel = try?
+            GenotypeManualHaplotypeAssignmentInputValidator
+                .normalizedLabelKey(for: label) else {
+            return nil
+        }
+        return labelCatalog.first { entry in
+            (try? GenotypeManualHaplotypeAssignmentInputValidator
+                .normalizedLabelKey(for: entry.label)) == normalizedLabel
+        }
+    }
+
+    private static func makeValues(
+        from assignments:
+            GenotypeManualHaplotypeAssignmentIndex.SampleAssignments,
+        labelCatalog:
+            [GenotypeManualHaplotypeAssignmentIndex.LabelCatalogEntry]
+    ) -> [GenotypeManualHaplotypeLocus: SlotPair] {
+        Dictionary(
+            uniqueKeysWithValues:
+                GenotypeManualHaplotypeLocus.allCases.map { locus in
+                    (
+                        locus,
+                        SlotPair(
+                            h1: assignments[locus, .h1].map {
+                                slotValue(
+                                    from: $0,
+                                    labelCatalog: labelCatalog
+                                )
+                            },
+                            h2: assignments[locus, .h2].map {
+                                slotValue(
+                                    from: $0,
+                                    labelCatalog: labelCatalog
+                                )
+                            }
+                        )
+                    )
+                }
+        )
+    }
+
+    private static func slotValue(
+        from assignment: ManualHaplotypeAssignment,
+        labelCatalog:
+            [GenotypeManualHaplotypeAssignmentIndex.LabelCatalogEntry]
+    ) -> SlotValue {
+        let label = normalizedDraftLabel(assignment.label)
+        let validColorIndices = Set(
+            HaplotypeColorToken.canonicalPalette.map(\.canonicalIndex)
+        )
+        let resolvedColor: Int
+        if let catalogColor = labelCatalog.first(where: {
+            guard let candidateKey = try?
+                GenotypeManualHaplotypeAssignmentInputValidator
+                    .normalizedLabelKey(for: $0.label),
+                  let assignmentKey = try?
+                GenotypeManualHaplotypeAssignmentInputValidator
+                    .normalizedLabelKey(for: label) else {
+                return false
+            }
+            return candidateKey == assignmentKey
+        })?.colorTokenIndex {
+            resolvedColor = catalogColor
+        } else if validColorIndices.contains(assignment.colorTokenIndex) {
+            resolvedColor = assignment.colorTokenIndex
+        } else {
+            resolvedColor = deterministicColorTokenIndex(for: label)
+        }
+        return SlotValue(
+            label: label,
+            colorTokenIndex: resolvedColor,
+            diagnosticAlleles: assignment.diagnosticAlleles,
+            notes: assignment.notes,
+            assignmentID: assignment.assignmentID,
+            updatedAt: assignment.updatedAt,
+            author: assignment.author
+        )
+    }
+
+    private static func normalizedDraftLabel(_ rawLabel: String) -> String {
+        rawLabel
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .precomposedStringWithCanonicalMapping
+    }
+}

@@ -282,12 +282,14 @@ public final class MainMenu {
 
         fileMenu.addItem(.separator())
 
-        // Clear Temporary Files
+        // Project-scoped storage review and safe Trash cleanup.
         fileMenu.addItem(
-            withTitle: "Clear Temporary Files\u{2026}",
-            action: #selector(AppDelegate.clearProjectTempFiles(_:)),
+            withTitle: "Manage Project Storage\u{2026}",
+            action: #selector(AppDelegate.manageProjectStorage(_:)),
             keyEquivalent: ""
-        ).identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.clearTemporaryFiles)
+        ).identifier = NSUserInterfaceItemIdentifier(
+            MainMenuAccessibilityID.manageProjectStorage
+        )
 
         fileMenuItem.submenu = fileMenu
         return fileMenuItem

@@ -207,24 +207,41 @@ public struct ONTGenotypeWorkbookRevision: Codable, Equatable, Sendable {
     }
 }
 
+public enum GenotypeResultWorkflowKind: String, Codable, CaseIterable, Equatable, Sendable {
+    case fullLengthONTMHCGenotype = "full-length-ont-mhc-genotype"
+    case miSeqAmpliconMHCGenotype = "miseq-amplicon-mhc-genotype"
+}
+
+public enum GenotypeResultWorkflowMode: String, Codable, CaseIterable, Equatable, Sendable {
+    case genotypeOnly
+    case haplotyped
+}
+
 public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
     public static let filename = "genotype-result.json"
 
     public let schemaVersion: Int
     public let kind: String
+    @GenotypeResultWorkflowKindField public private(set) var workflowKind:
+        GenotypeResultWorkflowKind?
+    @GenotypeResultWorkflowModeField public private(set) var workflowMode:
+        GenotypeResultWorkflowMode?
+    public var workflowKindDeclaration: GenotypeResultWorkflowDeclaration { $workflowKind }
+    public var workflowModeDeclaration: GenotypeResultWorkflowDeclaration { $workflowMode }
     public let outputName: String
     public let analysisName: String
     public let primaryWorkbookPath: String
-    public let currentWorkbookPath: String?
-    public let workbookRevisions: [ONTGenotypeWorkbookRevision]?
+    public private(set) var currentWorkbookPath: String?
+    public private(set) var workbookRevisions: [ONTGenotypeWorkbookRevision]?
     public let longSummaryCSVPath: String
     public let sampleSummaryCSVPath: String
     public let statsJSONPath: String
     public let provenancePath: String
     public let deduplicatedUnmatchedClustersFASTAPath: String?
-    public let haplotypeAnalysisPath: String?
-    public let activeHaplotypeAnalysisRevisionID: String?
-    public let haplotypeAnalysisRevisions: [ONTGenotypeHaplotypeAnalysisRevision]?
+    public private(set) var haplotypeAnalysisPath: String?
+    public private(set) var activeHaplotypeAnalysisRevisionID: String?
+    public private(set) var haplotypeAnalysisRevisions:
+        [ONTGenotypeHaplotypeAnalysisRevision]?
     public let haplotypeDefinitionSetID: String?
     public let haplotypeAssayID: String?
     public let presetID: String?
@@ -235,6 +252,7 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
     public let referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo?
     public let alignmentArtifacts: ONTGenotypeAlignmentArtifactManifest?
     public let provisionalExon2Artifacts: ONTGenotypeProvisionalExon2ArtifactManifest?
+    public let reviewableRowCatalog: ONTMHCArtifactReference?
 
     public init(
         schemaVersion: Int = 1,
@@ -259,7 +277,8 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         haplotypeAnalysisRevisions: [ONTGenotypeHaplotypeAnalysisRevision]? = nil,
         mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest? = nil,
         mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifacts? = nil,
-        referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo? = nil
+        referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo? = nil,
+        reviewableRowCatalog: ONTMHCArtifactReference? = nil
     ) {
         self.init(
             schemaVersion: schemaVersion,
@@ -286,7 +305,8 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
             mhcReferenceVisualizations: mhcReferenceVisualizations,
             referenceRecordStore: referenceRecordStore,
             alignmentArtifacts: nil,
-            provisionalExon2Artifacts: nil
+            provisionalExon2Artifacts: nil,
+            reviewableRowCatalog: reviewableRowCatalog
         )
     }
 
@@ -315,10 +335,13 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifacts? = nil,
         referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo? = nil,
         alignmentArtifacts: ONTGenotypeAlignmentArtifactManifest?,
-        provisionalExon2Artifacts: ONTGenotypeProvisionalExon2ArtifactManifest?
+        provisionalExon2Artifacts: ONTGenotypeProvisionalExon2ArtifactManifest?,
+        reviewableRowCatalog: ONTMHCArtifactReference? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.kind = kind
+        self.workflowKind = nil
+        self.workflowMode = nil
         self.outputName = outputName
         self.analysisName = analysisName
         self.primaryWorkbookPath = primaryWorkbookPath
@@ -342,6 +365,7 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         self.referenceRecordStore = referenceRecordStore
         self.alignmentArtifacts = alignmentArtifacts
         self.provisionalExon2Artifacts = provisionalExon2Artifacts
+        self.reviewableRowCatalog = reviewableRowCatalog
     }
 
     public init(
@@ -366,7 +390,8 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         activeHaplotypeAnalysisRevisionID: String? = nil,
         haplotypeAnalysisRevisions: [ONTGenotypeHaplotypeAnalysisRevision]? = nil,
         mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest? = nil,
-        referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo? = nil
+        referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo? = nil,
+        reviewableRowCatalog: ONTMHCArtifactReference? = nil
     ) {
         self.init(
             schemaVersion: schemaVersion,
@@ -393,7 +418,8 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
             mhcReferenceVisualizations: nil,
             referenceRecordStore: referenceRecordStore,
             alignmentArtifacts: nil,
-            provisionalExon2Artifacts: nil
+            provisionalExon2Artifacts: nil,
+            reviewableRowCatalog: reviewableRowCatalog
         )
     }
 
@@ -421,7 +447,8 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest? = nil,
         referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo? = nil,
         alignmentArtifacts: ONTGenotypeAlignmentArtifactManifest?,
-        provisionalExon2Artifacts: ONTGenotypeProvisionalExon2ArtifactManifest?
+        provisionalExon2Artifacts: ONTGenotypeProvisionalExon2ArtifactManifest?,
+        reviewableRowCatalog: ONTMHCArtifactReference? = nil
     ) {
         self.init(
             schemaVersion: schemaVersion,
@@ -448,8 +475,91 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
             mhcReferenceVisualizations: nil,
             referenceRecordStore: referenceRecordStore,
             alignmentArtifacts: alignmentArtifacts,
-            provisionalExon2Artifacts: provisionalExon2Artifacts
+            provisionalExon2Artifacts: provisionalExon2Artifacts,
+            reviewableRowCatalog: reviewableRowCatalog
         )
+    }
+
+    public init(
+        schemaVersion: Int = 1,
+        kind: String,
+        workflowKind: GenotypeResultWorkflowKind?,
+        workflowMode: GenotypeResultWorkflowMode?,
+        outputName: String,
+        analysisName: String,
+        primaryWorkbookPath: String,
+        currentWorkbookPath: String? = nil,
+        workbookRevisions: [ONTGenotypeWorkbookRevision]? = nil,
+        longSummaryCSVPath: String,
+        sampleSummaryCSVPath: String,
+        statsJSONPath: String,
+        provenancePath: String,
+        deduplicatedUnmatchedClustersFASTAPath: String? = nil,
+        haplotypeAnalysisPath: String? = nil,
+        haplotypeDefinitionSetID: String? = nil,
+        haplotypeAssayID: String? = nil,
+        presetID: String? = nil,
+        presetVersion: String? = nil,
+        createdAt: String? = nil,
+        activeHaplotypeAnalysisRevisionID: String? = nil,
+        haplotypeAnalysisRevisions: [ONTGenotypeHaplotypeAnalysisRevision]? = nil,
+        mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest? = nil,
+        mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifacts? = nil,
+        referenceRecordStore: ONTGenotypeReferenceRecordStoreInfo? = nil,
+        alignmentArtifacts: ONTGenotypeAlignmentArtifactManifest? = nil,
+        provisionalExon2Artifacts: ONTGenotypeProvisionalExon2ArtifactManifest? = nil,
+        reviewableRowCatalog: ONTMHCArtifactReference? = nil
+    ) {
+        self.schemaVersion = schemaVersion
+        self.kind = kind
+        self.workflowKind = workflowKind
+        self.workflowMode = workflowMode
+        self.outputName = outputName
+        self.analysisName = analysisName
+        self.primaryWorkbookPath = primaryWorkbookPath
+        self.currentWorkbookPath = currentWorkbookPath
+        self.workbookRevisions = workbookRevisions
+        self.longSummaryCSVPath = longSummaryCSVPath
+        self.sampleSummaryCSVPath = sampleSummaryCSVPath
+        self.statsJSONPath = statsJSONPath
+        self.provenancePath = provenancePath
+        self.deduplicatedUnmatchedClustersFASTAPath = deduplicatedUnmatchedClustersFASTAPath
+        self.haplotypeAnalysisPath = haplotypeAnalysisPath
+        self.activeHaplotypeAnalysisRevisionID = activeHaplotypeAnalysisRevisionID
+        self.haplotypeAnalysisRevisions = haplotypeAnalysisRevisions
+        self.haplotypeDefinitionSetID = haplotypeDefinitionSetID
+        self.haplotypeAssayID = haplotypeAssayID
+        self.presetID = presetID
+        self.presetVersion = presetVersion
+        self.createdAt = createdAt
+        self.mhcCandidateArtifacts = mhcCandidateArtifacts
+        self.mhcReferenceVisualizations = mhcReferenceVisualizations
+        self.referenceRecordStore = referenceRecordStore
+        self.alignmentArtifacts = alignmentArtifacts
+        self.provisionalExon2Artifacts = provisionalExon2Artifacts
+        self.reviewableRowCatalog = reviewableRowCatalog
+    }
+
+    public func replacingWorkbookFields(
+        currentWorkbookPath: String,
+        workbookRevisions: [ONTGenotypeWorkbookRevision]
+    ) -> Self {
+        var copy = self
+        copy.currentWorkbookPath = currentWorkbookPath
+        copy.workbookRevisions = workbookRevisions
+        return copy
+    }
+
+    public func appendingHaplotypeAnalysisRevision(
+        _ revision: ONTGenotypeHaplotypeAnalysisRevision
+    ) -> Self {
+        var copy = self
+        copy.workflowMode = .haplotyped
+        copy.haplotypeAnalysisPath = revision.path
+        copy.activeHaplotypeAnalysisRevisionID = revision.id
+        copy.haplotypeAnalysisRevisions =
+            (haplotypeAnalysisRevisions ?? []) + [revision]
+        return copy
     }
 }
 
@@ -1133,6 +1243,7 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
     public let referenceMetadata: ONTGenotypeReferenceMetadata?
     public let provisionalExon2SequencesByGenotype: [String: ONTGenotypeProvisionalExon2Sequence]
     public let provisionalExon2ArtifactURLs: ONTGenotypeProvisionalExon2ArtifactURLs
+    public let reviewableRowCatalog: GenotypeReviewableRowCatalog?
 
     public var alignmentArtifactURLs: ONTMHCAlignmentArtifactURLs {
         mhcAlignmentArtifactURLs
@@ -1219,7 +1330,8 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         integrityWarnings: [ONTGenotypeIntegrityWarning],
         referenceMetadata: ONTGenotypeReferenceMetadata?,
         provisionalExon2SequencesByGenotype: [String: ONTGenotypeProvisionalExon2Sequence],
-        provisionalExon2ArtifactURLs: ONTGenotypeProvisionalExon2ArtifactURLs
+        provisionalExon2ArtifactURLs: ONTGenotypeProvisionalExon2ArtifactURLs,
+        reviewableRowCatalog: GenotypeReviewableRowCatalog? = nil
     ) {
         self.bundleURL = bundleURL.standardizedFileURL
         self.manifest = manifest
@@ -1238,6 +1350,7 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         self.referenceMetadata = referenceMetadata
         self.provisionalExon2SequencesByGenotype = provisionalExon2SequencesByGenotype
         self.provisionalExon2ArtifactURLs = provisionalExon2ArtifactURLs
+        self.reviewableRowCatalog = reviewableRowCatalog
     }
 
     public init(
@@ -1319,6 +1432,7 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         case referenceMetadata
         case provisionalExon2SequencesByGenotype
         case provisionalExon2ArtifactURLs
+        case reviewableRowCatalog
     }
 
     public init(from decoder: Decoder) throws {
@@ -1367,7 +1481,11 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
             provisionalExon2ArtifactURLs: try container.decodeIfPresent(
                 ONTGenotypeProvisionalExon2ArtifactURLs.self,
                 forKey: .provisionalExon2ArtifactURLs
-            ) ?? .empty
+            ) ?? .empty,
+            reviewableRowCatalog: try container.decodeIfPresent(
+                GenotypeReviewableRowCatalog.self,
+                forKey: .reviewableRowCatalog
+            )
         )
     }
 
@@ -1402,6 +1520,7 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
             forKey: .provisionalExon2SequencesByGenotype
         )
         try container.encode(provisionalExon2ArtifactURLs, forKey: .provisionalExon2ArtifactURLs)
+        try container.encodeIfPresent(reviewableRowCatalog, forKey: .reviewableRowCatalog)
     }
 
     public var sampleCount: Int {
@@ -1939,6 +2058,17 @@ public enum ONTGenotypeResultBundle {
         return try JSONDecoder().decode(ONTGenotypeResultBundleManifest.self, from: data)
     }
 
+    /// Reads the durable bundle manifest through a regular-file descriptor
+    /// without following symbolic links and verifies that the file remains
+    /// stable for the full read.
+    public static func readManifestDataNoFollow(
+        from bundleURL: URL
+    ) throws -> Data {
+        try readManifestSnapshotNoFollow(
+            from: bundleURL.standardizedFileURL
+        ).data
+    }
+
     public static func writeManifest(
         _ manifest: ONTGenotypeResultBundleManifest,
         to bundleURL: URL
@@ -2206,6 +2336,10 @@ public enum ONTGenotypeResultBundle {
             manifest.referenceRecordStore,
             from: bundleURL
         )
+        let reviewableRowCatalog = try loadReviewableRowCatalog(
+            from: manifest.reviewableRowCatalog,
+            bundleURL: bundleURL
+        )
 
         let callsBySample = Dictionary(grouping: calls, by: \.sample)
         let orderedSampleNames = orderedAssignedSampleNames(sampleRows: sampleRows, calls: calls)
@@ -2243,8 +2377,40 @@ public enum ONTGenotypeResultBundle {
             integrityWarnings: mhcProjection.warnings,
             referenceMetadata: referenceMetadata,
             provisionalExon2SequencesByGenotype: provisionalExon2Projection.sequencesByGenotype,
-            provisionalExon2ArtifactURLs: provisionalExon2Projection.artifactURLs
+            provisionalExon2ArtifactURLs: provisionalExon2Projection.artifactURLs,
+            reviewableRowCatalog: reviewableRowCatalog
         )
+    }
+
+    private static func loadReviewableRowCatalog(
+        from reference: ONTMHCArtifactReference?,
+        bundleURL: URL
+    ) throws -> GenotypeReviewableRowCatalog? {
+        guard let reference else { return nil }
+        guard let data = try validateArtifact(
+            reference,
+            in: bundleURL,
+            collectData: true
+        ) else {
+            throw integrityFailure(
+                .candidateArtifactMalformedJSON,
+                "The reviewable-row catalog could not be read.",
+                path: reference.path
+            )
+        }
+        do {
+            return try JSONDecoder()
+                .decode(GenotypeReviewableRowCatalog.self, from: data)
+                .validated()
+        } catch let failure as CandidateIntegrityFailure {
+            throw failure
+        } catch {
+            throw integrityFailure(
+                .candidateArtifactMalformedJSON,
+                "The reviewable-row catalog is invalid: \(error.localizedDescription)",
+                path: reference.path
+            )
+        }
     }
 
     private static func loadGenericAlignmentArtifacts(
@@ -3599,18 +3765,84 @@ public enum ONTGenotypeResultBundle {
 
 // MARK: - Annotation sidecar accessors
 
+public enum GenotypeAnnotationSidecarRevision: Equatable, Sendable {
+    case absent
+    case sha256(String)
+}
+
+public struct GenotypeAnnotationSidecarSnapshot: Equatable, Sendable {
+    public let sidecar: GenotypeAnnotationSidecar
+    public let revision: GenotypeAnnotationSidecarRevision
+    public let data: Data?
+
+    public init(
+        sidecar: GenotypeAnnotationSidecar,
+        revision: GenotypeAnnotationSidecarRevision,
+        data: Data?
+    ) {
+        self.sidecar = sidecar
+        self.revision = revision
+        self.data = data
+    }
+}
+
+public enum GenotypeAnnotationSidecarPublicationError:
+    Error,
+    Equatable,
+    LocalizedError,
+    Sendable
+{
+    case staleRevision(
+        expected: GenotypeAnnotationSidecarRevision,
+        actual: GenotypeAnnotationSidecarRevision
+    )
+    case mismatchedPublicationLock(expectedPath: String, actualPath: String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .staleRevision(let expected, let actual):
+            return "The genotype annotation sidecar changed before publication (expected \(expected.description), found \(actual.description))."
+        case .mismatchedPublicationLock(let expectedPath, let actualPath):
+            return "The genotype annotation publication lock belongs to \(actualPath), not \(expectedPath)."
+        }
+    }
+}
+
+private extension GenotypeAnnotationSidecarRevision {
+    var description: String {
+        switch self {
+        case .absent: "no sidecar"
+        case .sha256(let digest): "SHA-256 \(digest)"
+        }
+    }
+}
+
 public extension ONTGenotypeResultBundleData {
     static func annotationSidecarURL(forBundleAt bundleURL: URL) -> URL {
         bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
     }
 
     static func loadOrCreateAnnotationSidecar(forBundleAt bundleURL: URL) throws -> GenotypeAnnotationSidecar {
+        try loadAnnotationSidecarSnapshot(forBundleAt: bundleURL).sidecar
+    }
+
+    static func loadAnnotationSidecarSnapshot(
+        forBundleAt bundleURL: URL
+    ) throws -> GenotypeAnnotationSidecarSnapshot {
         if let data = try readAnnotationSidecarDataIfPresent(forBundleAt: bundleURL) {
-            return try GenotypeAnnotationSidecar.decode(data)
+            return GenotypeAnnotationSidecarSnapshot(
+                sidecar: try GenotypeAnnotationSidecar.decode(data),
+                revision: annotationSidecarRevision(for: data),
+                data: data
+            )
         }
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
-        return GenotypeAnnotationSidecar.empty(generatedAt: formatter.string(from: Date()))
+        return GenotypeAnnotationSidecarSnapshot(
+            sidecar: .empty(generatedAt: formatter.string(from: Date())),
+            revision: .absent,
+            data: nil
+        )
     }
 
     /// Read-only counterpart of `loadOrCreateAnnotationSidecar`. Returns an
@@ -3686,8 +3918,112 @@ public extension ONTGenotypeResultBundleData {
         return data
     }
 
-    static func writeAnnotationSidecar(_ sidecar: GenotypeAnnotationSidecar, forBundleAt bundleURL: URL) throws {
-        let data = try sidecar.encoded()
+    static func writeAnnotationSidecar(
+        _ sidecar: GenotypeAnnotationSidecar,
+        forBundleAt bundleURL: URL
+    ) throws {
+        try writeAnnotationSidecar(
+            sidecar,
+            expectedRevision: .absent,
+            forBundleAt: bundleURL
+        )
+    }
+
+    static func writeAnnotationSidecar(
+        _ sidecar: GenotypeAnnotationSidecar,
+        expectedRevision: GenotypeAnnotationSidecarRevision,
+        forBundleAt bundleURL: URL
+    ) throws {
+        let publicationLock = try ONTGenotypeBundlePublicationLock.acquire(
+            for: bundleURL
+        )
+        defer { publicationLock.release() }
+        try writeAnnotationSidecar(
+            sidecar,
+            expectedRevision: expectedRevision,
+            forBundleAt: bundleURL,
+            assuming: publicationLock
+        )
+    }
+
+    static func writeAnnotationSidecar(
+        _ sidecar: GenotypeAnnotationSidecar,
+        expectedRevision: GenotypeAnnotationSidecarRevision,
+        forBundleAt bundleURL: URL,
+        assuming publicationLock: ONTGenotypeBundlePublicationLock,
+        precommitValidation: (() throws -> Void)? = nil,
+        postRenameHook: (() throws -> Void)? = nil
+    ) throws {
+        var sidecar = sidecar
+        try sidecar.promoteToCurrentSchema()
+        try publishAnnotationSidecarData(
+            sidecar.encoded(),
+            expectedRevision: expectedRevision,
+            forBundleAt: bundleURL,
+            assuming: publicationLock,
+            beforeRename: nil,
+            precommitValidation: precommitValidation,
+            postRenameHook: postRenameHook
+        )
+    }
+
+    /// Restores the exact raw bytes captured before a failed multi-artifact
+    /// transaction. The expected revision must identify the currently
+    /// published sidecar, so rollback cannot erase a concurrent update.
+    static func restoreAnnotationSidecarData(
+        _ priorData: Data?,
+        expectedRevision: GenotypeAnnotationSidecarRevision,
+        forBundleAt bundleURL: URL,
+        assuming publicationLock: ONTGenotypeBundlePublicationLock
+    ) throws {
+        try publishAnnotationSidecarData(
+            priorData,
+            expectedRevision: expectedRevision,
+            forBundleAt: bundleURL,
+            assuming: publicationLock,
+            beforeRename: nil,
+            precommitValidation: nil,
+            postRenameHook: nil
+        )
+    }
+
+    internal static func restoreAnnotationSidecarData(
+        _ priorData: Data?,
+        expectedRevision: GenotypeAnnotationSidecarRevision,
+        forBundleAt bundleURL: URL,
+        assuming publicationLock: ONTGenotypeBundlePublicationLock,
+        beforeRename: (() throws -> Void)?
+    ) throws {
+        try publishAnnotationSidecarData(
+            priorData,
+            expectedRevision: expectedRevision,
+            forBundleAt: bundleURL,
+            assuming: publicationLock,
+            beforeRename: beforeRename,
+            precommitValidation: nil,
+            postRenameHook: nil
+        )
+    }
+
+    private static func publishAnnotationSidecarData(
+        _ data: Data?,
+        expectedRevision: GenotypeAnnotationSidecarRevision,
+        forBundleAt bundleURL: URL,
+        assuming publicationLock: ONTGenotypeBundlePublicationLock,
+        beforeRename: (() throws -> Void)?,
+        precommitValidation: (() throws -> Void)?,
+        postRenameHook: (() throws -> Void)?
+    ) throws {
+        let expectedLockURL = ONTGenotypeBundlePublicationLock.lockURL(
+            for: bundleURL
+        ).standardizedFileURL
+        guard publicationLock.lockURL.standardizedFileURL == expectedLockURL else {
+            throw GenotypeAnnotationSidecarPublicationError
+                .mismatchedPublicationLock(
+                    expectedPath: expectedLockURL.path,
+                    actualPath: publicationLock.lockURL.standardizedFileURL.path
+                )
+        }
         let directoryFD = bundleURL.path.withCString {
             Darwin.open($0, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
         }
@@ -3719,66 +4055,109 @@ public extension ONTGenotypeResultBundleData {
             )
         }
 
-        let temporaryName = ".\(filename).\(UUID().uuidString).tmp"
-        let temporaryFD = temporaryName.withCString {
-            Darwin.openat(
-                directoryFD,
-                $0,
-                O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
-                mode_t(0o644)
-            )
+        let temporaryName = data.map { _ in
+            ".\(filename).\(UUID().uuidString).tmp"
         }
-        guard temporaryFD >= 0 else {
-            throw annotationSidecarPOSIXError(
-                operation: "create atomic sidecar staging file",
-                path: bundleURL.appendingPathComponent(temporaryName).path
-            )
+        var temporaryFD: Int32 = -1
+        if let temporaryName, let data {
+            temporaryFD = temporaryName.withCString {
+                Darwin.openat(
+                    directoryFD,
+                    $0,
+                    O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
+                    mode_t(0o644)
+                )
+            }
+            guard temporaryFD >= 0 else {
+                throw annotationSidecarPOSIXError(
+                    operation: "create atomic sidecar staging file",
+                    path: bundleURL.appendingPathComponent(temporaryName).path
+                )
+            }
+            try data.withUnsafeBytes { rawBuffer in
+                guard let baseAddress = rawBuffer.baseAddress else { return }
+                var offset = 0
+                while offset < rawBuffer.count {
+                    let written = Darwin.write(
+                        temporaryFD,
+                        baseAddress.advanced(by: offset),
+                        rawBuffer.count - offset
+                    )
+                    if written < 0 {
+                        if errno == EINTR { continue }
+                        throw annotationSidecarPOSIXError(
+                            operation: "write atomic sidecar staging file",
+                            path: bundleURL
+                                .appendingPathComponent(temporaryName).path
+                        )
+                    }
+                    offset += written
+                }
+            }
+            guard Darwin.fsync(temporaryFD) == 0 else {
+                throw annotationSidecarPOSIXError(
+                    operation: "synchronize atomic sidecar staging file",
+                    path: bundleURL.appendingPathComponent(temporaryName).path
+                )
+            }
         }
-        var shouldRemoveTemporary = true
+        var shouldRemoveTemporary = temporaryName != nil
         defer {
-            Darwin.close(temporaryFD)
-            if shouldRemoveTemporary {
+            if temporaryFD >= 0 {
+                Darwin.close(temporaryFD)
+            }
+            if shouldRemoveTemporary, let temporaryName {
                 temporaryName.withCString { _ = Darwin.unlinkat(directoryFD, $0, 0) }
             }
         }
 
-        try data.withUnsafeBytes { rawBuffer in
-            guard let baseAddress = rawBuffer.baseAddress else { return }
-            var offset = 0
-            while offset < rawBuffer.count {
-                let written = Darwin.write(
-                    temporaryFD,
-                    baseAddress.advanced(by: offset),
-                    rawBuffer.count - offset
-                )
-                if written < 0 {
-                    if errno == EINTR { continue }
-                    throw annotationSidecarPOSIXError(
-                        operation: "write atomic sidecar staging file",
-                        path: bundleURL.appendingPathComponent(temporaryName).path
+        let currentData = try readAnnotationSidecarDataIfPresent(
+            forBundleAt: bundleURL
+        )
+        if let currentData {
+            var current = try GenotypeAnnotationSidecar.decode(currentData)
+            try current.promoteToCurrentSchema()
+        }
+        let actualRevision = currentData.map(annotationSidecarRevision(for:))
+            ?? .absent
+        guard actualRevision == expectedRevision else {
+            throw GenotypeAnnotationSidecarPublicationError.staleRevision(
+                expected: expectedRevision,
+                actual: actualRevision
+            )
+        }
+        try beforeRename?()
+        try precommitValidation?()
+        if let temporaryName {
+            let renameResult = temporaryName.withCString { temporaryCString in
+                filename.withCString { filenameCString in
+                    Darwin.renameat(
+                        directoryFD,
+                        temporaryCString,
+                        directoryFD,
+                        filenameCString
                     )
                 }
-                offset += written
+            }
+            guard renameResult == 0 else {
+                throw annotationSidecarPOSIXError(
+                    operation: "atomically publish annotation sidecar",
+                    path: annotationSidecarURL(forBundleAt: bundleURL).path
+                )
+            }
+            shouldRemoveTemporary = false
+        } else {
+            let unlinkResult = filename.withCString {
+                Darwin.unlinkat(directoryFD, $0, 0)
+            }
+            guard unlinkResult == 0 else {
+                throw annotationSidecarPOSIXError(
+                    operation: "atomically restore absent annotation sidecar",
+                    path: annotationSidecarURL(forBundleAt: bundleURL).path
+                )
             }
         }
-        guard Darwin.fsync(temporaryFD) == 0 else {
-            throw annotationSidecarPOSIXError(
-                operation: "synchronize atomic sidecar staging file",
-                path: bundleURL.appendingPathComponent(temporaryName).path
-            )
-        }
-        let renameResult = temporaryName.withCString { temporaryCString in
-            filename.withCString { filenameCString in
-                Darwin.renameat(directoryFD, temporaryCString, directoryFD, filenameCString)
-            }
-        }
-        guard renameResult == 0 else {
-            throw annotationSidecarPOSIXError(
-                operation: "atomically publish annotation sidecar",
-                path: annotationSidecarURL(forBundleAt: bundleURL).path
-            )
-        }
-        shouldRemoveTemporary = false
+        try postRenameHook?()
         guard Darwin.fsync(directoryFD) == 0 else {
             throw annotationSidecarPOSIXError(
                 operation: "synchronize annotation sidecar directory",
@@ -3799,6 +4178,16 @@ public extension ONTGenotypeResultBundleData {
                 NSLocalizedDescriptionKey:
                     "Could not \(operation) at \(path): \(String(cString: Darwin.strerror(code)))",
             ]
+        )
+    }
+
+    private static func annotationSidecarRevision(
+        for data: Data
+    ) -> GenotypeAnnotationSidecarRevision {
+        .sha256(
+            SHA256.hash(data: data)
+                .map { String(format: "%02x", $0) }
+                .joined()
         )
     }
 }

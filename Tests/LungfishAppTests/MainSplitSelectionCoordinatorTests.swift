@@ -1,11 +1,236 @@
 import XCTest
 import LungfishCore
+@testable import LungfishGenotypeUI
 import LungfishIO
 @testable import LungfishApp
 import LungfishKit
 
 @MainActor
 final class MainSplitSelectionCoordinatorTests: XCTestCase {
+    func testActualSidebarRestoresCommittedSelectionWhileAsyncPreflightIsCancelled() {
+        let sidebar = SidebarViewController()
+        sidebar.loadViewIfNeeded()
+        let first = SidebarItem(
+            title: "First",
+            type: .document,
+            url: URL(fileURLWithPath: "/tmp/First.txt")
+        )
+        let second = SidebarItem(
+            title: "Second",
+            type: .document,
+            url: URL(fileURLWithPath: "/tmp/Second.txt")
+        )
+        let third = SidebarItem(
+            title: "Third",
+            type: .document,
+            url: URL(fileURLWithPath: "/tmp/Third.txt")
+        )
+        sidebar.rootItems = [first, second, third]
+        sidebar.reloadData()
+        let delegate = SidebarSelectionPreflightSpy()
+        sidebar.selectionDelegate = delegate
+
+        sidebar.outlineView.selectRowIndexes(
+            IndexSet(integer: 0),
+            byExtendingSelection: false
+        )
+        sidebar.outlineViewSelectionDidChange(
+            Notification(
+                name: NSOutlineView.selectionDidChangeNotification,
+                object: sidebar.outlineView
+            )
+        )
+        XCTAssertEqual(sidebar.selectedItems().map(\.title), ["First"])
+        delegate.selectionCallbacks.removeAll()
+        delegate.shouldDefer = true
+
+        sidebar.outlineView.selectRowIndexes(
+            IndexSet([1, 2]),
+            byExtendingSelection: false
+        )
+        sidebar.outlineViewSelectionDidChange(
+            Notification(
+                name: NSOutlineView.selectionDidChangeNotification,
+                object: sidebar.outlineView
+            )
+        )
+
+        XCTAssertEqual(sidebar.selectedItems().map(\.title), ["First"])
+        XCTAssertTrue(delegate.selectionCallbacks.isEmpty)
+        XCTAssertNotNil(delegate.pendingCommit)
+
+        sidebar.outlineView.deselectAll(nil)
+        sidebar.outlineViewSelectionDidChange(
+            Notification(
+                name: NSOutlineView.selectionDidChangeNotification,
+                object: sidebar.outlineView
+            )
+        )
+
+        XCTAssertEqual(sidebar.selectedItems().map(\.title), ["First"])
+        XCTAssertTrue(delegate.selectionCallbacks.isEmpty)
+    }
+
+    func testSidebarClearContainerMultiItemAndRefreshCancelPreserveViewportAndEditor()
+        async throws
+    {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "SidebarManualHaplotype-\(UUID().uuidString).lungfishgenotype",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let controller = MainSplitViewController()
+        _ = controller.view
+        let selectedItem = SidebarItem(
+            title: "Genotypes",
+            type: .genotypeResultBundle,
+            url: bundleURL
+        )
+        let folderA = SidebarItem(
+            title: "Folder A",
+            type: .folder,
+            url: URL(fileURLWithPath: "/tmp/Folder-A")
+        )
+        let folderB = SidebarItem(
+            title: "Folder B",
+            type: .folder,
+            url: URL(fileURLWithPath: "/tmp/Folder-B")
+        )
+        let document = SidebarItem(
+            title: "Document",
+            type: .document,
+            url: URL(fileURLWithPath: "/tmp/Document.txt")
+        )
+        let sidebar = controller.sidebarController!
+        sidebar.selectionDelegate = nil
+        sidebar.rootItems = [
+            selectedItem,
+            folderA,
+            folderB,
+            document,
+        ]
+        sidebar.reloadData()
+        sidebar.outlineView.selectRowIndexes(
+            IndexSet(integer: 0),
+            byExtendingSelection: false
+        )
+        sidebar.outlineViewSelectionDidChange(
+            Notification(
+                name: NSOutlineView.selectionDidChangeNotification,
+                object: sidebar.outlineView
+            )
+        )
+        sidebar.selectionDelegate = controller
+
+        let genotypeController =
+            controller.viewerController.displayGenotypeResult(
+                makeGenotypeResult(bundleURL: bundleURL)
+            )
+        genotypeController.testingSelectMatrixColumn(
+            sample: "SampleA"
+        )
+        genotypeController.testingUpdateManualHaplotypeLabel(
+            "Unsaved"
+        )
+        genotypeController
+            .testingSetManualHaplotypeDraftDecisionProvider {
+                _ in .cancel
+            }
+        let originalSelection =
+            genotypeController.testingCurrentSelectionMatrixTargets
+
+        func assertPreserved(
+            file: StaticString = #filePath,
+            line: UInt = #line
+        ) {
+            XCTAssertEqual(
+                sidebar.selectedItems().map(\.title),
+                ["Genotypes"],
+                file: file,
+                line: line
+            )
+            XCTAssertTrue(
+                controller.viewerController
+                    .genotypeResultViewController
+                    === genotypeController,
+                file: file,
+                line: line
+            )
+            XCTAssertEqual(
+                genotypeController
+                    .testingCurrentSelectionMatrixTargets,
+                originalSelection,
+                file: file,
+                line: line
+            )
+            XCTAssertTrue(
+                genotypeController
+                    .testingManualHaplotypeEditorIsDirty,
+                file: file,
+                line: line
+            )
+            XCTAssertEqual(
+                genotypeController
+                    .testingManualHaplotypeEditorSample,
+                "SampleA",
+                file: file,
+                line: line
+            )
+        }
+
+        sidebar.outlineView.deselectAll(nil)
+        sidebar.outlineViewSelectionDidChange(
+            Notification(
+                name: NSOutlineView.selectionDidChangeNotification,
+                object: sidebar.outlineView
+            )
+        )
+        await genotypeController
+            .testingWaitForManualHaplotypeTransitions()
+        assertPreserved()
+
+        sidebar.outlineView.selectRowIndexes(
+            IndexSet([1, 2]),
+            byExtendingSelection: false
+        )
+        sidebar.outlineViewSelectionDidChange(
+            Notification(
+                name: NSOutlineView.selectionDidChangeNotification,
+                object: sidebar.outlineView
+            )
+        )
+        await genotypeController
+            .testingWaitForManualHaplotypeTransitions()
+        assertPreserved()
+
+        sidebar.outlineView.selectRowIndexes(
+            IndexSet([2, 3]),
+            byExtendingSelection: false
+        )
+        sidebar.outlineViewSelectionDidChange(
+            Notification(
+                name: NSOutlineView.selectionDidChangeNotification,
+                object: sidebar.outlineView
+            )
+        )
+        await genotypeController
+            .testingWaitForManualHaplotypeTransitions()
+        assertPreserved()
+
+        sidebar.handleSelectionRefresh(
+            [selectedItem],
+            source: "test"
+        )
+        await genotypeController
+            .testingWaitForManualHaplotypeTransitions()
+        assertPreserved()
+    }
+
     func testGenotypeDisplayLoadsAsynchronouslyAndCancelledSelectionCannotInstallStaleResult() async {
         let controller = MainSplitViewController()
         _ = controller.view
@@ -132,6 +357,9 @@ final class MainSplitSelectionCoordinatorTests: XCTestCase {
         return ONTGenotypeResultBundleData(
             bundleURL: bundleURL,
             manifest: ONTGenotypeResultBundleManifest(
+                kind:
+                    GenotypeResultWorkflowKind
+                        .miSeqAmpliconMHCGenotype.rawValue,
                 outputName: "stale",
                 analysisName: "stale",
                 primaryWorkbookPath: "stale.xlsx",
@@ -589,6 +817,31 @@ private final class SidebarSelectionSpy: SidebarSelectionDelegate {
 
     func sidebarDidRefreshSelectedItems(_ items: [SidebarItem]) {
         refreshedItems.append(contentsOf: items)
+    }
+}
+
+@MainActor
+private final class SidebarSelectionPreflightSpy: SidebarSelectionDelegate {
+    var shouldDefer = false
+    var pendingCommit: (() -> Void)?
+    var selectionCallbacks: [[String]] = []
+
+    func sidebarShouldDeferSelectionTransition(
+        _ transition: SidebarSelectionTransition,
+        commit: @escaping @MainActor () -> Void
+    ) -> Bool {
+        _ = transition
+        guard shouldDefer else { return false }
+        pendingCommit = commit
+        return true
+    }
+
+    func sidebarDidSelectItem(_ item: SidebarItem?) {
+        selectionCallbacks.append(item.map { [$0.title] } ?? [])
+    }
+
+    func sidebarDidSelectItems(_ items: [SidebarItem]) {
+        selectionCallbacks.append(items.map(\.title))
     }
 }
 

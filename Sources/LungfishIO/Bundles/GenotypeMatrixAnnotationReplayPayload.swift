@@ -97,7 +97,7 @@ public struct GenotypeMatrixAnnotationReplayPayload: Codable, Equatable, Sendabl
         to prior: GenotypeAnnotationSidecar
     ) throws -> GenotypeAnnotationSidecar {
         var replayed = prior
-        replayed.promoteToCurrentSchema()
+        try replayed.promoteToCurrentSchema()
 
         for mutation in targetMutations {
             if let beforeComments = mutation.beforeComments {

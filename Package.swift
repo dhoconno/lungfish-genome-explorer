@@ -181,7 +181,11 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishWorkflowTests",
-            dependencies: ["LungfishWorkflow"],
+            dependencies: [
+                "LungfishIO",
+                "LungfishWorkflow",
+                "LungfishTestSupport",
+            ],
             path: "Tests/LungfishWorkflowTests",
             resources: [
                 .copy("Resources")
@@ -386,7 +390,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishAppTests",
-            dependencies: ["LungfishApp", "LungfishKit", "LungfishCLI", "LungfishNvdUI", "LungfishNaoMgsUI", "LungfishTaxTriageUI", "LungfishEsVirituUI", "LungfishGenotypeUI", "LungfishPhylogeneticsUI"],
+            dependencies: ["LungfishApp", "LungfishKit", "LungfishCLI", "LungfishNvdUI", "LungfishNaoMgsUI", "LungfishTaxTriageUI", "LungfishEsVirituUI", "LungfishGenotypeUI", "LungfishPhylogeneticsUI", "LungfishTestSupport"],
             path: "Tests/LungfishAppTests",
             resources: [
                 .copy("Fixtures")

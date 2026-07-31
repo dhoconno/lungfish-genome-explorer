@@ -68,6 +68,7 @@ enum GenotypeCandidateDisplayPersistence {
                 return nil
             }
             var next = latest
+            try next.promoteToCurrentSchema()
             next.settings.mhcCandidateDisplay = display
             next.append(audit: .init(
                 action: "updateMHCCandidateDisplaySettings",

@@ -26,6 +26,8 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
         let annotationSidecarURL: URL?
         let annotationSidecarData: Data?
         let annotationOnly: Bool
+        let haplotypeProjectionMode:
+            GenotypeWorkbookHaplotypeProjectionMode
         let fingerprint: GenotypeCurrentWorkbookInputFingerprint
         let routeContext: OperationRouteContext?
         let mayUpdate: Bool
@@ -38,6 +40,8 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
             annotationSidecarURL: URL?,
             annotationSidecarData: Data? = nil,
             annotationOnly: Bool,
+            haplotypeProjectionMode:
+                GenotypeWorkbookHaplotypeProjectionMode = .haplotyped,
             fingerprint: GenotypeCurrentWorkbookInputFingerprint,
             routeContext: OperationRouteContext?,
             mayUpdate: Bool = true,
@@ -51,6 +55,7 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
             self.annotationSidecarURL = annotationSidecarURL?.standardizedFileURL
             self.annotationSidecarData = annotationSidecarData
             self.annotationOnly = annotationOnly
+            self.haplotypeProjectionMode = haplotypeProjectionMode
             self.fingerprint = fingerprint
             self.routeContext = routeContext
             self.mayUpdate = mayUpdate
@@ -140,6 +145,9 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
     private let currentWorkbookResolver: CurrentWorkbookResolver
     private let updateRunner: UpdateRunner
     private let workbookOpener: WorkbookOpener
+    private let allowsLegacyUnvalidatedOpen: Bool
+    private let postWorkbookResolutionObserver:
+        (@MainActor @Sendable (URL) throws -> Void)?
     private let idleScheduler: IdleScheduler
     private var states: [String: BundleState] = [:]
     private var observers: [UUID: Observer] = [:]
@@ -149,8 +157,12 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
         currentWorkbookResolver: CurrentWorkbookResolver? = nil,
         updateRunner: UpdateRunner? = nil,
         workbookOpener: WorkbookOpener? = nil,
+        postWorkbookResolutionObserver:
+            (@MainActor @Sendable (URL) throws -> Void)? = nil,
         idleScheduler: IdleScheduler? = nil
     ) {
+        GenotypeCurrentWorkbookOpenHandoffRegistry
+            .cleanupStaleViewsIfNeeded()
         self.recordedFingerprintLoader = recordedFingerprintLoader ?? { bundleURL in
             await Task.detached {
                 guard let manifest = try? ONTGenotypeResultBundle.loadManifest(from: bundleURL)
@@ -176,14 +188,20 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
                 annotationSidecarURL: request.annotationSidecarURL,
                 annotationSidecarData: request.annotationSidecarData,
                 annotationOnly: request.annotationOnly,
+                haplotypeProjectionMode:
+                    request.haplotypeProjectionMode,
                 inputFingerprint: request.fingerprint,
                 syncIntent: intent,
                 routeContext: request.routeContext
             )
         }
+        self.allowsLegacyUnvalidatedOpen =
+            workbookOpener != nil && postWorkbookResolutionObserver == nil
         self.workbookOpener = workbookOpener ?? { url in
             NSWorkspace.shared.open(url)
         }
+        self.postWorkbookResolutionObserver =
+            postWorkbookResolutionObserver
         self.idleScheduler = idleScheduler ?? { delayNanoseconds, action in
             TaskIdleCancellation(delayNanoseconds: delayNanoseconds, action: action)
         }
@@ -405,13 +423,24 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
                 }
                 state = resolvedState
                 if let workbookURL {
+                    let standardizedWorkbookURL =
+                        workbookURL.standardizedFileURL
+                    try postWorkbookResolutionObserver?(
+                        standardizedWorkbookURL
+                    )
+                    let workbookURLToOpen =
+                        intent == .updateAndView
+                        ? try await preparedWorkbookURLForOpening(
+                            standardizedWorkbookURL,
+                            bundleURL: request.bundleURL
+                        )
+                        : nil
                     var currentState = resolvedState
                     clearTerminalTransients(in: &currentState)
                     states[key] = currentState
                     setPhase(.current, for: key, bundleURL: request.bundleURL)
-                    let standardizedWorkbookURL = workbookURL.standardizedFileURL
-                    if intent == .updateAndView {
-                        workbookOpener(standardizedWorkbookURL)
+                    if let workbookURLToOpen {
+                        workbookOpener(workbookURLToOpen)
                     }
                     return standardizedWorkbookURL
                 }
@@ -566,6 +595,12 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
                 }
 
                 let shouldOpen = completedState.openAfterSuccess
+                let workbookURLToOpen = shouldOpen
+                    ? try await preparedWorkbookURLForOpening(
+                        workbookURL,
+                        bundleURL: request.bundleURL
+                    )
+                    : nil
                 let phaseBeforeCompletion = completedState.phase
                 clearTerminalTransients(in: &completedState)
                 completedState.phase = .current
@@ -575,8 +610,8 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
                     to: .current,
                     bundleURL: request.bundleURL
                 )
-                if shouldOpen {
-                    workbookOpener(workbookURL)
+                if let workbookURLToOpen {
+                    workbookOpener(workbookURLToOpen)
                 }
                 return workbookURL
             } catch {
@@ -595,6 +630,32 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
                 throw error
             }
         }
+    }
+
+    private func preparedWorkbookURLForOpening(
+        _ canonicalURL: URL,
+        bundleURL: URL
+    ) async throws -> URL {
+        if let handoff =
+            GenotypeCurrentWorkbookOpenHandoffRegistry.claim(
+                for: canonicalURL
+            ) {
+            return handoff.releaseURLForOpening()
+        }
+        // Injected openers are retained for existing tests and internal
+        // integrations. Production opening always uses an app-owned immutable
+        // view even when an explicit view request joins an automatic update
+        // that did not prepare a handoff.
+        if allowsLegacyUnvalidatedOpen {
+            return canonicalURL.standardizedFileURL
+        }
+        let handoff = try await Task.detached(priority: .utility) {
+            try GenotypeCurrentWorkbookOpenHandoff.make(
+                opening: canonicalURL,
+                relativeTo: bundleURL
+            )
+        }.value
+        return handoff.releaseURLForOpening()
     }
 
     private func scheduleIdle(for key: String, bundleURL: URL) {

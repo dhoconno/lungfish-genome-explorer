@@ -6,6 +6,526 @@ import XCTest
 @testable import LungfishIO
 
 final class ONTGenotypeResultBundleTests: XCTestCase {
+    func testReviewableRowCatalogRoundTripsAndResolvesReferenceAndCandidateExactly() throws {
+        let catalog = reviewableRowCatalog()
+
+        let decoded = try JSONDecoder().decode(
+            GenotypeReviewableRowCatalog.self,
+            from: JSONEncoder().encode(catalog)
+        )
+        XCTAssertEqual(try decoded.validated(), catalog)
+        XCTAssertNotEqual(decoded.rows[0].callID, decoded.rows[0].displayName)
+
+        let resolver = try GenotypeReviewableRowResolver(catalog: decoded)
+        let reference = try resolver.resolveFalseNegative(
+            target: .cell(
+                locus: "A1",
+                genotype: "Mafa-A1*001:01",
+                sample: "S1"
+            ),
+            requiresCohortZero: true
+        )
+        XCTAssertEqual(reference.callID, "reference:MHC-A:Mafa-A1*001:01")
+        XCTAssertNil(reference.stableID)
+
+        let candidate = try resolver.resolveFalseNegative(
+            target: .cell(
+                locus: "MHC-B",
+                genotype: "Mafa-B*999:01_nov",
+                sample: "S1",
+                stableClusterID: "candidate-1"
+            ),
+            requiresCohortZero: false
+        )
+        XCTAssertEqual(candidate.callID, "candidate:MHC-B:candidate-1")
+        XCTAssertEqual(candidate.stableID, "candidate-1")
+
+        XCTAssertThrowsError(
+            try resolver.resolveFalseNegative(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: reference.callID,
+                    sample: "S1"
+                ),
+                requiresCohortZero: true
+            )
+        )
+        XCTAssertThrowsError(
+            try resolver.resolveFalseNegative(
+                target: .cell(
+                    locus: "MHC-B",
+                    genotype: candidate.displayName,
+                    sample: "S1",
+                    stableClusterID: "candidate-2"
+                ),
+                requiresCohortZero: false
+            )
+        )
+    }
+
+    func testReviewableRowCatalogRejectsDuplicateSemanticIdentity() throws {
+        let catalog = reviewableRowCatalog()
+        let duplicate = GenotypeReviewableRowCatalog(
+            schemaID: catalog.schemaID,
+            schemaVersion: catalog.schemaVersion,
+            samples: catalog.samples,
+            rows: catalog.rows + [
+                .init(
+                    kind: .reference,
+                    callID: catalog.rows[0].callID,
+                    displayName: "A different presentation label",
+                    locus: catalog.rows[0].locus,
+                    stableID: nil,
+                    section: "reference",
+                    sortKey: "different-sort-key",
+                    supportBySample: ["S1": 0, "S2": 0]
+                ),
+            ]
+        )
+
+        XCTAssertThrowsError(try duplicate.validated())
+    }
+
+    func testReviewableRowCatalogRejectsInvalidRosterAndEvidenceAuthority() {
+        let catalog = reviewableRowCatalog()
+
+        XCTAssertThrowsError(
+            try GenotypeReviewableRowCatalog(
+                schemaID: catalog.schemaID,
+                schemaVersion: catalog.schemaVersion,
+                samples: ["S1", "S1"],
+                rows: catalog.rows
+            ).validated()
+        )
+        XCTAssertThrowsError(
+            try catalog.replacingSupport(
+                row: 0,
+                with: ["S1": 0, "S2": 0, "S3": 0]
+            ).validated()
+        )
+        XCTAssertThrowsError(
+            try catalog.replacingSupport(
+                row: 0,
+                with: ["S1": 0]
+            ).validated()
+        )
+        XCTAssertThrowsError(
+            try catalog.replacingSupport(
+                row: 0,
+                with: ["S1": -1, "S2": 0]
+            ).validated()
+        )
+    }
+
+    func testReviewableRowCatalogRejectsLegacyDuplicateEvidenceObjectKeys() {
+        let data = Data(
+            #"""
+            {
+              "schema_id": "org.lungfish.genotype.reviewable-row-catalog",
+              "schema_version": 1,
+              "samples": ["S1", "S2"],
+              "rows": [{
+                "kind": "reference",
+                "call_id": "reference:MHC-A:Mafa-A1*001:01",
+                "display_name": "Mafa-A1*001:01",
+                "locus": "MHC-A",
+                "section": "reference",
+                "sort_key": "MHC-A|Mafa-A1*001:01",
+                "support_by_sample": {"S1": 0, "S1": 7, "S2": 0}
+              }]
+            }
+            """#.utf8
+        )
+
+        XCTAssertThrowsError(
+            try JSONDecoder()
+                .decode(GenotypeReviewableRowCatalog.self, from: data)
+                .validated()
+        )
+    }
+
+    func testReviewableRowCatalogRejectsDuplicateEvidenceArrayRecordsPrecisely() {
+        let data = Data(
+            #"""
+            {
+              "schema_id": "org.lungfish.genotype.reviewable-row-catalog",
+              "schema_version": 1,
+              "samples": ["S1", "S2"],
+              "rows": [{
+                "kind": "reference",
+                "call_id": "reference:MHC-A:Mafa-A1*001:01",
+                "display_name": "Mafa-A1*001:01",
+                "locus": "MHC-A",
+                "section": "reference",
+                "sort_key": "MHC-A|Mafa-A1*001:01",
+                "support_by_sample": [
+                  {"sample": "S1", "support": 0},
+                  {"sample": "S1", "support": 7},
+                  {"sample": "S2", "support": 0}
+                ]
+              }]
+            }
+            """#.utf8
+        )
+
+        XCTAssertThrowsError(
+            try JSONDecoder().decode(GenotypeReviewableRowCatalog.self, from: data)
+        ) { error in
+            guard case DecodingError.dataCorrupted(let context) = error else {
+                return XCTFail("Expected duplicate-evidence data corruption, found \(error)")
+            }
+            XCTAssertTrue(context.debugDescription.localizedCaseInsensitiveContains("duplicate"))
+            XCTAssertTrue(context.debugDescription.contains("S1"))
+        }
+    }
+
+    func testReviewableRowCatalogCanonicalEncodingUsesSortedEvidenceRecords() throws {
+        let catalog = reviewableRowCatalog()
+
+        let first = try catalog.encoded()
+        let second = try catalog.encoded()
+        XCTAssertEqual(first, second)
+
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: first) as? [String: Any]
+        )
+        let rows = try XCTUnwrap(object["rows"] as? [[String: Any]])
+        let firstSupport = try XCTUnwrap(
+            rows[0]["support_by_sample"] as? [[String: Any]]
+        )
+        XCTAssertEqual(firstSupport.compactMap { $0["sample"] as? String }, ["S1", "S2"])
+        XCTAssertEqual(firstSupport.compactMap { $0["support"] as? Int }, [0, 0])
+
+        let encodedText = try XCTUnwrap(String(data: first, encoding: .utf8))
+        XCTAssertTrue(encodedText.hasPrefix(#"{"rows":"#))
+        XCTAssertTrue(encodedText.contains(#""support_by_sample":[{"sample":"S1","support":0},{"sample":"S2","support":0}]"#))
+    }
+
+    func testReviewableRowCatalogRejectsUnsupportedSchemaAndInvalidRowIdentity() {
+        let catalog = reviewableRowCatalog()
+        XCTAssertThrowsError(
+            try GenotypeReviewableRowCatalog(
+                schemaID: "org.example.future",
+                schemaVersion: catalog.schemaVersion,
+                samples: catalog.samples,
+                rows: catalog.rows
+            ).validated()
+        )
+        XCTAssertThrowsError(
+            try GenotypeReviewableRowCatalog(
+                schemaID: catalog.schemaID,
+                schemaVersion: 2,
+                samples: catalog.samples,
+                rows: catalog.rows
+            ).validated()
+        )
+
+        let referenceWithStableID = catalog.replacingRow(
+            0,
+            with: .init(
+                kind: .reference,
+                callID: "reference:MHC-A:Mafa-A1*001:01",
+                displayName: "Mafa-A1*001:01",
+                locus: "MHC-A",
+                stableID: "not-allowed",
+                section: "reference",
+                sortKey: "MHC-A|Mafa-A1*001:01",
+                supportBySample: ["S1": 0, "S2": 0]
+            )
+        )
+        XCTAssertThrowsError(try referenceWithStableID.validated())
+
+        let candidateWithoutStableID = catalog.replacingRow(
+            1,
+            with: .init(
+                kind: .candidate,
+                callID: "candidate:MHC-B:candidate-1",
+                displayName: "Mafa-B*999:01_nov",
+                locus: "MHC-B",
+                stableID: nil,
+                section: "candidate",
+                sortKey: "MHC-B|Mafa-B*999:01_nov",
+                supportBySample: ["S1": 0, "S2": 7]
+            )
+        )
+        XCTAssertThrowsError(try candidateWithoutStableID.validated())
+
+        let nonCanonicalLocus = catalog.replacingRow(
+            0,
+            with: .init(
+                kind: .reference,
+                callID: "reference:MHC-A:Mafa-A1*001:01",
+                displayName: "Mafa-A1*001:01",
+                locus: "A1",
+                stableID: nil,
+                section: "reference",
+                sortKey: "MHC-A|Mafa-A1*001:01",
+                supportBySample: ["S1": 0, "S2": 0]
+            )
+        )
+        XCTAssertThrowsError(try nonCanonicalLocus.validated())
+    }
+
+    func testReviewableRowResolverRejectsNonzeroFalseNegativeEvidence() throws {
+        let resolver = try GenotypeReviewableRowResolver(catalog: reviewableRowCatalog())
+
+        XCTAssertThrowsError(
+            try resolver.resolveFalseNegative(
+                target: .cell(
+                    locus: "MHC-B",
+                    genotype: "Mafa-B*999:01_nov",
+                    sample: "S2",
+                    stableClusterID: "candidate-1"
+                ),
+                requiresCohortZero: false
+            )
+        )
+        XCTAssertThrowsError(
+            try resolver.resolveFalseNegative(
+                target: .cell(
+                    locus: "MHC-B",
+                    genotype: "Mafa-B*999:01_nov",
+                    sample: "S1",
+                    stableClusterID: "candidate-1"
+                ),
+                requiresCohortZero: true
+            )
+        )
+    }
+
+    func testManifestRoundTripsReviewableRowCatalogDescriptor() throws {
+        let descriptor = ONTMHCArtifactReference(
+            path: "artifacts/reviewable-rows.json",
+            sha256: String(repeating: "a", count: 64),
+            sizeBytes: 412
+        )
+        let manifest = ONTGenotypeResultBundleManifest(
+            outputName: "catalog",
+            analysisName: "Catalog",
+            primaryWorkbookPath: "catalog.xlsx",
+            longSummaryCSVPath: "calls.csv",
+            sampleSummaryCSVPath: "samples.csv",
+            statsJSONPath: "stats.json",
+            provenancePath: "provenance.json",
+            reviewableRowCatalog: descriptor
+        )
+
+        let decoded = try JSONDecoder().decode(
+            ONTGenotypeResultBundleManifest.self,
+            from: JSONEncoder().encode(manifest)
+        )
+
+        XCTAssertEqual(decoded.reviewableRowCatalog, descriptor)
+    }
+
+    func testLoadsManifestAttestedReviewableRowCatalogIntoBundleData() throws {
+        let fixture = try makeReviewableRowCatalogBundle()
+        defer { try? FileManager.default.removeItem(at: fixture.bundleURL) }
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertEqual(result.reviewableRowCatalog, fixture.catalog)
+    }
+
+    func testReviewableRowCatalogArtifactRejectsTraversalSymlinkSizeAndChecksum() throws {
+        for corruption in ReviewableCatalogCorruption.allCases {
+            let fixture = try makeReviewableRowCatalogBundle(corruption: corruption)
+            defer { try? FileManager.default.removeItem(at: fixture.bundleURL) }
+
+            XCTAssertThrowsError(
+                try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL),
+                "Expected \(corruption) to fail closed"
+            )
+        }
+    }
+
+    func testManifestRoundTripsTypedWorkflowDeclaration() throws {
+        let manifest = ONTGenotypeResultBundleManifest(
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
+            workflowKind: .fullLengthONTMHCGenotype,
+            workflowMode: .genotypeOnly,
+            outputName: "typed",
+            analysisName: "Typed",
+            primaryWorkbookPath: "typed.xlsx",
+            longSummaryCSVPath: "calls.csv",
+            sampleSummaryCSVPath: "samples.csv",
+            statsJSONPath: "stats.json",
+            provenancePath: "provenance.json"
+        )
+
+        let decoded = try JSONDecoder().decode(
+            ONTGenotypeResultBundleManifest.self,
+            from: JSONEncoder().encode(manifest)
+        )
+
+        XCTAssertEqual(decoded.workflowKind, .fullLengthONTMHCGenotype)
+        XCTAssertEqual(decoded.workflowMode, .genotypeOnly)
+    }
+
+    func testLegacyManifestDecodesWithoutTypedWorkflowDeclaration() throws {
+        let data = Data(#"""
+        {
+          "schemaVersion": 1,
+          "kind": "full-length-ont-mhc-genotype",
+          "outputName": "legacy",
+          "analysisName": "Legacy",
+          "primaryWorkbookPath": "legacy.xlsx",
+          "longSummaryCSVPath": "calls.csv",
+          "sampleSummaryCSVPath": "samples.csv",
+          "statsJSONPath": "stats.json",
+          "provenancePath": "provenance.json"
+        }
+        """#.utf8)
+
+        let manifest = try JSONDecoder().decode(ONTGenotypeResultBundleManifest.self, from: data)
+
+        XCTAssertNil(manifest.workflowKind)
+        XCTAssertNil(manifest.workflowMode)
+    }
+
+    func testUnknownWorkflowKindRemainsLoadableAndRoundTripsLosslessly() throws {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("unknown-workflow-\(UUID().uuidString).lungfishgenotype", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let workbookURL = bundleURL.appendingPathComponent("unknown.xlsx")
+        try Data("workbook".utf8).write(to: workbookURL)
+        let artifacts = try writeMinimalNativeArtifacts(in: bundleURL, outputName: "unknown")
+        let manifestData = Data(#"""
+        {
+          "schemaVersion": 1,
+          "kind": "full-length-ont-mhc-genotype",
+          "workflowKind": "future-mhc-workflow",
+          "workflowMode": "genotypeOnly",
+          "outputName": "unknown",
+          "analysisName": "Unknown workflow fixture",
+          "primaryWorkbookPath": "unknown.xlsx",
+          "longSummaryCSVPath": "\#(artifacts.genotypeCSV.lastPathComponent)",
+          "sampleSummaryCSVPath": "\#(artifacts.sampleCSV.lastPathComponent)",
+          "statsJSONPath": "\#(artifacts.statsJSON.lastPathComponent)",
+          "provenancePath": "\#(artifacts.provenance.lastPathComponent)"
+        }
+        """#.utf8)
+        try manifestData.write(
+            to: bundleURL.appendingPathComponent(ONTGenotypeResultBundleManifest.filename)
+        )
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: bundleURL)
+
+        XCTAssertEqual(result.manifest.analysisName, "Unknown workflow fixture")
+        XCTAssertNil(result.manifest.workflowKind)
+        XCTAssertEqual(
+            result.manifest.workflowKindDeclaration.originalValue,
+            .string("future-mhc-workflow")
+        )
+        XCTAssertTrue(
+            try XCTUnwrap(result.manifest.workflowKindDeclaration.issue)
+                .localizedCaseInsensitiveContains("future-mhc-workflow")
+        )
+        let roundTripped = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(result.manifest)
+        ) as? [String: Any]
+        XCTAssertEqual(roundTripped?["workflowKind"] as? String, "future-mhc-workflow")
+    }
+
+    func testWrongJSONTypeWorkflowModeRemainsLoadableAndIsNotCoerced() throws {
+        let data = Data(#"""
+        {
+          "schemaVersion": 1,
+          "kind": "full-length-ont-mhc-genotype",
+          "workflowKind": "full-length-ont-mhc-genotype",
+          "workflowMode": {"unexpected": true},
+          "outputName": "malformed",
+          "analysisName": "Malformed",
+          "primaryWorkbookPath": "malformed.xlsx",
+          "longSummaryCSVPath": "calls.csv",
+          "sampleSummaryCSVPath": "samples.csv",
+          "statsJSONPath": "stats.json",
+          "provenancePath": "provenance.json"
+        }
+        """#.utf8)
+
+        let manifest = try JSONDecoder().decode(ONTGenotypeResultBundleManifest.self, from: data)
+
+        XCTAssertNil(manifest.workflowMode)
+        XCTAssertEqual(
+            manifest.workflowModeDeclaration.originalValue,
+            .object(["unexpected": .bool(true)])
+        )
+        XCTAssertTrue(
+            try XCTUnwrap(manifest.workflowModeDeclaration.issue)
+                .localizedCaseInsensitiveContains("string")
+        )
+        let roundTripped = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: JSONEncoder().encode(manifest)) as? [String: Any]
+        )
+        XCTAssertEqual((roundTripped["workflowMode"] as? [String: Bool])?["unexpected"], true)
+    }
+
+    func testNullWorkflowModeRemainsLoadableAndRoundTripsLosslessly() throws {
+        let data = Data(#"""
+        {
+          "schemaVersion": 1,
+          "kind": "full-length-ont-mhc-genotype",
+          "workflowKind": "full-length-ont-mhc-genotype",
+          "workflowMode": null,
+          "outputName": "null-mode",
+          "analysisName": "Null mode",
+          "primaryWorkbookPath": "null-mode.xlsx",
+          "longSummaryCSVPath": "calls.csv",
+          "sampleSummaryCSVPath": "samples.csv",
+          "statsJSONPath": "stats.json",
+          "provenancePath": "provenance.json"
+        }
+        """#.utf8)
+
+        let manifest = try JSONDecoder().decode(ONTGenotypeResultBundleManifest.self, from: data)
+
+        XCTAssertNil(manifest.workflowMode)
+        XCTAssertEqual(manifest.workflowModeDeclaration.originalValue, .null)
+        XCTAssertTrue(
+            try XCTUnwrap(manifest.workflowModeDeclaration.issue)
+                .localizedCaseInsensitiveContains("string")
+        )
+        let roundTripped = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: JSONEncoder().encode(manifest)) as? [String: Any]
+        )
+        XCTAssertTrue(roundTripped["workflowMode"] is NSNull)
+    }
+
+    func testOverflowSizedIntegerWorkflowModeRoundTripsWithoutPrecisionLoss() throws {
+        let exactInteger = Decimal(string: "9223372036854775809")!
+        let data = Data(#"""
+        {
+          "schemaVersion": 1,
+          "kind": "full-length-ont-mhc-genotype",
+          "workflowKind": "full-length-ont-mhc-genotype",
+          "workflowMode": 9223372036854775809,
+          "outputName": "overflow-mode",
+          "analysisName": "Overflow mode",
+          "primaryWorkbookPath": "overflow-mode.xlsx",
+          "longSummaryCSVPath": "calls.csv",
+          "sampleSummaryCSVPath": "samples.csv",
+          "statsJSONPath": "stats.json",
+          "provenancePath": "provenance.json"
+        }
+        """#.utf8)
+
+        let manifest = try JSONDecoder().decode(ONTGenotypeResultBundleManifest.self, from: data)
+        let encoded = try JSONEncoder().encode(manifest)
+        let decodedNumber = try JSONDecoder().decode(
+            WorkflowModeDecimalEnvelope.self,
+            from: encoded
+        )
+
+        XCTAssertEqual(decodedNumber.workflowMode, exactInteger)
+        XCTAssertNil(manifest.workflowMode)
+        XCTAssertTrue(
+            try XCTUnwrap(manifest.workflowModeDeclaration.issue)
+                .localizedCaseInsensitiveContains("string")
+        )
+    }
+
     func testMHCCandidateDisplaySettingsDefaultToAllVisibleAndFourCanonicalTints() {
         let settings = ONTMHCCandidateDisplaySettings.default
 
@@ -2272,6 +2792,118 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         XCTAssertEqual(result.haplotypeAnalysis?.samples.first?.calls.first?.haplotype1, "A1_063")
     }
 
+    private enum ReviewableCatalogCorruption: CaseIterable {
+        case traversal
+        case symlink
+        case size
+        case checksum
+    }
+
+    private func reviewableRowCatalog() -> GenotypeReviewableRowCatalog {
+        GenotypeReviewableRowCatalog(
+            schemaID: GenotypeReviewableRowCatalog.schemaID,
+            schemaVersion: GenotypeReviewableRowCatalog.schemaVersion,
+            samples: ["S1", "S2"],
+            rows: [
+                .init(
+                    kind: .reference,
+                    callID: "reference:MHC-A:Mafa-A1*001:01",
+                    displayName: "Mafa-A1*001:01",
+                    locus: "MHC-A",
+                    stableID: nil,
+                    section: "reference",
+                    sortKey: "MHC-A|Mafa-A1*001:01",
+                    supportBySample: ["S1": 0, "S2": 0]
+                ),
+                .init(
+                    kind: .provisionalExon2,
+                    callID: "candidate:MHC-B:candidate-1",
+                    displayName: "Mafa-B*999:01_nov",
+                    locus: "MHC-B",
+                    stableID: "candidate-1",
+                    section: "provisional-exon-2",
+                    sortKey: "MHC-B|Mafa-B*999:01_nov",
+                    supportBySample: ["S1": 0, "S2": 7]
+                ),
+            ]
+        )
+    }
+
+    private func makeReviewableRowCatalogBundle(
+        corruption: ReviewableCatalogCorruption? = nil
+    ) throws -> (
+        bundleURL: URL,
+        catalog: GenotypeReviewableRowCatalog
+    ) {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "reviewable-row-catalog-\(UUID().uuidString).lungfishgenotype",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let workbookURL = bundleURL.appendingPathComponent("catalog.xlsx")
+        let callURL = bundleURL.appendingPathComponent("calls.csv")
+        let sampleURL = bundleURL.appendingPathComponent("samples.csv")
+        let statsURL = bundleURL.appendingPathComponent("stats.json")
+        let provenanceURL = bundleURL.appendingPathComponent("provenance.json")
+        try Data("workbook".utf8).write(to: workbookURL)
+        try Data(
+            """
+            sample,genotype,passed_alignments,passed_unique_reads
+            S1,Mafa-A1*001:01,0,0
+            S2,Mafa-B*999:01_nov,7,7
+            """.utf8
+        ).write(to: callURL)
+        try Data(
+            """
+            sample,passed_alignments,passed_unique_reads
+            S1,0,0
+            S2,7,7
+            """.utf8
+        ).write(to: sampleURL)
+        try Data("{}".utf8).write(to: statsURL)
+        try Data("{}".utf8).write(to: provenanceURL)
+
+        let catalog = reviewableRowCatalog()
+        let catalogData = try JSONEncoder().encode(catalog)
+        let artifactDirectory = bundleURL.appendingPathComponent("artifacts", isDirectory: true)
+        try FileManager.default.createDirectory(at: artifactDirectory, withIntermediateDirectories: true)
+        let regularCatalogURL = artifactDirectory.appendingPathComponent("reviewable-rows-source.json")
+        try catalogData.write(to: regularCatalogURL)
+        let descriptorPath: String
+        if corruption == .symlink {
+            let symlinkURL = artifactDirectory.appendingPathComponent("reviewable-rows.json")
+            try FileManager.default.createSymbolicLink(
+                at: symlinkURL,
+                withDestinationURL: regularCatalogURL
+            )
+            descriptorPath = "artifacts/reviewable-rows.json"
+        } else if corruption == .traversal {
+            descriptorPath = "../reviewable-rows.json"
+        } else {
+            descriptorPath = "artifacts/reviewable-rows-source.json"
+        }
+        let descriptor = ONTMHCArtifactReference(
+            path: descriptorPath,
+            sha256: corruption == .checksum
+                ? String(repeating: "0", count: 64)
+                : SHA256.hash(data: catalogData).map { String(format: "%02x", $0) }.joined(),
+            sizeBytes: Int64(catalogData.count) + (corruption == .size ? 1 : 0)
+        )
+        let manifest = ONTGenotypeResultBundleManifest(
+            outputName: "catalog",
+            analysisName: "Catalog",
+            primaryWorkbookPath: workbookURL.lastPathComponent,
+            longSummaryCSVPath: callURL.lastPathComponent,
+            sampleSummaryCSVPath: sampleURL.lastPathComponent,
+            statsJSONPath: statsURL.lastPathComponent,
+            provenancePath: provenanceURL.lastPathComponent,
+            reviewableRowCatalog: descriptor
+        )
+        try ONTGenotypeResultBundle.writeManifest(manifest, to: bundleURL)
+        return (bundleURL, catalog)
+    }
+
     private func makeCall(
         sample: String,
         genotype: String,
@@ -3041,4 +3673,37 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
             SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
         }
     }
+}
+
+private extension GenotypeReviewableRowCatalog {
+    func replacingSupport(row index: Int, with support: [String: Int]) -> Self {
+        replacingRow(
+            index,
+            with: Row(
+                kind: rows[index].kind,
+                callID: rows[index].callID,
+                displayName: rows[index].displayName,
+                locus: rows[index].locus,
+                stableID: rows[index].stableID,
+                section: rows[index].section,
+                sortKey: rows[index].sortKey,
+                supportBySample: support
+            )
+        )
+    }
+
+    func replacingRow(_ index: Int, with row: Row) -> Self {
+        var updatedRows = rows
+        updatedRows[index] = row
+        return Self(
+            schemaID: schemaID,
+            schemaVersion: schemaVersion,
+            samples: samples,
+            rows: updatedRows
+        )
+    }
+}
+
+private struct WorkflowModeDecimalEnvelope: Decodable {
+    let workflowMode: Decimal
 }

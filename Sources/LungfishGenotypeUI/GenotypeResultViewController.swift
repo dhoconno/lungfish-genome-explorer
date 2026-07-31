@@ -1,9 +1,44 @@
 import AppKit
+import Combine
 import SwiftUI
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 import LungfishKit
+
+public struct GenotypeResultDesiredConfigurationAuthority:
+    Equatable, Sendable {
+    public let bundleURL: URL?
+    fileprivate let generation: UInt64
+
+    fileprivate init(bundleURL: URL?, generation: UInt64) {
+        self.bundleURL = bundleURL
+        self.generation = generation
+    }
+}
+
+struct GenotypeManualHaplotypeMultiSamplePresentation: Equatable {
+    static let maximumVisibleSamples = 12
+
+    let visibleSamples: [String]
+    let omittedSampleCount: Int
+
+    init(samples: [String]) {
+        visibleSamples = Array(
+            samples.prefix(Self.maximumVisibleSamples)
+        )
+        omittedSampleCount = max(0, samples.count - visibleSamples.count)
+    }
+
+    var omissionSummary: String? {
+        guard omittedSampleCount > 0 else { return nil }
+        let noun = omittedSampleCount == 1 ? "sample" : "samples"
+        return
+            "\(omittedSampleCount) additional selected \(noun) "
+            + (omittedSampleCount == 1 ? "is" : "are")
+            + " not shown."
+    }
+}
 
 @MainActor
 protocol GenotypeMatrixWorkbookUpdateCancellation: AnyObject {
@@ -137,6 +172,14 @@ public final class GenotypeResultViewController: NSViewController {
         case failure(Error, sidecarBeforeAttempt: GenotypeAnnotationSidecar)
     }
 
+    private enum ManualHaplotypeEditorError: Error, LocalizedError {
+        case unavailable
+
+        var errorDescription: String? {
+            "The manual haplotype assignment store is no longer available."
+        }
+    }
+
     private struct SharedCallKey: Hashable {
         let locus: String
         let genotype: String
@@ -151,6 +194,8 @@ public final class GenotypeResultViewController: NSViewController {
     public var onSelectionStateChanged: ((GenotypeResultSelectionState?) -> Void)?
     public var onDisplaySummaryChanged: ((Int, Int, Int) -> Void)?
     public var onDisplayStateChanged: ((GenotypeResultDisplayState) -> Void)?
+    public var manualHaplotypeBandDisclosureStore:
+        GenotypeManualHaplotypeBandDisclosureStore?
     public var onAnnotationSidecarChanged: ((GenotypeAnnotationSidecar) -> Void)?
     public var onMatrixReviewCapabilityChanged: ((GenotypeMatrixReviewCapabilityState) -> Void)?
     public var onMatrixVisibilityCapabilityChanged:
@@ -162,6 +207,22 @@ public final class GenotypeResultViewController: NSViewController {
 
     public var currentResultBundleURL: URL? {
         result?.bundleURL
+    }
+
+    public var desiredResultConfigurationAuthority:
+        GenotypeResultDesiredConfigurationAuthority {
+        GenotypeResultDesiredConfigurationAuthority(
+            bundleURL: desiredResultConfigurationBundleURL,
+            generation: resultConfigurationGeneration
+        )
+    }
+
+    public func ownsDesiredResultConfiguration(
+        _ authority: GenotypeResultDesiredConfigurationAuthority
+    ) -> Bool {
+        resultConfigurationGeneration == authority.generation
+            && desiredResultConfigurationBundleURL
+                == authority.bundleURL
     }
 
     public var currentResultBundleIsReadOnly: Bool {
@@ -242,9 +303,79 @@ public final class GenotypeResultViewController: NSViewController {
     private let splitCoordinator = TwoPaneTrackedSplitCoordinator()
 
     private var result: ONTGenotypeResultBundleData?
+    public private(set) var manualHaplotypeEligibility:
+        GenotypeManualHaplotypeEligibility = .ineligible(
+            reason: "No genotype result is loaded."
+        )
+    public var manualHaplotypeDisabledReason: String? {
+        guard case .ineligible(let reason) = manualHaplotypeEligibility else { return nil }
+        return reason
+    }
     private var hasHaplotypingResult = false
     private var sampleMetadataStore: SampleMetadataStore?
     private var annotationStore: GenotypeAnnotationStore?
+    private var manualHaplotypeEditorModel:
+        GenotypeManualHaplotypeEditorModel?
+    private var sampleComparisonModel:
+        GenotypeSampleComparisonModel?
+    private var manualHaplotypeDraftRevisionCancellable:
+        AnyCancellable?
+    private var sampleCurationTrailingModel:
+        GenotypeSampleCurationTrailingModel?
+    private weak var manualHaplotypeEditorHostView: NSView?
+    private var sampleCurationWorkbench:
+        GenotypeSampleCurationWorkbenchView?
+    private var sampleWorkbenchWidthConstraint: NSLayoutConstraint?
+    private var sampleSupportedAllelesSnapshot:
+        GenotypeSupportedAllelesSnapshot?
+#if DEBUG
+    private var testingLastManualHaplotypeFocusIdentifier: String?
+#endif
+    private let manualHaplotypeEditorTypographyModel =
+        ContentTypographyModel.shared
+    private lazy var manualHaplotypeDraftCoordinator =
+        GenotypeManualHaplotypeDraftCoordinator(
+            hasUnsavedChanges: { [weak self] in
+                self?.manualHaplotypeEditorModel?.draft.isDirty == true
+            },
+            revisionToken: { [weak self] in
+                self?.manualHaplotypeEditorModel?.draftRevisionToken
+            },
+            save: { [weak self] in
+                guard let model = self?.manualHaplotypeEditorModel else {
+                    return true
+                }
+                model.save()
+                return !model.draft.isDirty
+            },
+            prepareSave: { [weak self] in
+                guard let model = self?.manualHaplotypeEditorModel else {
+                    return true
+                }
+                return model.prepareSave()
+            },
+            finalizePreparedSave: { [weak self] in
+                guard let model = self?.manualHaplotypeEditorModel else {
+                    return true
+                }
+                return model.finalizePreparedSave()
+            },
+            cancelPreparedSave: { [weak self] in
+                self?.manualHaplotypeEditorModel?.cancelPreparedSave()
+            },
+            discard: { [weak self] in
+                guard let model = self?.manualHaplotypeEditorModel else {
+                    return true
+                }
+                model.reload()
+                return !model.draft.isDirty
+            }
+        )
+    private var manualHaplotypeDraftDecisionProvider:
+        ((GenotypeManualHaplotypeDraftCoordinator.Transition) async
+            -> GenotypeManualHaplotypeDraftDecision)?
+    private let manualHaplotypeTransitionMutationCoordinator =
+        GenotypeManualHaplotypeTransitionMutationCoordinator()
     private var manualHaplotypingSelection: Set<String> = []
     private var manualHaplotypingDraftLabel: String = ""
     private var manualHaplotypingDraftColorTokenIndex: Int = 1
@@ -356,6 +487,7 @@ public final class GenotypeResultViewController: NSViewController {
     private var currentWorkbookUpdateStatus: String?
     private var currentWorkbookSyncPhase: GenotypeCurrentWorkbookUIPhase?
     private var currentWorkbookIsReadOnly = false
+    private var testingCurrentWorkbookDirtyMarkCount = 0
     private var showsDeferredMatrixAnnotationStatus = false
     private var currentWorkbookAnnotationAutoUpdateTask: GenotypeMatrixWorkbookUpdateCancellation?
     var matrixWorkbookUpdateScheduler: GenotypeMatrixWorkbookUpdateScheduling =
@@ -368,18 +500,31 @@ public final class GenotypeResultViewController: NSViewController {
     private var pendingConfigurationResult: ONTGenotypeResultBundleData?
     private var currentWorkbookResultReloadTask: Task<Void, Never>?
     private var resultConfigurationGeneration: UInt64 = 0
+    private var desiredResultConfigurationBundleURL: URL?
     private var aiHaplotypingStatus: String?
     private var outlineRowsBySample: [String: GenotypeOutlineView.Row] = [:]
     private var outlineRowOrder: [String] = []
 
     private var isGenotypeOnlyResult: Bool {
-        guard let result else { return false }
-        return !hasHaplotypingResult && !result.calls.isEmpty
+        guard case .eligible = manualHaplotypeEligibility else {
+            return false
+        }
+        return true
+    }
+
+    private var availableLenses: [Lens] {
+        isGenotypeOnlyResult ? [.summary, .audit] : Lens.allCases
+    }
+
+    private var viewportHeaderHeight: CGFloat {
+        isGenotypeOnlyResult ? 36 : 48
     }
 
     private var isFullLengthMHCGenotypeViewport: Bool {
-        !hasHaplotypingResult
-            && result?.manifest.kind == "full-length-ont-mhc-genotype"
+        guard case .eligible(let resultKind) = manualHaplotypeEligibility else {
+            return false
+        }
+        return resultKind == .fullLengthONTMHCGenotype
     }
 
     public override func loadView() {
@@ -455,6 +600,15 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func applyQuickFilterState(_ state: GenotypeQuickFilterBarView.FilterState) {
+        if requiresManualHaplotypeTransitionCoordination {
+            quickFilterBar.restoreStateWithoutEmitting(quickFilterState)
+            deferManualHaplotypeTransition(.search) { [weak self] in
+                guard let self else { return }
+                self.quickFilterBar.restoreStateWithoutEmitting(state)
+                self.applyQuickFilterState(state)
+            }
+            return
+        }
         quickFilterState = state
         quickFilterPredicate = state.pillPredicate
         quickFilterSearchText = state.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -791,6 +945,24 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     public func configure(result: ONTGenotypeResultBundleData) {
+        desiredResultConfigurationBundleURL =
+            result.bundleURL.standardizedFileURL
+        invalidateCurrentWorkbookResultReload()
+        let requestedAuthority = desiredResultConfigurationAuthority
+        if requiresManualHaplotypeTransitionCoordination {
+            deferManualHaplotypeTransition(
+                .eligibilityChange,
+                mutation: { [weak self] in
+                    self?.configureImmediately(result: result)
+                },
+                rejection: { [weak self] in
+                    self?.restoreDisplayedResultAsDesiredConfiguration(
+                        ifCurrent: requestedAuthority
+                    )
+                }
+            )
+            return
+        }
         guard deferredMatrixAnnotationMutationCount == 0 else {
             pendingConfigurationResult = result
             return
@@ -798,8 +970,21 @@ public final class GenotypeResultViewController: NSViewController {
         configureImmediately(result: result)
     }
 
+    private func restoreDisplayedResultAsDesiredConfiguration(
+        ifCurrent authority:
+            GenotypeResultDesiredConfigurationAuthority
+    ) {
+        guard ownsDesiredResultConfiguration(authority) else {
+            return
+        }
+        desiredResultConfigurationBundleURL =
+            result?.bundleURL.standardizedFileURL
+        invalidateCurrentWorkbookResultReload()
+    }
+
     private func configureImmediately(result: ONTGenotypeResultBundleData) {
         invalidateCurrentWorkbookResultReload()
+        teardownSampleCurationWorkbench()
         currentWorkbookAnnotationAutoUpdateTask?.cancel()
         currentWorkbookAnnotationAutoUpdateTask = nil
         candidateSettingsPersistenceTask?.cancel()
@@ -807,6 +992,15 @@ public final class GenotypeResultViewController: NSViewController {
         pendingCandidateSettingsRequest = nil
         candidateSettingsPersistenceGeneration &+= 1
         self.result = result
+        manualHaplotypeEligibility = GenotypeManualHaplotypeEligibility.evaluate(result)
+        configureAvailableLensSegments()
+        if case .eligible = manualHaplotypeEligibility {
+            // A newly viewed eligible bundle is collapsed. Only an existing
+            // window-owned, bundle-keyed presentation entry restores expansion.
+            displayState.manualHaplotypeBandExpanded =
+                manualHaplotypeBandDisclosureStore?
+                    .expansion(for: result.bundleURL) ?? false
+        }
         hasHaplotypingResult = result.haplotypeAnalysis != nil
         quickFilterBar.configureSearchCapability(
             hasHaplotypingResult: hasHaplotypingResult
@@ -1213,6 +1407,17 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     public func applyDisplayState(_ state: GenotypeResultDisplayState) {
+        if requiresManualHaplotypeTransitionCoordination {
+            let transition:
+                GenotypeManualHaplotypeDraftCoordinator.Transition =
+                    state.viewportLens != displayState.viewportLens
+                        ? .lens
+                        : .filter
+            deferManualHaplotypeTransition(transition) { [weak self] in
+                self?.applyDisplayState(state)
+            }
+            return
+        }
         if state.mhcCandidateDisplaySettings != displayState.mhcCandidateDisplaySettings,
            let result,
            validatedMHCCandidateDocument(from: result) != nil,
@@ -1224,6 +1429,13 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func applyDisplayStateImmediately(_ state: GenotypeResultDisplayState) {
+        let focusedManualHaplotypeCombo =
+            focusedManualHaplotypeComboBox()
+        defer {
+            restoreManualHaplotypeFocus(
+                focusedManualHaplotypeCombo
+            )
+        }
         let state = state.normalized(forGenotypeOnlyResult: isGenotypeOnlyResult)
         let previousDisplayState = displayState
         let candidateSearchProjectionChanged = candidateVisibilityChanged(
@@ -1702,7 +1914,7 @@ public final class GenotypeResultViewController: NSViewController {
         clearDeferredMatrixAnnotationStatusIfNeeded()
         if let pendingConfigurationResult {
             self.pendingConfigurationResult = nil
-            configureImmediately(result: pendingConfigurationResult)
+            configure(result: pendingConfigurationResult)
         }
         onDeferredMatrixAnnotationMutationsDrained?()
     }
@@ -2117,6 +2329,14 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func refreshCurrentSelectionDetails() {
+        if sampleCurationWorkbench != nil,
+           sampleCurationTrailingModel != nil {
+            refreshSelectedSampleCurationEvidence()
+            return
+        }
+        guard !hasUnsavedManualHaplotypeDraft else {
+            return
+        }
         if let currentSharedCall {
             showSharedCall(
                 currentSharedCall,
@@ -2142,6 +2362,18 @@ public final class GenotypeResultViewController: NSViewController {
         lensControl.action = #selector(lensChanged(_:))
         lensControl.selectedSegment = segmentIndex(for: .summary)
         lensControl.setAccessibilityIdentifier("genotype-result-lens-control")
+    }
+
+    private func configureAvailableLensSegments() {
+        guard isViewLoaded else { return }
+        let lenses = availableLenses
+        lensControl.segmentCount = lenses.count
+        for (index, lens) in lenses.enumerated() {
+            lensControl.setLabel(lens.displayName, forSegment: index)
+        }
+        lensControl.controlSize = isGenotypeOnlyResult ? .small : .regular
+        lensControl.selectedSegment = segmentIndex(for: selectedLens)
+        lensControl.invalidateIntrinsicContentSize()
     }
 
     private func configureContentHost() {
@@ -2290,6 +2522,14 @@ public final class GenotypeResultViewController: NSViewController {
             afterApply: { [weak self, weak root, weak scrollView] in
                 guard let self, let root, let scrollView else { return }
                 self.finishGeneratedContentTypographyUpdate(in: root)
+                if root === self.detailStack {
+                    self.sampleCurationWorkbench?
+                        .updateContentTypographyScale(
+                            self.currentContentTypographyScale()
+                        )
+                    self.sampleCurationWorkbench?
+                        .layoutSubtreeIfNeeded()
+                }
                 root.layoutSubtreeIfNeeded()
                 scrollView.contentView.setBoundsOrigin(preservedOrigin)
                 scrollView.reflectScrolledClipView(scrollView.contentView)
@@ -2323,6 +2563,7 @@ public final class GenotypeResultViewController: NSViewController {
             || view is NSSegmentedControl
             || view is NSPopUpButton
             || view is NSSlider
+            || view is GenotypeSampleCurationHeaderView
             || view === knownAlleleDetailView
             || view === candidateAlleleDetailView
             || view === alleleSequenceDetailView
@@ -2339,9 +2580,9 @@ public final class GenotypeResultViewController: NSViewController {
 
         contentHostTopConstraint = contentHost.topAnchor.constraint(
             equalTo: view.safeAreaLayoutGuide.topAnchor,
-            constant: isGenotypeOnlyResult ? 0 : 48
+            constant: viewportHeaderHeight
         )
-        lensControl.isHidden = isGenotypeOnlyResult
+        lensControl.isHidden = false
 
         NSLayoutConstraint.activate([
             lensControl.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
@@ -2356,8 +2597,8 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func applyViewportHeaderVisibility() {
         guard isViewLoaded else { return }
-        lensControl.isHidden = isGenotypeOnlyResult
-        contentHostTopConstraint.constant = isGenotypeOnlyResult ? 0 : 48
+        lensControl.isHidden = false
+        contentHostTopConstraint.constant = viewportHeaderHeight
     }
 
     private func wireCallbacks() {
@@ -2375,7 +2616,14 @@ public final class GenotypeResultViewController: NSViewController {
             self?.showCandidateRow(row, sample: sample, matrixTargets: matrixTargets)
         }
         comparisonMatrix.onMatrixTargetsSelected = { [weak self] targets in
-            self?.showMatrixTargetSelection(targets)
+            guard let self else { return }
+            if self.currentSelectionState?.matrixTargets == targets,
+               self.sampleCurationWorkbench != nil,
+               self.sampleCurationTrailingModel != nil {
+                return
+            } else {
+                self.showMatrixTargetSelection(targets)
+            }
         }
         comparisonMatrix.onMatrixReviewRequested = { [weak self] request in
             self?.applyMatrixReview(request)
@@ -2394,24 +2642,70 @@ public final class GenotypeResultViewController: NSViewController {
             self.invalidateGenotypeSearchIndex()
             self.refreshVisibleFilterDependentViews()
         }
+        comparisonMatrix.onVisibleProjectionChanged = { [weak self] in
+            self?.refreshSelectedSampleCurationEvidence()
+        }
         comparisonMatrix.onMatrixVisibilityCapabilityChanged = { [weak self] capability in
             guard let self else { return }
             self.matrixVisibilityCapability = capability
             self.onMatrixVisibilityCapabilityChanged?(capability)
         }
+        comparisonMatrix.onManualHaplotypeTransitionPreflight = {
+            [weak self] transition, mutation in
+            guard let self else {
+                return false
+            }
+            return self.deferManualHaplotypeTransition(
+                transition,
+                mutation: mutation
+            )
+        }
+        comparisonMatrix.onManualHaplotypeEditRequested = {
+            [weak self] sample in
+            self?.focusManualHaplotypeEditor(sample: sample)
+        }
+        comparisonMatrix.onManualHaplotypeBandExpansionChanged = {
+            [weak self] expanded in
+            guard let self else { return }
+            self.displayState.manualHaplotypeBandExpanded = expanded
+            if let bundleURL = self.result?.bundleURL {
+                self.manualHaplotypeBandDisclosureStore?
+                    .setExpansion(expanded, for: bundleURL)
+            }
+            self.onDisplayStateChanged?(self.displayState)
+        }
     }
 
     @objc private func lensChanged(_ sender: NSSegmentedControl) {
         guard sender.selectedSegment >= 0,
-              sender.selectedSegment < Lens.allCases.count else { return }
-        let lens = Lens.allCases[sender.selectedSegment]
+              sender.selectedSegment < availableLenses.count else { return }
+        let lens = availableLenses[sender.selectedSegment]
+        if requiresManualHaplotypeTransitionCoordination {
+            sender.selectedSegment = segmentIndex(for: selectedLens)
+            deferManualHaplotypeTransition(.lens) { [weak self] in
+                guard let self else { return }
+                self.showLens(lens)
+                self.onDisplayStateChanged?(self.displayState)
+            }
+            return
+        }
         showLens(lens)
         onDisplayStateChanged?(displayState)
     }
 
     private func showLens(_ lens: Lens, autoActivateReviewCohort: Bool = true) {
+        if requiresManualHaplotypeTransitionCoordination {
+            deferManualHaplotypeTransition(.lens) { [weak self] in
+                self?.showLens(
+                    lens,
+                    autoActivateReviewCohort:
+                        autoActivateReviewCohort
+                )
+            }
+            return
+        }
         displayState = displayState.normalized(forGenotypeOnlyResult: isGenotypeOnlyResult)
-        let lens: Lens = isGenotypeOnlyResult ? .summary : lens
+        let lens: Lens = availableLenses.contains(lens) ? lens : .summary
         selectedLens = lens
         displayState.viewportLens = lens
         lensControl.selectedSegment = segmentIndex(for: lens)
@@ -3241,7 +3535,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func segmentIndex(for lens: Lens) -> Int {
-        Lens.allCases.firstIndex(of: lens) ?? 0
+        availableLenses.firstIndex(of: lens) ?? 0
     }
 
     private func installContentView(_ contentView: NSView) {
@@ -3535,6 +3829,11 @@ public final class GenotypeResultViewController: NSViewController {
         currentSharedCall = nil
         currentCandidateRow = nil
         currentSelectedSample = nil
+        manualHaplotypeEditorModel = nil
+        sampleComparisonModel = nil
+        manualHaplotypeDraftRevisionCancellable = nil
+        sampleCurationTrailingModel = nil
+        manualHaplotypeEditorHostView = nil
         alleleSequenceDetailWidthConstraint?.isActive = false
         alleleSequenceDetailWidthConstraint = nil
         alleleSequenceDetailHeightConstraint?.isActive = false
@@ -3557,7 +3856,9 @@ public final class GenotypeResultViewController: NSViewController {
             showEmptySelection()
             return
         }
-        if isFullLengthMHCGenotypeViewport {
+        let selectionKind = matrixSelectionKind(for: uniqueTargets)
+        if isFullLengthMHCGenotypeViewport,
+           selectionKind != .columns {
             let rowTargets = comparisonMatrix.orderedVisibleRowTargets(from: uniqueTargets)
             if !rowTargets.isEmpty {
                 showAlleleSequenceRows(for: rowTargets)
@@ -3568,7 +3869,7 @@ public final class GenotypeResultViewController: NSViewController {
             publishSelectionState(matrixTargetSelectionState(for: uniqueTargets))
             return
         }
-        switch matrixSelectionKind(for: uniqueTargets) {
+        switch selectionKind {
         case .rows:
             showAlleleRowSelection(uniqueTargets)
         case .columns:
@@ -3779,12 +4080,44 @@ public final class GenotypeResultViewController: NSViewController {
             let order = $0.localizedStandardCompare($1)
             return order == .orderedSame ? $0 < $1 : order == .orderedAscending
         }
+        manualHaplotypeEditorModel = nil
+        sampleComparisonModel = nil
+        manualHaplotypeDraftRevisionCancellable = nil
+        sampleCurationTrailingModel = nil
+        manualHaplotypeEditorHostView = nil
         removeArrangedSubviews(from: detailStack)
-        detailStack.addArrangedSubview(sectionTitle(samples.count == 1 ? "Selected Sample" : "Selected Samples"))
         var stateRows: [(String, String)] = [
             ("Selection Type", samples.count == 1 ? "Column" : "Columns"),
         ]
-        for (index, sample) in samples.enumerated() {
+        if samples.count == 1, let sample = samples.first {
+            showSingleSampleColumnSelection(
+                sample: sample,
+                targets: targets,
+                stateRows: &stateRows
+            )
+            publishSelectionState(GenotypeResultSelectionState(
+                title: sample,
+                subtitle: "Sample column",
+                detailRows: stateRows,
+                highlightTarget: nil,
+                matrixTargets: targets
+            ))
+            return
+        }
+
+        detailStack.addArrangedSubview(sectionTitle("Selected Samples"))
+        let manualAssignmentIndex =
+            GenotypeManualHaplotypeAssignmentIndex(
+                assignments:
+                    annotationStore?.sidecar
+                        .manualHaplotypeAssignments ?? []
+            )
+        let multiSamplePresentation =
+            GenotypeManualHaplotypeMultiSamplePresentation(
+                samples: samples
+            )
+        for (index, sample) in
+            multiSamplePresentation.visibleSamples.enumerated() {
             detailStack.addArrangedSubview(wrappingText(sample, weight: .medium))
             let summary = sampleResultsByName[sample]
             var rows: [(String, String)] = [("Sample", sample)]
@@ -3795,64 +4128,410 @@ public final class GenotypeResultViewController: NSViewController {
                     ("QC", summary.qcStatus.displayName),
                 ]
             }
+            let assignments =
+                manualAssignmentIndex
+                    .sampleAssignments(for: sample)
+                    .assignments
+            let totalSlots =
+                GenotypeManualHaplotypeLocus.allCases.count
+                * HaplotypeSlot.allCases.count
+            let completeness =
+                "\(assignments.count) of \(totalSlots) assigned"
+            let labels = Array(
+                Set(assignments.map(\.label))
+            ).sorted {
+                let order =
+                    $0.localizedStandardCompare($1)
+                return order == .orderedSame
+                    ? $0 < $1
+                    : order == .orderedAscending
+            }
+            let boundedLabels = labels.prefix(6)
+            var labelSummary = boundedLabels.isEmpty
+                ? "None"
+                : boundedLabels.joined(separator: ", ")
+            let remainingLabels =
+                labels.count - boundedLabels.count
+            if remainingLabels > 0 {
+                labelSummary +=
+                    " (+\(remainingLabels) more)"
+            }
+            rows += [
+                ("Haplotype Completeness", completeness),
+                ("Haplotype Labels", labelSummary),
+            ]
+            stateRows += [
+                (
+                    "\(sample) Haplotype Completeness",
+                    completeness
+                ),
+                (
+                    "\(sample) Haplotype Labels",
+                    labelSummary
+                ),
+            ]
             detailStack.addArrangedSubview(detailRows(rows))
-            stateRows.append((samples.count == 1 ? "Selected Sample" : "Sample \(index + 1)", sample))
-            stateRows += rows
-
-            guard samples.count == 1 else { continue }
-
-            let supported = comparisonMatrix.visibleSampleAlleleDetails(sample: sample)
-                .sorted { lhs, rhs in
-                    let locusOrder = lhs.sharedCall.locus.localizedStandardCompare(rhs.sharedCall.locus)
-                    if locusOrder != .orderedSame {
-                        return locusOrder == .orderedAscending
-                    }
-                    if lhs.sharedCall.locus != rhs.sharedCall.locus {
-                        return lhs.sharedCall.locus < rhs.sharedCall.locus
-                    }
-                    if lhs.support.passedUniqueReads != rhs.support.passedUniqueReads {
-                        return lhs.support.passedUniqueReads > rhs.support.passedUniqueReads
-                    }
-                    let labelOrder = alleleDisplayLabel(for: lhs.sharedCall.genotype).localizedStandardCompare(
-                        alleleDisplayLabel(for: rhs.sharedCall.genotype)
-                    )
-                    if labelOrder != .orderedSame { return labelOrder == .orderedAscending }
-                    return lhs.sharedCall.genotype < rhs.sharedCall.genotype
-                }
-            if !supported.isEmpty {
-                detailStack.addArrangedSubview(sectionTitle("Supported Alleles"))
+            stateRows.append(("Sample \(index + 1)", sample))
+            stateRows += rows.filter {
+                !$0.0.hasPrefix("Haplotype ")
             }
-            var renderedEntries: [String] = []
-            renderedEntries.reserveCapacity(supported.count)
-            for (alleleIndex, item) in supported.enumerated() {
-                let label = alleleDisplayLabel(for: item.sharedCall.genotype)
-                let supportLabel = item.fraction.map(percent) ?? "Unavailable"
-                let alleleRows = [
-                    ("Locus", item.sharedCall.locus),
-                    ("Unique Reads", integer(item.support.passedUniqueReads)),
-                    ("Alignments", integer(item.support.passedAlignments)),
-                    ("Support", supportLabel),
-                ]
-                renderedEntries.append(
-                    "\(label)\nLocus: \(item.sharedCall.locus)  •  Unique Reads: \(integer(item.support.passedUniqueReads))  •  Alignments: \(integer(item.support.passedAlignments))  •  Support: \(supportLabel)"
+        }
+        if let omissionSummary =
+            multiSamplePresentation.omissionSummary {
+            detailStack.addArrangedSubview(
+                caption(omissionSummary)
+            )
+            stateRows.append(
+                (
+                    "Additional Selected Samples",
+                    "\(multiSamplePresentation.omittedSampleCount)"
                 )
-                stateRows.append(("Allele \(alleleIndex + 1)", label))
-                stateRows += alleleRows
-            }
-            if !renderedEntries.isEmpty {
-                detailStack.addArrangedSubview(wrappingText(renderedEntries.joined(separator: "\n\n")))
-            }
+            )
         }
         let comments = matrixCommentDetailRows(for: targets)
         appendCommentsToDetail(comments)
         stateRows += comments
         publishSelectionState(GenotypeResultSelectionState(
-            title: samples.count == 1 ? (samples.first ?? "Selected Sample") : "Selected Samples: \(samples.count)",
-            subtitle: samples.count == 1 ? "Sample column" : "Sample columns",
+            title: "Selected Samples: \(samples.count)",
+            subtitle: "Sample columns",
             detailRows: stateRows,
             highlightTarget: nil,
             matrixTargets: targets
         ))
+    }
+
+    private func showSingleSampleColumnSelection(
+        sample: String,
+        targets: [GenotypeAnnotationSidecar.MatrixTarget],
+        stateRows: inout [(String, String)]
+    ) {
+        let summary = sampleResultsByName[sample]
+        var sampleRows: [(String, String)] = [("Sample", sample)]
+        if let summary {
+            let check = callSupportCheck(
+                for: sample,
+                summary: summary
+            )
+            sampleRows += [
+                (
+                    "Retained Unique Reads",
+                    integer(summary.passedUniqueReads)
+                ),
+                ("Call-support check", check.title),
+            ]
+        }
+        stateRows.append(("Selected Sample", sample))
+        stateRows += sampleRows
+
+        let supported =
+            comparisonMatrix.visibleSampleAlleleDetails(sample: sample)
+        let snapshot = supportedAllelesSnapshot(from: supported)
+        for row in snapshot.rows {
+            stateRows.append(("Allele", row.allele))
+            stateRows += [
+                (
+                    "Read support",
+                    row.readSupport
+                ),
+            ]
+        }
+        let comments = matrixCommentDetailRows(for: targets)
+        stateRows += comments
+
+        guard let editor = makeManualHaplotypeEditorHost(
+            for: sample
+        ) else {
+            showLegacySingleSampleColumnSelection(
+                sample: sample,
+                sampleRows: sampleRows,
+                snapshot: snapshot,
+                comments: comments
+            )
+            return
+        }
+
+        let header = makeSampleCurationHeader(
+            sample: sample,
+            summary: summary
+        )
+        let assignment = NSView()
+        assignment.translatesAutoresizingMaskIntoConstraints = false
+        editor.translatesAutoresizingMaskIntoConstraints = false
+        assignment.addSubview(editor)
+        NSLayoutConstraint.activate([
+            editor.topAnchor.constraint(equalTo: assignment.topAnchor),
+            editor.leadingAnchor.constraint(
+                equalTo: assignment.leadingAnchor
+            ),
+            editor.trailingAnchor.constraint(
+                equalTo: assignment.trailingAnchor
+            ),
+            editor.bottomAnchor.constraint(
+                equalTo: assignment.bottomAnchor
+            ),
+        ])
+
+        guard let trailingModel = sampleCurationTrailingModel else {
+            showLegacySingleSampleColumnSelection(
+                sample: sample,
+                sampleRows: sampleRows,
+                snapshot: snapshot,
+                comments: comments
+            )
+            return
+        }
+        trailingModel.refreshEvidence(
+            target: snapshot,
+            comparisonTargetRows:
+                comparisonMatrix.visibleSampleEvidenceRows(
+                    sample: sample
+                ),
+            selectedSourceRows:
+                trailingModel.comparison.selectedSource.map {
+                    comparisonMatrix.visibleSampleEvidenceRows(sample: $0)
+                },
+            orderedVisibleRowIDs:
+                comparisonMatrix.visibleComparisonRowIDs
+        )
+        let evidence = makeSampleEvidenceColumn(
+            trailingModel: trailingModel,
+            comments: comments
+        )
+        let workbench = GenotypeSampleCurationWorkbenchView(
+            headerView: header,
+            assignmentView: assignment,
+            evidenceView: evidence,
+            typographyScale: currentContentTypographyScale()
+        )
+        sampleSupportedAllelesSnapshot = snapshot
+        sampleCurationWorkbench = workbench
+        detailStack.addArrangedSubview(workbench)
+        sampleWorkbenchWidthConstraint =
+            workbench.widthAnchor.constraint(
+                equalTo: detailStack.widthAnchor
+            )
+        sampleWorkbenchWidthConstraint?.isActive = true
+    }
+
+    private func supportedAllelesSnapshot(
+        from details: [GenotypeVisibleSampleAlleleDetail]
+    ) -> GenotypeSupportedAllelesSnapshot {
+        GenotypeSupportedAllelesSnapshot(
+            rows: details.map { item in
+                let semantics = item.semantics
+                return GenotypeSupportedAllelePresentation(
+                    id: item.stableClusterID.map {
+                        "candidate:\($0)"
+                    } ?? "known:\(item.sharedCall.locus):"
+                        + item.sharedCall.genotype,
+                    allele: alleleDisplayLabel(
+                        for: item.sharedCall.genotype
+                    ),
+                    readSupport: semantics.cell.text.value,
+                    qualifiers:
+                        supportedAlleleQualifiers(semantics),
+                    readSupportIsSecondary:
+                        semantics.cell.text.colorRole == .secondary,
+                    readSupportIsItalic:
+                        semantics.cell.text.isItalic,
+                    semanticAccessibilityDetails:
+                        supportedAlleleAccessibilityDetails(semantics)
+                )
+            }
+        )
+    }
+
+    private func supportedAlleleQualifiers(
+        _ semantics: GenotypeVisibleSampleAlleleSemantics
+    ) -> [String] {
+        var qualifiers: [String] = []
+        if semantics.isProvisionalExon2 {
+            qualifiers.append("Provisional exon 2")
+        }
+        switch semantics.candidateClassification {
+        case .novel:
+            qualifiers.append("Novel candidate")
+        case .extension:
+            qualifiers.append("Extension candidate")
+        case nil:
+            break
+        }
+        switch semantics.cell.review {
+        case .falsePositive:
+            qualifiers.append("False positive")
+        case .falseNegative:
+            qualifiers.append("False negative")
+        case nil:
+            break
+        }
+        let comments = semantics.cell.commentCounts
+        if comments.alleleRow > 0 {
+            qualifiers.append("Allele row comment")
+        }
+        if comments.sampleColumn > 0 {
+            qualifiers.append("Sample comment")
+        }
+        if comments.cell > 0 {
+            qualifiers.append("Cell comment")
+        }
+        return qualifiers
+    }
+
+    private func supportedAlleleAccessibilityDetails(
+        _ semantics: GenotypeVisibleSampleAlleleSemantics
+    ) -> String? {
+        guard semantics.isProvisionalExon2
+                || semantics.candidateClassification != nil
+                || semantics.cell.review != nil
+                || semantics.cell.commentCounts.total > 0 else {
+            return nil
+        }
+        var details: [String] = []
+        if semantics.isProvisionalExon2 {
+            details.append("Designation: Provisional exon 2.")
+        }
+        switch semantics.candidateClassification {
+        case .novel:
+            details.append("Candidate classification: novel.")
+        case .extension:
+            details.append("Candidate classification: extension.")
+        case nil:
+            break
+        }
+        details.append(semantics.cell.accessibilityLabel)
+        return details.joined(separator: " ")
+    }
+
+    private func showLegacySingleSampleColumnSelection(
+        sample: String,
+        sampleRows: [(String, String)],
+        snapshot: GenotypeSupportedAllelesSnapshot,
+        comments: [(String, String)]
+    ) {
+        detailStack.addArrangedSubview(
+            sectionTitle("Selected Sample")
+        )
+        detailStack.addArrangedSubview(
+            wrappingText(sample, weight: .medium)
+        )
+        detailStack.addArrangedSubview(detailRows(sampleRows))
+        if !snapshot.rows.isEmpty {
+            detailStack.addArrangedSubview(
+                sectionTitle("Supported Alleles")
+            )
+            let renderedEntries = snapshot.rows.map { row in
+                "\(row.allele)  •  Read support: \(row.readSupport)"
+            }
+            detailStack.addArrangedSubview(
+                wrappingText(
+                    renderedEntries.joined(separator: "\n\n")
+                )
+            )
+        }
+        appendCommentsToDetail(comments)
+    }
+
+    private func makeSampleCurationHeader(
+        sample: String,
+        summary: ONTGenotypeSampleResult?
+    ) -> NSView {
+        var metrics = [
+            GenotypeSampleCurationHeaderView.Metric(
+                label: "Selected Sample",
+                value: sample,
+                emphasized: true
+            ),
+        ]
+        if let summary {
+            let check = callSupportCheck(
+                for: sample,
+                summary: summary
+            )
+            metrics += [
+                .init(
+                    label: "Retained Unique Reads",
+                    value: integer(summary.passedUniqueReads)
+                ),
+                .init(
+                    label: "Passed Alignments",
+                    value: integer(summary.passedAlignments)
+                ),
+                .init(
+                    label: "Call-support check",
+                    value: check.title,
+                    accessibilityHelp: check.explanation
+                ),
+            ]
+            return GenotypeSampleCurationHeaderView(
+                metrics: metrics,
+                explanation: check.explanation,
+                typographyScale: currentContentTypographyScale()
+            )
+        }
+        return GenotypeSampleCurationHeaderView(
+            metrics: metrics,
+            typographyScale: currentContentTypographyScale()
+        )
+    }
+
+    private func callSupportCheck(
+        for sample: String,
+        summary: ONTGenotypeSampleResult
+    ) -> GenotypeCallSupportCheck {
+        let callCount =
+            result?.calls.lazy.filter { $0.sample == sample }.count
+            ?? 0
+        return GenotypeCallSupportCheck.evaluate(
+            callCount: callCount,
+            retainedReads: summary.passedUniqueReads,
+            alignments: summary.passedAlignments
+        )
+    }
+
+    private func makeSampleEvidenceColumn(
+        trailingModel: GenotypeSampleCurationTrailingModel,
+        comments: [(String, String)]
+    ) -> NSView {
+        let evidence = NSStackView()
+        evidence.orientation = .vertical
+        evidence.alignment = .width
+        evidence.spacing = 12
+        evidence.setContentCompressionResistancePriority(
+            .defaultLow,
+            for: .horizontal
+        )
+
+        let panel = makeGenotypeSampleCurationTrailingHostingView(
+            model: trailingModel,
+            typographyModel: manualHaplotypeEditorTypographyModel
+        )
+        panel.identifier = Self.generatedContentHostingViewIdentifier
+        panel.translatesAutoresizingMaskIntoConstraints = false
+        panel.setContentHuggingPriority(
+            .defaultLow,
+            for: .horizontal
+        )
+        panel.setContentCompressionResistancePriority(
+            .defaultLow,
+            for: .horizontal
+        )
+        evidence.addArrangedSubview(panel)
+        panel.widthAnchor.constraint(
+            equalTo: evidence.widthAnchor
+        ).isActive = true
+
+        if !comments.isEmpty {
+            evidence.addArrangedSubview(sectionTitle("Comments"))
+            evidence.addArrangedSubview(detailRows(comments))
+        }
+        return evidence
+    }
+
+    private func currentContentTypographyScale() -> CGFloat {
+        let canonical = max(NSFont.systemFontSize, 1)
+        return manualHaplotypeEditorTypographyModel.scaledPointSize(
+            fromCanonicalPointSize: canonical
+        ) / canonical
     }
 
     private func showCellSelection(_ targets: [GenotypeAnnotationSidecar.MatrixTarget]) {
@@ -4378,7 +5057,16 @@ public final class GenotypeResultViewController: NSViewController {
         addAuditSection(title: "Bundle Artifacts", contents: artifactRows)
 
         if manualHaplotypingIsAvailable(result: result) {
-            addAuditSection(title: "Manual Haplotyping", contents: [makeManualHaplotypingHost()])
+            addAuditSection(
+                title: "Manual Haplotyping",
+                contents: [makeManualHaplotypingHost()]
+            )
+        } else if result.haplotypeAnalysis == nil,
+                  let reason = manualHaplotypeDisabledReason {
+            addAuditSection(
+                title: "Manual Haplotyping",
+                contents: [caption(reason)]
+            )
         }
         addAuditSection(title: "Haplotype Thresholds", contents: [makeRunHaplotypeThresholdSummaryHost()])
         addAuditSection(title: "Haplotype Definition", contents: [makeActiveHaplotypeDefinitionRow()])
@@ -4451,7 +5139,17 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     public func applyAIHaplotypingCompleted(result updatedResult: ONTGenotypeResultBundleData) {
+        if requiresManualHaplotypeTransitionCoordination {
+            deferManualHaplotypeTransition(.eligibilityChange) {
+                [weak self] in
+                self?.applyAIHaplotypingCompleted(result: updatedResult)
+            }
+            return
+        }
+        teardownSampleCurationWorkbench()
         result = updatedResult
+        manualHaplotypeEligibility =
+            GenotypeManualHaplotypeEligibility.evaluate(updatedResult)
         hasHaplotypingResult = updatedResult.haplotypeAnalysis != nil
         if hasHaplotypingResult {
             provisionalExon2SequenceRecordsByGenotype = [:]
@@ -4635,6 +5333,7 @@ public final class GenotypeResultViewController: NSViewController {
         legacyStatus: String
     ) {
         guard result != nil, !(annotationStore?.isReadOnly ?? true) else { return }
+        testingCurrentWorkbookDirtyMarkCount += 1
         currentWorkbookNeedsRefresh = true
         currentWorkbookRequiresFullUpdate =
             currentWorkbookRequiresFullUpdate || requiresFullUpdate
@@ -4664,8 +5363,13 @@ public final class GenotypeResultViewController: NSViewController {
                 annotationSidecar: store.sidecar,
                 annotationSidecarURL: annotationURL,
                 candidateArtifacts: result.manifest.mhcCandidateArtifacts,
+                reviewableRowCatalog: result.manifest.reviewableRowCatalog,
+                reviewableRowCatalogSchemaVersion:
+                    result.reviewableRowCatalog?.schemaVersion,
                 annotationOnly: !currentWorkbookRequiresFullUpdate,
-                isReadOnly: store.isReadOnly
+                isReadOnly: store.isReadOnly,
+                haplotypeProjectionMode:
+                    currentWorkbookHaplotypeProjectionMode()
             )
         } catch {
             currentWorkbookNeedsRefresh = true
@@ -4681,6 +5385,15 @@ public final class GenotypeResultViewController: NSViewController {
         result updatedResult: ONTGenotypeResultBundleData,
         annotationOnly: Bool = false
     ) {
+        if requiresManualHaplotypeTransitionCoordination {
+            deferManualHaplotypeTransition(.reload) { [weak self] in
+                self?.applyCurrentWorkbookUpdateCompleted(
+                    result: updatedResult,
+                    annotationOnly: annotationOnly
+                )
+            }
+            return
+        }
         invalidateCurrentWorkbookResultReload()
         applyCurrentWorkbookUpdatedResult(updatedResult)
         if !annotationOnly {
@@ -4716,6 +5429,15 @@ public final class GenotypeResultViewController: NSViewController {
         from bundleURL: URL,
         annotationOnly: Bool = false
     ) {
+        if requiresManualHaplotypeTransitionCoordination {
+            deferManualHaplotypeTransition(.reload) { [weak self] in
+                self?.reloadCurrentWorkbookResult(
+                    from: bundleURL,
+                    annotationOnly: annotationOnly
+                )
+            }
+            return
+        }
         currentWorkbookResultReloadTask?.cancel()
         resultConfigurationGeneration &+= 1
         let expectedBundleURL = bundleURL.standardizedFileURL
@@ -4732,18 +5454,12 @@ public final class GenotypeResultViewController: NSViewController {
                     return
                 }
                 self.currentWorkbookResultReloadTask = nil
-                self.applyCurrentWorkbookUpdatedResult(updatedResult)
-                if !annotationOnly {
-                    self.currentWorkbookRequiresFullUpdate = false
-                }
-                self.currentWorkbookNeedsRefresh = self.currentWorkbookRequiresFullUpdate
-                self.currentWorkbookUpdateStatus = self.currentWorkbookRequiresFullUpdate
-                    ? "Updated workbook annotations. Other current.xlsx changes still require an explicit update."
-                    : "Updated current.xlsx. Previous workbook saved in revisions."
-                self.rebuildArtifactLens()
-                if let sidecar = self.annotationStore?.sidecar {
-                    self.onAnnotationSidecarChanged?(sidecar)
-                }
+                self.applyReloadedCurrentWorkbookResult(
+                    updatedResult,
+                    annotationOnly: annotationOnly,
+                    expectedBundleURL: expectedBundleURL,
+                    expectedGeneration: expectedGeneration
+                )
             } catch is CancellationError {
                 return
             } catch {
@@ -4760,9 +5476,48 @@ public final class GenotypeResultViewController: NSViewController {
         }
     }
 
+    private func applyReloadedCurrentWorkbookResult(
+        _ updatedResult: ONTGenotypeResultBundleData,
+        annotationOnly: Bool,
+        expectedBundleURL: URL,
+        expectedGeneration: UInt64
+    ) {
+        guard resultConfigurationGeneration == expectedGeneration,
+              result?.bundleURL.standardizedFileURL == expectedBundleURL,
+              updatedResult.bundleURL.standardizedFileURL
+                == expectedBundleURL else {
+            return
+        }
+        if requiresManualHaplotypeTransitionCoordination {
+            deferManualHaplotypeTransition(.reload) { [weak self] in
+                self?.applyReloadedCurrentWorkbookResult(
+                    updatedResult,
+                    annotationOnly: annotationOnly,
+                    expectedBundleURL: expectedBundleURL,
+                    expectedGeneration: expectedGeneration
+                )
+            }
+            return
+        }
+        applyCurrentWorkbookUpdatedResult(updatedResult)
+        if !annotationOnly {
+            currentWorkbookRequiresFullUpdate = false
+        }
+        currentWorkbookNeedsRefresh = currentWorkbookRequiresFullUpdate
+        currentWorkbookUpdateStatus = currentWorkbookRequiresFullUpdate
+            ? "Updated workbook annotations. Other current.xlsx changes still require an explicit update."
+            : "Updated current.xlsx. Previous workbook saved in revisions."
+        rebuildArtifactLens()
+        if let sidecar = annotationStore?.sidecar {
+            onAnnotationSidecarChanged?(sidecar)
+        }
+    }
+
     private func applyCurrentWorkbookUpdatedResult(_ updatedResult: ONTGenotypeResultBundleData) {
         let matrixWasConfigured = comparisonMatrixConfigured
         result = updatedResult
+        manualHaplotypeEligibility =
+            GenotypeManualHaplotypeEligibility.evaluate(updatedResult)
         rebuildResultIndexes(for: updatedResult)
         publishMatrixReviewCapability(for: currentSelectionState?.matrixTargets ?? [])
         rebuildActiveHaplotypeAnalysisIndexes()
@@ -4777,6 +5532,41 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func currentWorkbookEffectiveHaplotypeCalls() -> [GenotypeWorkbookHaplotypeCall] {
+        if case .eligible = manualHaplotypeEligibility, let result {
+            let index = GenotypeManualHaplotypeAssignmentIndex(
+                assignments:
+                    annotationStore?.sidecar.manualHaplotypeAssignments ?? []
+            )
+            return result.sampleNames.flatMap { sample in
+                GenotypeManualHaplotypeLocus.allCases.map { locus in
+                    let assignments = index.assignments(
+                        sample: sample,
+                        locus: locus
+                    )
+                    let notes = [assignments.h1?.notes, assignments.h2?.notes]
+                        .compactMap {
+                            $0?.trimmingCharacters(
+                                in: .whitespacesAndNewlines
+                            )
+                        }
+                        .filter { !$0.isEmpty }
+                        .reduce(into: [String]()) { values, note in
+                            if !values.contains(note) {
+                                values.append(note)
+                            }
+                        }
+                        .joined(separator: "; ")
+                    return GenotypeWorkbookHaplotypeCall(
+                        sample: sample,
+                        locus: locus.rawValue,
+                        haplotype1: assignments.h1?.label ?? "",
+                        haplotype2: assignments.h2?.label ?? "",
+                        status: GenotypeHaplotypeCallStatus.called.rawValue,
+                        notes: notes
+                    )
+                }
+            }
+        }
         guard let analysis = activeHaplotypeAnalysis() else { return [] }
         let includedLoci = Set(currentWorkbookIncludedLoci())
         return analysis.samples.flatMap { sample in
@@ -4797,6 +5587,15 @@ public final class GenotypeResultViewController: NSViewController {
         }
     }
 
+    private func currentWorkbookHaplotypeProjectionMode()
+        -> GenotypeWorkbookHaplotypeProjectionMode
+    {
+        if case .eligible = manualHaplotypeEligibility {
+            return .manualGenotypeOnly
+        }
+        return .haplotyped
+    }
+
     private func currentWorkbookNotes(sample: String, locus: String, base: String) -> String {
         let assignmentNotes = [HaplotypeSlot.h1, .h2].compactMap { slot in
             manualHaplotypeAssignment(sample: sample, locus: locus, slot: slot)?.notes
@@ -4813,6 +5612,9 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func currentWorkbookIncludedLoci() -> [String] {
+        if case .eligible = manualHaplotypeEligibility {
+            return GenotypeManualHaplotypeLocus.allCases.map(\.rawValue)
+        }
         guard let analysis = activeHaplotypeAnalysis() else { return [] }
         return effectiveIncludedLoci(for: analysis)
             .filter { GenotypeWorkbookHaplotypeCall.isWritableCurrentWorkbookLocus($0) }
@@ -5048,10 +5850,423 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func manualHaplotypingIsAvailable(result: ONTGenotypeResultBundleData) -> Bool {
-        // Surface the manual-haplotyping section when there is no built-in
-        // analysis or when the bundle already carries manual assignments.
-        if result.haplotypeAnalysis == nil { return true }
-        return !(annotationStore?.sidecar.manualHaplotypeAssignments.isEmpty ?? true)
+        if result.haplotypeAnalysis != nil {
+            return !(annotationStore?.sidecar.manualHaplotypeAssignments.isEmpty ?? true)
+        }
+        guard case .eligible = manualHaplotypeEligibility else { return false }
+        return true
+    }
+
+    private var usesLegacyManualHaplotypingSection: Bool {
+        result?.haplotypeAnalysis != nil
+    }
+
+    private func makeManualHaplotypeEditorHost(for sample: String) -> NSView? {
+        guard case .eligible = manualHaplotypeEligibility,
+              let result,
+              let store = annotationStore else {
+            return nil
+        }
+        let editorBundleURL = result.bundleURL.standardizedFileURL
+
+        let model = GenotypeManualHaplotypeEditorModel(
+            snapshot: manualHaplotypeEditorSnapshot(
+                sample: sample,
+                result: result,
+                store: store
+            ),
+            onSave: { [weak self] draft in
+                guard let self,
+                      case .eligible = self.manualHaplotypeEligibility,
+                      self.result?.bundleURL.standardizedFileURL
+                        == editorBundleURL,
+                      let currentStore = self.annotationStore else {
+                    throw ManualHaplotypeEditorError.unavailable
+                }
+                let assignments = try draft.validatedAssignments()
+                let replacement =
+                    try currentStore.replaceManualHaplotypeAssignments(
+                        for: draft.sample,
+                        with: assignments,
+                        copySource: draft.copySource,
+                        author: self.annotationAuthorProvider()
+                    )
+                if replacement.didChange {
+                    self.comparisonMatrix.applyManualHaplotypeAssignments(
+                        currentStore.sidecar.manualHaplotypeAssignments
+                    )
+                    self.markCurrentWorkbookDirty(
+                        requiresFullUpdate: true,
+                        legacyStatus:
+                            "current.xlsx does not include manual haplotype changes."
+                    )
+                    self.onAnnotationSidecarChanged?(currentStore.sidecar)
+                }
+                let currentIndex = GenotypeManualHaplotypeAssignmentIndex(
+                    assignments:
+                        currentStore.sidecar.manualHaplotypeAssignments
+                )
+                return GenotypeManualHaplotypeDraft(
+                    sample: draft.sample,
+                    index: currentIndex
+                )
+            },
+            onReload: { [weak self] in
+                guard let self,
+                      let currentResult = self.result else {
+                    throw ManualHaplotypeEditorError.unavailable
+                }
+                let reloadedStore = try GenotypeAnnotationStore(
+                    bundleURL: currentResult.bundleURL,
+                    author: self.annotationAuthorProvider(),
+                    seedBuiltInSmartCohorts: false
+                )
+                self.annotationStore = reloadedStore
+                self.currentWorkbookIsReadOnly = reloadedStore.isReadOnly
+                self.rebuildMatrixAnnotationIndexes()
+                self.comparisonMatrix.applyAnnotationSidecar(
+                    reloadedStore.sidecar,
+                    reload: false
+                )
+                self.rebuildArtifactLens()
+                let snapshot = self.manualHaplotypeEditorSnapshot(
+                    sample: sample,
+                    result: currentResult,
+                    store: reloadedStore
+                )
+                DispatchQueue.main.async { [weak self] in
+                    guard let self,
+                          let editor =
+                            self.manualHaplotypeEditorModel else {
+                        return
+                    }
+                    self.sampleComparisonModel?.refreshCandidates(
+                        editor.copyCandidates,
+                        assignmentsForSource: {
+                            [weak editor] source in
+                            editor?.copyAssignmentsSnapshot(for: source)
+                        }
+                    )
+                }
+                return snapshot
+            },
+            onDidSave: { [weak self] in
+                self?.sampleComparisonModel?.saveCompleted()
+            }
+        )
+        manualHaplotypeEditorModel = model
+        let comparisonModel = GenotypeSampleComparisonModel(
+            targetSample: sample,
+            targetRows:
+                comparisonMatrix.visibleSampleEvidenceRows(
+                    sample: sample
+                ),
+            candidates: model.copyCandidates,
+            orderedVisibleRowIDs:
+                comparisonMatrix.visibleComparisonRowIDs,
+            rowsForSource: { [weak self] source in
+                self?.comparisonMatrix.visibleSampleEvidenceRows(
+                    sample: source
+                ) ?? []
+            },
+            targetSlots: model.selectiveCopyTargetSlots,
+            targetDraftRevision: model.draftRevisionToken,
+            isReadOnly: model.isReadOnly,
+            assignmentsForSource: { [weak model] source in
+                model?.copyAssignmentsSnapshot(for: source)
+            },
+            stageSelectedAssignments: {
+                [weak self, weak model] request in
+                guard let model else {
+                    return .init(applied: [], skipped: [])
+                }
+                guard request.targetDraftRevision
+                        == model.draftRevisionToken else {
+                    self?.sampleComparisonModel?.refreshTargetDraft(
+                        slots: model.selectiveCopyTargetSlots,
+                        revision: model.draftRevisionToken
+                    )
+                    return .init(
+                        applied: [],
+                        skipped: request.addresses.map {
+                            .init(
+                                address: $0,
+                                reason: .targetChanged
+                            )
+                        }
+                    )
+                }
+                return model.stageSelectedAssignments(
+                    from: request.sourceSample,
+                    addresses: request.addresses,
+                    expectedSourceValues: request.sourceValues
+                )
+            }
+        )
+        sampleComparisonModel = comparisonModel
+        manualHaplotypeDraftRevisionCancellable =
+            model.$draftRevisionToken
+                .dropFirst()
+                .sink { [weak model, weak comparisonModel] revision in
+                    guard let model else { return }
+                    comparisonModel?.refreshTargetDraft(
+                        slots: model.selectiveCopyTargetSlots,
+                        revision: revision
+                    )
+                }
+        sampleCurationTrailingModel =
+            GenotypeSampleCurationTrailingModel(
+                evidenceSnapshot: supportedAllelesSnapshot(
+                    from:
+                        comparisonMatrix.visibleSampleAlleleDetails(
+                            sample: sample
+                        )
+                ),
+                comparison: comparisonModel
+            )
+
+        let container = makeGenotypeManualHaplotypeEditorHostingView(
+            model: model,
+            typographyModel: manualHaplotypeEditorTypographyModel,
+            onCompareAndCopy: { [weak self] in
+                self?.sampleCurationTrailingModel?.showCompareAndCopy()
+            }
+        )
+        container.identifier = Self.generatedContentHostingViewIdentifier
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.setAccessibilityIdentifier(
+            "manual-haplotype-detail-editor"
+        )
+        manualHaplotypeEditorHostView = container
+        return container
+    }
+
+    private func refreshSelectedSampleCurationEvidence() {
+        guard let trailingModel = sampleCurationTrailingModel else {
+            return
+        }
+        let sample = trailingModel.comparison.targetSample
+        let snapshot = supportedAllelesSnapshot(
+            from:
+                comparisonMatrix.visibleSampleAlleleDetails(
+                    sample: sample
+                )
+        )
+        sampleSupportedAllelesSnapshot = snapshot
+        trailingModel.refreshEvidence(
+            target: snapshot,
+            comparisonTargetRows:
+                comparisonMatrix.visibleSampleEvidenceRows(
+                    sample: sample
+                ),
+            selectedSourceRows:
+                trailingModel.comparison.selectedSource.map {
+                    comparisonMatrix.visibleSampleEvidenceRows(sample: $0)
+                },
+            orderedVisibleRowIDs:
+                comparisonMatrix.visibleComparisonRowIDs
+        )
+        guard let targets = currentSelectionState?.matrixTargets,
+              targets == [.column(sample: sample)] else {
+            return
+        }
+        let summary = sampleResultsByName[sample]
+        var stateRows: [(String, String)] = [
+            ("Selection Type", "Column"),
+            ("Selected Sample", sample),
+            ("Sample", sample),
+        ]
+        if let summary {
+            stateRows += [
+                (
+                    "Retained Unique Reads",
+                    integer(summary.passedUniqueReads)
+                ),
+                (
+                    "Call-support check",
+                    callSupportCheck(
+                        for: sample,
+                        summary: summary
+                    ).title
+                ),
+            ]
+        }
+        for row in snapshot.rows {
+            stateRows += [
+                ("Allele", row.allele),
+                ("Read support", row.readSupport),
+            ]
+        }
+        stateRows += matrixCommentDetailRows(for: targets)
+        publishSelectionState(GenotypeResultSelectionState(
+            title: sample,
+            subtitle: "Sample column",
+            detailRows: stateRows,
+            highlightTarget: nil,
+            matrixTargets: targets
+        ))
+        sampleCurationWorkbench?.layoutSubtreeIfNeeded()
+        view.layoutSubtreeIfNeeded()
+    }
+
+    private func focusManualHaplotypeEditor(sample: String) {
+#if DEBUG
+        testingLastManualHaplotypeFocusIdentifier = nil
+#endif
+        let target: GenotypeAnnotationSidecar.MatrixTarget =
+            .column(sample: sample)
+        if currentSelectionState?.matrixTargets != [target] {
+            showMatrixTargetSelection([target])
+        }
+        guard let host = manualHaplotypeEditorHostView else { return }
+        detailScrollView.isHidden = false
+        sampleCurationWorkbench?.layoutSubtreeIfNeeded()
+        view.layoutSubtreeIfNeeded()
+        let identifier = "manual-haplotype-MHC-A-h1"
+        DispatchQueue.main.async { [weak self, weak host] in
+            guard let self, let host,
+                  host === self.manualHaplotypeEditorHostView else {
+                return
+            }
+            self.sampleCurationWorkbench?.layoutSubtreeIfNeeded()
+            self.view.layoutSubtreeIfNeeded()
+            guard
+                  let combo = self.descendantComboBox(
+                      in: host,
+                      accessibilityIdentifier: identifier
+                  ) else {
+                return
+            }
+            let fieldRect = combo.convert(
+                combo.bounds,
+                to: self.detailDocumentView
+            )
+            self.detailScrollView.contentView.scrollToVisible(fieldRect)
+            self.detailScrollView.reflectScrolledClipView(
+                self.detailScrollView.contentView
+            )
+            guard self.view.window?.makeFirstResponder(combo) == true else {
+                return
+            }
+#if DEBUG
+            self.testingLastManualHaplotypeFocusIdentifier = identifier
+#endif
+        }
+    }
+
+    private func descendantComboBox(
+        in root: NSView,
+        accessibilityIdentifier: String
+    ) -> NSComboBox? {
+        if let combo = root as? NSComboBox,
+           combo.accessibilityIdentifier()
+                == accessibilityIdentifier {
+            return combo
+        }
+        for subview in root.subviews {
+            if let match = descendantComboBox(
+                in: subview,
+                accessibilityIdentifier: accessibilityIdentifier
+            ) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    private func focusedManualHaplotypeComboBox() -> NSComboBox? {
+        guard let host = manualHaplotypeEditorHostView,
+              let firstResponder = view.window?.firstResponder else {
+            return nil
+        }
+        var pending = [host]
+        while let view = pending.popLast() {
+            if let combo = view as? NSComboBox,
+               firstResponder === combo
+                    || combo.currentEditor() === firstResponder {
+                return combo
+            }
+            pending.append(contentsOf: view.subviews)
+        }
+        return nil
+    }
+
+    private func restoreManualHaplotypeFocus(_ combo: NSComboBox?) {
+        guard let combo,
+              let window = view.window,
+              combo.window === window else {
+            return
+        }
+        let firstResponder = window.firstResponder
+        if firstResponder === combo
+            || combo.currentEditor() === firstResponder {
+            return
+        }
+        window.makeFirstResponder(combo)
+    }
+
+    private func descendantView(
+        in root: NSView,
+        accessibilityIdentifier: String
+    ) -> NSView? {
+        if root.accessibilityIdentifier() == accessibilityIdentifier {
+            return root
+        }
+        for subview in root.subviews {
+            if let match = descendantView(
+                in: subview,
+                accessibilityIdentifier: accessibilityIdentifier
+            ) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    private func manualHaplotypeEditorSnapshot(
+        sample: String,
+        result: ONTGenotypeResultBundleData,
+        store: GenotypeAnnotationStore
+    ) -> GenotypeManualHaplotypeEditorModel.Snapshot {
+        let assignments = store.sidecar.manualHaplotypeAssignments
+        let normalizedSample =
+            GenotypeManualHaplotypeAssignmentInputValidator
+                .normalizedSampleIdentity(sample)
+        let index = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: assignments
+        )
+        let orphanLegacyAssignments = assignments.filter { assignment in
+            GenotypeManualHaplotypeAssignmentInputValidator
+                .normalizedSampleIdentity(assignment.sample)
+                == normalizedSample
+                && GenotypeManualHaplotypeLocus(
+                    normalizing: assignment.locus
+                ) == nil
+        }
+        let normalizedSampleNames = Set(
+            (result.samples.map(\.sample)
+                + result.calls.map(\.sample)
+                + [sample])
+                .map {
+                    GenotypeManualHaplotypeAssignmentInputValidator
+                        .normalizedSampleIdentity($0)
+                }
+        )
+        let copyCandidates = normalizedSampleNames
+            .sorted {
+                $0.localizedStandardCompare($1) == .orderedAscending
+            }
+            .map(index.sampleAssignments(for:))
+
+        return GenotypeManualHaplotypeEditorModel.Snapshot(
+            draft: GenotypeManualHaplotypeDraft(
+                sample: normalizedSample,
+                index: index
+            ),
+            copyCandidates: copyCandidates,
+            orphanLegacyAssignments: orphanLegacyAssignments,
+            isReadOnly: store.isReadOnly
+        )
     }
 
     private func makeManualHaplotypingHost() -> NSView {
@@ -5065,29 +6280,71 @@ public final class GenotypeResultViewController: NSViewController {
         return container
     }
 
-    private func manualHaplotypingSectionBody() -> some View {
-        let rows = manualHaplotypingRows()
-        let assignments = annotationStore?.sidecar.manualHaplotypeAssignments ?? []
-        return GenotypeManualHaplotypingSection(
-            rows: rows,
-            manualAssignments: assignments,
-            selectedGenotypeIds: Binding(
-                get: { [weak self] in self?.manualHaplotypingSelection ?? [] },
-                set: { [weak self] newValue in self?.manualHaplotypingSelection = newValue }
-            ),
-            draftLabel: Binding(
-                get: { [weak self] in self?.manualHaplotypingDraftLabel ?? "" },
-                set: { [weak self] newValue in self?.manualHaplotypingDraftLabel = newValue }
-            ),
-            draftColorTokenIndex: Binding(
-                get: { [weak self] in self?.manualHaplotypingDraftColorTokenIndex ?? 1 },
-                set: { [weak self] newValue in self?.manualHaplotypingDraftColorTokenIndex = newValue }
-            ),
-            onCreateHaplotype: { [weak self] in self?.commitManualHaplotype() },
-            onDeleteAssignment: { [weak self] assignment in
-                self?.deleteManualHaplotype(matching: assignment)
-            },
-            onExportDefinitions: { [weak self] in self?.exportManualDefinitions() }
+    private func manualHaplotypingSectionBody() -> AnyView {
+        let storedAssignments =
+            annotationStore?.sidecar.manualHaplotypeAssignments ?? []
+        if usesLegacyManualHaplotypingSection {
+            return AnyView(
+                GenotypeLegacyManualHaplotypingSection(
+                    rows: manualHaplotypingRows(),
+                    manualAssignments: storedAssignments,
+                    selectedGenotypeIds: Binding(
+                        get: {
+                            [weak self] in
+                            self?.manualHaplotypingSelection ?? []
+                        },
+                        set: {
+                            [weak self] newValue in
+                            self?.manualHaplotypingSelection = newValue
+                        }
+                    ),
+                    draftLabel: Binding(
+                        get: {
+                            [weak self] in
+                            self?.manualHaplotypingDraftLabel ?? ""
+                        },
+                        set: {
+                            [weak self] newValue in
+                            self?.manualHaplotypingDraftLabel = newValue
+                        }
+                    ),
+                    draftColorTokenIndex: Binding(
+                        get: {
+                            [weak self] in
+                            self?.manualHaplotypingDraftColorTokenIndex
+                                ?? 1
+                        },
+                        set: {
+                            [weak self] newValue in
+                            self?.manualHaplotypingDraftColorTokenIndex =
+                                newValue
+                        }
+                    ),
+                    onCreateHaplotype: {
+                        [weak self] in
+                        self?.commitManualHaplotype()
+                    },
+                    onDeleteAssignment: {
+                        [weak self] assignment in
+                        self?.deleteManualHaplotype(
+                            matching: assignment
+                        )
+                    },
+                    onExportDefinitions: {
+                        [weak self] in
+                        self?.exportManualDefinitions()
+                    }
+                )
+            )
+        }
+        let assignments = GenotypeManualHaplotypeAssignmentIndex(
+            assignments:
+                storedAssignments
+        ).currentAssignments
+        return AnyView(
+            GenotypeManualHaplotypingSection(
+                manualAssignments: assignments
+            )
         )
     }
 
@@ -5105,7 +6362,11 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func commitManualHaplotype() {
-        guard let result, let store = annotationStore else { return }
+        guard let result,
+              manualHaplotypingIsAvailable(result: result),
+              let store = annotationStore else {
+            return
+        }
         let author = annotationAuthorProvider()
         let label = manualHaplotypingDraftLabel.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !label.isEmpty, !manualHaplotypingSelection.isEmpty else { return }
@@ -5173,6 +6434,9 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func exportManualDefinitions() {
         guard let store = annotationStore else { return }
+        let assignments = GenotypeManualHaplotypeAssignmentIndex(
+            assignments: store.sidecar.manualHaplotypeAssignments
+        ).currentAssignments
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.json]
         panel.nameFieldStringValue = "manual-haplotype-definitions.json"
@@ -5182,11 +6446,11 @@ public final class GenotypeResultViewController: NSViewController {
                 let startedAt = Date()
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-                let data = try encoder.encode(store.sidecar.manualHaplotypeAssignments)
+                let data = try encoder.encode(assignments)
                 try data.write(to: url, options: .atomic)
                 try self.writeManualDefinitionsExportProvenance(
                     outputURL: url,
-                    assignmentCount: store.sidecar.manualHaplotypeAssignments.count,
+                    assignmentCount: assignments.count,
                     startedAt: startedAt
                 )
             } catch {
@@ -6538,6 +7802,143 @@ public final class GenotypeResultViewController: NSViewController {
         }
     }
 
+    public var hasUnsavedManualHaplotypeDraft: Bool {
+        manualHaplotypeDraftCoordinator.hasUnsavedDraft
+    }
+
+    public var requiresManualHaplotypeTransitionCoordination: Bool {
+        hasUnsavedManualHaplotypeDraft
+            || manualHaplotypeDraftCoordinator.hasPendingResolution
+            || manualHaplotypeTransitionMutationCoordinator
+                .hasPendingMutation
+    }
+
+    public func prepareForManualHaplotypeTransition(
+        _ transition: GenotypeManualHaplotypeDraftCoordinator.Transition
+    ) async -> Bool {
+        await manualHaplotypeDraftCoordinator.prepare(
+            for: transition
+        ) { [weak self] in
+            guard let self else { return .cancel }
+            if let manualHaplotypeDraftDecisionProvider {
+                return await manualHaplotypeDraftDecisionProvider(transition)
+            }
+            return await presentManualHaplotypeDraftDecision(
+                for: transition
+            )
+        }
+    }
+
+    public func resolveManualHaplotypeTransition(
+        _ transition: GenotypeManualHaplotypeDraftCoordinator.Transition
+    ) async -> GenotypeManualHaplotypeDraftCoordinator.Resolution {
+        await manualHaplotypeDraftCoordinator.resolve(
+            for: transition
+        ) { [weak self] in
+            guard let self else { return .cancel }
+            if let manualHaplotypeDraftDecisionProvider {
+                return await manualHaplotypeDraftDecisionProvider(transition)
+            }
+            return await presentManualHaplotypeDraftDecision(
+                for: transition
+            )
+        }
+    }
+
+    public func commitManualHaplotypeTransition(
+        _ resolution: GenotypeManualHaplotypeDraftCoordinator.Resolution
+    ) async -> Bool {
+        await manualHaplotypeDraftCoordinator.commit(resolution)
+    }
+
+    public func prepareManualHaplotypeTransitionCommit(
+        _ resolution: GenotypeManualHaplotypeDraftCoordinator.Resolution
+    ) async -> Bool {
+        await manualHaplotypeDraftCoordinator
+            .prepareTransactionalCommit(resolution)
+    }
+
+    public func finalizeManualHaplotypeTransitionCommit(
+        _ resolution: GenotypeManualHaplotypeDraftCoordinator.Resolution
+    ) async -> Bool {
+        await manualHaplotypeDraftCoordinator
+            .finalizeTransactionalCommit(resolution)
+    }
+
+    public func cancelManualHaplotypeTransitionCommit(
+        _ resolution: GenotypeManualHaplotypeDraftCoordinator.Resolution
+    ) {
+        manualHaplotypeDraftCoordinator
+            .cancelTransactionalCommit(resolution)
+    }
+
+    public func isManualHaplotypeTransitionResolutionCurrent(
+        _ resolution: GenotypeManualHaplotypeDraftCoordinator.Resolution
+    ) -> Bool {
+        manualHaplotypeDraftCoordinator.isCurrent(resolution)
+    }
+
+    public var manualHaplotypeDraftRevisionToken: UUID? {
+        manualHaplotypeDraftCoordinator.draftRevisionToken
+    }
+
+    public func abandonManualHaplotypeTransition(
+        _ resolution: GenotypeManualHaplotypeDraftCoordinator.Resolution
+    ) {
+        manualHaplotypeDraftCoordinator.abandon(resolution)
+    }
+
+    @discardableResult
+    public func deferManualHaplotypeTransition(
+        _ transition: GenotypeManualHaplotypeDraftCoordinator.Transition,
+        mutation: @escaping @MainActor () -> Void,
+        rejection: @escaping @MainActor () -> Void = {}
+    ) -> Bool {
+        guard requiresManualHaplotypeTransitionCoordination else {
+            return false
+        }
+        manualHaplotypeTransitionMutationCoordinator.enqueue(
+            transition: transition,
+            prepare: { [weak self] transition in
+                guard let self else { return false }
+                return await self.prepareForManualHaplotypeTransition(
+                    transition
+                )
+            },
+            mutation: mutation,
+            rejection: rejection
+        )
+        return true
+    }
+
+    private func presentManualHaplotypeDraftDecision(
+        for transition: GenotypeManualHaplotypeDraftCoordinator.Transition
+    ) async -> GenotypeManualHaplotypeDraftDecision {
+        guard let window = view.window ?? NSApp.keyWindow else {
+            return .cancel
+        }
+        let alert = NSAlert()
+        alert.messageText = "Save Haplotype Assignment Changes?"
+        alert.informativeText =
+            "The requested \(transition.rawValue) change will close the current sample editor."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Discard Changes")
+        alert.addButton(withTitle: "Cancel")
+        return await withCheckedContinuation { continuation in
+            alert.beginSheetModal(for: window) { response in
+                switch response {
+                case .alertFirstButtonReturn:
+                    continuation.resume(returning: .save)
+                case .alertSecondButtonReturn:
+                    continuation.resume(returning: .discard)
+                default:
+                    continuation.resume(returning: .cancel)
+                }
+            }
+        }
+    }
+
     private func definitionSetForResult(_ result: ONTGenotypeResultBundleData) -> GenotypeHaplotypeDefinitionSet? {
         haplotypeDefinitionContext(for: result)?.definition
     }
@@ -7521,6 +8922,9 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func removeArrangedSubviews(from stack: NSStackView) {
+        if stack === detailStack {
+            teardownSampleCurationWorkbench()
+        }
         stack.arrangedSubviews.forEach { view in
             if stack === detailStack, view === candidateAlleleDetailView {
                 candidateAlleleDetailWidthConstraint?.isActive = false
@@ -7535,6 +8939,26 @@ public final class GenotypeResultViewController: NSViewController {
             stack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
+    }
+
+    private func teardownSampleCurationWorkbench() {
+        sampleWorkbenchWidthConstraint?.isActive = false
+        sampleWorkbenchWidthConstraint = nil
+        if let workbench = sampleCurationWorkbench {
+            if detailStack.arrangedSubviews.contains(where: {
+                $0 === workbench
+            }) {
+                detailStack.removeArrangedSubview(workbench)
+            }
+            workbench.removeFromSuperview()
+        }
+        sampleCurationWorkbench = nil
+        sampleSupportedAllelesSnapshot = nil
+        manualHaplotypeEditorModel = nil
+        sampleComparisonModel = nil
+        manualHaplotypeDraftRevisionCancellable = nil
+        sampleCurationTrailingModel = nil
+        manualHaplotypeEditorHostView = nil
     }
 
     private func previousHighlightColor(for request: GenotypeResultHighlightRequest) -> AnnotationColor? {
@@ -7794,6 +9218,302 @@ extension GenotypeResultViewController {
 
     var testingDetailArrangedSubviewCount: Int {
         detailStack.arrangedSubviews.count
+    }
+
+    var testingSampleWorkbenchLayoutMode:
+        GenotypeSampleCurationWorkbenchView.LayoutMode? {
+        sampleCurationWorkbench?.layoutMode
+    }
+
+    var testingSampleWorkbenchFrame: NSRect? {
+        guard let sampleCurationWorkbench else { return nil }
+        return sampleCurationWorkbench.convert(
+            sampleCurationWorkbench.bounds,
+            to: detailDocumentView
+        )
+    }
+
+    var testingDetailStackFrame: NSRect {
+        detailStack.convert(detailStack.bounds, to: detailDocumentView)
+    }
+
+    var testingDetailStackWidth: CGFloat {
+        detailStack.bounds.width
+    }
+
+    var testingSampleWorkbenchIdentity: ObjectIdentifier? {
+        sampleCurationWorkbench.map(ObjectIdentifier.init)
+    }
+
+    var testingSampleHeaderLayoutMode:
+        GenotypeSampleCurationHeaderView.LayoutMode? {
+        (sampleCurationWorkbench?.headerView
+            as? GenotypeSampleCurationHeaderView)?.layoutMode
+    }
+
+    var testingSampleHeaderMetricValues: [String: String] {
+        guard let header = sampleCurationWorkbench?.headerView
+            as? GenotypeSampleCurationHeaderView else {
+            return [:]
+        }
+        return Dictionary(
+            uniqueKeysWithValues: header.metricFields.map {
+                ($0.label.stringValue, $0.value.stringValue)
+            }
+        )
+    }
+
+    var testingSampleHeaderMetricIdentities: [ObjectIdentifier] {
+        guard let header = sampleCurationWorkbench?.headerView
+            as? GenotypeSampleCurationHeaderView else {
+            return []
+        }
+        return header.metricViews.map(ObjectIdentifier.init)
+    }
+
+    var testingSampleHeaderMetricFramesAreContained: Bool {
+        guard let header = sampleCurationWorkbench?.headerView
+            as? GenotypeSampleCurationHeaderView else {
+            return false
+        }
+        header.layoutSubtreeIfNeeded()
+        return header.metricViews.allSatisfy { metric in
+            let frame = metric.convert(metric.bounds, to: header)
+            return frame.minX >= header.bounds.minX - 0.5
+                && frame.maxX <= header.bounds.maxX + 0.5
+                && frame.minY >= header.bounds.minY - 0.5
+                && frame.maxY <= header.bounds.maxY + 0.5
+        }
+    }
+
+    var testingSampleHeaderFieldsAllowWrapping: Bool {
+        guard let header = sampleCurationWorkbench?.headerView
+            as? GenotypeSampleCurationHeaderView else {
+            return false
+        }
+        return header.metricFields.flatMap { [$0.label, $0.value] }
+            .allSatisfy {
+                $0.maximumNumberOfLines == 0
+                    && !$0.usesSingleLineMode
+                    && $0.lineBreakMode == .byWordWrapping
+            }
+    }
+
+    var testingSampleHeaderSemanticElementCounts: [Int] {
+        guard let header = sampleCurationWorkbench?.headerView
+            as? GenotypeSampleCurationHeaderView else {
+            return []
+        }
+        return header.metricFields.map { fields in
+            [fields.label, fields.value]
+                .filter { $0.isAccessibilityElement() }
+                .count
+        }
+    }
+
+    var testingMountedSampleWorkbenchCount: Int {
+        detailStack.arrangedSubviews
+            .compactMap {
+                $0 as? GenotypeSampleCurationWorkbenchView
+            }
+            .count
+    }
+
+    var testingRetainedManualHaplotypeEditorModel:
+        GenotypeManualHaplotypeEditorModel? {
+        manualHaplotypeEditorModel
+    }
+
+    var testingManualHaplotypeEditorHostIdentity:
+        ObjectIdentifier? {
+        manualHaplotypeEditorHostView.map(ObjectIdentifier.init)
+    }
+
+    var testingManualHaplotypeEditorModelIdentity:
+        ObjectIdentifier? {
+        manualHaplotypeEditorModel.map(ObjectIdentifier.init)
+    }
+
+    var testingSampleCurationTrailingModelIdentity:
+        ObjectIdentifier? {
+        sampleCurationTrailingModel.map(ObjectIdentifier.init)
+    }
+
+    var testingSampleComparisonModelIdentity:
+        ObjectIdentifier? {
+        sampleComparisonModel.map(ObjectIdentifier.init)
+    }
+
+    var testingSampleCurationTrailingMode:
+        GenotypeSampleCurationTrailingModel.Mode? {
+        sampleCurationTrailingModel?.mode
+    }
+
+    func testingShowSampleComparison() {
+        sampleCurationTrailingModel?.showCompareAndCopy()
+    }
+
+    func testingSelectSampleComparisonSource(_ sample: String) {
+        sampleComparisonModel?.selectSource(sample)
+    }
+
+    var testingSampleComparisonCandidateSamples: [String] {
+        sampleComparisonModel?.filteredCandidates.map(\.sample) ?? []
+    }
+
+    var testingSelectedSampleComparisonSource: String? {
+        sampleComparisonModel?.selectedSource
+    }
+
+    func testingSetSampleComparisonAssignmentSelected(
+        _ isSelected: Bool,
+        locus: GenotypeManualHaplotypeLocus,
+        slot: HaplotypeSlot
+    ) {
+        sampleComparisonModel?.setSelected(
+            isSelected,
+            at: .init(locus: locus, slot: slot)
+        )
+    }
+
+    func testingRequestStageSelectedSampleAssignments() {
+        sampleComparisonModel?.requestStageSelected()
+    }
+
+    func testingConfirmStageSelectedSampleAssignments() {
+        sampleComparisonModel?.confirmStageSelected()
+    }
+
+    var testingSampleComparisonRowIDs:
+        [GenotypeCandidateMatrixRowID] {
+        sampleComparisonModel?.comparisonRows.map(\.id) ?? []
+    }
+
+    var testingSampleComparisonRows: [GenotypeSampleComparisonRow] {
+        sampleComparisonModel?.comparisonRows ?? []
+    }
+
+    var testingSampleCurationControlIdentities:
+        [String: ObjectIdentifier] {
+        guard let workbench = sampleCurationWorkbench else {
+            return [:]
+        }
+        let identifiers = [
+            "manual-haplotype-compare-copy",
+            "sample-comparison-back-to-evidence",
+            "sample-comparison-source-search",
+            "sample-comparison-source-selector",
+            "sample-comparison-stage-selected",
+        ]
+        return Dictionary(
+            uniqueKeysWithValues: identifiers.compactMap { identifier in
+                descendantView(
+                    in: workbench,
+                    accessibilityIdentifier: identifier
+                ).map { (identifier, ObjectIdentifier($0)) }
+            }
+        )
+    }
+
+    @discardableResult
+    func testingPerformManualHaplotypeCompareAction() -> Bool {
+        guard let workbench = sampleCurationWorkbench,
+              let button = descendantView(
+                in: workbench,
+                accessibilityIdentifier:
+                    "manual-haplotype-compare-copy"
+              ) as? NSButton else {
+            return false
+        }
+        button.performClick(nil)
+        return true
+    }
+
+    @discardableResult
+    func testingPerformBackToSampleEvidenceAction() -> Bool {
+        guard let workbench = sampleCurationWorkbench,
+              let control = descendantView(
+                in: workbench,
+                accessibilityIdentifier:
+                    "sample-comparison-back-to-evidence"
+              ) else {
+            return false
+        }
+        if let button = control as? NSButton {
+            button.performClick(nil)
+            return true
+        }
+        return control.accessibilityPerformPress()
+    }
+
+    @discardableResult
+    func testingPerformSampleComparisonSourceSelection(
+        _ sample: String
+    ) -> Bool {
+        guard let workbench = sampleCurationWorkbench,
+              let searchField = descendantView(
+                in: workbench,
+                accessibilityIdentifier:
+                    "sample-comparison-source-search"
+              ) as? NSSearchField else {
+            return false
+        }
+        searchField.stringValue = sample
+        NotificationCenter.default.post(
+            name: NSControl.textDidChangeNotification,
+            object: searchField
+        )
+        guard let window = view.window,
+              window.makeFirstResponder(searchField),
+              let editor = searchField.currentEditor() else {
+            return false
+        }
+        editor.doCommand(by: #selector(NSResponder.moveDown(_:)))
+        editor.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        return sampleComparisonModel?.selectedSource == sample
+    }
+
+    func testingManualHaplotypeDraftLabel(
+        locus: GenotypeManualHaplotypeLocus,
+        slot: HaplotypeSlot
+    ) -> String? {
+        manualHaplotypeEditorModel?.draft[locus, slot]?.label
+    }
+
+    var testingManualHaplotypeComboIdentities: [ObjectIdentifier] {
+        guard let host = manualHaplotypeEditorHostView else {
+            return []
+        }
+        return GenotypeManualHaplotypeLocus.allCases.flatMap {
+            locus in
+            HaplotypeSlot.allCases.compactMap { slot in
+                descendantComboBox(
+                    in: host,
+                    accessibilityIdentifier:
+                        "manual-haplotype-\(locus.rawValue)-"
+                        + slot.rawValue
+                )
+            }
+        }.map(ObjectIdentifier.init)
+    }
+
+    var testingFirstManualHaplotypeComboBox: NSComboBox? {
+        guard let host = manualHaplotypeEditorHostView else {
+            return nil
+        }
+        return descendantComboBox(
+            in: host,
+            accessibilityIdentifier: "manual-haplotype-MHC-A-h1"
+        )
+    }
+
+    var testingSupportedAllelesSnapshotRowCount: Int? {
+        sampleSupportedAllelesSnapshot?.rows.count
+    }
+
+    var testingSupportedAllelesSnapshotRows:
+        [GenotypeSupportedAllelePresentation] {
+        sampleSupportedAllelesSnapshot?.rows ?? []
     }
 
     var testingGeneratedDetailLargestFontPointSize: CGFloat {
@@ -8076,6 +9796,41 @@ extension GenotypeResultViewController {
     func testingSelectMatrixColumns(samples: [String]) {
         ensureComparisonMatrixConfigured()
         comparisonMatrix.testingSelectColumns(samples: samples)
+    }
+
+    func testingSetMatrixContentScrollOrigins(
+        pinned: NSPoint,
+        samples: NSPoint
+    ) {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.testingSetContentScrollOrigins(
+            pinned: pinned,
+            samples: samples
+        )
+    }
+
+    var testingMatrixContentScrollOrigins:
+        GenotypeMatrixContentScrollOrigins {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingContentScrollOrigins
+    }
+
+    var testingNativeMatrixSelectedRowIndexes: IndexSet {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingNativeSelectedRowIndexes
+    }
+
+    func testingApplyNativeMatrixRowSelection(
+        _ indexes: IndexSet,
+        simulatedAppKitScrollOrigins:
+            GenotypeMatrixContentScrollOrigins? = nil
+    ) {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix.testingApplyNativeRowSelection(
+            indexes,
+            simulatedAppKitScrollOrigins:
+                simulatedAppKitScrollOrigins
+        )
     }
 
     func testingShowMatrixTargetSelection(_ targets: [GenotypeAnnotationSidecar.MatrixTarget]) {
@@ -8388,6 +10143,34 @@ extension GenotypeResultViewController {
         comparisonMatrix.testingSetFilter(text)
     }
 
+    func testingPerformNativeComparisonFilterAction(
+        text: String,
+        selectedRange: NSRange,
+        in window: NSWindow
+    ) -> Bool {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingPerformNativeFilterAction(
+            text: text,
+            selectedRange: selectedRange,
+            in: window
+        )
+    }
+
+    var testingComparisonFilterModelText: String {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingFilterModelText
+    }
+
+    var testingComparisonFilterNativeText: String {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingFilterNativeText
+    }
+
+    var testingComparisonFilterNativeSelectedRange: NSRange {
+        ensureComparisonMatrixConfigured()
+        return comparisonMatrix.testingFilterNativeSelectedRange
+    }
+
     func testingSetUnifiedSampleFilter(_ text: String) {
         quickFilterBar.setSearchText(text)
         if comparisonMatrixConfigured {
@@ -8540,6 +10323,139 @@ extension GenotypeResultViewController {
 
     func testingCurrentWorkbookHaplotypeCalls() -> [GenotypeWorkbookHaplotypeCall] {
         currentWorkbookEffectiveHaplotypeCalls()
+    }
+
+    func testingCurrentWorkbookHaplotypeProjectionMode()
+        -> GenotypeWorkbookHaplotypeProjectionMode
+    {
+        currentWorkbookHaplotypeProjectionMode()
+    }
+
+    var testingManualHaplotypingCreatorIsAvailable: Bool {
+        guard let result else { return false }
+        return manualHaplotypingIsAvailable(result: result)
+    }
+
+    var testingUsesLegacyManualHaplotypingSection: Bool {
+        usesLegacyManualHaplotypingSection
+    }
+
+    var testingManualHaplotypeEditorOrphanWarning: String? {
+        manualHaplotypeEditorModel?.orphanLegacyWarningMessage
+    }
+
+    var testingManualHaplotypeEditorOrphans:
+        [ManualHaplotypeAssignment] {
+        manualHaplotypeEditorModel?.orphanLegacyAssignments ?? []
+    }
+
+    var testingManualHaplotypeEditorEmptyStateMessage: String? {
+        manualHaplotypeEditorModel?.emptyStateMessage
+    }
+
+    var testingManualHaplotypeEditorSample: String? {
+        manualHaplotypeEditorModel?.draft.sample
+    }
+
+    var testingLastManualHaplotypeFocusedFieldIdentifier: String? {
+        testingLastManualHaplotypeFocusIdentifier
+    }
+
+    func testingSetManualHaplotypeBandDisclosureExpanded(
+        _ expanded: Bool
+    ) {
+        ensureComparisonMatrixConfigured()
+        comparisonMatrix
+            .testingSetManualHaplotypeBandDisclosureExpanded(expanded)
+    }
+
+    var testingManualHaplotypeEditorIsDirty: Bool {
+        manualHaplotypeEditorModel?.draft.isDirty == true
+    }
+
+    var testingManualHaplotypeEditorCanSave: Bool {
+        manualHaplotypeEditorModel?.canSave == true
+    }
+
+    var testingManualHaplotypeEditorPersistenceError: String? {
+        manualHaplotypeEditorModel?.persistenceErrorMessage
+    }
+
+    var testingManualHaplotypeWorkbookDirtyMarkCount: Int {
+        testingCurrentWorkbookDirtyMarkCount
+    }
+
+    func testingUpdateManualHaplotypeLabel(
+        _ label: String,
+        locus: GenotypeManualHaplotypeLocus = .a,
+        slot: HaplotypeSlot = .h1
+    ) {
+        manualHaplotypeEditorModel?.updateLabel(
+            label,
+            locus: locus,
+            slot: slot
+        )
+    }
+
+    func testingClearManualHaplotypeLabel(
+        locus: GenotypeManualHaplotypeLocus = .a,
+        slot: HaplotypeSlot = .h1
+    ) {
+        manualHaplotypeEditorModel?.clear(locus: locus, slot: slot)
+    }
+
+    func testingManualHaplotypeAutocompleteSuggestions(
+        matching query: String,
+        locus: GenotypeManualHaplotypeLocus = .a,
+        slot: HaplotypeSlot = .h1
+    ) -> [String] {
+        manualHaplotypeEditorModel?
+            .autocompleteSuggestions(
+                matching: query,
+                locus: locus,
+                slot: slot
+            )
+            .map(\.label) ?? []
+    }
+
+    func testingCopyManualHaplotypes(from sample: String) {
+        manualHaplotypeEditorModel?.copyAssignments(from: sample)
+    }
+
+    func testingSaveManualHaplotypeDraft() {
+        manualHaplotypeEditorModel?.save()
+    }
+
+    func testingSetManualHaplotypeDraftDecisionProvider(
+        _ provider: @escaping (
+            GenotypeManualHaplotypeDraftCoordinator.Transition
+        ) async -> GenotypeManualHaplotypeDraftDecision
+    ) {
+        manualHaplotypeDraftDecisionProvider = provider
+    }
+
+    func testingWaitForManualHaplotypeTransitions() async {
+        while manualHaplotypeTransitionMutationCoordinator.hasPendingMutation
+            || manualHaplotypeDraftCoordinator.hasPendingResolution {
+            await Task.yield()
+        }
+    }
+
+    var testingPendingManualHaplotypeMutationCount: Int {
+        manualHaplotypeTransitionMutationCoordinator.retainedMutationCount
+    }
+
+    var testingManualHaplotypeAssignments: [ManualHaplotypeAssignment] {
+        annotationStore?.sidecar.manualHaplotypeAssignments ?? []
+    }
+
+    func testingAttemptManualHaplotypeCreation(
+        selectedGenotypeIDs: Set<String>,
+        label: String
+    ) {
+        manualHaplotypingSelection = selectedGenotypeIDs
+        manualHaplotypingDraftLabel = label
+        commitManualHaplotype()
     }
 
     func testingReloadCurrentWorkbookResult() {

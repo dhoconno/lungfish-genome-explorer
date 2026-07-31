@@ -102,6 +102,8 @@ public class ViewerViewController: NSViewController {
 
     /// Native ONT genotype result bundle viewport.
     var genotypeResultViewController: GenotypeResultViewController?
+    let genotypeManualHaplotypeBandDisclosureStore =
+        GenotypeManualHaplotypeBandDisclosureStore()
     var onGenotypeResultViewWillHide: ((GenotypeResultViewController) -> Void)?
 
     /// Native 12S amplicon result bundle viewport.

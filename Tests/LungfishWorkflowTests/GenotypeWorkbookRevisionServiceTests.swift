@@ -7,6 +7,458 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
+    func testPublicWorkbookRevisionOutcomeAndLegacyWrapperMatchCommittedManifest() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let outcomeRoot = try temporaryDirectory()
+        let legacyRoot = try temporaryDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: outcomeRoot)
+            try? FileManager.default.removeItem(at: legacyRoot)
+        }
+        let outcomeFixture = try makeMCMWorkbookBundle(
+            in: outcomeRoot,
+            outputName: "public-outcome"
+        )
+        let legacyFixture = try makeMCMWorkbookBundle(
+            in: legacyRoot,
+            outputName: "legacy-outcome"
+        )
+        let outcomeService = GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 7_400) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL:
+                outcomeRoot.appendingPathComponent(
+                    "attestations",
+                    isDirectory: true
+                )
+        )
+
+        let outcome: GenotypeWorkbookRevisionOutcome =
+            try outcomeService.applyHaplotypeOverridesWithOutcome(
+                [],
+                annotationSidecarURL: nil,
+                into: outcomeFixture.bundleURL
+            )
+        let legacyManifest = try GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 7_400) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL:
+                legacyRoot.appendingPathComponent(
+                    "attestations",
+                    isDirectory: true
+                )
+        ).applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: nil,
+            into: legacyFixture.bundleURL
+        )
+
+        XCTAssertNil(outcome.cleanupPendingWarning)
+        XCTAssertEqual(
+            outcome.manifest,
+            try ONTGenotypeResultBundle.loadManifest(
+                from: outcomeFixture.bundleURL
+            )
+        )
+        XCTAssertEqual(
+            legacyManifest,
+            try ONTGenotypeResultBundle.loadManifest(
+                from: legacyFixture.bundleURL
+            )
+        )
+    }
+
+    func testCommittedCleanupFailureReturnsSuccessWarningWithoutSecondRetiredGeneration()
+        throws
+    {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(
+            in: root,
+            outputName: "committed-cleanup-warning"
+        )
+        let beforeRevisionCount = fixture.manifest.workbookRevisions?.count ?? 0
+        let attestationRoot = root.appendingPathComponent(
+            "attestations",
+            isDirectory: true
+        )
+
+        let outcome = try GenotypeWorkbookRevisionService(
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL: attestationRoot,
+            workbookCleanupFailureInjector: { checkpoint in
+                guard checkpoint == "during-workbook-cleanup-traversal" else {
+                    return
+                }
+                throw NSError(
+                    domain: "InjectedCommittedCleanupFailure",
+                    code: 5
+                )
+            }
+        ).applyHaplotypeOverridesWithOutcome(
+            [
+                GenotypeWorkbookHaplotypeCall(
+                    sample: "DW472",
+                    locus: "MHC-DP",
+                    haplotype1: "Latest-DP-1",
+                    haplotype2: "Latest-DP-2",
+                    status: "called",
+                    notes: "latest assignments"
+                ),
+            ],
+            annotationSidecarURL: nil,
+            into: fixture.bundleURL
+        )
+
+        XCTAssertEqual(
+            outcome.cleanupPendingWarning,
+            "Workbook updated; retired-generation cleanup pending."
+        )
+        XCTAssertEqual(
+            outcome.manifest,
+            try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
+        )
+        XCTAssertGreaterThan(
+            outcome.manifest.workbookRevisions?.count ?? 0,
+            beforeRevisionCount
+        )
+        let pending = try workbookCleanupArtifacts(in: root)
+        XCTAssertEqual(
+            pending.filter {
+                $0.lastPathComponent.hasPrefix(
+                    ".lungfish-workbook-cleanup-pending-"
+                )
+            }.count,
+            1
+        )
+        XCTAssertEqual(
+            pending.filter {
+                $0.lastPathComponent.contains(".workbook-cleanup-state-")
+            }.count,
+            1
+        )
+        let inspection = try inspectMCMWorkbook(
+            try ONTGenotypeResultBundle.currentWorkbookURL(
+                for: fixture.bundleURL
+            )
+        )
+        XCTAssertEqual(inspection["abbreviatedDPHaplotype1"], "Latest-DP-1")
+        XCTAssertEqual(inspection["abbreviatedDPHaplotype2"], "Latest-DP-2")
+    }
+
+    func testCommittedCleanupPreparationFailureReturnsSuccessWarningAndRemainsRecoverable()
+        throws
+    {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(
+            in: root,
+            outputName: "committed-cleanup-preparation-warning"
+        )
+        let attestationRoot = root.appendingPathComponent(
+            "attestations",
+            isDirectory: true
+        )
+
+        let outcome = try GenotypeWorkbookRevisionService(
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL: attestationRoot,
+            workbookCleanupFailureInjector: { checkpoint in
+                guard checkpoint
+                    == "after-workbook-cleanup-detach-hard-stop" else {
+                    return
+                }
+                throw NSError(
+                    domain: "InjectedCommittedCleanupPreparationFailure",
+                    code: 5
+                )
+            }
+        ).applyHaplotypeOverridesWithOutcome(
+            [],
+            annotationSidecarURL: nil,
+            into: fixture.bundleURL
+        )
+
+        XCTAssertEqual(
+            outcome.cleanupPendingWarning,
+            "Workbook updated; retired-generation cleanup pending."
+        )
+        XCTAssertEqual(
+            outcome.manifest,
+            try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
+        )
+        XCTAssertTrue(
+            try workbookCleanupArtifacts(in: root).contains {
+                $0.lastPathComponent.hasPrefix(
+                    ".lungfish-workbook-cleanup-pending-"
+                )
+            }
+        )
+
+        let lock = try ONTGenotypeBundlePublicationLock.acquire(
+            for: fixture.bundleURL,
+            blocking: true,
+            createIfMissing: false
+        )
+        defer { lock.release() }
+        try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+            for: fixture.bundleURL,
+            attestationRootURL: attestationRoot
+        )
+        XCTAssertNoThrow(
+            try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+        )
+        try assertNoRetiredWorkbookGeneration(in: root)
+    }
+
+    func testLegacyManifestWrapperReturnsCommittedManifestWhenCleanupRemainsPending()
+        throws
+    {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(
+            in: root,
+            outputName: "legacy-cleanup-warning"
+        )
+
+        let returned = try GenotypeWorkbookRevisionService(
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL: root.appendingPathComponent(
+                "attestations",
+                isDirectory: true
+            ),
+            workbookCleanupFailureInjector: { checkpoint in
+                guard checkpoint == "during-workbook-cleanup-traversal" else {
+                    return
+                }
+                throw NSError(
+                    domain: "InjectedLegacyCommittedCleanupFailure",
+                    code: 5
+                )
+            }
+        ).applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: nil,
+            into: fixture.bundleURL
+        )
+
+        XCTAssertEqual(
+            returned,
+            try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
+        )
+        XCTAssertTrue(
+            try workbookCleanupArtifacts(in: root).contains {
+                $0.lastPathComponent.contains(".workbook-cleanup-state-")
+            }
+        )
+    }
+
+    func testPreflightCleanupFailureBlocksWithoutCreatingWorkbookGeneration() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let paused = try pausedCommittedWorkbookCleanup(
+            outputName: "preflight-cleanup-block"
+        )
+        paused.lock.release()
+        defer { try? FileManager.default.removeItem(at: paused.root) }
+        let before = try ONTGenotypeResultBundle.loadManifest(
+            from: paused.fixture.bundleURL
+        )
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                pythonExecutableURL: testPythonExecutableURL,
+                workbookAttestationRootURL: paused.attestationRoot,
+                workbookCleanupFailureInjector: { checkpoint in
+                    guard checkpoint
+                        == "during-workbook-cleanup-traversal" else {
+                        return
+                    }
+                    throw NSError(
+                        domain: "InjectedPreflightCleanupFailure",
+                        code: 5
+                    )
+                }
+            ).applyHaplotypeOverridesWithOutcome(
+                [],
+                annotationSidecarURL: nil,
+                into: paused.fixture.bundleURL
+            )
+        ) { error in
+            XCTAssertTrue(
+                error.localizedDescription.contains(
+                    "The existing workbook is valid, but this new update was not applied because a prior retired generation could not be cleaned up safely."
+                ),
+                error.localizedDescription
+            )
+        }
+        XCTAssertEqual(
+            try ONTGenotypeResultBundle.loadManifest(
+                from: paused.fixture.bundleURL
+            ),
+            before
+        )
+        XCTAssertEqual(
+            try workbookCleanupArtifacts(in: paused.root).filter {
+                $0.lastPathComponent.hasPrefix(
+                    ".lungfish-workbook-cleanup-pending-"
+                )
+            }.count,
+            1
+        )
+        try assertNoWorkbookUpdateStage(
+            for: paused.fixture.bundleURL
+        )
+    }
+
+    func testCleanupPendingWarningPersistenceFailureAfterCommitIsSuccessWarning()
+        throws
+    {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(
+            in: root,
+            outputName: "warning-persistence-failure"
+        )
+
+        let outcome = try GenotypeWorkbookRevisionService(
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL: root.appendingPathComponent(
+                "attestations",
+                isDirectory: true
+            ),
+            workbookCleanupFailureInjector: { checkpoint in
+                if checkpoint == "during-workbook-cleanup-traversal" {
+                    throw NSError(
+                        domain: "InjectedCommittedCleanupFailure",
+                        code: 5
+                    )
+                }
+                if checkpoint == "before-workbook-cleanup-warning-write" {
+                    throw NSError(
+                        domain: "InjectedWarningPersistenceFailure",
+                        code: 17
+                    )
+                }
+            }
+        ).applyHaplotypeOverridesWithOutcome(
+            [],
+            annotationSidecarURL: nil,
+            into: fixture.bundleURL
+        )
+
+        XCTAssertEqual(
+            outcome.cleanupPendingWarning,
+            "Workbook updated; retired-generation cleanup pending."
+        )
+        XCTAssertEqual(
+            outcome.manifest,
+            try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
+        )
+        XCTAssertTrue(
+            try workbookCleanupArtifacts(in: root).contains {
+                $0.lastPathComponent.contains(".workbook-cleanup-state-")
+            }
+        )
+    }
+
+    func testSchemaThreeCleanupPendingRecoveryFinishesThenPublishesLatestAssignments()
+        throws
+    {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let paused = try pausedCommittedWorkbookCleanup(
+            outputName: "schema-three-recovery"
+        )
+        paused.lock.release()
+        defer { try? FileManager.default.removeItem(at: paused.root) }
+        let stateURL = try workbookCleanupStateURL(in: paused.root)
+        let stateObject = try XCTUnwrap(
+            try JSONSerialization.jsonObject(
+                with: Data(contentsOf: stateURL)
+            ) as? [String: Any]
+        )
+        XCTAssertEqual(stateObject["schemaVersion"] as? Int, 3)
+
+        let outcome = try GenotypeWorkbookRevisionService(
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL: paused.attestationRoot
+        ).applyHaplotypeOverridesWithOutcome(
+            [
+                GenotypeWorkbookHaplotypeCall(
+                    sample: "DW472",
+                    locus: "MHC-DP",
+                    haplotype1: "Recovered-Latest-DP-1",
+                    haplotype2: "Recovered-Latest-DP-2",
+                    status: "called",
+                    notes: "latest after cleanup recovery"
+                ),
+            ],
+            annotationSidecarURL: nil,
+            into: paused.fixture.bundleURL
+        )
+
+        XCTAssertNil(outcome.cleanupPendingWarning)
+        let inspection = try inspectMCMWorkbook(
+            try ONTGenotypeResultBundle.currentWorkbookURL(
+                for: paused.fixture.bundleURL
+            )
+        )
+        XCTAssertEqual(
+            inspection["abbreviatedDPHaplotype1"],
+            "Recovered-Latest-DP-1"
+        )
+        XCTAssertEqual(
+            inspection["abbreviatedDPHaplotype2"],
+            "Recovered-Latest-DP-2"
+        )
+        XCTAssertTrue(
+            try workbookRecoveryReceiptActions(in: paused.root).contains(
+                "finished-committed-cleanup"
+            )
+        )
+        try assertNoRetiredWorkbookGeneration(in: paused.root)
+    }
+
+    func testRecoveryConvergesBeforeNewGenerationAndAcquiresPublicationLockOnlyOnce()
+        throws
+    {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let paused = try pausedCommittedWorkbookCleanup(
+            outputName: "single-lock-recovery"
+        )
+        paused.lock.release()
+        defer { try? FileManager.default.removeItem(at: paused.root) }
+        let acquisitions = WorkbookPublicationLockAcquisitionCounter()
+
+        let outcome = try GenotypeWorkbookRevisionService(
+            testingWorkbookPublicationLockAcquirer: { bundleURL in
+                acquisitions.increment()
+                return try ONTGenotypeBundlePublicationLock.acquire(
+                    for: bundleURL
+                )
+            },
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL: paused.attestationRoot
+        ).applyHaplotypeOverridesWithOutcome(
+            [],
+            annotationSidecarURL: nil,
+            into: paused.fixture.bundleURL
+        )
+
+        XCTAssertNil(outcome.cleanupPendingWarning)
+        XCTAssertEqual(acquisitions.value, 1)
+        XCTAssertTrue(
+            try workbookRecoveryReceiptActions(in: paused.root).contains(
+                "finished-committed-cleanup"
+            )
+        )
+        try assertNoRetiredWorkbookGeneration(in: paused.root)
+    }
+
     func testExplicitWorkbookUpdateAcceptsWriterShapedSchemaV4UnnameableIdentity() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()
@@ -39,7 +491,9 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         try ONTGenotypeResultBundle.writeManifest(
             ONTGenotypeResultBundleManifest(
                 schemaVersion: beforeScientificArtifacts.schemaVersion,
-                kind: beforeScientificArtifacts.kind,
+                kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
+                workflowKind: .fullLengthONTMHCGenotype,
+                workflowMode: .genotypeOnly,
                 outputName: beforeScientificArtifacts.outputName,
                 analysisName: beforeScientificArtifacts.analysisName,
                 primaryWorkbookPath: beforeScientificArtifacts.primaryWorkbookPath,
@@ -73,6 +527,8 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
             userProvider: { "tester" },
             pythonExecutableURL: testPythonExecutableURL
         ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
+        XCTAssertEqual(updatedManifest.workflowKind, .fullLengthONTMHCGenotype)
+        XCTAssertEqual(updatedManifest.workflowMode, .genotypeOnly)
 
         XCTAssertNotNil(updatedManifest.mhcCandidateArtifacts?.candidateJSON)
         XCTAssertNotNil(updatedManifest.mhcCandidateArtifacts?.unnameableJSON)
@@ -1357,6 +1813,7 @@ wb.save(path)
 
             XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), before, checkpoint)
             try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
+            try assertNoRetiredWorkbookGeneration(in: root)
             XCTAssertFalse(FileManager.default.fileExists(
                 atPath: ONTGenotypeWorkbookUpdateRecovery.markerURL(for: fixture.bundleURL).path
             ))
@@ -1462,6 +1919,7 @@ print(wb[wb.sheetnames[0]]["Z93"].value or "")
             "manual-save-after-manifest-survives"
         )
         try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
+        try assertNoRetiredWorkbookGeneration(in: root)
         XCTAssertFalse(FileManager.default.fileExists(
             atPath: ONTGenotypeWorkbookUpdateRecovery.markerURL(for: fixture.bundleURL).path
         ))
@@ -1773,21 +2231,1517 @@ wb.save(path)
         }
     }
 
-    func testAutomaticFinalizationArchivesRetiredGenerationInsteadOfDeletingIt() throws {
+    func testAutomaticFinalizationDetachesAndRemovesRetiredGeneration() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
-        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "retired-generation-archive")
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "retired-generation-cleanup")
 
         _ = try GenotypeWorkbookRevisionService(
             pythonExecutableURL: testPythonExecutableURL
         ).applyHaplotypeOverrides([], annotationSidecarURL: nil, into: fixture.bundleURL)
 
-        let archives = try FileManager.default.contentsOfDirectory(atPath: root.path).filter {
-            $0.hasPrefix(".lungfish-workbook-generation-archive-")
+        XCTAssertNoThrow(try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL))
+        XCTAssertTrue(try workbookCleanupArtifacts(in: root).isEmpty)
+        XCTAssertFalse(
+            try FileManager.default.contentsOfDirectory(atPath: root.path).contains {
+                $0.hasPrefix(".lungfish-workbook-generation-archive-")
+            }
+        )
+    }
+
+    func testWorkbookCleanupRecoversAfterEveryDurabilityBoundary() throws {
+        let branches = [
+            "committed",
+            "prepared-discard",
+            "rollback",
+            "manual-save-winner",
+        ]
+        let checkpoints = [
+            "after-workbook-cleanup-detach-hard-stop",
+            "after-workbook-cleanup-state-write-before-attestation-hard-stop",
+            "after-workbook-cleanup-state-durable-hard-stop",
+            "after-workbook-cleanup-marker-removal-hard-stop",
+            "after-workbook-cleanup-attestation-removal-hard-stop",
+        ]
+        for branch in branches {
+            for checkpoint in checkpoints {
+                let root = try temporaryDirectory()
+                defer { try? FileManager.default.removeItem(at: root) }
+                let fixture = try makeMCMWorkbookBundle(
+                    in: root,
+                    outputName: "cleanup-\(branch)-\(checkpoint)"
+                )
+                let attestationRoot = root.appendingPathComponent(
+                    "attestations",
+                    isDirectory: true
+                )
+
+                try interruptWorkbookCleanup(
+                    branch: branch,
+                    fixture: fixture,
+                    attestationRoot: attestationRoot
+                )
+
+                XCTAssertNoThrow(
+                    try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
+                )
+                XCTAssertFalse(
+                    try FileManager.default.contentsOfDirectory(atPath: root.path).contains {
+                        $0.hasPrefix(".lungfish-workbook-generation-archive-")
+                    }
+                )
+                let lock = try ONTGenotypeBundlePublicationLock.acquire(
+                    for: fixture.bundleURL,
+                    blocking: true,
+                    createIfMissing: false
+                )
+                defer { lock.release() }
+                XCTAssertThrowsError(
+                    try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                        for: fixture.bundleURL,
+                        attestationRootURL: attestationRoot,
+                        cleanupFailureInjector: { observed in
+                            guard observed == checkpoint else { return }
+                            throw NSError(
+                                domain: "InjectedWorkbookCleanupCrash",
+                                code: 9
+                            )
+                        }
+                    ),
+                    "\(branch) @ \(checkpoint)"
+                )
+                XCTAssertFalse(try workbookCleanupArtifacts(in: root).isEmpty)
+                try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                    for: fixture.bundleURL,
+                    attestationRootURL: attestationRoot
+                )
+
+                XCTAssertNoThrow(
+                    try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL),
+                    "\(branch) @ \(checkpoint)"
+                )
+                XCTAssertTrue(try workbookCleanupArtifacts(in: root).isEmpty)
+                XCTAssertFalse(FileManager.default.fileExists(
+                    atPath: ONTGenotypeWorkbookUpdateRecovery.markerURL(
+                        for: fixture.bundleURL
+                    ).path
+                ))
+                try assertNoRetiredWorkbookGeneration(in: root)
+            }
         }
-        XCTAssertEqual(archives.count, 1)
-        let archivedRoot = root.appendingPathComponent(try XCTUnwrap(archives.first), isDirectory: true)
-        XCTAssertFalse(try bundleSnapshot(archivedRoot).isEmpty)
+    }
+
+    func testWorkbookCleanupTraversalFailurePreservesEveryDecisionWinnerAndRetries()
+        throws
+    {
+        let cases = [
+            (
+                branch: "committed",
+                decision: "committed",
+                terminalAction: "finished-committed-cleanup"
+            ),
+            (
+                branch: "prepared-discard",
+                decision: "prepared-discard",
+                terminalAction: "finished-prepared-discard-cleanup"
+            ),
+            (
+                branch: "rollback",
+                decision: "rollback",
+                terminalAction: "finished-rollback-cleanup"
+            ),
+            (
+                branch: "manual-save-winner",
+                decision: "manual-save-winner",
+                terminalAction: "finished-manual-save-winner-cleanup"
+            ),
+        ]
+
+        for testCase in cases {
+            let root = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let fixture = try makeMCMWorkbookBundle(
+                in: root,
+                outputName: "cleanup-traversal-\(testCase.branch)"
+            )
+            let attestationRoot = root.appendingPathComponent(
+                "attestations",
+                isDirectory: true
+            )
+            let initialWorkbook = try ONTGenotypeResultBundle
+                .currentWorkbookURL(for: fixture.bundleURL)
+            let initialWorkbookSHA = try ProvenanceFileHasher.sha256(
+                of: initialWorkbook
+            )
+
+            try interruptWorkbookCleanup(
+                branch: testCase.branch,
+                fixture: fixture,
+                attestationRoot: attestationRoot
+            )
+
+            let lock = try ONTGenotypeBundlePublicationLock.acquire(
+                for: fixture.bundleURL,
+                blocking: true,
+                createIfMissing: false
+            )
+            defer { lock.release() }
+            XCTAssertThrowsError(
+                try ONTGenotypeWorkbookUpdateRecovery
+                    .recoverIfNeededAssumingLock(
+                        for: fixture.bundleURL,
+                        attestationRootURL: attestationRoot,
+                        cleanupFailureInjector: { checkpoint in
+                            guard checkpoint
+                                == "during-workbook-cleanup-traversal" else {
+                                return
+                            }
+                            throw NSError(
+                                domain:
+                                    "InjectedWorkbookCleanupTraversalMatrix",
+                                code: 5
+                            )
+                        }
+                    ),
+                testCase.branch
+            ) { error in
+                XCTAssertTrue(
+                    error.localizedDescription.contains("cleanup-pending"),
+                    "\(testCase.branch): \(error.localizedDescription)"
+                )
+                XCTAssertTrue(
+                    error.localizedDescription
+                        .localizedCaseInsensitiveContains("retry"),
+                    "\(testCase.branch): \(error.localizedDescription)"
+                )
+            }
+
+            let pendingArtifacts = try workbookCleanupArtifacts(in: root)
+            let quarantine = try XCTUnwrap(
+                pendingArtifacts.first {
+                    $0.lastPathComponent.hasPrefix(
+                        ".lungfish-workbook-cleanup-pending-"
+                    )
+                },
+                testCase.branch
+            )
+            let stateURL = try XCTUnwrap(
+                pendingArtifacts.first {
+                    $0.lastPathComponent.contains(
+                        ".workbook-cleanup-state-"
+                    )
+                },
+                testCase.branch
+            )
+            let warningURL = try XCTUnwrap(
+                pendingArtifacts.first {
+                    $0.lastPathComponent.contains(
+                        ".workbook-cleanup-warning-"
+                    )
+                },
+                testCase.branch
+            )
+            let warning = try XCTUnwrap(
+                try JSONSerialization.jsonObject(
+                    with: Data(contentsOf: warningURL)
+                ) as? [String: Any]
+            )
+            XCTAssertEqual(
+                warning["decision"] as? String,
+                testCase.decision,
+                testCase.branch
+            )
+            XCTAssertEqual(
+                warning["retryState"] as? String,
+                "cleanup-pending",
+                testCase.branch
+            )
+            XCTAssertEqual(
+                (warning["quarantinePath"] as? String).map {
+                    URL(fileURLWithPath: $0).resolvingSymlinksInPath().path
+                },
+                quarantine.resolvingSymlinksInPath().path,
+                testCase.branch
+            )
+            XCTAssertEqual(
+                (warning["statePath"] as? String).map {
+                    URL(fileURLWithPath: $0).resolvingSymlinksInPath().path
+                },
+                stateURL.resolvingSymlinksInPath().path,
+                testCase.branch
+            )
+            XCTAssertFalse(
+                try FileManager.default.contentsOfDirectory(
+                    atPath: quarantine.path
+                ).isEmpty,
+                testCase.branch
+            )
+            XCTAssertFalse(
+                FileManager.default.fileExists(
+                    atPath: ONTGenotypeWorkbookUpdateRecovery.markerURL(
+                        for: fixture.bundleURL
+                    ).path
+                ),
+                testCase.branch
+            )
+            let pendingActions = try workbookRecoveryReceiptActions(in: root)
+            XCTAssertTrue(
+                pendingActions.contains("workbook-cleanup-authorized"),
+                testCase.branch
+            )
+            XCTAssertFalse(
+                pendingActions.contains(testCase.terminalAction),
+                testCase.branch
+            )
+
+            let survivingWorkbook = try ONTGenotypeResultBundle
+                .currentWorkbookURL(for: fixture.bundleURL)
+            let survivingWorkbookSHA = try ProvenanceFileHasher.sha256(
+                of: survivingWorkbook
+            )
+            switch testCase.branch {
+            case "committed":
+                XCTAssertNotEqual(
+                    survivingWorkbookSHA,
+                    initialWorkbookSHA,
+                    testCase.branch
+                )
+            case "prepared-discard", "rollback":
+                XCTAssertEqual(
+                    survivingWorkbookSHA,
+                    initialWorkbookSHA,
+                    testCase.branch
+                )
+            case "manual-save-winner":
+                XCTAssertEqual(
+                    try runPython([
+                        "-c",
+                        #"""
+import sys
+from openpyxl import load_workbook
+wb = load_workbook(sys.argv[1], data_only=False)
+print(wb[wb.sheetnames[0]]["Z94"].value or "")
+"""#,
+                        survivingWorkbook.path,
+                    ]).trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    ),
+                    "manual-cleanup-winner",
+                    testCase.branch
+                )
+            default:
+                XCTFail("Unhandled cleanup decision \(testCase.branch)")
+            }
+
+            try ONTGenotypeWorkbookUpdateRecovery
+                .recoverIfNeededAssumingLock(
+                    for: fixture.bundleURL,
+                    attestationRootURL: attestationRoot
+                )
+
+            XCTAssertNoThrow(
+                try ONTGenotypeResultBundle.loadResult(
+                    from: fixture.bundleURL
+                ),
+                testCase.branch
+            )
+            XCTAssertEqual(
+                try ProvenanceFileHasher.sha256(
+                    of: ONTGenotypeResultBundle.currentWorkbookURL(
+                        for: fixture.bundleURL
+                    )
+                ),
+                survivingWorkbookSHA,
+                testCase.branch
+            )
+            let completedArtifacts = try workbookCleanupArtifacts(in: root)
+            XCTAssertFalse(
+                completedArtifacts.contains {
+                    $0.lastPathComponent.hasPrefix(
+                        ".lungfish-workbook-cleanup-pending-"
+                    )
+                        || $0.lastPathComponent.contains(
+                            ".workbook-cleanup-state-"
+                        )
+                },
+                testCase.branch
+            )
+            XCTAssertEqual(
+                completedArtifacts.filter {
+                    $0.lastPathComponent.contains(
+                        ".workbook-cleanup-warning-"
+                    )
+                }.map(\.standardizedFileURL),
+                [warningURL.standardizedFileURL],
+                testCase.branch
+            )
+            XCTAssertTrue(
+                try workbookRecoveryReceiptActions(in: root).contains(
+                    testCase.terminalAction
+                ),
+                testCase.branch
+            )
+            try assertNoRetiredWorkbookGeneration(in: root)
+        }
+    }
+
+    func testWorkbookCleanupTraversalFailureRecordsRetryWarning() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "cleanup-traversal")
+        let attestationRoot = root.appendingPathComponent("attestations", isDirectory: true)
+        try interruptCommittedWorkbookCleanup(
+            fixture: fixture,
+            attestationRoot: attestationRoot
+        )
+        let lock = try ONTGenotypeBundlePublicationLock.acquire(
+            for: fixture.bundleURL,
+            blocking: true,
+            createIfMissing: false
+        )
+        defer { lock.release() }
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: fixture.bundleURL,
+                attestationRootURL: attestationRoot,
+                cleanupFailureInjector: { checkpoint in
+                    guard checkpoint == "during-workbook-cleanup-traversal" else { return }
+                    throw NSError(domain: "InjectedWorkbookCleanupTraversal", code: 5)
+                }
+            )
+        ) { error in
+            XCTAssertTrue(error.localizedDescription.contains("cleanup-pending"))
+            XCTAssertTrue(error.localizedDescription.localizedCaseInsensitiveContains("retry"))
+        }
+
+        let artifacts = try workbookCleanupArtifacts(in: root)
+        XCTAssertTrue(artifacts.contains { $0.lastPathComponent.contains("cleanup-state") })
+        XCTAssertTrue(artifacts.contains { $0.lastPathComponent.contains("cleanup-warning") })
+        let warningURL = try XCTUnwrap(
+            artifacts.first { $0.lastPathComponent.contains("cleanup-warning") }
+        )
+        let warning = try JSONSerialization.jsonObject(
+            with: Data(contentsOf: warningURL)
+        ) as? [String: Any]
+        XCTAssertEqual(warning?["retryState"] as? String, "cleanup-pending")
+        XCTAssertTrue(
+            (warning?["quarantinePath"] as? String)?.contains(
+                ".lungfish-workbook-cleanup-pending-"
+            ) == true
+        )
+
+        try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+            for: fixture.bundleURL,
+            attestationRootURL: attestationRoot
+        )
+        XCTAssertNoThrow(try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL))
+        XCTAssertFalse(
+            try workbookCleanupArtifacts(in: root).contains {
+                $0.lastPathComponent.contains("cleanup-state")
+                    || $0.lastPathComponent.contains("cleanup-pending")
+            }
+        )
+    }
+
+    func testMarkerlessCleanupRetryRetainsQuarantineWhenSurvivorIsMissing() throws {
+        let paused = try pausedCommittedWorkbookCleanup(
+            outputName: "cleanup-missing-survivor"
+        )
+        defer {
+            paused.lock.release()
+            try? FileManager.default.removeItem(at: paused.root)
+        }
+        let held = paused.root.appendingPathComponent(
+            "held-surviving-generation",
+            isDirectory: true
+        )
+        let warningPathsBefore = Set(
+            try workbookCleanupArtifacts(in: paused.root)
+                .filter { $0.lastPathComponent.contains(".workbook-cleanup-warning-") }
+                .map(\.lastPathComponent)
+        )
+        try FileManager.default.moveItem(at: paused.fixture.bundleURL, to: held)
+
+        var reportedWarningURL: URL?
+        var reportedQuarantinePath: String?
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: paused.fixture.bundleURL,
+                attestationRootURL: paused.attestationRoot
+            )
+        ) { error in
+            guard case let ONTGenotypeWorkbookUpdateRecoveryError
+                .cleanupPendingWarning(
+                    quarantinePath,
+                    retryState,
+                    warningPath,
+                    reason
+                ) = error else {
+                return XCTFail(
+                    "Expected structured cleanup warning, got \(error.localizedDescription)"
+                )
+            }
+            XCTAssertEqual(
+                URL(fileURLWithPath: quarantinePath).resolvingSymlinksInPath(),
+                paused.quarantine.resolvingSymlinksInPath()
+            )
+            XCTAssertEqual(retryState, "cleanup-pending")
+            XCTAssertTrue(
+                reason.localizedCaseInsensitiveContains(
+                    "surviving workbook generation"
+                )
+            )
+            reportedWarningURL = URL(fileURLWithPath: warningPath)
+            reportedQuarantinePath = quarantinePath
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: paused.quarantine.path))
+        let warningURL = try XCTUnwrap(reportedWarningURL)
+        let expectedWarningPrefix =
+            ".\(paused.fixture.bundleURL.lastPathComponent).workbook-cleanup-warning-"
+        XCTAssertTrue(warningURL.lastPathComponent.hasPrefix(expectedWarningPrefix))
+        XCTAssertTrue(warningURL.lastPathComponent.hasSuffix(".json"))
+        XCTAssertEqual(warningURL.deletingLastPathComponent(), paused.root)
+        let warningPathsAfter = Set(
+            try workbookCleanupArtifacts(in: paused.root)
+                .filter { $0.lastPathComponent.contains(".workbook-cleanup-warning-") }
+                .map(\.lastPathComponent)
+        )
+        XCTAssertEqual(
+            warningPathsAfter.subtracting(warningPathsBefore),
+            Set([warningURL.lastPathComponent])
+        )
+        let warning = try XCTUnwrap(
+            try JSONSerialization.jsonObject(
+                with: Data(contentsOf: warningURL)
+            ) as? [String: Any]
+        )
+        XCTAssertEqual(warning["schemaVersion"] as? Int, 1)
+        XCTAssertEqual(warning["finalBundlePath"] as? String, paused.fixture.bundleURL.path)
+        XCTAssertEqual(
+            warning["quarantinePath"] as? String,
+            try XCTUnwrap(reportedQuarantinePath)
+        )
+        XCTAssertEqual(warning["retryState"] as? String, "cleanup-pending")
+        XCTAssertTrue(
+            (warning["reason"] as? String)?.localizedCaseInsensitiveContains(
+                "surviving workbook generation"
+            ) == true
+        )
+    }
+
+    func testMarkerlessCleanupRetryRetainsQuarantineWhenSurvivorIsSubstituted() throws {
+        let paused = try pausedCommittedWorkbookCleanup(
+            outputName: "cleanup-substituted-survivor"
+        )
+        defer {
+            paused.lock.release()
+            try? FileManager.default.removeItem(at: paused.root)
+        }
+        let held = paused.root.appendingPathComponent(
+            "held-surviving-generation",
+            isDirectory: true
+        )
+        try FileManager.default.moveItem(at: paused.fixture.bundleURL, to: held)
+        try FileManager.default.copyItem(at: held, to: paused.fixture.bundleURL)
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: paused.fixture.bundleURL,
+                attestationRootURL: paused.attestationRoot
+            )
+        ) { error in
+            XCTAssertTrue(
+                error.localizedDescription.localizedCaseInsensitiveContains(
+                    "surviving workbook generation"
+                )
+            )
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: paused.quarantine.path))
+        XCTAssertFalse(try workbookCleanupArtifacts(in: paused.root).isEmpty)
+    }
+
+    func testMarkerlessCleanupRetryRetainsQuarantineWhenSurvivorIntegrityIsCorrupt() throws {
+        for target in ["manifest", "workbook"] {
+            let paused = try pausedCommittedWorkbookCleanup(
+                outputName: "cleanup-corrupt-\(target)"
+            )
+            defer {
+                paused.lock.release()
+                try? FileManager.default.removeItem(at: paused.root)
+            }
+            let targetURL: URL
+            if target == "manifest" {
+                targetURL = ONTGenotypeResultBundle.manifestURL(
+                    in: paused.fixture.bundleURL
+                )
+            } else {
+                targetURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+                    for: paused.fixture.bundleURL
+                )
+            }
+            try Data("corrupt-survivor".utf8).write(to: targetURL, options: .atomic)
+
+            XCTAssertThrowsError(
+                try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                    for: paused.fixture.bundleURL,
+                    attestationRootURL: paused.attestationRoot
+                )
+            ) { error in
+                XCTAssertTrue(
+                    error.localizedDescription.localizedCaseInsensitiveContains(
+                        "surviving workbook generation"
+                    )
+                )
+            }
+            XCTAssertTrue(FileManager.default.fileExists(atPath: paused.quarantine.path))
+            XCTAssertFalse(try workbookCleanupArtifacts(in: paused.root).isEmpty)
+        }
+    }
+
+    func testWorkbookCleanupRetryNeverDeletesSubstitutedQuarantineInode() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(in: root, outputName: "cleanup-substitution")
+        let attestationRoot = root.appendingPathComponent("attestations", isDirectory: true)
+        let held = root.appendingPathComponent("held-retired-generation", isDirectory: true)
+        let replacementSentinel = Data("replacement-must-survive".utf8)
+        try interruptCommittedWorkbookCleanup(
+            fixture: fixture,
+            attestationRoot: attestationRoot
+        )
+        let lock = try ONTGenotypeBundlePublicationLock.acquire(
+            for: fixture.bundleURL,
+            blocking: true,
+            createIfMissing: false
+        )
+        defer { lock.release() }
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: fixture.bundleURL,
+                attestationRootURL: attestationRoot,
+                cleanupFailureInjector: { checkpoint in
+                    guard checkpoint == "during-workbook-cleanup-traversal" else { return }
+                    let quarantine = try XCTUnwrap(
+                        try FileManager.default.contentsOfDirectory(
+                            at: root,
+                            includingPropertiesForKeys: nil
+                        ).first {
+                            $0.lastPathComponent.hasPrefix(
+                                ".lungfish-workbook-cleanup-pending-"
+                            )
+                        }
+                    )
+                    try FileManager.default.moveItem(at: quarantine, to: held)
+                    try FileManager.default.createDirectory(
+                        at: quarantine,
+                        withIntermediateDirectories: false
+                    )
+                    try replacementSentinel.write(
+                        to: quarantine.appendingPathComponent("replacement.txt")
+                    )
+                }
+            )
+        )
+
+        let replacement = try XCTUnwrap(
+            try FileManager.default.contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: nil
+            ).first {
+                $0.lastPathComponent.hasPrefix(
+                    ".lungfish-workbook-cleanup-pending-"
+                )
+            }
+        )
+        XCTAssertEqual(
+            try Data(contentsOf: replacement.appendingPathComponent("replacement.txt")),
+            replacementSentinel
+        )
+        XCTAssertNoThrow(try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL))
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: fixture.bundleURL,
+                attestationRootURL: attestationRoot
+            )
+        )
+        XCTAssertEqual(
+            try Data(contentsOf: replacement.appendingPathComponent("replacement.txt")),
+            replacementSentinel
+        )
+        XCTAssertFalse(try bundleSnapshot(held).isEmpty)
+    }
+
+    func testWorkbookCleanupNeverUnlinksSubstitutedRegularEntry() throws {
+        let paused = try pausedCommittedWorkbookCleanup(
+            outputName: "cleanup-regular-entry-substitution"
+        )
+        defer {
+            paused.lock.release()
+            try? FileManager.default.removeItem(at: paused.root)
+        }
+        let entry = paused.quarantine.appendingPathComponent("race-entry.txt")
+        let held = paused.root.appendingPathComponent("held-original-entry.txt")
+        let original = Data("original-retired-bytes".utf8)
+        let replacement = Data("replacement-must-survive".utf8)
+        try original.write(to: entry)
+        let substituted = SendableFlagBox()
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: paused.fixture.bundleURL,
+                attestationRootURL: paused.attestationRoot,
+                cleanupFailureInjector: { checkpoint in
+                    guard checkpoint.hasPrefix(
+                        "before-workbook-cleanup-nondirectory-detach:"
+                    ), checkpoint.hasSuffix("/race-entry.txt") else {
+                        return
+                    }
+                    try FileManager.default.moveItem(at: entry, to: held)
+                    try replacement.write(to: entry)
+                    substituted.set(1)
+                }
+            )
+        )
+
+        XCTAssertEqual(substituted.value, 1)
+        XCTAssertEqual(try Data(contentsOf: held), original)
+        XCTAssertEqual(try Data(contentsOf: entry), replacement)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: paused.quarantine.path))
+    }
+
+    func testMarkerlessCleanupDiscoveryUsesIdentityBoundActualBundleCasing() throws {
+        let paused = try pausedCommittedWorkbookCleanup(
+            outputName: "cleanup-case-discovery"
+        )
+        defer {
+            paused.lock.release()
+            try? FileManager.default.removeItem(at: paused.root)
+        }
+        let alternateName = paused.fixture.bundleURL.lastPathComponent.uppercased()
+        guard alternateName != paused.fixture.bundleURL.lastPathComponent else {
+            throw XCTSkip("Fixture name has no alternate casing")
+        }
+        let alternateURL = paused.fixture.bundleURL.deletingLastPathComponent()
+            .appendingPathComponent(alternateName, isDirectory: true)
+        guard FileManager.default.fileExists(atPath: alternateURL.path) else {
+            throw XCTSkip("Volume is case-sensitive")
+        }
+
+        try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+            for: alternateURL,
+            attestationRootURL: paused.attestationRoot
+        )
+
+        XCTAssertNoThrow(
+            try ONTGenotypeResultBundle.loadResult(from: paused.fixture.bundleURL)
+        )
+        XCTAssertFalse(
+            try workbookCleanupArtifacts(in: paused.root).contains {
+                $0.lastPathComponent.contains("cleanup-state")
+                    || $0.lastPathComponent.contains("cleanup-pending")
+            }
+        )
+    }
+
+    func testCleanupReceiptsRemainPendingUntilQuarantineDeletionIsDurable() throws {
+        let paused = try pausedCommittedWorkbookCleanup(
+            outputName: "cleanup-receipt-disposition"
+        )
+        defer {
+            paused.lock.release()
+            try? FileManager.default.removeItem(at: paused.root)
+        }
+        func receipts() throws -> [[String: Any]] {
+            try FileManager.default.contentsOfDirectory(
+                at: paused.root,
+                includingPropertiesForKeys: nil
+            )
+            .filter {
+                $0.lastPathComponent.contains(".workbook-update-recovery-")
+                    && $0.pathExtension == "json"
+            }
+            .map {
+                try XCTUnwrap(
+                    try JSONSerialization.jsonObject(
+                        with: Data(contentsOf: $0)
+                    ) as? [String: Any]
+                )
+            }
+        }
+        let pending = try receipts()
+        XCTAssertTrue(pending.contains {
+            $0["action"] as? String == "workbook-cleanup-authorized"
+                && $0["exitStatus"] as? Int == 75
+        })
+        XCTAssertFalse(pending.contains {
+            ($0["action"] as? String)?.hasPrefix("finished-") == true
+                && $0["exitStatus"] as? Int == 0
+        })
+
+        try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+            for: paused.fixture.bundleURL,
+            attestationRootURL: paused.attestationRoot
+        )
+
+        let completed = try receipts()
+        XCTAssertTrue(completed.contains {
+            $0["action"] as? String == "finished-committed-cleanup"
+                && $0["exitStatus"] as? Int == 0
+        })
+        XCTAssertFalse(
+            try workbookCleanupArtifacts(in: paused.root).contains {
+                $0.lastPathComponent.contains("cleanup-state")
+                    || $0.lastPathComponent.contains("cleanup-pending")
+            }
+        )
+    }
+
+    func testCleanupStateTransactionTamperingBeforeAttestationPreservesLiveAuthority()
+        throws
+    {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(
+            in: root,
+            outputName: "cleanup-state-live-authority-tamper"
+        )
+        let attestationRoot = root.appendingPathComponent(
+            "attestations",
+            isDirectory: true
+        )
+        try interruptCommittedWorkbookCleanup(
+            fixture: fixture,
+            attestationRoot: attestationRoot
+        )
+        let lock = try ONTGenotypeBundlePublicationLock.acquire(
+            for: fixture.bundleURL,
+            blocking: true,
+            createIfMissing: false
+        )
+        defer { lock.release() }
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: fixture.bundleURL,
+                attestationRootURL: attestationRoot,
+                cleanupFailureInjector: { checkpoint in
+                    guard checkpoint
+                        == "after-workbook-cleanup-state-write-before-attestation-hard-stop" else {
+                        return
+                    }
+                    throw NSError(
+                        domain: "InjectedCleanupStateBeforeReceiptCrash",
+                        code: 9
+                    )
+                }
+            )
+        )
+        let stateURL = try workbookCleanupStateURL(in: root)
+        let quarantine = try XCTUnwrap(
+            try workbookCleanupArtifacts(in: root).first {
+                $0.lastPathComponent.hasPrefix(
+                    ".lungfish-workbook-cleanup-pending-"
+                )
+            }
+        )
+        let markerURL = ONTGenotypeWorkbookUpdateRecovery.markerURL(
+            for: fixture.bundleURL
+        )
+        let attestationBefore = try Dictionary(
+            uniqueKeysWithValues: FileManager.default.contentsOfDirectory(
+                at: attestationRoot,
+                includingPropertiesForKeys: nil
+            ).map { ($0.lastPathComponent, try Data(contentsOf: $0)) }
+        )
+        XCTAssertFalse(
+            attestationBefore.keys.contains {
+                $0.hasSuffix(".workbook-cleanup.json")
+            }
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: markerURL.path))
+        XCTAssertFalse(
+            try workbookRecoveryReceiptActions(in: root).contains(
+                "workbook-cleanup-authorized"
+            )
+        )
+        try mutateJSONObject(at: stateURL) { state in
+            var transaction = try XCTUnwrap(
+                state["transaction"] as? [String: Any]
+            )
+            transaction["toolVersion"] = "forged-cleanup-tool-version"
+            state["transaction"] = transaction
+        }
+        let sentinelURL = quarantine.appendingPathComponent(
+            "replacement-must-not-be-traversed.txt"
+        )
+        let sentinel = Data("unrelated replacement".utf8)
+        try sentinel.write(to: sentinelURL)
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: fixture.bundleURL,
+                attestationRootURL: attestationRoot
+            )
+        ) { error in
+            XCTAssertTrue(
+                error.localizedDescription.localizedCaseInsensitiveContains(
+                    "cleanup state"
+                )
+                    || error.localizedDescription
+                        .localizedCaseInsensitiveContains("authority"),
+                error.localizedDescription
+            )
+        }
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: markerURL.path))
+        XCTAssertEqual(
+            try Dictionary(
+                uniqueKeysWithValues: FileManager.default.contentsOfDirectory(
+                    at: attestationRoot,
+                    includingPropertiesForKeys: nil
+                ).map { ($0.lastPathComponent, try Data(contentsOf: $0)) }
+            ),
+            attestationBefore
+        )
+        XCTAssertEqual(try Data(contentsOf: sentinelURL), sentinel)
+        XCTAssertFalse(
+            try workbookRecoveryReceiptActions(in: root).contains(
+                "workbook-cleanup-authorized"
+            )
+        )
+    }
+
+    func testCleanupAttestationRehydrationRejectsMissingOriginalMarker()
+        throws
+    {
+        let paused = try pausedBeforeCleanupAttestation(
+            outputName: "cleanup-attestation-missing-original-marker"
+        )
+        defer {
+            paused.lock.release()
+            try? FileManager.default.removeItem(at: paused.root)
+        }
+        let stateBefore = try Data(contentsOf: paused.stateURL)
+        let attestationBefore = try Data(
+            contentsOf: paused.transactionAttestationURL
+        )
+        try FileManager.default.removeItem(at: paused.markerURL)
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: paused.fixture.bundleURL,
+                attestationRootURL: paused.attestationRoot
+            )
+        )
+
+        XCTAssertEqual(try? Data(contentsOf: paused.stateURL), stateBefore)
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: paused.quarantine.path)
+        )
+        XCTAssertEqual(
+            try? Data(contentsOf: paused.transactionAttestationURL),
+            attestationBefore
+        )
+        XCTAssertFalse(
+            try workbookRecoveryReceiptActions(in: paused.root).contains(
+                "workbook-cleanup-authorized"
+            )
+        )
+    }
+
+    func testCleanupAttestationRehydrationRejectsMalformedOriginalMarker()
+        throws
+    {
+        let paused = try pausedBeforeCleanupAttestation(
+            outputName: "cleanup-attestation-malformed-original-marker"
+        )
+        defer {
+            paused.lock.release()
+            try? FileManager.default.removeItem(at: paused.root)
+        }
+        let stateBefore = try Data(contentsOf: paused.stateURL)
+        let attestationBefore = try Data(
+            contentsOf: paused.transactionAttestationURL
+        )
+        let malformedMarker = Data(#"{"transactionID":"truncated""#.utf8)
+        try malformedMarker.write(to: paused.markerURL, options: .atomic)
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: paused.fixture.bundleURL,
+                attestationRootURL: paused.attestationRoot
+            )
+        )
+
+        XCTAssertEqual(try? Data(contentsOf: paused.markerURL), malformedMarker)
+        XCTAssertEqual(try? Data(contentsOf: paused.stateURL), stateBefore)
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: paused.quarantine.path)
+        )
+        XCTAssertEqual(
+            try? Data(contentsOf: paused.transactionAttestationURL),
+            attestationBefore
+        )
+        XCTAssertFalse(
+            try workbookRecoveryReceiptActions(in: paused.root).contains(
+                "workbook-cleanup-authorized"
+            )
+        )
+    }
+
+    func testPostReceiptCleanupStateRejectsEveryForgedDerivedAuthority() throws {
+        let paused = try pausedCommittedWorkbookCleanup(
+            outputName: "cleanup-state-derived-authority-tamper"
+        )
+        defer {
+            paused.lock.release()
+            try? FileManager.default.removeItem(at: paused.root)
+        }
+        let stateURL = try workbookCleanupStateURL(in: paused.root)
+        let originalState = try Data(contentsOf: stateURL)
+        typealias Mutation = (inout [String: Any]) throws -> Void
+        let mutations: [(String, Mutation)] = [
+            ("parent identity", { state in
+                var identity = try XCTUnwrap(
+                    state["parentIdentity"] as? [String: Any]
+                )
+                identity["inode"] = NSNumber(value: UInt64.max - 101)
+                state["parentIdentity"] = identity
+            }),
+            ("source and quarantine identity", { state in
+                let forged = NSNumber(value: UInt64.max - 102)
+                var source = try XCTUnwrap(
+                    state["sourceIdentity"] as? [String: Any]
+                )
+                var quarantine = try XCTUnwrap(
+                    state["quarantineIdentity"] as? [String: Any]
+                )
+                source["inode"] = forged
+                quarantine["inode"] = forged
+                state["sourceIdentity"] = source
+                state["quarantineIdentity"] = quarantine
+            }),
+            ("survivor identity", { state in
+                var identity = try XCTUnwrap(
+                    state["survivorIdentity"] as? [String: Any]
+                )
+                identity["device"] = NSNumber(value: UInt64.max - 103)
+                state["survivorIdentity"] = identity
+            }),
+            ("survivor manifest descriptor", { state in
+                var descriptor = try XCTUnwrap(
+                    state["survivorManifest"] as? [String: Any]
+                )
+                descriptor["sha256"] = String(repeating: "a", count: 64)
+                state["survivorManifest"] = descriptor
+            }),
+            ("survivor workbook descriptor", { state in
+                var descriptor = try XCTUnwrap(
+                    state["survivorCurrentWorkbook"] as? [String: Any]
+                )
+                descriptor["sizeBytes"] = NSNumber(value: -1)
+                state["survivorCurrentWorkbook"] = descriptor
+            }),
+            ("terminal receipt disposition", { state in
+                state["terminalReceiptAction"] = "forged-finished-cleanup"
+                state["terminalReceiptDetail"] = "forged terminal detail"
+            }),
+        ]
+
+        for (name, mutation) in mutations {
+            try originalState.write(to: stateURL, options: .atomic)
+            try mutateJSONObject(at: stateURL, mutation)
+            XCTAssertThrowsError(
+                try ONTGenotypeWorkbookUpdateRecovery.recoveryAuthorityExists(
+                    for: paused.fixture.bundleURL
+                ),
+                name
+            ) { error in
+                XCTAssertTrue(
+                    error.localizedDescription.localizedCaseInsensitiveContains(
+                        "invalid workbook cleanup state"
+                    ),
+                    "\(name): \(error.localizedDescription)"
+                )
+            }
+        }
+        try originalState.write(to: stateURL, options: .atomic)
+    }
+
+    func testPostReceiptSemanticTamperingNeverTraversesCleanupQuarantine() throws {
+        let paused = try pausedCommittedWorkbookCleanup(
+            outputName: "cleanup-state-semantic-traversal-tamper"
+        )
+        defer {
+            paused.lock.release()
+            try? FileManager.default.removeItem(at: paused.root)
+        }
+        let stateURL = try workbookCleanupStateURL(in: paused.root)
+        try mutateJSONObject(at: stateURL) { state in
+            state["terminalReceiptAction"] = "forged-finished-cleanup"
+        }
+        let sentinelURL = paused.quarantine.appendingPathComponent(
+            "replacement-must-not-be-traversed.txt"
+        )
+        let sentinel = Data("replacement survives semantic tamper".utf8)
+        try sentinel.write(to: sentinelURL)
+        let traversed = SendableFlagBox()
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: paused.fixture.bundleURL,
+                attestationRootURL: paused.attestationRoot,
+                cleanupFailureInjector: { checkpoint in
+                    guard checkpoint == "during-workbook-cleanup-traversal" else {
+                        return
+                    }
+                    traversed.set(1)
+                    throw NSError(
+                        domain: "UnexpectedCleanupTraversal",
+                        code: 1
+                    )
+                }
+            )
+        ) { error in
+            XCTAssertTrue(
+                error.localizedDescription.localizedCaseInsensitiveContains(
+                    "invalid workbook cleanup state"
+                ),
+                error.localizedDescription
+            )
+        }
+
+        XCTAssertNil(traversed.value)
+        XCTAssertEqual(try Data(contentsOf: sentinelURL), sentinel)
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: paused.quarantine.path)
+        )
+    }
+
+    func testMarkerlessCleanupRejectsCoherentReplacementStateAfterAuthorityRetirement()
+        throws
+    {
+        let paused = try pausedCommittedWorkbookCleanup(
+            outputName: "cleanup-state-coherent-replacement"
+        )
+        defer {
+            paused.lock.release()
+            try? FileManager.default.removeItem(at: paused.root)
+        }
+        let stateURL = try workbookCleanupStateURL(in: paused.root)
+        let original = try Data(contentsOf: stateURL)
+        var replacement = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: original) as? [String: Any]
+        )
+        replacement["createdAt"] = "2036-01-02T03:04:05Z"
+        try JSONSerialization.data(
+            withJSONObject: replacement,
+            options: [.prettyPrinted, .sortedKeys]
+        ).write(to: stateURL, options: .atomic)
+        let traversed = SendableFlagBox()
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: paused.fixture.bundleURL,
+                attestationRootURL: paused.attestationRoot,
+                cleanupFailureInjector: { checkpoint in
+                    if checkpoint == "during-workbook-cleanup-traversal" {
+                        traversed.set(1)
+                    }
+                }
+            )
+        ) { error in
+            XCTAssertTrue(
+                error.localizedDescription.localizedCaseInsensitiveContains(
+                    "cleanup attestation"
+                ),
+                error.localizedDescription
+            )
+        }
+        XCTAssertNil(traversed.value)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: paused.quarantine.path))
+        XCTAssertEqual(
+            try Data(contentsOf: stateURL),
+            try JSONSerialization.data(
+                withJSONObject: replacement,
+                options: [.prettyPrinted, .sortedKeys]
+            )
+        )
+    }
+
+    func testMissingCleanupAttestationWithoutOriginalAuthorityFailsClosed()
+        throws
+    {
+        let paused = try pausedCommittedWorkbookCleanup(
+            outputName: "cleanup-attestation-missing-after-authority"
+        )
+        defer {
+            paused.lock.release()
+            try? FileManager.default.removeItem(at: paused.root)
+        }
+        let cleanupAttestation = try XCTUnwrap(
+            FileManager.default.contentsOfDirectory(
+                at: paused.attestationRoot,
+                includingPropertiesForKeys: nil
+            ).first {
+                $0.lastPathComponent.hasSuffix(
+                    ".workbook-cleanup.json"
+                )
+            }
+        )
+        try FileManager.default.removeItem(at: cleanupAttestation)
+        let traversed = SendableFlagBox()
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: paused.fixture.bundleURL,
+                attestationRootURL: paused.attestationRoot,
+                cleanupFailureInjector: { checkpoint in
+                    if checkpoint == "during-workbook-cleanup-traversal" {
+                        traversed.set(1)
+                    }
+                }
+            )
+        )
+
+        XCTAssertNil(traversed.value)
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: paused.quarantine.path)
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: cleanupAttestation.path
+            )
+        )
+    }
+
+    func testWorkbookCleanupRetirementNeverUnlinksSubstitutedMarker() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(
+            in: root,
+            outputName: "cleanup-marker-retirement-substitution"
+        )
+        let attestationRoot = root.appendingPathComponent(
+            "attestations",
+            isDirectory: true
+        )
+        try interruptCommittedWorkbookCleanup(
+            fixture: fixture,
+            attestationRoot: attestationRoot
+        )
+        let lock = try ONTGenotypeBundlePublicationLock.acquire(
+            for: fixture.bundleURL,
+            blocking: true,
+            createIfMissing: false
+        )
+        defer { lock.release() }
+        let marker = ONTGenotypeWorkbookUpdateRecovery.markerURL(
+            for: fixture.bundleURL
+        )
+        let held = root.appendingPathComponent("held-authenticated-marker.json")
+        let replacement = Data(#"{"replacement":"marker-must-survive"}"#.utf8)
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: fixture.bundleURL,
+                attestationRootURL: attestationRoot,
+                cleanupFailureInjector: { checkpoint in
+                    guard checkpoint.hasPrefix(
+                        "before-workbook-cleanup-marker-detach:"
+                    ) else { return }
+                    try FileManager.default.moveItem(at: marker, to: held)
+                    try replacement.write(to: marker)
+                }
+            )
+        )
+
+        XCTAssertEqual(try Data(contentsOf: marker), replacement)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: held.path))
+        XCTAssertFalse(try workbookCleanupArtifacts(in: root).isEmpty)
+    }
+
+    func testWorkbookCleanupPostWitnessMarkerSubstitutionIsPreserved() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(
+            in: root,
+            outputName: "cleanup-marker-post-witness-substitution"
+        )
+        let attestationRoot = root.appendingPathComponent(
+            "attestations",
+            isDirectory: true
+        )
+        try interruptCommittedWorkbookCleanup(
+            fixture: fixture,
+            attestationRoot: attestationRoot
+        )
+        let lock = try ONTGenotypeBundlePublicationLock.acquire(
+            for: fixture.bundleURL,
+            blocking: true,
+            createIfMissing: false
+        )
+        defer { lock.release() }
+        let marker = ONTGenotypeWorkbookUpdateRecovery.markerURL(
+            for: fixture.bundleURL
+        )
+        let authenticatedMarker = try Data(contentsOf: marker)
+        let held = root.appendingPathComponent(
+            "held-post-witness-authenticated-marker.json"
+        )
+        let replacement = Data(
+            #"{"replacement":"post-witness-marker-must-survive"}"#.utf8
+        )
+        let substituted = SendableFlagBox()
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: fixture.bundleURL,
+                attestationRootURL: attestationRoot,
+                cleanupFailureInjector: { checkpoint in
+                    guard checkpoint.hasPrefix(
+                        "after-workbook-retirement-witness:"
+                    ), checkpoint.hasSuffix(marker.path) else {
+                        return
+                    }
+                    let tombstones = try FileManager.default
+                        .contentsOfDirectory(
+                            at: root,
+                            includingPropertiesForKeys: nil
+                        )
+                        .filter {
+                            $0.lastPathComponent.hasPrefix(
+                                ".lungfish-workbook-retiring-"
+                            )
+                        }
+                    let tombstone = try XCTUnwrap(tombstones.first)
+                    XCTAssertEqual(tombstones.count, 1)
+                    try FileManager.default.moveItem(
+                        at: tombstone,
+                        to: held
+                    )
+                    try replacement.write(to: tombstone)
+                    substituted.set(1)
+                }
+            )
+        )
+
+        XCTAssertEqual(substituted.value, 1)
+        XCTAssertEqual(try Data(contentsOf: held), authenticatedMarker)
+        let preservedTombstones = try FileManager.default
+            .contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: nil
+            )
+            .filter {
+                $0.lastPathComponent.hasPrefix(
+                    ".lungfish-workbook-retiring-"
+                )
+            }
+        XCTAssertEqual(preservedTombstones.count, 1)
+        XCTAssertEqual(
+            try Data(contentsOf: try XCTUnwrap(preservedTombstones.first)),
+            replacement
+        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
+        XCTAssertFalse(try workbookCleanupArtifacts(in: root).isEmpty)
+    }
+
+    func testWorkbookCleanupRetirementNeverUnlinksSubstitutedAttestation() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(
+            in: root,
+            outputName: "cleanup-attestation-retirement-substitution"
+        )
+        let attestationRoot = root.appendingPathComponent(
+            "attestations",
+            isDirectory: true
+        )
+        try interruptCommittedWorkbookCleanup(
+            fixture: fixture,
+            attestationRoot: attestationRoot
+        )
+        let lock = try ONTGenotypeBundlePublicationLock.acquire(
+            for: fixture.bundleURL,
+            blocking: true,
+            createIfMissing: false
+        )
+        defer { lock.release() }
+        let held = root.appendingPathComponent("held-authenticated-attestation.json")
+        let replacement = Data(#"{"replacement":"attestation-must-survive"}"#.utf8)
+        let marker = ONTGenotypeWorkbookUpdateRecovery.markerURL(
+            for: fixture.bundleURL
+        )
+        let markerJSON = try XCTUnwrap(
+            try JSONSerialization.jsonObject(
+                with: Data(contentsOf: marker)
+            ) as? [String: Any]
+        )
+        let attestation = attestationRoot.appendingPathComponent(
+            "\(try XCTUnwrap(markerJSON["attestationID"] as? String)).json"
+        )
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: fixture.bundleURL,
+                attestationRootURL: attestationRoot,
+                cleanupFailureInjector: { checkpoint in
+                    let prefix =
+                        "before-workbook-cleanup-attestation-detach:"
+                    guard checkpoint.hasPrefix(prefix) else { return }
+                    let url = URL(
+                        fileURLWithPath: String(checkpoint.dropFirst(prefix.count))
+                    )
+                    XCTAssertEqual(url.standardizedFileURL, attestation.standardizedFileURL)
+                    try FileManager.default.moveItem(at: url, to: held)
+                    try replacement.write(to: url)
+                }
+            )
+        )
+
+        XCTAssertEqual(try Data(contentsOf: attestation), replacement)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: held.path))
+        XCTAssertFalse(try workbookCleanupArtifacts(in: root).isEmpty)
+    }
+
+    func testWorkbookCleanupRetirementNeverRemovesSubstitutedQuarantineRoot() throws {
+        let paused = try pausedCommittedWorkbookCleanup(
+            outputName: "cleanup-quarantine-retirement-substitution"
+        )
+        defer {
+            paused.lock.release()
+            try? FileManager.default.removeItem(at: paused.root)
+        }
+        let held = paused.root.appendingPathComponent(
+            "held-authenticated-quarantine",
+            isDirectory: true
+        )
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: paused.fixture.bundleURL,
+                attestationRootURL: paused.attestationRoot,
+                cleanupFailureInjector: { checkpoint in
+                    guard checkpoint.hasPrefix(
+                        "before-workbook-cleanup-quarantine-detach:"
+                    ) else { return }
+                    try FileManager.default.moveItem(
+                        at: paused.quarantine,
+                        to: held
+                    )
+                    try FileManager.default.createDirectory(
+                        at: paused.quarantine,
+                        withIntermediateDirectories: false
+                    )
+                }
+            )
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: paused.quarantine.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: held.path))
+        XCTAssertNotNil(try? workbookCleanupStateURL(in: paused.root))
+    }
+
+    func testWorkbookCleanupRetirementNeverUnlinksSubstitutedCleanupState() throws {
+        let paused = try pausedCommittedWorkbookCleanup(
+            outputName: "cleanup-state-retirement-substitution"
+        )
+        defer {
+            paused.lock.release()
+            try? FileManager.default.removeItem(at: paused.root)
+        }
+        let state = try workbookCleanupStateURL(in: paused.root)
+        let held = paused.root.appendingPathComponent(
+            "held-authenticated-cleanup-state.json"
+        )
+        var replacementObject = try XCTUnwrap(
+            try JSONSerialization.jsonObject(
+                with: Data(contentsOf: state)
+            ) as? [String: Any]
+        )
+        replacementObject["createdAt"] = "2037-02-03T04:05:06Z"
+        let replacement = try JSONSerialization.data(
+            withJSONObject: replacementObject,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: paused.fixture.bundleURL,
+                attestationRootURL: paused.attestationRoot,
+                cleanupFailureInjector: { checkpoint in
+                    guard checkpoint.hasPrefix(
+                        "before-workbook-cleanup-state-detach:"
+                    ) else { return }
+                    try FileManager.default.moveItem(at: state, to: held)
+                    try replacement.write(to: state)
+                }
+            )
+        )
+
+        XCTAssertEqual(try Data(contentsOf: state), replacement)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: held.path))
+    }
+
+    func testCleanupWarningPersistenceFailurePreservesOriginalStructuredCause() throws {
+        let paused = try pausedCommittedWorkbookCleanup(
+            outputName: "cleanup-warning-write-failure"
+        )
+        defer {
+            paused.lock.release()
+            try? FileManager.default.removeItem(at: paused.root)
+        }
+        let held = paused.root.appendingPathComponent(
+            "held-missing-survivor",
+            isDirectory: true
+        )
+        try FileManager.default.moveItem(at: paused.fixture.bundleURL, to: held)
+
+        XCTAssertThrowsError(
+            try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                for: paused.fixture.bundleURL,
+                attestationRootURL: paused.attestationRoot,
+                cleanupFailureInjector: { checkpoint in
+                    guard checkpoint == "before-workbook-cleanup-warning-write" else {
+                        return
+                    }
+                    throw NSError(
+                        domain: "InjectedWorkbookCleanupWarningWrite",
+                        code: 17,
+                        userInfo: [
+                            NSLocalizedDescriptionKey:
+                                "injected warning persistence failure",
+                        ]
+                    )
+                }
+            )
+        ) { error in
+            guard case let ONTGenotypeWorkbookUpdateRecoveryError
+                .cleanupPendingWarningPersistenceFailure(
+                    quarantinePath,
+                    retryState,
+                    reason,
+                    warningFailure
+                ) = error else {
+                return XCTFail("Expected combined cleanup warning failure: \(error)")
+            }
+            XCTAssertEqual(retryState, "cleanup-pending")
+            XCTAssertEqual(
+                URL(fileURLWithPath: quarantinePath)
+                    .resolvingSymlinksInPath().path,
+                paused.quarantine.resolvingSymlinksInPath().path
+            )
+            XCTAssertTrue(
+                reason.localizedCaseInsensitiveContains(
+                    "surviving workbook generation"
+                )
+            )
+            XCTAssertEqual(warningFailure, "injected warning persistence failure")
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: paused.quarantine.path))
     }
 
     func testDefaultBundleCopyPrimitiveReceivesRecursiveCloneNoFollowFlags() throws {
@@ -2781,6 +4735,7 @@ print(wb[wb.sheetnames[0]]["Z98"].value or "")
             atPath: ONTGenotypeWorkbookUpdateRecovery.markerURL(for: fixture.bundleURL).path
         ))
         try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
+        try assertNoRetiredWorkbookGeneration(in: root)
     }
 
     func testManualExcelSaveAtPreExchangeBoundaryConflictsAndSurvivesWithoutMetadataMutation() throws {
@@ -2828,6 +4783,7 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
             atPath: ONTGenotypeWorkbookUpdateRecovery.markerURL(for: fixture.bundleURL).path
         ))
         try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
+        try assertNoRetiredWorkbookGeneration(in: root)
     }
 
     func testReadOnlyBundleAndParentLoadWithoutCreatingAdjacentLock() throws {
@@ -2916,9 +4872,16 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
             unnameableFASTA: reference
         )
         let unmatchedClustersPath = "artifacts/candidates/deduplicated-unmatched-clusters.fasta"
+        let reviewableRowCatalog = ONTMHCArtifactReference(
+            path: "artifacts/review/reviewable-row-catalog.json",
+            sha256: String(repeating: "c", count: 64),
+            sizeBytes: 314
+        )
         let manifest = ONTGenotypeResultBundleManifest(
             schemaVersion: fixture.manifest.schemaVersion,
             kind: fixture.manifest.kind,
+            workflowKind: .fullLengthONTMHCGenotype,
+            workflowMode: .genotypeOnly,
             outputName: fixture.manifest.outputName,
             analysisName: fixture.manifest.analysisName,
             primaryWorkbookPath: fixture.manifest.primaryWorkbookPath,
@@ -2930,7 +4893,8 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
             provenancePath: fixture.manifest.provenancePath,
             deduplicatedUnmatchedClustersFASTAPath: unmatchedClustersPath,
             mhcCandidateArtifacts: candidateArtifacts,
-            referenceRecordStore: fixture.manifest.referenceRecordStore
+            referenceRecordStore: fixture.manifest.referenceRecordStore,
+            reviewableRowCatalog: reviewableRowCatalog
         )
         try ONTGenotypeResultBundle.writeManifest(manifest, to: fixture.bundleURL)
         let replacement = root.appendingPathComponent("replacement.xlsx")
@@ -2940,8 +4904,56 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
             .importRevisedWorkbook(from: replacement, into: fixture.bundleURL)
 
         XCTAssertEqual(updated.mhcCandidateArtifacts, candidateArtifacts)
+        XCTAssertEqual(updated.reviewableRowCatalog, reviewableRowCatalog)
         XCTAssertEqual(updated.deduplicatedUnmatchedClustersFASTAPath, unmatchedClustersPath)
         XCTAssertEqual(updated.referenceRecordStore, fixture.manifest.referenceRecordStore)
+        XCTAssertEqual(updated.workflowKind, .fullLengthONTMHCGenotype)
+        XCTAssertEqual(updated.workflowMode, .genotypeOnly)
+    }
+
+    func testWorkbookRevisionPreservesMalformedWorkflowDeclarations() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeBundle(
+            in: root,
+            outputName: "malformed-workflow-preservation",
+            includeCurrent: true
+        )
+        let manifestURL = ONTGenotypeResultBundle.manifestURL(in: fixture.bundleURL)
+        var object = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any]
+        )
+        object["workflowKind"] = ["future": "mhc-workflow"]
+        object["workflowMode"] = NSNull()
+        try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+            .write(to: manifestURL, options: .atomic)
+        let malformed = try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
+        let originalKind = malformed.workflowKindDeclaration.originalValue
+        let originalMode = malformed.workflowModeDeclaration.originalValue
+        XCTAssertNil(malformed.workflowKind)
+        XCTAssertNil(malformed.workflowMode)
+        XCTAssertNotNil(malformed.workflowKindDeclaration.issue)
+        XCTAssertNotNil(malformed.workflowModeDeclaration.issue)
+
+        let replacement = root.appendingPathComponent("replacement.xlsx")
+        try workbookData("replacement").write(to: replacement)
+        let updated = try GenotypeWorkbookRevisionService()
+            .importRevisedWorkbook(from: replacement, into: fixture.bundleURL)
+
+        XCTAssertEqual(updated.workflowKindDeclaration.originalValue, originalKind)
+        XCTAssertEqual(updated.workflowModeDeclaration.originalValue, originalMode)
+        XCTAssertNil(updated.workflowKind)
+        XCTAssertNil(updated.workflowMode)
+        XCTAssertNotNil(updated.workflowKindDeclaration.issue)
+        XCTAssertNotNil(updated.workflowModeDeclaration.issue)
+        let reencoded = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: JSONEncoder().encode(updated)) as? [String: Any]
+        )
+        XCTAssertEqual(
+            (reencoded["workflowKind"] as? [String: String])?["future"],
+            "mhc-workflow"
+        )
+        XCTAssertTrue(reencoded["workflowMode"] is NSNull)
     }
 
     func testApplyHaplotypeOverridesPatchesCurrentWorkbookAndRecordsSidecarProvenance() throws {
@@ -3040,6 +5052,901 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         XCTAssertTrue(provenance.contains("update-current-workbook"))
     }
 
+    func testApplyManualHaplotypeSnapshotWritesFourteenLiteralValuesAndSidecarRevisionProvenance()
+        throws
+    {
+        XCTAssertTrue(
+            pythonCanImportOpenpyxl(),
+            "The managed test runtime must provide openpyxl"
+        )
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(
+            in: root,
+            outputName: "manual-fourteen",
+            workflowKind: .fullLengthONTMHCGenotype
+        )
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.lastEditedAt = "2026-07-27T12:00:00Z"
+        sidecar.lastEditor = "manual-curator"
+        sidecar.manualHaplotypeAssignments = [
+            ManualHaplotypeAssignment(
+                sample: "DW472",
+                locus: "MHC-A",
+                slot: .h1,
+                label: "=LITERAL_NOT_FORMULA",
+                colorTokenIndex: 1,
+                diagnosticAlleles: [],
+                notes: "manual workbook snapshot"
+            ),
+        ]
+        let sidecarData = try sidecar.encoded()
+        try sidecarData.write(to: annotationURL)
+        let sidecarSHA256 = try ProvenanceFileHasher.sha256(
+            of: annotationURL
+        )
+        let authoritativeCSVURLs = [
+            ONTGenotypeResultBundle.resolvedURL(
+                for: fixture.manifest.longSummaryCSVPath,
+                in: fixture.bundleURL
+            ),
+            ONTGenotypeResultBundle.resolvedURL(
+                for: fixture.manifest.sampleSummaryCSVPath,
+                in: fixture.bundleURL
+            ),
+        ]
+        let authoritativeCSVDescriptors = try authoritativeCSVURLs.map {
+            (
+                url: $0,
+                sha256: try ProvenanceFileHasher.sha256(of: $0),
+                size: try ProvenanceFileHasher.fileSize(of: $0)
+            )
+        }
+        let calls = [
+            GenotypeWorkbookHaplotypeCall(
+                sample: "DW472",
+                locus: "MHC-A",
+                haplotype1: "=LITERAL_NOT_FORMULA",
+                haplotype2: "+PLUS_LITERAL",
+                status: "called",
+                notes: "manual workbook snapshot"
+            ),
+            GenotypeWorkbookHaplotypeCall(
+                sample: "DW472",
+                locus: "MHC-B",
+                haplotype1: "-MINUS_LITERAL",
+                haplotype2: "@AT_LITERAL",
+                status: "called",
+                notes: ""
+            ),
+            GenotypeWorkbookHaplotypeCall(
+                sample: "DW472",
+                locus: "MHC-DRB",
+                haplotype1: "Manual-DRB-1",
+                haplotype2: "Manual-DRB-2",
+                status: "called",
+                notes: ""
+            ),
+            GenotypeWorkbookHaplotypeCall(
+                sample: "DW472",
+                locus: "MHC-DQA",
+                haplotype1: "Manual-DQA-1",
+                haplotype2: "Manual-DQA-2",
+                status: "called",
+                notes: ""
+            ),
+            GenotypeWorkbookHaplotypeCall(
+                sample: "DW472",
+                locus: "MHC-DQB",
+                haplotype1: "Manual-DQB-1",
+                haplotype2: "Manual-DQB-2",
+                status: "called",
+                notes: ""
+            ),
+            GenotypeWorkbookHaplotypeCall(
+                sample: "DW472",
+                locus: "MHC-DPA",
+                haplotype1: "Manual-DPA-1",
+                haplotype2: "Manual-DPA-2",
+                status: "called",
+                notes: ""
+            ),
+            GenotypeWorkbookHaplotypeCall(
+                sample: "DW472",
+                locus: "MHC-DPB",
+                haplotype1: "Manual-DPB-1",
+                haplotype2: "Manual-DPB-2",
+                status: "called",
+                notes: ""
+            ),
+        ]
+
+        let updated = try GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 5_050) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL: root.appendingPathComponent(
+                "attestations"
+            )
+        ).applyHaplotypeOverrides(
+            calls,
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL,
+            projectionMode: .manualGenotypeOnly
+        )
+
+        let inspection = try inspectMCMWorkbook(
+            try ONTGenotypeResultBundle.currentWorkbookURL(
+                for: fixture.bundleURL
+            )
+        )
+        XCTAssertEqual(
+            inspection["fullAHaplotype1"],
+            "=LITERAL_NOT_FORMULA"
+        )
+        XCTAssertEqual(inspection["fullAHaplotype1Type"], "s")
+        XCTAssertEqual(inspection["fullAHaplotype2"], "+PLUS_LITERAL")
+        XCTAssertEqual(inspection["fullAHaplotype2Type"], "s")
+        XCTAssertEqual(inspection["fullBHaplotype1"], "-MINUS_LITERAL")
+        XCTAssertEqual(inspection["fullBHaplotype1Type"], "s")
+        XCTAssertEqual(inspection["fullBHaplotype2"], "@AT_LITERAL")
+        XCTAssertEqual(inspection["fullBHaplotype2Type"], "s")
+        XCTAssertEqual(inspection["fullDRBHaplotype1"], "Manual-DRB-1")
+        XCTAssertEqual(inspection["fullDRBHaplotype2"], "Manual-DRB-2")
+        XCTAssertEqual(inspection["fullDQAHaplotype1"], "Manual-DQA-1")
+        XCTAssertEqual(inspection["fullDQAHaplotype2"], "Manual-DQA-2")
+        XCTAssertEqual(inspection["fullDQBHaplotype1"], "Manual-DQB-1")
+        XCTAssertEqual(inspection["fullDQBHaplotype2"], "Manual-DQB-2")
+        XCTAssertEqual(inspection["fullDPAHaplotype1"], "Manual-DPA-1")
+        XCTAssertEqual(inspection["fullDPAHaplotype2"], "Manual-DPA-2")
+        XCTAssertEqual(inspection["fullDPBHaplotype1"], "Manual-DPB-1")
+        XCTAssertEqual(inspection["fullDPBHaplotype2"], "Manual-DPB-2")
+        XCTAssertEqual(
+            inspection["abbreviatedDQHaplotype1"],
+            "MHC-DQA: Manual-DQA-1; MHC-DQB: Manual-DQB-1"
+        )
+        XCTAssertEqual(
+            inspection["abbreviatedDQHaplotype2"],
+            "MHC-DQA: Manual-DQA-2; MHC-DQB: Manual-DQB-2"
+        )
+        XCTAssertEqual(
+            inspection["abbreviatedDPHaplotype1"],
+            "MHC-DPA: Manual-DPA-1; MHC-DPB: Manual-DPB-1"
+        )
+        XCTAssertEqual(
+            inspection["abbreviatedDPHaplotype2"],
+            "MHC-DPA: Manual-DPA-2; MHC-DPB: Manual-DPB-2"
+        )
+        XCTAssertEqual(
+            inspection["customDQHaplotype1"],
+            "MHC-DQA: Manual-DQA-1; MHC-DQB: Manual-DQB-1"
+        )
+        XCTAssertEqual(
+            inspection["customDPHaplotype1"],
+            "MHC-DPA: Manual-DPA-1; MHC-DPB: Manual-DPB-1"
+        )
+
+        let provenanceURL = ONTGenotypeResultBundle.resolvedURL(
+            for: try XCTUnwrap(
+                updated.workbookRevisions?.last?.provenancePath
+            ),
+            in: fixture.bundleURL
+        )
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: provenanceURL)
+        )
+        let pythonStep = try XCTUnwrap(
+            envelope.steps.first {
+                $0.toolName == "python openpyxl workbook candidate update"
+            }
+        )
+        XCTAssertEqual(
+            pythonStep.resolvedOptions[
+                "annotationSidecarRevisionSHA256"
+            ],
+            .string(sidecarSHA256)
+        )
+        XCTAssertEqual(
+            pythonStep.resolvedOptions["haplotypeProjectionMode"],
+            .string("manual-genotype-only")
+        )
+        XCTAssertTrue(
+            pythonStep.inputs.contains {
+                URL(fileURLWithPath: $0.path).lastPathComponent
+                    == GenotypeAnnotationSidecar.filename
+                    && $0.checksumSHA256 == sidecarSHA256
+                    && $0.fileSize == UInt64(sidecarData.count)
+                }
+        )
+        for expected in authoritativeCSVDescriptors {
+            XCTAssertTrue(
+                pythonStep.inputs.contains {
+                    $0.path == expected.url.path
+                        && $0.checksumSHA256 == expected.sha256
+                        && $0.fileSize == expected.size
+                },
+                expected.url.lastPathComponent
+            )
+            XCTAssertTrue(
+                envelope.files.contains {
+                    $0.role == .input
+                        && $0.path == expected.url.path
+                        && $0.checksumSHA256 == expected.sha256
+                        && $0.fileSize == expected.size
+                },
+                expected.url.lastPathComponent
+            )
+        }
+
+        let twoSheetFixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "manual-fourteen-two-sheet",
+            workflowKind: .fullLengthONTMHCGenotype
+        )
+        try installCandidateArtifacts(in: twoSheetFixture.bundleURL)
+        try installMinimalUnifiedPivot(in: twoSheetFixture.bundleURL)
+        let twoSheetCalls = calls.map {
+            GenotypeWorkbookHaplotypeCall(
+                sample: "sample-a",
+                locus: $0.locus,
+                haplotype1: $0.haplotype1,
+                haplotype2: $0.haplotype2,
+                status: $0.status,
+                notes: $0.notes
+            )
+        } + GenotypeManualHaplotypeLocus.allCases.map {
+            GenotypeWorkbookHaplotypeCall(
+                sample: "sample-b",
+                locus: $0.rawValue,
+                haplotype1: "",
+                haplotype2: "",
+                status: "called",
+                notes: ""
+            )
+        }
+        _ = try GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 5_051) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL: root.appendingPathComponent(
+                "attestations"
+            )
+        ).applyHaplotypeOverrides(
+            twoSheetCalls,
+            annotationSidecarURL: nil,
+            into: twoSheetFixture.bundleURL,
+            projectionMode: .manualGenotypeOnly
+        )
+        let twoSheetInspection = try inspectTwoSheetCandidateWorkbook(
+            try ONTGenotypeResultBundle.currentWorkbookURL(
+                for: twoSheetFixture.bundleURL
+            )
+        )
+        XCTAssertEqual(
+            twoSheetInspection["analystHaplotype"],
+            "=LITERAL_NOT_FORMULA"
+        )
+        XCTAssertEqual(twoSheetInspection["analystHaplotypeType"], "s")
+        XCTAssertEqual(
+            twoSheetInspection["analystHaplotype2"],
+            "+PLUS_LITERAL"
+        )
+        XCTAssertEqual(twoSheetInspection["analystHaplotype2Type"], "s")
+        XCTAssertEqual(
+            twoSheetInspection["sampleABHaplotype1"],
+            "-MINUS_LITERAL"
+        )
+        XCTAssertEqual(twoSheetInspection["sampleABHaplotype1Type"], "s")
+        XCTAssertEqual(
+            twoSheetInspection["sampleABHaplotype2"],
+            "@AT_LITERAL"
+        )
+        XCTAssertEqual(twoSheetInspection["sampleABHaplotype2Type"], "s")
+        XCTAssertEqual(
+            twoSheetInspection["sampleADRBHaplotype1"],
+            "Manual-DRB-1"
+        )
+        XCTAssertEqual(
+            twoSheetInspection["sampleADRBHaplotype2"],
+            "Manual-DRB-2"
+        )
+        XCTAssertEqual(
+            twoSheetInspection["sampleADQAHaplotype1"],
+            "Manual-DQA-1"
+        )
+        XCTAssertEqual(
+            twoSheetInspection["sampleADQAHaplotype2"],
+            "Manual-DQA-2"
+        )
+        XCTAssertEqual(
+            twoSheetInspection["sampleADQBHaplotype1"],
+            "Manual-DQB-1"
+        )
+        XCTAssertEqual(
+            twoSheetInspection["sampleADQBHaplotype2"],
+            "Manual-DQB-2"
+        )
+        XCTAssertEqual(
+            twoSheetInspection["sampleADPAHaplotype1"],
+            "Manual-DPA-1"
+        )
+        XCTAssertEqual(
+            twoSheetInspection["sampleADPAHaplotype2"],
+            "Manual-DPA-2"
+        )
+        XCTAssertEqual(
+            twoSheetInspection["sampleADPBHaplotype1"],
+            "Manual-DPB-1"
+        )
+        XCTAssertEqual(
+            twoSheetInspection["sampleADPBHaplotype2"],
+            "Manual-DPB-2"
+        )
+    }
+
+    func testCompleteSevenLocusHaplotypedSnapshotIsNeverInferredAsManual()
+        throws
+    {
+        XCTAssertTrue(pythonCanImportOpenpyxl())
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(
+            in: root,
+            outputName: "seven-locus-haplotyped"
+        )
+        let calls = [
+            ("MHC-A", "HAP-A-1", "HAP-A-2"),
+            ("MHC-B", "HAP-B-1", "HAP-B-2"),
+            ("MHC-DRB", "HAP-DRB-1", "HAP-DRB-2"),
+            ("MHC-DQA", "HAP-DQA-1", "HAP-DQA-2"),
+            ("MHC-DQB", "HAP-DQB-1", "HAP-DQB-2"),
+            ("MHC-DPA", "HAP-DPA-1", "HAP-DPA-2"),
+            ("MHC-DPB", "HAP-DPB-1", "HAP-DPB-2"),
+        ].map {
+            GenotypeWorkbookHaplotypeCall(
+                sample: "DW472",
+                locus: $0.0,
+                haplotype1: $0.1,
+                haplotype2: $0.2,
+                status: "called",
+                notes: ""
+            )
+        }
+
+        _ = try GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 5_052) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL: root.appendingPathComponent(
+                "attestations"
+            )
+        ).applyHaplotypeOverrides(
+            calls,
+            annotationSidecarURL: nil,
+            into: fixture.bundleURL,
+            projectionMode: .haplotyped
+        )
+
+        let inspection = try inspectMCMWorkbook(
+            try ONTGenotypeResultBundle.currentWorkbookURL(
+                for: fixture.bundleURL
+            )
+        )
+        XCTAssertEqual(inspection["fullAHaplotype1"], "HAP-A-1")
+        // Haplotyped mode intentionally preserves the established canonical
+        // DQ/DP projection: the last canonical call supplies both split rows.
+        XCTAssertEqual(inspection["fullDQAHaplotype1"], "HAP-DQB-1")
+        XCTAssertEqual(inspection["fullDQBHaplotype1"], "HAP-DQB-1")
+        XCTAssertEqual(inspection["fullDPAHaplotype1"], "HAP-DPB-1")
+        XCTAssertEqual(inspection["fullDPBHaplotype1"], "HAP-DPB-1")
+        XCTAssertEqual(
+            inspection["abbreviatedDQHaplotype1"],
+            "HAP-DQB-1"
+        )
+        XCTAssertEqual(
+            inspection["abbreviatedDPHaplotype1"],
+            "HAP-DPB-1"
+        )
+    }
+
+    func testHaplotypedDuplicateExactLocusPreservesEstablishedLastWinsBehavior()
+        throws
+    {
+        XCTAssertTrue(pythonCanImportOpenpyxl())
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(
+            in: root,
+            outputName: "haplotyped-duplicate-last-wins"
+        )
+        let calls = [
+            GenotypeWorkbookHaplotypeCall(
+                sample: "DW472",
+                locus: "MHC-DQA",
+                haplotype1: "First-DQ",
+                haplotype2: "",
+                status: "called",
+                notes: ""
+            ),
+            GenotypeWorkbookHaplotypeCall(
+                sample: "DW472",
+                locus: "MHC-DQA",
+                haplotype1: "Last-DQ",
+                haplotype2: "",
+                status: "called",
+                notes: ""
+            ),
+        ]
+
+        _ = try GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 5_052.5) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL: root.appendingPathComponent(
+                "attestations"
+            )
+        ).applyHaplotypeOverrides(
+            calls,
+            annotationSidecarURL: nil,
+            into: fixture.bundleURL,
+            projectionMode: .haplotyped
+        )
+
+        let inspection = try inspectMCMWorkbook(
+            try ONTGenotypeResultBundle.currentWorkbookURL(
+                for: fixture.bundleURL
+            )
+        )
+        XCTAssertEqual(inspection["fullDQAHaplotype1"], "Last-DQ")
+        XCTAssertEqual(inspection["fullDQBHaplotype1"], "Last-DQ")
+        XCTAssertEqual(
+            inspection["abbreviatedDQHaplotype1"],
+            "Last-DQ"
+        )
+    }
+
+    func testTypedONTAndMiSeqGenotypeOnlyBundlesMaterializeManualSnapshots()
+        throws
+    {
+        XCTAssertTrue(pythonCanImportOpenpyxl())
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        for kind in GenotypeResultWorkflowKind.allCases {
+            let fixture = try makeMCMWorkbookBundle(
+                in: root,
+                outputName: "typed-\(kind.rawValue)",
+                workflowKind: kind
+            )
+            let calls = GenotypeManualHaplotypeLocus.allCases.map {
+                GenotypeWorkbookHaplotypeCall(
+                    sample: "DW472",
+                    locus: $0.rawValue,
+                    haplotype1:
+                        $0 == .a ? "=typed-\(kind.rawValue)" : "",
+                    haplotype2: "",
+                    status: "called",
+                    notes: ""
+                )
+            }
+            let updated = try GenotypeWorkbookRevisionService(
+                dateProvider: { Date(timeIntervalSince1970: 5_053) },
+                userProvider: { "tester" },
+                pythonExecutableURL: testPythonExecutableURL,
+                workbookAttestationRootURL: root.appendingPathComponent(
+                    "attestations"
+                )
+            ).applyHaplotypeOverrides(
+                calls,
+                annotationSidecarURL: nil,
+                into: fixture.bundleURL,
+                projectionMode: .manualGenotypeOnly
+            )
+            let inspection = try inspectMCMWorkbook(
+                try ONTGenotypeResultBundle.currentWorkbookURL(
+                    for: fixture.bundleURL
+                )
+            )
+            XCTAssertEqual(
+                inspection["fullAHaplotype1"],
+                "=typed-\(kind.rawValue)"
+            )
+            XCTAssertEqual(inspection["fullAHaplotype1Type"], "s")
+            XCTAssertEqual(updated.workflowKind, kind)
+            XCTAssertEqual(updated.workflowMode, .genotypeOnly)
+        }
+    }
+
+    func testLegacyCombinedManualRowsComposeEmptySingleSameAndDistinctValues()
+        throws
+    {
+        XCTAssertTrue(pythonCanImportOpenpyxl())
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cases = [
+            (
+                name: "empty",
+                first: "",
+                second: "",
+                expectedDQ: "",
+                expectedDP: ""
+            ),
+            (
+                name: "single",
+                first: "Only",
+                second: "",
+                expectedDQ: "MHC-DQA: DQ-Only",
+                expectedDP: "MHC-DPA: DP-Only"
+            ),
+            (
+                name: "same",
+                first: "Same",
+                second: "Same",
+                expectedDQ: "DQ-Same",
+                expectedDP: "DP-Same"
+            ),
+            (
+                name: "distinct",
+                first: "First",
+                second: "Second",
+                expectedDQ:
+                    "MHC-DQA: DQ-First; MHC-DQB: DQ-Second",
+                expectedDP:
+                    "MHC-DPA: DP-First; MHC-DPB: DP-Second"
+            ),
+        ]
+        for item in cases {
+            let fixture = try makeMCMWorkbookBundle(
+                in: root,
+                outputName: "legacy-composition-\(item.name)",
+                workflowKind: .fullLengthONTMHCGenotype
+            )
+            let calls = GenotypeManualHaplotypeLocus.allCases.map { locus in
+                let value: String
+                switch locus {
+                case .dqa:
+                    value =
+                        item.first.isEmpty ? "" : "DQ-\(item.first)"
+                case .dqb:
+                    value =
+                        item.second.isEmpty ? "" : "DQ-\(item.second)"
+                case .dpa:
+                    value =
+                        item.first.isEmpty ? "" : "DP-\(item.first)"
+                case .dpb:
+                    value =
+                        item.second.isEmpty ? "" : "DP-\(item.second)"
+                default:
+                    value = ""
+                }
+                return GenotypeWorkbookHaplotypeCall(
+                    sample: "DW472",
+                    locus: locus.rawValue,
+                    haplotype1: value,
+                    haplotype2: "",
+                    status: "called",
+                    notes: ""
+                )
+            }
+            _ = try GenotypeWorkbookRevisionService(
+                dateProvider: { Date(timeIntervalSince1970: 5_055) },
+                userProvider: { "tester" },
+                pythonExecutableURL: testPythonExecutableURL,
+                workbookAttestationRootURL: root.appendingPathComponent(
+                    "attestations"
+                )
+            ).applyHaplotypeOverrides(
+                calls,
+                annotationSidecarURL: nil,
+                into: fixture.bundleURL,
+                projectionMode: .manualGenotypeOnly
+            )
+            let inspection = try inspectMCMWorkbook(
+                try ONTGenotypeResultBundle.currentWorkbookURL(
+                    for: fixture.bundleURL
+                )
+            )
+            for key in [
+                "abbreviatedDQHaplotype1",
+                "customDQHaplotype1",
+            ] {
+                XCTAssertEqual(inspection[key], item.expectedDQ, key)
+            }
+            for key in [
+                "abbreviatedDPHaplotype1",
+                "customDPHaplotype1",
+            ] {
+                XCTAssertEqual(inspection[key], item.expectedDP, key)
+            }
+            XCTAssertEqual(inspection["abbreviatedDQHaplotype2"], "")
+            XCTAssertEqual(inspection["abbreviatedDPHaplotype2"], "")
+        }
+
+        let script = GenotypeWorkbookRevisionService(
+            workbookAttestationRootURL: root.appendingPathComponent(
+                "attestations"
+            )
+        ).workbookOverrideScript
+        XCTAssertTrue(
+            script.contains("manual_haplotype_legacy_combined_rows")
+        )
+        XCTAssertFalse(script.contains("MHC-DQA/B Haplotype"))
+        XCTAssertFalse(script.contains("MHC-DPA/B Haplotype"))
+    }
+
+    func testRecognizedLegacyGenotypeOnlyKindsUseSharedManualAuthority()
+        throws
+    {
+        XCTAssertTrue(pythonCanImportOpenpyxl())
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        for kind in GenotypeResultWorkflowKind.allCases {
+            let fixture = try makeMCMWorkbookBundle(
+                in: root,
+                outputName: "recognized-legacy-\(kind.rawValue)",
+                manifestKind: kind.rawValue
+            )
+            let calls = GenotypeManualHaplotypeLocus.allCases.map {
+                GenotypeWorkbookHaplotypeCall(
+                    sample: "DW472",
+                    locus: $0.rawValue,
+                    haplotype1: $0 == .a ? "Legacy-Manual-A" : "",
+                    haplotype2: "",
+                    status: "called",
+                    notes: ""
+                )
+            }
+            _ = try GenotypeWorkbookRevisionService(
+                dateProvider: { Date(timeIntervalSince1970: 5_056) },
+                userProvider: { "tester" },
+                pythonExecutableURL: testPythonExecutableURL,
+                workbookAttestationRootURL: root.appendingPathComponent(
+                    "attestations"
+                )
+            ).applyHaplotypeOverrides(
+                calls,
+                annotationSidecarURL: nil,
+                into: fixture.bundleURL,
+                projectionMode: .manualGenotypeOnly
+            )
+            let inspection = try inspectMCMWorkbook(
+                try ONTGenotypeResultBundle.currentWorkbookURL(
+                    for: fixture.bundleURL
+                )
+            )
+            XCTAssertEqual(
+                inspection["fullAHaplotype1"],
+                "Legacy-Manual-A"
+            )
+        }
+    }
+
+    func testManualProjectionRejectsUnauthorizedManifestBeforeWorkbookMutation()
+        throws
+    {
+        XCTAssertTrue(pythonCanImportOpenpyxl())
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixtures = [
+            try makeMCMWorkbookBundle(
+                in: root,
+                outputName: "ambiguous-legacy-manual"
+            ),
+            try makeMCMWorkbookBundle(
+                in: root,
+                outputName: "typed-haplotyped-manual",
+                workflowKind: .fullLengthONTMHCGenotype,
+                workflowMode: .haplotyped
+            ),
+            try makeMCMWorkbookBundle(
+                in: root,
+                outputName: "contradictory-kind-manual",
+                manifestKind:
+                    GenotypeResultWorkflowKind
+                        .miSeqAmpliconMHCGenotype.rawValue,
+                workflowKind: .fullLengthONTMHCGenotype
+            ),
+            try makeMCMWorkbookBundle(
+                in: root,
+                outputName: "contradictory-authority-manual",
+                workflowKind: .fullLengthONTMHCGenotype,
+                haplotypeAnalysisPath: "haplotypes/current.json"
+            ),
+        ]
+        let calls = GenotypeManualHaplotypeLocus.allCases.map {
+            GenotypeWorkbookHaplotypeCall(
+                sample: "DW472",
+                locus: $0.rawValue,
+                haplotype1: "Manual-\($0.rawValue)",
+                haplotype2: "",
+                status: "called",
+                notes: ""
+            )
+        }
+
+        for fixture in fixtures {
+            let bundleBefore = try directorySnapshot(fixture.bundleURL)
+            XCTAssertThrowsError(
+                try GenotypeWorkbookRevisionService(
+                    dateProvider: { Date(timeIntervalSince1970: 5_054) },
+                    userProvider: { "tester" },
+                    pythonExecutableURL: testPythonExecutableURL,
+                    workbookAttestationRootURL: root.appendingPathComponent(
+                        "attestations"
+                    )
+                ).applyHaplotypeOverrides(
+                    calls,
+                    annotationSidecarURL: nil,
+                    into: fixture.bundleURL,
+                    projectionMode: .manualGenotypeOnly
+                )
+            ) { error in
+                XCTAssertTrue(
+                    error.localizedDescription.localizedCaseInsensitiveContains(
+                        "not authorized"
+                    )
+                )
+            }
+            XCTAssertEqual(
+                try directorySnapshot(fixture.bundleURL),
+                bundleBefore
+            )
+        }
+    }
+
+    func testManualProjectionRequiresCompleteAuthoritativeSampleSetBeforeMutation()
+        throws
+    {
+        XCTAssertTrue(pythonCanImportOpenpyxl())
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let completeDW472 = GenotypeManualHaplotypeLocus.allCases.map {
+            GenotypeWorkbookHaplotypeCall(
+                sample: "DW472",
+                locus: $0.rawValue,
+                haplotype1: "",
+                haplotype2: "",
+                status: "called",
+                notes: ""
+            )
+        }
+        let cases: [(String, [GenotypeWorkbookHaplotypeCall], Bool)] = [
+            ("empty", [], false),
+            ("incomplete", Array(completeDW472.prefix(6)), false),
+            (
+                "extra",
+                completeDW472
+                    + completeDW472.map {
+                        GenotypeWorkbookHaplotypeCall(
+                            sample: "Extra",
+                            locus: $0.locus,
+                            haplotype1: $0.haplotype1,
+                            haplotype2: $0.haplotype2,
+                            status: $0.status,
+                            notes: $0.notes
+                        )
+                    },
+                false
+            ),
+            ("omitted", completeDW472, true),
+            (
+                "noncanonical-loci",
+                completeDW472.map {
+                    GenotypeWorkbookHaplotypeCall(
+                        sample: $0.sample,
+                        locus: String($0.locus.dropFirst("MHC-".count)),
+                        haplotype1: $0.haplotype1,
+                        haplotype2: $0.haplotype2,
+                        status: $0.status,
+                        notes: $0.notes
+                    )
+                },
+                false
+            ),
+        ]
+
+        for (name, calls, addOmittedAuthoritativeSample) in cases {
+            let fixture = try makeMCMWorkbookBundle(
+                in: root,
+                outputName: "manual-authority-\(name)",
+                workflowKind: .fullLengthONTMHCGenotype
+            )
+            if addOmittedAuthoritativeSample {
+                let sampleURL = ONTGenotypeResultBundle.resolvedURL(
+                    for: fixture.manifest.sampleSummaryCSVPath,
+                    in: fixture.bundleURL
+                )
+                try """
+                sample,passed_alignments,passed_unique_reads
+                DW472,1,1
+                Missing,0,0
+                """.write(
+                    to: sampleURL,
+                    atomically: true,
+                    encoding: .utf8
+                )
+            }
+            let before = try directorySnapshot(fixture.bundleURL)
+            XCTAssertThrowsError(
+                try GenotypeWorkbookRevisionService(
+                    dateProvider: { Date(timeIntervalSince1970: 5_057) },
+                    userProvider: { "tester" },
+                    pythonExecutableURL: testPythonExecutableURL,
+                    workbookAttestationRootURL: root.appendingPathComponent(
+                        "attestations"
+                    )
+                ).applyHaplotypeOverrides(
+                    calls,
+                    annotationSidecarURL: nil,
+                    into: fixture.bundleURL,
+                    projectionMode: .manualGenotypeOnly
+                )
+            )
+            XCTAssertEqual(
+                try directorySnapshot(fixture.bundleURL),
+                before,
+                name
+            )
+        }
+    }
+
+    func testManualAnnotationOnlyUsesCompleteSemanticFingerprintSnapshot()
+        throws
+    {
+        XCTAssertTrue(pythonCanImportOpenpyxl())
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeMCMWorkbookBundle(
+            in: root,
+            outputName: "manual-annotation-only",
+            workflowKind: .fullLengthONTMHCGenotype
+        )
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        try GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        ).encoded().write(to: annotationURL)
+        let semanticCalls = GenotypeManualHaplotypeLocus.allCases.map {
+            GenotypeWorkbookHaplotypeCall(
+                sample: "DW472",
+                locus: $0.rawValue,
+                haplotype1: "",
+                haplotype2: "",
+                status: "called",
+                notes: ""
+            )
+        }
+
+        XCTAssertNoThrow(
+            try GenotypeWorkbookRevisionService(
+                dateProvider: { Date(timeIntervalSince1970: 5_058) },
+                userProvider: { "tester" },
+                pythonExecutableURL: testPythonExecutableURL,
+                workbookAttestationRootURL: root.appendingPathComponent(
+                    "attestations"
+                )
+            ).applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: annotationURL,
+                into: fixture.bundleURL,
+                annotationOnly: true,
+                fingerprintInputs: GenotypeWorkbookFingerprintInputs(
+                    calls: semanticCalls,
+                    includedLoci:
+                        GenotypeManualHaplotypeLocus.allCases.map(\.rawValue),
+                    haplotypeProjectionMode: .manualGenotypeOnly
+                ),
+                projectionMode: .manualGenotypeOnly
+            )
+        )
+    }
+
     func testApplyHaplotypeOverridesAttestsInputFingerprintAndSyncIntentInPublishedRevision() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()
@@ -3047,6 +5954,10 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "attested-update")
         try installCandidateArtifacts(in: fixture.bundleURL)
         try installMinimalUnifiedPivot(in: fixture.bundleURL)
+        let catalogReference = try installReviewableRowCatalog(
+            GenotypeReviewableRowCatalog(samples: ["sample-a"], rows: []),
+            in: fixture.bundleURL
+        )
         let annotationURL = fixture.bundleURL.appendingPathComponent(
             GenotypeAnnotationSidecar.filename
         )
@@ -3069,7 +5980,9 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
             calls: calls,
             includedLoci: includedLoci,
             annotationSidecar: sidecar,
-            candidateArtifacts: manifest.mhcCandidateArtifacts
+            candidateArtifacts: manifest.mhcCandidateArtifacts,
+            reviewableRowCatalog: catalogReference,
+            reviewableRowCatalogSchemaVersion: GenotypeReviewableRowCatalog.schemaVersion
         )
 
         let updated = try GenotypeWorkbookRevisionService(
@@ -3127,6 +6040,22 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
             .integer(fingerprint.schemaVersion)
         )
         XCTAssertEqual(
+            envelope.options.explicit["reviewableRowCatalogPath"],
+            .string(catalogReference.path)
+        )
+        XCTAssertEqual(
+            envelope.options.explicit["reviewableRowCatalogSize"],
+            .integer(Int(catalogReference.sizeBytes))
+        )
+        XCTAssertEqual(
+            envelope.options.explicit["reviewableRowCatalogSHA256"],
+            .string(catalogReference.sha256)
+        )
+        XCTAssertEqual(
+            envelope.options.explicit["reviewableRowCatalogSchemaVersion"],
+            .integer(GenotypeReviewableRowCatalog.schemaVersion)
+        )
+        XCTAssertEqual(
             envelope.options.explicit["currentWorkbookSyncIntent"],
             .string("update-and-view")
         )
@@ -3163,6 +6092,222 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         }
         XCTAssertNotNil(envelope.options.explicit["cliImmutableInputs"])
         XCTAssertNotNil(envelope.options.explicit["additionalInputs"])
+        XCTAssertEqual(updated.reviewableRowCatalog, catalogReference)
+        let retainedCatalog = try XCTUnwrap(
+            envelope.files.first {
+                $0.role == .input
+                    && $0.path.contains("/artifacts/workbooks/updates/")
+                    && $0.path.hasSuffix("/reviewable-row-catalog.json")
+            }
+        )
+        let retainedCatalogURL = URL(fileURLWithPath: retainedCatalog.path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: retainedCatalogURL.path))
+        XCTAssertEqual(
+            retainedCatalog.checksumSHA256,
+            try ProvenanceFileHasher.sha256(of: retainedCatalogURL)
+        )
+        XCTAssertEqual(
+            retainedCatalog.fileSize,
+            UInt64(try ProvenanceFileHasher.fileSize(of: retainedCatalogURL))
+        )
+        let pythonStep = try XCTUnwrap(
+            envelope.steps.first { $0.toolName.contains("python openpyxl") }
+        )
+        XCTAssertTrue(pythonStep.inputs.contains { $0.path == retainedCatalog.path })
+        XCTAssertTrue(pythonStep.durableReplayArgv?.contains(retainedCatalog.path) == true)
+    }
+
+    func testFalseNegativeWithoutAttestedReviewableRowCatalogFailsBeforeStagingOrMutation() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "false-negative-missing-catalog"
+        )
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-26T00:00:00Z"
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-A1*001:01",
+                    sample: "AR3628"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-26T00:01:00Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        let bundleBefore = try bundleSnapshot(fixture.bundleURL)
+
+        XCTAssertThrowsError(
+            try serviceThatFailsIfStagingBegins().applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: annotationURL,
+                into: fixture.bundleURL
+            )
+        ) { error in
+            XCTAssertTrue(
+                error.localizedDescription.contains("reviewable-row catalog"),
+                "Unexpected error: \(error)"
+            )
+        }
+
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), bundleBefore)
+        try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
+    }
+
+    func testFalseNegativeWithInvalidReviewableRowCatalogFailsBeforeStagingOrMutation() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "false-negative-invalid-catalog"
+        )
+        _ = try installReviewableRowCatalog(
+            GenotypeReviewableRowCatalog(samples: ["AR3628"], rows: []),
+            in: fixture.bundleURL
+        )
+        let catalogURL = fixture.bundleURL.appendingPathComponent(
+            "artifacts/review/reviewable-row-catalog.json"
+        )
+        var corrupted = try Data(contentsOf: catalogURL)
+        corrupted.append(0x20)
+        try corrupted.write(to: catalogURL)
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-26T00:00:00Z"
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-A1*001:01",
+                    sample: "AR3628"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-26T00:01:00Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        let bundleBefore = try bundleSnapshot(fixture.bundleURL)
+
+        XCTAssertThrowsError(
+            try serviceThatFailsIfStagingBegins().applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: annotationURL,
+                into: fixture.bundleURL
+            )
+        ) { error in
+            XCTAssertTrue(
+                error.localizedDescription.contains("checksum or size"),
+                "Unexpected error: \(error)"
+            )
+        }
+
+        XCTAssertEqual(try bundleSnapshot(fixture.bundleURL), bundleBefore)
+        try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
+    }
+
+    func testReviewableRowCatalogParentSwapCannotSubstituteOutsideBytes() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "reviewable-row-catalog-parent-swap"
+        )
+        _ = try installReviewableRowCatalog(
+            GenotypeReviewableRowCatalog(samples: ["inside"], rows: []),
+            in: fixture.bundleURL
+        )
+        let reviewDirectory = fixture.bundleURL.appendingPathComponent(
+            "artifacts/review",
+            isDirectory: true
+        )
+        let displacedReviewDirectory = fixture.bundleURL.appendingPathComponent(
+            "artifacts/displaced-review",
+            isDirectory: true
+        )
+        let outsideReviewDirectory = root.appendingPathComponent(
+            "outside-review",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: outsideReviewDirectory,
+            withIntermediateDirectories: true
+        )
+        let outsideCatalogURL = outsideReviewDirectory.appendingPathComponent(
+            "reviewable-row-catalog.json"
+        )
+        try GenotypeReviewableRowCatalog(samples: ["outside"], rows: [])
+            .validated()
+            .encoded()
+            .write(to: outsideCatalogURL, options: .atomic)
+        let outsideReference = try artifactReference(
+            outsideCatalogURL,
+            relativeTo: root
+        )
+        let manifestURL = ONTGenotypeResultBundle.manifestURL(in: fixture.bundleURL)
+        try mutateJSONObject(at: manifestURL) { object in
+            object["reviewableRowCatalog"] = [
+                "path": "artifacts/review/reviewable-row-catalog.json",
+                "sha256": outsideReference.sha256,
+                "size_bytes": outsideReference.sizeBytes,
+            ]
+        }
+        let workbookURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        let workbookBefore = try Data(contentsOf: workbookURL)
+        let reachedStaging = SendableFlagBox()
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                pythonExecutableURL: testPythonExecutableURL,
+                publicationFailureInjector: { checkpoint in
+                    switch checkpoint {
+                    case "after-reviewable-row-catalog-validation-before-read":
+                        try FileManager.default.moveItem(
+                            at: reviewDirectory,
+                            to: displacedReviewDirectory
+                        )
+                        try FileManager.default.createSymbolicLink(
+                            at: reviewDirectory,
+                            withDestinationURL: outsideReviewDirectory
+                        )
+                    case "after-stage-created":
+                        reachedStaging.set(1)
+                        throw NSError(
+                            domain: "UnexpectedWorkbookUpdateStaging",
+                            code: 1
+                        )
+                    default:
+                        break
+                    }
+                }
+            ).applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: nil,
+                into: fixture.bundleURL
+            )
+        ) { error in
+            XCTAssertTrue(
+                error.localizedDescription.contains("checksum or size"),
+                "Unexpected error: \(error)"
+            )
+        }
+
+        XCTAssertNil(reachedStaging.value)
+        XCTAssertEqual(try Data(contentsOf: workbookURL), workbookBefore)
+        try assertNoWorkbookUpdateStage(for: fixture.bundleURL)
     }
 
     func testApplyHaplotypeOverridesRejectsSameSizeCallsInputMutationBeforePublication() throws {
@@ -3583,6 +6728,2591 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         XCTAssertNil(envelope.options.explicit["currentWorkbookSyncIntent"])
     }
 
+    func testAbsentZeroSupportFalseNegativeUsesExactPortablePresentation() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "missing-false-negative-row"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installAnnotationOnlyUnifiedReviewMatrix(in: currentURL)
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+
+path = sys.argv[1]
+wb = load_workbook(path)
+wb["Unified Genotype Pivot"].auto_filter.ref = "A1:P1"
+wb.save(path)
+"""#, currentURL.path])
+        let catalogReference = try installReviewableRowCatalog(
+            GenotypeReviewableRowCatalog(
+                samples: ["Sample-A", "Sample-B"],
+                rows: [
+                    .init(
+                        kind: .reference,
+                        callID: "reference:MHC-A:Mamu-A1*001:01",
+                        displayName: "Mamu-A1*001:01",
+                        locus: "MHC-A",
+                        stableID: nil,
+                        section: "reference",
+                        sortKey: "MHC-A|Mamu-A1*001:01",
+                        supportBySample: ["Sample-A": 0, "Sample-B": 0]
+                    ),
+                ]
+            ),
+            in: fixture.bundleURL
+        )
+
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixReviews = ["Sample-A", "Sample-B"].enumerated().map {
+            index, sample in
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-A1*001:01",
+                    sample: sample
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-27T00:0\(index):00Z"
+            )
+        }
+        try sidecar.encoded().write(to: annotationURL)
+        let callsURL = root.appendingPathComponent("displayed-calls.json")
+        try Data("[]".utf8).write(to: callsURL)
+        let cliArgv = [
+            "lungfish-cli", "fastq", "update-current-workbook",
+            fixture.bundleURL.path,
+            "--calls-json", callsURL.path,
+            "--annotations", annotationURL.path,
+        ]
+        let cliProvenanceContext = GenotypeWorkbookRevisionProvenanceContext(
+            toolName: "lungfish-cli fastq update-current-workbook",
+            toolKind: "cli",
+            argv: cliArgv,
+            cliInputDescriptors: [
+                try ProvenanceFileDescriptor.file(url: callsURL, role: .input),
+                try ProvenanceFileDescriptor.file(url: annotationURL, role: .input),
+            ]
+        )
+
+        let clock = IncrementingDateProvider(
+            start: Date(timeIntervalSince1970: 8_100),
+            increment: 1
+        )
+        let service = GenotypeWorkbookRevisionService(
+            dateProvider: clock.now,
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL: root.appendingPathComponent(
+                "workbook-attestations",
+                isDirectory: true
+            )
+        )
+        let updated = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL,
+            provenanceContext: cliProvenanceContext
+        )
+
+        let inspection = try inspectAnnotationOnlyReviewWorkbook(currentURL)
+        XCTAssertEqual(inspection["adapter"], "unified")
+        XCTAssertEqual(inspection["markerRows"], "1")
+        XCTAssertEqual(inspection["syntheticRows"], "1")
+        XCTAssertEqual(inspection["syntheticCallType"], "analyst-annotation-only")
+        XCTAssertEqual(
+            inspection["syntheticCallID"],
+            "reference:MHC-A:Mamu-A1*001:01"
+        )
+        XCTAssertEqual(inspection["syntheticDisplayName"], "Mamu-A1*001:01")
+        XCTAssertEqual(inspection["syntheticStableID"], "")
+        XCTAssertEqual(inspection["syntheticLocus"], "MHC-A")
+        XCTAssertEqual(
+            inspection["syntheticClassification"],
+            "analyst-annotation-only"
+        )
+        XCTAssertEqual(inspection["syntheticOccurrenceCount"], "0")
+        XCTAssertEqual(inspection["syntheticOccurrenceCountType"], "n")
+        XCTAssertEqual(inspection["syntheticSampleCount"], "0")
+        XCTAssertEqual(inspection["syntheticSampleCountType"], "n")
+        XCTAssertEqual(inspection["syntheticTotalReads"], "0")
+        XCTAssertEqual(inspection["syntheticTotalReadsType"], "n")
+        XCTAssertEqual(inspection["sampleAValue"], "FN")
+        XCTAssertEqual(inspection["sampleBValue"], "FN")
+        XCTAssertEqual(
+            inspection["sampleABorders"],
+            "mediumDashed|mediumDashed|mediumDashed|mediumDashed"
+        )
+        XCTAssertEqual(
+            inspection["sampleBBorders"],
+            "mediumDashed|mediumDashed|mediumDashed|mediumDashed"
+        )
+        XCTAssertEqual(
+            inspection["sampleABorderColors"],
+            "FFC65911|FFC65911|FFC65911|FFC65911"
+        )
+        XCTAssertEqual(
+            inspection["sampleBBorderColors"],
+            "FFC65911|FFC65911|FFC65911|FFC65911"
+        )
+        XCTAssertEqual(inspection["sampleAFill"], "solid|FFFFF2CC")
+        XCTAssertEqual(inspection["sampleBFill"], "solid|FFFFF2CC")
+        XCTAssertEqual(inspection["sampleAFont"], "true|FF7F6000")
+        XCTAssertEqual(inspection["sampleBFont"], "true|FF7F6000")
+        XCTAssertEqual(inspection["tableRef"], "A1:N3")
+        XCTAssertEqual(inspection["tableAutoFilterRef"], "A1:N3")
+        XCTAssertEqual(inspection["autoFilterRef"], "A1:P3")
+        XCTAssertEqual(inspection["freezePanes"], "A2")
+        XCTAssertEqual(inspection["mergedRanges"], "O1:P1")
+        XCTAssertEqual(inspection["formula"], "=1+1")
+        XCTAssertEqual(inspection["formulaFont"], "true|FFFF0000")
+        XCTAssertEqual(inspection["formulaFill"], "FFFFFF00")
+        XCTAssertEqual(inspection["formulaBorders"], "thin|thin|thin|thin")
+        XCTAssertEqual(inspection["formulaNumberFormat"], "0.00")
+        XCTAssertEqual(inspection["managedSyntheticStateRows"], "2")
+        let ooxml = try inspectPortableFalseNegativeOOXML(currentURL)
+        XCTAssertEqual(ooxml["hasLiteralFN"], "true")
+        XCTAssertEqual(ooxml["hasDashedBorder"], "true")
+        XCTAssertEqual(ooxml["hasBorderColor"], "true")
+        XCTAssertEqual(ooxml["hasFillColor"], "true")
+        XCTAssertEqual(ooxml["hasFontColor"], "true")
+
+        let provenanceURL = ONTGenotypeResultBundle.resolvedURL(
+            for: try XCTUnwrap(updated.workbookRevisions?.last?.provenancePath),
+            in: fixture.bundleURL
+        )
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: provenanceURL)
+        )
+        XCTAssertEqual(
+            envelope.toolName,
+            "lungfish-cli fastq update-current-workbook"
+        )
+        XCTAssertEqual(envelope.argv, cliArgv)
+        let pythonStep = try XCTUnwrap(
+            envelope.steps.first {
+                $0.toolName == "python openpyxl workbook candidate update"
+            }
+        )
+        XCTAssertEqual(
+            pythonStep.resolvedOptions["annotationSidecarRevisionSHA256"],
+            .string(try ProvenanceFileHasher.sha256(of: annotationURL))
+        )
+        XCTAssertEqual(
+            pythonStep.resolvedOptions["workbookMatrixAdapterVersion"],
+            .string("lge-workbook-matrix-adapter-v1")
+        )
+        let catalogDescriptor = try XCTUnwrap(
+            pythonStep.resolvedOptions["reviewableRowCatalogDescriptor"]?
+                .dictionaryValue
+        )
+        XCTAssertEqual(catalogDescriptor["path"], .string(catalogReference.path))
+        XCTAssertEqual(
+            catalogDescriptor["sizeBytes"],
+            .integer(Int(catalogReference.sizeBytes))
+        )
+        XCTAssertEqual(
+            catalogDescriptor["sha256"],
+            .string(catalogReference.sha256)
+        )
+        XCTAssertEqual(
+            catalogDescriptor["schemaVersion"],
+            .integer(GenotypeReviewableRowCatalog.schemaVersion)
+        )
+        let adapterDecisions = try XCTUnwrap(
+            pythonStep.resolvedOptions["workbookAdapterDecisions"]?.arrayValue
+        )
+        XCTAssertEqual(adapterDecisions.count, 1)
+        XCTAssertEqual(
+            adapterDecisions.first?.dictionaryValue?["adapter"],
+            .string("unified")
+        )
+        let synthesisDecisions = try XCTUnwrap(
+            pythonStep.resolvedOptions["falseNegativeSynthesisDecisions"]?
+                .arrayValue
+        )
+        XCTAssertEqual(synthesisDecisions.count, 1)
+        XCTAssertEqual(
+            synthesisDecisions.first?.dictionaryValue?["identity"],
+            .dictionary([
+                "kind": .string("reference"),
+                "callID": .string("reference:MHC-A:Mamu-A1*001:01"),
+                "displayName": .string("Mamu-A1*001:01"),
+                "locus": .string("MHC-A"),
+                "stableID": .null,
+            ])
+        )
+        XCTAssertEqual(
+            synthesisDecisions.first?.dictionaryValue?["cells"],
+            .array([.string("M3"), .string("N3")])
+        )
+        let targetDecisions = try XCTUnwrap(
+            pythonStep.resolvedOptions["falseNegativeTargetCellDecisions"]?
+                .arrayValue
+        )
+        XCTAssertEqual(targetDecisions.count, 2)
+        XCTAssertEqual(
+            Set(targetDecisions.compactMap {
+                $0.dictionaryValue?["cell"]?.stringValue
+            }),
+            ["M3", "N3"]
+        )
+        XCTAssertTrue(targetDecisions.allSatisfy {
+            $0.dictionaryValue?["presentationPrecedence"]
+                == .string("false-negative-over-viewport-style")
+        })
+        XCTAssertEqual(
+            Set(targetDecisions.compactMap {
+                $0.dictionaryValue?["target"]?.dictionaryValue?["sample"]?
+                    .stringValue
+            }),
+            ["Sample-A", "Sample-B"]
+        )
+        XCTAssertEqual(
+            pythonStep.resolvedOptions["managedReviewRestorationDecisions"],
+            .array([.dictionary([
+                "action": .string("none"),
+                "reason": .string("no-managed-review-state"),
+            ])])
+        )
+        let sidecarInput = try XCTUnwrap(
+            pythonStep.inputs.first { $0.path == annotationURL.path }
+        )
+        XCTAssertEqual(
+            sidecarInput.checksumSHA256,
+            try ProvenanceFileHasher.sha256(of: annotationURL)
+        )
+        let workbookOutput = try XCTUnwrap(
+            pythonStep.outputs.first { $0.path == currentURL.path }
+        )
+        XCTAssertEqual(
+            workbookOutput.checksumSHA256,
+            try ProvenanceFileHasher.sha256(of: currentURL)
+        )
+        XCTAssertEqual(pythonStep.exitStatus, 0)
+        XCTAssertEqual(pythonStep.stderr, "")
+        XCTAssertNotNil(pythonStep.wallTimeSeconds)
+        XCTAssertFalse(pythonStep.argv.isEmpty)
+        XCTAssertEqual(pythonStep.runtimeIdentity?.condaEnvironment, "openpyxl")
+
+        sidecar.matrixReviews = []
+        try sidecar.encoded().write(to: annotationURL)
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+        let cleared = try inspectAnnotationOnlyReviewWorkbook(currentURL)
+        XCTAssertEqual(cleared["markerRows"], "0")
+        XCTAssertEqual(cleared["syntheticRows"], "0")
+        XCTAssertEqual(cleared["tableRef"], "A1:N1")
+        XCTAssertEqual(cleared["tableAutoFilterRef"], "A1:N1")
+        XCTAssertEqual(cleared["autoFilterRef"], "A1:P1")
+        XCTAssertEqual(cleared["formula"], "=1+1")
+        XCTAssertEqual(cleared["formulaFont"], "true|FFFF0000")
+        XCTAssertEqual(cleared["formulaFill"], "FFFFFF00")
+        XCTAssertEqual(cleared["formulaBorders"], "thin|thin|thin|thin")
+        XCTAssertEqual(cleared["formulaNumberFormat"], "0.00")
+    }
+
+    func testGenericAnnotationOnlyRowIsIdempotentAndClearsSafely() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "generic-false-negative-lifecycle"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installAnnotationOnlyGenericReviewMatrix(in: currentURL)
+        _ = try installReviewableRowCatalog(
+            annotationOnlyReferenceCatalog(
+                samples: ["AR3628"],
+                displayName: "Mamu-A1*missing"
+            ),
+            in: fixture.bundleURL
+        )
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-A1*missing",
+                    sample: "AR3628"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-27T01:00:00Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        let clock = IncrementingDateProvider(
+            start: Date(timeIntervalSince1970: 8_125),
+            increment: 1
+        )
+        let service = GenotypeWorkbookRevisionService(
+            dateProvider: clock.now,
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        )
+
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+        var inspection = try inspectAnnotationOnlyGenericWorkbook(currentURL)
+        XCTAssertEqual(inspection["markerRows"], "1")
+        XCTAssertEqual(inspection["syntheticRows"], "1")
+        XCTAssertEqual(inspection["syntheticTotal"], "0")
+        XCTAssertEqual(inspection["syntheticObserved"], "0")
+        XCTAssertEqual(inspection["syntheticEvidence"], "FN")
+        XCTAssertEqual(inspection["tableRef"], "A6:D9")
+        XCTAssertEqual(inspection["tableAutoFilterRef"], "A6:D9")
+        XCTAssertEqual(inspection["autoFilterRef"], "A6:D9")
+        XCTAssertEqual(inspection["formula"], "=SUM(B7:B9)")
+        XCTAssertEqual(inspection["freezePanes"], "D7")
+
+        sidecar.matrixReviews = []
+        try sidecar.encoded().write(to: annotationURL)
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+        inspection = try inspectAnnotationOnlyGenericWorkbook(currentURL)
+        XCTAssertEqual(inspection["markerRows"], "0")
+        XCTAssertEqual(inspection["syntheticRows"], "0")
+        XCTAssertEqual(inspection["tableRef"], "A6:D7")
+        XCTAssertEqual(inspection["tableAutoFilterRef"], "A6:D7")
+        XCTAssertEqual(inspection["autoFilterRef"], "A6:D7")
+        XCTAssertEqual(inspection["existingRow"], "Mamu-A1*existing|5|1|5")
+        XCTAssertEqual(inspection["formula"], "=SUM(B7:B9)")
+        XCTAssertEqual(inspection["hasManagedReviewState"], "false")
+    }
+
+    func testTablelessGenericClearCompactsCompleteCatalogRosterWithLaterRealRow() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "tableless-generic-owned-clear"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installAnnotationOnlyGenericReviewMatrix(in: currentURL)
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+
+path = sys.argv[1]
+wb = load_workbook(path)
+ws = wb["matrix"]
+del ws.tables["GenericGenotypeTable"]
+ws["E6"] = "AR9999"
+ws.auto_filter.ref = "A6:E7"
+ws["G8"] = "outside-marker-row"
+ws["H9"] = "outside-synthetic-row"
+wb.save(path)
+"""#, currentURL.path])
+        _ = try installReviewableRowCatalog(
+            annotationOnlyReferenceCatalog(
+                samples: ["AR3628", "AR9999"],
+                displayName: "Mamu-A1*missing"
+            ),
+            in: fixture.bundleURL
+        )
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-A1*missing",
+                    sample: "AR3628"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-27T01:05:00Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        let service = GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 8_126) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        )
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+
+path = sys.argv[1]
+wb = load_workbook(path)
+ws = wb["matrix"]
+ws.append(["Mamu-A1*later-real", 9, 1, None, 9])
+ws.auto_filter.ref = "A6:E10"
+wb.save(path)
+"""#, currentURL.path])
+        sidecar.matrixReviews = []
+        try sidecar.encoded().write(to: annotationURL)
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+
+        let output = try runPython(["-c", #"""
+import json
+import sys
+from openpyxl import load_workbook
+
+wb = load_workbook(sys.argv[1], data_only=False)
+ws = wb["matrix"]
+text = lambda value: "" if value is None else str(value)
+print(json.dumps({
+    "markerRows": str(sum(
+        1 for row in range(7, ws.max_row + 1)
+        if text(ws.cell(row, 1).value) == "Analyst annotation-only rows"
+    )),
+    "syntheticRows": str(sum(
+        1 for row in range(7, ws.max_row + 1)
+        if text(ws.cell(row, 1).value) == "Mamu-A1*missing"
+    )),
+    "existingRow": "|".join(text(ws.cell(7, col).value) for col in range(1, 6)),
+    "realRow": "|".join(text(ws.cell(8, col).value) for col in range(1, 6)),
+    "outsideMarker": text(ws["G8"].value),
+    "outsideSynthetic": text(ws["H9"].value),
+    "autoFilterRef": text(ws.auto_filter.ref),
+    "tableCount": str(len(ws.tables)),
+    "hasManagedReviewState": str(
+        "_LGE Matrix Review State" in wb.sheetnames
+    ).lower(),
+}))
+"""#, currentURL.path])
+        let object = try JSONSerialization.jsonObject(with: Data(output.utf8))
+        let inspection = try XCTUnwrap(object as? [String: String])
+        XCTAssertEqual(inspection["markerRows"], "0")
+        XCTAssertEqual(inspection["syntheticRows"], "0")
+        XCTAssertEqual(inspection["existingRow"], "Mamu-A1*existing|5|1|5|")
+        XCTAssertEqual(inspection["realRow"], "Mamu-A1*later-real|9|1||9")
+        XCTAssertEqual(inspection["outsideMarker"], "outside-marker-row")
+        XCTAssertEqual(inspection["outsideSynthetic"], "outside-synthetic-row")
+        XCTAssertEqual(inspection["autoFilterRef"], "A6:E8")
+        XCTAssertEqual(inspection["tableCount"], "0")
+        XCTAssertEqual(inspection["hasManagedReviewState"], "false")
+    }
+
+    func testTablelessClearFailsClosedForDuplicateUnannotatedCatalogSample() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "tableless-duplicate-unannotated-sample"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installAnnotationOnlyGenericReviewMatrix(in: currentURL)
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+
+path = sys.argv[1]
+wb = load_workbook(path)
+ws = wb["matrix"]
+del ws.tables["GenericGenotypeTable"]
+ws["E6"] = "AR9999"
+ws.auto_filter.ref = "A6:E7"
+wb.save(path)
+"""#, currentURL.path])
+        _ = try installReviewableRowCatalog(
+            annotationOnlyReferenceCatalog(
+                samples: ["AR3628", "AR9999"],
+                displayName: "Mamu-A1*missing"
+            ),
+            in: fixture.bundleURL
+        )
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-A1*missing",
+                    sample: "AR3628"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-27T01:05:30Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        let service = GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 8_126.5) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        )
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+
+path = sys.argv[1]
+wb = load_workbook(path)
+wb["matrix"]["F6"] = "AR9999"
+wb.save(path)
+"""#, currentURL.path])
+        sidecar.matrixReviews = []
+        try sidecar.encoded().write(to: annotationURL)
+        let before = try ProvenanceFileHasher.sha256(of: currentURL)
+
+        XCTAssertThrowsError(
+            try service.applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: annotationURL,
+                into: fixture.bundleURL
+            )
+        ) { error in
+            XCTAssertTrue(
+                error.localizedDescription.localizedCaseInsensitiveContains(
+                    "AR9999"
+                )
+            )
+        }
+        XCTAssertEqual(try ProvenanceFileHasher.sha256(of: currentURL), before)
+    }
+
+    func testGenericClearIgnoresUnrelatedTableSpanningManagedRows() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "generic-unrelated-table-clear"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installAnnotationOnlyGenericReviewMatrix(in: currentURL)
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+from openpyxl.worksheet.table import Table
+
+path = sys.argv[1]
+wb = load_workbook(path)
+ws = wb["matrix"]
+for row, values in {
+    6: ("External A", "External B", "External C"),
+    7: ("external-7a", "external-7b", "external-7c"),
+    8: ("external-8a", "external-8b", "external-8c"),
+    9: ("external-9a", "external-9b", "external-9c"),
+    10: ("external-10a", "external-10b", "external-10c"),
+}.items():
+    for offset, value in enumerate(values, start=6):
+        ws.cell(row, offset).value = value
+ws.add_table(Table(displayName="UnrelatedTable", ref="F6:H10"))
+wb.save(path)
+"""#, currentURL.path])
+        _ = try installReviewableRowCatalog(
+            annotationOnlyReferenceCatalog(
+                samples: ["AR3628"],
+                displayName: "Mamu-A1*missing"
+            ),
+            in: fixture.bundleURL
+        )
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-A1*missing",
+                    sample: "AR3628"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-27T01:06:00Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        let service = GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 8_127) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        )
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+        sidecar.matrixReviews = []
+        try sidecar.encoded().write(to: annotationURL)
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+
+        let output = try runPython(["-c", #"""
+import json
+import sys
+from openpyxl import load_workbook
+
+wb = load_workbook(sys.argv[1], data_only=False)
+ws = wb["matrix"]
+text = lambda value: "" if value is None else str(value)
+print(json.dumps({
+    "matrixTableRef": text(ws.tables["GenericGenotypeTable"].ref),
+    "matrixTableFilterRef": text(ws.tables["GenericGenotypeTable"].autoFilter.ref),
+    "unrelatedTableRef": text(ws.tables["UnrelatedTable"].ref),
+    "unrelatedRows": "|".join(
+        text(ws.cell(row, col).value)
+        for row in range(6, 11)
+        for col in range(6, 9)
+    ),
+    "markerRows": str(sum(
+        1 for row in range(7, ws.max_row + 1)
+        if text(ws.cell(row, 1).value) == "Analyst annotation-only rows"
+    )),
+    "syntheticRows": str(sum(
+        1 for row in range(7, ws.max_row + 1)
+        if text(ws.cell(row, 1).value) == "Mamu-A1*missing"
+    )),
+    "autoFilterRef": text(ws.auto_filter.ref),
+}))
+"""#, currentURL.path])
+        let object = try JSONSerialization.jsonObject(with: Data(output.utf8))
+        let inspection = try XCTUnwrap(object as? [String: String])
+        XCTAssertEqual(inspection["matrixTableRef"], "A6:D7")
+        XCTAssertEqual(inspection["matrixTableFilterRef"], "A6:D7")
+        XCTAssertEqual(inspection["unrelatedTableRef"], "F6:H10")
+        XCTAssertEqual(
+            inspection["unrelatedRows"],
+            [
+                "External A", "External B", "External C",
+                "external-7a", "external-7b", "external-7c",
+                "external-8a", "external-8b", "external-8c",
+                "external-9a", "external-9b", "external-9c",
+                "external-10a", "external-10b", "external-10c",
+            ].joined(separator: "|")
+        )
+        XCTAssertEqual(inspection["markerRows"], "0")
+        XCTAssertEqual(inspection["syntheticRows"], "0")
+        XCTAssertEqual(inspection["autoFilterRef"], "A6:D7")
+    }
+
+    func testUserEditedSyntheticRowIsRetainedUnmanagedWithValidationWarning() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "edited-false-negative-row"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installAnnotationOnlyGenericReviewMatrix(in: currentURL)
+        _ = try installReviewableRowCatalog(
+            annotationOnlyReferenceCatalog(
+                samples: ["AR3628"],
+                displayName: "Mamu-A1*missing"
+            ),
+            in: fixture.bundleURL
+        )
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-A1*missing",
+                    sample: "AR3628"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-27T01:00:00Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        let service = GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 8_150) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        )
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+from openpyxl.comments import Comment
+
+path = sys.argv[1]
+wb = load_workbook(path)
+ws = wb["matrix"]
+row = next(
+    row for row in range(7, ws.max_row + 1)
+    if ws.cell(row, 1).value == "Mamu-A1*missing"
+)
+ws.cell(row, 2).comment = Comment("Analyst retained note", "analyst")
+wb.save(path)
+"""#, currentURL.path])
+
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+        var inspection = try inspectAnnotationOnlyGenericWorkbook(currentURL)
+        XCTAssertEqual(inspection["syntheticRows"], "1")
+        XCTAssertEqual(inspection["markerRows"], "0")
+        XCTAssertEqual(inspection["retainedMarkerRows"], "1")
+        XCTAssertEqual(inspection["analystComment"], "Analyst retained note")
+        XCTAssertEqual(inspection["managedSyntheticRows"], "0")
+        XCTAssertTrue(
+            inspection["reviewWarning"]?.contains("user-edited") == true
+        )
+
+        sidecar.matrixReviews = []
+        try sidecar.encoded().write(to: annotationURL)
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+        inspection = try inspectAnnotationOnlyGenericWorkbook(currentURL)
+        XCTAssertEqual(inspection["syntheticRows"], "1")
+        XCTAssertEqual(inspection["analystComment"], "Analyst retained note")
+        XCTAssertEqual(inspection["hasManagedReviewState"], "false")
+    }
+
+    func testRetainedSyntheticBlockMarkerIsNeverReadoptedForNewManagedRows() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "retained-marker-ownership"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installAnnotationOnlyGenericReviewMatrix(in: currentURL)
+        let rows = ["Mamu-A1*missing", "Mamu-A1*second"].map { displayName in
+            GenotypeReviewableRowCatalog.Row(
+                kind: .reference,
+                callID: "reference:MHC-A:\(displayName)",
+                displayName: displayName,
+                locus: "MHC-A",
+                stableID: nil,
+                section: "reference",
+                sortKey: "MHC-A|\(displayName)",
+                supportBySample: ["AR3628": 0]
+            )
+        }
+        _ = try installReviewableRowCatalog(
+            GenotypeReviewableRowCatalog(samples: ["AR3628"], rows: rows),
+            in: fixture.bundleURL
+        )
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        func review(
+            _ displayName: String,
+            minute: Int
+        ) -> GenotypeAnnotationSidecar.MatrixReviewAnnotation {
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: displayName,
+                    sample: "AR3628"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-27T01:\(String(format: "%02d", minute)):00Z"
+            )
+        }
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixReviews = [review("Mamu-A1*missing", minute: 0)]
+        try sidecar.encoded().write(to: annotationURL)
+        let clock = IncrementingDateProvider(
+            start: Date(timeIntervalSince1970: 8_175),
+            increment: 1
+        )
+        let service = GenotypeWorkbookRevisionService(
+            dateProvider: clock.now,
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        )
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+from openpyxl.comments import Comment
+
+path = sys.argv[1]
+wb = load_workbook(path)
+ws = wb["matrix"]
+row = next(
+    row for row in range(7, ws.max_row + 1)
+    if ws.cell(row, 1).value == "Mamu-A1*missing"
+)
+ws.cell(row, 2).comment = Comment("Retained analyst edit", "analyst")
+wb.save(path)
+"""#, currentURL.path])
+        sidecar.matrixReviews = [
+            review("Mamu-A1*missing", minute: 1),
+            review("Mamu-A1*second", minute: 2),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        let beforeRejectedUpdate = try ProvenanceFileHasher.sha256(of: currentURL)
+        XCTAssertThrowsError(
+            try service.applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: annotationURL,
+                into: fixture.bundleURL
+            )
+        )
+        XCTAssertEqual(
+            try ProvenanceFileHasher.sha256(of: currentURL),
+            beforeRejectedUpdate
+        )
+
+        sidecar.matrixReviews = []
+        try sidecar.encoded().write(to: annotationURL)
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+        let inspection = try inspectAnnotationOnlyGenericWorkbook(currentURL)
+        XCTAssertEqual(inspection["syntheticRows"], "1")
+        XCTAssertEqual(inspection["analystComment"], "Retained analyst edit")
+        XCTAssertEqual(inspection["markerRows"], "0")
+        XCTAssertEqual(inspection["retainedMarkerRows"], "1")
+        XCTAssertEqual(inspection["hasManagedReviewState"], "false")
+    }
+
+    func testMarkerOnlyAnalystEditRetainsTheEntireSyntheticBlockOnClear() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "retained-marker-only-edit"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installAnnotationOnlyGenericReviewMatrix(in: currentURL)
+        _ = try installReviewableRowCatalog(
+            annotationOnlyReferenceCatalog(
+                samples: ["AR3628"],
+                displayName: "Mamu-A1*missing"
+            ),
+            in: fixture.bundleURL
+        )
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-A1*missing",
+                    sample: "AR3628"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-27T01:00:00Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        let clock = IncrementingDateProvider(
+            start: Date(timeIntervalSince1970: 8_200),
+            increment: 1
+        )
+        let service = GenotypeWorkbookRevisionService(
+            dateProvider: clock.now,
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        )
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+from openpyxl.comments import Comment
+
+path = sys.argv[1]
+wb = load_workbook(path)
+ws = wb["matrix"]
+row = next(
+    row for row in range(7, ws.max_row + 1)
+    if ws.cell(row, 1).value == "Analyst annotation-only rows"
+)
+ws.cell(row, 1).comment = Comment("Marker-only analyst edit", "analyst")
+wb.save(path)
+"""#, currentURL.path])
+        sidecar.matrixReviews = []
+        try sidecar.encoded().write(to: annotationURL)
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+
+        let inspection = try inspectAnnotationOnlyGenericWorkbook(currentURL)
+        XCTAssertEqual(inspection["markerRows"], "0")
+        XCTAssertEqual(inspection["retainedMarkerRows"], "1")
+        XCTAssertEqual(
+            inspection["retainedMarkerComment"],
+            "Marker-only analyst edit"
+        )
+        XCTAssertEqual(inspection["syntheticRows"], "1")
+        XCTAssertEqual(inspection["tableRef"], "A6:D9")
+        XCTAssertEqual(inspection["tableAutoFilterRef"], "A6:D9")
+        XCTAssertEqual(inspection["hasManagedReviewState"], "false")
+    }
+
+    func testForeignManagedStateSheetNameCollisionFailsClosedWithoutMutation() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "foreign-managed-state-collision"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installAnnotationOnlyGenericReviewMatrix(in: currentURL)
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+
+path = sys.argv[1]
+wb = load_workbook(path)
+ws = wb.create_sheet("_LGE Matrix Review State")
+ws["A1"] = "Unrelated analyst worksheet"
+ws["A2"] = "This content is not Lungfish-managed state."
+wb.save(path)
+"""#, currentURL.path])
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        try GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        ).encoded().write(to: annotationURL)
+        let before = try ProvenanceFileHasher.sha256(of: currentURL)
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                dateProvider: { Date(timeIntervalSince1970: 8_300) },
+                userProvider: { "tester" },
+                pythonExecutableURL: testPythonExecutableURL
+            ).applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: annotationURL,
+                into: fixture.bundleURL
+            )
+        )
+        XCTAssertEqual(try ProvenanceFileHasher.sha256(of: currentURL), before)
+    }
+
+    func testExactShapeForeignManagedStateMimicFailsClosedWithoutMutation() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "exact-shape-foreign-managed-state"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installAnnotationOnlyGenericReviewMatrix(in: currentURL)
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+
+path = sys.argv[1]
+wb = load_workbook(path)
+state = wb.create_sheet("_LGE Matrix Review State")
+state.append([
+    "Sheet", "Target Kind", "Locus", "Genotype", "Sample",
+    "Stable Cluster ID", "Coordinate", "Disposition", "Original Value",
+    "Original Font", "Original Fill", "Original Border",
+    "Expected Managed Value", "Expected Managed Font",
+    "Expected Managed Fill", "Expected Managed Border", "Synthetic Row",
+    "Adapter", "Synthetic Row Index", "Expected Synthetic Row",
+    "Marker Row Index", "Expected Marker Row",
+    "org.lungfish.matrix-review-state", 3,
+    "foreign-unbound-authority",
+    "a" * 64,
+])
+state.append([
+    "matrix", "cell", "", "Mamu-A1*existing", "AR3628",
+    "", "D7", "falsePositive", '{"type":"int","value":5}',
+])
+state.sheet_state = "veryHidden"
+wb.save(path)
+"""#, currentURL.path])
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        try GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        ).encoded().write(to: annotationURL)
+        let before = try ProvenanceFileHasher.sha256(of: currentURL)
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                dateProvider: { Date(timeIntervalSince1970: 8_310) },
+                userProvider: { "tester" },
+                pythonExecutableURL: testPythonExecutableURL
+            ).applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: annotationURL,
+                into: fixture.bundleURL
+            )
+        )
+        XCTAssertEqual(try ProvenanceFileHasher.sha256(of: currentURL), before)
+    }
+
+    func testExactLegacyManagedStateSchemaRestoresAndMigratesSafely() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "legacy-managed-state"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installAnnotationOnlyGenericReviewMatrix(in: currentURL)
+        _ = try runPython(["-c", #"""
+import sys
+from copy import copy
+from openpyxl import load_workbook
+
+path = sys.argv[1]
+wb = load_workbook(path)
+matrix = wb["matrix"]
+original_font = copy(matrix["D7"].font)
+original_border = copy(matrix["D7"].border)
+matrix["D7"] = "[5]"
+managed_font = copy(matrix["D7"].font)
+managed_font.italic = True
+managed_font.color = "FF767676"
+matrix["D7"].font = managed_font
+
+state = wb.create_sheet("_LGE Matrix Review State")
+state.append([
+    "Sheet", "Target Kind", "Locus", "Genotype", "Sample",
+    "Stable Cluster ID", "Coordinate", "Disposition", "Original Value",
+    "Original Font", "Original Border",
+])
+state.append([
+    "matrix", "cell", "", "Mamu-A1*existing", "AR3628",
+    "", "D7", "falsePositive", 5,
+])
+state.cell(2, 10).font = original_font
+state.cell(2, 11).border = original_border
+state.sheet_state = "veryHidden"
+wb.save(path)
+"""#, currentURL.path])
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        try GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        ).encoded().write(to: annotationURL)
+
+        let updated = try GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 8_325) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL: root.appendingPathComponent(
+                "workbook-attestations",
+                isDirectory: true
+            )
+        ).applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+
+        let inspection = try inspectAnnotationOnlyGenericWorkbook(currentURL)
+        XCTAssertEqual(inspection["existingRow"], "Mamu-A1*existing|5|1|5")
+        XCTAssertEqual(inspection["hasManagedReviewState"], "false")
+        let provenanceURL = ONTGenotypeResultBundle.resolvedURL(
+            for: try XCTUnwrap(updated.workbookRevisions?.last?.provenancePath),
+            in: fixture.bundleURL
+        )
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: provenanceURL)
+        )
+        let pythonStep = try XCTUnwrap(
+            envelope.steps.first {
+                $0.toolName == "python openpyxl workbook candidate update"
+            }
+        )
+        let decisions = try XCTUnwrap(
+            pythonStep.resolvedOptions["managedReviewRestorationDecisions"]?
+                .arrayValue
+        )
+        let legacy = try XCTUnwrap(
+            decisions.first {
+                $0.dictionaryValue?["cell"] == .string("D7")
+            }?.dictionaryValue
+        )
+        XCTAssertEqual(legacy["action"], .string("restore-legacy-cell"))
+        XCTAssertEqual(
+            legacy["properties"]?.dictionaryValue?["value"],
+            .string("restored")
+        )
+        XCTAssertEqual(
+            legacy["properties"]?.dictionaryValue?["font.italic"],
+            .string("restored")
+        )
+    }
+
+    func testUnreleasedUnversionedTask4ManagedStateFailsClosed() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "unversioned-task4-state"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installAnnotationOnlyGenericReviewMatrix(in: currentURL)
+        _ = try installReviewableRowCatalog(
+            annotationOnlyReferenceCatalog(
+                samples: ["AR3628"],
+                displayName: "Mamu-A1*missing"
+            ),
+            in: fixture.bundleURL
+        )
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-A1*missing",
+                    sample: "AR3628"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-27T01:00:00Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        let clock = IncrementingDateProvider(
+            start: Date(timeIntervalSince1970: 8_350),
+            increment: 1
+        )
+        let service = GenotypeWorkbookRevisionService(
+            dateProvider: clock.now,
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        )
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+
+path = sys.argv[1]
+wb = load_workbook(path)
+state = wb["_LGE Matrix Review State"]
+state.delete_cols(23, 2)
+wb.save(path)
+"""#, currentURL.path])
+
+        let before = try ProvenanceFileHasher.sha256(of: currentURL)
+        XCTAssertThrowsError(
+            try service.applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: annotationURL,
+                into: fixture.bundleURL
+            )
+        )
+        XCTAssertEqual(try ProvenanceFileHasher.sha256(of: currentURL), before)
+    }
+
+    func testManagedFalseNegativeStateDigestBindsExpectedBold() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "managed-fn-bold-integrity"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installSemanticReviewMatrix(in: currentURL)
+        try installSemanticReviewableRowCatalog(in: fixture.bundleURL)
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-I*collision",
+                    sample: "Sample-Zero",
+                    stableClusterID: "cluster-a"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-27T01:00:00Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        let clock = IncrementingDateProvider(
+            start: Date(timeIntervalSince1970: 8_360),
+            increment: 1
+        )
+        let service = GenotypeWorkbookRevisionService(
+            dateProvider: clock.now,
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL: root.appendingPathComponent(
+                "workbook-attestations",
+                isDirectory: true
+            )
+        )
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+        _ = try runPython(["-c", #"""
+import sys
+from copy import copy
+from openpyxl import load_workbook
+
+path = sys.argv[1]
+wb = load_workbook(path)
+state = wb["_LGE Matrix Review State"]
+font = copy(state.cell(2, 14).font)
+font.bold = False
+state.cell(2, 14).font = font
+wb.save(path)
+"""#, currentURL.path])
+        sidecar.matrixReviews = []
+        try sidecar.encoded().write(to: annotationURL)
+        let before = try ProvenanceFileHasher.sha256(of: currentURL)
+
+        XCTAssertThrowsError(
+            try service.applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: annotationURL,
+                into: fixture.bundleURL
+            )
+        )
+        XCTAssertEqual(try ProvenanceFileHasher.sha256(of: currentURL), before)
+    }
+
+    func testVersion3ManagedFalseNegativeStateRestoresAndMigratesSafely() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "managed-fn-v3-migration"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installSemanticReviewMatrix(in: currentURL)
+        try installSemanticReviewableRowCatalog(in: fixture.bundleURL)
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-I*collision",
+                    sample: "Sample-Zero",
+                    stableClusterID: "cluster-a"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-27T01:00:00Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        let clock = IncrementingDateProvider(
+            start: Date(timeIntervalSince1970: 8_365),
+            increment: 1
+        )
+        let service = GenotypeWorkbookRevisionService(
+            dateProvider: clock.now,
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL: root.appendingPathComponent(
+                "workbook-attestations",
+                isDirectory: true
+            )
+        )
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+        _ = try runPython(["-c", #"""
+import hashlib
+import json
+import sys
+from copy import copy
+from openpyxl import load_workbook
+from openpyxl.styles import Side
+
+def clean(value):
+    return "" if value is None else str(value).strip()
+
+def serialized(value):
+    if value is None:
+        payload = {"type": "none", "value": None}
+    elif isinstance(value, bool):
+        payload = {"type": "bool", "value": value}
+    elif isinstance(value, int):
+        payload = {"type": "int", "value": value}
+    elif isinstance(value, float):
+        payload = {"type": "float", "value": value}
+    else:
+        payload = {"type": "string", "value": str(value)}
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+def color_payload(color):
+    if color is None:
+        return None
+    color_type = clean(color.type)
+    if color_type == "rgb":
+        value = clean(color.rgb).upper()
+    elif color_type == "indexed":
+        value = color.indexed
+    elif color_type == "theme":
+        value = color.theme
+    elif color_type == "auto":
+        value = bool(color.auto)
+    else:
+        value = None
+    return {"type": color_type, "value": value}
+
+def side_payload(side):
+    if side is None:
+        return None
+    return {
+        "style": clean(side.style),
+        "color": color_payload(side.color),
+    }
+
+path = sys.argv[1]
+wb = load_workbook(path)
+matrix = wb["matrix"]
+state = wb["_LGE Matrix Review State"]
+row = 2
+cell = matrix["E7"]
+cell.value = json.loads(state.cell(row, 9).value)["value"]
+cell.font = copy(state.cell(row, 10).font)
+cell.fill = copy(state.cell(row, 11).fill)
+border = copy(state.cell(row, 12).border)
+managed_side = Side(style="thick", color="FF000000")
+for side_name in ("left", "right", "top", "bottom"):
+    setattr(border, side_name, copy(managed_side))
+cell.border = border
+state.cell(row, 13).value = state.cell(row, 9).value
+state.cell(row, 14).font = copy(state.cell(row, 10).font)
+state.cell(row, 15).fill = copy(state.cell(row, 11).fill)
+state.cell(row, 16).border = copy(cell.border)
+state.cell(1, 24).value = 3
+
+rows = []
+for state_row in range(2, state.max_row + 1):
+    cells = []
+    for col in range(1, 23):
+        state_cell = state.cell(state_row, col)
+        payload = {"value": serialized(state_cell.value)}
+        if col in (10, 14):
+            payload["font"] = {
+                "italic": bool(state_cell.font.i),
+                "color": color_payload(state_cell.font.color),
+            }
+        elif col in (11, 15):
+            payload["fill"] = {
+                "type": clean(state_cell.fill.fill_type),
+                "foreground": color_payload(state_cell.fill.fgColor),
+                "background": color_payload(state_cell.fill.bgColor),
+            }
+        elif col in (12, 16):
+            payload["border"] = {
+                name: side_payload(getattr(state_cell.border, name))
+                for name in ("left", "right", "top", "bottom", "diagonal")
+            }
+        cells.append(payload)
+    rows.append(cells)
+authority = state.cell(1, 25).value
+digest_payload = json.dumps(
+    {"authority": authority, "rows": rows},
+    sort_keys=True,
+    separators=(",", ":"),
+)
+state.cell(1, 26).value = hashlib.sha256(
+    digest_payload.encode("utf-8")
+).hexdigest()
+wb.save(path)
+"""#, currentURL.path])
+
+        sidecar.matrixReviews = []
+        try sidecar.encoded().write(to: annotationURL)
+        let updated = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+
+        let inspection = try inspectSemanticReviewWorkbook(currentURL)
+        XCTAssertEqual(inspection["explicitZeroValue"], "0")
+        XCTAssertEqual(inspection["explicitZeroBorders"], "|||")
+        XCTAssertEqual(inspection["hasManagedReviewStateSheet"], "false")
+        let provenanceURL = ONTGenotypeResultBundle.resolvedURL(
+            for: try XCTUnwrap(updated.workbookRevisions?.last?.provenancePath),
+            in: fixture.bundleURL
+        )
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: provenanceURL)
+        )
+        let pythonStep = try XCTUnwrap(
+            envelope.steps.first {
+                $0.toolName == "python openpyxl workbook candidate update"
+            }
+        )
+        let decisions = try XCTUnwrap(
+            pythonStep.resolvedOptions["managedReviewRestorationDecisions"]?
+                .arrayValue
+        )
+        XCTAssertEqual(
+            decisions.first {
+                $0.dictionaryValue?["cell"] == .string("E7")
+            }?.dictionaryValue?["action"],
+            .string("restore-version-3-cell")
+        )
+    }
+
+    func testLegacyManagedStateRequiresExactRecordedCoordinateAndManagedPresentation() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        for defect in [
+            "coordinate",
+            "presentation",
+            "display-value",
+            "display-whitespace",
+        ] {
+            let root = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let fixture = try makeGenericMatrixWorkbookBundle(
+                in: root,
+                outputName: "invalid-legacy-\(defect)"
+            )
+            let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+                for: fixture.bundleURL
+            )
+            try installAnnotationOnlyGenericReviewMatrix(in: currentURL)
+            _ = try runPython(["-c", #"""
+import sys
+from copy import copy
+from openpyxl import load_workbook
+
+path, defect = sys.argv[1:3]
+wb = load_workbook(path)
+matrix = wb["matrix"]
+original_font = copy(matrix["D7"].font)
+original_border = copy(matrix["D7"].border)
+if defect == "display-value":
+    matrix["D7"] = "[999]"
+elif defect == "display-whitespace":
+    matrix["D7"] = " [5] "
+else:
+    matrix["D7"] = "[5]"
+managed_font = copy(matrix["D7"].font)
+managed_font.italic = defect != "presentation"
+managed_font.color = "FF767676"
+matrix["D7"].font = managed_font
+
+state = wb.create_sheet("_LGE Matrix Review State")
+state.append([
+    "Sheet", "Target Kind", "Locus", "Genotype", "Sample",
+    "Stable Cluster ID", "Coordinate", "Disposition", "Original Value",
+    "Original Font", "Original Border",
+])
+state.append([
+    "matrix", "cell", "", "Mamu-A1*existing", "AR3628",
+    "", "Z999" if defect == "coordinate" else "D7",
+    "falsePositive", 5,
+])
+state.cell(2, 10).font = original_font
+state.cell(2, 11).border = original_border
+state.sheet_state = "veryHidden"
+wb.save(path)
+"""#, currentURL.path, defect])
+            let annotationURL = fixture.bundleURL.appendingPathComponent(
+                GenotypeAnnotationSidecar.filename
+            )
+            try GenotypeAnnotationSidecar.empty(
+                generatedAt: "2026-07-27T00:00:00Z"
+            ).encoded().write(to: annotationURL)
+            let before = try ProvenanceFileHasher.sha256(of: currentURL)
+
+            XCTAssertThrowsError(
+                try GenotypeWorkbookRevisionService(
+                    dateProvider: { Date(timeIntervalSince1970: 8_375) },
+                    userProvider: { "tester" },
+                    pythonExecutableURL: testPythonExecutableURL
+                ).applyHaplotypeOverrides(
+                    [],
+                    annotationSidecarURL: annotationURL,
+                    into: fixture.bundleURL
+                ),
+                "Legacy defect \(defect) must fail closed"
+            )
+            XCTAssertEqual(
+                try ProvenanceFileHasher.sha256(of: currentURL),
+                before,
+                "Legacy defect \(defect) must not mutate current.xlsx"
+            )
+        }
+    }
+
+    func testIdenticalManagedReviewPublicationIsANoOp() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "identical-managed-review"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installAnnotationOnlyGenericReviewMatrix(in: currentURL)
+        _ = try installReviewableRowCatalog(
+            annotationOnlyReferenceCatalog(
+                samples: ["AR3628"],
+                displayName: "Mamu-A1*missing"
+            ),
+            in: fixture.bundleURL
+        )
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-A1*missing",
+                    sample: "AR3628"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-27T01:00:00Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        let service = GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 8_400) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        )
+        let first = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+        let firstHash = try ProvenanceFileHasher.sha256(of: currentURL)
+        let firstRevisionCount = first.workbookRevisions?.count ?? 0
+        let updatesURL = fixture.bundleURL.appendingPathComponent(
+            "artifacts/workbooks/updates",
+            isDirectory: true
+        )
+        let firstUpdateNames = try FileManager.default.contentsOfDirectory(
+            atPath: updatesURL.path
+        ).sorted()
+
+        let second = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+
+        XCTAssertEqual(second, first)
+        XCTAssertEqual(try ProvenanceFileHasher.sha256(of: currentURL), firstHash)
+        XCTAssertEqual(second.workbookRevisions?.count ?? 0, firstRevisionCount)
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: updatesURL.path).sorted(),
+            firstUpdateNames
+        )
+    }
+
+    func testLaterRealWorkbookRowSupersedesManagedSyntheticRow() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "real-row-supersession"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installAnnotationOnlyUnifiedReviewMatrix(in: currentURL)
+        _ = try installReviewableRowCatalog(
+            annotationOnlyReferenceCatalog(
+                samples: ["Sample-A", "Sample-B"],
+                displayName: "Mamu-A1*001:01"
+            ),
+            in: fixture.bundleURL
+        )
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-A1*001:01",
+                    sample: "Sample-A"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-27T02:00:00Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        let service = GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 8_175) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        )
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+
+path = sys.argv[1]
+wb = load_workbook(path)
+ws = wb["Unified Genotype Pivot"]
+ws.append([
+    "known-allele",
+    "reference:MHC-A:Mamu-A1*001:01",
+    "Mamu-A1*001:01",
+    None,
+    "MHC-A",
+    "known",
+    None,
+    "Mamu-A1*001:01",
+    "exact",
+    0,
+    0,
+    0,
+    None,
+    None,
+])
+ws.tables["UnifiedGenotypeTable"].ref = "A1:N4"
+ws.auto_filter.ref = "A1:N4"
+wb.save(path)
+"""#, currentURL.path])
+
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+
+        let inspection = try inspectAnnotationOnlyReviewWorkbook(currentURL)
+        XCTAssertEqual(inspection["markerRows"], "0")
+        XCTAssertEqual(inspection["syntheticRows"], "0")
+        XCTAssertEqual(inspection["realRows"], "1")
+        XCTAssertEqual(
+            inspection["realSampleABorders"],
+            "mediumDashed|mediumDashed|mediumDashed|mediumDashed"
+        )
+        XCTAssertEqual(inspection["tableRef"], "A1:N2")
+        XCTAssertEqual(inspection["autoFilterRef"], "A1:N2")
+        XCTAssertEqual(inspection["managedSyntheticStateRows"], "0")
+    }
+
+    func testAbsentAnnotationOnlyRowsUseCanonicalCatalogSortOrder() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "sorted-false-negative-rows"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installAnnotationOnlyUnifiedReviewMatrix(in: currentURL)
+        let names = ["Mamu-B*010:01", "Mamu-A1*002:01"]
+        _ = try installReviewableRowCatalog(
+            GenotypeReviewableRowCatalog(
+                samples: ["Sample-A", "Sample-B"],
+                rows: [
+                    .init(
+                        kind: .reference,
+                        callID: "reference:MHC-B:\(names[0])",
+                        displayName: names[0],
+                        locus: "MHC-B",
+                        stableID: nil,
+                        section: "reference",
+                        sortKey: "02|MHC-B|\(names[0])",
+                        supportBySample: ["Sample-A": 0, "Sample-B": 0]
+                    ),
+                    .init(
+                        kind: .reference,
+                        callID: "reference:MHC-A:\(names[1])",
+                        displayName: names[1],
+                        locus: "MHC-A",
+                        stableID: nil,
+                        section: "reference",
+                        sortKey: "01|MHC-A|\(names[1])",
+                        supportBySample: ["Sample-A": 0, "Sample-B": 0]
+                    ),
+                ]
+            ),
+            in: fixture.bundleURL
+        )
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixReviews = [
+            ("MHC-B", names[0]),
+            ("MHC-A", names[1]),
+        ].enumerated().map { index, identity in
+            .init(
+                target: .cell(
+                    locus: identity.0,
+                    genotype: identity.1,
+                    sample: "Sample-A"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-27T03:0\(index):00Z"
+            )
+        }
+        try sidecar.encoded().write(to: annotationURL)
+
+        _ = try GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 8_200) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        ).applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+
+        let inspection = try inspectAnnotationOnlyReviewWorkbook(currentURL)
+        XCTAssertEqual(
+            inspection["syntheticDisplayNames"],
+            "Mamu-A1*002:01|Mamu-B*010:01"
+        )
+        XCTAssertEqual(inspection["markerRows"], "1")
+        XCTAssertEqual(inspection["syntheticRows"], "2")
+        XCTAssertEqual(inspection["tableRef"], "A1:N4")
+        XCTAssertEqual(inspection["tableAutoFilterRef"], "A1:N4")
+        XCTAssertEqual(inspection["autoFilterRef"], "A1:N4")
+    }
+
+    func testAmbiguousExistingRowsFailClosedBeforeAnnotationOnlySynthesis() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "ambiguous-existing-rows"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installAnnotationOnlyUnifiedReviewMatrix(in: currentURL)
+        let displayName = "Mamu-A1*ambiguous"
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+
+path, display_name = sys.argv[1:3]
+wb = load_workbook(path)
+ws = wb["Unified Genotype Pivot"]
+for row in (2, 3):
+    values = [
+        "known-allele",
+        "reference:MHC-A:" + display_name,
+        display_name,
+        None,
+        "MHC-A",
+        "known",
+        None,
+        display_name,
+        "exact",
+        0,
+        0,
+        0,
+        None,
+        None,
+    ]
+    for column, value in enumerate(values, start=1):
+        ws.cell(row, column).value = value
+ws.tables["UnifiedGenotypeTable"].ref = "A1:N3"
+ws.tables["UnifiedGenotypeTable"].autoFilter.ref = "A1:N3"
+ws.auto_filter.ref = "A1:N3"
+wb.save(path)
+"""#, currentURL.path, displayName])
+        _ = try installReviewableRowCatalog(
+            annotationOnlyReferenceCatalog(
+                samples: ["Sample-A", "Sample-B"],
+                displayName: displayName
+            ),
+            in: fixture.bundleURL
+        )
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: displayName,
+                    sample: "Sample-A"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-27T03:00:00Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        let before = try ProvenanceFileHasher.sha256(of: currentURL)
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                dateProvider: { Date(timeIntervalSince1970: 8_220) },
+                userProvider: { "tester" },
+                pythonExecutableURL: testPythonExecutableURL
+            ).applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: annotationURL,
+                into: fixture.bundleURL
+            )
+        ) { error in
+            XCTAssertTrue(
+                error.localizedDescription.localizedCaseInsensitiveContains(
+                    "ambiguous"
+                )
+            )
+        }
+        XCTAssertEqual(try ProvenanceFileHasher.sha256(of: currentURL), before)
+    }
+
+    func testReferenceTargetFailsClosedWhenWorkbookRequiresStableIdentity() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "reference-target-stable-collision"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installAnnotationOnlyUnifiedReviewMatrix(in: currentURL)
+        let displayName = "Mamu-A1*stable-collision"
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+
+path, display_name = sys.argv[1:3]
+wb = load_workbook(path)
+ws = wb["Unified Genotype Pivot"]
+values = [
+    "candidate",
+    "cluster-existing",
+    display_name,
+    "cluster-existing",
+    "MHC-A",
+    "candidate",
+    "zero-support",
+    None,
+    "candidate",
+    0,
+    0,
+    0,
+    None,
+    None,
+]
+for column, value in enumerate(values, start=1):
+    ws.cell(2, column).value = value
+ws.tables["UnifiedGenotypeTable"].ref = "A1:N2"
+ws.tables["UnifiedGenotypeTable"].autoFilter.ref = "A1:N2"
+ws.auto_filter.ref = "A1:N2"
+wb.save(path)
+"""#, currentURL.path, displayName])
+        _ = try installReviewableRowCatalog(
+            annotationOnlyReferenceCatalog(
+                samples: ["Sample-A", "Sample-B"],
+                displayName: displayName
+            ),
+            in: fixture.bundleURL
+        )
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: displayName,
+                    sample: "Sample-A"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-27T03:05:00Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        let before = try ProvenanceFileHasher.sha256(of: currentURL)
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                dateProvider: { Date(timeIntervalSince1970: 8_221) },
+                userProvider: { "tester" },
+                pythonExecutableURL: testPythonExecutableURL
+            ).applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: annotationURL,
+                into: fixture.bundleURL
+            )
+        ) { error in
+            XCTAssertTrue(
+                error.localizedDescription.localizedCaseInsensitiveContains(
+                    "stable cluster id"
+                )
+            )
+        }
+        XCTAssertEqual(try ProvenanceFileHasher.sha256(of: currentURL), before)
+    }
+
+    func testDuplicateStableWorkbookIdentityFailsClosedBeforeFormatting() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "duplicate-stable-workbook-identity"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installAnnotationOnlyUnifiedReviewMatrix(in: currentURL)
+        let displayName = "Mamu-A1*duplicate-stable"
+        let stableID = "cluster-duplicate"
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+
+path, display_name, stable_id = sys.argv[1:4]
+wb = load_workbook(path)
+ws = wb["Unified Genotype Pivot"]
+for row in (2, 3):
+    values = [
+        "candidate",
+        stable_id,
+        display_name,
+        stable_id,
+        "MHC-A",
+        "candidate",
+        "zero-support",
+        None,
+        "candidate",
+        0,
+        0,
+        0,
+        None,
+        None,
+    ]
+    for column, value in enumerate(values, start=1):
+        ws.cell(row, column).value = value
+ws.tables["UnifiedGenotypeTable"].ref = "A1:N3"
+ws.tables["UnifiedGenotypeTable"].autoFilter.ref = "A1:N3"
+ws.auto_filter.ref = "A1:N3"
+wb.save(path)
+"""#, currentURL.path, displayName, stableID])
+        _ = try installReviewableRowCatalog(
+            GenotypeReviewableRowCatalog(
+                samples: ["Sample-A", "Sample-B"],
+                rows: [
+                    .init(
+                        kind: .candidate,
+                        callID: stableID,
+                        displayName: displayName,
+                        locus: "MHC-A",
+                        stableID: stableID,
+                        section: "candidate",
+                        sortKey: "MHC-A|\(displayName)|\(stableID)",
+                        supportBySample: ["Sample-A": 0, "Sample-B": 0]
+                    ),
+                ]
+            ),
+            in: fixture.bundleURL
+        )
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: displayName,
+                    sample: "Sample-A",
+                    stableClusterID: stableID
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-27T03:06:00Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        let before = try ProvenanceFileHasher.sha256(of: currentURL)
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                dateProvider: { Date(timeIntervalSince1970: 8_222) },
+                userProvider: { "tester" },
+                pythonExecutableURL: testPythonExecutableURL
+            ).applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: annotationURL,
+                into: fixture.bundleURL
+            )
+        ) { error in
+            XCTAssertTrue(
+                error.localizedDescription.localizedCaseInsensitiveContains(
+                    "ambiguous"
+                )
+            )
+        }
+        XCTAssertEqual(try ProvenanceFileHasher.sha256(of: currentURL), before)
+    }
+
+    func testAnnotationOnlySynthesisFailsClosedWhenNextOwnedRowIsOccupied() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "occupied-owned-row"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installAnnotationOnlyUnifiedReviewMatrix(in: currentURL)
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+
+path = sys.argv[1]
+wb = load_workbook(path)
+ws = wb["Unified Genotype Pivot"]
+ws["A2"] = "Unrelated analyst content in the next matrix-owned row"
+wb.save(path)
+"""#, currentURL.path])
+        _ = try installReviewableRowCatalog(
+            annotationOnlyReferenceCatalog(
+                samples: ["Sample-A", "Sample-B"],
+                displayName: "Mamu-A1*blocked"
+            ),
+            in: fixture.bundleURL
+        )
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-A1*blocked",
+                    sample: "Sample-A"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-27T03:00:00Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        let before = try ProvenanceFileHasher.sha256(of: currentURL)
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                dateProvider: { Date(timeIntervalSince1970: 8_230) },
+                userProvider: { "tester" },
+                pythonExecutableURL: testPythonExecutableURL
+            ).applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: annotationURL,
+                into: fixture.bundleURL
+            )
+        )
+        XCTAssertEqual(try ProvenanceFileHasher.sha256(of: currentURL), before)
+    }
+
+    func testAnnotationOnlyCachingScalesWithUniqueSheetsAndRows() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "annotation-only-cache-scale"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installAnnotationOnlyUnifiedReviewMatrix(in: currentURL)
+        let displayNames = (1...6).map {
+            "Mamu-A1*cache-\(String(format: "%02d", $0))"
+        }
+        let rows = displayNames.map { displayName in
+            GenotypeReviewableRowCatalog.Row(
+                kind: .reference,
+                callID: "reference:MHC-A:\(displayName)",
+                displayName: displayName,
+                locus: "MHC-A",
+                stableID: nil,
+                section: "reference",
+                sortKey: "MHC-A|\(displayName)",
+                supportBySample: ["Sample-A": 0, "Sample-B": 0]
+            )
+        }
+        _ = try installReviewableRowCatalog(
+            GenotypeReviewableRowCatalog(
+                samples: ["Sample-A", "Sample-B"],
+                rows: rows
+            ),
+            in: fixture.bundleURL
+        )
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixReviews = displayNames.flatMap { displayName in
+            ["Sample-A", "Sample-B"].map { sample in
+                .init(
+                    target: .cell(
+                        locus: "MHC-A",
+                        genotype: displayName,
+                        sample: sample
+                    ),
+                    disposition: .falseNegative,
+                    author: "reviewer",
+                    timestamp: "2026-07-27T01:00:00Z"
+                )
+            }
+        }
+        try sidecar.encoded().write(to: annotationURL)
+
+        let updated = try GenotypeWorkbookRevisionService(
+            dateProvider: { Date(timeIntervalSince1970: 8_275) },
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        ).applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+        let provenanceURL = ONTGenotypeResultBundle.resolvedURL(
+            for: try XCTUnwrap(updated.workbookRevisions?.last?.provenancePath),
+            in: fixture.bundleURL
+        )
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: provenanceURL)
+        )
+        let pythonStep = try XCTUnwrap(
+            envelope.steps.first {
+                $0.toolName == "python openpyxl workbook candidate update"
+            }
+        )
+        XCTAssertEqual(
+            pythonStep.resolvedOptions["matrixDescriptorScanCount"],
+            .integer(2)
+        )
+        XCTAssertEqual(
+            pythonStep.resolvedOptions["matrixRowSignatureCount"],
+            .integer(7)
+        )
+    }
+
+    func testGenericDuplicateAliasesAndUnsupportedLayoutsFailClosed() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        for scenario in ["duplicate-alias", "unsupported-layout"] {
+            let fixture = try makeGenericMatrixWorkbookBundle(
+                in: root,
+                outputName: scenario
+            )
+            let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+                for: fixture.bundleURL
+            )
+            try installAnnotationOnlyGenericReviewMatrix(in: currentURL)
+            let catalog: GenotypeReviewableRowCatalog
+            if scenario == "duplicate-alias" {
+                catalog = GenotypeReviewableRowCatalog(
+                    samples: ["AR3628"],
+                    rows: [
+                        .init(
+                            kind: .reference,
+                            callID: "reference:MHC-A:Mamu-X*same",
+                            displayName: "Mamu-X*same",
+                            locus: "MHC-A",
+                            stableID: nil,
+                            section: "reference",
+                            sortKey: "MHC-A|Mamu-X*same",
+                            supportBySample: ["AR3628": 0]
+                        ),
+                        .init(
+                            kind: .reference,
+                            callID: "reference:MHC-B:Mamu-X*same",
+                            displayName: "Mamu-X*same",
+                            locus: "MHC-B",
+                            stableID: nil,
+                            section: "reference",
+                            sortKey: "MHC-B|Mamu-X*same",
+                            supportBySample: ["AR3628": 0]
+                        ),
+                    ]
+                )
+            } else {
+                catalog = annotationOnlyReferenceCatalog(
+                    samples: ["AR3628"],
+                    displayName: "Mamu-A1*missing"
+                )
+                _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+path = sys.argv[1]
+wb = load_workbook(path)
+ws = wb["matrix"]
+ws["B6"] = "Amount"
+ws.tables["GenericGenotypeTable"].ref = "A6:D7"
+wb.save(path)
+"""#, currentURL.path])
+            }
+            _ = try installReviewableRowCatalog(catalog, in: fixture.bundleURL)
+            let targetName = scenario == "duplicate-alias"
+                ? "Mamu-X*same"
+                : "Mamu-A1*missing"
+            let annotationURL = fixture.bundleURL.appendingPathComponent(
+                GenotypeAnnotationSidecar.filename
+            )
+            var sidecar = GenotypeAnnotationSidecar.empty(
+                generatedAt: "2026-07-27T00:00:00Z"
+            )
+            sidecar.matrixReviews = [
+                .init(
+                    target: .cell(
+                        locus: "MHC-A",
+                        genotype: targetName,
+                        sample: "AR3628"
+                    ),
+                    disposition: .falseNegative,
+                    author: "reviewer",
+                    timestamp: "2026-07-27T04:00:00Z"
+                ),
+            ]
+            try sidecar.encoded().write(to: annotationURL)
+            let before = try ProvenanceFileHasher.sha256(of: currentURL)
+
+            XCTAssertThrowsError(
+                try GenotypeWorkbookRevisionService(
+                    dateProvider: { Date(timeIntervalSince1970: 8_225) },
+                    userProvider: { "tester" },
+                    pythonExecutableURL: testPythonExecutableURL
+                ).applyHaplotypeOverrides(
+                    [],
+                    annotationSidecarURL: annotationURL,
+                    into: fixture.bundleURL
+                )
+            ) { error in
+                let message = error.localizedDescription.lowercased()
+                if scenario == "duplicate-alias" {
+                    XCTAssertTrue(message.contains("duplicate genotype aliases"))
+                } else {
+                    XCTAssertTrue(message.contains("unsupported workbook matrix layout"))
+                }
+            }
+            XCTAssertEqual(try ProvenanceFileHasher.sha256(of: currentURL), before)
+        }
+    }
+
+    func testUnifiedDuplicateSampleHeadersFailClosedWithoutWorkbookMutation() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "duplicate-unified-samples"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installAnnotationOnlyUnifiedReviewMatrix(in: currentURL)
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+
+path = sys.argv[1]
+wb = load_workbook(path)
+ws = wb["Unified Genotype Pivot"]
+ws["N1"] = "Sample-A"
+wb.save(path)
+"""#, currentURL.path])
+        _ = try installReviewableRowCatalog(
+            annotationOnlyReferenceCatalog(
+                samples: ["Sample-A"],
+                displayName: "Mamu-A1*duplicate"
+            ),
+            in: fixture.bundleURL
+        )
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-A1*duplicate",
+                    sample: "Sample-A"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-27T01:00:00Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        let before = try ProvenanceFileHasher.sha256(of: currentURL)
+
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                dateProvider: { Date(timeIntervalSince1970: 8_225) },
+                userProvider: { "tester" },
+                pythonExecutableURL: testPythonExecutableURL
+            ).applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: annotationURL,
+                into: fixture.bundleURL
+            )
+        )
+        XCTAssertEqual(try ProvenanceFileHasher.sha256(of: currentURL), before)
+    }
+
+    func testDuplicateUnifiedSampleIntroducedAfterManagedApplyMakesClearFailClosed() throws {
+        XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeGenericMatrixWorkbookBundle(
+            in: root,
+            outputName: "duplicate-unified-sample-on-clear"
+        )
+        let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(
+            for: fixture.bundleURL
+        )
+        try installAnnotationOnlyUnifiedReviewMatrix(in: currentURL)
+        _ = try installReviewableRowCatalog(
+            annotationOnlyReferenceCatalog(
+                samples: ["Sample-A", "Sample-B"],
+                displayName: "Mamu-A1*managed"
+            ),
+            in: fixture.bundleURL
+        )
+        let annotationURL = fixture.bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-A1*managed",
+                    sample: "Sample-A"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-27T01:00:00Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        let clock = IncrementingDateProvider(
+            start: Date(timeIntervalSince1970: 8_250),
+            increment: 1
+        )
+        let service = GenotypeWorkbookRevisionService(
+            dateProvider: clock.now,
+            userProvider: { "tester" },
+            pythonExecutableURL: testPythonExecutableURL
+        )
+        _ = try service.applyHaplotypeOverrides(
+            [],
+            annotationSidecarURL: annotationURL,
+            into: fixture.bundleURL
+        )
+        _ = try runPython(["-c", #"""
+import sys
+from openpyxl import load_workbook
+
+path = sys.argv[1]
+wb = load_workbook(path)
+ws = wb["Unified Genotype Pivot"]
+ws["N1"] = "Sample-A"
+wb.save(path)
+"""#, currentURL.path])
+        sidecar.matrixReviews = []
+        try sidecar.encoded().write(to: annotationURL)
+        let before = try ProvenanceFileHasher.sha256(of: currentURL)
+
+        XCTAssertThrowsError(
+            try service.applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: annotationURL,
+                into: fixture.bundleURL
+            )
+        )
+        XCTAssertEqual(try ProvenanceFileHasher.sha256(of: currentURL), before)
+    }
+
     func testApplyHaplotypeOverridesWritesMatrixAnnotationsToCurrentWorkbook() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()
@@ -3660,6 +9390,7 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "semantic-reviews")
         let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
         try installSemanticReviewMatrix(in: currentURL)
+        try installSemanticReviewableRowCatalog(in: fixture.bundleURL)
 
         let annotationURL = fixture.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
         var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-24T00:00:00Z")
@@ -3709,24 +9440,55 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
                 timestamp: "2026-07-24T10:03:00Z"
             ),
         ]
+        sidecar.matrixComments = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-I*collision",
+                    sample: "Sample-Zero",
+                    stableClusterID: "cluster-a"
+                ),
+                body: "Analyst expects support in this sample.",
+                author: "reviewer",
+                timestamp: "2026-07-24T10:04:00Z"
+            ),
+        ]
         try sidecar.encoded().write(to: annotationURL)
 
-        _ = try GenotypeWorkbookRevisionService(
+        let updated = try GenotypeWorkbookRevisionService(
             dateProvider: { Date(timeIntervalSince1970: 8_000) },
             userProvider: { "tester" },
-            pythonExecutableURL: testPythonExecutableURL
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL: root.appendingPathComponent(
+                "workbook-attestations",
+                isDirectory: true
+            )
         ).applyHaplotypeOverrides([], annotationSidecarURL: annotationURL, into: fixture.bundleURL)
 
         let inspection = try inspectSemanticReviewWorkbook(currentURL)
         XCTAssertEqual(inspection["falsePositiveValue"], "[42]")
         XCTAssertEqual(inspection["falsePositiveItalic"], "true")
         XCTAssertEqual(inspection["falsePositiveColor"], "767676")
-        XCTAssertEqual(inspection["explicitZeroValue"], "0")
-        XCTAssertEqual(inspection["explicitZeroType"], "n")
-        XCTAssertEqual(inspection["explicitZeroBorders"], "thick|thick|thick|thick")
-        XCTAssertEqual(inspection["absentValue"], "")
-        XCTAssertEqual(inspection["absentType"], "n")
-        XCTAssertEqual(inspection["absentBorders"], "thick|thick|thick|thick")
+        XCTAssertEqual(inspection["explicitZeroValue"], "FN")
+        XCTAssertEqual(inspection["explicitZeroType"], "s")
+        XCTAssertEqual(
+            inspection["explicitZeroBorders"],
+            "mediumDashed|mediumDashed|mediumDashed|mediumDashed"
+        )
+        XCTAssertEqual(inspection["explicitZeroFill"], "solid|FFF2CC")
+        XCTAssertEqual(inspection["explicitZeroBold"], "true")
+        XCTAssertEqual(inspection["explicitZeroColor"], "7F6000")
+        XCTAssertTrue(
+            inspection["explicitZeroComment"]?.contains(
+                "Analyst expects support in this sample."
+            ) == true
+        )
+        XCTAssertEqual(inspection["absentValue"], "FN")
+        XCTAssertEqual(inspection["absentType"], "s")
+        XCTAssertEqual(
+            inspection["absentBorders"],
+            "mediumDashed|mediumDashed|mediumDashed|mediumDashed"
+        )
         XCTAssertEqual(inspection["otherLocusValue"], "42", "The colliding genotype at another locus must not be formatted")
         XCTAssertEqual(inspection["otherStableIDValue"], "42", "The colliding genotype at another stable ID must not be formatted")
         XCTAssertEqual(inspection["invalidReviewValue"], "42", "An ineligible false-negative import must not be formatted")
@@ -3735,6 +9497,43 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         XCTAssertTrue(inspection["invalidReviewRow"]?.contains("|cluster-c|falseNegative|invalid|") == true)
         XCTAssertTrue(inspection["invalidAuditRow"]?.contains("validateMatrixReview") == true)
         XCTAssertTrue(inspection["invalidAuditRow"]?.contains("|cluster-c|falseNegative|invalid|") == true)
+        let provenanceURL = ONTGenotypeResultBundle.resolvedURL(
+            for: try XCTUnwrap(updated.workbookRevisions?.last?.provenancePath),
+            in: fixture.bundleURL
+        )
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: provenanceURL)
+        )
+        let pythonStep = try XCTUnwrap(
+            envelope.steps.first {
+                $0.toolName == "python openpyxl workbook candidate update"
+            }
+        )
+        let targetDecisions = try XCTUnwrap(
+            pythonStep.resolvedOptions["falseNegativeTargetCellDecisions"]?
+                .arrayValue
+        )
+        XCTAssertEqual(targetDecisions.count, 3)
+        let invalidDecision = try XCTUnwrap(
+            targetDecisions.first {
+                $0.dictionaryValue?["status"] == .string("invalid")
+            }?.dictionaryValue
+        )
+        XCTAssertEqual(invalidDecision["cell"], .null)
+        XCTAssertEqual(
+            invalidDecision["target"]?.dictionaryValue?["stableClusterID"],
+            .string("cluster-c")
+        )
+        XCTAssertEqual(
+            invalidDecision["presentationPrecedence"],
+            .string("not-applied")
+        )
+        XCTAssertTrue(
+            invalidDecision["reason"]?.stringValue?.contains(
+                "authoritative sample support of zero"
+            ) == true
+        )
     }
 
     func testClearingMatrixReviewsRestoresManagedPresentationAndRemovesStaleSheets() throws {
@@ -3744,6 +9543,7 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "review-clear")
         let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
         try installSemanticReviewMatrix(in: currentURL)
+        try installSemanticReviewableRowCatalog(in: fixture.bundleURL)
         let originalInspection = try inspectSemanticReviewWorkbook(currentURL)
         let annotationURL = fixture.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
         var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-24T00:00:00Z")
@@ -3769,13 +9569,28 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
                 disposition: .falseNegative,
                 author: "reviewer",
                 timestamp: "2026-07-24T10:01:00Z"
-            )
+            ),
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-I*collision",
+                    sample: "Sample-Absent",
+                    stableClusterID: "cluster-a"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-24T10:02:00Z"
+            ),
         ]
         try sidecar.encoded().write(to: annotationURL)
         let service = GenotypeWorkbookRevisionService(
             dateProvider: { Date(timeIntervalSince1970: 8_025) },
             userProvider: { "tester" },
-            pythonExecutableURL: testPythonExecutableURL
+            pythonExecutableURL: testPythonExecutableURL,
+            workbookAttestationRootURL: root.appendingPathComponent(
+                "workbook-attestations",
+                isDirectory: true
+            )
         )
         _ = try service.applyHaplotypeOverrides(
             [],
@@ -3783,6 +9598,12 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
             into: fixture.bundleURL
         )
         XCTAssertEqual(try inspectSemanticReviewWorkbook(currentURL)["falsePositiveValue"], "[42]")
+        let applied = try inspectSemanticReviewWorkbook(currentURL)
+        XCTAssertEqual(applied["explicitZeroValue"], "FN")
+        XCTAssertEqual(applied["explicitZeroFill"], "solid|FFF2CC")
+        XCTAssertEqual(applied["explicitZeroBold"], "true")
+        XCTAssertEqual(applied["explicitZeroColor"], "7F6000")
+        XCTAssertEqual(applied["absentValue"], "FN")
         _ = try runPython(["-c", #"""
 import sys
 from copy import copy
@@ -3804,7 +9625,7 @@ wb.save(path)
 
         sidecar.matrixReviews = []
         try sidecar.encoded().write(to: annotationURL)
-        _ = try service.applyHaplotypeOverrides(
+        let cleared = try service.applyHaplotypeOverrides(
             [],
             annotationSidecarURL: annotationURL,
             into: fixture.bundleURL
@@ -3815,9 +9636,82 @@ wb.save(path)
         XCTAssertEqual(inspection["falsePositiveItalic"], "false")
         XCTAssertEqual(inspection["falsePositiveColor"], originalInspection["falsePositiveColor"])
         XCTAssertEqual(inspection["falsePositiveBold"], "true")
+        XCTAssertEqual(inspection["explicitZeroValue"], "0")
+        XCTAssertEqual(inspection["explicitZeroType"], "n")
+        XCTAssertEqual(
+            inspection["explicitZeroFill"],
+            originalInspection["explicitZeroFill"]
+        )
+        XCTAssertEqual(
+            inspection["explicitZeroFillBackground"],
+            originalInspection["explicitZeroFillBackground"]
+        )
+        XCTAssertEqual(
+            inspection["explicitZeroDiagonalBorder"],
+            originalInspection["explicitZeroDiagonalBorder"]
+        )
+        XCTAssertEqual(
+            inspection["explicitZeroDiagonalUp"],
+            originalInspection["explicitZeroDiagonalUp"]
+        )
+        XCTAssertEqual(
+            inspection["explicitZeroBold"],
+            originalInspection["explicitZeroBold"]
+        )
+        XCTAssertEqual(
+            inspection["explicitZeroColor"],
+            originalInspection["explicitZeroColor"]
+        )
         XCTAssertEqual(inspection["explicitZeroBorders"], "thin|||")
+        XCTAssertEqual(inspection["absentValue"], "")
+        XCTAssertEqual(inspection["absentType"], "n")
         XCTAssertEqual(inspection["hasMatrixAnnotationsSheet"], "false")
         XCTAssertEqual(inspection["hasManagedReviewStateSheet"], "false")
+        let provenanceURL = ONTGenotypeResultBundle.resolvedURL(
+            for: try XCTUnwrap(cleared.workbookRevisions?.last?.provenancePath),
+            in: fixture.bundleURL
+        )
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: provenanceURL)
+        )
+        let pythonStep = try XCTUnwrap(
+            envelope.steps.first {
+                $0.toolName == "python openpyxl workbook candidate update"
+            }
+        )
+        let restorationDecisions = try XCTUnwrap(
+            pythonStep.resolvedOptions["managedReviewRestorationDecisions"]?
+                .arrayValue
+        )
+        let zeroRestoration = try XCTUnwrap(
+            restorationDecisions.first {
+                $0.dictionaryValue?["cell"] == .string("E7")
+            }?.dictionaryValue
+        )
+        XCTAssertEqual(
+            zeroRestoration["target"]?.dictionaryValue?["sample"],
+            .string("Sample-Zero")
+        )
+        let zeroProperties = try XCTUnwrap(
+            zeroRestoration["properties"]?.dictionaryValue
+        )
+        XCTAssertEqual(zeroProperties["value"], .string("restored"))
+        XCTAssertEqual(zeroProperties["font.bold"], .string("restored"))
+        XCTAssertEqual(zeroProperties["font.color"], .string("restored"))
+        XCTAssertEqual(zeroProperties["fill.patternType"], .string("restored"))
+        XCTAssertEqual(zeroProperties["fill.fgColor"], .string("restored"))
+        XCTAssertEqual(zeroProperties["border.left"], .string("preserved"))
+        XCTAssertEqual(zeroProperties["border.right"], .string("restored"))
+        let blankRestoration = try XCTUnwrap(
+            restorationDecisions.first {
+                $0.dictionaryValue?["cell"] == .string("F7")
+            }?.dictionaryValue
+        )
+        XCTAssertEqual(
+            blankRestoration["properties"]?.dictionaryValue?["value"],
+            .string("restored")
+        )
     }
 
     func testDuplicateExactReviewTargetsFailClosedInEitherOrder() throws {
@@ -3846,6 +9740,7 @@ wb.save(path)
             )
             let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
             try installSemanticReviewMatrix(in: currentURL)
+            try installSemanticReviewableRowCatalog(in: fixture.bundleURL)
             let original = try inspectSemanticReviewWorkbook(currentURL)
             let annotationURL = fixture.bundleURL.appendingPathComponent(
                 GenotypeAnnotationSidecar.filename
@@ -3900,6 +9795,7 @@ wb.save(path)
         let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "review-valid-invalid")
         let currentURL = try ONTGenotypeResultBundle.currentWorkbookURL(for: fixture.bundleURL)
         try installSemanticReviewMatrix(in: currentURL)
+        try installSemanticReviewableRowCatalog(in: fixture.bundleURL)
         let originalInspection = try inspectSemanticReviewWorkbook(currentURL)
         let annotationURL = fixture.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
         var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-24T00:00:00Z")
@@ -4404,6 +10300,9 @@ wb.save(path)
         }
 
         let manifest = ONTGenotypeResultBundleManifest(
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
+            workflowKind: .fullLengthONTMHCGenotype,
+            workflowMode: .genotypeOnly,
             outputName: outputName,
             analysisName: outputName,
             primaryWorkbookPath: primaryWorkbookURL.lastPathComponent,
@@ -4427,7 +10326,8 @@ wb.save(path)
 
     private func writeMinimalNativeArtifacts(
         in bundleURL: URL,
-        outputName: String
+        outputName: String,
+        sample: String = "SampleA"
     ) throws -> (genotypeCSV: URL, sampleCSV: URL, statsJSON: URL, provenance: URL) {
         let genotypeCSVURL = bundleURL.appendingPathComponent("\(outputName).retained-demux-genotypes.csv")
         let sampleCSVURL = bundleURL.appendingPathComponent("\(outputName).retained-demux-samples.csv")
@@ -4436,11 +10336,11 @@ wb.save(path)
         try Data("{}".utf8).write(to: provenanceURL)
         try """
         sample,genotype,passed_alignments,passed_unique_reads
-        SampleA,allele1,1,1
+        \(sample),allele1,1,1
         """.write(to: genotypeCSVURL, atomically: true, encoding: .utf8)
         try """
         sample,passed_alignments,passed_unique_reads
-        SampleA,1,1
+        \(sample),1,1
         """.write(to: sampleCSVURL, atomically: true, encoding: .utf8)
         try """
         {
@@ -4458,7 +10358,11 @@ wb.save(path)
 
     private func makeMCMWorkbookBundle(
         in root: URL,
-        outputName: String
+        outputName: String,
+        manifestKind: String? = nil,
+        workflowKind: GenotypeResultWorkflowKind? = nil,
+        workflowMode: GenotypeResultWorkflowMode? = nil,
+        haplotypeAnalysisPath: String? = nil
     ) throws -> (bundleURL: URL, manifest: ONTGenotypeResultBundleManifest) {
         let bundleURL = root.appendingPathComponent("\(outputName).lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
@@ -4469,7 +10373,11 @@ wb.save(path)
         try FileManager.default.createDirectory(at: currentURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try makeMinimalMCMWorkbook(at: primaryWorkbookURL)
         try FileManager.default.copyItem(at: primaryWorkbookURL, to: currentURL)
-        let artifacts = try writeMinimalNativeArtifacts(in: bundleURL, outputName: outputName)
+        let artifacts = try writeMinimalNativeArtifacts(
+            in: bundleURL,
+            outputName: outputName,
+            sample: "DW472"
+        )
         let currentRevision = ONTGenotypeWorkbookRevision(
             id: "initial-current-copy",
             role: .initialCurrentCopy,
@@ -4499,6 +10407,15 @@ wb.save(path)
         try Data().write(to: referenceGenBankURL)
         try Data().write(to: referenceFASTAURL)
         let manifest = ONTGenotypeResultBundleManifest(
+            kind:
+                manifestKind
+                    ?? workflowKind?.rawValue
+                    ?? "ont-barcode-genotype",
+            workflowKind: workflowKind,
+            workflowMode:
+                workflowKind == nil
+                    ? nil
+                    : (workflowMode ?? .genotypeOnly),
             outputName: outputName,
             analysisName: outputName,
             primaryWorkbookPath: primaryWorkbookURL.lastPathComponent,
@@ -4508,6 +10425,7 @@ wb.save(path)
             sampleSummaryCSVPath: artifacts.sampleCSV.lastPathComponent,
             statsJSONPath: artifacts.statsJSON.lastPathComponent,
             provenancePath: artifacts.provenance.lastPathComponent,
+            haplotypeAnalysisPath: haplotypeAnalysisPath,
             mhcReferenceVisualizations: ONTMHCReferenceVisualizationArtifacts(
                 schemaVersion: 1,
                 recordCount: 0,
@@ -4522,7 +10440,8 @@ wb.save(path)
 
     private func makeGenericMatrixWorkbookBundle(
         in root: URL,
-        outputName: String
+        outputName: String,
+        workflowKind: GenotypeResultWorkflowKind? = nil
     ) throws -> (bundleURL: URL, manifest: ONTGenotypeResultBundleManifest) {
         let bundleURL = root.appendingPathComponent("\(outputName).lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
@@ -4533,7 +10452,11 @@ wb.save(path)
         try FileManager.default.createDirectory(at: currentURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try makeMinimalGenericMatrixWorkbook(at: primaryWorkbookURL)
         try FileManager.default.copyItem(at: primaryWorkbookURL, to: currentURL)
-        let artifacts = try writeMinimalNativeArtifacts(in: bundleURL, outputName: outputName)
+        let artifacts = try writeMinimalNativeArtifacts(
+            in: bundleURL,
+            outputName: outputName,
+            sample: "sample-a"
+        )
         let currentRevision = ONTGenotypeWorkbookRevision(
             id: "initial-current-copy",
             role: .initialCurrentCopy,
@@ -4548,6 +10471,9 @@ wb.save(path)
             provenancePath: nil
         )
         let manifest = ONTGenotypeResultBundleManifest(
+            kind: workflowKind?.rawValue ?? "ont-barcode-genotype",
+            workflowKind: workflowKind,
+            workflowMode: workflowKind == nil ? nil : .genotypeOnly,
             outputName: outputName,
             analysisName: outputName,
             primaryWorkbookPath: primaryWorkbookURL.lastPathComponent,
@@ -4592,6 +10518,7 @@ wb.save(path)
 import sys
 from openpyxl import Workbook
 from openpyxl.comments import Comment
+from openpyxl.styles import Border, PatternFill, Side
 
 path = sys.argv[1]
 with_comments = sys.argv[2] == "true"
@@ -4607,12 +10534,426 @@ ws.append(["Genotype", "Locus", "Stable Cluster ID", "Sample-FP", "Sample-Zero",
 ws.append(["Mamu-I*collision", "MHC-A", "cluster-a", 42, 0, None])
 ws.append(["Mamu-I*collision", "MHC-B", "cluster-b", 42, None, None])
 ws.append(["Mamu-I*collision", "MHC-A", "cluster-c", 42, None, None])
+ws["E7"].fill = PatternFill(
+    fill_type="solid",
+    fgColor="FFABCDEF",
+    bgColor="FF112233",
+)
+ws["E7"].border = Border(
+    diagonal=Side(style="dashDot", color="FF345678"),
+    diagonalUp=True,
+)
 if with_comments:
     ws["A7"].comment = Comment("Existing row note", "existing-author")
     ws["D7"].comment = Comment("Existing cell note", "existing-author")
 wb.save(path)
 """#
         _ = try runPython(["-c", code, url.path, withUnrelatedComments ? "true" : "false"])
+    }
+
+    private func installAnnotationOnlyUnifiedReviewMatrix(in url: URL) throws {
+        let code = #"""
+import sys
+from openpyxl import Workbook
+from openpyxl.styles import Border, Font, PatternFill, Side
+from openpyxl.worksheet.table import Table, TableStyleInfo
+
+path = sys.argv[1]
+wb = Workbook()
+ws = wb.active
+ws.title = "Unified Genotype Pivot"
+headers = [
+    "call_type", "call_id", "display_name", "stable_cluster_id", "locus",
+    "classification", "support_class", "closest_reference", "match_class",
+    "occurrence_count", "sample_count", "total_cluster_reads",
+    "Sample-A", "Sample-B",
+]
+ws.append(headers)
+ws.freeze_panes = "A2"
+ws.merge_cells("O1:P1")
+ws["O1"] = "Preserved merged heading"
+ws["P2"] = "=1+1"
+ws["P2"].font = Font(bold=True, color="FFFF0000")
+ws["P2"].fill = PatternFill(fill_type="solid", fgColor="FFFFFF00")
+formula_side = Side(style="thin", color="FF0000FF")
+ws["P2"].border = Border(
+    left=formula_side,
+    right=formula_side,
+    top=formula_side,
+    bottom=formula_side,
+)
+ws["P2"].number_format = "0.00"
+table = Table(displayName="UnifiedGenotypeTable", ref="A1:N1")
+table.tableStyleInfo = TableStyleInfo(
+    name="TableStyleMedium2",
+    showFirstColumn=False,
+    showLastColumn=False,
+    showRowStripes=True,
+    showColumnStripes=False,
+)
+ws.add_table(table)
+ws.auto_filter.ref = "A1:N1"
+wb.save(path)
+"""#
+        _ = try runPython(["-c", code, url.path])
+    }
+
+    private func annotationOnlyReferenceCatalog(
+        samples: [String],
+        displayName: String
+    ) -> GenotypeReviewableRowCatalog {
+        GenotypeReviewableRowCatalog(
+            samples: samples,
+            rows: [
+                .init(
+                    kind: .reference,
+                    callID: "reference:MHC-A:\(displayName)",
+                    displayName: displayName,
+                    locus: "MHC-A",
+                    stableID: nil,
+                    section: "reference",
+                    sortKey: "MHC-A|\(displayName)",
+                    supportBySample: Dictionary(
+                        uniqueKeysWithValues: samples.map { ($0, 0) }
+                    )
+                ),
+            ]
+        )
+    }
+
+    private func installAnnotationOnlyGenericReviewMatrix(in url: URL) throws {
+        let code = #"""
+import sys
+from openpyxl import Workbook
+from openpyxl.worksheet.table import Table, TableStyleInfo
+
+path = sys.argv[1]
+wb = Workbook()
+ws = wb.active
+ws.title = "matrix"
+ws.append(["Animal ID", None, None, "AR3628"])
+ws.append(["GS ID", "Total", "Average", "AR3628"])
+ws.append(["Filtered exact-match read count", None, None, 12])
+ws.append([])
+ws.append(["Comments", "Subtotal", "# Obs.", None])
+ws.append(["Genotype", "Total", "# Obs.", "AR3628"])
+ws.append(["Mamu-A1*existing", 5, 1, 5])
+ws["F2"] = "=SUM(B7:B9)"
+ws.freeze_panes = "D7"
+table = Table(displayName="GenericGenotypeTable", ref="A6:D7")
+table.tableStyleInfo = TableStyleInfo(
+    name="TableStyleMedium2",
+    showFirstColumn=False,
+    showLastColumn=False,
+    showRowStripes=True,
+    showColumnStripes=False,
+)
+ws.add_table(table)
+ws.auto_filter.ref = "A6:D7"
+wb.save(path)
+"""#
+        _ = try runPython(["-c", code, url.path])
+    }
+
+    private func inspectAnnotationOnlyGenericWorkbook(
+        _ url: URL
+    ) throws -> [String: String] {
+        let code = #"""
+import json
+import sys
+from openpyxl import load_workbook
+
+wb = load_workbook(sys.argv[1], data_only=False)
+ws = wb["matrix"]
+
+def text(value):
+    return "" if value is None else str(value)
+
+marker_rows = [
+    row for row in range(7, ws.max_row + 1)
+    if text(ws.cell(row, 1).value) == "Analyst annotation-only rows"
+]
+retained_marker_rows = [
+    row for row in range(7, ws.max_row + 1)
+    if text(ws.cell(row, 1).value)
+        == "Analyst annotation-only rows (contains retained analyst edits)"
+]
+synthetic_rows = [
+    row for row in range(7, ws.max_row + 1)
+    if text(ws.cell(row, 1).value) == "Mamu-A1*missing"
+]
+synthetic = synthetic_rows[0] if synthetic_rows else 0
+state = wb["_LGE Matrix Review State"] if "_LGE Matrix Review State" in wb.sheetnames else None
+annotations = wb["Matrix Annotations"] if "Matrix Annotations" in wb.sheetnames else None
+review_warning = ""
+if annotations is not None:
+    for row in range(2, annotations.max_row + 1):
+        if (
+            text(annotations.cell(row, 1).value) == "review"
+            and text(annotations.cell(row, 4).value) == "Mamu-A1*missing"
+        ):
+            review_warning = text(annotations.cell(row, 9).value)
+payload = {
+    "markerRows": str(len(marker_rows)),
+    "retainedMarkerRows": str(len(retained_marker_rows)),
+    "retainedMarkerComment": (
+        "" if not retained_marker_rows
+        or ws.cell(retained_marker_rows[0], 1).comment is None
+        else ws.cell(retained_marker_rows[0], 1).comment.text
+    ),
+    "syntheticRows": str(len(synthetic_rows)),
+    "syntheticTotal": "" if not synthetic else text(ws.cell(synthetic, 2).value),
+    "syntheticObserved": "" if not synthetic else text(ws.cell(synthetic, 3).value),
+    "syntheticEvidence": "" if not synthetic else text(ws.cell(synthetic, 4).value),
+    "tableRef": text(ws.tables["GenericGenotypeTable"].ref),
+    "tableAutoFilterRef": text(
+        getattr(ws.tables["GenericGenotypeTable"].autoFilter, "ref", None)
+    ),
+    "autoFilterRef": text(ws.auto_filter.ref),
+    "existingRow": "|".join(text(ws.cell(7, col).value) for col in range(1, 5)),
+    "formula": text(ws["F2"].value),
+    "freezePanes": text(ws.freeze_panes),
+    "analystComment": (
+        "" if not synthetic or ws.cell(synthetic, 2).comment is None
+        else ws.cell(synthetic, 2).comment.text
+    ),
+    "managedSyntheticRows": str(
+        0 if state is None else sum(
+            1 for row in range(2, state.max_row + 1)
+            if text(state.cell(row, 17).value) == "true"
+        )
+    ),
+    "reviewWarning": review_warning,
+    "hasManagedReviewState": str(
+        "_LGE Matrix Review State" in wb.sheetnames
+    ).lower(),
+    "stateSchemaID": "" if state is None else text(state.cell(1, 23).value),
+    "stateSchemaVersion": "" if state is None else text(state.cell(1, 24).value),
+}
+print(json.dumps(payload))
+"""#
+        let output = try runPython(["-c", code, url.path])
+        let object = try JSONSerialization.jsonObject(with: Data(output.utf8))
+        return try XCTUnwrap(object as? [String: String])
+    }
+
+    private func inspectAnnotationOnlyReviewWorkbook(
+        _ url: URL
+    ) throws -> [String: String] {
+        let code = #"""
+import json
+import sys
+from openpyxl import load_workbook
+
+wb = load_workbook(sys.argv[1], data_only=False)
+ws = wb["Unified Genotype Pivot"]
+headers = {
+    str(ws.cell(1, col).value): col
+    for col in range(1, ws.max_column + 1)
+    if ws.cell(1, col).value is not None
+}
+
+def text(value):
+    return "" if value is None else str(value)
+
+def borders(cell):
+    return "|".join(
+        text(getattr(getattr(cell.border, side), "style", None))
+        for side in ("left", "right", "top", "bottom")
+    )
+
+def border_colors(cell):
+    return "|".join(
+        text(getattr(getattr(getattr(cell.border, side), "color", None), "rgb", None))
+        for side in ("left", "right", "top", "bottom")
+    )
+
+def fill(cell):
+    return "|".join([
+        text(cell.fill.fill_type),
+        text(getattr(cell.fill.fgColor, "rgb", None)),
+    ])
+
+def font(cell):
+    return "|".join([
+        str(bool(cell.font.bold)).lower(),
+        text(getattr(cell.font.color, "rgb", None)),
+    ])
+
+marker_rows = [
+    row for row in range(2, ws.max_row + 1)
+    if text(ws.cell(row, headers["call_type"]).value)
+        == "analyst-annotation-only-block"
+]
+synthetic_rows = [
+    row for row in range(2, ws.max_row + 1)
+    if text(ws.cell(row, headers["call_type"]).value)
+        == "analyst-annotation-only"
+]
+synthetic_row = synthetic_rows[0] if synthetic_rows else 0
+real_rows = [
+    row for row in range(2, ws.max_row + 1)
+    if text(ws.cell(row, headers["call_type"]).value) == "known-allele"
+    and text(ws.cell(row, headers["display_name"]).value) == "Mamu-A1*001:01"
+]
+real_row = real_rows[0] if real_rows else 0
+state = wb["_LGE Matrix Review State"] if "_LGE Matrix Review State" in wb.sheetnames else None
+
+def synthetic_value(header):
+    return "" if not synthetic_row else text(ws.cell(synthetic_row, headers[header]).value)
+
+def synthetic_type(header):
+    return "" if not synthetic_row else text(ws.cell(synthetic_row, headers[header]).data_type)
+
+payload = {
+    "adapter": "" if state is None or state.max_row < 2 else text(state.cell(2, 18).value),
+    "markerRows": str(len(marker_rows)),
+    "syntheticRows": str(len(synthetic_rows)),
+    "syntheticDisplayNames": "|".join(
+        text(ws.cell(row, headers["display_name"]).value)
+        for row in synthetic_rows
+    ),
+    "realRows": str(len(real_rows)),
+    "syntheticCallType": synthetic_value("call_type"),
+    "syntheticCallID": synthetic_value("call_id"),
+    "syntheticDisplayName": synthetic_value("display_name"),
+    "syntheticStableID": synthetic_value("stable_cluster_id"),
+    "syntheticLocus": synthetic_value("locus"),
+    "syntheticClassification": synthetic_value("classification"),
+    "syntheticOccurrenceCount": synthetic_value("occurrence_count"),
+    "syntheticOccurrenceCountType": synthetic_type("occurrence_count"),
+    "syntheticSampleCount": synthetic_value("sample_count"),
+    "syntheticSampleCountType": synthetic_type("sample_count"),
+    "syntheticTotalReads": synthetic_value("total_cluster_reads"),
+    "syntheticTotalReadsType": synthetic_type("total_cluster_reads"),
+    "sampleAValue": synthetic_value("Sample-A"),
+    "sampleBValue": synthetic_value("Sample-B"),
+    "sampleABorders": "" if not synthetic_row else borders(
+        ws.cell(synthetic_row, headers["Sample-A"])
+    ),
+    "sampleBBorders": "" if not synthetic_row else borders(
+        ws.cell(synthetic_row, headers["Sample-B"])
+    ),
+    "sampleABorderColors": "" if not synthetic_row else border_colors(
+        ws.cell(synthetic_row, headers["Sample-A"])
+    ),
+    "sampleBBorderColors": "" if not synthetic_row else border_colors(
+        ws.cell(synthetic_row, headers["Sample-B"])
+    ),
+    "sampleAFill": "" if not synthetic_row else fill(
+        ws.cell(synthetic_row, headers["Sample-A"])
+    ),
+    "sampleBFill": "" if not synthetic_row else fill(
+        ws.cell(synthetic_row, headers["Sample-B"])
+    ),
+    "sampleAFont": "" if not synthetic_row else font(
+        ws.cell(synthetic_row, headers["Sample-A"])
+    ),
+    "sampleBFont": "" if not synthetic_row else font(
+        ws.cell(synthetic_row, headers["Sample-B"])
+    ),
+    "realSampleABorders": "" if not real_row else borders(
+        ws.cell(real_row, headers["Sample-A"])
+    ),
+    "tableRef": text(ws.tables["UnifiedGenotypeTable"].ref),
+    "tableAutoFilterRef": text(
+        getattr(ws.tables["UnifiedGenotypeTable"].autoFilter, "ref", None)
+    ),
+    "autoFilterRef": text(ws.auto_filter.ref),
+    "freezePanes": text(ws.freeze_panes),
+    "mergedRanges": "|".join(sorted(str(item) for item in ws.merged_cells.ranges)),
+    "formula": text(ws["P2"].value),
+    "formulaFont": (
+        f"{str(bool(ws['P2'].font.bold)).lower()}|"
+        f"{text(getattr(ws['P2'].font.color, 'rgb', None))}"
+    ),
+    "formulaFill": text(getattr(ws["P2"].fill.fgColor, "rgb", None)),
+    "formulaBorders": borders(ws["P2"]),
+    "formulaNumberFormat": text(ws["P2"].number_format),
+    "managedSyntheticStateRows": str(
+        0 if state is None else sum(
+            1 for row in range(2, state.max_row + 1)
+            if text(state.cell(row, 17).value) == "true"
+        )
+    ),
+}
+print(json.dumps(payload))
+"""#
+        let output = try runPython(["-c", code, url.path])
+        let object = try JSONSerialization.jsonObject(with: Data(output.utf8))
+        return try XCTUnwrap(object as? [String: String])
+    }
+
+    private func inspectPortableFalseNegativeOOXML(
+        _ url: URL
+    ) throws -> [String: String] {
+        let code = #"""
+import json
+import sys
+import zipfile
+
+with zipfile.ZipFile(sys.argv[1]) as archive:
+    styles = archive.read("xl/styles.xml").decode("utf-8")
+    cell_xml = "\n".join(
+        archive.read(name).decode("utf-8")
+        for name in archive.namelist()
+        if name.startswith("xl/worksheets/sheet") and name.endswith(".xml")
+    )
+    if "xl/sharedStrings.xml" in archive.namelist():
+        cell_xml += archive.read("xl/sharedStrings.xml").decode("utf-8")
+
+payload = {
+    "hasLiteralFN": str(">FN<" in cell_xml).lower(),
+    "hasDashedBorder": str('style="mediumDashed"' in styles).lower(),
+    "hasBorderColor": str('rgb="FFC65911"' in styles).lower(),
+    "hasFillColor": str('rgb="FFFFF2CC"' in styles).lower(),
+    "hasFontColor": str('rgb="FF7F6000"' in styles).lower(),
+}
+print(json.dumps(payload))
+"""#
+        let output = try runPython(["-c", code, url.path])
+        let object = try JSONSerialization.jsonObject(with: Data(output.utf8))
+        return try XCTUnwrap(object as? [String: String])
+    }
+
+    private func installSemanticReviewableRowCatalog(
+        in bundleURL: URL
+    ) throws {
+        let samples = ["Sample-FP", "Sample-Zero", "Sample-Absent"]
+        let rows = [
+            GenotypeReviewableRowCatalog.Row(
+                kind: .candidate,
+                callID: "cluster-a",
+                displayName: "Mamu-I*collision",
+                locus: "MHC-A",
+                stableID: "cluster-a",
+                section: "candidate",
+                sortKey: "MHC-A|Mamu-I*collision|cluster-a",
+                supportBySample: [
+                    "Sample-FP": 42,
+                    "Sample-Zero": 0,
+                    "Sample-Absent": 0,
+                ]
+            ),
+            GenotypeReviewableRowCatalog.Row(
+                kind: .candidate,
+                callID: "cluster-c",
+                displayName: "Mamu-I*collision",
+                locus: "MHC-A",
+                stableID: "cluster-c",
+                section: "candidate",
+                sortKey: "MHC-A|Mamu-I*collision|cluster-c",
+                supportBySample: [
+                    "Sample-FP": 42,
+                    "Sample-Zero": 0,
+                    "Sample-Absent": 0,
+                ]
+            ),
+        ]
+        _ = try installReviewableRowCatalog(
+            GenotypeReviewableRowCatalog(samples: samples, rows: rows),
+            in: bundleURL
+        )
     }
 
     private func makeMinimalMCMWorkbook(at url: URL) throws {
@@ -4756,11 +11097,28 @@ payload = {
     "hasAuditLogSheet": str("Audit Log" in wb.sheetnames).lower(),
     "abbreviatedDPHaplotype1": text(abbr.cell(abbr_row, abbr_headers["MHC-DPA/B Haplotype 1"]).value),
     "abbreviatedDPHaplotype2": text(abbr.cell(abbr_row, abbr_headers["MHC-DPA/B Haplotype 2"]).value),
+    "abbreviatedDQHaplotype1": text(abbr.cell(abbr_row, abbr_headers["MHC-DQA/B Haplotype 1"]).value),
+    "abbreviatedDQHaplotype2": text(abbr.cell(abbr_row, abbr_headers["MHC-DQA/B Haplotype 2"]).value),
     "abbreviatedDRBHaplotype1": text(abbr.cell(abbr_row, abbr_headers["MHC-DRB Haplotype 1"]).value),
     "abbreviatedDRBHaplotype2": text(abbr.cell(abbr_row, abbr_headers["MHC-DRB Haplotype 2"]).value),
     "abbreviatedComments": text(abbr.cell(abbr_row, abbr_headers["Comments"]).value),
     "customDPHaplotype1": text(custom.cell(custom_row, custom_headers["MHC-DPA/B Haplotype 1"]).value),
+    "customDQHaplotype1": text(custom.cell(custom_row, custom_headers["MHC-DQA/B Haplotype 1"]).value),
+    "fullAHaplotype1": text(full.cell(row_for(full, "MHC-A Haplotype 1"), full_col).value),
+    "fullAHaplotype1Type": text(full.cell(row_for(full, "MHC-A Haplotype 1"), full_col).data_type),
+    "fullAHaplotype2": text(full.cell(row_for(full, "MHC-A Haplotype 2"), full_col).value),
+    "fullAHaplotype2Type": text(full.cell(row_for(full, "MHC-A Haplotype 2"), full_col).data_type),
+    "fullBHaplotype1": text(full.cell(row_for(full, "MHC-B Haplotype 1"), full_col).value),
+    "fullBHaplotype1Type": text(full.cell(row_for(full, "MHC-B Haplotype 1"), full_col).data_type),
+    "fullBHaplotype2": text(full.cell(row_for(full, "MHC-B Haplotype 2"), full_col).value),
+    "fullBHaplotype2Type": text(full.cell(row_for(full, "MHC-B Haplotype 2"), full_col).data_type),
+    "fullDQAHaplotype1": text(full.cell(row_for(full, "MHC-DQA Haplotype 1"), full_col).value),
+    "fullDQAHaplotype2": text(full.cell(row_for(full, "MHC-DQA Haplotype 2"), full_col).value),
+    "fullDQBHaplotype1": text(full.cell(row_for(full, "MHC-DQB Haplotype 1"), full_col).value),
+    "fullDQBHaplotype2": text(full.cell(row_for(full, "MHC-DQB Haplotype 2"), full_col).value),
     "fullDPAHaplotype1": text(full.cell(row_for(full, "MHC-DPA Haplotype 1"), full_col).value),
+    "fullDPAHaplotype2": text(full.cell(row_for(full, "MHC-DPA Haplotype 2"), full_col).value),
+    "fullDPBHaplotype1": text(full.cell(row_for(full, "MHC-DPB Haplotype 1"), full_col).value),
     "fullDPBHaplotype2": text(full.cell(row_for(full, "MHC-DPB Haplotype 2"), full_col).value),
     "fullDRBHaplotype1": text(full.cell(row_for(full, "MHC-DRB Haplotype 1"), full_col).value),
     "fullDRBHaplotype2": text(full.cell(row_for(full, "MHC-DRB Haplotype 2"), full_col).value),
@@ -4815,6 +11173,12 @@ def color_suffix(color):
 def borders(cell):
     return "|".join(text(getattr(getattr(cell.border, side), "style", None)) for side in ("left", "right", "top", "bottom"))
 
+def fill(cell):
+    return "|".join([
+        text(cell.fill.fill_type),
+        color_suffix(cell.fill.fgColor),
+    ])
+
 def table_rows(name):
     if name not in wb.sheetnames:
         return []
@@ -4846,6 +11210,18 @@ payload = {
     "explicitZeroValue": text(ws["E7"].value),
     "explicitZeroType": text(ws["E7"].data_type),
     "explicitZeroBorders": borders(ws["E7"]),
+    "explicitZeroFill": fill(ws["E7"]),
+    "explicitZeroFillBackground": color_suffix(ws["E7"].fill.bgColor),
+    "explicitZeroDiagonalBorder": "|".join([
+        text(getattr(ws["E7"].border.diagonal, "style", None)),
+        color_suffix(getattr(ws["E7"].border.diagonal, "color", None)),
+    ]),
+    "explicitZeroDiagonalUp": str(bool(ws["E7"].border.diagonalUp)).lower(),
+    "explicitZeroBold": str(bool(ws["E7"].font.bold)).lower(),
+    "explicitZeroColor": color_suffix(ws["E7"].font.color),
+    "explicitZeroComment": (
+        "" if ws["E7"].comment is None else ws["E7"].comment.text
+    ),
     "absentValue": text(ws["F7"].value),
     "absentType": text(ws["F7"].data_type),
     "absentBorders": borders(ws["F7"]),
@@ -5310,6 +11686,57 @@ wb.save(path)
         try ONTGenotypeResultBundle.writeManifest(updated, to: bundleURL)
     }
 
+    private func installReviewableRowCatalog(
+        _ catalog: GenotypeReviewableRowCatalog,
+        in bundleURL: URL
+    ) throws -> ONTMHCArtifactReference {
+        let validated = try catalog.validated()
+        let catalogURL = bundleURL.appendingPathComponent(
+            "artifacts/review/reviewable-row-catalog.json"
+        )
+        try FileManager.default.createDirectory(
+            at: catalogURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try validated.encoded().write(to: catalogURL, options: .atomic)
+        let reference = try artifactReference(catalogURL, relativeTo: bundleURL)
+        let manifest = try ONTGenotypeResultBundle.loadManifest(from: bundleURL)
+        let updated = ONTGenotypeResultBundleManifest(
+            schemaVersion: manifest.schemaVersion,
+            kind: manifest.kind,
+            workflowKind: manifest.workflowKind,
+            workflowMode: manifest.workflowMode,
+            outputName: manifest.outputName,
+            analysisName: manifest.analysisName,
+            primaryWorkbookPath: manifest.primaryWorkbookPath,
+            currentWorkbookPath: manifest.currentWorkbookPath,
+            workbookRevisions: manifest.workbookRevisions,
+            longSummaryCSVPath: manifest.longSummaryCSVPath,
+            sampleSummaryCSVPath: manifest.sampleSummaryCSVPath,
+            statsJSONPath: manifest.statsJSONPath,
+            provenancePath: manifest.provenancePath,
+            deduplicatedUnmatchedClustersFASTAPath:
+                manifest.deduplicatedUnmatchedClustersFASTAPath,
+            haplotypeAnalysisPath: manifest.haplotypeAnalysisPath,
+            haplotypeDefinitionSetID: manifest.haplotypeDefinitionSetID,
+            haplotypeAssayID: manifest.haplotypeAssayID,
+            presetID: manifest.presetID,
+            presetVersion: manifest.presetVersion,
+            createdAt: manifest.createdAt,
+            activeHaplotypeAnalysisRevisionID:
+                manifest.activeHaplotypeAnalysisRevisionID,
+            haplotypeAnalysisRevisions: manifest.haplotypeAnalysisRevisions,
+            mhcCandidateArtifacts: manifest.mhcCandidateArtifacts,
+            mhcReferenceVisualizations: manifest.mhcReferenceVisualizations,
+            referenceRecordStore: manifest.referenceRecordStore,
+            alignmentArtifacts: manifest.alignmentArtifacts,
+            provisionalExon2Artifacts: manifest.provisionalExon2Artifacts,
+            reviewableRowCatalog: reference
+        )
+        try ONTGenotypeResultBundle.writeManifest(updated, to: bundleURL)
+        return reference
+    }
+
     private func artifactReference(_ url: URL, relativeTo bundleURL: URL) throws -> ONTMHCArtifactReference {
         ONTMHCArtifactReference(
             path: String(url.standardizedFileURL.path.dropFirst(bundleURL.standardizedFileURL.path.count + 1)),
@@ -5542,6 +11969,9 @@ payload = {
     "sheetNames": "|".join(wb.sheetnames),
     "tableHeaderRow": str(table_header_row),
     "analystHaplotype": text(unified.cell(row_for_label("MHC-A Haplotype 1"), sample_a_col).value) if row_for_label("MHC-A Haplotype 1") and sample_a_col else "",
+    "analystHaplotypeType": text(unified.cell(row_for_label("MHC-A Haplotype 1"), sample_a_col).data_type) if row_for_label("MHC-A Haplotype 1") and sample_a_col else "",
+    "analystHaplotype2": text(unified.cell(row_for_label("MHC-A Haplotype 2"), sample_a_col).value) if row_for_label("MHC-A Haplotype 2") and sample_a_col else "",
+    "analystHaplotype2Type": text(unified.cell(row_for_label("MHC-A Haplotype 2"), sample_a_col).data_type) if row_for_label("MHC-A Haplotype 2") and sample_a_col else "",
     "analystComment": text(unified.cell(row_for_label("Comments"), sample_a_col).value) if row_for_label("Comments") and sample_a_col else "",
     "mappedTotal": text(unified.cell(row_for_label("Mapped Read Count"), 2).value) if row_for_label("Mapped Read Count") else "",
     "mappedAverage": text(unified.cell(row_for_label("Mapped Read Count"), 3).value) if row_for_label("Mapped Read Count") else "",
@@ -5551,9 +11981,19 @@ payload = {
     "sampleATotalReadType": text(unified.cell(row_for_label("total_read_count"), sample_a_col).data_type) if row_for_label("total_read_count") and sample_a_col else "",
     "sampleAUnmappedPercentType": text(unified.cell(row_for_label("percent_reads_unmapped"), sample_a_col).data_type) if row_for_label("percent_reads_unmapped") and sample_a_col else "",
     "sampleADQAHaplotype1": text(unified.cell(row_for_label("MHC-DQA Haplotype 1"), sample_a_col).value) if row_for_label("MHC-DQA Haplotype 1") and sample_a_col else "",
+    "sampleADQAHaplotype2": text(unified.cell(row_for_label("MHC-DQA Haplotype 2"), sample_a_col).value) if row_for_label("MHC-DQA Haplotype 2") and sample_a_col else "",
+    "sampleADRBHaplotype1": text(unified.cell(row_for_label("MHC-DRB Haplotype 1"), sample_a_col).value) if row_for_label("MHC-DRB Haplotype 1") and sample_a_col else "",
+    "sampleADRBHaplotype2": text(unified.cell(row_for_label("MHC-DRB Haplotype 2"), sample_a_col).value) if row_for_label("MHC-DRB Haplotype 2") and sample_a_col else "",
     "sampleADQBHaplotype1": text(unified.cell(row_for_label("MHC-DQB Haplotype 1"), sample_a_col).value) if row_for_label("MHC-DQB Haplotype 1") and sample_a_col else "",
+    "sampleADQBHaplotype2": text(unified.cell(row_for_label("MHC-DQB Haplotype 2"), sample_a_col).value) if row_for_label("MHC-DQB Haplotype 2") and sample_a_col else "",
     "sampleADPAHaplotype1": text(unified.cell(row_for_label("MHC-DPA Haplotype 1"), sample_a_col).value) if row_for_label("MHC-DPA Haplotype 1") and sample_a_col else "",
+    "sampleADPAHaplotype2": text(unified.cell(row_for_label("MHC-DPA Haplotype 2"), sample_a_col).value) if row_for_label("MHC-DPA Haplotype 2") and sample_a_col else "",
     "sampleADPBHaplotype1": text(unified.cell(row_for_label("MHC-DPB Haplotype 1"), sample_a_col).value) if row_for_label("MHC-DPB Haplotype 1") and sample_a_col else "",
+    "sampleADPBHaplotype2": text(unified.cell(row_for_label("MHC-DPB Haplotype 2"), sample_a_col).value) if row_for_label("MHC-DPB Haplotype 2") and sample_a_col else "",
+    "sampleABHaplotype1": text(unified.cell(row_for_label("MHC-B Haplotype 1"), sample_a_col).value) if row_for_label("MHC-B Haplotype 1") and sample_a_col else "",
+    "sampleABHaplotype1Type": text(unified.cell(row_for_label("MHC-B Haplotype 1"), sample_a_col).data_type) if row_for_label("MHC-B Haplotype 1") and sample_a_col else "",
+    "sampleABHaplotype2": text(unified.cell(row_for_label("MHC-B Haplotype 2"), sample_a_col).value) if row_for_label("MHC-B Haplotype 2") and sample_a_col else "",
+    "sampleABHaplotype2Type": text(unified.cell(row_for_label("MHC-B Haplotype 2"), sample_a_col).data_type) if row_for_label("MHC-B Haplotype 2") and sample_a_col else "",
     "sampleBDQAHaplotype1": text(unified.cell(row_for_label("MHC-DQA Haplotype 1"), sample_b_col).value) if row_for_label("MHC-DQA Haplotype 1") and sample_b_col else "",
     "sampleBDPBHaplotype1": text(unified.cell(row_for_label("MHC-DPB Haplotype 1"), sample_b_col).value) if row_for_label("MHC-DPB Haplotype 1") and sample_b_col else "",
     "knownDisplayName": text(unified.cell(table_header_row + 1, headers["display_name"]).value),
@@ -5832,6 +12272,318 @@ print(json.dumps(payload))
         )
     }
 
+    private func workbookCleanupArtifacts(in parent: URL) throws -> [URL] {
+        try FileManager.default.contentsOfDirectory(
+            at: parent,
+            includingPropertiesForKeys: nil
+        ).filter {
+            let name = $0.lastPathComponent
+            return name.hasPrefix(".lungfish-workbook-cleanup-pending-")
+                || name.contains(".workbook-cleanup-state-")
+                || name.contains(".workbook-cleanup-warning-")
+        }
+    }
+
+    private func workbookCleanupStateURL(in parent: URL) throws -> URL {
+        try XCTUnwrap(
+            try workbookCleanupArtifacts(in: parent).first {
+                $0.lastPathComponent.contains(".workbook-cleanup-state-")
+            }
+        )
+    }
+
+    private func workbookRecoveryReceiptActions(in parent: URL) throws -> [String] {
+        try FileManager.default.contentsOfDirectory(
+            at: parent,
+            includingPropertiesForKeys: nil
+        ).filter {
+            $0.lastPathComponent.contains(".workbook-update-recovery-")
+                && $0.pathExtension == "json"
+        }.compactMap {
+            let object = try JSONSerialization.jsonObject(
+                with: Data(contentsOf: $0)
+            ) as? [String: Any]
+            return object?["action"] as? String
+        }
+    }
+
+    private func mutateJSONObject(
+        at url: URL,
+        _ mutation: (inout [String: Any]) throws -> Void
+    ) throws {
+        var object = try XCTUnwrap(
+            try JSONSerialization.jsonObject(
+                with: Data(contentsOf: url)
+            ) as? [String: Any]
+        )
+        try mutation(&object)
+        try JSONSerialization.data(
+            withJSONObject: object,
+            options: [.prettyPrinted, .sortedKeys]
+        ).write(to: url, options: .atomic)
+    }
+
+    private func assertNoRetiredWorkbookGeneration(in parent: URL) throws {
+        let names = try FileManager.default.contentsOfDirectory(atPath: parent.path)
+        XCTAssertFalse(
+            names.contains {
+                $0.hasPrefix(".lungfish-workbook-generation-archive-")
+                    || $0.hasPrefix(".lungfish-workbook-cleanup-pending-")
+                    || $0.contains(".workbook-cleanup-state-")
+            }
+        )
+    }
+
+    private func interruptCommittedWorkbookCleanup(
+        fixture: (bundleURL: URL, manifest: ONTGenotypeResultBundleManifest),
+        attestationRoot: URL
+    ) throws {
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                pythonExecutableURL: testPythonExecutableURL,
+                publicationFailureInjector: { checkpoint in
+                    guard checkpoint == "after-revision-manifest-hard-stop" else {
+                        return
+                    }
+                    throw NSError(domain: "SimulatedCommittedWorkbookCrash", code: 9)
+                },
+                workbookAttestationRootURL: attestationRoot
+            ).applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: nil,
+                into: fixture.bundleURL
+            )
+        )
+    }
+
+    private func interruptWorkbookCleanup(
+        branch: String,
+        fixture: (bundleURL: URL, manifest: ONTGenotypeResultBundleManifest),
+        attestationRoot: URL
+    ) throws {
+        let checkpoint: String
+        switch branch {
+        case "committed":
+            checkpoint = "after-revision-manifest-hard-stop"
+        case "prepared-discard":
+            checkpoint = "after-transaction-marker-hard-stop"
+        case "rollback":
+            checkpoint = "after-exchange-hard-stop"
+        case "manual-save-winner":
+            checkpoint = "after-revision-manifest-hard-stop"
+        default:
+            XCTFail("Unknown workbook cleanup branch \(branch)")
+            return
+        }
+        let currentPath = try XCTUnwrap(fixture.manifest.currentWorkbookPath)
+        let pythonURL = testPythonExecutableURL
+        XCTAssertThrowsError(
+            try GenotypeWorkbookRevisionService(
+                pythonExecutableURL: pythonURL,
+                publicationFailureInjector: { observed in
+                    guard observed == checkpoint else { return }
+                    if branch == "manual-save-winner" {
+                        let markerURL = ONTGenotypeWorkbookUpdateRecovery.markerURL(
+                            for: fixture.bundleURL
+                        )
+                        let marker = try XCTUnwrap(
+                            try JSONSerialization.jsonObject(
+                                with: Data(contentsOf: markerURL)
+                            ) as? [String: Any]
+                        )
+                        let staging = URL(
+                            fileURLWithPath: try XCTUnwrap(
+                                marker["stagingBundlePath"] as? String
+                            ),
+                            isDirectory: true
+                        )
+                        let workbook = staging.appendingPathComponent(currentPath)
+                        _ = try Self.runPythonStatic(["-c", #"""
+import sys
+from openpyxl import load_workbook
+path = sys.argv[1]
+wb = load_workbook(path)
+wb[wb.sheetnames[0]]["Z94"] = "manual-cleanup-winner"
+wb.save(path)
+"""#, workbook.path], executableURL: pythonURL)
+                    }
+                    throw NSError(
+                        domain: "SimulatedWorkbookBranchCrash",
+                        code: 9
+                    )
+                },
+                workbookAttestationRootURL: attestationRoot
+            ).applyHaplotypeOverrides(
+                [],
+                annotationSidecarURL: nil,
+                into: fixture.bundleURL
+            )
+        )
+    }
+
+    private func pausedCommittedWorkbookCleanup(
+        outputName: String
+    ) throws -> (
+        root: URL,
+        fixture: (bundleURL: URL, manifest: ONTGenotypeResultBundleManifest),
+        attestationRoot: URL,
+        quarantine: URL,
+        lock: ONTGenotypeBundlePublicationLock
+    ) {
+        let root = try temporaryDirectory()
+        do {
+            let fixture = try makeMCMWorkbookBundle(in: root, outputName: outputName)
+            let attestationRoot = root.appendingPathComponent(
+                "attestations",
+                isDirectory: true
+            )
+            try interruptCommittedWorkbookCleanup(
+                fixture: fixture,
+                attestationRoot: attestationRoot
+            )
+            let lock = try ONTGenotypeBundlePublicationLock.acquire(
+                for: fixture.bundleURL,
+                blocking: true,
+                createIfMissing: false
+            )
+            do {
+                XCTAssertThrowsError(
+                    try ONTGenotypeWorkbookUpdateRecovery.recoverIfNeededAssumingLock(
+                        for: fixture.bundleURL,
+                        attestationRootURL: attestationRoot,
+                        cleanupFailureInjector: { checkpoint in
+                            guard checkpoint == "during-workbook-cleanup-traversal" else {
+                                return
+                            }
+                            throw NSError(
+                                domain: "InjectedWorkbookCleanupTraversal",
+                                code: 5
+                            )
+                        }
+                    )
+                )
+                let quarantine = try XCTUnwrap(
+                    try FileManager.default.contentsOfDirectory(
+                        at: root,
+                        includingPropertiesForKeys: nil
+                    ).first {
+                        $0.lastPathComponent.hasPrefix(
+                            ".lungfish-workbook-cleanup-pending-"
+                        )
+                    }
+                )
+                XCTAssertFalse(FileManager.default.fileExists(
+                    atPath: ONTGenotypeWorkbookUpdateRecovery.markerURL(
+                        for: fixture.bundleURL
+                    ).path
+                ))
+                return (root, fixture, attestationRoot, quarantine, lock)
+            } catch {
+                lock.release()
+                throw error
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: root)
+            throw error
+        }
+    }
+
+    private func pausedBeforeCleanupAttestation(
+        outputName: String
+    ) throws -> (
+        root: URL,
+        fixture: (bundleURL: URL, manifest: ONTGenotypeResultBundleManifest),
+        attestationRoot: URL,
+        stateURL: URL,
+        quarantine: URL,
+        markerURL: URL,
+        transactionAttestationURL: URL,
+        lock: ONTGenotypeBundlePublicationLock
+    ) {
+        let root = try temporaryDirectory()
+        do {
+            let fixture = try makeMCMWorkbookBundle(
+                in: root,
+                outputName: outputName
+            )
+            let attestationRoot = root.appendingPathComponent(
+                "attestations",
+                isDirectory: true
+            )
+            try interruptCommittedWorkbookCleanup(
+                fixture: fixture,
+                attestationRoot: attestationRoot
+            )
+            let lock = try ONTGenotypeBundlePublicationLock.acquire(
+                for: fixture.bundleURL,
+                blocking: true,
+                createIfMissing: false
+            )
+            do {
+                XCTAssertThrowsError(
+                    try ONTGenotypeWorkbookUpdateRecovery
+                        .recoverIfNeededAssumingLock(
+                            for: fixture.bundleURL,
+                            attestationRootURL: attestationRoot,
+                            cleanupFailureInjector: { checkpoint in
+                                guard checkpoint
+                                    == "after-workbook-cleanup-state-write-before-attestation-hard-stop" else {
+                                    return
+                                }
+                                throw NSError(
+                                    domain:
+                                        "InjectedCleanupAttestationPublicationCrash",
+                                    code: 9
+                                )
+                            }
+                        )
+                )
+                let stateURL = try workbookCleanupStateURL(in: root)
+                let quarantine = try XCTUnwrap(
+                    try workbookCleanupArtifacts(in: root).first {
+                        $0.lastPathComponent.hasPrefix(
+                            ".lungfish-workbook-cleanup-pending-"
+                        )
+                    }
+                )
+                let markerURL = ONTGenotypeWorkbookUpdateRecovery.markerURL(
+                    for: fixture.bundleURL
+                )
+                let attestations = try FileManager.default
+                    .contentsOfDirectory(
+                        at: attestationRoot,
+                        includingPropertiesForKeys: nil
+                    )
+                    .filter {
+                        $0.pathExtension == "json"
+                            && !$0.lastPathComponent.hasSuffix(
+                                ".workbook-cleanup.json"
+                            )
+                    }
+                let transactionAttestationURL = try XCTUnwrap(
+                    attestations.first
+                )
+                XCTAssertEqual(attestations.count, 1)
+                return (
+                    root,
+                    fixture,
+                    attestationRoot,
+                    stateURL,
+                    quarantine,
+                    markerURL,
+                    transactionAttestationURL,
+                    lock
+                )
+            } catch {
+                lock.release()
+                throw error
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: root)
+            throw error
+        }
+    }
+
     private func serviceThatFailsIfStagingBegins() -> GenotypeWorkbookRevisionService {
         GenotypeWorkbookRevisionService(
             pythonExecutableURL: testPythonExecutableURL,
@@ -5857,6 +12609,19 @@ private final class SendableFlagBox: @unchecked Sendable {
 
     var value: UInt32? { lock.withLock { stored } }
     func set(_ value: UInt32) { lock.withLock { stored = value } }
+}
+
+private final class WorkbookPublicationLockAcquisitionCounter:
+    @unchecked Sendable
+{
+    private let lock = NSLock()
+    private var stored = 0
+
+    var value: Int { lock.withLock { stored } }
+
+    func increment() {
+        lock.withLock { stored += 1 }
+    }
 }
 
 private final class IncrementingDateProvider: @unchecked Sendable {

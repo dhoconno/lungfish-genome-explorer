@@ -1,6 +1,7 @@
 import XCTest
 @testable import LungfishApp
 import LungfishCore
+import LungfishIO
 
 @MainActor
 final class MainWindowSessionRoutingTests: XCTestCase {
@@ -240,6 +241,69 @@ final class MainWindowSessionRoutingTests: XCTestCase {
         )
     }
 
+    func testOpeningFirstProjectDoesNotDeleteTerminalTempDirectory() throws {
+        let delegate = AppDelegate()
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "FirstOpenPreservesProjectTemp-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: temp,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let projectURL = temp.appendingPathComponent(
+            "Shared.lungfish",
+            isDirectory: true
+        )
+        _ = try DocumentManager.shared.createProject(
+            at: projectURL,
+            name: "Shared"
+        )
+        let tmpRoot = ProjectTempDirectory.tempRoot(for: projectURL)
+        try FileManager.default.createDirectory(
+            at: tmpRoot,
+            withIntermediateDirectories: true
+        )
+        let terminal = try OwnedWorkDirectoryMarkerStore.createDirectory(
+            .init(
+                projectURL: projectURL,
+                parentDirectoryURL: tmpRoot,
+                prefix: "terminal-",
+                runID: UUID(),
+                processIdentity: .init(
+                    processIdentifier: 999,
+                    processStartTime: 1,
+                    bootSessionID: "test-boot"
+                ),
+                state: .completed,
+                lockRelativePath: nil,
+                keepIntermediates: false,
+                toolName: "test",
+                toolVersion: "1"
+            )
+        )
+        let pending = terminal.appendingPathComponent("checkpoint.txt")
+        try "pending".write(
+            to: pending,
+            atomically: true,
+            encoding: .utf8
+        )
+        let controller = MainWindowController(
+            projectSession: ProjectSession()
+        )
+        defer { controller.close() }
+
+        delegate.testingOpenProject(projectURL, in: controller)
+
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: pending.path),
+            "Opening a project must not scan or mutate project storage"
+        )
+    }
+
     func testOpeningDuplicateProjectWindowDoesNotDeleteProjectTempDirectory() throws {
         let delegate = AppDelegate()
         let temp = FileManager.default.temporaryDirectory
@@ -274,6 +338,106 @@ final class MainWindowSessionRoutingTests: XCTestCase {
         XCTAssertTrue(
             FileManager.default.fileExists(atPath: pendingTempFile.path),
             "Opening a duplicate same-project window must not purge active project temp state"
+        )
+    }
+
+    @MainActor
+    func testSwitchingControllerStopsOldProjectCleanupLifecycle() throws {
+        let delegate = AppDelegate()
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "SwitchCleanupLifecycle-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: temp,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let first = temp.appendingPathComponent(
+            "First.lungfish",
+            isDirectory: true
+        )
+        let second = temp.appendingPathComponent(
+            "Second.lungfish",
+            isDirectory: true
+        )
+        _ = try DocumentManager.shared.createProject(
+            at: first,
+            name: "First"
+        )
+        _ = try DocumentManager.shared.createProject(
+            at: second,
+            name: "Second"
+        )
+        let controller = MainWindowController(
+            projectSession: ProjectSession()
+        )
+        defer { controller.close() }
+
+        delegate.testingOpenProject(first, in: controller)
+        XCTAssertTrue(
+            delegate
+                .testingHasAutomaticProjectStorageCleanupLifecycle(first)
+        )
+
+        delegate.testingOpenProject(second, in: controller)
+
+        XCTAssertFalse(
+            delegate
+                .testingHasAutomaticProjectStorageCleanupLifecycle(first)
+        )
+        XCTAssertTrue(
+            delegate
+                .testingHasAutomaticProjectStorageCleanupLifecycle(second)
+        )
+    }
+
+    @MainActor
+    func testFilesystemFallbackOwnsNoCleanupLifecycle() throws {
+        let delegate = AppDelegate()
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "FallbackCleanupLifecycle-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: temp,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let valid = temp.appendingPathComponent(
+            "Valid.lungfish",
+            isDirectory: true
+        )
+        let fallback = temp.appendingPathComponent(
+            "Invalid.lungfish",
+            isDirectory: true
+        )
+        _ = try DocumentManager.shared.createProject(
+            at: valid,
+            name: "Valid"
+        )
+        try FileManager.default.createDirectory(
+            at: fallback,
+            withIntermediateDirectories: true
+        )
+        let controller = MainWindowController(
+            projectSession: ProjectSession()
+        )
+        defer { controller.close() }
+
+        delegate.testingOpenProject(valid, in: controller)
+        delegate.testingOpenProject(fallback, in: controller)
+
+        XCTAssertNil(controller.projectSession.projectURL)
+        XCTAssertFalse(
+            delegate
+                .testingHasAutomaticProjectStorageCleanupLifecycle(valid)
+        )
+        XCTAssertFalse(
+            delegate
+                .testingHasAutomaticProjectStorageCleanupLifecycle(fallback)
         )
     }
 

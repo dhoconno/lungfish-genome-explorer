@@ -4,20 +4,25 @@ extension GenotypeWorkbookRevisionService {
     var workbookOverrideScript: String {
         #"""
 import json
+import hashlib
 import re
+import shutil
 import sys
 import platform
+import zipfile
 import openpyxl
 from copy import copy
 from openpyxl import load_workbook
 from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter, range_boundaries
 
 input_path = sys.argv[1]
 output_path = sys.argv[2]
 calls_path = sys.argv[3]
 sidecar_path = sys.argv[4] if len(sys.argv) > 4 else ""
 configuration_path = sys.argv[5] if len(sys.argv) > 5 else ""
+reviewable_row_catalog_path = sys.argv[6] if len(sys.argv) > 6 else ""
 
 with open(calls_path) as handle:
     call_rows = json.load(handle)
@@ -40,9 +45,29 @@ preserve_existing_workbook_projection = bool(
     candidate_configuration.get("preserve_existing_workbook_projection")
 )
 normalized_unmatched_rows = candidate_configuration.get("normalized_unmatched_rows") or []
+manual_haplotype_rows = candidate_configuration.get("manual_haplotype_rows") or []
+manual_haplotype_legacy_combined_rows = (
+    candidate_configuration.get("manual_haplotype_legacy_combined_rows") or []
+)
+haplotype_projection_mode = str(
+    candidate_configuration.get("haplotype_projection_mode") or ""
+).strip()
 known_allele_display_names = candidate_configuration.get("known_allele_display_names") or {}
 workbook_samples = candidate_configuration.get("samples") or []
 workbook_known_calls = candidate_configuration.get("known_calls") or []
+expected_managed_state_authority = str(
+    candidate_configuration.get("expected_managed_state_authority") or ""
+).strip()
+new_managed_state_authority = str(
+    candidate_configuration.get("new_managed_state_authority") or ""
+).strip()
+if not new_managed_state_authority:
+    raise ValueError("Managed workbook state authority is missing")
+
+reviewable_row_catalog = {}
+if reviewable_row_catalog_path:
+    with open(reviewable_row_catalog_path) as handle:
+        reviewable_row_catalog = json.load(handle)
 
 
 def load_json_path(key, collection):
@@ -208,20 +233,99 @@ def canonical_locus(locus):
     return text
 
 
+manual_haplotype_row_by_key = {}
+manual_haplotype_loci = []
+for row in manual_haplotype_rows:
+    locus = clean(row.get("locus"))
+    slot = clean(row.get("slot"))
+    label = clean(row.get("row_label"))
+    if not locus or slot not in ("h1", "h2") or not label:
+        raise ValueError("Malformed manual haplotype workbook row mapping")
+    key = (locus, slot)
+    if key in manual_haplotype_row_by_key:
+        raise ValueError(f"Duplicate manual haplotype workbook row mapping: {locus}/{slot}")
+    manual_haplotype_row_by_key[key] = label
+    if locus not in manual_haplotype_loci:
+        manual_haplotype_loci.append(locus)
+if len(manual_haplotype_loci) != 7 or len(manual_haplotype_row_by_key) != 14:
+    raise ValueError("Manual haplotype workbook mapping must contain seven loci and two slots per locus")
+for locus in manual_haplotype_loci:
+    if (locus, "h1") not in manual_haplotype_row_by_key or (locus, "h2") not in manual_haplotype_row_by_key:
+        raise ValueError(f"Manual haplotype workbook mapping is incomplete for {locus}")
+
+manual_haplotype_locus_set = set(manual_haplotype_loci)
+legacy_combined_row_by_key = {}
+for row in manual_haplotype_legacy_combined_rows:
+    component_loci = [
+        clean(locus) for locus in (row.get("component_loci") or [])
+    ]
+    slot = clean(row.get("slot"))
+    label = clean(row.get("row_label"))
+    composition_policy = clean(row.get("composition_policy"))
+    if (
+        len(component_loci) != 2
+        or any(locus not in manual_haplotype_locus_set for locus in component_loci)
+        or slot not in ("h1", "h2")
+        or not label
+        or composition_policy
+            != "collapse-identical-otherwise-locus-tagged"
+    ):
+        raise ValueError(
+            "Malformed legacy combined manual haplotype workbook row mapping"
+        )
+    key = (tuple(component_loci), slot)
+    if key in legacy_combined_row_by_key:
+        raise ValueError(
+            "Duplicate legacy combined manual haplotype workbook row mapping"
+        )
+    legacy_combined_row_by_key[key] = label
+if len(legacy_combined_row_by_key) != 4:
+    raise ValueError(
+        "Legacy combined manual haplotype workbook mapping must contain four rows"
+    )
+
+if haplotype_projection_mode not in ("haplotyped", "manual-genotype-only"):
+    raise ValueError(
+        f"Unknown haplotype projection mode: {haplotype_projection_mode}"
+    )
+
 calls_by_sample_locus = {}
+exact_calls_by_sample_locus = {}
 for call in call_rows:
     sample = clean(call.get("sample"))
-    locus = canonical_locus(call.get("locus"))
-    if not sample or not locus:
+    exact_locus = clean(call.get("locus"))
+    if not sample or not exact_locus:
         continue
-    if locus not in WRITABLE_LOCI:
-        continue
-    calls_by_sample_locus.setdefault(sample, {})[locus] = {
+    call_payload = {
         "haplotype1": clean(call.get("haplotype1")),
         "haplotype2": clean(call.get("haplotype2")),
         "status": clean(call.get("status")),
         "notes": clean(call.get("notes")),
     }
+    if haplotype_projection_mode == "manual-genotype-only":
+        if exact_locus not in manual_haplotype_locus_set:
+            raise ValueError(
+                f"Noncanonical or unsupported exact haplotype locus for {sample}: {exact_locus}"
+            )
+        exact_sample_calls = exact_calls_by_sample_locus.setdefault(sample, {})
+        if exact_locus in exact_sample_calls:
+            raise ValueError(f"Duplicate exact haplotype call for {sample}/{exact_locus}")
+        exact_sample_calls[exact_locus] = call_payload
+    locus = canonical_locus(exact_locus)
+    if locus not in WRITABLE_LOCI:
+        continue
+    calls_by_sample_locus.setdefault(sample, {})[locus] = call_payload
+
+manual_snapshot_samples = (
+    set(exact_calls_by_sample_locus)
+    if haplotype_projection_mode == "manual-genotype-only"
+    else set()
+)
+for sample in manual_snapshot_samples:
+    if set(exact_calls_by_sample_locus[sample]) != manual_haplotype_locus_set:
+        raise ValueError(
+            f"Manual genotype-only snapshot is incomplete for {sample}"
+        )
 
 call_overrides = sidecar.get("callOverrides") or []
 audit_entries = sidecar.get("auditLog") or []
@@ -232,6 +336,34 @@ matrix_reviews = sidecar.get("matrixReviews") or []
 
 def call_for(sample, locus):
     return calls_by_sample_locus.get(sample, {}).get(canonical_locus(locus), {})
+
+
+def exact_call_for(sample, locus):
+    return exact_calls_by_sample_locus.get(sample, {}).get(clean(locus), {})
+
+
+def exact_call_value(sample, locus, slot):
+    return exact_call_for(sample, locus).get(
+        "haplotype1" if slot == "h1" else "haplotype2",
+        "",
+    )
+
+
+def combined_manual_value(sample, loci, slot):
+    values = [
+        (locus, exact_call_value(sample, locus, slot))
+        for locus in loci
+    ]
+    populated = [(locus, value) for locus, value in values if value]
+    if not populated:
+        return ""
+    unique = []
+    for _locus, value in populated:
+        if value not in unique:
+            unique.append(value)
+    if len(unique) == 1 and len(populated) == len(loci):
+        return unique[0]
+    return "; ".join(f"{locus}: {value}" for locus, value in populated)
 
 
 def call_value(sample, locus, index):
@@ -285,8 +417,13 @@ def whole_animal(sample, index):
 
 def comments(sample):
     values = []
-    for locus in sorted(calls_by_sample_locus.get(sample, {})):
-        call = call_for(sample, locus)
+    source_calls = (
+        exact_calls_by_sample_locus.get(sample, {})
+        if sample in manual_snapshot_samples
+        else calls_by_sample_locus.get(sample, {})
+    )
+    for locus in sorted(source_calls):
+        call = source_calls[locus]
         status = call.get("status", "")
         note = call.get("notes", "")
         h1 = call.get("haplotype1", "")
@@ -353,6 +490,13 @@ def set_cell(cell, value):
     style_haplotype(cell, value)
 
 
+def set_literal_cell(cell, value):
+    cell.value = value
+    if isinstance(value, str):
+        cell.data_type = "s"
+    style_haplotype(cell, value)
+
+
 def patch_summary_sheet(sheet_name):
     if sheet_name not in wb.sheetnames:
         return
@@ -361,6 +505,43 @@ def patch_summary_sheet(sheet_name):
     for sample in calls_by_sample_locus:
         row = sample_row(ws, sample)
         if row is None:
+            continue
+        if sample in manual_snapshot_samples:
+            for mapping in manual_haplotype_rows:
+                header = clean(mapping.get("row_label"))
+                if header in headers:
+                    set_literal_cell(
+                        ws.cell(row, headers[header]),
+                        exact_call_value(
+                            sample,
+                            clean(mapping.get("locus")),
+                            clean(mapping.get("slot")),
+                        ),
+                    )
+            for mapping in manual_haplotype_legacy_combined_rows:
+                header = clean(mapping.get("row_label"))
+                loci = tuple(
+                    clean(locus)
+                    for locus in (mapping.get("component_loci") or [])
+                )
+                slot = clean(mapping.get("slot"))
+                composition_policy = clean(
+                    mapping.get("composition_policy")
+                )
+                if header in headers:
+                    if (
+                        composition_policy
+                        != "collapse-identical-otherwise-locus-tagged"
+                    ):
+                        raise ValueError(
+                            "Unsupported legacy combined manual haplotype composition policy"
+                        )
+                    set_literal_cell(
+                        ws.cell(row, headers[header]),
+                        combined_manual_value(sample, loci, slot),
+                    )
+            if "Comments" in headers:
+                ws.cell(row, headers["Comments"]).value = comments(sample)
             continue
         if "Haplotype 1" in headers:
             set_cell(ws.cell(row, headers["Haplotype 1"]), whole_animal(sample, 1))
@@ -381,9 +562,27 @@ def patch_full_sheet():
     if "Full Sequencing Results 1" not in wb.sheetnames:
         return
     ws = wb["Full Sequencing Results 1"]
-    for sample in calls_by_sample_locus:
+    samples = list(calls_by_sample_locus)
+    samples.extend(
+        sample for sample in manual_snapshot_samples if sample not in calls_by_sample_locus
+    )
+    for sample in samples:
         col = sample_col(ws, sample)
         if col is None:
+            continue
+        if sample in manual_snapshot_samples:
+            for mapping in manual_haplotype_rows:
+                locus = clean(mapping.get("locus"))
+                slot = clean(mapping.get("slot"))
+                row = row_for(ws, clean(mapping.get("row_label")))
+                if row is not None:
+                    set_literal_cell(
+                        ws.cell(row, col),
+                        exact_call_value(sample, locus, slot),
+                    )
+            comment_row = row_for(ws, "Comments")
+            if comment_row is not None:
+                ws.cell(comment_row, col).value = comments(sample)
             continue
         for locus in FULL_LOCI:
             for index in (1, 2):
@@ -557,6 +756,17 @@ def matrix_target_key(target):
     return matrix_target_parts(target)
 
 
+def structured_matrix_target(target):
+    kind, locus, genotype, sample, stable_id = matrix_target_parts(target)
+    return {
+        "kind": kind,
+        "locus": locus,
+        "genotype": genotype,
+        "sample": sample,
+        "stableClusterID": stable_id or None,
+    }
+
+
 def semantic_target_description(target):
     kind, locus, genotype, sample, stable_id = matrix_target_parts(target)
     identity = " ".join(part for part in [locus, genotype, sample] if part)
@@ -597,6 +807,41 @@ def resolve_current_annotations(entries):
 resolved_matrix_styles = resolve_current_annotations(matrix_styles)
 resolved_matrix_comments = resolve_current_annotations(matrix_comments)
 MANAGED_REVIEW_STATE_SHEET = "_LGE Matrix Review State"
+MANAGED_REVIEW_STATE_SCHEMA_ID = "org.lungfish.matrix-review-state"
+MANAGED_REVIEW_STATE_SCHEMA_VERSION = 4
+LEGACY_MANAGED_REVIEW_STATE_HEADERS = [
+    "Sheet", "Target Kind", "Locus", "Genotype", "Sample",
+    "Stable Cluster ID", "Coordinate", "Disposition", "Original Value",
+    "Original Font", "Original Border",
+]
+UNVERSIONED_MANAGED_REVIEW_STATE_HEADERS = [
+    "Sheet", "Target Kind", "Locus", "Genotype", "Sample",
+    "Stable Cluster ID", "Coordinate", "Disposition", "Original Value",
+    "Original Font", "Original Fill", "Original Border",
+    "Expected Managed Value", "Expected Managed Font",
+    "Expected Managed Fill", "Expected Managed Border", "Synthetic Row",
+    "Adapter", "Synthetic Row Index", "Expected Synthetic Row",
+    "Marker Row Index", "Expected Marker Row",
+]
+VERSIONED_MANAGED_REVIEW_STATE_PREFIX = (
+    UNVERSIONED_MANAGED_REVIEW_STATE_HEADERS
+    + [MANAGED_REVIEW_STATE_SCHEMA_ID, MANAGED_REVIEW_STATE_SCHEMA_VERSION]
+)
+VERSION_3_MANAGED_REVIEW_STATE_PREFIX = (
+    UNVERSIONED_MANAGED_REVIEW_STATE_HEADERS
+    + [MANAGED_REVIEW_STATE_SCHEMA_ID, 3]
+)
+managed_state_created_for_current_run = False
+ANNOTATION_ONLY_BLOCK_CALL_TYPE = "analyst-annotation-only-block"
+ANNOTATION_ONLY_CALL_TYPE = "analyst-annotation-only"
+ANNOTATION_ONLY_BLOCK_LABEL = "Analyst annotation-only rows"
+RETAINED_ANNOTATION_ONLY_BLOCK_CALL_TYPE = (
+    "analyst-annotation-only-block-retained"
+)
+RETAINED_ANNOTATION_ONLY_BLOCK_LABEL = (
+    "Analyst annotation-only rows (contains retained analyst edits)"
+)
+managed_cleanup_warnings = {}
 
 
 def write_matrix_annotation_sheet(matrix_review_results):
@@ -768,6 +1013,55 @@ def known_matrix_samples():
     return names
 
 
+def authoritative_matrix_samples():
+    names = known_matrix_samples()
+    if reviewable_row_catalog:
+        roster = reviewable_row_catalog.get("samples") or []
+        names.update(clean(sample) for sample in roster if clean(sample))
+    return names
+
+
+def validation_matrix_samples():
+    names = authoritative_matrix_samples()
+    if MANAGED_REVIEW_STATE_SHEET in wb.sheetnames:
+        managed_review_state_schema()
+        state = wb[MANAGED_REVIEW_STATE_SHEET]
+        for row in range(2, state.max_row + 1):
+            sample = clean(state.cell(row, 5).value)
+            if sample:
+                names.add(sample)
+    return names
+
+
+def validate_matrix_sample_header_ambiguity():
+    sample_names = validation_matrix_samples()
+    if not sample_names:
+        return
+    for ws in wb.worksheets:
+        if ws.title in {
+            "Matrix Annotations", "Overrides", "Audit Log", MANAGED_REVIEW_STATE_SHEET
+        }:
+            continue
+        for row in range(1, min(ws.max_row, 60) + 1):
+            columns = header_columns(ws, row)
+            is_unified = "call_type" in columns
+            is_generic = any(
+                alias in columns for alias in GENOTYPE_HEADER_ALIASES
+            )
+            if not is_unified and not is_generic:
+                continue
+            for sample in sample_names:
+                exact = [
+                    col for col in range(1, ws.max_column + 1)
+                    if clean(ws.cell(row, col).value) == sample
+                ]
+                if len(exact) > 1:
+                    raise ValueError(
+                        f"Ambiguous workbook layout repeats sample column "
+                        f"'{sample}'; workbook was not modified"
+                    )
+
+
 def sample_columns_for_matrix(ws, sample_names):
     columns = {}
     if sample_names:
@@ -793,7 +1087,563 @@ def normalized_header(value):
     return re.sub(r"[^a-z0-9]+", "_", clean(value).lower()).strip("_")
 
 
-def matrix_row_descriptors(ws):
+UNIFIED_REQUIRED_HEADERS = {
+    "call_type", "call_id", "display_name", "stable_cluster_id", "locus",
+    "classification", "support_class", "closest_reference", "match_class",
+    "occurrence_count", "sample_count", "total_cluster_reads",
+}
+GENOTYPE_HEADER_ALIASES = (
+    "genotype", "display_name", "provisional_allele_name", "provisional_name"
+)
+TOTAL_HEADER_ALIASES = ("total",)
+OBSERVED_HEADER_ALIASES = ("obs", "observed", "observations", "sample_count")
+synthetic_rows_for_current_run = {}
+WORKBOOK_MATRIX_ADAPTER_VERSION = "lge-workbook-matrix-adapter-v1"
+workbook_adapter_decisions = []
+managed_review_restoration_decisions = []
+false_negative_synthesis_decisions = []
+false_negative_target_cell_decisions = []
+
+
+def header_columns(ws, row):
+    values = {}
+    for col in range(1, ws.max_column + 1):
+        header = normalized_header(ws.cell(row, col).value)
+        if header:
+            values.setdefault(header, []).append(col)
+    return values
+
+
+def unique_alias_column(columns, aliases, label, required):
+    matches = [
+        (alias, col)
+        for alias in aliases
+        for col in columns.get(alias, [])
+    ]
+    if len(matches) > 1:
+        raise ValueError(
+            f"Ambiguous workbook layout exposes duplicate {label} aliases; workbook was not modified"
+        )
+    if not matches:
+        if required:
+            return None
+        return None
+    return matches[0][1]
+
+
+def matrix_layout_adapter(ws, sample_names, requires_synthesis=False):
+    candidates = []
+    for row in range(1, min(ws.max_row, 60) + 1):
+        columns = header_columns(ws, row)
+        if "call_type" in columns:
+            if len(columns["call_type"]) != 1:
+                raise ValueError(
+                    "Ambiguous unified workbook layout exposes duplicate call_type headers; "
+                    "workbook was not modified"
+                )
+            duplicate_required = sorted(
+                name for name in UNIFIED_REQUIRED_HEADERS
+                if len(columns.get(name, [])) > 1
+            )
+            if duplicate_required:
+                raise ValueError(
+                    "Ambiguous unified workbook layout exposes duplicate headers: "
+                    + ", ".join(duplicate_required)
+                )
+            missing = sorted(
+                name for name in UNIFIED_REQUIRED_HEADERS
+                if len(columns.get(name, [])) != 1
+            )
+            if missing:
+                if requires_synthesis:
+                    raise ValueError(
+                        "Unsupported unified workbook layout is missing required headers: "
+                        + ", ".join(missing)
+                    )
+                continue
+            headers = {name: columns[name][0] for name in columns if len(columns[name]) == 1}
+            sample_columns = {}
+            for sample in sample_names:
+                exact = [
+                    col for col in columns.get(normalized_header(sample), [])
+                    if clean(ws.cell(row, col).value) == sample
+                ]
+                if len(exact) > 1:
+                    raise ValueError(
+                        f"Ambiguous unified workbook layout repeats sample column "
+                        f"'{sample}'; workbook was not modified"
+                    )
+                if exact:
+                    sample_columns[sample] = exact[0]
+            candidates.append({
+                "kind": "unified",
+                "ws": ws,
+                "header_row": row,
+                "headers": headers,
+                "genotype_col": headers["display_name"],
+                "locus_col": headers["locus"],
+                "stable_col": headers["stable_cluster_id"],
+                "total_col": headers["total_cluster_reads"],
+                "observed_col": headers["sample_count"],
+                "sample_columns": sample_columns,
+            })
+            continue
+
+        genotype_col = unique_alias_column(
+            columns, GENOTYPE_HEADER_ALIASES, "genotype", False
+        )
+        if genotype_col is None:
+            continue
+        total_col = unique_alias_column(columns, TOTAL_HEADER_ALIASES, "Total", False)
+        observed_col = unique_alias_column(
+            columns, OBSERVED_HEADER_ALIASES, "# Obs.", False
+        )
+        if requires_synthesis and (total_col is None or observed_col is None):
+            continue
+        locus_col = unique_alias_column(columns, ("locus",), "locus", False)
+        stable_col = unique_alias_column(
+            columns, ("stable_cluster_id", "stable_id"), "stable ID", False
+        )
+        sample_columns = {}
+        for sample in sample_names:
+            exact = [
+                col for col in range(1, ws.max_column + 1)
+                if clean(ws.cell(row, col).value) == sample
+            ]
+            if len(exact) > 1:
+                raise ValueError(
+                    f"Ambiguous generic workbook layout repeats sample column '{sample}'; "
+                    "workbook was not modified"
+                )
+            if exact:
+                sample_columns[sample] = exact[0]
+        candidates.append({
+            "kind": "generic",
+            "ws": ws,
+            "header_row": row,
+            "headers": {},
+            "genotype_col": genotype_col,
+            "locus_col": locus_col,
+            "stable_col": stable_col,
+            "total_col": total_col,
+            "observed_col": observed_col,
+            "sample_columns": sample_columns,
+        })
+
+    if len(candidates) > 1:
+        raise ValueError(
+            f"Ambiguous workbook layout in '{ws.title}' exposes multiple matrix headers; "
+            "workbook was not modified"
+        )
+    return candidates[0] if candidates else None
+
+
+def adapter_owned_table(adapter):
+    ws = adapter["ws"]
+    header_row = adapter["header_row"]
+    matches = []
+    for table in ws.tables.values():
+        min_col, min_row, max_col, max_row = range_boundaries(table.ref)
+        if min_row == header_row and min_col <= adapter["genotype_col"] <= max_col:
+            matches.append((table, min_col, min_row, max_col, max_row))
+    if len(matches) > 1:
+        raise ValueError(
+            f"Ambiguous workbook layout in '{ws.title}' exposes multiple matrix tables; "
+            "workbook was not modified"
+        )
+    return matches[0] if matches else None
+
+
+def adapter_owned_column_bounds(adapter):
+    owned_table = adapter_owned_table(adapter)
+    if owned_table is not None:
+        _table, min_col, _min_row, max_col, _max_row = owned_table
+        return min_col, max_col
+    columns = [
+        adapter.get("genotype_col"),
+        adapter.get("locus_col"),
+        adapter.get("stable_col"),
+        adapter.get("total_col"),
+        adapter.get("observed_col"),
+        *adapter.get("sample_columns", {}).values(),
+    ]
+    columns = [column for column in columns if isinstance(column, int)]
+    if not columns:
+        raise ValueError(
+            f"Workbook layout in '{adapter['ws'].title}' has no owned matrix columns; "
+            "workbook was not modified"
+        )
+    return min(columns), max(columns)
+
+
+def adapter_matrix_end(adapter):
+    if isinstance(adapter.get("managed_end"), int):
+        return adapter["managed_end"]
+    owned_table = adapter_owned_table(adapter)
+    if owned_table is not None:
+        return owned_table[4]
+    ws = adapter["ws"]
+    header_row = adapter["header_row"]
+    descriptor_rows = [
+        item["row"] for item in matrix_row_descriptors(ws)
+        if item["row"] > header_row
+    ]
+    return max(descriptor_rows, default=header_row)
+
+
+def set_adapter_range_end(adapter, end_row):
+    ws = adapter["ws"]
+    header_row = adapter["header_row"]
+    owned_table = adapter_owned_table(adapter)
+    if owned_table is not None:
+        table, min_col, min_row, max_col, _max_row = owned_table
+        updated_ref = (
+            f"{get_column_letter(min_col)}{min_row}:"
+            f"{get_column_letter(max_col)}{end_row}"
+        )
+        table.ref = updated_ref
+        if table.autoFilter is not None:
+            table.autoFilter.ref = updated_ref
+    if ws.auto_filter.ref:
+        min_col, min_row, max_col, _max_row = range_boundaries(ws.auto_filter.ref)
+        if min_row == header_row and min_col <= adapter["genotype_col"] <= max_col:
+            ws.auto_filter.ref = (
+                f"{get_column_letter(min_col)}{min_row}:"
+                f"{get_column_letter(max_col)}{end_row}"
+            )
+
+
+def ensure_adapter_owned_row_is_vacant(adapter, row):
+    ws = adapter["ws"]
+    min_col, max_col = adapter_owned_column_bounds(adapter)
+    for merged_range in ws.merged_cells.ranges:
+        if (
+            merged_range.min_row <= row <= merged_range.max_row
+            and merged_range.min_col <= max_col
+            and merged_range.max_col >= min_col
+        ):
+            raise ValueError(
+                f"The next matrix-owned row in '{ws.title}' intersects merged cells; "
+                "workbook was not modified"
+            )
+    for col in range(min_col, max_col + 1):
+        cell = ws.cell(row, col)
+        if (
+            cell.value is not None
+            or cell.comment is not None
+            or cell.hyperlink is not None
+            or cell.has_style
+        ):
+            raise ValueError(
+                f"The next matrix-owned row in '{ws.title}' contains workbook content; "
+                "workbook was not modified"
+            )
+
+
+def style_adapter_owned_row(adapter, row):
+    ws = adapter["ws"]
+    min_col, max_col = adapter_owned_column_bounds(adapter)
+    for col in range(min_col, max_col + 1):
+        cell = ws.cell(row, col)
+        cell.font = Font(name="Calibri", size=11)
+        cell.fill = PatternFill(fill_type=None)
+        cell.border = Border()
+        cell.alignment = Alignment(vertical="center")
+        cell.number_format = "General"
+
+
+def catalog_support(row):
+    values = row.get("support_by_sample")
+    if not isinstance(values, list):
+        raise ValueError("Malformed reviewable-row catalog evidence")
+    support = {}
+    for item in values:
+        if not isinstance(item, dict):
+            raise ValueError("Malformed reviewable-row catalog evidence")
+        sample = clean(item.get("sample"))
+        if not sample or sample in support:
+            raise ValueError("Malformed reviewable-row catalog evidence roster")
+        value = item.get("support")
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError("Malformed reviewable-row catalog evidence value")
+        support[sample] = value
+    return support
+
+
+def authoritative_catalog_row(target, requires_cohort_zero):
+    if not reviewable_row_catalog:
+        return None, "No authoritative reviewable-row catalog was supplied."
+    if (
+        clean(reviewable_row_catalog.get("schema_id"))
+        != "org.lungfish.genotype.reviewable-row-catalog"
+        or int(reviewable_row_catalog.get("schema_version") or 0) != 1
+    ):
+        raise ValueError("Unsupported reviewable-row catalog schema")
+    kind, locus, genotype, sample, stable_id = matrix_target_parts(target)
+    if kind != "cell":
+        return None, "False-negative reviews require an exact cell target."
+    roster = reviewable_row_catalog.get("samples") or []
+    if sample not in roster:
+        return None, "The selected sample is outside the authoritative roster."
+    matches = []
+    for row in reviewable_row_catalog.get("rows") or []:
+        row_kind = clean(row.get("kind"))
+        if clean(row.get("locus")) != locus or clean(row.get("display_name")) != genotype:
+            continue
+        if stable_id:
+            if row_kind == "reference" or clean(row.get("stable_id")) != stable_id:
+                continue
+        elif row_kind != "reference" or row.get("stable_id") is not None:
+            continue
+        matches.append(row)
+    if not matches:
+        return None, "No reviewable-row catalog record exactly matches the target."
+    if len(matches) != 1:
+        raise ValueError(
+            "Ambiguous reviewable-row catalog identity; workbook was not modified"
+        )
+    row = matches[0]
+    support = catalog_support(row)
+    if set(support) != set(roster):
+        raise ValueError("Reviewable-row catalog evidence does not match its roster")
+    if support.get(sample) != 0:
+        return None, "False-negative reviews require authoritative sample support of zero."
+    if requires_cohort_zero and any(value != 0 for value in support.values()):
+        return None, "An annotation-only row requires zero support across the cohort."
+    return row, ""
+
+
+def catalog_identity(row):
+    return (
+        clean(row.get("kind")),
+        clean(row.get("locus")),
+        clean(row.get("call_id")),
+        clean(row.get("stable_id")),
+    )
+
+
+def append_annotation_only_row(adapter, catalog_row):
+    ws = adapter["ws"]
+    row = adapter_matrix_end(adapter) + 1
+    ensure_adapter_owned_row_is_vacant(adapter, row)
+    style_adapter_owned_row(adapter, row)
+    if adapter["kind"] == "unified":
+        values = {
+            "call_type": ANNOTATION_ONLY_CALL_TYPE,
+            "call_id": clean(catalog_row.get("call_id")),
+            "display_name": clean(catalog_row.get("display_name")),
+            "stable_cluster_id": clean(catalog_row.get("stable_id")) or None,
+            "locus": clean(catalog_row.get("locus")),
+            "classification": ANNOTATION_ONLY_CALL_TYPE,
+            "support_class": "zero-support",
+            "closest_reference": None,
+            "match_class": ANNOTATION_ONLY_CALL_TYPE,
+            "occurrence_count": 0,
+            "sample_count": 0,
+            "total_cluster_reads": 0,
+        }
+        for header, col in adapter["headers"].items():
+            ws.cell(row, col).value = values.get(header)
+    else:
+        ws.cell(row, adapter["genotype_col"]).value = clean(
+            catalog_row.get("display_name")
+        )
+        if adapter["locus_col"]:
+            ws.cell(row, adapter["locus_col"]).value = clean(catalog_row.get("locus"))
+        if adapter["stable_col"]:
+            ws.cell(row, adapter["stable_col"]).value = (
+                clean(catalog_row.get("stable_id")) or None
+            )
+        ws.cell(row, adapter["total_col"]).value = 0
+        ws.cell(row, adapter["observed_col"]).value = 0
+    for col in adapter["sample_columns"].values():
+        ws.cell(row, col).value = None
+    if adapter.get("extend_owned_range"):
+        set_adapter_range_end(adapter, row)
+    adapter["managed_end"] = row
+    return row
+
+
+def append_annotation_only_marker(adapter):
+    ws = adapter["ws"]
+    marker_rows = []
+    retained_marker_rows = []
+    if adapter["kind"] == "unified":
+        marker_col = adapter["headers"]["call_type"]
+        marker_rows = [
+            row for row in range(adapter["header_row"] + 1, ws.max_row + 1)
+            if clean(ws.cell(row, marker_col).value) == ANNOTATION_ONLY_BLOCK_CALL_TYPE
+        ]
+        retained_marker_rows = [
+            row for row in range(adapter["header_row"] + 1, ws.max_row + 1)
+            if clean(ws.cell(row, marker_col).value)
+                == RETAINED_ANNOTATION_ONLY_BLOCK_CALL_TYPE
+        ]
+    else:
+        marker_col = adapter["genotype_col"]
+        marker_rows = [
+            row for row in range(adapter["header_row"] + 1, ws.max_row + 1)
+            if clean(ws.cell(row, marker_col).value) == ANNOTATION_ONLY_BLOCK_LABEL
+        ]
+        retained_marker_rows = [
+            row for row in range(adapter["header_row"] + 1, ws.max_row + 1)
+            if clean(ws.cell(row, marker_col).value)
+                == RETAINED_ANNOTATION_ONLY_BLOCK_LABEL
+        ]
+    if marker_rows or retained_marker_rows:
+        raise ValueError(
+            "An unmanaged analyst annotation-only block already exists; "
+            "workbook was not modified"
+        )
+    matrix_end = adapter_matrix_end(adapter)
+    row = matrix_end + 1
+    ensure_adapter_owned_row_is_vacant(adapter, row)
+    adapter["extend_owned_range"] = True
+    style_adapter_owned_row(adapter, row)
+    if adapter["kind"] == "unified":
+        ws.cell(row, adapter["headers"]["call_type"]).value = (
+            ANNOTATION_ONLY_BLOCK_CALL_TYPE
+        )
+        ws.cell(row, adapter["headers"]["display_name"]).value = (
+            ANNOTATION_ONLY_BLOCK_LABEL
+        )
+    else:
+        ws.cell(row, adapter["genotype_col"]).value = ANNOTATION_ONLY_BLOCK_LABEL
+    font = copy(ws.cell(row, marker_col).font)
+    font.bold = True
+    ws.cell(row, marker_col).font = font
+    if adapter["extend_owned_range"]:
+        set_adapter_range_end(adapter, row)
+    adapter["managed_end"] = row
+    return row
+
+
+def prepare_missing_false_negative_rows():
+    current_reviews = resolve_current_annotations(matrix_reviews)
+    counts = {}
+    for entry in matrix_reviews:
+        key = matrix_target_key(entry.get("target") or {})
+        counts[key] = counts.get(key, 0) + 1
+    false_negatives = [
+        entry for entry in current_reviews
+        if clean(entry.get("disposition")) == "falseNegative"
+        and counts.get(matrix_target_key(entry.get("target") or {}), 0) == 1
+    ]
+    if not false_negatives:
+        return
+    sample_names = authoritative_matrix_samples()
+    adapters = []
+    for ws in wb.worksheets:
+        if ws.title in {
+            "Matrix Annotations", "Overrides", "Audit Log", MANAGED_REVIEW_STATE_SHEET
+        }:
+            continue
+        adapter = matrix_layout_adapter(ws, sample_names, requires_synthesis=True)
+        if adapter is not None and adapter["sample_columns"]:
+            adapters.append(adapter)
+            workbook_adapter_decisions.append({
+                "worksheet": ws.title,
+                "adapter": adapter["kind"],
+                "header_row": adapter["header_row"],
+                "sample_count": len(adapter["sample_columns"]),
+            })
+
+    required_by_adapter = {}
+    unresolved_eligible_target = False
+    for entry in false_negatives:
+        target = entry.get("target") or {}
+        _kind, _locus, _genotype, sample, stable_id = matrix_target_parts(target)
+        catalog_row, _catalog_error = authoritative_catalog_row(
+            target, requires_cohort_zero=True
+        )
+        if catalog_row is None:
+            continue
+        resolved_somewhere = False
+        for adapter in adapters:
+            if sample not in adapter["sample_columns"]:
+                continue
+            descriptors = matrix_row_descriptors(adapter["ws"])
+            matches, match_error = matching_matrix_rows(descriptors, target)
+            if matches:
+                resolved_somewhere = True
+                continue
+            if match_error and not matrix_match_error_is_legitimate_absence(
+                match_error
+            ):
+                raise ValueError(f"{match_error} Workbook was not modified.")
+            if stable_id and adapter["stable_col"] is None:
+                continue
+            if adapter["locus_col"] is None:
+                aliases = [
+                    row for row in reviewable_row_catalog.get("rows") or []
+                    if clean(row.get("display_name")) == clean(catalog_row.get("display_name"))
+                ]
+                if len(aliases) != 1:
+                    raise ValueError(
+                        "Generic workbook layout cannot disambiguate duplicate genotype aliases; "
+                        "workbook was not modified"
+                    )
+            required_by_adapter.setdefault(id(adapter), {
+                "adapter": adapter,
+                "rows": {},
+            })["rows"][catalog_identity(catalog_row)] = catalog_row
+            resolved_somewhere = True
+        if not resolved_somewhere:
+            unresolved_eligible_target = True
+
+    if unresolved_eligible_target:
+        raise ValueError(
+            "Unsupported workbook matrix layout cannot materialize the authoritative "
+            "annotation-only row; workbook was not modified"
+        )
+
+    for required in required_by_adapter.values():
+        adapter = required["adapter"]
+        marker_row = append_annotation_only_marker(adapter)
+        for catalog_row in sorted(
+            required["rows"].values(),
+            key=lambda row: (
+                clean(row.get("sort_key")),
+                clean(row.get("locus")),
+                clean(row.get("display_name")),
+                clean(row.get("stable_id")),
+                clean(row.get("call_id")),
+            ),
+        ):
+            row = append_annotation_only_row(adapter, catalog_row)
+            synthetic_rows_for_current_run[(adapter["ws"].title, row)] = {
+                "adapter": adapter["kind"],
+                "marker_row": marker_row,
+            }
+            false_negative_synthesis_decisions.append({
+                "worksheet": adapter["ws"].title,
+                "adapter": adapter["kind"],
+                "row": row,
+                "marker_row": marker_row,
+                "identity": {
+                    "kind": clean(catalog_row.get("kind")),
+                    "callID": clean(catalog_row.get("call_id")),
+                    "displayName": clean(catalog_row.get("display_name")),
+                    "locus": clean(catalog_row.get("locus")),
+                    "stableID": clean(catalog_row.get("stable_id")) or None,
+                },
+                "cells": [
+                    adapter["ws"].cell(row, col).coordinate
+                    for _sample, col in sorted(adapter["sample_columns"].items())
+                ],
+            })
+        invalidate_matrix_descriptor_cache(adapter["ws"])
+
+
+matrix_descriptor_cache = {}
+matrix_descriptor_scan_count = 0
+
+
+def invalidate_matrix_descriptor_cache(ws):
+    matrix_descriptor_cache.pop(id(ws), None)
+
+
+def compute_matrix_row_descriptors(ws):
     genotype_aliases = ("genotype", "display_name", "provisional_allele_name", "provisional_name")
     stable_aliases = ("stable_cluster_id", "stable_id")
     layout = None
@@ -841,6 +1691,15 @@ def matrix_row_descriptors(ws):
     return descriptors
 
 
+def matrix_row_descriptors(ws):
+    global matrix_descriptor_scan_count
+    key = id(ws)
+    if key not in matrix_descriptor_cache:
+        matrix_descriptor_cache[key] = compute_matrix_row_descriptors(ws)
+        matrix_descriptor_scan_count += 1
+    return matrix_descriptor_cache[key]
+
+
 def matching_matrix_rows(descriptors, target):
     _kind, locus, genotype, _sample, stable_id = matrix_target_parts(target)
     matches = [item for item in descriptors if item["genotype"] == genotype]
@@ -865,10 +1724,16 @@ def matching_matrix_rows(descriptors, target):
         return [], "The target omits a stable cluster ID required to disambiguate workbook rows."
 
     if len(matches) > 1:
-        identities = {(item["locus"], item["genotype"], item["stable_id"]) for item in matches}
-        if len(identities) > 1 or not stable_id:
-            return [], "The workbook target is ambiguous at the available semantic identity."
+        return [], "The workbook target is ambiguous at the available semantic identity."
     return matches, ""
+
+
+def matrix_match_error_is_legitimate_absence(error):
+    return error in {
+        "No workbook row matches the exact genotype.",
+        "No workbook row matches the exact locus and genotype.",
+        "No workbook row matches the exact stable cluster ID.",
+    }
 
 
 def numeric_review_evidence(value):
@@ -929,6 +1794,15 @@ def validate_matrix_reviews():
             result["reason"] = "Matrix reviews require an exact cell target."
             results.append(result)
             continue
+        disposition = clean(entry.get("disposition"))
+        if disposition == "falseNegative":
+            _catalog_row, catalog_error = authoritative_catalog_row(
+                target, requires_cohort_zero=False
+            )
+            if _catalog_row is None:
+                result["reason"] = catalog_error
+                results.append(result)
+                continue
 
         target_destinations = []
         target_errors = []
@@ -954,7 +1828,6 @@ def validate_matrix_reviews():
             results.append(result)
             continue
 
-        disposition = clean(entry.get("disposition"))
         evidence = [numeric_review_evidence(cell.value) for _ws, _item, cell in target_destinations]
         if disposition == "falsePositive":
             supported_destinations = [
@@ -978,6 +1851,9 @@ def validate_matrix_reviews():
             continue
 
         result["status"] = "valid"
+        result["reason"] = managed_cleanup_warnings.get(
+            matrix_target_key(target), ""
+        )
         result["destinations"] = target_destinations
         results.append(result)
     return results
@@ -1009,30 +1885,309 @@ def set_lge_comment(cell, sections):
 
 
 def managed_review_state_sheet():
+    global managed_state_created_for_current_run
     if MANAGED_REVIEW_STATE_SHEET in wb.sheetnames:
+        if not managed_state_created_for_current_run:
+            managed_review_state_schema()
         return wb[MANAGED_REVIEW_STATE_SHEET]
     ws = wb.create_sheet(MANAGED_REVIEW_STATE_SHEET)
-    ws.append([
-        "Sheet",
-        "Target Kind",
-        "Locus",
-        "Genotype",
-        "Sample",
-        "Stable Cluster ID",
-        "Coordinate",
-        "Disposition",
-        "Original Value",
-        "Original Font",
-        "Original Border",
-    ])
+    ws.append(
+        VERSIONED_MANAGED_REVIEW_STATE_PREFIX
+        + [new_managed_state_authority, ""]
+    )
     ws.sheet_state = "veryHidden"
+    managed_state_created_for_current_run = True
     return ws
+
+
+def managed_state_payload_digest(
+    state,
+    authority,
+    schema_version=MANAGED_REVIEW_STATE_SCHEMA_VERSION,
+):
+    def color_payload(color):
+        if color is None:
+            return None
+        color_type = clean(color.type)
+        if color_type == "rgb":
+            value = clean(color.rgb).upper()
+        elif color_type == "indexed":
+            value = color.indexed
+        elif color_type == "theme":
+            value = color.theme
+        elif color_type == "auto":
+            value = bool(color.auto)
+        else:
+            value = None
+        return {"type": color_type, "value": value}
+
+    def font_payload(font):
+        payload = {
+            "italic": bool(font.i),
+            "color": color_payload(font.color),
+        }
+        if schema_version >= 4:
+            payload["bold"] = bool(font.b)
+        return payload
+
+    def fill_payload(fill):
+        if schema_version < 4:
+            return {
+                "type": clean(fill.fill_type),
+                "foreground": color_payload(fill.fgColor),
+                "background": color_payload(fill.bgColor),
+            }
+        payload = {
+            "class": type(fill).__name__,
+            "type": clean(fill.fill_type),
+        }
+        if hasattr(fill, "fgColor"):
+            payload["foreground"] = color_payload(fill.fgColor)
+        if hasattr(fill, "bgColor"):
+            payload["background"] = color_payload(fill.bgColor)
+        for attribute in ("degree", "left", "right", "top", "bottom"):
+            if hasattr(fill, attribute):
+                payload[attribute] = getattr(fill, attribute)
+        if hasattr(fill, "stop"):
+            payload["stops"] = [
+                {
+                    "position": stop.position,
+                    "color": color_payload(stop.color),
+                }
+                for stop in fill.stop
+            ]
+        return payload
+
+    def side_payload(side):
+        if side is None:
+            return None
+        return {
+            "style": clean(side.style),
+            "color": color_payload(side.color),
+        }
+
+    def border_payload(border):
+        return {
+            side: side_payload(getattr(border, side))
+            for side in ("left", "right", "top", "bottom", "diagonal")
+        }
+
+    rows = []
+    for row in range(2, state.max_row + 1):
+        cells = []
+        for col in range(1, len(UNVERSIONED_MANAGED_REVIEW_STATE_HEADERS) + 1):
+            cell = state.cell(row, col)
+            payload = {
+                "value": serialize_managed_value(cell.value),
+            }
+            if col in (10, 14):
+                payload["font"] = font_payload(cell.font)
+            elif col in (11, 15):
+                payload["fill"] = fill_payload(cell.fill)
+            elif col in (12, 16):
+                payload["border"] = border_payload(cell.border)
+            cells.append(payload)
+        rows.append(cells)
+    payload = json.dumps(
+        {"authority": authority, "rows": rows},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def validate_legacy_managed_state(state):
+    for row in range(2, state.max_row + 1):
+        destination = state_destination(state, row)
+        coordinate = clean(state.cell(row, 7).value).upper()
+        if destination is None or destination.coordinate.upper() != coordinate:
+            raise ValueError(
+                "Legacy managed review-state coordinate does not match its "
+                "recorded matrix target; workbook was not modified"
+            )
+        disposition = clean(state.cell(row, 8).value)
+        if disposition == "falsePositive":
+            value = destination.value
+            original_value = state.cell(row, 9).value
+            original_number = numeric_review_evidence(original_value)
+            expected_value = (
+                f"[{review_display_value(original_value, original_number)}]"
+                if original_number is not None
+                else None
+            )
+            valid = (
+                isinstance(value, str)
+                and value == expected_value
+                and bool(destination.font.italic)
+                and color_has_rgb_suffix(destination.font.color, "767676")
+            )
+        else:
+            valid = all(
+                clean(getattr(destination.border, side_name).style) == "thick"
+                and color_has_rgb_suffix(
+                    getattr(destination.border, side_name).color,
+                    "000000",
+                )
+                for side_name in ("left", "right", "top", "bottom")
+            )
+        if not valid:
+            raise ValueError(
+                "Legacy managed review-state presentation is inconsistent "
+                "with the recorded annotation; workbook was not modified"
+            )
+
+
+def managed_review_state_schema():
+    if MANAGED_REVIEW_STATE_SHEET not in wb.sheetnames:
+        return None
+    state = wb[MANAGED_REVIEW_STATE_SHEET]
+    if state.sheet_state != "veryHidden":
+        raise ValueError(
+            "Reserved managed review-state sheet is not Lungfish-owned; "
+            "workbook was not modified"
+        )
+    headers = [
+        clean(state.cell(1, col).value)
+        for col in range(1, state.max_column + 1)
+    ]
+    while headers and not headers[-1]:
+        headers.pop()
+    versioned_prefix = [
+        clean(value) for value in VERSIONED_MANAGED_REVIEW_STATE_PREFIX
+    ]
+    version_3_prefix = [
+        clean(value) for value in VERSION_3_MANAGED_REVIEW_STATE_PREFIX
+    ]
+    if (
+        len(headers) == len(versioned_prefix) + 2
+        and headers[:len(versioned_prefix)] == versioned_prefix
+    ):
+        schema = "versioned-current"
+    elif (
+        len(headers) == len(version_3_prefix) + 2
+        and headers[:len(version_3_prefix)] == version_3_prefix
+    ):
+        schema = "versioned-3"
+    elif headers == LEGACY_MANAGED_REVIEW_STATE_HEADERS:
+        schema = "legacy"
+    else:
+        raise ValueError(
+            "Reserved managed review-state sheet has an unknown schema; "
+            "workbook was not modified"
+        )
+    if state.max_row < 2:
+        raise ValueError(
+            "Reserved managed review-state sheet is empty; workbook was not modified"
+        )
+    for row in range(2, state.max_row + 1):
+        if (
+            not clean(state.cell(row, 1).value)
+            or clean(state.cell(row, 2).value) != "cell"
+            or not clean(state.cell(row, 4).value)
+            or not clean(state.cell(row, 5).value)
+            or not clean(state.cell(row, 7).value)
+            or clean(state.cell(row, 8).value)
+                not in {"falsePositive", "falseNegative"}
+        ):
+            raise ValueError(
+                "Reserved managed review-state sheet contains malformed records; "
+                "workbook was not modified"
+            )
+    if schema in {"versioned-current", "versioned-3"}:
+        authority = headers[-2]
+        recorded_digest = headers[-1].lower()
+        calculated_digest = managed_state_payload_digest(
+            state,
+            authority,
+            schema_version=(
+                MANAGED_REVIEW_STATE_SCHEMA_VERSION
+                if schema == "versioned-current"
+                else 3
+            ),
+        )
+        if (
+            not expected_managed_state_authority
+            or authority != expected_managed_state_authority
+            or not re.fullmatch(r"[0-9a-f]{64}", recorded_digest)
+            or calculated_digest != recorded_digest
+        ):
+            raise ValueError(
+                "Reserved managed review-state authority or payload binding "
+                "does not match the current workbook revision; "
+                "workbook was not modified"
+            )
+    elif schema == "legacy":
+        validate_legacy_managed_state(state)
+    return schema
+
+
+def serialize_managed_value(value):
+    if value is None:
+        payload = {"type": "none", "value": None}
+    elif isinstance(value, bool):
+        payload = {"type": "bool", "value": value}
+    elif isinstance(value, int):
+        payload = {"type": "int", "value": value}
+    elif isinstance(value, float):
+        payload = {"type": "float", "value": value}
+    else:
+        payload = {"type": "string", "value": str(value)}
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+
+def deserialize_managed_value(value):
+    payload = json.loads(clean(value))
+    if payload.get("type") == "none":
+        return None
+    return payload.get("value")
+
+
+def style_array(cell):
+    return list(cell._style) if cell.has_style else []
+
+
+def row_signature(ws, row):
+    dimension = ws.row_dimensions[row]
+    cells = []
+    for col in range(1, ws.max_column + 1):
+        cell = ws.cell(row, col)
+        cells.append({
+            "coordinate": cell.coordinate,
+            "value": serialize_managed_value(cell.value),
+            "data_type": clean(cell.data_type),
+            "style": style_array(cell),
+            "number_format": clean(cell.number_format),
+            "comment": None if cell.comment is None else {
+                "text": cell.comment.text,
+                "author": cell.comment.author,
+            },
+            "hyperlink": None if cell.hyperlink is None else clean(cell.hyperlink.target),
+        })
+    return json.dumps({
+        "cells": cells,
+        "height": dimension.height,
+        "hidden": bool(dimension.hidden),
+        "outline_level": int(dimension.outlineLevel or 0),
+    }, sort_keys=True, separators=(",", ":"))
+
+
+matrix_row_signature_count = 0
+
+
+def cached_row_signature(cache, ws, row):
+    global matrix_row_signature_count
+    key = (id(ws), row)
+    if key not in cache:
+        cache[key] = row_signature(ws, row)
+        matrix_row_signature_count += 1
+    return cache[key]
 
 
 def record_managed_review_state(ws, cell, target, disposition):
     state = managed_review_state_sheet()
     kind, locus, genotype, sample, stable_id = matrix_target_parts(target)
     row = state.max_row + 1
+    synthetic = synthetic_rows_for_current_run.get((ws.title, cell.row))
     values = [
         ws.title,
         kind,
@@ -1042,12 +2197,56 @@ def record_managed_review_state(ws, cell, target, disposition):
         stable_id,
         cell.coordinate,
         disposition,
-        cell.value,
+        serialize_managed_value(cell.value),
     ]
     for col, value in enumerate(values, start=1):
         state.cell(row, col).value = value
     state.cell(row, 10).font = copy(cell.font)
-    state.cell(row, 11).border = copy(cell.border)
+    state.cell(row, 11).fill = copy(cell.fill)
+    state.cell(row, 12).border = copy(cell.border)
+    state.cell(row, 17).value = "true" if synthetic else "false"
+    state.cell(row, 18).value = synthetic["adapter"] if synthetic else ""
+    state.cell(row, 19).value = cell.row if synthetic else None
+    state.cell(row, 21).value = synthetic["marker_row"] if synthetic else None
+    return row
+
+
+def record_expected_managed_review_state(state_row, cell):
+    state = managed_review_state_sheet()
+    state.cell(state_row, 13).value = serialize_managed_value(cell.value)
+    state.cell(state_row, 14).font = copy(cell.font)
+    state.cell(state_row, 15).fill = copy(cell.fill)
+    state.cell(state_row, 16).border = copy(cell.border)
+
+
+def finalize_managed_synthetic_state():
+    if MANAGED_REVIEW_STATE_SHEET not in wb.sheetnames:
+        return
+    state = wb[MANAGED_REVIEW_STATE_SHEET]
+    signature_cache = {}
+    for row in range(2, state.max_row + 1):
+        if clean(state.cell(row, 17).value) != "true":
+            continue
+        sheet_name = clean(state.cell(row, 1).value)
+        synthetic_row = state.cell(row, 19).value
+        marker_row = state.cell(row, 21).value
+        if (
+            sheet_name not in wb.sheetnames
+            or not isinstance(synthetic_row, int)
+            or not isinstance(marker_row, int)
+        ):
+            raise ValueError("Malformed managed synthetic-row state")
+        ws = wb[sheet_name]
+        state.cell(row, 20).value = cached_row_signature(
+            signature_cache, ws, synthetic_row
+        )
+        state.cell(row, 22).value = cached_row_signature(
+            signature_cache, ws, marker_row
+        )
+    state.cell(1, 25).value = new_managed_state_authority
+    state.cell(1, 26).value = managed_state_payload_digest(
+        state, new_managed_state_authority
+    )
 
 
 def state_destination(state, row):
@@ -1079,6 +2278,72 @@ def color_has_rgb_suffix(color, suffix):
     return clean(getattr(color, "rgb", None)).upper().endswith(suffix)
 
 
+def style_matches(left, right):
+    return copy(left) == copy(right)
+
+
+def delete_managed_adapter_row(adapter, row):
+    ws = adapter["ws"]
+    min_col, max_col = adapter_owned_column_bounds(adapter)
+    matrix_end = adapter_matrix_end(adapter)
+    if not isinstance(row, int) or not (adapter["header_row"] < row <= matrix_end):
+        raise ValueError(
+            "Managed annotation-only row is outside its exact matrix ownership; "
+            "workbook was not modified"
+        )
+    for merged_range in ws.merged_cells.ranges:
+        if (
+            merged_range.min_row <= matrix_end
+            and merged_range.max_row >= row
+            and merged_range.min_col <= max_col
+            and merged_range.max_col >= min_col
+        ):
+            raise ValueError(
+                "Managed annotation-only row compaction intersects merged cells; "
+                "workbook was not modified"
+            )
+    for source_row in range(row + 1, matrix_end + 1):
+        for col in range(min_col, max_col + 1):
+            source = ws.cell(source_row, col)
+            destination = ws.cell(source_row - 1, col)
+            destination._value = source._value
+            destination.data_type = source.data_type
+            destination._style = (
+                copy(source._style) if source.has_style else None
+            )
+            destination.comment = (
+                copy(source.comment) if source.comment is not None else None
+            )
+            destination._hyperlink = (
+                copy(source.hyperlink) if source.hyperlink is not None else None
+            )
+    for col in range(min_col, max_col + 1):
+        cell = ws.cell(matrix_end, col)
+        cell.value = None
+        cell.comment = None
+        cell._hyperlink = None
+        cell._style = None
+    updated_end = matrix_end - 1
+    set_adapter_range_end(adapter, updated_end)
+    adapter["managed_end"] = updated_end
+    invalidate_matrix_descriptor_cache(ws)
+
+
+def mark_annotation_only_marker_retained(ws, row):
+    replacements = 0
+    for cell in ws[row]:
+        value = clean(cell.value)
+        if value == ANNOTATION_ONLY_BLOCK_CALL_TYPE:
+            cell.value = RETAINED_ANNOTATION_ONLY_BLOCK_CALL_TYPE
+            replacements += 1
+        elif value == ANNOTATION_ONLY_BLOCK_LABEL:
+            cell.value = RETAINED_ANNOTATION_ONLY_BLOCK_LABEL
+            replacements += 1
+    if replacements == 0:
+        raise ValueError("Malformed managed annotation-only block marker")
+    invalidate_matrix_descriptor_cache(ws)
+
+
 def restore_prior_managed_matrix_annotations():
     for ws in wb.worksheets:
         if ws.title == MANAGED_REVIEW_STATE_SHEET:
@@ -1089,36 +2354,352 @@ def restore_prior_managed_matrix_annotations():
                     set_lge_comment(cell, [])
 
     if MANAGED_REVIEW_STATE_SHEET not in wb.sheetnames:
+        managed_review_restoration_decisions.append({
+            "action": "none",
+            "reason": "no-managed-review-state",
+        })
         return
     state = wb[MANAGED_REVIEW_STATE_SHEET]
+    state_schema = managed_review_state_schema()
+    legacy_state = state_schema == "legacy"
+    version_3_state = state_schema == "versioned-3"
+    signature_cache = {}
+    synthetic_safety = {}
+    marker_safety = {}
+    marker_members = {}
+    for row in range(2, state.max_row + 1):
+        if clean(state.cell(row, 17).value) != "true":
+            continue
+        sheet_name = clean(state.cell(row, 1).value)
+        synthetic_row = state.cell(row, 19).value
+        marker_row = state.cell(row, 21).value
+        key = (sheet_name, synthetic_row)
+        marker_key = (sheet_name, marker_row)
+        marker_members.setdefault(marker_key, set()).add(key)
+        if (
+            sheet_name not in wb.sheetnames
+            or not isinstance(synthetic_row, int)
+            or not isinstance(marker_row, int)
+        ):
+            synthetic_safety[key] = False
+            marker_safety[marker_key] = False
+            continue
+        ws = wb[sheet_name]
+        expected_row = clean(state.cell(row, 20).value)
+        expected_marker = clean(state.cell(row, 22).value)
+        row_safe = (
+            bool(expected_row)
+            and cached_row_signature(signature_cache, ws, synthetic_row) == expected_row
+        )
+        marker_safe = (
+            bool(expected_marker)
+            and cached_row_signature(signature_cache, ws, marker_row) == expected_marker
+        )
+        synthetic_safety[key] = synthetic_safety.get(key, True) and row_safe
+        marker_safety[marker_key] = marker_safety.get(marker_key, True) and marker_safe
+        if not row_safe:
+            target = {
+                "kind": clean(state.cell(row, 2).value),
+                "locus": clean(state.cell(row, 3).value),
+                "genotype": clean(state.cell(row, 4).value),
+                "sample": clean(state.cell(row, 5).value),
+            }
+            stable_id = clean(state.cell(row, 6).value)
+            if stable_id:
+                target["stableClusterID"] = stable_id
+            managed_cleanup_warnings[matrix_target_key(target)] = (
+                "Retained a user-edited analyst annotation-only row."
+            )
+
+    retained_marker_keys = set()
+    retained_member_keys = set()
+    for marker_key, members in marker_members.items():
+        retain_block = (
+            not marker_safety.get(marker_key, False)
+            or any(not synthetic_safety.get(member, False) for member in members)
+        )
+        if retain_block:
+            retained_marker_keys.add(marker_key)
+            retained_member_keys.update(members)
+        if (
+            retain_block
+            and marker_key[0] in wb.sheetnames
+            and isinstance(marker_key[1], int)
+        ):
+            mark_annotation_only_marker_retained(
+                wb[marker_key[0]],
+                marker_key[1],
+            )
+
     for row in range(2, state.max_row + 1):
         cell = state_destination(state, row)
-        if cell is None:
-            continue
+        target = {
+            "kind": clean(state.cell(row, 2).value),
+            "locus": clean(state.cell(row, 3).value),
+            "genotype": clean(state.cell(row, 4).value),
+            "sample": clean(state.cell(row, 5).value),
+        }
+        stable_id = clean(state.cell(row, 6).value)
+        if stable_id:
+            target["stableClusterID"] = stable_id
         disposition = clean(state.cell(row, 8).value)
+        if cell is None:
+            managed_review_restoration_decisions.append({
+                "action": "unresolved-cell",
+                "worksheet": clean(state.cell(row, 1).value) or None,
+                "cell": clean(state.cell(row, 7).value) or None,
+                "target": structured_matrix_target(target),
+                "disposition": disposition,
+                "properties": {},
+            })
+            continue
+        if legacy_state:
+            property_decisions = {}
+            if disposition == "falsePositive":
+                value = clean(cell.value)
+                if value.startswith("[") and value.endswith("]"):
+                    cell.value = state.cell(row, 9).value
+                    property_decisions["value"] = "restored"
+                else:
+                    property_decisions["value"] = "preserved"
+                font = copy(cell.font)
+                original_font = state.cell(row, 10).font
+                if bool(font.italic):
+                    font.italic = original_font.italic
+                    property_decisions["font.italic"] = "restored"
+                else:
+                    property_decisions["font.italic"] = "preserved"
+                if color_has_rgb_suffix(font.color, "767676"):
+                    font.color = copy(original_font.color)
+                    property_decisions["font.color"] = "restored"
+                else:
+                    property_decisions["font.color"] = "preserved"
+                cell.font = font
+            elif disposition == "falseNegative":
+                border = copy(cell.border)
+                original_border = state.cell(row, 11).border
+                for side_name in ("left", "right", "top", "bottom"):
+                    current_side = copy(getattr(border, side_name))
+                    original_side = getattr(original_border, side_name)
+                    if clean(current_side.style) == "thick":
+                        current_side.style = original_side.style
+                        property_decisions[
+                            "border." + side_name + ".style"
+                        ] = "restored"
+                    else:
+                        property_decisions[
+                            "border." + side_name + ".style"
+                        ] = "preserved"
+                    if color_has_rgb_suffix(current_side.color, "000000"):
+                        current_side.color = copy(original_side.color)
+                        property_decisions[
+                            "border." + side_name + ".color"
+                        ] = "restored"
+                    else:
+                        property_decisions[
+                            "border." + side_name + ".color"
+                        ] = "preserved"
+                    setattr(border, side_name, current_side)
+                cell.border = border
+            managed_review_restoration_decisions.append({
+                "action": "restore-legacy-cell",
+                "worksheet": cell.parent.title,
+                "cell": cell.coordinate,
+                "target": structured_matrix_target(target),
+                "disposition": disposition,
+                "properties": property_decisions,
+            })
+            continue
+        if version_3_state and disposition == "falseNegative":
+            property_decisions = {
+                "value": "not-managed",
+                "font.bold": "not-managed",
+                "font.color": "not-managed",
+                "fill.patternType": "not-managed",
+                "fill.fgColor": "not-managed",
+            }
+            border = copy(cell.border)
+            expected_border = state.cell(row, 16).border
+            original_border = state.cell(row, 12).border
+            for side_name in ("left", "right", "top", "bottom"):
+                if style_matches(
+                    getattr(border, side_name),
+                    getattr(expected_border, side_name),
+                ):
+                    setattr(
+                        border,
+                        side_name,
+                        copy(getattr(original_border, side_name)),
+                    )
+                    property_decisions[f"border.{side_name}"] = "restored"
+                else:
+                    property_decisions[f"border.{side_name}"] = "preserved"
+            cell.border = border
+            managed_review_restoration_decisions.append({
+                "action": "restore-version-3-cell",
+                "worksheet": cell.parent.title,
+                "cell": cell.coordinate,
+                "target": structured_matrix_target(target),
+                "disposition": disposition,
+                "properties": property_decisions,
+            })
+            continue
+        property_decisions = {}
+        if serialize_managed_value(cell.value) == clean(state.cell(row, 13).value):
+            cell.value = deserialize_managed_value(state.cell(row, 9).value)
+            property_decisions["value"] = "restored"
+        else:
+            property_decisions["value"] = "preserved"
         if disposition == "falsePositive":
-            value = clean(cell.value)
-            if value.startswith("[") and value.endswith("]"):
-                cell.value = state.cell(row, 9).value
             font = copy(cell.font)
+            expected_font = state.cell(row, 14).font
             original_font = state.cell(row, 10).font
-            if bool(font.italic):
+            if font.italic == expected_font.italic:
                 font.italic = original_font.italic
-            if color_has_rgb_suffix(font.color, "767676"):
+                property_decisions["font.italic"] = "restored"
+            else:
+                property_decisions["font.italic"] = "preserved"
+            if style_matches(font.color, expected_font.color):
                 font.color = copy(original_font.color)
+                property_decisions["font.color"] = "restored"
+            else:
+                property_decisions["font.color"] = "preserved"
             cell.font = font
         elif disposition == "falseNegative":
+            font = copy(cell.font)
+            expected_font = state.cell(row, 14).font
+            original_font = state.cell(row, 10).font
+            if font.bold == expected_font.bold:
+                font.bold = original_font.bold
+                property_decisions["font.bold"] = "restored"
+            else:
+                property_decisions["font.bold"] = "preserved"
+            if style_matches(font.color, expected_font.color):
+                font.color = copy(original_font.color)
+                property_decisions["font.color"] = "restored"
+            else:
+                property_decisions["font.color"] = "preserved"
+            cell.font = font
+            fill = copy(cell.fill)
+            expected_fill = state.cell(row, 15).fill
+            original_fill = state.cell(row, 11).fill
+            if style_matches(fill, expected_fill):
+                cell.fill = copy(original_fill)
+                property_decisions["fill.patternType"] = "restored"
+                property_decisions["fill.fgColor"] = "restored"
+            else:
+                property_decisions["fill.patternType"] = "preserved"
+                property_decisions["fill.fgColor"] = "preserved"
             border = copy(cell.border)
-            original_border = state.cell(row, 11).border
+            expected_border = state.cell(row, 16).border
+            original_border = state.cell(row, 12).border
             for side_name in ("left", "right", "top", "bottom"):
-                current_side = copy(getattr(border, side_name))
-                original_side = getattr(original_border, side_name)
-                if clean(current_side.style) == "thick":
-                    current_side.style = original_side.style
-                if color_has_rgb_suffix(current_side.color, "000000"):
-                    current_side.color = copy(original_side.color)
-                setattr(border, side_name, current_side)
+                if style_matches(
+                    getattr(border, side_name),
+                    getattr(expected_border, side_name),
+                ):
+                    setattr(border, side_name, copy(getattr(original_border, side_name)))
+                    property_decisions[f"border.{side_name}"] = "restored"
+                else:
+                    property_decisions[f"border.{side_name}"] = "preserved"
             cell.border = border
+        managed_review_restoration_decisions.append({
+            "action": "restore-cell",
+            "worksheet": cell.parent.title,
+            "cell": cell.coordinate,
+            "target": structured_matrix_target(target),
+            "disposition": disposition,
+            "properties": property_decisions,
+        })
+
+    rows_to_delete = [
+        key for key, is_safe in synthetic_safety.items()
+        if (
+            is_safe
+            and key not in retained_member_keys
+            and key[0] in wb.sheetnames
+            and isinstance(key[1], int)
+        )
+    ]
+    markers_to_delete = []
+    for marker_key, members in marker_members.items():
+        if (
+            marker_key not in retained_marker_keys
+            and marker_safety.get(marker_key, False)
+            and all(synthetic_safety.get(member, False) for member in members)
+            and marker_key[0] in wb.sheetnames
+            and isinstance(marker_key[1], int)
+        ):
+            markers_to_delete.append(marker_key)
+    deletions_by_sheet = {}
+    for sheet_name, row in rows_to_delete + markers_to_delete:
+        deletions_by_sheet.setdefault(sheet_name, set()).add(row)
+    cleanup_adapters = {}
+    all_cleanup_samples = authoritative_matrix_samples()
+    all_cleanup_samples.update(
+        clean(state.cell(state_row, 5).value)
+        for state_row in range(2, state.max_row + 1)
+        if clean(state.cell(state_row, 5).value)
+    )
+    for sheet_name, rows in deletions_by_sheet.items():
+        ws = wb[sheet_name]
+        state_rows = [
+            state_row for state_row in range(2, state.max_row + 1)
+            if (
+                clean(state.cell(state_row, 17).value) == "true"
+                and clean(state.cell(state_row, 1).value) == sheet_name
+            )
+        ]
+        adapter_kinds = {
+            clean(state.cell(state_row, 18).value)
+            for state_row in state_rows
+        }
+        state_sample_names = {
+            clean(state.cell(state_row, 5).value)
+            for state_row in state_rows
+            if clean(state.cell(state_row, 5).value)
+        }
+        if len(adapter_kinds) != 1:
+            raise ValueError(
+                "Managed annotation-only state has ambiguous adapter ownership; "
+                "workbook was not modified"
+            )
+        adapter = matrix_layout_adapter(
+            ws, all_cleanup_samples, requires_synthesis=True
+        )
+        if (
+            adapter is None
+            or adapter["kind"] not in adapter_kinds
+            or not state_sample_names.issubset(adapter["sample_columns"])
+        ):
+            raise ValueError(
+                "Managed annotation-only state no longer matches its exact "
+                "workbook adapter; workbook was not modified"
+            )
+        adapter_owned_column_bounds(adapter)
+        adapter_owned_table(adapter)
+        matrix_end = adapter_matrix_end(adapter)
+        if any(
+            not (adapter["header_row"] < row <= matrix_end)
+            for row in rows
+        ):
+            raise ValueError(
+                "Managed annotation-only state is outside its exact matrix "
+                "ownership; workbook was not modified"
+            )
+        cleanup_adapters[sheet_name] = adapter
+    for sheet_name, rows in deletions_by_sheet.items():
+        adapter = cleanup_adapters[sheet_name]
+        for row in sorted(rows, reverse=True):
+            delete_managed_adapter_row(adapter, row)
+    managed_review_restoration_decisions.append({
+        "action": "restore",
+        "state_rows": max(0, state.max_row - 1),
+        "deleted_rows": sum(len(rows) for rows in deletions_by_sheet.values()),
+        "retained_rows": len(retained_member_keys),
+        "retained_markers": len(retained_marker_keys),
+        "legacy_state": legacy_state,
+    })
     del wb[MANAGED_REVIEW_STATE_SHEET]
 
 
@@ -1128,7 +2709,7 @@ def apply_review_format(result):
     disposition = clean(result["entry"].get("disposition"))
     target = result["entry"].get("target") or {}
     for ws, _item, cell in result["destinations"]:
-        record_managed_review_state(ws, cell, target, disposition)
+        state_row = record_managed_review_state(ws, cell, target, disposition)
         if disposition == "falsePositive":
             number = numeric_review_evidence(cell.value)
             cell.value = f"[{review_display_value(cell.value, number)}]"
@@ -1137,18 +2718,61 @@ def apply_review_format(result):
             font.color = "FF767676"
             cell.font = font
         else:
-            side = Side(style="thick", color="FF000000")
+            fn_side = Side(style="mediumDashed", color="FFC65911")
+            cell.value = "FN"
             border = copy(cell.border)
-            border.left = side
-            border.right = side
-            border.top = side
-            border.bottom = side
+            border.left = copy(fn_side)
+            border.right = copy(fn_side)
+            border.top = copy(fn_side)
+            border.bottom = copy(fn_side)
             cell.border = border
+            cell.fill = PatternFill(fill_type="solid", fgColor="FFFFF2CC")
+            font = copy(cell.font)
+            font.bold = True
+            font.color = "FF7F6000"
+            cell.font = font
+        record_expected_managed_review_state(state_row, cell)
+
+
+def record_false_negative_target_decisions(matrix_review_results):
+    for result in matrix_review_results:
+        disposition = clean(result["entry"].get("disposition"))
+        if disposition != "falseNegative":
+            continue
+        target = result["entry"].get("target") or {}
+        destinations = result["destinations"]
+        if not destinations:
+            false_negative_target_cell_decisions.append({
+                "worksheet": None,
+                "cell": None,
+                "target": structured_matrix_target(target),
+                "disposition": disposition,
+                "status": result["status"],
+                "reason": result["reason"],
+                "synthetic": False,
+                "presentationPrecedence": "not-applied",
+            })
+            continue
+        for ws, _item, cell in destinations:
+            false_negative_target_cell_decisions.append({
+                "worksheet": ws.title,
+                "cell": cell.coordinate,
+                "target": structured_matrix_target(target),
+                "disposition": disposition,
+                "status": result["status"],
+                "reason": result["reason"],
+                "synthetic": (
+                    (ws.title, cell.row) in synthetic_rows_for_current_run
+                ),
+                "presentationPrecedence":
+                    "false-negative-over-viewport-style",
+            })
 
 
 def apply_matrix_annotations_to_workbook(matrix_review_results):
     if not resolved_matrix_styles and not resolved_matrix_comments and not matrix_review_results:
         return
+    record_false_negative_target_decisions(matrix_review_results)
     row_styles, column_styles, cell_styles = collect_matrix_style_maps()
     row_comments = {}
     column_comments = {}
@@ -1249,6 +2873,7 @@ def apply_matrix_annotations_to_workbook(matrix_review_results):
 
     for result in matrix_review_results:
         apply_review_format(result)
+    finalize_managed_synthetic_state()
 
 
 # Candidate display visibility is deliberately ignored here: workbooks are durable
@@ -1940,11 +3565,14 @@ def write_two_sheet_mhc_contract():
             if sample not in seen_sample_names:
                 sample_names.append(sample)
                 seen_sample_names.add(sample)
+    for sample in sorted(manual_snapshot_samples):
+        if sample not in seen_sample_names:
+            sample_names.append(sample)
+            seen_sample_names.add(sample)
 
     analyst_labels = [
-        f"{locus} Haplotype {index}"
-        for locus in ["MHC-A", "MHC-B", "MHC-DRB", "MHC-DQA", "MHC-DQB", "MHC-DPA", "MHC-DPB"]
-        for index in (1, 2)
+        clean(mapping.get("row_label"))
+        for mapping in manual_haplotype_rows
     ] + ["Comments"]
     source_sample_columns = {
         clean(source_unified.cell(1, col).value): col
@@ -1986,19 +3614,34 @@ def write_two_sheet_mhc_contract():
         for sample in sample_names
     ])
 
-    def generated_haplotype(sample, locus, index):
+    def generated_haplotype(sample, locus, slot):
+        if sample in manual_snapshot_samples:
+            return exact_call_value(sample, locus, slot)
         call = call_for(sample, locus)
-        key = "haplotype1" if index == 1 else "haplotype2"
+        key = "haplotype1" if slot == "h1" else "haplotype2"
         return clean(call.get(key))
 
-    for locus in ["MHC-A", "MHC-B", "MHC-DRB", "MHC-DQA", "MHC-DQB", "MHC-DPA", "MHC-DPB"]:
-        for index in (1, 2):
-            label = f"{locus} Haplotype {index}"
-            values = []
-            for sample in sample_names:
-                preserved = preserved_analyst_values.get((label, sample))
-                values.append(preserved if clean(preserved) else generated_haplotype(sample, locus, index))
-            unified.append([label, "", ""] + metadata_blanks + values)
+    for mapping in manual_haplotype_rows:
+        locus = clean(mapping.get("locus"))
+        slot = clean(mapping.get("slot"))
+        label = clean(mapping.get("row_label"))
+        values = []
+        for sample in sample_names:
+            generated = generated_haplotype(sample, locus, slot)
+            preserved = preserved_analyst_values.get((label, sample))
+            values.append(
+                generated
+                if sample in manual_snapshot_samples
+                else (preserved if clean(preserved) else generated)
+            )
+        unified.append([label, "", ""] + metadata_blanks + values)
+        analyst_row = unified.max_row
+        for sample_index, sample in enumerate(sample_names):
+            if sample in manual_snapshot_samples:
+                set_literal_cell(
+                    unified.cell(analyst_row, 13 + sample_index),
+                    generated_haplotype(sample, locus, slot),
+                )
     comment_values = []
     for sample in sample_names:
         preserved = preserved_analyst_values.get(("Comments", sample))
@@ -2127,12 +3770,15 @@ def write_two_sheet_mhc_contract():
             del wb[worksheet.title]
 
 
+managed_review_state_schema()
+validate_matrix_sample_header_ambiguity()
 restore_prior_managed_matrix_annotations()
 patch_summary_sheet("Abbreviated Haplotypes")
 patch_summary_sheet("Custom Sort")
 patch_full_sheet()
 matrix_review_results = []
 if not uses_two_sheet_mhc_contract or preserve_existing_workbook_projection:
+    prepare_missing_false_negative_rows()
     matrix_review_results = validate_matrix_reviews()
     write_override_sheets(matrix_review_results)
     write_matrix_annotation_sheet(matrix_review_results)
@@ -2166,19 +3812,59 @@ if not preserve_existing_workbook_projection:
 if uses_two_sheet_mhc_contract and not preserve_existing_workbook_projection:
     write_two_sheet_mhc_contract()
     if resolved_matrix_styles or resolved_matrix_comments or matrix_reviews:
+        prepare_missing_false_negative_rows()
         matrix_review_results = validate_matrix_reviews()
         write_override_sheets(matrix_review_results)
         write_matrix_annotation_sheet(matrix_review_results)
         apply_matrix_annotations_to_workbook(matrix_review_results)
 
+
+def normalized_package_members(path):
+    members = {}
+    with zipfile.ZipFile(path) as archive:
+        for name in archive.namelist():
+            content = archive.read(name)
+            if name == "docProps/core.xml":
+                content = re.sub(
+                    rb"(<dcterms:modified\b[^>]*>).*?(</dcterms:modified>)",
+                    rb"\1\2",
+                    content,
+                    flags=re.DOTALL,
+                )
+            members[name] = content
+    return members
+
+
 wb.save(output_path)
+if MANAGED_REVIEW_STATE_SHEET in wb.sheetnames:
+    canonical_wb = load_workbook(output_path)
+    canonical_state = canonical_wb[MANAGED_REVIEW_STATE_SHEET]
+    canonical_state.cell(1, 25).value = new_managed_state_authority
+    canonical_state.cell(1, 26).value = managed_state_payload_digest(
+        canonical_state, new_managed_state_authority
+    )
+    canonical_wb.save(output_path)
+workbook_semantic_no_op = (
+    normalized_package_members(input_path)
+    == normalized_package_members(output_path)
+)
+if workbook_semantic_no_op:
+    shutil.copyfile(input_path, output_path)
 print(json.dumps({
     "python_version": platform.python_version(),
     "python_executable": sys.executable,
     "openpyxl_version": openpyxl.__version__,
+    "matrix_descriptor_scan_count": matrix_descriptor_scan_count,
+    "matrix_row_signature_count": matrix_row_signature_count,
     "candidate_count": len([row for row in normalized_unmatched_rows if clean(row.get("record_category")) == "candidate"]),
     "unnameable_count": len([row for row in normalized_unmatched_rows if clean(row.get("record_category")) == "un-nameable"]),
     "preserved_existing_workbook_projection": preserve_existing_workbook_projection,
+    "workbook_semantic_no_op": workbook_semantic_no_op,
+    "workbook_matrix_adapter_version": WORKBOOK_MATRIX_ADAPTER_VERSION,
+    "workbook_adapter_decisions": workbook_adapter_decisions,
+    "managed_review_restoration_decisions": managed_review_restoration_decisions,
+    "false_negative_synthesis_decisions": false_negative_synthesis_decisions,
+    "false_negative_target_cell_decisions": false_negative_target_cell_decisions,
 }, sort_keys=True))
 """#
     }

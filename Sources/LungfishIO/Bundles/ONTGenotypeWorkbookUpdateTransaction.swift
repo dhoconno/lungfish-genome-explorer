@@ -124,6 +124,18 @@ public enum ONTGenotypeWorkbookUpdateRecoveryError: Error, LocalizedError, Senda
     case invalidTransaction(String)
     case ambiguousTransaction(String)
     case currentWorkbookIntegrity(String)
+    case cleanupPendingWarning(
+        quarantinePath: String,
+        retryState: String,
+        warningPath: String,
+        reason: String
+    )
+    case cleanupPendingWarningPersistenceFailure(
+        quarantinePath: String,
+        retryState: String,
+        reason: String,
+        warningFailure: String
+    )
 
     public var errorDescription: String? {
         switch self {
@@ -136,6 +148,22 @@ public enum ONTGenotypeWorkbookUpdateRecoveryError: Error, LocalizedError, Senda
         case .invalidTransaction(let message): return "Workbook transaction marker is invalid: \(message)"
         case .ambiguousTransaction(let message): return "Workbook transaction recovery is ambiguous: \(message)"
         case .currentWorkbookIntegrity(let message): return "The current workbook failed integrity validation: \(message)"
+        case .cleanupPendingWarning(
+            let quarantinePath,
+            let retryState,
+            let warningPath,
+            let reason
+        ):
+            return "Workbook cleanup retained \(quarantinePath) in \(retryState) retry state. Warning: \(warningPath). \(reason)"
+        case .cleanupPendingWarningPersistenceFailure(
+            let quarantinePath,
+            let retryState,
+            let reason,
+            let warningFailure
+        ):
+            return "Workbook cleanup retained \(quarantinePath) in \(retryState) retry state. "
+                + "Original cleanup failure: \(reason) Warning persistence also failed: "
+                + warningFailure
         }
     }
 }
@@ -154,12 +182,22 @@ public typealias ONTGenotypeDirectoryRenamePrimitive = @Sendable (
     _ flags: UInt32
 ) -> Int32
 
+public enum ONTGenotypeBundlePublicationLockProbe:
+    String, Equatable, Sendable
+{
+    case missing
+    case unlocked
+    case held
+}
+
 public final class ONTGenotypeBundlePublicationLock: @unchecked Sendable {
     public let lockURL: URL
+    public let bundleURL: URL
     private let stateLock = NSLock()
     private var descriptor: Int32
 
-    private init(lockURL: URL, descriptor: Int32) {
+    private init(bundleURL: URL, lockURL: URL, descriptor: Int32) {
+        self.bundleURL = bundleURL.standardizedFileURL
         self.lockURL = lockURL
         self.descriptor = descriptor
     }
@@ -208,7 +246,67 @@ public final class ONTGenotypeBundlePublicationLock: @unchecked Sendable {
             }
             throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(lockURL.path, code)
         }
-        return ONTGenotypeBundlePublicationLock(lockURL: lockURL, descriptor: descriptor)
+        return ONTGenotypeBundlePublicationLock(
+            bundleURL: bundleURL,
+            lockURL: lockURL,
+            descriptor: descriptor
+        )
+    }
+
+    public static func probe(
+        for bundleURL: URL
+    ) throws -> ONTGenotypeBundlePublicationLockProbe {
+        let parent = bundleURL.standardizedFileURL
+            .deletingLastPathComponent()
+        let parentDescriptor: Int32
+        do {
+            parentDescriptor =
+                try NoFollowFileSystem.openDirectoryHierarchy(parent)
+        } catch {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.unsafeLock(
+                parent.path
+            )
+        }
+        defer { Darwin.close(parentDescriptor) }
+        let lockURL = lockURL(for: bundleURL)
+        let descriptor = lockURL.lastPathComponent.withCString {
+            Darwin.openat(
+                parentDescriptor,
+                $0,
+                O_RDWR | O_NOFOLLOW | O_CLOEXEC
+            )
+        }
+        guard descriptor >= 0 else {
+            if errno == ENOENT { return .missing }
+            if errno == ELOOP || errno == ENOTDIR {
+                throw ONTGenotypeWorkbookUpdateRecoveryError.unsafeLock(
+                    lockURL.path
+                )
+            }
+            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(
+                lockURL.path,
+                errno
+            )
+        }
+        defer { Darwin.close(descriptor) }
+        var information = stat()
+        guard Darwin.fstat(descriptor, &information) == 0,
+              information.st_mode & S_IFMT == S_IFREG else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.unsafeLock(
+                lockURL.path
+            )
+        }
+        if flock(descriptor, LOCK_EX | LOCK_NB) == 0 {
+            _ = flock(descriptor, LOCK_UN)
+            return .unlocked
+        }
+        if errno == EWOULDBLOCK || errno == EAGAIN {
+            return .held
+        }
+        throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(
+            lockURL.path,
+            errno
+        )
     }
 
     public func release() {
@@ -221,7 +319,70 @@ public final class ONTGenotypeBundlePublicationLock: @unchecked Sendable {
         Darwin.close(value)
     }
 
+    /// Revalidates legacy archive authority while this exact live bundle's
+    /// publication lock is demonstrably held by this capability object.
+    public func inspectLegacyArchiveAuthority(
+        transactionID: String,
+        attestationRootURL: URL? = nil
+    ) -> ONTGenotypeWorkbookLegacyAuthorityInspection {
+        let held = stateLock.withLock { descriptor >= 0 }
+        guard held else {
+            return .blocked(
+                reason: "The workbook publication lock is no longer held."
+            )
+        }
+        return ONTGenotypeWorkbookUpdateRecovery
+            .inspectLegacyArchiveAuthorityWhileHoldingLock(
+                transactionID: transactionID,
+                liveBundleURL: bundleURL,
+                attestationRootURL: attestationRootURL
+            )
+    }
+
     deinit { release() }
+}
+
+public struct ONTGenotypeWorkbookLegacyReceiptFact:
+    Equatable, Sendable
+{
+    public let transactionID: String
+    public let action: String
+    public let exitStatus: Int
+    public let finalBundlePath: String
+    public let oldCurrentWorkbook:
+        ONTGenotypeWorkbookUpdateFileDescriptor
+    public let newCurrentWorkbook:
+        ONTGenotypeWorkbookUpdateFileDescriptor
+
+    public init(
+        transactionID: String,
+        action: String,
+        exitStatus: Int,
+        finalBundlePath: String,
+        oldCurrentWorkbook:
+            ONTGenotypeWorkbookUpdateFileDescriptor,
+        newCurrentWorkbook:
+            ONTGenotypeWorkbookUpdateFileDescriptor
+    ) {
+        self.transactionID = transactionID
+        self.action = action
+        self.exitStatus = exitStatus
+        self.finalBundlePath = finalBundlePath
+        self.oldCurrentWorkbook = oldCurrentWorkbook
+        self.newCurrentWorkbook = newCurrentWorkbook
+    }
+}
+
+public enum ONTGenotypeWorkbookLegacyAuthorityInspection:
+    Equatable, Sendable
+{
+    case clear(receipts: [ONTGenotypeWorkbookLegacyReceiptFact])
+    case blocked(reason: String)
+
+    public var blockReason: String? {
+        guard case .blocked(let reason) = self else { return nil }
+        return reason
+    }
 }
 
 public enum ONTGenotypeWorkbookUpdateRecovery {
@@ -258,12 +419,28 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         let claim: AttestationClaim
     }
 
-    private struct FileWitness: Equatable {
-        let device: dev_t
-        let inode: ino_t
-        let size: off_t
-        let sha256: String
+    private struct CleanupAttestationRecord: Codable, Equatable {
+        let schemaVersion: Int
+        let cleanupAttestationID: String
+        let transactionAttestationID: String
+        let transactionID: String
+        let stateFileName: String
+        let stateSizeBytes: Int64
+        let stateSHA256: String
+        let finalBundlePath: String
+        let quarantinePath: String
+        let survivorIdentity:
+            ONTGenotypeWorkbookUpdateDirectoryIdentity
+        let survivorManifest: ONTGenotypeWorkbookUpdateFileDescriptor
+        let survivorCurrentWorkbook:
+            ONTGenotypeWorkbookUpdateFileDescriptor
+        let terminalReceiptAction: String
+        let terminalReceiptDetail: String
+        let decision: ONTGenotypeWorkbookCleanupDecision
     }
+
+    private typealias FileWitness =
+        ONTGenotypeWorkbookRetirementFileWitness
 
     private struct RecoveryAuthority {
         let transaction: ONTGenotypeWorkbookUpdateTransaction
@@ -273,7 +450,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
     }
 
     private struct Receipt: Codable {
-        struct File: Codable {
+        struct File: Codable, Equatable {
             let role: String
             let descriptor: ONTGenotypeWorkbookUpdateFileDescriptor
         }
@@ -476,29 +653,37 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             for: transaction,
             attestationRootURL: attestationRootURL
         )
-        try unlinkExact(url, expected: witness)
+        try unlinkExact(
+            url,
+            expected: witness,
+            checkpoint:
+                "before-workbook-unpublished-attestation-detach"
+        )
     }
 
     public static func removeMarker(for bundleURL: URL) throws {
         let marker = markerURL(for: bundleURL)
-        var info = stat()
-        if Darwin.lstat(marker.path, &info) != 0 {
-            if errno == ENOENT { return }
-            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(marker.path, errno)
+        let witness: FileWitness
+        do {
+            witness = try readFileWithWitness(marker).1
+        } catch let error as ONTGenotypeWorkbookUpdateRecoveryError {
+            if case let .systemFailure(_, code) = error, code == ENOENT {
+                return
+            }
+            throw error
         }
-        guard info.st_mode & S_IFMT == S_IFREG else {
-            throw ONTGenotypeWorkbookUpdateRecoveryError.unsafeMarker(marker.path)
-        }
-        guard Darwin.unlink(marker.path) == 0 else {
-            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(marker.path, errno)
-        }
-        try syncDirectory(marker.deletingLastPathComponent())
+        try unlinkExact(
+            marker,
+            expected: witness,
+            checkpoint: "before-workbook-marker-detach"
+        )
     }
 
     public static func finalizeCommittedTransactionAssumingLock(
         _ transaction: ONTGenotypeWorkbookUpdateTransaction,
         for bundleURL: URL,
-        attestationRootURL: URL? = nil
+        attestationRootURL: URL? = nil,
+        cleanupFailureInjector: (@Sendable (String) throws -> Void)? = nil
     ) throws {
         let authority = try loadRecoveryAuthority(
             for: bundleURL,
@@ -521,15 +706,33 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             )
         }
         try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-        try removeProvenTransactionRoot(transaction)
+        try prepareProvenTransactionRootCleanup(
+            transaction,
+            decision: .committed,
+            attestationRootURL: attestationRootURL,
+            failureInjector: cleanupFailureInjector
+        )
         try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-        try removeMarkerAndAttestation(authority, for: bundleURL, attestationRootURL: attestationRootURL)
+        try removeMarkerAndAttestation(
+            authority,
+            for: bundleURL,
+            attestationRootURL: attestationRootURL,
+            cleanupFailureInjector: cleanupFailureInjector
+        )
+        try completeProvenTransactionRootCleanup(
+            transaction,
+            decision: .committed,
+            for: bundleURL,
+            attestationRootURL: attestationRootURL,
+            failureInjector: cleanupFailureInjector
+        )
     }
 
     public static func discardPreparedTransactionAssumingLock(
         _ transaction: ONTGenotypeWorkbookUpdateTransaction,
         for bundleURL: URL,
-        attestationRootURL: URL? = nil
+        attestationRootURL: URL? = nil,
+        cleanupFailureInjector: (@Sendable (String) throws -> Void)? = nil
     ) throws {
         let authority = try loadRecoveryAuthority(
             for: bundleURL,
@@ -544,15 +747,55 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         }
         try validatePreparedDirectoryIdentitiesAssumingLock(transaction, for: bundleURL)
         try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-        try removeProvenTransactionRoot(transaction)
+        try prepareProvenTransactionRootCleanup(
+            transaction,
+            decision: .preparedDiscard,
+            attestationRootURL: attestationRootURL,
+            failureInjector: cleanupFailureInjector
+        )
         try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-        try removeMarkerAndAttestation(authority, for: bundleURL, attestationRootURL: attestationRootURL)
+        try removeMarkerAndAttestation(
+            authority,
+            for: bundleURL,
+            attestationRootURL: attestationRootURL,
+            cleanupFailureInjector: cleanupFailureInjector
+        )
+        try completeProvenTransactionRootCleanup(
+            transaction,
+            decision: .preparedDiscard,
+            for: bundleURL,
+            attestationRootURL: attestationRootURL,
+            failureInjector: cleanupFailureInjector
+        )
     }
 
     public static func recoverIfNeededAssumingLock(
         for bundleURL: URL,
-        attestationRootURL: URL? = nil
+        attestationRootURL: URL? = nil,
+        cleanupFailureInjector: (@Sendable (String) throws -> Void)? = nil
     ) throws {
+        try recoverIfNeededAssumingLock(
+            for: bundleURL,
+            attestationRootURL: attestationRootURL,
+            cleanupFailureInjector: cleanupFailureInjector,
+            cleanupOperations: .darwin
+        )
+    }
+
+    static func recoverIfNeededAssumingLock(
+        for bundleURL: URL,
+        attestationRootURL: URL? = nil,
+        cleanupFailureInjector: (@Sendable (String) throws -> Void)? = nil,
+        cleanupOperations: ONTGenotypeWorkbookCleanupOperations
+    ) throws {
+        if try recoverCleanupStateIfPresent(
+            for: bundleURL,
+            attestationRootURL: attestationRootURL,
+            failureInjector: cleanupFailureInjector,
+            cleanupOperations: cleanupOperations
+        ) {
+            return
+        }
         guard let authority = try loadRecoveryAuthorityIfPresent(
             for: bundleURL,
             attestationRootURL: attestationRootURL
@@ -567,7 +810,9 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         ) {
             try recoverIfNeededAssumingLock(
                 for: bundleURL,
-                attestationRootURL: attestationRootURL
+                attestationRootURL: attestationRootURL,
+                cleanupFailureInjector: cleanupFailureInjector,
+                cleanupOperations: cleanupOperations
             )
             return
         }
@@ -586,24 +831,54 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         if finalState == .oldWorkbookEdited,
            (stagingState == .committedNew || stagingState == .committedNewWorkbookEdited) {
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try removeProvenTransactionRoot(transaction)
-            try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try writeReceipt(
+            try prepareProvenTransactionRootCleanup(
                 transaction,
-                action: "preserved-manually-edited-prior-generation",
-                detail: "The prior generation was restored after a manual-save conflict; the generated revision was discarded."
+                decision: .manualSaveWinner,
+                attestationRootURL: attestationRootURL,
+                failureInjector: cleanupFailureInjector
             )
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try removeMarkerAndAttestation(authority, for: bundleURL, attestationRootURL: attestationRootURL)
+            try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
+            try removeMarkerAndAttestation(
+                authority,
+                for: bundleURL,
+                attestationRootURL: attestationRootURL,
+                cleanupFailureInjector: cleanupFailureInjector
+            )
+            try completeProvenTransactionRootCleanup(
+                transaction,
+                decision: .manualSaveWinner,
+                for: bundleURL,
+                attestationRootURL: attestationRootURL,
+                failureInjector: cleanupFailureInjector,
+                cleanupOperations: cleanupOperations
+            )
             return
         }
         if (finalState == .old || finalState == .oldWorkbookEdited), stagingState == .preparedNew {
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try removeProvenTransactionRoot(transaction)
+            try prepareProvenTransactionRootCleanup(
+                transaction,
+                decision: .preparedDiscard,
+                attestationRootURL: attestationRootURL,
+                failureInjector: cleanupFailureInjector
+            )
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try writeReceipt(transaction, action: "discarded-unpublished-staging", detail: "Final generation remained unchanged.")
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try removeMarkerAndAttestation(authority, for: bundleURL, attestationRootURL: attestationRootURL)
+            try removeMarkerAndAttestation(
+                authority,
+                for: bundleURL,
+                attestationRootURL: attestationRootURL,
+                cleanupFailureInjector: cleanupFailureInjector
+            )
+            try completeProvenTransactionRootCleanup(
+                transaction,
+                decision: .preparedDiscard,
+                for: bundleURL,
+                attestationRootURL: attestationRootURL,
+                failureInjector: cleanupFailureInjector,
+                cleanupOperations: cleanupOperations
+            )
             return
         }
         if finalState == .preparedNew, stagingState == .old {
@@ -623,11 +898,28 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 throw try ambiguous(transaction, detail: "Rollback exchange did not restore the prior generation.")
             }
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try removeProvenTransactionRoot(transaction)
+            try prepareProvenTransactionRootCleanup(
+                transaction,
+                decision: .rollback,
+                attestationRootURL: attestationRootURL,
+                failureInjector: cleanupFailureInjector
+            )
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try writeReceipt(transaction, action: "restored-prior-generation", detail: "Recovered an interrupted pre-manifest workbook publication.")
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try removeMarkerAndAttestation(authority, for: bundleURL, attestationRootURL: attestationRootURL)
+            try removeMarkerAndAttestation(
+                authority,
+                for: bundleURL,
+                attestationRootURL: attestationRootURL,
+                cleanupFailureInjector: cleanupFailureInjector
+            )
+            try completeProvenTransactionRootCleanup(
+                transaction,
+                decision: .rollback,
+                for: bundleURL,
+                attestationRootURL: attestationRootURL,
+                failureInjector: cleanupFailureInjector,
+                cleanupOperations: cleanupOperations
+            )
             return
         }
         if (finalState == .committedNew || finalState == .committedNewWorkbookEdited),
@@ -651,42 +943,107 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                 )
             }
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try removeProvenTransactionRoot(transaction)
-            try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try writeReceipt(
+            try prepareProvenTransactionRootCleanup(
                 transaction,
-                action: "restored-manually-edited-prior-generation",
-                detail: "A manual save to the retired workbook generation won the publication conflict; the generated revision was discarded."
+                decision: .manualSaveWinner,
+                attestationRootURL: attestationRootURL,
+                failureInjector: cleanupFailureInjector
             )
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try removeMarkerAndAttestation(authority, for: bundleURL, attestationRootURL: attestationRootURL)
+            try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
+            try removeMarkerAndAttestation(
+                authority,
+                for: bundleURL,
+                attestationRootURL: attestationRootURL,
+                cleanupFailureInjector: cleanupFailureInjector
+            )
+            try completeProvenTransactionRootCleanup(
+                transaction,
+                decision: .manualSaveWinner,
+                for: bundleURL,
+                attestationRootURL: attestationRootURL,
+                failureInjector: cleanupFailureInjector,
+                cleanupOperations: cleanupOperations
+            )
             return
         }
         if (finalState == .committedNew || finalState == .committedNewWorkbookEdited),
            stagingState == .old {
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try removeProvenTransactionRoot(transaction)
+            try prepareProvenTransactionRootCleanup(
+                transaction,
+                decision: .committed,
+                attestationRootURL: attestationRootURL,
+                failureInjector: cleanupFailureInjector
+            )
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try writeReceipt(transaction, action: "finished-committed-cleanup", detail: "The new manifest and workbook were already durable.")
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try removeMarkerAndAttestation(authority, for: bundleURL, attestationRootURL: attestationRootURL)
+            try removeMarkerAndAttestation(
+                authority,
+                for: bundleURL,
+                attestationRootURL: attestationRootURL,
+                cleanupFailureInjector: cleanupFailureInjector
+            )
+            try completeProvenTransactionRootCleanup(
+                transaction,
+                decision: .committed,
+                for: bundleURL,
+                attestationRootURL: attestationRootURL,
+                failureInjector: cleanupFailureInjector,
+                cleanupOperations: cleanupOperations
+            )
             return
         }
         if (finalState == .committedNew || finalState == .committedNewWorkbookEdited), stagingState == .missing {
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try writeReceipt(transaction, action: "finished-committed-marker-cleanup", detail: "The prior generation had already been retired.")
+            try prepareProvenTransactionRootCleanup(
+                transaction,
+                decision: .committed,
+                attestationRootURL: attestationRootURL,
+                failureInjector: cleanupFailureInjector
+            )
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try removeMarkerAndAttestation(authority, for: bundleURL, attestationRootURL: attestationRootURL)
+            try removeMarkerAndAttestation(
+                authority,
+                for: bundleURL,
+                attestationRootURL: attestationRootURL,
+                cleanupFailureInjector: cleanupFailureInjector
+            )
+            try completeProvenTransactionRootCleanup(
+                transaction,
+                decision: .committed,
+                for: bundleURL,
+                attestationRootURL: attestationRootURL,
+                failureInjector: cleanupFailureInjector,
+                cleanupOperations: cleanupOperations
+            )
             return
         }
         if (finalState == .old || finalState == .oldWorkbookEdited),
            !FileManager.default.fileExists(atPath: staging.path) {
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try removeProvenTransactionRoot(transaction)
+            try prepareProvenTransactionRootCleanup(
+                transaction,
+                decision: .rollback,
+                attestationRootURL: attestationRootURL,
+                failureInjector: cleanupFailureInjector
+            )
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try writeReceipt(transaction, action: "finished-rollback-cleanup", detail: "The prior generation was already restored.")
             try requireAuthorityUnchanged(authority, for: bundleURL, attestationRootURL: attestationRootURL)
-            try removeMarkerAndAttestation(authority, for: bundleURL, attestationRootURL: attestationRootURL)
+            try removeMarkerAndAttestation(
+                authority,
+                for: bundleURL,
+                attestationRootURL: attestationRootURL,
+                cleanupFailureInjector: cleanupFailureInjector
+            )
+            try completeProvenTransactionRootCleanup(
+                transaction,
+                decision: .rollback,
+                for: bundleURL,
+                attestationRootURL: attestationRootURL,
+                failureInjector: cleanupFailureInjector,
+                cleanupOperations: cleanupOperations
+            )
             return
         }
         throw try ambiguous(
@@ -696,10 +1053,363 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
     }
 
     public static func recoveryAuthorityExists(for bundleURL: URL) throws -> Bool {
-        try loadRecoveryAuthorityIfPresent(
+        if try !ONTGenotypeWorkbookCleanupStateStore.states(
+            for: bundleURL.standardizedFileURL
+        ).isEmpty {
+            return true
+        }
+        return try loadRecoveryAuthorityIfPresent(
             for: bundleURL.standardizedFileURL,
             attestationRootURL: nil
         ) != nil
+    }
+
+    /// Read-only authority inspection used by project storage preview.
+    ///
+    /// This method never creates a lock, runs recovery, writes a receipt, or
+    /// hashes an archive payload. Private receipt and attestation schemas stay
+    /// inside LungfishIO so storage policy cannot reinterpret publication
+    /// authority.
+    public static func inspectLegacyArchiveAuthority(
+        transactionID: String,
+        liveBundleURL: URL,
+        attestationRootURL: URL? = nil
+    ) -> ONTGenotypeWorkbookLegacyAuthorityInspection {
+        inspectLegacyArchiveAuthority(
+            transactionID: transactionID,
+            liveBundleURL: liveBundleURL,
+            attestationRootURL: attestationRootURL,
+            attestationEnumerationObserver: nil
+        )
+    }
+
+    static func inspectLegacyArchiveAuthority(
+        transactionID: String,
+        liveBundleURL: URL,
+        attestationRootURL: URL?,
+        attestationEnumerationObserver: (() throws -> Void)?
+    ) -> ONTGenotypeWorkbookLegacyAuthorityInspection {
+        inspectLegacyArchiveAuthority(
+            transactionID: transactionID,
+            liveBundleURL: liveBundleURL,
+            attestationRootURL: attestationRootURL,
+            publicationLockHeldByCapability: false,
+            attestationEnumerationObserver:
+                attestationEnumerationObserver
+        )
+    }
+
+    fileprivate static func inspectLegacyArchiveAuthorityWhileHoldingLock(
+        transactionID: String,
+        liveBundleURL: URL,
+        attestationRootURL: URL?
+    ) -> ONTGenotypeWorkbookLegacyAuthorityInspection {
+        inspectLegacyArchiveAuthority(
+            transactionID: transactionID,
+            liveBundleURL: liveBundleURL,
+            attestationRootURL: attestationRootURL,
+            publicationLockHeldByCapability: true,
+            attestationEnumerationObserver: nil
+        )
+    }
+
+    private static func inspectLegacyArchiveAuthority(
+        transactionID: String,
+        liveBundleURL: URL,
+        attestationRootURL: URL?,
+        publicationLockHeldByCapability: Bool,
+        attestationEnumerationObserver: (() throws -> Void)?
+    ) -> ONTGenotypeWorkbookLegacyAuthorityInspection {
+        let bundle = liveBundleURL.standardizedFileURL
+        guard !transactionID.isEmpty,
+              !transactionID.utf8.contains(0),
+              DurableAtomicFileStore.isSinglePathComponent(
+                transactionID
+              ) else {
+            return .blocked(reason: "The archive transaction ID is unsafe.")
+        }
+        do {
+            if !publicationLockHeldByCapability {
+                switch try ONTGenotypeBundlePublicationLock.probe(for: bundle) {
+                case .held:
+                    return .blocked(
+                        reason: "The workbook publication lock is held."
+                    )
+                case .missing, .unlocked:
+                    break
+                }
+            }
+
+            if try !discoveredMarkerURLs(for: bundle).isEmpty {
+                return .blocked(
+                    reason:
+                        "A live workbook transaction claims this bundle."
+                )
+            }
+            if try !ONTGenotypeWorkbookCleanupStateStore.states(
+                for: bundle
+            ).isEmpty {
+                return .blocked(
+                    reason:
+                        "A workbook cleanup recovery state claims this bundle."
+                )
+            }
+
+            let attestationRoot =
+                try attestationRootURL?.standardizedFileURL
+                    ?? defaultAttestationRootURL()
+            let attestationRootDescriptor: Int32
+            do {
+                attestationRootDescriptor =
+                    try NoFollowFileSystem.openDirectoryHierarchy(
+                        attestationRoot
+                    )
+            } catch let error as POSIXError where error.code == .ENOENT {
+                attestationRootDescriptor = -1
+            } catch {
+                return .blocked(
+                    reason:
+                        "Workbook attestation storage is unsafe or has a "
+                        + "symbolic-link component."
+                )
+            }
+            if attestationRootDescriptor >= 0 {
+                defer { Darwin.close(attestationRootDescriptor) }
+                var rootInformation = stat()
+                guard Darwin.fstat(
+                    attestationRootDescriptor,
+                    &rootInformation
+                ) == 0,
+                    rootInformation.st_mode & S_IFMT == S_IFDIR,
+                    rootInformation.st_uid == Darwin.geteuid(),
+                    rootInformation.st_nlink >= 2,
+                    rootInformation.st_mode & 0o777 == 0o700 else {
+                    return .blocked(
+                        reason:
+                            "Workbook attestation storage has unsafe "
+                            + "ownership or permissions."
+                    )
+                }
+                let rootIdentity = FileSystemObjectIdentity(
+                    from: rootInformation
+                )
+                var attestationBlockReason: String?
+                try forEachDirectoryEntryNoFollow(
+                    directoryDescriptor: attestationRootDescriptor,
+                    displayPath: attestationRoot.path
+                ) { name in
+                    guard attestationBlockReason == nil else { return }
+                    if Task.isCancelled {
+                        attestationBlockReason =
+                            "Workbook authority inspection was cancelled."
+                        return
+                    }
+                    guard URL(fileURLWithPath: name).pathExtension == "json",
+                          !name.hasSuffix(
+                            ".workbook-cleanup.json"
+                          ) else {
+                        return
+                    }
+                    let url = attestationRoot.appendingPathComponent(name)
+                    let data = try readBoundedRegularFileNoFollow(
+                        inDirectory: attestationRootDescriptor,
+                        fileName: name,
+                        displayPath: url.path,
+                        maximumBytes: 16 * 1_024 * 1_024
+                    )
+                    let record: AttestationRecord
+                    do {
+                        let decoder = JSONDecoder()
+                        decoder.dateDecodingStrategy = .iso8601
+                        record = try decoder.decode(
+                            AttestationRecord.self,
+                            from: data
+                        )
+                    } catch {
+                        // Older private schemas may coexist in this root.
+                        // Ignore only records whose generic claim clearly
+                        // belongs elsewhere; a partial claim for this exact
+                        // transaction or bundle remains ambiguous.
+                        if legacyAttestationMayClaim(
+                            data,
+                            transactionID: transactionID,
+                            bundlePath: bundle.path
+                        ) {
+                            attestationBlockReason =
+                                "A matching workbook attestation is "
+                                + "malformed or uses an unknown schema."
+                        }
+                        return
+                    }
+                    let transactionMatches =
+                        record.claim.transactionID == transactionID
+                    let bundleMatches = NSString(
+                        string: record.claim.finalBundlePath
+                    ).standardizingPath == bundle.path
+                    if transactionMatches || bundleMatches {
+                        attestationBlockReason =
+                            transactionMatches && bundleMatches
+                            ? "A live workbook attestation claims this "
+                                + "archive transaction."
+                            : "A workbook attestation conflicts with this "
+                                + "archive transaction identity."
+                    }
+                }
+                try attestationEnumerationObserver?()
+                guard let currentRootIdentity =
+                        try? FileSystemObjectIdentity.noFollow(
+                            attestationRoot
+                        ),
+                      currentRootIdentity == rootIdentity else {
+                    return .blocked(
+                        reason:
+                            "Workbook attestation storage changed while it "
+                            + "was inspected."
+                    )
+                }
+                if let attestationBlockReason {
+                    return .blocked(reason: attestationBlockReason)
+                }
+            }
+
+            let parent = bundle.deletingLastPathComponent()
+            let receiptPrefix =
+                ".\(bundle.lastPathComponent)"
+                + ".workbook-update-recovery-\(transactionID)-"
+            let broadReceiptPrefix =
+                ".\(bundle.lastPathComponent)"
+                + ".workbook-update-recovery-"
+            var receiptEnumerationFailure: Error?
+            guard let receiptEnumerator = FileManager.default.enumerator(
+                at: parent,
+                includingPropertiesForKeys: nil,
+                options: [.skipsSubdirectoryDescendants],
+                errorHandler: { _, error in
+                    receiptEnumerationFailure = error
+                    return false
+                }
+            ) else {
+                return .blocked(
+                    reason:
+                        "Workbook recovery receipts could not be "
+                        + "enumerated."
+                )
+            }
+            var facts: [ONTGenotypeWorkbookLegacyReceiptFact] = []
+            while let receiptURL =
+                receiptEnumerator.nextObject() as? URL {
+                if Task.isCancelled {
+                    return .blocked(
+                        reason:
+                            "Workbook authority inspection was cancelled."
+                    )
+                }
+                guard receiptURL.lastPathComponent.hasPrefix(
+                    broadReceiptPrefix
+                ), receiptURL.pathExtension == "json" else {
+                    continue
+                }
+                let decoder = JSONDecoder()
+                decoder.dateDecodingStrategy = .iso8601
+                let receipt: Receipt
+                do {
+                    receipt = try decoder.decode(
+                        Receipt.self,
+                        from: readBoundedRegularFileNoFollow(
+                            receiptURL,
+                            maximumBytes: 16 * 1_024 * 1_024
+                        )
+                    )
+                } catch {
+                    return .blocked(
+                        reason:
+                            "A workbook recovery receipt for this live "
+                            + "bundle is malformed."
+                    )
+                }
+                let bodyClaimsTransaction =
+                    receipt.transaction.transactionID == transactionID
+                let bodyClaimsBundle =
+                    NSString(
+                        string: receipt.transaction.finalBundlePath
+                    ).standardizingPath == bundle.path
+                guard receiptURL.lastPathComponent.hasPrefix(
+                    receiptPrefix
+                ) else {
+                    if bodyClaimsTransaction && bodyClaimsBundle {
+                        return .blocked(
+                            reason:
+                                "A workbook recovery receipt transaction "
+                                + "ID disagrees with its filename."
+                        )
+                    }
+                    continue
+                }
+                guard receipt.schemaVersion == 1,
+                      bodyClaimsTransaction,
+                      bodyClaimsBundle,
+                      receipt.exitStatus == 0,
+                      receipt.action != "ambiguous-preserved" else {
+                    return .blocked(
+                        reason:
+                            "A workbook recovery receipt disagrees with "
+                            + "the archive transaction."
+                    )
+                }
+                facts.append(
+                    .init(
+                        transactionID: receipt.transaction.transactionID,
+                        action: receipt.action,
+                        exitStatus: receipt.exitStatus,
+                        finalBundlePath:
+                            receipt.transaction.finalBundlePath,
+                        oldCurrentWorkbook:
+                            receipt.transaction.oldCurrentWorkbook,
+                        newCurrentWorkbook:
+                            receipt.transaction.newCurrentWorkbook
+                    )
+                )
+            }
+            if let receiptEnumerationFailure {
+                return .blocked(
+                    reason:
+                        "Workbook recovery receipts could not be "
+                        + "completely inspected: "
+                        + receiptEnumerationFailure.localizedDescription
+                )
+            }
+            return .clear(receipts: facts)
+        } catch {
+            return .blocked(
+                reason:
+                    "Workbook publication authority could not be "
+                    + "inspected: \(error.localizedDescription)"
+            )
+        }
+    }
+
+    private static func legacyAttestationMayClaim(
+        _ data: Data,
+        transactionID: String,
+        bundlePath: String
+    ) -> Bool {
+        guard let object = try? JSONSerialization.jsonObject(with: data),
+              let root = object as? [String: Any] else {
+            return true
+        }
+        let claim = (root["claim"] as? [String: Any]) ?? root
+        let claimedTransaction = claim["transactionID"] as? String
+        let claimedBundle = (claim["finalBundlePath"] as? String).map {
+            NSString(string: $0).standardizingPath
+        }
+        if claimedTransaction == transactionID
+            || claimedBundle == bundlePath {
+            return true
+        }
+        // A complete older claim that names a different transaction or
+        // bundle is unrelated. A record with no usable identity remains
+        // unknown authority and therefore blocks cleanup.
+        return claimedTransaction == nil && claimedBundle == nil
     }
 
     public static func validateCurrentWorkbook(
@@ -831,7 +1541,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         )
         let rename: ONTGenotypeDirectoryRenamePrimitive = renamePrimitive ?? {
             sourceParent, sourceName, destinationParent, destinationName, flags in
-            Darwin.renameatx_np(
+            PortableExclusiveRename.renameatxNP(
                 sourceParent,
                 sourceName,
                 destinationParent,
@@ -960,7 +1670,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             && actual.sha256.caseInsensitiveCompare(expected.sha256) == .orderedSame
     }
 
-    private static func validate(
+    static func validate(
         _ transaction: ONTGenotypeWorkbookUpdateTransaction,
         for bundleURL: URL
     ) throws {
@@ -1177,7 +1887,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         )
         let rename: ONTGenotypeDirectoryRenamePrimitive = renamePrimitive ?? {
             sourceParent, sourceName, destinationParent, destinationName, flags in
-            Darwin.renameatx_np(sourceParent, sourceName, destinationParent, destinationName, flags)
+            PortableExclusiveRename.renameatxNP(sourceParent, sourceName, destinationParent, destinationName, flags)
         }
         if rename(lhsParent, lhs.lastPathComponent, rhsParent, rhs.lastPathComponent, UInt32(RENAME_SWAP)) != 0 {
             let swapError = errno
@@ -1321,7 +2031,12 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         return .ambiguousTransaction(detail)
     }
 
-    private static func removeProvenTransactionRoot(_ transaction: ONTGenotypeWorkbookUpdateTransaction) throws {
+    private static func prepareProvenTransactionRootCleanup(
+        _ transaction: ONTGenotypeWorkbookUpdateTransaction,
+        decision: ONTGenotypeWorkbookCleanupDecision,
+        attestationRootURL: URL?,
+        failureInjector: (@Sendable (String) throws -> Void)?
+    ) throws {
         let root = URL(fileURLWithPath: transaction.transactionRootPath, isDirectory: true)
         let staging = URL(fileURLWithPath: transaction.stagingBundlePath, isDirectory: true)
         let final = URL(fileURLWithPath: transaction.finalBundlePath, isDirectory: true)
@@ -1331,29 +2046,238 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
               root.lastPathComponent.hasSuffix(".staging") else {
             throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction("unsafe transaction cleanup root")
         }
-        let archive = root.deletingLastPathComponent().appendingPathComponent(
-            ".lungfish-workbook-generation-archive-\(transaction.transactionID)",
-            isDirectory: true
+        let parent = root.deletingLastPathComponent()
+        let quarantine = ONTGenotypeWorkbookCleanupStateStore.quarantineURL(
+            transactionID: transaction.transactionID,
+            parent: parent
         )
-        if try directoryIdentityIfPresent(at: root) == nil {
-            if try directoryIdentityIfPresent(at: archive) != nil { return }
-            return
-        }
-        try requireDirectoryIdentity(
-            at: root,
-            expected: transaction.transactionRootIdentity,
-            role: "transaction root"
+        let stateURL = ONTGenotypeWorkbookCleanupStateStore.stateURL(
+            transactionID: transaction.transactionID,
+            bundleURL: final
         )
-        guard try directoryIdentityIfPresent(at: archive) == nil else {
+        let existingStates = try ONTGenotypeWorkbookCleanupStateStore.states(for: final)
+            .filter { $0.1.transactionID == transaction.transactionID }
+        guard existingStates.count <= 1 else {
             throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
-                "The retired workbook generation archive already exists; no generation was deleted."
+                "Multiple workbook cleanup states claim transaction \(transaction.transactionID)."
             )
         }
-        try moveDirectoryNoReplace(
-            root,
-            expected: transaction.transactionRootIdentity,
-            to: archive,
-            transaction: transaction
+        if let existing = existingStates.first {
+            guard existing.0.standardizedFileURL == stateURL.standardizedFileURL,
+                  ONTGenotypeWorkbookCleanupStateStore
+                    .transactionSemanticsMatch(
+                        existing.1.transaction,
+                        transaction
+                    ),
+                  existing.1.decision == decision else {
+                throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                    "Workbook cleanup state changed for transaction \(transaction.transactionID)."
+                )
+            }
+            try ONTGenotypeWorkbookCleanupStateStore.validateSurvivor(
+                existing.1
+            )
+            _ = try createCleanupAttestation(
+                for: existing.1,
+                stateURL: existing.0,
+                attestationRootURL: attestationRootURL
+            )
+            try writeCleanupAuthorizedReceipt(existing.1)
+            return
+        }
+
+        let rootIdentity = try directoryIdentityIfPresent(at: root)
+        let quarantineIdentity = try directoryIdentityIfPresent(at: quarantine)
+        if let rootIdentity {
+            guard identity(rootIdentity, matches: transaction.transactionRootIdentity) else {
+                throw ONTGenotypeWorkbookUpdateRecoveryError.invalidTransaction(
+                    "transaction root identity does not match before cleanup detach: \(root.path)"
+                )
+            }
+            guard quarantineIdentity == nil else {
+                throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                    "Workbook cleanup quarantine already exists while the transaction root remains."
+                )
+            }
+            try moveDirectoryNoReplace(
+                root,
+                expected: transaction.transactionRootIdentity,
+                to: quarantine,
+                transaction: transaction
+            )
+            try failureInjector?("after-workbook-cleanup-detach-hard-stop")
+        } else if let quarantineIdentity {
+            guard identity(quarantineIdentity, matches: transaction.transactionRootIdentity) else {
+                throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                    "Workbook cleanup quarantine identity does not match the transaction root."
+                )
+            }
+        } else {
+            // A prior cleanup may have removed the quarantine before retiring
+            // recovery authority. There is no retired generation left to delete.
+            return
+        }
+
+        guard let detachedIdentity = try directoryIdentityIfPresent(at: quarantine),
+              identity(detachedIdentity, matches: transaction.transactionRootIdentity) else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "The detached workbook cleanup quarantine is unavailable or changed."
+            )
+        }
+        let expectedSurvivorIdentity: ONTGenotypeWorkbookUpdateDirectoryIdentity
+        let expectedSurvivorManifest: ONTGenotypeWorkbookUpdateFileDescriptor
+        switch decision {
+        case .committed:
+            expectedSurvivorIdentity = transaction.newGenerationIdentity
+            expectedSurvivorManifest = transaction.newManifest
+        case .preparedDiscard, .rollback, .manualSaveWinner:
+            expectedSurvivorIdentity = transaction.oldGenerationIdentity
+            expectedSurvivorManifest = transaction.oldManifest
+        }
+        let survivor = try ONTGenotypeWorkbookCleanupStateStore.captureSurvivorAuthority(
+            bundleURL: final,
+            expectedIdentity: expectedSurvivorIdentity,
+            expectedManifest: expectedSurvivorManifest,
+            expectedCurrentWorkbookPath: transaction.oldCurrentWorkbook.path
+        )
+        let disposition = cleanupDisposition(for: decision)
+        let state = ONTGenotypeWorkbookCleanupState(
+            transactionID: transaction.transactionID,
+            finalBundlePath: final.path,
+            sourceRootPath: root.path,
+            quarantinePath: quarantine.path,
+            parentIdentity: transaction.finalParentIdentity,
+            sourceIdentity: transaction.transactionRootIdentity,
+            quarantineIdentity: ONTGenotypeWorkbookUpdateDirectoryIdentity(
+                path: quarantine.path,
+                device: detachedIdentity.device,
+                inode: detachedIdentity.inode
+            ),
+            survivorIdentity: survivor.identity,
+            survivorManifest: survivor.manifest,
+            survivorCurrentWorkbook: survivor.currentWorkbook,
+            transaction: transaction,
+            terminalReceiptAction: disposition.action,
+            terminalReceiptDetail: disposition.detail,
+            decision: decision
+        )
+        try ONTGenotypeWorkbookCleanupStateStore.write(state, at: stateURL)
+        try failureInjector?(
+            "after-workbook-cleanup-state-write-before-attestation-hard-stop"
+        )
+        _ = try createCleanupAttestation(
+            for: state,
+            stateURL: stateURL,
+            attestationRootURL: attestationRootURL
+        )
+        try failureInjector?("after-workbook-cleanup-state-durable-hard-stop")
+        try writeCleanupAuthorizedReceipt(state)
+    }
+
+    private static func completeProvenTransactionRootCleanup(
+        _ transaction: ONTGenotypeWorkbookUpdateTransaction,
+        decision: ONTGenotypeWorkbookCleanupDecision,
+        for bundleURL: URL,
+        attestationRootURL: URL?,
+        failureInjector: (@Sendable (String) throws -> Void)?,
+        cleanupOperations: ONTGenotypeWorkbookCleanupOperations = .darwin
+    ) throws {
+        let states = try ONTGenotypeWorkbookCleanupStateStore.states(for: bundleURL)
+            .filter { $0.1.transactionID == transaction.transactionID }
+        guard states.count <= 1 else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "Multiple workbook cleanup states claim transaction \(transaction.transactionID)."
+            )
+        }
+        guard let (stateURL, state) = states.first else {
+            try writeCleanupTerminalReceipt(
+                transaction,
+                decision: decision
+            )
+            return
+        }
+        let cleanupAttestation = try requireCleanupAttestation(
+            for: state,
+            stateURL: stateURL,
+            attestationRootURL: attestationRootURL
+        )
+        guard ONTGenotypeWorkbookCleanupStateStore.transactionSemanticsMatch(
+            state.transaction,
+            transaction
+        ),
+              state.decision == decision else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "Workbook cleanup state does not match its completing transaction."
+            )
+        }
+        try ONTGenotypeWorkbookCleanupStateStore.removeQuarantineNoFollow(
+            state: state,
+            stateURL: stateURL,
+            failureInjector: failureInjector,
+            cleanupOperations: cleanupOperations,
+            completion: {
+                try writeCleanupTerminalReceipt(state)
+            }
+        )
+        try retireCleanupAttestation(
+            at: cleanupAttestation.0,
+            witness: cleanupAttestation.1,
+            failureInjector: failureInjector
+        )
+    }
+
+    private static func cleanupDisposition(
+        for decision: ONTGenotypeWorkbookCleanupDecision
+    ) -> (action: String, detail: String) {
+        ONTGenotypeWorkbookCleanupStateStore.terminalReceiptDisposition(
+            for: decision
+        )
+    }
+
+    private static func writeCleanupAuthorizedReceipt(
+        _ state: ONTGenotypeWorkbookCleanupState
+    ) throws {
+        try writeReceipt(
+            state.transaction,
+            action: "workbook-cleanup-authorized",
+            detail: "Cleanup decision \(state.decision.rawValue) is durable; retired bytes remain pending.",
+            exitStatus: 75,
+            stableSuffix: "cleanup-authorized",
+            outputRole: "authorized-surviving-current-workbook",
+            outputDescriptor: state.survivorCurrentWorkbook
+        )
+    }
+
+    private static func writeCleanupTerminalReceipt(
+        _ state: ONTGenotypeWorkbookCleanupState
+    ) throws {
+        try writeReceipt(
+            state.transaction,
+            action: state.terminalReceiptAction,
+            detail: state.terminalReceiptDetail,
+            exitStatus: 0,
+            stableSuffix: "cleanup-terminal",
+            outputRole: "surviving-current-workbook",
+            outputDescriptor: state.survivorCurrentWorkbook
+        )
+    }
+
+    private static func writeCleanupTerminalReceipt(
+        _ transaction: ONTGenotypeWorkbookUpdateTransaction,
+        decision: ONTGenotypeWorkbookCleanupDecision
+    ) throws {
+        let disposition = cleanupDisposition(for: decision)
+        let survivor = decision == .committed
+            ? transaction.newCurrentWorkbook
+            : transaction.oldCurrentWorkbook
+        try writeReceipt(
+            transaction,
+            action: disposition.action,
+            detail: disposition.detail,
+            exitStatus: 0,
+            stableSuffix: "cleanup-terminal",
+            outputRole: "surviving-current-workbook",
+            outputDescriptor: survivor
         )
     }
 
@@ -1384,18 +2308,26 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
     private static func writeReceipt(
         _ transaction: ONTGenotypeWorkbookUpdateTransaction,
         action: String,
-        detail: String
+        detail: String,
+        exitStatus suppliedExitStatus: Int? = nil,
+        stableSuffix: String? = nil,
+        outputRole suppliedOutputRole: String? = nil,
+        outputDescriptor suppliedOutputDescriptor:
+            ONTGenotypeWorkbookUpdateFileDescriptor? = nil
     ) throws {
         let final = URL(fileURLWithPath: transaction.finalBundlePath, isDirectory: true)
+        let receiptID = stableSuffix ?? UUID().uuidString
         let url = final.deletingLastPathComponent().appendingPathComponent(
-            ".\(final.lastPathComponent).workbook-update-recovery-\(transaction.transactionID)-\(UUID().uuidString).json"
+            ".\(final.lastPathComponent).workbook-update-recovery-"
+                + "\(transaction.transactionID)-\(receiptID).json"
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         let completedAt = Date()
-        let exitStatus = action == "ambiguous-preserved" ? 1 : 0
-        try atomicWriteNoFollow(try encoder.encode(Receipt(
+        let exitStatus = suppliedExitStatus
+            ?? (action == "ambiguous-preserved" ? 1 : 0)
+        let receipt = Receipt(
             schemaVersion: 1,
             transaction: transaction,
             action: action,
@@ -1412,14 +2344,43 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             ],
             outputs: [
                 Receipt.File(
-                    role: action.contains("committed") ? "committed-current-workbook" : "restored-current-workbook",
-                    descriptor: action.contains("committed")
-                        ? transaction.newCurrentWorkbook
-                        : transaction.oldCurrentWorkbook
+                    role: suppliedOutputRole
+                        ?? (action.contains("committed")
+                            ? "committed-current-workbook"
+                            : "restored-current-workbook"),
+                    descriptor: suppliedOutputDescriptor
+                        ?? (action.contains("committed")
+                            ? transaction.newCurrentWorkbook
+                            : transaction.oldCurrentWorkbook)
                 ),
             ],
             detail: detail
-        )), to: url)
+        )
+        if stableSuffix != nil, FileManager.default.fileExists(atPath: url.path) {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            let existing = try decoder.decode(
+                Receipt.self,
+                from: readRegularFileNoFollow(url)
+            )
+            guard existing.transaction == transaction,
+                  existing.schemaVersion == receipt.schemaVersion,
+                  existing.action == action,
+                  existing.startedAt == receipt.startedAt,
+                  existing.exitStatus == exitStatus,
+                  existing.stderr == receipt.stderr,
+                  existing.inputs == receipt.inputs,
+                  existing.outputs == receipt.outputs,
+                  existing.detail == detail,
+                  existing.completedAt >= existing.startedAt,
+                  existing.wallTimeSeconds >= 0 else {
+                throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                    "A durable workbook cleanup receipt was substituted: \(url.path)"
+                )
+            }
+            return
+        }
+        try atomicWriteNoFollow(try encoder.encode(receipt), to: url)
     }
 
     private static func claim(
@@ -1500,6 +2461,23 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         }
         let root = try verifyAttestationRoot(attestationRootURL)
         return root.appendingPathComponent("\(attestationID).json")
+    }
+
+    private static func cleanupAttestationURL(
+        for state: ONTGenotypeWorkbookCleanupState,
+        attestationRootURL: URL?
+    ) throws -> URL {
+        guard let attestationID = state.transaction.attestationID,
+              let parsed = UUID(uuidString: attestationID),
+              parsed.uuidString == attestationID else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "The workbook cleanup state has no authenticated transaction identifier."
+            )
+        }
+        let root = try verifyAttestationRoot(attestationRootURL)
+        return root.appendingPathComponent(
+            "\(attestationID).workbook-cleanup.json"
+        )
     }
 
     private static func prepareAttestationRoot(_ supplied: URL?) throws -> URL {
@@ -1589,7 +2567,7 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
         }
         let publishStatus = temporaryName.withCString { sourceName in
             url.lastPathComponent.withCString { destinationName in
-                Darwin.renameatx_np(
+                PortableExclusiveRename.renameatxNP(
                     rootDescriptor,
                     sourceName,
                     rootDescriptor,
@@ -1631,6 +2609,304 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             )
         }
         return witness
+    }
+
+    @discardableResult
+    private static func createCleanupAttestation(
+        for state: ONTGenotypeWorkbookCleanupState,
+        stateURL: URL,
+        attestationRootURL: URL?
+    ) throws -> (URL, FileWitness) {
+        let url = try cleanupAttestationURL(
+            for: state,
+            attestationRootURL: attestationRootURL
+        )
+        if FileManager.default.fileExists(atPath: url.path) {
+            return try requireCleanupAttestation(
+                for: state,
+                stateURL: stateURL,
+                attestationRootURL: attestationRootURL
+            )
+        }
+        guard let transactionAttestationID =
+                state.transaction.attestationID else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "The workbook cleanup state has no transaction attestation."
+            )
+        }
+        let read = try readFileWithWitness(stateURL)
+        let record = CleanupAttestationRecord(
+            schemaVersion: 1,
+            cleanupAttestationID: UUID().uuidString,
+            transactionAttestationID: transactionAttestationID,
+            transactionID: state.transactionID,
+            stateFileName: stateURL.lastPathComponent,
+            stateSizeBytes: Int64(read.1.size),
+            stateSHA256: read.1.sha256,
+            finalBundlePath: state.finalBundlePath,
+            quarantinePath: state.quarantinePath,
+            survivorIdentity: state.survivorIdentity,
+            survivorManifest: state.survivorManifest,
+            survivorCurrentWorkbook: state.survivorCurrentWorkbook,
+            terminalReceiptAction: state.terminalReceiptAction,
+            terminalReceiptDetail: state.terminalReceiptDetail,
+            decision: state.decision
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        try writeExclusiveAttestation(
+            try encoder.encode(record),
+            to: url,
+            root: url.deletingLastPathComponent()
+        )
+        return try requireCleanupAttestation(
+            for: state,
+            stateURL: stateURL,
+            attestationRootURL: attestationRootURL
+        )
+    }
+
+    private static func requireCleanupAttestation(
+        for state: ONTGenotypeWorkbookCleanupState,
+        stateURL: URL,
+        attestationRootURL: URL?
+    ) throws -> (URL, FileWitness) {
+        let url = try cleanupAttestationURL(
+            for: state,
+            attestationRootURL: attestationRootURL
+        )
+        let stateRead = try readFileWithWitness(stateURL)
+        let attestationRead = try readFileWithWitness(url)
+        guard attestationRead.2.st_uid == geteuid(),
+              attestationRead.2.st_nlink == 1,
+              attestationRead.2.st_mode & 0o777 == 0o600 else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "The workbook cleanup attestation has unsafe ownership or permissions."
+            )
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let record = try? decoder.decode(
+            CleanupAttestationRecord.self,
+            from: attestationRead.0
+        ),
+              record.schemaVersion == 1,
+              UUID(uuidString: record.cleanupAttestationID)?.uuidString
+                == record.cleanupAttestationID,
+              record.transactionAttestationID
+                == state.transaction.attestationID,
+              record.transactionID == state.transactionID,
+              record.stateFileName == stateURL.lastPathComponent,
+              record.stateSizeBytes == Int64(stateRead.1.size),
+              record.stateSHA256 == stateRead.1.sha256,
+              record.finalBundlePath == state.finalBundlePath,
+              record.quarantinePath == state.quarantinePath,
+              record.survivorIdentity == state.survivorIdentity,
+              record.survivorManifest == state.survivorManifest,
+              record.survivorCurrentWorkbook
+                == state.survivorCurrentWorkbook,
+              record.terminalReceiptAction
+                == state.terminalReceiptAction,
+              record.terminalReceiptDetail
+                == state.terminalReceiptDetail,
+              record.decision == state.decision else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "The workbook cleanup attestation does not bind the exact durable cleanup state."
+            )
+        }
+        return (url, attestationRead.1)
+    }
+
+    private static func requireOrRehydrateCleanupAttestation(
+        for state: ONTGenotypeWorkbookCleanupState,
+        stateURL: URL,
+        bundleURL: URL,
+        attestationRootURL: URL?
+    ) throws -> (
+        cleanupAttestation: (URL, FileWitness),
+        rehydratingAuthority: RecoveryAuthority?
+    ) {
+        let expectedURL = try cleanupAttestationURL(
+            for: state,
+            attestationRootURL: attestationRootURL
+        )
+        do {
+            return (
+                try requireCleanupAttestation(
+                    for: state,
+                    stateURL: stateURL,
+                    attestationRootURL: attestationRootURL
+                ),
+                nil
+            )
+        } catch let error as ONTGenotypeWorkbookUpdateRecoveryError {
+            guard case .systemFailure(let path, let code) = error,
+                  code == ENOENT,
+                  URL(fileURLWithPath: path).standardizedFileURL
+                    == expectedURL.standardizedFileURL else {
+                throw error
+            }
+        }
+
+        // The only publication gap that can be reconstructed is the one after
+        // the cleanup state became durable but before its detached attestation
+        // was published. The original marker + detached transaction
+        // attestation remain the sole authority for that reconstruction.
+        let authority = try loadCleanupAttestationRehydrationAuthority(
+            state: state,
+            for: bundleURL,
+            attestationRootURL: attestationRootURL
+        )
+
+        let stateBefore = try readFileWithWitness(stateURL)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let decodedState = try? decoder.decode(
+            ONTGenotypeWorkbookCleanupState.self,
+            from: stateBefore.0
+        ),
+              decodedState == state else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "Workbook cleanup state changed before its attestation could be reconstructed."
+            )
+        }
+        try requireAuthorityUnchanged(
+            authority,
+            for: bundleURL,
+            attestationRootURL: attestationRootURL
+        )
+        try ONTGenotypeWorkbookCleanupStateStore.validateSurvivor(state)
+        try requireAuthorityUnchanged(
+            authority,
+            for: bundleURL,
+            attestationRootURL: attestationRootURL
+        )
+
+        let cleanupAttestation = try createCleanupAttestation(
+            for: state,
+            stateURL: stateURL,
+            attestationRootURL: attestationRootURL
+        )
+        let stateAfter = try readFileWithWitness(stateURL)
+        guard stateAfter.1 == stateBefore.1,
+              stateAfter.0 == stateBefore.0 else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "Workbook cleanup state changed while its attestation was reconstructed."
+            )
+        }
+        let requiredAttestation = try requireCleanupAttestation(
+            for: state,
+            stateURL: stateURL,
+            attestationRootURL: attestationRootURL
+        )
+        guard requiredAttestation == cleanupAttestation else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                "Workbook cleanup attestation changed after publication."
+            )
+        }
+        try requireAuthorityUnchanged(
+            authority,
+            for: bundleURL,
+            attestationRootURL: attestationRootURL
+        )
+        return (requiredAttestation, authority)
+    }
+
+    private static func loadCleanupAttestationRehydrationAuthority(
+        state: ONTGenotypeWorkbookCleanupState,
+        for bundleURL: URL,
+        attestationRootURL: URL?
+    ) throws -> RecoveryAuthority {
+        do {
+            let markerURLs = try discoveredMarkerURLs(for: bundleURL)
+            guard markerURLs.count == 1,
+                  let observedMarkerURL = markerURLs.first else {
+                throw ONTGenotypeWorkbookUpdateRecoveryError
+                    .ambiguousTransaction(
+                        "Cleanup attestation reconstruction requires exactly one original workbook transaction marker."
+                    )
+            }
+            let markerRead = try readFileWithWitness(observedMarkerURL)
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            guard let transaction = try? decoder.decode(
+                ONTGenotypeWorkbookUpdateTransaction.self,
+                from: markerRead.0
+            ) else {
+                throw ONTGenotypeWorkbookUpdateRecoveryError
+                    .ambiguousTransaction(
+                        "The original workbook transaction marker is malformed; cleanup attestation reconstruction was refused."
+                    )
+            }
+            try validate(transaction, for: bundleURL)
+            let expectedMarkerURL = markerURL(
+                for: transaction,
+                bundleURL: bundleURL
+            )
+            guard observedMarkerURL.standardizedFileURL
+                    == expectedMarkerURL.standardizedFileURL,
+                  transaction == state.transaction,
+                  ONTGenotypeWorkbookCleanupStateStore
+                    .transactionSemanticsMatch(
+                        transaction,
+                        state.transaction
+                    ) else {
+                throw ONTGenotypeWorkbookUpdateRecoveryError
+                    .ambiguousTransaction(
+                        "The original workbook transaction marker does not exactly match the durable cleanup state."
+                    )
+            }
+
+            let exactAttestationWitness = try requireAttestationRecord(
+                transaction,
+                attestationRootURL: attestationRootURL
+            )
+            let candidates = try matchingAttestationCandidates(
+                for: bundleURL,
+                attestationRootURL: attestationRootURL
+            )
+            guard candidates.count == 1,
+                  let candidate = candidates.first,
+                  candidate.transaction == transaction,
+                  candidate.witness == exactAttestationWitness else {
+                throw ONTGenotypeWorkbookUpdateRecoveryError
+                    .ambiguousTransaction(
+                        "The original workbook transaction marker is not paired with exactly one matching detached attestation."
+                    )
+            }
+            return RecoveryAuthority(
+                transaction: transaction,
+                markerURL: observedMarkerURL,
+                markerWitness: markerRead.1,
+                attestationWitness: exactAttestationWitness
+            )
+        } catch let error as ONTGenotypeWorkbookUpdateRecoveryError {
+            if case .ambiguousTransaction = error { throw error }
+            throw ONTGenotypeWorkbookUpdateRecoveryError
+                .ambiguousTransaction(
+                    "The original workbook transaction pair could not authorize cleanup attestation reconstruction; no recovery action was taken. \(error.localizedDescription)"
+                )
+        } catch {
+            throw ONTGenotypeWorkbookUpdateRecoveryError
+                .ambiguousTransaction(
+                    "The original workbook transaction pair could not authorize cleanup attestation reconstruction; no recovery action was taken."
+                )
+        }
+    }
+
+    private static func retireCleanupAttestation(
+        at url: URL,
+        witness: FileWitness,
+        failureInjector: (@Sendable (String) throws -> Void)?
+    ) throws {
+        try ONTGenotypeWorkbookRetirement.retireRegularFile(
+            at: url,
+            expected: witness,
+            checkpoint:
+                "before-workbook-cleanup-cleanup-attestation-detach",
+            failureInjector: failureInjector
+        )
     }
 
     private static func loadRecoveryAuthority(
@@ -1786,7 +3062,8 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
     private static func removeMarkerAndAttestation(
         _ authority: RecoveryAuthority,
         for bundleURL: URL,
-        attestationRootURL: URL?
+        attestationRootURL: URL?,
+        cleanupFailureInjector: (@Sendable (String) throws -> Void)? = nil
     ) throws {
         if let markerWitness = authority.markerWitness {
             guard let markerURL = authority.markerURL else {
@@ -1794,39 +3071,122 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
                     "The authenticated marker path is unavailable."
                 )
             }
-            try unlinkExact(markerURL, expected: markerWitness)
+            try unlinkExact(
+                markerURL,
+                expected: markerWitness,
+                checkpoint: "before-workbook-cleanup-marker-detach",
+                failureInjector: cleanupFailureInjector
+            )
+            try cleanupFailureInjector?(
+                "after-workbook-cleanup-marker-removal-hard-stop"
+            )
         }
         let recordURL = try attestationURL(
             for: authority.transaction,
             attestationRootURL: attestationRootURL
         )
-        try unlinkExact(recordURL, expected: authority.attestationWitness)
+        try unlinkExact(
+            recordURL,
+            expected: authority.attestationWitness,
+            checkpoint: "before-workbook-cleanup-attestation-detach",
+            failureInjector: cleanupFailureInjector
+        )
+        try cleanupFailureInjector?(
+            "after-workbook-cleanup-attestation-removal-hard-stop"
+        )
     }
 
-    private static func unlinkExact(_ url: URL, expected: FileWitness) throws {
-        let parent = url.deletingLastPathComponent()
-        let parentDescriptor = Darwin.open(parent.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
-        guard parentDescriptor >= 0 else {
-            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(parent.path, errno)
-        }
-        defer { Darwin.close(parentDescriptor) }
-        var info = stat()
-        let inspect = url.lastPathComponent.withCString {
-            Darwin.fstatat(parentDescriptor, $0, &info, AT_SYMLINK_NOFOLLOW)
-        }
-        guard inspect == 0,
-              info.st_mode & S_IFMT == S_IFREG,
-              info.st_dev == expected.device,
-              info.st_ino == expected.inode,
-              info.st_size == expected.size,
-              url.lastPathComponent.withCString({ Darwin.unlinkat(parentDescriptor, $0, 0) }) == 0 else {
+    private static func recoverCleanupStateIfPresent(
+        for bundleURL: URL,
+        attestationRootURL: URL?,
+        failureInjector: (@Sendable (String) throws -> Void)?,
+        cleanupOperations: ONTGenotypeWorkbookCleanupOperations
+    ) throws -> Bool {
+        let states = try ONTGenotypeWorkbookCleanupStateStore.states(for: bundleURL)
+        guard states.count <= 1 else {
             throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
-                "A workbook recovery authority file changed before cleanup."
+                "Multiple workbook cleanup states claim \(bundleURL.path)."
             )
         }
-        guard Darwin.fsync(parentDescriptor) == 0 else {
-            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(parent.path, errno)
+        guard let (stateURL, state) = states.first else { return false }
+        let cleanupAuthority = try requireOrRehydrateCleanupAttestation(
+            for: state,
+            stateURL: stateURL,
+            bundleURL: bundleURL,
+            attestationRootURL: attestationRootURL
+        )
+        let cleanupAttestation = cleanupAuthority.cleanupAttestation
+        let authority = if let rehydratingAuthority =
+            cleanupAuthority.rehydratingAuthority {
+            rehydratingAuthority
+        } else {
+            try loadRecoveryAuthorityIfPresent(
+                for: bundleURL,
+                attestationRootURL: attestationRootURL
+            )
         }
+        if let authority {
+            guard authority.transaction == state.transaction else {
+                throw ONTGenotypeWorkbookUpdateRecoveryError.ambiguousTransaction(
+                    "Workbook cleanup state does not match the authenticated recovery authority."
+                )
+            }
+            try requireAuthorityUnchanged(
+                authority,
+                for: bundleURL,
+                attestationRootURL: attestationRootURL
+            )
+            try ONTGenotypeWorkbookCleanupStateStore.validateSurvivor(state)
+            try requireAuthorityUnchanged(
+                authority,
+                for: bundleURL,
+                attestationRootURL: attestationRootURL
+            )
+        }
+        try writeCleanupAuthorizedReceipt(state)
+
+        if let authority {
+            try requireAuthorityUnchanged(
+                authority,
+                for: bundleURL,
+                attestationRootURL: attestationRootURL
+            )
+            try removeMarkerAndAttestation(
+                authority,
+                for: bundleURL,
+                attestationRootURL: attestationRootURL,
+                cleanupFailureInjector: failureInjector
+            )
+        }
+        try ONTGenotypeWorkbookCleanupStateStore.removeQuarantineNoFollow(
+            state: state,
+            stateURL: stateURL,
+            failureInjector: failureInjector,
+            cleanupOperations: cleanupOperations,
+            completion: {
+                try writeCleanupTerminalReceipt(state)
+            }
+        )
+        try retireCleanupAttestation(
+            at: cleanupAttestation.0,
+            witness: cleanupAttestation.1,
+            failureInjector: failureInjector
+        )
+        return true
+    }
+
+    private static func unlinkExact(
+        _ url: URL,
+        expected: FileWitness,
+        checkpoint: String,
+        failureInjector: (@Sendable (String) throws -> Void)? = nil
+    ) throws {
+        try ONTGenotypeWorkbookRetirement.retireRegularFile(
+            at: url,
+            expected: expected,
+            checkpoint: checkpoint,
+            failureInjector: failureInjector
+        )
     }
 
     private static func readFileWithWitness(_ url: URL) throws -> (Data, FileWitness, stat) {
@@ -1921,6 +3281,186 @@ public enum ONTGenotypeWorkbookUpdateRecovery {
             }
             data.append(buffer, count: count)
         }
+    }
+
+    private static func readBoundedRegularFileNoFollow(
+        _ url: URL,
+        maximumBytes: Int64
+    ) throws -> Data {
+        let standardized = url.standardizedFileURL
+        let parentDescriptor = try NoFollowFileSystem
+            .openDirectoryHierarchy(
+                standardized.deletingLastPathComponent()
+            )
+        defer { Darwin.close(parentDescriptor) }
+        let descriptor = standardized.lastPathComponent.withCString {
+            Darwin.openat(
+                parentDescriptor,
+                $0,
+                O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC
+            )
+        }
+        guard descriptor >= 0 else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(
+                standardized.path,
+                errno
+            )
+        }
+        defer { Darwin.close(descriptor) }
+        var before = stat()
+        guard Darwin.fstat(descriptor, &before) == 0,
+              before.st_mode & S_IFMT == S_IFREG,
+              before.st_size >= 0,
+              before.st_size <= maximumBytes else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.unsafeMarker(
+                standardized.path
+            )
+        }
+        var data = Data()
+        data.reserveCapacity(Int(before.st_size))
+        var buffer = [UInt8](repeating: 0, count: 64 * 1_024)
+        while true {
+            let count = Darwin.read(descriptor, &buffer, buffer.count)
+            if count == 0 { break }
+            guard count > 0 else {
+                if errno == EINTR { continue }
+                throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(
+                    standardized.path,
+                    errno
+                )
+            }
+            guard Int64(data.count)
+                    <= maximumBytes - Int64(count) else {
+                throw ONTGenotypeWorkbookUpdateRecoveryError.unsafeMarker(
+                    standardized.path
+                )
+            }
+            data.append(buffer, count: count)
+        }
+        var after = stat()
+        guard Darwin.fstat(descriptor, &after) == 0,
+              before.st_dev == after.st_dev,
+              before.st_ino == after.st_ino,
+              before.st_size == after.st_size,
+              data.count == Int(after.st_size) else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError
+                .ambiguousTransaction(
+                    "Workbook authority changed while it was inspected."
+                )
+        }
+        return data
+    }
+
+    private static func forEachDirectoryEntryNoFollow(
+        directoryDescriptor: Int32,
+        displayPath: String,
+        _ body: (String) throws -> Void
+    ) throws {
+        let duplicated = Darwin.dup(directoryDescriptor)
+        guard duplicated >= 0 else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(
+                displayPath,
+                errno
+            )
+        }
+        guard let directory = Darwin.fdopendir(duplicated) else {
+            let code = errno
+            Darwin.close(duplicated)
+            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(
+                displayPath,
+                code
+            )
+        }
+        defer { Darwin.closedir(directory) }
+        while true {
+            errno = 0
+            guard let entry = Darwin.readdir(directory) else {
+                if errno != 0 {
+                    throw ONTGenotypeWorkbookUpdateRecoveryError
+                        .systemFailure(displayPath, errno)
+                }
+                return
+            }
+            let name = withUnsafePointer(to: &entry.pointee.d_name) {
+                $0.withMemoryRebound(
+                    to: CChar.self,
+                    capacity: Int(MAXNAMLEN) + 1
+                ) {
+                    String(cString: $0)
+                }
+            }
+            guard name != ".", name != ".." else { continue }
+            try body(name)
+        }
+    }
+
+    private static func readBoundedRegularFileNoFollow(
+        inDirectory directoryDescriptor: Int32,
+        fileName: String,
+        displayPath: String,
+        maximumBytes: Int64
+    ) throws -> Data {
+        guard DurableAtomicFileStore.isSinglePathComponent(fileName) else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.unsafeMarker(
+                displayPath
+            )
+        }
+        let descriptor = fileName.withCString {
+            Darwin.openat(
+                directoryDescriptor,
+                $0,
+                O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC
+            )
+        }
+        guard descriptor >= 0 else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(
+                displayPath,
+                errno
+            )
+        }
+        defer { Darwin.close(descriptor) }
+        var before = stat()
+        guard Darwin.fstat(descriptor, &before) == 0,
+              before.st_mode & S_IFMT == S_IFREG,
+              before.st_size >= 0,
+              before.st_size <= maximumBytes else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError.unsafeMarker(
+                displayPath
+            )
+        }
+        var data = Data()
+        data.reserveCapacity(Int(before.st_size))
+        var buffer = [UInt8](repeating: 0, count: 64 * 1_024)
+        while true {
+            let count = Darwin.read(descriptor, &buffer, buffer.count)
+            if count == 0 { break }
+            guard count > 0 else {
+                if errno == EINTR { continue }
+                throw ONTGenotypeWorkbookUpdateRecoveryError.systemFailure(
+                    displayPath,
+                    errno
+                )
+            }
+            guard Int64(data.count)
+                    <= maximumBytes - Int64(count) else {
+                throw ONTGenotypeWorkbookUpdateRecoveryError.unsafeMarker(
+                    displayPath
+                )
+            }
+            data.append(buffer, count: count)
+        }
+        var after = stat()
+        guard Darwin.fstat(descriptor, &after) == 0,
+              before.st_dev == after.st_dev,
+              before.st_ino == after.st_ino,
+              before.st_size == after.st_size,
+              data.count == Int(after.st_size) else {
+            throw ONTGenotypeWorkbookUpdateRecoveryError
+                .ambiguousTransaction(
+                    "Workbook authority changed while it was inspected."
+                )
+        }
+        return data
     }
 
     private static func atomicWriteNoFollow(

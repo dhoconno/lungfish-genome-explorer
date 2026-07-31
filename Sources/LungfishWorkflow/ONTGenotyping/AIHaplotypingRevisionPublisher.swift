@@ -45,6 +45,7 @@ public struct AIHaplotypingRevisionPublishRequest {
     public let result: ONTGenotypeResultBundleData
     public let sidecarURL: URL?
     public let sidecar: GenotypeAnnotationSidecar?
+    public let expectedSidecarRevision: GenotypeAnnotationSidecarRevision
     public let runnerOutput: AIHaplotypingRunnerOutput
     public let context: AIHaplotypingRevisionPublishContext
 
@@ -53,6 +54,7 @@ public struct AIHaplotypingRevisionPublishRequest {
         result: ONTGenotypeResultBundleData,
         sidecarURL: URL? = nil,
         sidecar: GenotypeAnnotationSidecar? = nil,
+        expectedSidecarRevision: GenotypeAnnotationSidecarRevision,
         runnerOutput: AIHaplotypingRunnerOutput,
         context: AIHaplotypingRevisionPublishContext
     ) {
@@ -60,6 +62,7 @@ public struct AIHaplotypingRevisionPublishRequest {
         self.result = result
         self.sidecarURL = sidecarURL?.standardizedFileURL
         self.sidecar = sidecar
+        self.expectedSidecarRevision = expectedSidecarRevision
         self.runnerOutput = runnerOutput
         self.context = context
     }
@@ -78,6 +81,9 @@ public enum AIHaplotypingRevisionPublisherError: Error, LocalizedError, Sendable
     case noAcceptedValidationReports
     case invalidSlot(String)
     case pendingProvenancePath(String)
+    case incompleteSidecarRequest
+    case noncanonicalSidecarURL(expected: String, actual: String)
+    case sidecarSnapshotMismatch
     case rollbackFailed(originalError: String, rollbackError: String, orphanDirectory: String)
 
     public var errorDescription: String? {
@@ -88,6 +94,12 @@ public enum AIHaplotypingRevisionPublisherError: Error, LocalizedError, Sendable
             return "AI haplotyping output contains an invalid haplotype slot: \(slot)"
         case .pendingProvenancePath(let path):
             return "AI haplotyping output still points at a non-final provenance path: \(path)"
+        case .incompleteSidecarRequest:
+            return "AI haplotyping publication requires the annotation sidecar URL and decoded sidecar together."
+        case .noncanonicalSidecarURL(let expected, let actual):
+            return "AI haplotyping publication expected the annotation sidecar at \(expected), not \(actual)."
+        case .sidecarSnapshotMismatch:
+            return "The AI haplotyping request sidecar does not match the locked annotation sidecar snapshot."
         case .rollbackFailed(let originalError, let rollbackError, let orphanDirectory):
             return "AI haplotyping publish failed (\(originalError)) and rollback could not remove \(orphanDirectory): \(rollbackError)"
         }
@@ -124,10 +136,52 @@ public struct AIHaplotypingRevisionPublisher {
         }
 
         let bundleURL = request.bundleURL.standardizedFileURL
+        let publicationLock = try ONTGenotypeBundlePublicationLock.acquire(
+            for: bundleURL
+        )
+        defer { publicationLock.release() }
+
+        let lockedSnapshot = try ONTGenotypeResultBundleData
+            .loadAnnotationSidecarSnapshot(forBundleAt: bundleURL)
+        var lockedSidecar = lockedSnapshot.sidecar
+        try lockedSidecar.promoteToCurrentSchema()
+        guard lockedSnapshot.revision == request.expectedSidecarRevision else {
+            throw GenotypeAnnotationSidecarPublicationError.staleRevision(
+                expected: request.expectedSidecarRevision,
+                actual: lockedSnapshot.revision
+            )
+        }
+        guard (request.sidecarURL == nil) == (request.sidecar == nil) else {
+            throw AIHaplotypingRevisionPublisherError.incompleteSidecarRequest
+        }
+        if let requestedSidecarURL = request.sidecarURL,
+           let requestedSidecar = request.sidecar {
+            let canonicalSidecarURL = ONTGenotypeResultBundleData
+                .annotationSidecarURL(forBundleAt: bundleURL)
+                .standardizedFileURL
+            guard requestedSidecarURL == canonicalSidecarURL else {
+                throw AIHaplotypingRevisionPublisherError.noncanonicalSidecarURL(
+                    expected: canonicalSidecarURL.path,
+                    actual: requestedSidecarURL.path
+                )
+            }
+            let requestMatchesLockedSnapshot: Bool
+            switch lockedSnapshot.revision {
+            case .absent:
+                requestMatchesLockedSnapshot = requestedSidecar
+                    == .empty(generatedAt: requestedSidecar.generatedAt)
+            case .sha256:
+                requestMatchesLockedSnapshot = requestedSidecar
+                    == lockedSnapshot.sidecar
+            }
+            guard requestMatchesLockedSnapshot else {
+                throw AIHaplotypingRevisionPublisherError.sidecarSnapshotMismatch
+            }
+        }
+
         let originalManifest = try Data(contentsOf: ONTGenotypeResultBundle.manifestURL(in: bundleURL))
-        let sidecarSnapshot = try request.sidecarURL.map { url -> (url: URL, data: Data?, existed: Bool) in
-            let existed = fileManager.fileExists(atPath: url.path)
-            return (url, existed ? try Data(contentsOf: url) : nil, existed)
+        let sidecarSnapshot = request.sidecarURL.map { url -> (url: URL, data: Data?, existed: Bool) in
+            (url, lockedSnapshot.data, lockedSnapshot.data != nil)
         }
         let revisionID = revisionIDProvider()
         let revisionDirectory = bundleURL
@@ -160,7 +214,10 @@ public struct AIHaplotypingRevisionPublisher {
                 createdAt: analysis.generatedAt ?? isoString(dateProvider()),
                 calls: calls,
                 paths: paths,
-                provenancePath: provenancePath
+                provenancePath: provenancePath,
+                lockedSidecar: request.sidecar == nil ? nil : lockedSidecar,
+                expectedSidecarRevision: lockedSnapshot.revision,
+                publicationLock: publicationLock
             )
 
             let revision = try makeRevision(
@@ -261,33 +318,7 @@ public struct AIHaplotypingRevisionPublisher {
         _ manifest: ONTGenotypeResultBundleManifest,
         revision: ONTGenotypeHaplotypeAnalysisRevision
     ) -> ONTGenotypeResultBundleManifest {
-        ONTGenotypeResultBundleManifest(
-            schemaVersion: manifest.schemaVersion,
-            kind: manifest.kind,
-            outputName: manifest.outputName,
-            analysisName: manifest.analysisName,
-            primaryWorkbookPath: manifest.primaryWorkbookPath,
-            currentWorkbookPath: manifest.currentWorkbookPath,
-            workbookRevisions: manifest.workbookRevisions,
-            longSummaryCSVPath: manifest.longSummaryCSVPath,
-            sampleSummaryCSVPath: manifest.sampleSummaryCSVPath,
-            statsJSONPath: manifest.statsJSONPath,
-            provenancePath: manifest.provenancePath,
-            deduplicatedUnmatchedClustersFASTAPath: manifest.deduplicatedUnmatchedClustersFASTAPath,
-            haplotypeAnalysisPath: revision.path,
-            haplotypeDefinitionSetID: manifest.haplotypeDefinitionSetID,
-            haplotypeAssayID: manifest.haplotypeAssayID,
-            presetID: manifest.presetID,
-            presetVersion: manifest.presetVersion,
-            createdAt: manifest.createdAt,
-            activeHaplotypeAnalysisRevisionID: revision.id,
-            haplotypeAnalysisRevisions: (manifest.haplotypeAnalysisRevisions ?? []) + [revision],
-            mhcCandidateArtifacts: manifest.mhcCandidateArtifacts,
-            mhcReferenceVisualizations: manifest.mhcReferenceVisualizations,
-            referenceRecordStore: manifest.referenceRecordStore,
-            alignmentArtifacts: manifest.alignmentArtifacts,
-            provisionalExon2Artifacts: manifest.provisionalExon2Artifacts
-        )
+        manifest.appendingHaplotypeAnalysisRevision(revision)
     }
 
     private func remappedCalls(
@@ -500,9 +531,12 @@ public struct AIHaplotypingRevisionPublisher {
         createdAt: String,
         calls: [AIHaplotypingValidatedCall],
         paths: RevisionPaths,
-        provenancePath: String
+        provenancePath: String,
+        lockedSidecar: GenotypeAnnotationSidecar?,
+        expectedSidecarRevision: GenotypeAnnotationSidecarRevision,
+        publicationLock: ONTGenotypeBundlePublicationLock
     ) throws -> GenotypeAnnotationSidecar? {
-        guard let sidecarURL = request.sidecarURL, var sidecar = request.sidecar else {
+        guard request.sidecarURL != nil, var sidecar = lockedSidecar else {
             return nil
         }
         let callReviews = try calls.map { call -> GenotypeAnnotationSidecar.AIHaplotypeCallReview in
@@ -539,7 +573,12 @@ public struct AIHaplotypingRevisionPublisher {
         sidecar.activeAIHaplotypeReviewID = review.id
         sidecar.lastEditedAt = createdAt
         sidecar.lastEditor = request.context.toolName
-        try sidecar.encoded().write(to: sidecarURL, options: .atomic)
+        try ONTGenotypeResultBundleData.writeAnnotationSidecar(
+            sidecar,
+            expectedRevision: expectedSidecarRevision,
+            forBundleAt: request.bundleURL,
+            assuming: publicationLock
+        )
         return sidecar
     }
 

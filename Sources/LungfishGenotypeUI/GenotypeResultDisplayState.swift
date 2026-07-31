@@ -127,6 +127,10 @@ public struct GenotypeResultDisplayState: Equatable {
     public var matrixPercentDenominator: ONTGenotypeSupportDenominator = .viewedLocus
     public var matrixRowFilterText: String = ""
     public var matrixSampleFilterText: String = ""
+    /// Whether the manual haplotype summary band below matrix sample headers
+    /// is expanded. This presentation-only value defaults to collapsed and is
+    /// restored only from an existing window-owned, bundle-keyed entry.
+    public var manualHaplotypeBandExpanded: Bool = false
     /// Optional live override for the bundle-scoped candidate viewport settings.
     /// `nil` preserves the settings loaded from this result bundle's annotation
     /// sidecar. Full-length MHC controls use this while an edit is being applied.
@@ -154,6 +158,7 @@ public struct GenotypeResultDisplayState: Equatable {
         matrixPercentDenominator: ONTGenotypeSupportDenominator = .viewedLocus,
         matrixRowFilterText: String = "",
         matrixSampleFilterText: String = "",
+        manualHaplotypeBandExpanded: Bool = false,
         mhcCandidateDisplaySettings: ONTMHCCandidateDisplaySettings? = nil,
         cohortFlagThreshold: Int = 5_000
     ) {
@@ -173,6 +178,7 @@ public struct GenotypeResultDisplayState: Equatable {
         self.matrixPercentDenominator = matrixPercentDenominator
         self.matrixRowFilterText = matrixRowFilterText
         self.matrixSampleFilterText = matrixSampleFilterText
+        self.manualHaplotypeBandExpanded = manualHaplotypeBandExpanded
         self.mhcCandidateDisplaySettings = mhcCandidateDisplaySettings
         self.cohortFlagThreshold = cohortFlagThreshold
     }
@@ -184,7 +190,9 @@ public struct GenotypeResultDisplayState: Equatable {
     public func normalized(forGenotypeOnlyResult isGenotypeOnlyResult: Bool) -> Self {
         guard isGenotypeOnlyResult else { return self }
         var normalized = self
-        normalized.viewportLens = .summary
+        if normalized.viewportLens == .review {
+            normalized.viewportLens = .summary
+        }
         normalized.summaryViewMode = .matrix
         normalized.layout = .listTop
         return normalized
@@ -231,6 +239,8 @@ extension GenotypeResultDisplayState {
         replaced.matrixPercentDenominator = source.matrixPercentDenominator
         replaced.matrixRowFilterText = source.matrixRowFilterText
         replaced.matrixSampleFilterText = source.matrixSampleFilterText
+        replaced.manualHaplotypeBandExpanded =
+            source.manualHaplotypeBandExpanded
         replaced.mhcCandidateDisplaySettings = source.mhcCandidateDisplaySettings
         return replaced
     }
@@ -284,10 +294,16 @@ struct GenotypeMatrixSemanticTextPresentation: Equatable {
     let isItalic: Bool
 }
 
-struct GenotypeMatrixScopedCommentCounts: Equatable {
+struct GenotypeMatrixScopedCommentCounts: Equatable, Sendable {
     let alleleRow: Int
     let sampleColumn: Int
     let cell: Int
+
+    static let zero = GenotypeMatrixScopedCommentCounts(
+        alleleRow: 0,
+        sampleColumn: 0,
+        cell: 0
+    )
 
     var total: Int {
         alleleRow + sampleColumn + cell
@@ -325,6 +341,7 @@ enum GenotypeMatrixContextCommand: Int, CaseIterable, Equatable {
     case editComment
     case removeComments
     case selectSupportedCells
+    case editManualHaplotypeAssignments
 
     var isSelectionTargetedVisibilityCommand: Bool {
         switch self {
@@ -332,7 +349,8 @@ enum GenotypeMatrixContextCommand: Int, CaseIterable, Equatable {
              .hideSelectedColumns, .showOnlySelectedColumns:
             true
         case .resetVisibility, .markFalsePositive, .markFalseNegative, .clearReview,
-             .editComment, .removeComments, .selectSupportedCells:
+             .editComment, .removeComments, .selectSupportedCells,
+             .editManualHaplotypeAssignments:
             false
         }
     }
@@ -370,6 +388,21 @@ struct GenotypeMatrixContextMenuSnapshot: Equatable, Sendable {
     let capability: GenotypeMatrixReviewCapabilityState
     let visibilityCapability: GenotypeMatrixVisibilityCapabilitySnapshot
     let keyModifierRawValue: UInt
+    let manualHaplotypeEditSample: String?
+
+    init(
+        selectionTargets: [GenotypeAnnotationSidecar.MatrixTarget],
+        capability: GenotypeMatrixReviewCapabilityState,
+        visibilityCapability: GenotypeMatrixVisibilityCapabilitySnapshot,
+        keyModifierRawValue: UInt,
+        manualHaplotypeEditSample: String? = nil
+    ) {
+        self.selectionTargets = selectionTargets
+        self.capability = capability
+        self.visibilityCapability = visibilityCapability
+        self.keyModifierRawValue = keyModifierRawValue
+        self.manualHaplotypeEditSample = manualHaplotypeEditSample
+    }
 }
 
 @MainActor
@@ -468,6 +501,18 @@ struct GenotypeMatrixContextMenuBuilder {
                 keyModifierRawValue: 0
             ),
         ]
+        if snapshot.manualHaplotypeEditSample != nil {
+            items.insert(
+                GenotypeMatrixContextMenuItemState(
+                    title: "Edit Haplotype Assignments…",
+                    command: .editManualHaplotypeAssignments,
+                    availability: .enabled,
+                    keyEquivalent: "",
+                    keyModifierRawValue: 0
+                ),
+                at: 0
+            )
+        }
         if capability.selectionShape == .rows || capability.selectionShape == .columns {
             items.append(GenotypeMatrixContextMenuItemState(
                 title: "Select Supported Cells (≥ 1 read)",

@@ -41,6 +41,12 @@ public struct AmpliconGenotypeScientificArtifactPublication: Equatable, Sendable
     public var outputURLs: [URL] {
         [catalogJSONURL, sequencesFASTAURL].compactMap { $0 }
     }
+
+    public var reviewableRowCandidates: [GenotypeReviewableRowCandidate] {
+        provisionalExon2Document?.records.map(
+            GenotypeReviewableRowCandidate.init(provisionalExon2:)
+        ) ?? []
+    }
 }
 
 public struct AmpliconGenotypeScientificArtifactPublisher: Sendable {

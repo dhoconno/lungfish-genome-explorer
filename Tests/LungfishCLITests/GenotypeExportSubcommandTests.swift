@@ -1,4 +1,5 @@
 import XCTest
+import Darwin
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
@@ -128,6 +129,1348 @@ final class GenotypeExportSubcommandTests: XCTestCase {
         )
         XCTAssertNotNil(outputDescriptor.checksumSHA256)
         XCTAssertGreaterThan(outputDescriptor.fileSize ?? 0, 0)
+    }
+
+    func testProjectionExportUsesAttestedCatalogAndRecordsNativeFalseNegativeDecisions()
+        async throws
+    {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "genotype-export-native-fn-provenance-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        let fixture = try makeGenotypeBundleFixture(in: root)
+        let formulaLikeLabel = "=Mafa-A1*999:99"
+        let snapshot = try ONTGenotypeResultBundleData
+            .loadAnnotationSidecarSnapshot(forBundleAt: fixture)
+        var sidecar = snapshot.sidecar
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: formulaLikeLabel,
+                    sample: "S1"
+                ),
+                disposition: .falseNegative,
+                author: "Reviewer",
+                timestamp: "2026-07-27T01:00:00Z"
+            ),
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: formulaLikeLabel,
+                    sample: "S2"
+                ),
+                disposition: .falseNegative,
+                author: "Reviewer",
+                timestamp: "2026-07-27T01:01:00Z"
+            ),
+        ]
+        try ONTGenotypeResultBundleData.writeAnnotationSidecar(
+            sidecar,
+            expectedRevision: snapshot.revision,
+            forBundleAt: fixture
+        )
+        let projection = GenotypeViewProjection(
+            lens: "allele",
+            sampleColumns: ["S1", "S2"],
+            rows: [
+                .init(
+                    label: "Mafa-B*001:01",
+                    locus: "MHC-B",
+                    cells: ["12", "7"]
+                ),
+            ]
+        )
+        let projectionURL = root.appendingPathComponent("projection.json")
+        try JSONEncoder().encode(projection).write(to: projectionURL)
+        let outputURL = root.appendingPathComponent("native-fn.xlsx")
+        let command = try GenotypeExportSubcommand.parse([
+            "--bundle", fixture.path,
+            "--export-format", "xlsx",
+            "--output", outputURL.path,
+            "--view-projection", projectionURL.path,
+            "--force",
+        ])
+
+        try await command.run()
+
+        let sheet = try unzipEntry(
+            "xl/worksheets/sheet1.xml",
+            from: outputURL
+        )
+        XCTAssertTrue(sheet.contains("Analyst annotation-only rows"))
+        XCTAssertTrue(sheet.contains("<t>FN</t>"))
+        XCTAssertFalse(sheet.contains("<f>"))
+
+        let provenanceURL = outputURL.appendingPathExtension(
+            "lungfish-provenance.json"
+        )
+        let envelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL)
+        )
+        let resolved = envelope.options.resolvedDefaults
+        XCTAssertEqual(
+            resolved["nativeWorkbookAdapterVersion"],
+            .string("native-view-projection-v1")
+        )
+        XCTAssertEqual(
+            resolved["nativeFalseNegativeRestorationDecision"],
+            .string("fresh-projection-rebuild-no-managed-state-restoration")
+        )
+        guard case let .array(synthesis)? =
+            resolved["nativeFalseNegativeSynthesisDecisions"] else {
+            return XCTFail("missing structured synthesis decisions")
+        }
+        XCTAssertEqual(synthesis.count, 1)
+        guard case let .array(targets)? =
+            resolved["nativeFalseNegativeTargetCellDecisions"] else {
+            return XCTFail("missing structured target-cell decisions")
+        }
+        XCTAssertEqual(targets.count, 2)
+        guard case let .dictionary(descriptor)? =
+            resolved["reviewableRowCatalogDescriptor"] else {
+            return XCTFail("missing authoritative catalog descriptor")
+        }
+        let catalogURL = fixture.appendingPathComponent(
+            "artifacts/review/reviewable-row-catalog.json"
+        )
+        XCTAssertEqual(
+            descriptor["path"],
+            .string("artifacts/review/reviewable-row-catalog.json")
+        )
+        XCTAssertEqual(
+            descriptor["schemaID"],
+            .string(GenotypeReviewableRowCatalog.schemaID)
+        )
+        XCTAssertEqual(
+            descriptor["sha256"],
+            .string(try ProvenanceFileHasher.sha256(of: catalogURL))
+        )
+        XCTAssertEqual(
+            descriptor["sizeBytes"],
+            .integer(
+                Int(
+                    clamping: try ProvenanceFileHasher.fileSize(of: catalogURL)
+                )
+            )
+        )
+        let catalogInput = try XCTUnwrap(envelope.files.first {
+            URL(fileURLWithPath: $0.path).standardizedFileURL
+                == catalogURL.standardizedFileURL
+                && $0.role == .input
+        })
+        XCTAssertEqual(
+            catalogInput.checksumSHA256,
+            try ProvenanceFileHasher.sha256(of: catalogURL)
+        )
+        XCTAssertEqual(
+            catalogInput.fileSize,
+            try ProvenanceFileHasher.fileSize(of: catalogURL)
+        )
+    }
+
+    func testProjectionExportProvenanceBindsConsumedSnapshotsAfterInputDeletionOrMutation()
+        async throws
+    {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "genotype-export-input-snapshot-provenance-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        let fixture = try makeGenotypeBundleFixture(in: root)
+        let annotationURL = ONTGenotypeResultBundleData
+            .annotationSidecarURL(forBundleAt: fixture)
+        let snapshot = try ONTGenotypeResultBundleData
+            .loadAnnotationSidecarSnapshot(forBundleAt: fixture)
+        var sidecar = snapshot.sidecar
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "=Mafa-A1*999:99",
+                    sample: "S1"
+                ),
+                disposition: .falseNegative,
+                author: "Reviewer",
+                timestamp: "2026-07-27T01:00:00Z"
+            ),
+        ]
+        try ONTGenotypeResultBundleData.writeAnnotationSidecar(
+            sidecar,
+            expectedRevision: snapshot.revision,
+            forBundleAt: fixture
+        )
+        let catalogURL = fixture.appendingPathComponent(
+            "artifacts/review/reviewable-row-catalog.json"
+        )
+        let consumedAnnotationSHA = try ProvenanceFileHasher.sha256(
+            of: annotationURL
+        )
+        let consumedCatalogSHA = try ProvenanceFileHasher.sha256(of: catalogURL)
+        let projection = GenotypeViewProjection(
+            lens: "allele",
+            sampleColumns: ["S1"],
+            rows: []
+        )
+        let projectionURL = root.appendingPathComponent("projection.json")
+        try JSONEncoder().encode(projection).write(to: projectionURL)
+        let outputURL = root.appendingPathComponent("snapshot-bound.xlsx")
+        let command = try GenotypeExportSubcommand.parse([
+            "--bundle", fixture.path,
+            "--export-format", "xlsx",
+            "--output", outputURL.path,
+            "--view-projection", projectionURL.path,
+            "--force",
+        ])
+
+        try await command.runReturningResolvedColumns(
+            beforeProvenancePublication: {
+                try FileManager.default.removeItem(at: annotationURL)
+                try Data(#"{"swapped":"catalog"}"#.utf8).write(
+                    to: catalogURL,
+                    options: .atomic
+                )
+            }
+        )
+
+        let envelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(
+                fromSidecar: outputURL.appendingPathExtension(
+                    "lungfish-provenance.json"
+                )
+            )
+        )
+        let descriptors = envelope.files + envelope.steps.flatMap(\.inputs)
+        for (url, expectedSHA) in [
+            (annotationURL, consumedAnnotationSHA),
+            (catalogURL, consumedCatalogSHA),
+        ] {
+            let matching = descriptors.filter {
+                URL(fileURLWithPath: $0.path).standardizedFileURL
+                    == url.standardizedFileURL
+                    && $0.role == .input
+            }
+            XCTAssertFalse(matching.isEmpty)
+            XCTAssertTrue(
+                matching.allSatisfy { $0.checksumSHA256 == expectedSHA },
+                "provenance must describe the bytes consumed before publication"
+            )
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: annotationURL.path))
+        XCTAssertNotEqual(
+            try ProvenanceFileHasher.sha256(of: catalogURL),
+            consumedCatalogSHA,
+            "the mutation hook must prove the catalog changed"
+        )
+    }
+
+    func testProjectionExportDoesNotClaimAnnotationSidecarCreatedAfterRender()
+        async throws
+    {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "genotype-export-late-annotation-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        let fixture = try makeGenotypeBundleFixture(in: root)
+        let annotationURL = ONTGenotypeResultBundleData
+            .annotationSidecarURL(forBundleAt: fixture)
+        try FileManager.default.removeItem(at: annotationURL)
+        let projection = GenotypeViewProjection(
+            lens: "allele",
+            sampleColumns: ["S1"],
+            rows: [
+                .init(
+                    label: "Mafa-B*001:01",
+                    locus: "MHC-B",
+                    cells: ["12"]
+                ),
+            ]
+        )
+        let projectionURL = root.appendingPathComponent("projection.json")
+        try JSONEncoder().encode(projection).write(to: projectionURL)
+        let outputURL = root.appendingPathComponent("late-annotation.xlsx")
+        let command = try GenotypeExportSubcommand.parse([
+            "--bundle", fixture.path,
+            "--export-format", "xlsx",
+            "--output", outputURL.path,
+            "--view-projection", projectionURL.path,
+            "--force",
+        ])
+
+        try await command.runReturningResolvedColumns(
+            beforeProvenancePublication: {
+                try Data(#"{"late":"annotation"}"#.utf8).write(
+                    to: annotationURL,
+                    options: .atomic
+                )
+            }
+        )
+
+        let envelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(
+                fromSidecar: outputURL.appendingPathExtension(
+                    "lungfish-provenance.json"
+                )
+            )
+        )
+        let inputDescriptors = envelope.files + envelope.steps.flatMap(\.inputs)
+        XCTAssertFalse(inputDescriptors.contains {
+            URL(fileURLWithPath: $0.path).standardizedFileURL
+                == annotationURL.standardizedFileURL
+        })
+        XCTAssertFalse(envelope.argv.contains("--annotations"))
+        XCTAssertNil(envelope.options.explicit["annotations"])
+        XCTAssertNotEqual(
+            envelope.options.resolvedDefaults["annotations"],
+            .file(annotationURL)
+        )
+    }
+
+    func testProjectionExportProvenanceBindsConsumedProjectionAfterMutationOrDeletion()
+        async throws
+    {
+        for deleteProjection in [false, true] {
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent(
+                    "genotype-export-projection-snapshot-\(UUID().uuidString)",
+                    isDirectory: true
+                )
+            defer { try? FileManager.default.removeItem(at: root) }
+            try FileManager.default.createDirectory(
+                at: root,
+                withIntermediateDirectories: true
+            )
+            let fixture = try makeGenotypeBundleFixture(in: root)
+            let projection = GenotypeViewProjection(
+                lens: "allele",
+                sampleColumns: ["S1"],
+                rows: [
+                    .init(
+                        label: "Mafa-B*001:01",
+                        locus: "MHC-B",
+                        cells: ["12"]
+                    ),
+                ]
+            )
+            let projectionURL = root.appendingPathComponent("projection.json")
+            let consumedData = try JSONEncoder().encode(projection)
+            try consumedData.write(to: projectionURL)
+            let consumedSHA = try ProvenanceFileHasher.sha256(of: projectionURL)
+            let outputURL = root.appendingPathComponent(
+                deleteProjection ? "deleted.xlsx" : "mutated.xlsx"
+            )
+            let command = try GenotypeExportSubcommand.parse([
+                "--bundle", fixture.path,
+                "--export-format", "xlsx",
+                "--output", outputURL.path,
+                "--view-projection", projectionURL.path,
+            ])
+
+            try await command.runReturningResolvedColumns(
+                beforeProvenancePublication: {
+                    if deleteProjection {
+                        try FileManager.default.removeItem(at: projectionURL)
+                    } else {
+                        try Data(#"{"replacement":true}"#.utf8).write(
+                            to: projectionURL,
+                            options: .atomic
+                        )
+                    }
+                }
+            )
+
+            let envelope = try XCTUnwrap(
+                ProvenanceEnvelopeReader.load(
+                    fromSidecar: outputURL.appendingPathExtension(
+                        "lungfish-provenance.json"
+                    )
+                )
+            )
+            let projectionInputs = (
+                envelope.files + envelope.steps.flatMap(\.inputs)
+            ).filter {
+                URL(fileURLWithPath: $0.path).standardizedFileURL
+                    == projectionURL.standardizedFileURL
+                    && $0.role == .input
+            }
+            XCTAssertFalse(projectionInputs.isEmpty)
+            XCTAssertTrue(
+                projectionInputs.allSatisfy {
+                    $0.checksumSHA256 == consumedSHA
+                        && $0.fileSize == UInt64(consumedData.count)
+                },
+                "provenance must bind the projection bytes used to render"
+            )
+            if deleteProjection {
+                XCTAssertFalse(
+                    FileManager.default.fileExists(atPath: projectionURL.path)
+                )
+            } else {
+                XCTAssertNotEqual(
+                    try ProvenanceFileHasher.sha256(of: projectionURL),
+                    consumedSHA
+                )
+            }
+        }
+    }
+
+    func testImplicitAnnotationSnapshotAtomicallyTracksAppearanceAndDeletion()
+        async throws
+    {
+        for shouldAppear in [true, false] {
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent(
+                    "genotype-export-atomic-annotation-\(UUID().uuidString)",
+                    isDirectory: true
+                )
+            defer { try? FileManager.default.removeItem(at: root) }
+            try FileManager.default.createDirectory(
+                at: root,
+                withIntermediateDirectories: true
+            )
+            let fixture = try makeGenotypeBundleFixture(in: root)
+            let annotationURL = ONTGenotypeResultBundleData
+                .annotationSidecarURL(forBundleAt: fixture)
+            if shouldAppear {
+                try FileManager.default.removeItem(at: annotationURL)
+            }
+            let expectedData = try JSONEncoder().encode(
+                GenotypeAnnotationSidecar.empty(
+                    generatedAt: "2026-07-27T02:00:00Z"
+                )
+            )
+            let outputURL = root.appendingPathComponent(
+                shouldAppear ? "appeared.xlsx" : "deleted.xlsx"
+            )
+            let command = try GenotypeExportSubcommand.parse([
+                "--bundle", fixture.path,
+                "--export-format", "xlsx",
+                "--output", outputURL.path,
+            ])
+
+            try await command.runReturningResolvedColumns(
+                beforeAnnotationSnapshot: {
+                    if shouldAppear {
+                        try expectedData.write(
+                            to: annotationURL,
+                            options: .atomic
+                        )
+                    } else {
+                        try FileManager.default.removeItem(at: annotationURL)
+                    }
+                }
+            )
+
+            let envelope = try XCTUnwrap(
+                ProvenanceEnvelopeReader.load(
+                    fromSidecar: outputURL.appendingPathExtension(
+                        "lungfish-provenance.json"
+                    )
+                )
+            )
+            let annotationInputs = (
+                envelope.files + envelope.steps.flatMap(\.inputs)
+            ).filter {
+                URL(fileURLWithPath: $0.path).standardizedFileURL
+                    == annotationURL.standardizedFileURL
+                    && $0.role == .input
+            }
+            if shouldAppear {
+                XCTAssertFalse(annotationInputs.isEmpty)
+                XCTAssertTrue(envelope.argv.contains("--annotations"))
+                XCTAssertTrue(annotationInputs.allSatisfy {
+                    $0.checksumSHA256
+                        == (try? ProvenanceFileHasher.sha256(of: annotationURL))
+                })
+            } else {
+                XCTAssertTrue(annotationInputs.isEmpty)
+                XCTAssertFalse(envelope.argv.contains("--annotations"))
+            }
+        }
+    }
+
+    func testProjectionExportRejectsTamperedCatalogBeforePublishingWorkbook()
+        async throws
+    {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "genotype-export-native-fn-tampered-catalog-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        let fixture = try makeGenotypeBundleFixture(in: root)
+        let snapshot = try ONTGenotypeResultBundleData
+            .loadAnnotationSidecarSnapshot(forBundleAt: fixture)
+        var sidecar = snapshot.sidecar
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "=Mafa-A1*999:99",
+                    sample: "S1"
+                ),
+                disposition: .falseNegative,
+                author: "Reviewer",
+                timestamp: "2026-07-27T01:00:00Z"
+            ),
+        ]
+        try ONTGenotypeResultBundleData.writeAnnotationSidecar(
+            sidecar,
+            expectedRevision: snapshot.revision,
+            forBundleAt: fixture
+        )
+        let catalogURL = fixture.appendingPathComponent(
+            "artifacts/review/reviewable-row-catalog.json"
+        )
+        var tampered = try Data(contentsOf: catalogURL)
+        tampered.append(Data("\n ".utf8))
+        try tampered.write(to: catalogURL)
+        let projection = GenotypeViewProjection(
+            lens: "allele",
+            sampleColumns: ["S1"],
+            rows: []
+        )
+        let projectionURL = root.appendingPathComponent("projection.json")
+        try JSONEncoder().encode(projection).write(to: projectionURL)
+        let outputURL = root.appendingPathComponent("must-not-exist.xlsx")
+        let command = try GenotypeExportSubcommand.parse([
+            "--bundle", fixture.path,
+            "--export-format", "xlsx",
+            "--output", outputURL.path,
+            "--view-projection", projectionURL.path,
+            "--force",
+        ])
+
+        do {
+            try await command.run()
+            XCTFail("expected catalog checksum failure")
+        } catch {
+            XCTAssertFalse(error.localizedDescription.isEmpty)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+    }
+
+    func testExportRestoresPriorOutputWhenProvenancePublicationFails()
+        async throws
+    {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "genotype-export-provenance-rollback-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        let fixture = try makeGenotypeBundleFixture(in: root)
+        let outputURL = root.appendingPathComponent("existing.xlsx")
+        let outputSidecarURL = ProvenanceRecorder.fileSidecarURL(
+            for: outputURL
+        )
+        let rootProvenanceURL = root.appendingPathComponent(
+            ProvenanceRecorder.provenanceFilename
+        )
+        let priorOutput = Data("prior workbook".utf8)
+        let priorSidecar = Data("prior output provenance".utf8)
+        let priorRootProvenance = Data("prior root provenance".utf8)
+        try priorOutput.write(to: outputURL)
+        try priorSidecar.write(to: outputSidecarURL)
+        try priorRootProvenance.write(to: rootProvenanceURL)
+        let command = try GenotypeExportSubcommand.parse([
+            "--bundle", fixture.path,
+            "--export-format", "xlsx",
+            "--output", outputURL.path,
+            "--force",
+        ])
+        do {
+            try await command.runReturningResolvedColumns(
+                beforeProvenancePublication: {
+                    throw NSError(
+                        domain: "GenotypeExportSubcommandTests",
+                        code: 91,
+                        userInfo: [
+                            NSLocalizedDescriptionKey:
+                                "Injected provenance publication failure",
+                        ]
+                    )
+                }
+            )
+            XCTFail("expected injected provenance failure")
+        } catch {
+            XCTAssertTrue(
+                String(describing: error).contains(
+                    "Injected provenance publication failure"
+                )
+            )
+        }
+
+        XCTAssertEqual(try Data(contentsOf: outputURL), priorOutput)
+        XCTAssertEqual(try Data(contentsOf: outputSidecarURL), priorSidecar)
+        XCTAssertEqual(
+            try Data(contentsOf: rootProvenanceURL),
+            priorRootProvenance
+        )
+        let names = try FileManager.default.contentsOfDirectory(atPath: root.path)
+        XCTAssertFalse(names.contains { $0.contains("export-staging") })
+    }
+
+    func testRollbackPreservesNoncooperatingWriterChanges()
+        async throws
+    {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "genotype-export-cas-rollback-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        let fixture = try makeGenotypeBundleFixture(in: root)
+        let outputURL = root.appendingPathComponent("shared.xlsx")
+        let outputSidecarURL = ProvenanceRecorder.fileSidecarURL(
+            for: outputURL
+        )
+        let rootProvenanceURL = root.appendingPathComponent(
+            ProvenanceRecorder.provenanceFilename
+        )
+        let provenanceDirectoryURL = root.appendingPathComponent(
+            ProvenanceWriter.bundleProvenanceDirectoryName,
+            isDirectory: true
+        )
+        let provenanceGenerationURL = provenanceDirectoryURL
+            .appendingPathComponent("bundle-provenance.json")
+        try FileManager.default.createDirectory(
+            at: provenanceDirectoryURL,
+            withIntermediateDirectories: true
+        )
+        try Data("prior workbook".utf8).write(to: outputURL)
+        try Data("prior output provenance".utf8).write(to: outputSidecarURL)
+        try Data("prior root provenance".utf8).write(to: rootProvenanceURL)
+        try Data("prior provenance generation".utf8).write(
+            to: provenanceGenerationURL
+        )
+        let priorGenerationInode = try inode(of: provenanceGenerationURL)
+
+        let externalOutput = Data("noncooperating workbook".utf8)
+        let externalRootProvenance = Data(
+            "noncooperating root provenance".utf8
+        )
+        let externalGeneration = Data(
+            "noncooperating provenance generation".utf8
+        )
+        let command = try GenotypeExportSubcommand.parse([
+            "--bundle", fixture.path,
+            "--export-format", "xlsx",
+            "--output", outputURL.path,
+            "--force",
+        ])
+        var externalWriterFired = false
+        var externalRootInode: UInt64?
+        var failureDescription = ""
+
+        do {
+            try await command.runReturningResolvedColumns(
+                beforeProvenanceArtifactObservation: { mutation in
+                    if mutation.kind == .provenanceDocumentWritten,
+                       mutation.url.standardizedFileURL
+                        == rootProvenanceURL.standardizedFileURL,
+                       !externalWriterFired {
+                        // This actor intentionally does not acquire Lungfish's
+                        // export lock. A later, unrelated provenance mutation
+                        // must not adopt these bytes into this transaction's
+                        // rollback witness.
+                        externalWriterFired = true
+                        try externalOutput.write(
+                            to: outputURL,
+                            options: .atomic
+                        )
+                        try self.overwriteInPlace(
+                            rootProvenanceURL,
+                            with: externalRootProvenance
+                        )
+                        externalRootInode = try self.inode(
+                            of: rootProvenanceURL
+                        )
+                        try self.overwriteInPlace(
+                            provenanceGenerationURL,
+                            with: externalGeneration
+                        )
+                        return
+                    }
+                },
+                afterProvenanceArtifactPublication: { mutation in
+                    guard mutation.kind == .provenanceDocumentWritten,
+                          mutation.url.standardizedFileURL
+                            == outputSidecarURL.standardizedFileURL else {
+                        return
+                    }
+                    throw NSError(
+                        domain: "GenotypeExportSubcommandTests",
+                        code: 96,
+                        userInfo: [
+                            NSLocalizedDescriptionKey:
+                                "Injected failure after later provenance mutation",
+                        ]
+                    )
+                }
+            )
+            XCTFail("expected injected publication failure")
+        } catch {
+            failureDescription = String(describing: error)
+            XCTAssertTrue(
+                failureDescription.contains(
+                    "Injected failure after later provenance mutation"
+                )
+            )
+            XCTAssertTrue(
+                failureDescription.contains(outputURL.path),
+                "partial rollback diagnostics must name preserved paths"
+            )
+        }
+
+        XCTAssertTrue(externalWriterFired)
+        XCTAssertEqual(try Data(contentsOf: outputURL), externalOutput)
+        XCTAssertEqual(
+            try Data(contentsOf: rootProvenanceURL),
+            externalRootProvenance
+        )
+        XCTAssertEqual(
+            try Data(contentsOf: outputSidecarURL),
+            Data("prior output provenance".utf8)
+        )
+        XCTAssertEqual(
+            try Data(contentsOf: provenanceGenerationURL),
+            externalGeneration
+        )
+        XCTAssertEqual(
+            try inode(of: rootProvenanceURL),
+            externalRootInode,
+            "root provenance mutation must exercise same-inode CAS"
+        )
+        XCTAssertEqual(
+            try inode(of: provenanceGenerationURL),
+            priorGenerationInode,
+            "provenance tree mutation must exercise same-inode CAS"
+        )
+        let preservedPriorWorkbookURLs = try FileManager.default
+            .contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: nil
+            )
+            .filter {
+                $0.lastPathComponent.hasPrefix(
+                    ".shared.xlsx.provenance-forward-"
+                )
+            }
+        XCTAssertEqual(preservedPriorWorkbookURLs.count, 1)
+        let preservedPriorWorkbookURL = try XCTUnwrap(
+            preservedPriorWorkbookURLs.first
+        )
+        XCTAssertEqual(
+            try Data(contentsOf: preservedPriorWorkbookURL),
+            Data("prior workbook".utf8)
+        )
+        XCTAssertTrue(
+            failureDescription.contains(
+                preservedPriorWorkbookURL.lastPathComponent
+            ),
+            "partial rollback diagnostics must name the prior workbook quarantine: \(failureDescription)"
+        )
+    }
+
+    func testRollbackSnapshotRejectsChangeBetweenBackupAndBoundWitness()
+        throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "genotype-export-snapshot-race-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        let outputURL = root.appendingPathComponent("shared.xlsx")
+        let original = Data("original-generation".utf8)
+        let external = Data("external-generation".utf8)
+        try original.write(to: outputURL)
+
+        XCTAssertThrowsError(
+            try ProvenancePublicationSnapshot(
+                urls: [outputURL],
+                afterBackupCopy: { copiedURL in
+                    XCTAssertEqual(
+                        copiedURL.standardizedFileURL,
+                        outputURL.standardizedFileURL
+                    )
+                    try external.write(
+                        to: outputURL,
+                        options: .atomic
+                    )
+                }
+            )
+        ) { error in
+            XCTAssertTrue(
+                error.localizedDescription.contains(
+                    "changed while its rollback snapshot"
+                )
+            )
+        }
+        XCTAssertEqual(try Data(contentsOf: outputURL), external)
+    }
+
+    func testForceExportDoesNotDeleteReplacementArrivingBeforeClaim()
+        async throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "genotype-export-forward-claim-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        let fixture = try makeGenotypeBundleFixture(in: root)
+        let outputURL = root.appendingPathComponent("shared.xlsx")
+        let prior = Data("prior generation".utf8)
+        let external = Data("external generation".utf8)
+        try prior.write(to: outputURL)
+        let command = try GenotypeExportSubcommand.parse([
+            "--bundle", fixture.path,
+            "--export-format", "xlsx",
+            "--output", outputURL.path,
+            "--force",
+        ])
+
+        do {
+            try await command.runReturningResolvedColumns(
+                beforeOutputReplacementClaim: {
+                    try external.write(
+                        to: outputURL,
+                        options: .atomic
+                    )
+                }
+            )
+            XCTFail("expected generation conflict")
+        } catch {
+            XCTAssertTrue(
+                error.localizedDescription.contains(outputURL.path)
+            )
+        }
+        XCTAssertEqual(try Data(contentsOf: outputURL), external)
+    }
+
+    func testRollbackRestoresAfterEachPublishedProvenanceArtifact()
+        async throws
+    {
+        enum FailureTarget: String, CaseIterable {
+            case root
+            case bundleRollup
+            case focusedBundleSidecar
+            case outputSidecar
+        }
+
+        for failureTarget in FailureTarget.allCases {
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent(
+                    "genotype-export-artifact-rollback-\(failureTarget.rawValue)-\(UUID().uuidString)",
+                    isDirectory: true
+                )
+            defer { try? FileManager.default.removeItem(at: root) }
+            try FileManager.default.createDirectory(
+                at: root,
+                withIntermediateDirectories: true
+            )
+            let fixture = try makeGenotypeBundleFixture(in: root)
+            let publicationRoot = root.appendingPathComponent(
+                "publication.lungfishresults",
+                isDirectory: true
+            )
+            try FileManager.default.createDirectory(
+                at: publicationRoot,
+                withIntermediateDirectories: true
+            )
+            let outputURL = publicationRoot.appendingPathComponent(
+                "existing.xlsx"
+            )
+            let outputSidecarURL = ProvenanceRecorder.fileSidecarURL(
+                for: outputURL
+            )
+            let rootProvenanceURL = publicationRoot.appendingPathComponent(
+                ProvenanceRecorder.provenanceFilename
+            )
+            let provenanceDirectoryURL = publicationRoot.appendingPathComponent(
+                ProvenanceWriter.bundleProvenanceDirectoryName,
+                isDirectory: true
+            )
+            let rollupURL = provenanceDirectoryURL.appendingPathComponent(
+                ProvenanceWriter.bundleRollupFilename
+            )
+            let focusedSidecarURL = try XCTUnwrap(
+                ProvenanceWriter.bundleOutputSidecarURL(
+                    for: outputURL,
+                    inBundle: publicationRoot
+                )
+            )
+            let failureURL: URL
+            switch failureTarget {
+            case .root:
+                failureURL = rootProvenanceURL
+            case .bundleRollup:
+                failureURL = rollupURL
+            case .focusedBundleSidecar:
+                failureURL = focusedSidecarURL
+            case .outputSidecar:
+                failureURL = outputSidecarURL
+            }
+            let priorOutput = Data("prior workbook".utf8)
+            let priorSidecar = Data("prior output provenance".utf8)
+            let priorRoot = Data("prior root provenance".utf8)
+            try priorOutput.write(to: outputURL)
+            try priorSidecar.write(to: outputSidecarURL)
+            try priorRoot.write(to: rootProvenanceURL)
+            let command = try GenotypeExportSubcommand.parse([
+                "--bundle", fixture.path,
+                "--export-format", "xlsx",
+                "--output", outputURL.path,
+                "--force",
+            ])
+
+            do {
+                try await command.runReturningResolvedColumns(
+                    afterProvenanceArtifactPublication: { mutation in
+                        guard mutation.kind == .provenanceDocumentWritten,
+                              mutation.url.standardizedFileURL
+                                == failureURL.standardizedFileURL else {
+                            return
+                        }
+                        throw NSError(
+                            domain: "GenotypeExportSubcommandTests",
+                            code: 97,
+                            userInfo: [
+                                NSLocalizedDescriptionKey:
+                                    "Injected failure after \(failureTarget.rawValue) provenance mutation",
+                            ]
+                        )
+                    }
+                )
+                XCTFail("expected provenance artifact failure")
+            } catch {
+                XCTAssertTrue(
+                    String(describing: error).contains(
+                        "Injected failure after \(failureTarget.rawValue) provenance mutation"
+                    )
+                )
+            }
+
+            XCTAssertEqual(try Data(contentsOf: outputURL), priorOutput)
+            XCTAssertEqual(
+                try Data(contentsOf: outputSidecarURL),
+                priorSidecar
+            )
+            XCTAssertEqual(
+                try Data(contentsOf: rootProvenanceURL),
+                priorRoot
+            )
+            XCTAssertFalse(
+                FileManager.default.fileExists(
+                    atPath: provenanceDirectoryURL.path
+                ),
+                "transaction-owned provenance tree must roll back after \(failureTarget.rawValue)"
+            )
+        }
+    }
+
+    func testRollbackRestoresRemovedStaleSigningArtifacts()
+        async throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "genotype-export-signing-removal-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        let fixture = try makeGenotypeBundleFixture(in: root)
+        let outputURL = root.appendingPathComponent("existing.xlsx")
+        let rootProvenanceURL = root.appendingPathComponent(
+            ProvenanceRecorder.provenanceFilename
+        )
+        let signatureURL = ProvenanceSigningConfiguration.signatureURL(
+            for: rootProvenanceURL
+        )
+        let publicKeyURL = ProvenanceSigningConfiguration.publicKeyURL(
+            for: rootProvenanceURL
+        )
+        let priorOutput = Data("prior workbook".utf8)
+        let priorRoot = Data("prior root provenance".utf8)
+        let priorSignature = Data("prior signature".utf8)
+        let priorPublicKey = Data("prior public key".utf8)
+        try priorOutput.write(to: outputURL)
+        try priorRoot.write(to: rootProvenanceURL)
+        try priorSignature.write(to: signatureURL)
+        try priorPublicKey.write(to: publicKeyURL)
+        let command = try GenotypeExportSubcommand.parse([
+            "--bundle", fixture.path,
+            "--export-format", "xlsx",
+            "--output", outputURL.path,
+            "--force",
+        ])
+
+        do {
+            try await command.runReturningResolvedColumns(
+                afterProvenanceArtifactPublication: { mutation in
+                    guard mutation.kind == .artifactRemoved,
+                          mutation.affectedURLs.contains(
+                            signatureURL
+                          ) else {
+                        return
+                    }
+                    throw NSError(
+                        domain: "GenotypeExportSubcommandTests",
+                        code: 101,
+                        userInfo: [
+                            NSLocalizedDescriptionKey:
+                                "Injected failure after signing artifact removal",
+                        ]
+                    )
+                }
+            )
+            XCTFail("expected signing artifact removal failure")
+        } catch {
+            XCTAssertTrue(
+                String(describing: error).contains(
+                    "Injected failure after signing artifact removal"
+                )
+            )
+        }
+
+        XCTAssertEqual(try Data(contentsOf: outputURL), priorOutput)
+        XCTAssertEqual(try Data(contentsOf: rootProvenanceURL), priorRoot)
+        XCTAssertEqual(try Data(contentsOf: signatureURL), priorSignature)
+        XCTAssertEqual(try Data(contentsOf: publicKeyURL), priorPublicKey)
+    }
+
+    func testRollbackDoesNotDeleteWriterArrivingAfterAtomicDetachment()
+        async throws
+    {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "genotype-export-detach-race-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        let fixture = try makeGenotypeBundleFixture(in: root)
+        let outputURL = root.appendingPathComponent("shared.xlsx")
+        let outputSidecarURL = ProvenanceRecorder.fileSidecarURL(
+            for: outputURL
+        )
+        let rootProvenanceURL = root.appendingPathComponent(
+            ProvenanceRecorder.provenanceFilename
+        )
+        let priorOutput = Data("prior workbook".utf8)
+        let priorSidecar = Data("prior sidecar".utf8)
+        let priorRoot = Data("prior root".utf8)
+        let lateExternalOutput = Data("late external workbook".utf8)
+        try priorOutput.write(to: outputURL)
+        try priorSidecar.write(to: outputSidecarURL)
+        try priorRoot.write(to: rootProvenanceURL)
+        let command = try GenotypeExportSubcommand.parse([
+            "--bundle", fixture.path,
+            "--export-format", "xlsx",
+            "--output", outputURL.path,
+            "--force",
+        ])
+        var externalWriterFired = false
+
+        do {
+            try await command.runReturningResolvedColumns(
+                beforeProvenancePublication: {
+                    throw NSError(
+                        domain: "GenotypeExportSubcommandTests",
+                        code: 100,
+                        userInfo: [
+                            NSLocalizedDescriptionKey:
+                                "Injected pre-provenance failure",
+                        ]
+                    )
+                },
+                afterRollbackArtifactDetached: { detachedOriginalURL in
+                    guard detachedOriginalURL.standardizedFileURL
+                        == outputURL.standardizedFileURL,
+                        !externalWriterFired else {
+                        return
+                    }
+                    externalWriterFired = true
+                    try lateExternalOutput.write(
+                        to: outputURL,
+                        options: .atomic
+                    )
+                }
+            )
+            XCTFail("expected injected pre-provenance failure")
+        } catch {
+            XCTAssertTrue(
+                String(describing: error).contains(
+                    "Injected pre-provenance failure"
+                )
+            )
+        }
+
+        XCTAssertTrue(externalWriterFired)
+        XCTAssertEqual(
+            try Data(contentsOf: outputURL),
+            lateExternalOutput,
+            "exclusive restore must not replace a writer that arrives after detachment"
+        )
+        XCTAssertEqual(try Data(contentsOf: outputSidecarURL), priorSidecar)
+        XCTAssertEqual(try Data(contentsOf: rootProvenanceURL), priorRoot)
+        let names = try FileManager.default.contentsOfDirectory(
+            atPath: root.path
+        )
+        XCTAssertFalse(
+            names.contains {
+                $0.contains(".provenance-rollback-")
+                    || $0.contains(".provenance-restore-")
+            }
+        )
+    }
+
+    func testExportWithoutForcePreservesOutputCreatedDuringRendering()
+        async throws
+    {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "genotype-export-late-output-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        let fixture = try makeGenotypeBundleFixture(in: root)
+        let outputURL = root.appendingPathComponent("late.xlsx")
+        let lateBytes = Data("created by another actor".utf8)
+        let command = try GenotypeExportSubcommand.parse([
+            "--bundle", fixture.path,
+            "--export-format", "xlsx",
+            "--output", outputURL.path,
+        ])
+
+        do {
+            try await command.runReturningResolvedColumns(
+                beforeOutputPublication: {
+                    try lateBytes.write(to: outputURL, options: .atomic)
+                }
+            )
+            XCTFail("expected exclusive publication to reject late output")
+        } catch {
+            XCTAssertTrue(
+                String(describing: error).contains(
+                    "Output file already exists"
+                ),
+                "unexpected error: \(error)"
+            )
+        }
+
+        XCTAssertEqual(try Data(contentsOf: outputURL), lateBytes)
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: outputURL.appendingPathExtension(
+                    "lungfish-provenance.json"
+                ).path
+            )
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: root.appendingPathComponent(
+                    ProvenanceRecorder.provenanceFilename
+                ).path
+            )
+        )
+        let names = try FileManager.default.contentsOfDirectory(atPath: root.path)
+        XCTAssertFalse(names.contains { $0.contains("export-staging") })
+    }
+
+    func testConcurrentExportsSerializeSharedRootProvenanceRollback()
+        async throws
+    {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "genotype-export-concurrent-provenance-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        let fixture = try makeGenotypeBundleFixture(in: root)
+        let outputA = root.appendingPathComponent("export-a.xlsx")
+        let outputB = root.appendingPathComponent("export-b.xlsx")
+        let rootProvenanceURL = root.appendingPathComponent(
+            ProvenanceRecorder.provenanceFilename
+        )
+        let commandA = try GenotypeExportSubcommand.parse([
+            "--bundle", fixture.path,
+            "--export-format", "xlsx",
+            "--output", outputA.path,
+        ])
+        let commandB = try GenotypeExportSubcommand.parse([
+            "--bundle", fixture.path,
+            "--export-format", "xlsx",
+            "--output", outputB.path,
+        ])
+
+        let aReachedProvenance = DispatchSemaphore(value: 0)
+        let releaseA = DispatchSemaphore(value: 0)
+        let bReadyToPublish = DispatchSemaphore(value: 0)
+        let allowBPublicationAttempt = DispatchSemaphore(value: 0)
+        let bReachedProvenance = DispatchSemaphore(value: 0)
+        let releaseBFailure = DispatchSemaphore(value: 0)
+        defer {
+            releaseA.signal()
+            allowBPublicationAttempt.signal()
+            releaseBFailure.signal()
+        }
+
+        let taskA = Task.detached {
+            try await commandA.runReturningResolvedColumns(
+                beforeProvenancePublication: {
+                    aReachedProvenance.signal()
+                    guard releaseA.wait(timeout: .now() + 10) == .success else {
+                        throw NSError(
+                            domain: "GenotypeExportSubcommandTests",
+                            code: 92,
+                            userInfo: [
+                                NSLocalizedDescriptionKey:
+                                    "Timed out releasing export A",
+                            ]
+                        )
+                    }
+                }
+            )
+        }
+        XCTAssertEqual(
+            aReachedProvenance.wait(timeout: .now() + 10),
+            .success
+        )
+
+        let taskB = Task.detached {
+            try await commandB.runReturningResolvedColumns(
+                beforeOutputPublication: {
+                    bReadyToPublish.signal()
+                    guard allowBPublicationAttempt.wait(
+                        timeout: .now() + 10
+                    ) == .success else {
+                        throw NSError(
+                            domain: "GenotypeExportSubcommandTests",
+                            code: 93,
+                            userInfo: [
+                                NSLocalizedDescriptionKey:
+                                    "Timed out starting export B publication",
+                            ]
+                        )
+                    }
+                },
+                beforeProvenancePublication: {
+                    bReachedProvenance.signal()
+                    guard releaseBFailure.wait(timeout: .now() + 10)
+                        == .success
+                    else {
+                        throw NSError(
+                            domain: "GenotypeExportSubcommandTests",
+                            code: 94,
+                            userInfo: [
+                                NSLocalizedDescriptionKey:
+                                    "Timed out releasing export B",
+                            ]
+                        )
+                    }
+                    throw NSError(
+                        domain: "GenotypeExportSubcommandTests",
+                        code: 95,
+                        userInfo: [
+                            NSLocalizedDescriptionKey:
+                                "Injected concurrent provenance failure",
+                        ]
+                    )
+                }
+            )
+        }
+
+        XCTAssertEqual(
+            bReadyToPublish.wait(timeout: .now() + 10),
+            .success
+        )
+        allowBPublicationAttempt.signal()
+        XCTAssertEqual(
+            bReachedProvenance.wait(timeout: .now() + 0.25),
+            .timedOut,
+            "export B must not enter the shared publication transaction while export A holds it"
+        )
+        releaseA.signal()
+        _ = try await taskA.value
+        XCTAssertEqual(
+            bReachedProvenance.wait(timeout: .now() + 10),
+            .success
+        )
+        let provenanceAfterA = try Data(contentsOf: rootProvenanceURL)
+        let outputASidecar = outputA.appendingPathExtension(
+            "lungfish-provenance.json"
+        )
+        let sidecarAfterA = try Data(contentsOf: outputASidecar)
+
+        releaseBFailure.signal()
+        do {
+            _ = try await taskB.value
+            XCTFail("expected injected export B provenance failure")
+        } catch {
+            XCTAssertTrue(
+                String(describing: error).contains(
+                    "Injected concurrent provenance failure"
+                )
+            )
+        }
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outputA.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputB.path))
+        XCTAssertEqual(
+            try Data(contentsOf: rootProvenanceURL),
+            provenanceAfterA,
+            "export B rollback must preserve export A's committed root provenance"
+        )
+        XCTAssertEqual(
+            try Data(contentsOf: outputASidecar),
+            sidecarAfterA,
+            "export B rollback must preserve export A's committed sidecar"
+        )
     }
 
     // MARK: - Projection filters visible samples
@@ -515,10 +1858,36 @@ final class GenotypeExportSubcommandTests: XCTestCase {
             ),
         ]
 
+        let catalog = try GenotypeReviewableRowCatalog(
+            samples: ["S1", "S2", "S3"],
+            rows: [
+                .init(
+                    kind: .candidate,
+                    callID: "candidate:MHC-A:cluster-a",
+                    displayName: "Collision_nov",
+                    locus: "MHC-A",
+                    stableID: "cluster-a",
+                    section: "candidate",
+                    sortKey: "MHC-A|Collision_nov|cluster-a",
+                    supportBySample: ["S1": 42, "S2": 0, "S3": 0]
+                ),
+                .init(
+                    kind: .candidate,
+                    callID: "candidate:MHC-A:cluster-b",
+                    displayName: "Collision_nov",
+                    locus: "MHC-A",
+                    stableID: "cluster-b",
+                    section: "candidate",
+                    sortKey: "MHC-A|Collision_nov|cluster-b",
+                    supportBySample: ["S1": 17, "S2": 0, "S3": 0]
+                ),
+            ]
+        ).validated()
         try GenotypeXlsxWorkbookWriter().writeViewProjection(
             projection,
             to: outputURL,
-            annotations: sidecar
+            annotations: sidecar,
+            reviewableRowCatalog: catalog
         )
 
         let sheet = try unzipEntry("xl/worksheets/sheet1.xml", from: outputURL)
@@ -529,7 +1898,7 @@ final class GenotypeExportSubcommandTests: XCTestCase {
         XCTAssertTrue(sheet.contains(#"r="D2""#), "cluster-a / S1 must be the false-positive cell")
         XCTAssertTrue(sheet.contains(#"r="E3""#), "empty false-negative cells must be emitted")
         XCTAssertTrue(sheet.contains(#"r="F3""#), "explicit-zero false-negative cells must be emitted")
-        XCTAssertTrue(sheet.contains("<t>0</t>"), "false-negative formatting must retain explicit zero")
+        XCTAssertTrue(sheet.contains("<t>FN</t>"), "false negatives must use a literal portable marker")
         XCTAssertFalse(sheet.contains("<t>-</t>"), "absent false-negative values must remain empty")
         XCTAssertFalse(sheet.contains("<t>[]</t>"), "invalid false-positive reviews must not format empty cells")
         XCTAssertTrue(sheet.contains("legacyDrawing"))
@@ -537,10 +1906,13 @@ final class GenotypeExportSubcommandTests: XCTestCase {
         let styles = try unzipEntry("xl/styles.xml", from: outputURL)
         XCTAssertTrue(styles.contains("<i/>"))
         XCTAssertTrue(styles.contains("FF767676"))
-        XCTAssertTrue(styles.contains(#"<left style="thick""#))
-        XCTAssertTrue(styles.contains(#"<right style="thick""#))
-        XCTAssertTrue(styles.contains(#"<top style="thick""#))
-        XCTAssertTrue(styles.contains(#"<bottom style="thick""#))
+        XCTAssertTrue(styles.contains(#"<left style="mediumDashed""#))
+        XCTAssertTrue(styles.contains(#"<right style="mediumDashed""#))
+        XCTAssertTrue(styles.contains(#"<top style="mediumDashed""#))
+        XCTAssertTrue(styles.contains(#"<bottom style="mediumDashed""#))
+        XCTAssertTrue(styles.contains("FFC65911"))
+        XCTAssertTrue(styles.contains("FFFFF2CC"))
+        XCTAssertTrue(styles.contains("FF7F6000"))
 
         let comments = try unzipEntry("xl/comments1.xml", from: outputURL)
         XCTAssertTrue(comments.contains("<authors>"))
@@ -590,6 +1962,231 @@ final class GenotypeExportSubcommandTests: XCTestCase {
         let csv = GenotypeXlsxWorkbookWriter.renderDelimited(projection, separator: ",")
         XCTAssertTrue(csv.contains("MHC-A,Collision_nov,42,"))
         XCTAssertFalse(csv.contains("[42]"), "semantic Excel typography must not alter delimited values")
+    }
+
+    func testProjectionWorkbookSynthesizesAuthoritativeFalseNegativeRowWithPortableStyleAndComments()
+        throws
+    {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "genotype-export-native-fn-parity-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        let outputURL = root.appendingPathComponent("native-fn.xlsx")
+        let clearedURL = root.appendingPathComponent("native-cleared.xlsx")
+        let formulaLikeLabel = "=Mafa-A1*999:99"
+        let projection = GenotypeViewProjection(
+            lens: "allele",
+            sampleColumns: ["S1", "S2"],
+            rows: [
+                .init(
+                    label: "Mafa-B*001:01",
+                    locus: "MHC-B",
+                    cells: ["12", "7"]
+                ),
+            ]
+        )
+        let catalog = try GenotypeReviewableRowCatalog(
+            samples: ["S1", "S2"],
+            rows: [
+                .init(
+                    kind: .reference,
+                    callID: "reference:MHC-A:formula-like",
+                    displayName: formulaLikeLabel,
+                    locus: "MHC-A",
+                    stableID: nil,
+                    section: "reference",
+                    sortKey: "MHC-A|formula-like",
+                    supportBySample: ["S1": 0, "S2": 0]
+                ),
+            ]
+        ).validated()
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: formulaLikeLabel,
+                    sample: "S1"
+                ),
+                disposition: .falseNegative,
+                author: "Reviewer",
+                timestamp: "2026-07-27T01:00:00Z"
+            ),
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: formulaLikeLabel,
+                    sample: "S2"
+                ),
+                disposition: .falseNegative,
+                author: "Reviewer",
+                timestamp: "2026-07-27T01:01:00Z"
+            ),
+        ]
+        sidecar.matrixComments = [
+            .init(
+                target: .row(
+                    locus: "MHC-A",
+                    genotype: formulaLikeLabel
+                ),
+                body: "Allele context",
+                author: "Row Author",
+                timestamp: "2026-07-27T02:00:00Z"
+            ),
+            .init(
+                target: .column(sample: "S1"),
+                body: "Sample context",
+                author: "Column Author",
+                timestamp: "2026-07-27T02:01:00Z"
+            ),
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: formulaLikeLabel,
+                    sample: "S1"
+                ),
+                body: "Cell context",
+                author: "Cell Author",
+                timestamp: "2026-07-27T02:02:00Z"
+            ),
+        ]
+
+        let report = try GenotypeXlsxWorkbookWriter().writeViewProjection(
+            projection,
+            to: outputURL,
+            annotations: sidecar,
+            reviewableRowCatalog: catalog
+        )
+
+        XCTAssertEqual(report.adapterVersion, "native-view-projection-v1")
+        XCTAssertEqual(report.synthesizedRows.count, 1)
+        XCTAssertEqual(
+            report.synthesizedRows.first?.identity.callID,
+            "reference:MHC-A:formula-like"
+        )
+        XCTAssertEqual(report.synthesizedRows.first?.cells, ["D4", "E4"])
+        XCTAssertEqual(report.targetCells.count, 2)
+        XCTAssertEqual(report.targetCells.first?.cell, "D4")
+        XCTAssertEqual(report.targetCells.first?.status, "valid")
+        XCTAssertEqual(
+            report.targetCells.first?.presentationPrecedence,
+            "false-negative-over-viewport-style"
+        )
+
+        let sheet = try unzipEntry("xl/worksheets/sheet1.xml", from: outputURL)
+        XCTAssertEqual(
+            sheet.components(separatedBy: "Analyst annotation-only rows").count - 1,
+            1
+        )
+        XCTAssertEqual(
+            sheet.components(separatedBy: "<t>\(formulaLikeLabel)</t>").count - 1,
+            1
+        )
+        XCTAssertFalse(sheet.contains("<f>"))
+        XCTAssertTrue(sheet.contains(#"<c r="D4""#))
+        XCTAssertTrue(sheet.contains(#"<c r="E4""#))
+        XCTAssertEqual(
+            sheet.components(separatedBy: "<t>FN</t>").count - 1,
+            2
+        )
+        let styles = try unzipEntry("xl/styles.xml", from: outputURL)
+        for token in [
+            #"style="mediumDashed""#,
+            "FFC65911",
+            "FFFFF2CC",
+            "FF7F6000",
+        ] {
+            XCTAssertTrue(styles.contains(token), "missing native FN style token \(token)")
+        }
+        XCTAssertTrue(
+            styles.contains(
+                #"<xf numFmtId="0" fontId="3" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/>"#
+            ),
+            "the FN cell style must bind the portable font, fill, and border together"
+        )
+        let comments = try unzipEntry("xl/comments1.xml", from: outputURL)
+        let combinedStart = try XCTUnwrap(
+            comments.range(of: #"ref="D4""#)
+        ).lowerBound
+        let combinedEnd = try XCTUnwrap(
+            comments.range(
+                of: "</comment>",
+                range: combinedStart..<comments.endIndex
+            )
+        ).upperBound
+        let combined = String(comments[combinedStart..<combinedEnd])
+        XCTAssertTrue(combined.contains("Allele Row"))
+        XCTAssertTrue(combined.contains("Sample Column"))
+        XCTAssertTrue(combined.contains("Cell"))
+
+        sidecar.matrixReviews = []
+        try GenotypeXlsxWorkbookWriter().writeViewProjection(
+            projection,
+            to: clearedURL,
+            annotations: sidecar,
+            reviewableRowCatalog: catalog
+        )
+        let clearedSheet = try unzipEntry(
+            "xl/worksheets/sheet1.xml",
+            from: clearedURL
+        )
+        XCTAssertFalse(clearedSheet.contains("Analyst annotation-only rows"))
+        XCTAssertFalse(clearedSheet.contains("<t>FN</t>"))
+    }
+
+    func testProjectionWorkbookRequiresCatalogAuthorityForFalseNegatives() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "genotype-export-native-fn-no-catalog-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        let projection = GenotypeViewProjection(
+            lens: "allele",
+            sampleColumns: ["S1"],
+            rows: [
+                .init(
+                    label: "Mafa-A1*001:01",
+                    locus: "MHC-A",
+                    cells: [""]
+                ),
+            ]
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mafa-A1*001:01",
+                    sample: "S1"
+                ),
+                disposition: .falseNegative,
+                author: "Reviewer",
+                timestamp: "2026-07-27T01:00:00Z"
+            ),
+        ]
+        let outputURL = root.appendingPathComponent("must-not-exist.xlsx")
+
+        XCTAssertThrowsError(
+            try GenotypeXlsxWorkbookWriter().writeViewProjection(
+                projection,
+                to: outputURL,
+                annotations: sidecar
+            )
+        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
     }
 
     func testProjectionWorkbookFailsClosedForConflictingDuplicateImportedReviews() throws {
@@ -815,12 +2412,36 @@ final class GenotypeExportSubcommandTests: XCTestCase {
                 timestamp: "2026-06-30T10:03:02Z"
             ),
         ]
-        try ONTGenotypeResultBundleData.writeAnnotationSidecar(sidecar, forBundleAt: bundleURL)
+        let snapshot = try ONTGenotypeResultBundleData
+            .loadAnnotationSidecarSnapshot(forBundleAt: bundleURL)
+        try ONTGenotypeResultBundleData.writeAnnotationSidecar(
+            sidecar,
+            expectedRevision: snapshot.revision,
+            forBundleAt: bundleURL
+        )
         return sidecarURL
     }
 
     /// Builds a minimal `.lungfishgenotype` bundle with three samples
     /// (S1, S2, S3) so projection-driven filtering has something to drop.
+    private func overwriteInPlace(_ url: URL, with data: Data) throws {
+        let handle = try FileHandle(forWritingTo: url)
+        defer { try? handle.close() }
+        try handle.truncate(atOffset: 0)
+        try handle.write(contentsOf: data)
+        try handle.synchronize()
+    }
+
+    private func inode(of url: URL) throws -> UInt64 {
+        var information = stat()
+        guard url.path.withCString({
+            Darwin.lstat($0, &information)
+        }) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        return UInt64(information.st_ino)
+    }
+
     private func makeGenotypeBundleFixture(in root: URL) throws -> URL {
         let bundleURL = root.appendingPathComponent("fixture.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
@@ -831,6 +2452,9 @@ final class GenotypeExportSubcommandTests: XCTestCase {
         let statsJSON = bundleURL.appendingPathComponent("fixture.retained-demux-stats.json")
         let provenanceJSON = bundleURL.appendingPathComponent("retained-demux-genotyping-provenance.json")
         let haplotypeJSON = bundleURL.appendingPathComponent("haplotype-analysis.json")
+        let reviewCatalogURL = bundleURL.appendingPathComponent(
+            "artifacts/review/reviewable-row-catalog.json"
+        )
 
         try Data("workbook".utf8).write(to: workbookURL)
         try Data("{}".utf8).write(to: provenanceJSON)
@@ -916,6 +2540,33 @@ final class GenotypeExportSubcommandTests: XCTestCase {
         let analysisEncoder = JSONEncoder()
         analysisEncoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try analysisEncoder.encode(analysis).write(to: haplotypeJSON)
+        try FileManager.default.createDirectory(
+            at: reviewCatalogURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let reviewCatalog = try GenotypeReviewableRowCatalog(
+            samples: ["S1", "S2", "S3"],
+            rows: [
+                .init(
+                    kind: .reference,
+                    callID: "reference:MHC-A:formula-like",
+                    displayName: "=Mafa-A1*999:99",
+                    locus: "MHC-A",
+                    stableID: nil,
+                    section: "reference",
+                    sortKey: "MHC-A|formula-like",
+                    supportBySample: ["S1": 0, "S2": 0, "S3": 0]
+                ),
+            ]
+        ).validated()
+        try reviewCatalog.encoded().write(to: reviewCatalogURL)
+        let reviewCatalogReference = ONTMHCArtifactReference(
+            path: "artifacts/review/reviewable-row-catalog.json",
+            sha256: try ProvenanceFileHasher.sha256(of: reviewCatalogURL),
+            sizeBytes: Int64(
+                try ProvenanceFileHasher.fileSize(of: reviewCatalogURL)
+            )
+        )
 
         let manifest = ONTGenotypeResultBundleManifest(
             outputName: "fixture",
@@ -927,7 +2578,8 @@ final class GenotypeExportSubcommandTests: XCTestCase {
             provenancePath: provenanceJSON.lastPathComponent,
             haplotypeAnalysisPath: haplotypeJSON.lastPathComponent,
             haplotypeDefinitionSetID: "mauritian-cynomolgus-macaques",
-            createdAt: "2026-05-22T10:00:00Z"
+            createdAt: "2026-05-22T10:00:00Z",
+            reviewableRowCatalog: reviewCatalogReference
         )
         try ONTGenotypeResultBundle.writeManifest(manifest, to: bundleURL)
 

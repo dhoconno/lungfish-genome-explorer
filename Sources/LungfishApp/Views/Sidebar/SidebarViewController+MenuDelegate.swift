@@ -68,6 +68,28 @@ extension SidebarViewController: NSMenuDelegate {
         let hasFASTQBundles = items.contains { $0.type == .fastqBundle }
         let mergeSelectionKind = BundleMergeSelection.detectKind(for: items)
 
+        let ownedProjectURL = (
+            view.window?.windowController as? MainWindowController
+        )?.projectSession.projectURL
+        if Self.canManageProjectStorage(
+            selectedItems: items,
+            currentProjectURL: projectURL,
+            ownedProjectURL: ownedProjectURL
+        ) {
+            let storageItem = NSMenuItem(
+                title: "Manage Project Storage\u{2026}",
+                action: #selector(contextMenuManageProjectStorage(_:)),
+                keyEquivalent: ""
+            )
+            storageItem.target = self
+            storageItem.identifier = NSUserInterfaceItemIdentifier(
+                ProjectStorageAccessibilityID.sidebarCommand
+            )
+            storageItem.setAccessibilityLabel("Manage project storage")
+            menu.addItem(storageItem)
+            menu.addItem(.separator())
+        }
+
         // Reference bundle(s) selected — export sequences
         if hasBundles {
             let bundleCount = items.filter { $0.type == .referenceBundle }.count
@@ -290,15 +312,39 @@ extension SidebarViewController: NSMenuDelegate {
         guard let item = items.first, item.type != .group && item.type != .project && item.type != .batchGroup else { return }
 
         sidebarLogger.info("contextMenuOpen: Opening '\(item.title, privacy: .public)'")
-
-        selectionDelegate?.sidebarDidSelectItem(item)
-
-        // Keep notification for other observers; display routes through the delegate.
-        NotificationCenter.default.post(
-            name: .sidebarSelectionChanged,
-            object: self,
-            userInfo: sidebarSelectionUserInfo(items: [item])
+        handleSelectionChange(
+            [item],
+            source: "contextMenuOpen"
         )
+    }
+
+    @objc private func contextMenuManageProjectStorage(_ sender: Any?) {
+        // Forward a view so AppDelegate resolves and permanently captures the
+        // exact originating window rather than a mutable global controller.
+        (NSApp.delegate as? AppDelegate)?.manageProjectStorage(view)
+    }
+
+    static func canManageProjectStorage(
+        selectedItems: [SidebarItem],
+        currentProjectURL: URL?,
+        ownedProjectURL: URL?
+    ) -> Bool {
+        guard selectedItems.count == 1,
+              let root = selectedItems.first,
+              root.type == .project,
+              let rootURL = root.url,
+              let currentProjectURL,
+              let ownedProjectURL else {
+            return false
+        }
+        let canonicalRoot =
+            ProjectSessionRegistry.canonicalProjectURL(rootURL)
+        return canonicalRoot
+            == ProjectSessionRegistry.canonicalProjectURL(currentProjectURL)
+            && canonicalRoot
+                == ProjectSessionRegistry.canonicalProjectURL(
+                    ownedProjectURL
+                )
     }
 
     @objc private func contextMenuMergeIntoNewBundle(_ sender: Any?) {

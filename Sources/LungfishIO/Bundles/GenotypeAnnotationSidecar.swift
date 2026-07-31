@@ -116,7 +116,19 @@ public struct ONTMHCCandidateDisplaySettings: Codable, Equatable, Sendable {
 
 public struct GenotypeAnnotationSidecar: Codable, Equatable, Sendable {
     public static let filename = "annotations.json"
-    public static let currentSchemaVersion = 2
+    public static let oldestSupportedSchemaVersion = 1
+    public static let currentSchemaVersion = 3
+
+    public enum SchemaMutationError: Error, Equatable, LocalizedError, Sendable {
+        case unsupportedFutureSchemaVersion(found: Int, current: Int)
+
+        public var errorDescription: String? {
+            switch self {
+            case .unsupportedFutureSchemaVersion(let found, let current):
+                return "Cannot modify genotype annotation schema version \(found); this version of Lungfish supports mutations through version \(current)."
+            }
+        }
+    }
 
     public var schemaVersion: Int
     public var generatedAt: String
@@ -220,7 +232,10 @@ public struct GenotypeAnnotationSidecar: Codable, Equatable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? Self.currentSchemaVersion
+        self.schemaVersion = try container.decodeIfPresent(
+            Int.self,
+            forKey: .schemaVersion
+        ) ?? Self.oldestSupportedSchemaVersion
         self.generatedAt = try container.decode(String.self, forKey: .generatedAt)
         self.lastEditedAt = try container.decodeIfPresent(String.self, forKey: .lastEditedAt)
         self.lastEditor = try container.decodeIfPresent(String.self, forKey: .lastEditor)
@@ -265,7 +280,13 @@ public struct GenotypeAnnotationSidecar: Codable, Equatable, Sendable {
         )
     }
 
-    public mutating func promoteToCurrentSchema() {
+    public mutating func promoteToCurrentSchema() throws {
+        guard schemaVersion <= Self.currentSchemaVersion else {
+            throw SchemaMutationError.unsupportedFutureSchemaVersion(
+                found: schemaVersion,
+                current: Self.currentSchemaVersion
+            )
+        }
         if schemaVersion < Self.currentSchemaVersion {
             schemaVersion = Self.currentSchemaVersion
         }
@@ -898,6 +919,28 @@ public extension GenotypeAnnotationSidecar {
         }
     }
 
+    struct ManualHaplotypeAssignmentAuditPayload: Codable, Equatable, Sendable {
+        public let operationID: String
+        public let priorSidecarSHA256: String?
+        public let before: ManualHaplotypeAssignment?
+        public let after: ManualHaplotypeAssignment?
+        public let copySourceSample: String?
+
+        public init(
+            operationID: String,
+            priorSidecarSHA256: String?,
+            before: ManualHaplotypeAssignment?,
+            after: ManualHaplotypeAssignment?,
+            copySourceSample: String?
+        ) {
+            self.operationID = operationID
+            self.priorSidecarSHA256 = priorSidecarSHA256
+            self.before = before
+            self.after = after
+            self.copySourceSample = copySourceSample
+        }
+    }
+
     struct AuditEntry: Codable, Equatable, Sendable {
         public let action: String
         public let sample: String
@@ -910,11 +953,33 @@ public extension GenotypeAnnotationSidecar {
         public let rationale: String?
         public let author: String
         public let timestamp: String
+        public let manualHaplotypeAssignment: ManualHaplotypeAssignmentAuditPayload?
 
         public init(action: String, sample: String, locus: String?, slot: HaplotypeSlot?,
                     before: String?, after: String?, color: String?,
                     reason: String?, rationale: String?,
                     author: String, timestamp: String) {
+            self.init(
+                action: action,
+                sample: sample,
+                locus: locus,
+                slot: slot,
+                before: before,
+                after: after,
+                color: color,
+                reason: reason,
+                rationale: rationale,
+                author: author,
+                timestamp: timestamp,
+                manualHaplotypeAssignment: nil
+            )
+        }
+
+        public init(action: String, sample: String, locus: String?, slot: HaplotypeSlot?,
+                    before: String?, after: String?, color: String?,
+                    reason: String?, rationale: String?,
+                    author: String, timestamp: String,
+                    manualHaplotypeAssignment: ManualHaplotypeAssignmentAuditPayload?) {
             self.action = action
             self.sample = sample
             self.locus = locus
@@ -926,6 +991,7 @@ public extension GenotypeAnnotationSidecar {
             self.rationale = rationale
             self.author = author
             self.timestamp = timestamp
+            self.manualHaplotypeAssignment = manualHaplotypeAssignment
         }
     }
 }

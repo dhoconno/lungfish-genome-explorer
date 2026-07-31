@@ -1,3 +1,4 @@
+import Darwin
 import XCTest
 @testable import LungfishCLI
 import LungfishIO
@@ -19,6 +20,7 @@ final class FastqGenotypingCommandTests: XCTestCase {
             "/tmp/barcode11-mhc.lungfishgenotype",
             "--calls-json", "/tmp/barcode11-mhc/artifacts/workbooks/updates/calls.json",
             "--annotations", "/tmp/barcode11-mhc.lungfishgenotype/annotations.json",
+            "--haplotype-projection-mode", "manual-genotype-only",
             "--annotation-only",
         ])
 
@@ -26,6 +28,10 @@ final class FastqGenotypingCommandTests: XCTestCase {
         XCTAssertEqual(command.callsJSON, "/tmp/barcode11-mhc/artifacts/workbooks/updates/calls.json")
         XCTAssertEqual(command.annotations, "/tmp/barcode11-mhc.lungfishgenotype/annotations.json")
         XCTAssertTrue(command.annotationOnly)
+        XCTAssertEqual(
+            command.haplotypeProjectionMode,
+            .manualGenotypeOnly
+        )
         XCTAssertNil(command.inputFingerprint)
         XCTAssertNil(command.inputFingerprintSchema)
         XCTAssertNil(command.syncIntent)
@@ -37,6 +43,12 @@ final class FastqGenotypingCommandTests: XCTestCase {
         XCTAssertFalse(arguments.contains("--input-fingerprint"))
         XCTAssertFalse(arguments.contains("--input-fingerprint-schema"))
         XCTAssertFalse(arguments.contains("--sync-intent"))
+        XCTAssertTrue(
+            zip(arguments, arguments.dropFirst()).contains {
+                $0.0 == "--haplotype-projection-mode"
+                    && $0.1 == "manual-genotype-only"
+            }
+        )
     }
 
     func testUpdateCurrentWorkbookParsesAndValidatesAttestationFlags() throws {
@@ -45,14 +57,32 @@ final class FastqGenotypingCommandTests: XCTestCase {
             "/tmp/barcode11-mhc.lungfishgenotype",
             "--calls-json", "/tmp/calls.json",
             "--input-fingerprint", digest,
-            "--input-fingerprint-schema", "1",
+            "--input-fingerprint-schema",
+            String(GenotypeCurrentWorkbookInputFingerprint.schemaVersion),
+            "--reviewable-row-catalog-path",
+            "artifacts/review/reviewable-row-catalog.json",
+            "--reviewable-row-catalog-size", "123",
+            "--reviewable-row-catalog-sha256",
+            String(repeating: "b", count: 64),
+            "--reviewable-row-catalog-schema", "1",
             "--sync-intent", "update-and-view",
         ])
 
         let attestation = try command.validatedAttestation()
 
         XCTAssertEqual(attestation.inputFingerprint?.sha256, digest)
-        XCTAssertEqual(attestation.inputFingerprint?.schemaVersion, 1)
+        XCTAssertEqual(
+            attestation.inputFingerprint?.schemaVersion,
+            GenotypeCurrentWorkbookInputFingerprint.schemaVersion
+        )
+        XCTAssertEqual(
+            attestation.inputFingerprint?.reviewableRowCatalogPath,
+            "artifacts/review/reviewable-row-catalog.json"
+        )
+        XCTAssertEqual(
+            attestation.inputFingerprint?.reviewableRowCatalogSize,
+            123
+        )
         XCTAssertEqual(attestation.syncIntent, .updateAndView)
     }
 
@@ -62,14 +92,15 @@ final class FastqGenotypingCommandTests: XCTestCase {
                 "/tmp/barcode11-mhc.lungfishgenotype",
                 "--calls-json", "/tmp/calls.json",
                 "--input-fingerprint", String(repeating: "a", count: 64),
-            ])
+            ]).validatedAttestation()
         )
         XCTAssertThrowsError(
             try FastqUpdateCurrentWorkbookSubcommand.parse([
                 "/tmp/barcode11-mhc.lungfishgenotype",
                 "--calls-json", "/tmp/calls.json",
-                "--input-fingerprint-schema", "1",
-            ])
+                "--input-fingerprint-schema",
+                String(GenotypeCurrentWorkbookInputFingerprint.schemaVersion),
+            ]).validatedAttestation()
         )
     }
 
@@ -80,21 +111,29 @@ final class FastqGenotypingCommandTests: XCTestCase {
                 "--calls-json", "/tmp/calls.json",
                 "--input-fingerprint", String(repeating: "A", count: 64),
                 "--input-fingerprint-schema", "1",
-            ])
+            ]).validatedAttestation()
         )
         XCTAssertThrowsError(
             try FastqUpdateCurrentWorkbookSubcommand.parse([
                 "/tmp/barcode11-mhc.lungfishgenotype",
                 "--calls-json", "/tmp/calls.json",
                 "--input-fingerprint", String(repeating: "a", count: 64),
-                "--input-fingerprint-schema", "2",
-            ])
+                "--input-fingerprint-schema",
+                String(GenotypeCurrentWorkbookInputFingerprint.schemaVersion + 1),
+            ]).validatedAttestation()
         )
         XCTAssertThrowsError(
             try FastqUpdateCurrentWorkbookSubcommand.parse([
                 "/tmp/barcode11-mhc.lungfishgenotype",
                 "--calls-json", "/tmp/calls.json",
                 "--sync-intent", "background-ish",
+            ]).validatedAttestation()
+        )
+        XCTAssertThrowsError(
+            try FastqUpdateCurrentWorkbookSubcommand.parse([
+                "/tmp/barcode11-mhc.lungfishgenotype",
+                "--calls-json", "/tmp/calls.json",
+                "--haplotype-projection-mode", "guessed-from-seven-loci",
             ])
         )
     }
@@ -104,7 +143,599 @@ final class FastqGenotypingCommandTests: XCTestCase {
 
         XCTAssertTrue(help.contains("--input-fingerprint"))
         XCTAssertTrue(help.contains("--input-fingerprint-schema"))
+        XCTAssertTrue(help.contains("--reviewable-row-catalog-path"))
+        XCTAssertTrue(help.contains("--reviewable-row-catalog-size"))
+        XCTAssertTrue(help.contains("--reviewable-row-catalog-sha256"))
+        XCTAssertTrue(help.contains("--reviewable-row-catalog-schema"))
         XCTAssertTrue(help.contains("--sync-intent"))
+        XCTAssertTrue(help.contains("--haplotype-projection-mode"))
+    }
+
+    func testValidBundleInvalidOptionRecordsExactArgvAndNormalizedCommand() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "FastqWorkbookAttemptInvalidOption-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent(
+            "analysis.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let callsURL = root.appendingPathComponent("calls with space.json")
+        try Data("[]".utf8).write(to: callsURL)
+        let argv = [
+            "lungfish-cli", "fastq", "update-current-workbook",
+            bundleURL.path, "--calls-json", callsURL.path,
+            "--sync-intent", "not-a-real-intent",
+        ]
+        let command = try FastqUpdateCurrentWorkbookSubcommand.parse(
+            Array(argv.dropFirst(3))
+        )
+
+        XCTAssertThrowsError(
+            try command.runResolved(
+                pythonExecutableURL: URL(fileURLWithPath: "/missing/python"),
+                workbookAttestationRootURL: nil,
+                argvProvider: { argv }
+            )
+        )
+
+        let receipt = try onlyWorkbookAttemptReceipt(in: bundleURL)
+        XCTAssertEqual(receipt.exitStatus, 1)
+        XCTAssertEqual(receipt.argv, argv)
+        XCTAssertEqual(
+            receipt.reproducibleCommand,
+            argv.map { "'\($0)'" }.joined(separator: " ")
+        )
+        XCTAssertEqual(receipt.attemptedInputPaths, [callsURL.path])
+        XCTAssertTrue(
+            receipt.stderr?.contains("Unknown --sync-intent") == true
+        )
+        XCTAssertTrue(receipt.resolvedOptions.isEmpty)
+    }
+
+    func testManagedRuntimeResolutionFailureRecordsResolvedDefaultsAndRuntimeIntent()
+        async throws
+    {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "FastqWorkbookAttemptRuntimeResolution-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent(
+            "analysis.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let callsURL = root.appendingPathComponent("calls.json")
+        try Data("[]".utf8).write(to: callsURL)
+        let command = try FastqUpdateCurrentWorkbookSubcommand.parse([
+            bundleURL.path,
+            "--calls-json", callsURL.path,
+        ])
+
+        do {
+            try await command.run(managedPythonResolver: {
+                throw NSError(
+                    domain: "InjectedManagedRuntimeResolution",
+                    code: 42,
+                    userInfo: [
+                        NSLocalizedDescriptionKey:
+                            "managed openpyxl runtime unavailable",
+                    ]
+                )
+            })
+            XCTFail("Expected managed runtime resolution to fail")
+        } catch {
+            XCTAssertTrue(
+                error.localizedDescription.contains(
+                    "managed openpyxl runtime unavailable"
+                ),
+                error.localizedDescription
+            )
+        }
+
+        let receipt = try onlyWorkbookAttemptReceipt(in: bundleURL)
+        XCTAssertEqual(receipt.exitStatus, 1)
+        XCTAssertEqual(
+            receipt.resolvedOptions,
+            [
+                "bundle": bundleURL.path,
+                "callsJSON": callsURL.path,
+                "annotations": "none",
+                "annotationOnly": "false",
+                "haplotypeProjectionMode": "haplotyped",
+                "includedLoci": "",
+                "inputFingerprint": "none",
+                "inputFingerprintSchema": "none",
+                "reviewableRowCatalogPath": "none",
+                "reviewableRowCatalogSize": "none",
+                "reviewableRowCatalogSHA256": "none",
+                "reviewableRowCatalogSchema": "none",
+                "syncIntent": "none",
+            ]
+        )
+        XCTAssertEqual(
+            receipt.runtimeIdentity["runtimeProvider"],
+            "managed-conda"
+        )
+        XCTAssertEqual(receipt.runtimeIdentity["requestedTool"], "python")
+        XCTAssertEqual(
+            receipt.runtimeIdentity["condaEnvironment"],
+            "openpyxl"
+        )
+        XCTAssertEqual(receipt.runtimeIdentity["runtimeResolution"], "failed")
+        XCTAssertEqual(
+            receipt.runtimeIdentity["runtimeResolutionFailure"],
+            "managed openpyxl runtime unavailable"
+        )
+        XCTAssertTrue(
+            receipt.stderr?.contains(
+                "managed openpyxl runtime unavailable"
+            ) == true
+        )
+    }
+
+    func testEachValidBundleTerminalPathCreatesExactlyOneExclusiveAttemptDirectory() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "FastqWorkbookAttemptExactlyOnce-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent(
+            "analysis.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let callsURL = root.appendingPathComponent("invalid.json")
+        try Data("{}".utf8).write(to: callsURL)
+        let command = try FastqUpdateCurrentWorkbookSubcommand.parse([
+            bundleURL.path,
+            "--calls-json", callsURL.path,
+        ])
+
+        XCTAssertThrowsError(
+            try command.runResolved(
+                pythonExecutableURL: URL(fileURLWithPath: "/missing/python"),
+                workbookAttestationRootURL: nil
+            )
+        )
+
+        let receipts = try workbookAttemptReceipts(in: bundleURL)
+        XCTAssertEqual(receipts.count, 1)
+        XCTAssertEqual(receipts.first?.exitStatus, 1)
+    }
+
+    func testInvalidBundleCreatesNoAttemptReceipt() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "FastqWorkbookAttemptInvalidBundle-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        let callsURL = root.appendingPathComponent("calls.json")
+        try Data("[]".utf8).write(to: callsURL)
+        let command = try FastqUpdateCurrentWorkbookSubcommand.parse([
+            root.appendingPathComponent("not-a-bundle").path,
+            "--calls-json", callsURL.path,
+        ])
+
+        XCTAssertThrowsError(
+            try command.runResolved(
+                pythonExecutableURL: URL(fileURLWithPath: "/missing/python"),
+                workbookAttestationRootURL: nil
+            )
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: root.appendingPathComponent(
+                    "artifacts/workbooks/updates/attempts"
+                ).path
+            )
+        )
+    }
+
+    func testAttemptProvenanceFailureIsBlockingAndPreservesPrimaryError() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "FastqWorkbookAttemptProvenanceFailure-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent(
+            "analysis.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let callsURL = root.appendingPathComponent("calls.json")
+        try Data("[]".utf8).write(to: callsURL)
+        let command = try FastqUpdateCurrentWorkbookSubcommand.parse([
+            bundleURL.path,
+            "--calls-json", callsURL.path,
+            "--sync-intent", "invalid-intent",
+        ])
+        let failingStore = DurableAtomicFileStore(
+            operations: .init(syncFile: { _ in
+                errno = EIO
+                return -1
+            })
+        )
+
+        XCTAssertThrowsError(
+            try command.runResolved(
+                pythonExecutableURL: URL(fileURLWithPath: "/missing/python"),
+                workbookAttestationRootURL: nil,
+                attemptRecorder: GenotypeWorkbookUpdateAttemptRecorder(
+                    atomicFileStore: failingStore
+                )
+            )
+        ) { error in
+            let diagnostic = String(describing: error)
+            XCTAssertTrue(
+                diagnostic.contains(
+                    "Unknown --sync-intent 'invalid-intent'"
+                ),
+                diagnostic
+            )
+            XCTAssertTrue(
+                diagnostic.contains(
+                    "Workbook update attempt provenance also failed"
+                ),
+                diagnostic
+            )
+        }
+    }
+
+    func testUpdateCurrentWorkbookDecodeFailureRecordsAttemptWithAvailableInputDescriptor() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "FastqWorkbookAttemptDecode-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent(
+            "analysis.lungfishgenotype",
+            isDirectory: true
+        )
+        guard let pythonURL = openpyxlPythonURL() else {
+            throw XCTSkip("The managed test runtime must provide openpyxl")
+        }
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let callsURL = root.appendingPathComponent("bad-calls.json")
+        try Data(#"{"not":"an array"}"#.utf8).write(to: callsURL)
+        let argv = [
+            "lungfish-cli", "fastq", "update-current-workbook",
+            bundleURL.path, "--calls-json", callsURL.path,
+        ]
+        let command = try FastqUpdateCurrentWorkbookSubcommand.parse(
+            Array(argv.dropFirst(3))
+        )
+
+        XCTAssertThrowsError(
+            try command.runResolved(
+                pythonExecutableURL: pythonURL,
+                workbookAttestationRootURL: nil,
+                argvProvider: { argv }
+            )
+        )
+
+        let receipt = try onlyWorkbookAttemptReceipt(in: bundleURL)
+        XCTAssertEqual(receipt.exitStatus, 1)
+        XCTAssertEqual(receipt.inputs.map(\.path), [callsURL.path])
+        XCTAssertEqual(receipt.inputs.first?.fileSize, 18)
+        XCTAssertNotNil(receipt.inputs.first?.checksumSHA256)
+        XCTAssertFalse(
+            try XCTUnwrap(receipt.runtimeIdentity["pythonVersion"]).isEmpty
+        )
+        XCTAssertFalse(
+            try XCTUnwrap(receipt.runtimeIdentity["openpyxlVersion"]).isEmpty
+        )
+        XCTAssertTrue(
+            receipt.stderr?.contains("couldn’t be read") == true
+                || receipt.stderr?.contains("Expected to decode Array") == true
+                || receipt.stderr?.contains("typeMismatch") == true
+        )
+    }
+
+    func testUpdateCurrentWorkbookTransformFailureRecordsAttemptAndOpenpyxlRuntime() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "FastqWorkbookAttemptTransform-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        guard let fixturePython = openpyxlPythonURL() else {
+            throw XCTSkip("The managed test runtime must provide openpyxl")
+        }
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        let bundleURL = try makeUpdateCurrentWorkbookFixture(
+            in: root,
+            pythonURL: fixturePython
+        )
+        let callsURL = root.appendingPathComponent("calls.json")
+        try Data("[]".utf8).write(to: callsURL)
+        let failingTransformPython = root.appendingPathComponent(
+            "probe-succeeds-transform-fails"
+        )
+        try Data(
+            """
+            #!/bin/sh
+            if [ "$1" = "-c" ]; then
+              exec "\(fixturePython.path)" "$@"
+            fi
+            exit 42
+            """.utf8
+        ).write(to: failingTransformPython)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: failingTransformPython.path
+        )
+        let command = try FastqUpdateCurrentWorkbookSubcommand.parse([
+            bundleURL.path,
+            "--calls-json", callsURL.path,
+        ])
+
+        XCTAssertThrowsError(
+            try command.runResolved(
+                pythonExecutableURL: failingTransformPython,
+                workbookAttestationRootURL: root.appendingPathComponent(
+                    "attestations",
+                    isDirectory: true
+                )
+            )
+        )
+
+        let receipt = try onlyWorkbookAttemptReceipt(in: bundleURL)
+        XCTAssertEqual(receipt.exitStatus, 1)
+        XCTAssertEqual(
+            receipt.runtimeIdentity["pythonExecutable"],
+            failingTransformPython.path
+        )
+        XCTAssertEqual(
+            receipt.runtimeIdentity["condaEnvironment"],
+            "openpyxl"
+        )
+        XCTAssertFalse(
+            try XCTUnwrap(receipt.runtimeIdentity["pythonVersion"]).isEmpty
+        )
+        XCTAssertFalse(
+            try XCTUnwrap(receipt.runtimeIdentity["openpyxlVersion"]).isEmpty
+        )
+        XCTAssertTrue(receipt.inputs.contains { $0.path == callsURL.path })
+        XCTAssertTrue(receipt.inputs.contains {
+            $0.path == ONTGenotypeResultBundle.manifestURL(in: bundleURL).path
+        })
+        let sourceWorkbookPath = try ONTGenotypeResultBundle
+            .currentWorkbookURL(for: bundleURL).path
+        XCTAssertTrue(receipt.inputs.contains {
+            $0.path == sourceWorkbookPath
+        })
+    }
+
+    func testUpdateCurrentWorkbookCleanNoOpRecordsSuccessfulAttempt() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "FastqWorkbookAttemptNoOp-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        guard let pythonURL = openpyxlPythonURL() else {
+            throw XCTSkip("The managed test runtime must provide openpyxl")
+        }
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        let bundleURL = try makeUpdateCurrentWorkbookFixture(
+            in: root,
+            pythonURL: pythonURL
+        )
+        let callsURL = root.appendingPathComponent("calls.json")
+        try Data("[]".utf8).write(to: callsURL)
+        let command = try FastqUpdateCurrentWorkbookSubcommand.parse([
+            bundleURL.path,
+            "--calls-json", callsURL.path,
+        ])
+
+        let payload = try command.runResolved(
+            pythonExecutableURL: pythonURL,
+            workbookAttestationRootURL: root.appendingPathComponent(
+                "attestations",
+                isDirectory: true
+            )
+        )
+
+        XCTAssertFalse(payload.cleanupPending)
+        XCTAssertNil(payload.warning)
+        let receipt = try onlyWorkbookAttemptReceipt(in: bundleURL)
+        XCTAssertEqual(receipt.exitStatus, 0)
+        XCTAssertNil(receipt.cleanupPendingWarning)
+        XCTAssertTrue(receipt.outputs.contains {
+            $0.path == ONTGenotypeResultBundle.manifestURL(in: bundleURL).path
+        })
+        XCTAssertTrue(receipt.outputs.contains {
+            $0.path == payload.currentWorkbookPath
+        })
+        for output in receipt.outputs {
+            XCTAssertNotNil(output.fileSize)
+            XCTAssertNotNil(output.checksumSHA256)
+        }
+    }
+
+    func testUpdateCurrentWorkbookCommittedCleanupWarningExitsZeroAndReportsWarningPayload() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "FastqWorkbookAttemptWarning-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        guard let pythonURL = openpyxlPythonURL() else {
+            throw XCTSkip("The managed test runtime must provide openpyxl")
+        }
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        let bundleURL = try makeUpdateCurrentWorkbookFixture(
+            in: root,
+            pythonURL: pythonURL
+        )
+        let callsURL = root.appendingPathComponent("calls.json")
+        try Data("[]".utf8).write(to: callsURL)
+        let annotationURL = try writeFalseNegativeAnnotation(in: bundleURL)
+        let command = try FastqUpdateCurrentWorkbookSubcommand.parse([
+            bundleURL.path,
+            "--calls-json", callsURL.path,
+            "--annotations", annotationURL.path,
+            "--annotation-only",
+        ])
+        let service = GenotypeWorkbookRevisionService(
+            pythonExecutableURL: pythonURL,
+            workbookAttestationRootURL: root.appendingPathComponent(
+                "attestations",
+                isDirectory: true
+            ),
+            workbookCleanupFailureInjector: { checkpoint in
+                guard checkpoint == "during-workbook-cleanup-traversal"
+                else { return }
+                throw NSError(
+                    domain: "InjectedCLICommittedCleanupFailure",
+                    code: 5
+                )
+            }
+        )
+
+        let payload = try command.runResolved(
+            pythonExecutableURL: pythonURL,
+            workbookAttestationRootURL: root.appendingPathComponent(
+                "attestations",
+                isDirectory: true
+            ),
+            revisionService: service
+        )
+
+        XCTAssertTrue(payload.cleanupPending)
+        XCTAssertEqual(
+            payload.warning,
+            "Workbook updated; retired-generation cleanup pending."
+        )
+        let receipt = try onlyWorkbookAttemptReceipt(in: bundleURL)
+        XCTAssertEqual(receipt.exitStatus, 0)
+        XCTAssertEqual(receipt.cleanupPendingWarning, payload.warning)
+        XCTAssertNotNil(receipt.runtimeIdentity["pythonVersion"])
+        XCTAssertNotNil(receipt.runtimeIdentity["openpyxlVersion"])
+        XCTAssertTrue(receipt.outputs.contains {
+            $0.path == payload.currentWorkbookPath
+                && $0.fileSize != nil
+                && $0.checksumSHA256 != nil
+        })
+    }
+
+    func testUpdateCurrentWorkbookPreflightCleanupFailureExitsNonzeroAndRecordsAttempt() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "FastqWorkbookAttemptPreflight-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        guard let pythonURL = openpyxlPythonURL() else {
+            throw XCTSkip("The managed test runtime must provide openpyxl")
+        }
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        let bundleURL = try makeUpdateCurrentWorkbookFixture(
+            in: root,
+            pythonURL: pythonURL
+        )
+        let callsURL = root.appendingPathComponent("calls.json")
+        try Data("[]".utf8).write(to: callsURL)
+        let annotationURL = try writeFalseNegativeAnnotation(in: bundleURL)
+        let command = try FastqUpdateCurrentWorkbookSubcommand.parse([
+            bundleURL.path,
+            "--calls-json", callsURL.path,
+            "--annotations", annotationURL.path,
+            "--annotation-only",
+        ])
+        let attestationRoot = root.appendingPathComponent(
+            "attestations",
+            isDirectory: true
+        )
+        let cleanupFailure:
+            @Sendable (String) throws -> Void = { checkpoint in
+                guard checkpoint == "during-workbook-cleanup-traversal"
+                else { return }
+                throw NSError(
+                    domain: "InjectedCLIPreflightCleanupFailure",
+                    code: 5
+                )
+            }
+        let warningService = GenotypeWorkbookRevisionService(
+            pythonExecutableURL: pythonURL,
+            workbookAttestationRootURL: attestationRoot,
+            workbookCleanupFailureInjector: cleanupFailure
+        )
+        let first = try command.runResolved(
+            pythonExecutableURL: pythonURL,
+            workbookAttestationRootURL: attestationRoot,
+            revisionService: warningService
+        )
+        XCTAssertTrue(first.cleanupPending)
+
+        XCTAssertThrowsError(
+            try command.runResolved(
+                pythonExecutableURL: pythonURL,
+                workbookAttestationRootURL: attestationRoot,
+                revisionService: GenotypeWorkbookRevisionService(
+                    pythonExecutableURL: pythonURL,
+                    workbookAttestationRootURL: attestationRoot,
+                    workbookCleanupFailureInjector: cleanupFailure
+                )
+            )
+        ) { error in
+            XCTAssertTrue(
+                error.localizedDescription.contains(
+                    "The existing workbook is valid, but this new update was not applied because a prior retired generation could not be cleaned up safely."
+                ),
+                error.localizedDescription
+            )
+        }
+
+        let receipts = try workbookAttemptReceipts(in: bundleURL)
+        XCTAssertEqual(receipts.count, 2)
+        XCTAssertEqual(receipts.filter { $0.exitStatus == 0 }.count, 1)
+        XCTAssertEqual(receipts.filter { $0.exitStatus == 1 }.count, 1)
+        let failed = try XCTUnwrap(
+            receipts.first { $0.exitStatus == 1 }
+        )
+        XCTAssertFalse(
+            try XCTUnwrap(failed.runtimeIdentity["pythonVersion"]).isEmpty
+        )
+        XCTAssertFalse(
+            try XCTUnwrap(failed.runtimeIdentity["openpyxlVersion"]).isEmpty
+        )
+        XCTAssertTrue(
+            failed.stderr?.contains(
+                "prior retired generation could not be cleaned up safely"
+            ) == true
+        )
     }
 
     func testAnnotationOnlyUsesDisplayedCallsOnlyForSemanticFingerprint() throws {
@@ -167,6 +798,12 @@ final class FastqGenotypingCommandTests: XCTestCase {
         )
 
         XCTAssertEqual(context.argv, argv)
+        XCTAssertEqual(
+            context.toolName,
+            "lungfish-cli fastq update-current-workbook"
+        )
+        XCTAssertEqual(context.toolKind, "cli")
+        XCTAssertEqual(context.durableReplayArgv, argv)
         XCTAssertEqual(context.cliInputDescriptors.map(\.path), [
             callsURL.standardizedFileURL.path,
             annotationURL.standardizedFileURL.path,
@@ -181,6 +818,96 @@ final class FastqGenotypingCommandTests: XCTestCase {
                 try ProvenanceFileHasher.sha256(of: URL(fileURLWithPath: descriptor.path))
             )
         }
+    }
+
+    func testUpdateCurrentWorkbookResolvedCommandWritesCanonicalFalseNegativeProvenance() throws {
+        guard let pythonURL = openpyxlPythonURL() else {
+            throw XCTSkip("The managed test runtime must provide openpyxl")
+        }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "FastqUpdateCurrentWorkbookCommand-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        let bundleURL = try makeUpdateCurrentWorkbookFixture(
+            in: root,
+            pythonURL: pythonURL
+        )
+        let callsURL = root.appendingPathComponent("displayed-calls.json")
+        try Data("[]".utf8).write(to: callsURL)
+        let annotationURL = bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-27T00:00:00Z"
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-A1*001:01",
+                    sample: "AR3628"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-27T01:00:00Z"
+            ),
+        ]
+        try sidecar.encoded().write(to: annotationURL)
+        let command = try FastqUpdateCurrentWorkbookSubcommand.parse([
+            bundleURL.path,
+            "--calls-json", callsURL.path,
+            "--annotations", annotationURL.path,
+            "--annotation-only",
+        ])
+
+        try command.runResolved(
+            pythonExecutableURL: pythonURL,
+            workbookAttestationRootURL: root.appendingPathComponent(
+                "workbook-attestations",
+                isDirectory: true
+            )
+        )
+
+        let manifest = try ONTGenotypeResultBundle.loadManifest(from: bundleURL)
+        let provenancePath = try XCTUnwrap(
+            manifest.workbookRevisions?.last?.provenancePath
+        )
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: ONTGenotypeResultBundle.resolvedURL(
+                for: provenancePath,
+                in: bundleURL
+            ))
+        )
+        XCTAssertEqual(
+            envelope.toolName,
+            "lungfish-cli fastq update-current-workbook"
+        )
+        XCTAssertTrue(envelope.argv.contains("--annotation-only"))
+        let pythonStep = try XCTUnwrap(
+            envelope.steps.first {
+                $0.toolName == "python openpyxl workbook candidate update"
+            }
+        )
+        let decisions = try XCTUnwrap(
+            pythonStep.resolvedOptions["falseNegativeTargetCellDecisions"]?
+                .arrayValue
+        )
+        XCTAssertEqual(decisions.count, 1)
+        XCTAssertEqual(
+            decisions.first?.dictionaryValue?["presentationPrecedence"],
+            .string("false-negative-over-viewport-style")
+        )
+        XCTAssertEqual(
+            decisions.first?.dictionaryValue?["target"]?
+                .dictionaryValue?["sample"],
+            .string("AR3628")
+        )
     }
 
     func testImmutableCLIInputReadRejectsSameSizeMutationDuringInitialRead() throws {
@@ -486,6 +1213,245 @@ final class FastqGenotypingCommandTests: XCTestCase {
             FastqMHCReferenceBundleSubcommand.warningLine(warning),
             "warning: Invalid GenBank location: bad..location [record MHCREF1, feature CDS, location bad..location]\n"
         )
+    }
+
+    private func makeUpdateCurrentWorkbookFixture(
+        in root: URL,
+        pythonURL: URL
+    ) throws -> URL {
+        let outputName = "cli-fn"
+        let bundleURL = root.appendingPathComponent(
+            "\(outputName).lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let primaryURL = bundleURL.appendingPathComponent("\(outputName).xlsx")
+        let currentURL = bundleURL.appendingPathComponent(
+            "artifacts/workbooks/current.xlsx"
+        )
+        try FileManager.default.createDirectory(
+            at: currentURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let process = Process()
+        process.executableURL = pythonURL
+        process.arguments = ["-c", #"""
+import sys
+from openpyxl import Workbook
+
+path = sys.argv[1]
+wb = Workbook()
+ws = wb.active
+ws.title = "matrix"
+ws.append(["Animal ID", None, None, "AR3628"])
+ws.append(["GS ID", "Total", "Average", "AR3628"])
+ws.append(["Filtered exact-match read count", None, None, 0])
+ws.append([])
+ws.append(["Comments", "Subtotal", "# Obs.", None])
+ws.append(["Genotype", "Total", "# Obs.", "AR3628"])
+ws.append(["Mamu-A1*001:01", 0, 0, 0])
+wb.save(path)
+"""#, primaryURL.path]
+        let stderr = Pipe()
+        process.standardError = stderr
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            let message = String(
+                data: stderr.fileHandleForReading.readDataToEndOfFile(),
+                encoding: .utf8
+            ) ?? "openpyxl fixture creation failed"
+            throw NSError(
+                domain: "FastqGenotypingCommandTests",
+                code: Int(process.terminationStatus),
+                userInfo: [NSLocalizedDescriptionKey: message]
+            )
+        }
+        try FileManager.default.copyItem(at: primaryURL, to: currentURL)
+        let genotypeCSV = bundleURL.appendingPathComponent(
+            "\(outputName).retained-demux-genotypes.csv"
+        )
+        let sampleCSV = bundleURL.appendingPathComponent(
+            "\(outputName).retained-demux-samples.csv"
+        )
+        let statsJSON = bundleURL.appendingPathComponent(
+            "\(outputName).retained-demux-stats.json"
+        )
+        let provenance = bundleURL.appendingPathComponent(
+            "retained-demux-genotyping-provenance.json"
+        )
+        try Data("sample,genotype\nAR3628,Mamu-I*expected\n".utf8)
+            .write(to: genotypeCSV)
+        try Data("sample\nAR3628\n".utf8).write(to: sampleCSV)
+        try Data("{}".utf8).write(to: statsJSON)
+        try Data("{}".utf8).write(to: provenance)
+        let catalogURL = bundleURL.appendingPathComponent(
+            "artifacts/review/reviewable-row-catalog.json"
+        )
+        try FileManager.default.createDirectory(
+            at: catalogURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let catalog = try GenotypeReviewableRowCatalog(
+            samples: ["AR3628"],
+            rows: [
+                .init(
+                    kind: .reference,
+                    callID: "reference:MHC-A:Mamu-A1*001:01",
+                    displayName: "Mamu-A1*001:01",
+                    locus: "MHC-A",
+                    stableID: nil,
+                    section: "reference",
+                    sortKey: "MHC-A|Mamu-A1*001:01",
+                    supportBySample: ["AR3628": 0]
+                ),
+            ]
+        ).validated()
+        try catalog.encoded().write(to: catalogURL)
+        let catalogReference = ONTMHCArtifactReference(
+            path: "artifacts/review/reviewable-row-catalog.json",
+            sha256: try ProvenanceFileHasher.sha256(of: catalogURL),
+            sizeBytes: Int64(try ProvenanceFileHasher.fileSize(of: catalogURL))
+        )
+        let revision = ONTGenotypeWorkbookRevision(
+            id: "initial-current-copy",
+            role: .initialCurrentCopy,
+            path: "artifacts/workbooks/current.xlsx",
+            label: "Initial editable workbook",
+            sourceFilename: primaryURL.lastPathComponent,
+            createdAt: "2026-07-27T00:00:00Z",
+            user: "tester",
+            predecessorPath: primaryURL.lastPathComponent,
+            sha256: try ProvenanceFileHasher.sha256(of: currentURL),
+            sizeBytes: Int64(try ProvenanceFileHasher.fileSize(of: currentURL)),
+            provenancePath: nil
+        )
+        let manifest = ONTGenotypeResultBundleManifest(
+            outputName: outputName,
+            analysisName: outputName,
+            primaryWorkbookPath: primaryURL.lastPathComponent,
+            currentWorkbookPath: "artifacts/workbooks/current.xlsx",
+            workbookRevisions: [revision],
+            longSummaryCSVPath: genotypeCSV.lastPathComponent,
+            sampleSummaryCSVPath: sampleCSV.lastPathComponent,
+            statsJSONPath: statsJSON.lastPathComponent,
+            provenancePath: provenance.lastPathComponent,
+            reviewableRowCatalog: catalogReference
+        )
+        try ONTGenotypeResultBundle.writeManifest(manifest, to: bundleURL)
+        return bundleURL
+    }
+
+    private func onlyWorkbookAttemptReceipt(
+        in bundleURL: URL
+    ) throws -> GenotypeWorkbookUpdateAttemptReceipt {
+        let receipts = try workbookAttemptReceipts(in: bundleURL)
+        XCTAssertEqual(receipts.count, 1)
+        return try XCTUnwrap(receipts.first)
+    }
+
+    private func workbookAttemptReceipts(
+        in bundleURL: URL
+    ) throws -> [GenotypeWorkbookUpdateAttemptReceipt] {
+        let attemptsURL = bundleURL.appendingPathComponent(
+            "artifacts/workbooks/updates/attempts",
+            isDirectory: true
+        )
+        let directories = try FileManager.default.contentsOfDirectory(
+            at: attemptsURL,
+            includingPropertiesForKeys: nil
+        )
+        return try directories.map {
+            try ProvenanceJSON.decoder.decode(
+                GenotypeWorkbookUpdateAttemptReceipt.self,
+                from: Data(
+                    contentsOf: $0.appendingPathComponent("receipt.json")
+                )
+            )
+        }
+    }
+
+    private func writeFalseNegativeAnnotation(
+        in bundleURL: URL
+    ) throws -> URL {
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-07-29T00:00:00Z"
+        )
+        sidecar.matrixReviews = [
+            .init(
+                target: .cell(
+                    locus: "MHC-A",
+                    genotype: "Mamu-A1*001:01",
+                    sample: "AR3628"
+                ),
+                disposition: .falseNegative,
+                author: "reviewer",
+                timestamp: "2026-07-29T00:00:01Z"
+            ),
+        ]
+        let url = bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        try sidecar.encoded().write(to: url)
+        return url
+    }
+
+    private func openpyxlPythonURL() -> URL? {
+        var candidates: [URL] = []
+        if let configured = ProcessInfo.processInfo.environment[
+            "LUNGFISH_TEST_PYTHON"
+        ] {
+            candidates.append(URL(fileURLWithPath: configured))
+        }
+        candidates.append(URL(
+            fileURLWithPath:
+                "/Users/dho/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3"
+        ))
+        let which = Process()
+        which.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+        which.arguments = ["python3"]
+        let stdout = Pipe()
+        which.standardOutput = stdout
+        which.standardError = FileHandle.nullDevice
+        if (try? which.run()) != nil {
+            which.waitUntilExit()
+            if which.terminationStatus == 0,
+               let path = String(
+                data: stdout.fileHandleForReading.readDataToEndOfFile(),
+                encoding: .utf8
+               )?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !path.isEmpty {
+                candidates.append(URL(fileURLWithPath: path))
+            }
+        }
+        candidates += [
+            URL(fileURLWithPath: "/opt/homebrew/bin/python3"),
+            URL(fileURLWithPath: "/usr/local/bin/python3"),
+            URL(fileURLWithPath: "/usr/bin/python3"),
+        ]
+        var visited = Set<String>()
+        for candidate in candidates {
+            let resolved = candidate.standardizedFileURL
+            guard visited.insert(resolved.path).inserted,
+                  FileManager.default.isExecutableFile(atPath: resolved.path)
+            else {
+                continue
+            }
+            let probe = Process()
+            probe.executableURL = resolved
+            probe.arguments = ["-c", "import openpyxl"]
+            probe.standardOutput = FileHandle.nullDevice
+            probe.standardError = FileHandle.nullDevice
+            guard (try? probe.run()) != nil else { continue }
+            probe.waitUntilExit()
+            if probe.terminationStatus == 0 {
+                return resolved
+            }
+        }
+        return nil
     }
 }
 
