@@ -11925,7 +11925,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         controller.view.frame = NSRect(
             x: 0,
             y: 0,
-            width: 900,
+            width: 1_200,
             height: 900
         )
         controller.configure(result: makeResult(
@@ -11971,7 +11971,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
         XCTAssertEqual(
             controller.testingSampleHeaderLayoutMode,
-            .stacked
+            .sideBySide
         )
         XCTAssertEqual(
             controller.testingSampleHeaderMetricIdentities,
