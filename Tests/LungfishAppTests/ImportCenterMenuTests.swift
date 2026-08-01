@@ -406,6 +406,19 @@ final class ImportCenterMenuTests: XCTestCase {
         XCTAssertTrue(config.allowedTypes?.contains { $0.preferredFilenameExtension == "csv" } ?? false)
     }
 
+    func testSequencingReadCardAcceptsBAM() throws {
+        let viewModel = ImportCenterViewModel()
+        let card = try XCTUnwrap(viewModel.allCards.first { $0.id == "fastq" })
+        guard case .openPanel(let configuration, _) = card.importKind else {
+            return XCTFail("Expected sequencing reads to use an open panel")
+        }
+
+        XCTAssertEqual(card.title, "Sequencing Read Files")
+        XCTAssertTrue(configuration.allowedTypes?.contains {
+            $0.preferredFilenameExtension == "bam"
+        } ?? false)
+    }
+
     func testImportCenterHasApplicationExportsTab() {
         XCTAssertTrue(ImportCenterViewModel.Tab.allCases.contains(.applicationExports))
         XCTAssertEqual(ImportCenterViewModel.Tab.applicationExports.title, "Application Exports")

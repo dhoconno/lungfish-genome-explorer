@@ -52,6 +52,17 @@ struct FASTQImportConfigurationTests {
         #expect(!pairs[0].isPaired)
     }
 
+    @Test("A BAM read source remains a single-end sample")
+    func bamFileUnpaired() {
+        let url = URL(fileURLWithPath: "/data/NanoporeSample.bam")
+        let pairs = groupFASTQByPairs([url])
+        #expect(pairs.count == 1)
+        #expect(pairs[0].r1 == url)
+        #expect(pairs[0].r2 == nil)
+        #expect(pairs[0].sampleName == "NanoporeSample")
+        #expect(MainSplitViewController.detectedImportPlatform(for: pairs) == .oxfordNanopore)
+    }
+
     @Test("R1 without matching R2 is unpaired")
     func r1WithoutR2() {
         let r1 = URL(fileURLWithPath: "/data/Sample_R1_001.fastq.gz")

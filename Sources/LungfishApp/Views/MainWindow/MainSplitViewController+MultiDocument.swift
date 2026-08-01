@@ -496,7 +496,7 @@ extension MainSplitViewController {
         for url in sourceURLs {
             if isONTDirectory(url) {
                 importONTDirectoryInBackground(sourceURL: url, projectURL: targetDir, requestID: requestID)
-            } else if FASTQBundle.isFASTQFileURL(url) {
+            } else if SequencingReadImportSource.isSupported(url) {
                 fastqURLs.append(url)
             } else {
                 otherURLs.append(url)

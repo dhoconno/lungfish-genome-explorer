@@ -26,7 +26,7 @@ extension DatabaseRegistry: ManagedDatabaseProvisioning {}
 struct ImportFastqCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "import-fastq",
-        abstract: "Batch-import FASTQ files into a Lungfish project"
+        abstract: "Batch-import sequencing reads into a Lungfish project"
     )
 
     @OptionGroup var command: ImportCommand.FastqSubcommand
@@ -60,10 +60,10 @@ extension ImportCommand {
     struct FastqSubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "fastq",
-            abstract: "Batch-import FASTQ files into a Lungfish project"
+            abstract: "Batch-import FASTQ files or unmapped ONT BAM into a Lungfish project"
         )
 
-        @Argument(help: "Directory containing .fastq.gz files, or one or more FASTQ file paths")
+        @Argument(help: "Directory containing sequencing reads, FASTQ paths, or unmapped ONT BAM paths")
         var input: [String] = []
 
         @Option(
@@ -525,6 +525,9 @@ extension ImportCommand {
             guard let first = pairs.first else { return nil }
 
             let r1 = first.r1
+            if SequencingReadImportSource.isBAM(r1) {
+                return .ont
+            }
             let isGzipped = r1.pathExtension.lowercased() == "gz"
 
             let header: String

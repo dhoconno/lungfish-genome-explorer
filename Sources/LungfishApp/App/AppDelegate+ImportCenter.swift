@@ -159,7 +159,7 @@ extension AppDelegate {
             presentingWindow: originController.window
         ) else { return }
 
-        // Collect FASTQ files, expanding directories. Existing `.lungfishfastq`
+        // Collect sequencing-read files, expanding directories. Existing `.lungfishfastq`
         // bundles are atomic imports; do not enumerate their preview/chunk payloads.
         var fastqURLs: [URL] = []
         var fastqBundleURLs: [URL] = []
@@ -177,18 +177,18 @@ extension AppDelegate {
                         if FASTQBundle.isBundleURL(fileURL) {
                             enumerator.skipDescendants()
                             fastqBundleURLs.append(fileURL)
-                        } else if FASTQBundle.isFASTQFileURL(fileURL) {
+                        } else if SequencingReadImportSource.isSupported(fileURL) {
                             fastqURLs.append(fileURL)
                         }
                     }
                 }
-            } else if FASTQBundle.isFASTQFileURL(url) {
+            } else if SequencingReadImportSource.isSupported(url) {
                 fastqURLs.append(url)
             }
         }
 
         guard !fastqURLs.isEmpty || !fastqBundleURLs.isEmpty else {
-            showAlert(title: "No FASTQ Files Found", message: "The selected files or folders do not contain any FASTQ files.")
+            showAlert(title: "No Read Files Found", message: "The selection does not contain FASTQ files or unmapped ONT BAM files.")
             return
         }
 

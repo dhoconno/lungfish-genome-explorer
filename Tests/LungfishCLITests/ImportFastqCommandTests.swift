@@ -423,6 +423,18 @@ final class ImportFastqCommandTests: XCTestCase {
         }
     }
 
+    func testDetectPlatformFromBAMReturnsONTWithoutReadingFASTQHeader() throws {
+        let pair = SamplePair(
+            sampleName: "nanopore",
+            r1: URL(fileURLWithPath: "/tmp/nanopore.bam"),
+            r2: nil
+        )
+
+        let platform = try ImportCommand.FastqSubcommand.detectPlatformFromPairs([pair])
+
+        XCTAssertEqual(platform, .ont)
+    }
+
     func testDetectPlatformFromCompressedFASTQThrowsWhenManagedPigzFails() throws {
         let (home, _) = try makeManagedPigzHome(script: """
         #!/bin/sh

@@ -4,11 +4,11 @@ chapter_id: 03-reads/01-importing-fastq
 audience: bench-scientist
 prereqs: [01-foundations/02-sequencing-reads, 01-foundations/06-the-lungfish-project]
 estimated_reading_min: 8
-task: Import FASTQ files into a Lungfish project, including paired-end pairing and batch import.
-tags: [reads, fastq, import, paired-end, batch]
+task: Import FASTQ files or unmapped Oxford Nanopore BAM reads into a Lungfish project.
+tags: [reads, fastq, bam, ont, import, paired-end, batch]
 tools: []
 entry_points:
-  - "Import Center (Cmd-Shift-I) > Sequencing Reads > FASTQ Files"
+  - "Import Center (Cmd-Shift-I) > Sequencing Reads > Sequencing Read Files"
   - "Drag-drop into the sidebar"
   - "CLI: lungfish import-fastq"
 shots: []
@@ -31,11 +31,11 @@ lead_approved: false
 
 ## What it is
 
-This chapter covers importing FASTQ files that already live on disk. To pull reads from a public archive instead, see [Downloading from SRA](02-downloading-from-sra.md); to import an Oxford Nanopore run directory, see [Oxford Nanopore Runs](07-ont-runs.md).
+This chapter covers importing FASTQ files that already live on disk. It also covers unmapped Oxford Nanopore BAM files that contain reads rather than reference alignments. To pull reads from a public archive instead, see [Downloading from SRA](02-downloading-from-sra.md); to import an Oxford Nanopore run directory, see [Oxford Nanopore Runs](07-ont-runs.md).
 
 Lungfish imports FASTQ files into a project so that every downstream step (QC, trimming, mapping, classification, assembly, variant calling) has a stable, named input to work from. An import is not a copy step alone. It is the moment Lungfish records where the file came from, computes a checksum, and creates a FASTQ bundle that the rest of the project can reference by name.
 
-There are three ways to import. You can drag one or more FASTQ files (or a folder of them) onto the project sidebar. You can open the Import Center with `Cmd-Shift-I`, choose the `Sequencing Reads` tab, click the `FASTQ Files` tile, pick files, and import. Or, from a script or terminal, you can run `lungfish import-fastq --project <path> ...`. All three paths produce the same on-disk result and write the same provenance record, so you can mix them freely across one project.
+For FASTQ, you can drag files onto the project sidebar, use the Import Center, or run the CLI. For an unmapped ONT BAM, use **Import Center > Sequencing Reads > Sequencing Read Files** or `lungfish import fastq <reads.bam> --project <path>`. Lungfish temporarily converts the BAM's primary records to compressed FASTQ, applies the selected import recipe, and removes the temporary files afterward.
 
 Lungfish recognizes paired-end Illumina data by filename. If two files share a sample stem and differ only in a `_1` / `_2` or `_R1` / `_R2` suffix, they are imported as one paired bundle. Single files (Nanopore reads, single-end Illumina, or one half of a pair whose mate is missing) are imported as single-end bundles. A folder containing many paired FASTQs is imported as one bundle per sample.
 
@@ -81,12 +81,14 @@ When the operation finishes, a new bundle named `SRR36291587` appears under `Imp
 If you prefer a dialog over drag-drop, or if your files live behind a network share that drag-drop does not handle, use the Import Center.
 
 1. Press `Cmd-Shift-I` to open the Import Center.
-2. Choose the `Sequencing Reads` tab and click the `FASTQ Files` tile.
+2. Choose the `Sequencing Reads` tab and click the `Sequencing Read Files` tile.
 3. Select both `SRR36291587_1.fastq.gz` and `SRR36291587_2.fastq.gz` in the file picker. The dialog detects the pair and shows them on one row with a "Paired" badge.
 4. Optionally edit the sample name in the row before importing.
 5. Confirm the import. The dialog closes and the new bundle appears in the sidebar.
 
 The Import Center is also where you would import a single-end FASTQ (a Nanopore barcode, for example) or import several single-end files at once.
+
+For an unmapped ONT BAM, select the `.bam` file from this same tile. The configuration sheet selects **Oxford Nanopore** automatically. BAM read input is single-end and cannot be imported under another platform. All primary reads are retained; secondary and supplementary alignment records are excluded so the same sequenced molecule is not imported more than once.
 
 ## Procedure: batch import a folder of paired samples
 
@@ -134,6 +136,15 @@ lungfish import fastq \
 ```
 
 For a folder of samples, pass the folder path; the CLI detects pairs the same way the GUI does. Run `lungfish import fastq --help` for the full option list.
+
+An unmapped ONT BAM uses the same command and is detected as Oxford Nanopore automatically:
+
+```sh
+lungfish import fastq reads.bam \
+  --project ~/Projects/MyRun.lungfish
+```
+
+The resulting `.lungfishfastq` bundle records the original BAM path, checksum, and size; the exact managed `samtools fastq` and `pigz` commands; their versions, exit status, elapsed time, and diagnostic output; and the final imported FASTQ payload. The temporary FASTQ files are not retained in the project.
 
 Two CLI defaults change the stored bytes, so name them in a methods
 record if bit-exact reproduction matters. `--quality-binning` defaults

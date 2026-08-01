@@ -226,10 +226,10 @@ final class ImportCenterViewModel {
         // Sequencing Reads
         ImportCardInfo(
             id: "fastq",
-            title: "FASTQ Files",
-            description: "Import paired-end or single-end sequencing reads. Supports individual files and folders with automatic pair detection.",
+            title: "Sequencing Read Files",
+            description: "Import paired-end or single-end FASTQ reads, or an unmapped Oxford Nanopore BAM. Supports individual files and folders.",
             sfSymbol: "waveform.path",
-            fileHint: ".fastq.gz, .fq.gz, .fastq, .fq (files or folders)",
+            fileHint: ".fastq.gz, .fq.gz, .fastq, .fq, .bam (files or folders)",
             tab: .sequencingReads,
             importKind: .openPanel(
                 configuration: .init(
@@ -237,6 +237,7 @@ final class ImportCenterViewModel {
                         UTType(filenameExtension: "gz") ?? .data,
                         UTType(filenameExtension: "fastq") ?? .data,
                         UTType(filenameExtension: "fq") ?? .data,
+                        UTType(filenameExtension: "bam") ?? .data,
                         .folder,
                     ],
                     canChooseFiles: true,
