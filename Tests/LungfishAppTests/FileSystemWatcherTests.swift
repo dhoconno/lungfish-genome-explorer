@@ -342,6 +342,7 @@ struct FileSystemWatcherTests {
             ".universal-search.db-wal",
             ".universal-search.db-shm",
             ".universal-search.db.lungfish-provenance.json",
+            "..universal-search.db.lungfish-provenance.json.tmp-12345678-AbCdEf",
             "._.universal-search.db.lungfish-provenance.json.sb-12345678-AbCdEf",
         ]
 

@@ -174,7 +174,16 @@ public final class FileSystemWatcher {
     /// These must never be fed back into the index as source changes.
     public nonisolated static func isUniversalSearchInternalPath(_ url: URL) -> Bool {
         let name = url.lastPathComponent
-        let logicalName = name.hasPrefix("._") ? String(name.dropFirst(2)) : name
+        let logicalName: String
+        if name.hasPrefix("._") {
+            logicalName = String(name.dropFirst(2))
+        } else if name.hasPrefix("..universal-search.db") {
+            // Atomic writes to a hidden `.universal-search.db…` file add one
+            // leading dot, producing a temporary `..universal-search…` name.
+            logicalName = String(name.dropFirst())
+        } else {
+            logicalName = name
+        }
         return logicalName.hasPrefix(".universal-search.db")
     }
 

@@ -601,7 +601,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return .terminateNow
         }
         manualHaplotypeTerminationTask =
-            Task { @MainActor [weak self] in
+            Task { [weak self] in
                 guard let self else { return }
                 let allowed =
                     await self
@@ -1121,44 +1121,50 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         projectStorageAutomaticCleanupTasks[key] =
             Task.detached(priority: .utility) { [weak self] in
                 let result = await runner(key)
-                await MainActor.run {
-                    guard let self else { return }
-                    let isCurrent =
-                        self
-                        .projectStorageAutomaticCleanupGenerations[key]
-                        == generation
-                    self
-                        .projectStorageAutomaticCleanupDidProcessCompletion?(
-                            key,
-                            isCurrent
-                        )
-                    guard isCurrent else {
-                        return
-                    }
-                    self.projectStorageAutomaticCleanupTasks[key] = nil
-                    self.projectStorageAutomaticCleanupGenerations[key] = nil
-                    switch result.state {
-                    case .noEligibleEntries:
-                        debugLog(
-                            "Automatic project storage cleanup found "
-                                + "no proven removable temporary entries"
-                        )
-                    case .completed:
-                        debugLog(
-                            "Automatic project storage cleanup moved "
-                                + "\(result.selectedEntryCount) "
-                                + "proven entries to Trash"
-                        )
-                    case .retryRecommended:
-                        for warning in result.warnings {
-                            let path =
-                                warning.relativePath ?? "<project>"
-                            appDelegateLogger.warning(
-                                "Automatic project storage cleanup will retry \(path, privacy: .public): \(warning.message, privacy: .public)"
-                            )
+                await withCheckedContinuation {
+                    (completion: CheckedContinuation<Void, Never>) in
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            defer { completion.resume() }
+                            guard let self else { return }
+                            let isCurrent =
+                                self
+                                .projectStorageAutomaticCleanupGenerations[key]
+                                == generation
+                            self
+                                .projectStorageAutomaticCleanupDidProcessCompletion?(
+                                    key,
+                                    isCurrent
+                                )
+                            guard isCurrent else {
+                                return
+                            }
+                            self.projectStorageAutomaticCleanupTasks[key] = nil
+                            self.projectStorageAutomaticCleanupGenerations[key] = nil
+                            switch result.state {
+                            case .noEligibleEntries:
+                                debugLog(
+                                    "Automatic project storage cleanup found "
+                                        + "no proven removable temporary entries"
+                                )
+                            case .completed:
+                                debugLog(
+                                    "Automatic project storage cleanup moved "
+                                        + "\(result.selectedEntryCount) "
+                                        + "proven entries to Trash"
+                                )
+                            case .retryRecommended:
+                                for warning in result.warnings {
+                                    let path =
+                                        warning.relativePath ?? "<project>"
+                                    appDelegateLogger.warning(
+                                        "Automatic project storage cleanup will retry \(path, privacy: .public): \(warning.message, privacy: .public)"
+                                    )
+                                }
+                            case .cancelled:
+                                break
+                            }
                         }
-                    case .cancelled:
-                        break
                     }
                 }
             }
@@ -1329,7 +1335,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         alert.beginSheetModal(for: window) { [weak window] response in
             guard response == .alertFirstButtonReturn else { return }
 
-            Task { @MainActor in
+            Task {
                 let result = await Task.detached(priority: .userInitiated) {
                     await ProjectStorageAutomaticCleanupService().run(
                         projectURL: projectURL,

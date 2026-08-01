@@ -309,8 +309,6 @@ final class GenotypeManualHaplotypePinnedBandView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        wantsLayer = true
-        layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         disclosureButton.target = self
         disclosureButton.action = #selector(toggleDisclosure(_:))
         disclosureButton.setButtonType(.pushOnPushOff)
@@ -504,8 +502,6 @@ final class GenotypeManualHaplotypeSampleBandView:
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        wantsLayer = true
-        layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         setAccessibilityElement(false)
     }
 
