@@ -275,6 +275,117 @@ final class MHCReferenceRecordCatalogTests: XCTestCase {
         XCTAssertEqual(record.locus, "Mafa-B")
     }
 
+    func testControlledProvisionalAlleleFieldsAreAcceptedFromAnnotations() throws {
+        let bundleURL = try makeBundle(
+            fasta: """
+            >PROV-ext provisional extension
+            AAAAAAAAAA
+            >PROV-new provisional sequence
+            CCCCCCCCCC
+            >PROV-unassigned provisional sequence
+            GGGGGGGGGG
+            """,
+            annotations: [
+                .init(
+                    sequenceID: "PROV-ext",
+                    sequenceLength: 10,
+                    fields: [
+                        "feature.allele": ["Mamu-E*02:16:ext01"],
+                        "feature.gene": ["E"],
+                        "feature.mol_type": ["genomic DNA"],
+                    ]
+                ),
+                .init(
+                    sequenceID: "PROV-new",
+                    sequenceLength: 10,
+                    fields: [
+                        "feature.allele": ["Mamu-E*02:new14:new01"],
+                        "feature.gene": ["E"],
+                        "feature.mol_type": ["genomic DNA"],
+                    ]
+                ),
+                .init(
+                    sequenceID: "PROV-unassigned",
+                    sequenceLength: 10,
+                    fields: [
+                        "feature.allele": ["Mamu-E*000:new01"],
+                        "feature.gene": ["E"],
+                        "feature.mol_type": ["genomic DNA"],
+                    ]
+                ),
+            ]
+        )
+
+        let records = try MHCReferenceRecordCatalog.load(from: bundleURL).records
+
+        XCTAssertEqual(
+            records.map(\.alleleName),
+            ["Mamu-E*02:16:ext01", "Mamu-E*02:new14:new01", "Mamu-E*000:new01"]
+        )
+        XCTAssertEqual(records.map(\.locus), ["Mamu-E", "Mamu-E", "Mamu-E"])
+    }
+
+    func testControlledProvisionalAlleleFieldIsAcceptedFromFASTAHeader() throws {
+        let bundleURL = try makeBundle(
+            fasta: """
+            >PROV-header Mamu-E*02:new14:new01, E locus provisional allele.
+            AAAAAAAAAA
+            """,
+            annotations: nil
+        )
+
+        let record = try XCTUnwrap(
+            MHCReferenceRecordCatalog.load(from: bundleURL)
+                .record(sequenceID: "PROV-header")
+        )
+
+        XCTAssertEqual(record.alleleName, "Mamu-E*02:new14:new01")
+        XCTAssertEqual(record.locus, "Mamu-E")
+    }
+
+    func testMalformedProvisionalAlleleFieldsRemainRejected() throws {
+        let malformedValues = [
+            "Mamu-E*ext01",
+            "Mamu-E*02:ext",
+            "Mamu-E*02:other01",
+            "Mamu-E*02::new01",
+        ]
+
+        for malformedValue in malformedValues {
+            let bundleURL = try makeBundle(
+                fasta: """
+                >PROV-malformed provisional sequence
+                AAAAAAAAAA
+                """,
+                annotations: [
+                    .init(
+                        sequenceID: "PROV-malformed",
+                        sequenceLength: 10,
+                        fields: [
+                            "feature.allele": [malformedValue],
+                            "feature.gene": ["E"],
+                            "feature.mol_type": ["genomic DNA"],
+                        ]
+                    )
+                ]
+            )
+
+            XCTAssertThrowsError(
+                try MHCReferenceRecordCatalog.load(from: bundleURL),
+                "Expected \(malformedValue) to be rejected"
+            ) { error in
+                guard case let MHCReferenceRecordCatalogError.invalidAlleleAnnotations(
+                    sequenceID,
+                    values
+                ) = error else {
+                    return XCTFail("Unexpected error for \(malformedValue): \(error)")
+                }
+                XCTAssertEqual(sequenceID, "PROV-malformed")
+                XCTAssertEqual(values, [malformedValue])
+            }
+        }
+    }
+
     func testNoResolvableAlleleOrLocusThrowsTypedActionableError() throws {
         let bundleURL = try makeBundle(
             fasta: """

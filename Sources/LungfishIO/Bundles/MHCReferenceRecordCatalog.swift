@@ -377,19 +377,41 @@ private extension MHCReferenceRecordCatalog {
         }
 
         let designation = starParts[1]
-        guard !designation.isEmpty else { return false }
-        var numericEnd = designation.endIndex
-        while numericEnd > designation.startIndex {
-            let previous = designation.index(before: numericEnd)
-            guard isASCIIAlpha(designation[previous]) else { break }
-            numericEnd = previous
+        let fields = designation.split(separator: ":", omittingEmptySubsequences: false)
+        guard let firstField = fields.first,
+              isNumericAlleleField(firstField) else { return false }
+        return fields.dropFirst().allSatisfy {
+            isNumericAlleleField($0) || isControlledProvisionalField($0)
         }
-        let numericFields = designation[..<numericEnd].split(separator: ":", omittingEmptySubsequences: false)
-        guard !numericFields.isEmpty,
-              numericFields.allSatisfy({ !$0.isEmpty && $0.allSatisfy(isASCIIDigit) }) else {
+    }
+
+    static func isNumericAlleleField(_ field: Substring) -> Bool {
+        guard !field.isEmpty else { return false }
+        var reachedSuffix = false
+        var digitCount = 0
+        for character in field {
+            if isASCIIDigit(character), !reachedSuffix {
+                digitCount += 1
+            } else if isASCIIAlpha(character) {
+                reachedSuffix = true
+            } else {
+                return false
+            }
+        }
+        return digitCount > 0
+    }
+
+    static func isControlledProvisionalField(_ field: Substring) -> Bool {
+        let numericIdentifier: Substring
+        if field.hasPrefix("ext") {
+            numericIdentifier = field.dropFirst(3)
+        } else if field.hasPrefix("new") {
+            numericIdentifier = field.dropFirst(3)
+        } else {
             return false
         }
-        return designation[numericEnd...].allSatisfy(isASCIIAlpha)
+        return !numericIdentifier.isEmpty
+            && numericIdentifier.allSatisfy(isASCIIDigit)
     }
 
     static func validateAnnotatedGenes(
