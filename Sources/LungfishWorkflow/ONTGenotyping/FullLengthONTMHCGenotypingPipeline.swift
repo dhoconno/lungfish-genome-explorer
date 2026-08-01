@@ -1430,6 +1430,17 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         )
         try invalidatePublishedRunMetadata(request)
 
+        let referenceCatalogProjectionURL = request.outputDirectory
+            .appendingPathComponent("artifacts", isDirectory: true)
+            .appendingPathComponent("reference", isDirectory: true)
+            .appendingPathComponent("mhc-reference-catalog.json")
+        let referenceCatalog = try materializeMHCReferenceCatalog(
+            sourceURL: request.referenceSourceURL,
+            fastaURL: referenceFASTAURL,
+            cdnaThreshold: request.cdnaThreshold,
+            outputURL: referenceCatalogProjectionURL
+        )
+
         try Data().write(to: request.unmatchedClustersFASTAURL, options: .atomic)
         try Data().write(to: request.cdnaClustersFASTAURL, options: .atomic)
 
@@ -1560,16 +1571,6 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             in: cohortAlignmentResult.bamURL,
             temporaryWorkDirectoryURL: cohortAlignmentResult.temporaryWorkDirectoryURL,
             samtoolsVersion: samtoolsVersion
-        )
-        let referenceCatalogProjectionURL = request.outputDirectory
-            .appendingPathComponent("artifacts", isDirectory: true)
-            .appendingPathComponent("reference", isDirectory: true)
-            .appendingPathComponent("mhc-reference-catalog.json")
-        let referenceCatalog = try materializeMHCReferenceCatalog(
-            sourceURL: request.referenceSourceURL,
-            fastaURL: referenceFASTAURL,
-            cdnaThreshold: request.cdnaThreshold,
-            outputURL: referenceCatalogProjectionURL
         )
         let candidateReferenceRecords = referenceCatalog.records
         let summariesBySample = try genotypeSummariesFromFinalCohortBAM(

@@ -764,6 +764,59 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(projection.records.first?.classEvidence, .annotatedMetadata)
     }
 
+    func testMalformedReferenceCatalogFailsBeforeSampleStaging() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "full-length-ont-mhc-reference-preflight-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let reference = try makeAnnotatedReferenceBundle(
+            at: root.appendingPathComponent("invalid.lungfishref", isDirectory: true)
+        )
+        var database: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(reference.databaseURL.path, &database), SQLITE_OK)
+        guard let database else { return XCTFail("Could not open reference record store") }
+        XCTAssertEqual(
+            sqlite3_exec(
+                database,
+                "UPDATE field_values SET value = 'Mafa-E*02:other01' WHERE field_key = 'feature.allele';",
+                nil,
+                nil,
+                nil
+            ),
+            SQLITE_OK
+        )
+        XCTAssertEqual(sqlite3_close(database), SQLITE_OK)
+
+        let (request, pipeline) = try makeFakeFullLengthRun(
+            root: root,
+            referenceSourceURL: reference.bundleURL
+        )
+        let progress = FullLengthONTMHCProgressObservation()
+
+        do {
+            _ = try await pipeline.run(request) { _, message in
+                progress.append(message)
+            }
+            XCTFail("Expected malformed reference catalog failure")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("Mafa-E*02:other01"))
+        }
+
+        XCTAssertFalse(
+            progress.messages.contains { message in
+                message.contains("Staging FASTQ") || message.contains("Processing 1 sample")
+            },
+            "Malformed reference metadata must fail before sample staging or processing."
+        )
+        let failure = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: request.failureProvenanceURL)
+        )
+        XCTAssertEqual(failure.exitStatus, 1)
+        XCTAssertTrue(failure.stderr?.contains("Mafa-E*02:other01") == true)
+    }
+
     func testLungfishReferenceBundleUsesMHCMetadataCatalog() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("full-length-ont-mhc-reference-catalog-\(UUID().uuidString)", isDirectory: true)
@@ -6119,6 +6172,19 @@ private struct SelectiveFailingPostPublicationCleaner: FullLengthONTMHCWorkDirec
 
 private struct InjectedPostSwapFailure: Error, LocalizedError {
     var errorDescription: String? { "injected post-swap failure" }
+}
+
+private final class FullLengthONTMHCProgressObservation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedMessages: [String] = []
+
+    var messages: [String] {
+        lock.withLock { recordedMessages }
+    }
+
+    func append(_ message: String) {
+        lock.withLock { recordedMessages.append(message) }
+    }
 }
 
 private final class MetadataPublicationObservation: @unchecked Sendable {
