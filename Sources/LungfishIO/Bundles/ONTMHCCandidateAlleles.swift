@@ -40,9 +40,11 @@ public struct ONTMHCCandidateArtifactManifest: Codable, Equatable, Sendable {
     public let candidateJSON: ONTMHCArtifactReference?
     public let candidateFASTA: ONTMHCArtifactReference?
     public let candidateGenBank: ONTMHCArtifactReference?
+    public let candidateEMBL: ONTMHCArtifactReference?
     public let unnameableJSON: ONTMHCArtifactReference?
     public let unnameableFASTA: ONTMHCArtifactReference?
     public let unnameableGenBank: ONTMHCArtifactReference?
+    public let unnameableEMBL: ONTMHCArtifactReference?
     public let rawUnmatchedFASTA: ONTMHCArtifactReference?
     public let sourceIdentityMap: ONTMHCArtifactReference?
 
@@ -62,9 +64,11 @@ public struct ONTMHCCandidateArtifactManifest: Codable, Equatable, Sendable {
             candidateJSON: candidateJSON,
             candidateFASTA: candidateFASTA,
             candidateGenBank: nil,
+            candidateEMBL: nil,
             unnameableJSON: unnameableJSON,
             unnameableFASTA: unnameableFASTA,
             unnameableGenBank: nil,
+            unnameableEMBL: nil,
             rawUnmatchedFASTA: nil,
             sourceIdentityMap: nil
         )
@@ -77,9 +81,11 @@ public struct ONTMHCCandidateArtifactManifest: Codable, Equatable, Sendable {
         candidateJSON: ONTMHCArtifactReference?,
         candidateFASTA: ONTMHCArtifactReference?,
         candidateGenBank: ONTMHCArtifactReference? = nil,
+        candidateEMBL: ONTMHCArtifactReference? = nil,
         unnameableJSON: ONTMHCArtifactReference?,
         unnameableFASTA: ONTMHCArtifactReference?,
         unnameableGenBank: ONTMHCArtifactReference? = nil,
+        unnameableEMBL: ONTMHCArtifactReference? = nil,
         rawUnmatchedFASTA: ONTMHCArtifactReference? = nil,
         sourceIdentityMap: ONTMHCArtifactReference? = nil
     ) {
@@ -89,9 +95,11 @@ public struct ONTMHCCandidateArtifactManifest: Codable, Equatable, Sendable {
         self.candidateJSON = candidateJSON
         self.candidateFASTA = candidateFASTA
         self.candidateGenBank = candidateGenBank
+        self.candidateEMBL = candidateEMBL
         self.unnameableJSON = unnameableJSON
         self.unnameableFASTA = unnameableFASTA
         self.unnameableGenBank = unnameableGenBank
+        self.unnameableEMBL = unnameableEMBL
         self.rawUnmatchedFASTA = rawUnmatchedFASTA
         self.sourceIdentityMap = sourceIdentityMap
     }
@@ -103,9 +111,11 @@ public struct ONTMHCCandidateArtifactManifest: Codable, Equatable, Sendable {
         case candidateJSON = "candidate_json"
         case candidateFASTA = "candidate_fasta"
         case candidateGenBank = "candidate_genbank"
+        case candidateEMBL = "candidate_embl"
         case unnameableJSON = "unnameable_json"
         case unnameableFASTA = "unnameable_fasta"
         case unnameableGenBank = "unnameable_genbank"
+        case unnameableEMBL = "unnameable_embl"
         case rawUnmatchedFASTA = "raw_unmatched_fasta"
         case sourceIdentityMap = "source_identity_map"
     }
@@ -1656,8 +1666,17 @@ public struct ONTMHCIncompleteCandidateInterpretation: Codable, Equatable, Senda
     public let extensionOf: [String]
     public let provisionalNamingAmbiguous: Bool
 
+    /// Observed substitutions and ordinary indel bases across the aligned span.
+    /// Intron-sized cDNA fills are structural evidence rather than edit burden.
+    public var observedDifferenceCount: Int {
+        snpCount + max(0, insertedBases - longGapBases) + deletedBases
+    }
+
     public init(candidate: ONTMHCCandidateRecord) {
-        provisionalName = candidate.provisionalName
+        let differenceCount = candidate.snpCount
+            + max(0, candidate.insertedBases - candidate.longGapBases)
+            + candidate.deletedBases
+        provisionalName = "\(candidate.closestReferenceName)_partial_\(differenceCount)diff"
         locus = candidate.locus
         classification = candidate.classification
         closestReferenceName = candidate.closestReferenceName

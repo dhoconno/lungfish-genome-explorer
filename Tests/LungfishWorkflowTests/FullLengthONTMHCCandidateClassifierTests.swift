@@ -946,6 +946,58 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
         XCTAssertEqual(candidate.insertedBases, 0)
     }
 
+    func testClosestReferenceUsesCompleteEditBurdenInsteadOfSubstitutionCountAlone() throws {
+        let fewerSNPsButMoreEdits = MHCReferenceRecord(
+            sequenceID: "ref-fewer-snps-more-edits",
+            alleleName: "Mamu-DRB1*03:09:01:01",
+            locus: "Mamu-DRB1",
+            moleculeClass: .genomicDNA,
+            classEvidence: .annotatedMetadata,
+            sequenceLength: 1_200
+        )
+        let moreSNPsButFewerEdits = MHCReferenceRecord(
+            sequenceID: "ref-more-snps-fewer-edits",
+            alleleName: "Mamu-DRB1*03:09:01:02",
+            locus: "Mamu-DRB1",
+            moleculeClass: .genomicDNA,
+            classEvidence: .annotatedMetadata,
+            sequenceLength: 1_201
+        )
+        let cluster = makeCluster(
+            sequenceLength: 1_203,
+            alignments: [
+                alignment(
+                    reference: fewerSNPsButMoreEdits,
+                    cigar: "1X3I1199=",
+                    score: 1_500
+                ),
+                alignment(
+                    reference: moreSNPsButFewerEdits,
+                    cigar: "2X1199=",
+                    score: 2_000
+                ),
+            ]
+        )
+
+        guard case .candidate(let candidate) = try FullLengthONTMHCCandidateClassifier()
+            .classify(cluster) else {
+            return XCTFail("Expected novel candidate")
+        }
+
+        XCTAssertEqual(candidate.closestReferenceName, moreSNPsButFewerEdits.alleleName)
+        XCTAssertEqual(candidate.snpCount, 2)
+        XCTAssertEqual(candidate.insertedBases, 0)
+        XCTAssertEqual(candidate.deletedBases, 0)
+        XCTAssertEqual(
+            candidate.reciprocalHitSummary.closestMatchTargetNames,
+            [moreSNPsButFewerEdits.sequenceID]
+        )
+
+        let partial = ONTMHCIncompleteCandidateInterpretation(candidate: candidate)
+        XCTAssertEqual(partial.provisionalName, "Mamu-DRB1*03:09:01:02_partial_2diff")
+        XCTAssertEqual(partial.observedDifferenceCount, 2)
+    }
+
     func testRejectsInvalidThresholdsAndNumericInputs() throws {
         XCTAssertThrowsError(try ONTMHCCandidateThresholds(
             minimumAlignedBases: 0,

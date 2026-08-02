@@ -6456,9 +6456,11 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         explicit["mhcCandidateJSON"] = .file(candidateArtifactResult.candidateJSONURL)
         explicit["mhcCandidateFASTA"] = .file(candidateArtifactResult.candidateFASTAURL)
         explicit["mhcCandidateGenBank"] = .file(candidateArtifactResult.candidateGenBankURL)
+        explicit["mhcCandidateEMBL"] = .file(candidateArtifactResult.candidateEMBLURL)
         explicit["mhcUnnameableJSON"] = .file(candidateArtifactResult.unnameableJSONURL)
         explicit["mhcUnnameableFASTA"] = .file(candidateArtifactResult.unnameableFASTAURL)
         explicit["mhcUnnameableGenBank"] = .file(candidateArtifactResult.unnameableGenBankURL)
+        explicit["mhcUnnameableEMBL"] = .file(candidateArtifactResult.unnameableEMBLURL)
         if let referenceVisualizationPublication {
             explicit["mhcReferenceVisualizationRecords"] = .file(
                 referenceVisualizationPublication.recordsJSONURL
@@ -6543,9 +6545,11 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         .output(candidateArtifactResult.candidateJSONURL, format: .json, role: .output)
         .output(candidateArtifactResult.candidateFASTAURL, format: .fasta, role: .output)
         .output(candidateArtifactResult.candidateGenBankURL, format: .genBank, role: .output)
+        .output(candidateArtifactResult.candidateEMBLURL, format: .text, role: .output)
         .output(candidateArtifactResult.unnameableJSONURL, format: .json, role: .output)
         .output(candidateArtifactResult.unnameableFASTAURL, format: .fasta, role: .output)
         .output(candidateArtifactResult.unnameableGenBankURL, format: .genBank, role: .output)
+        .output(candidateArtifactResult.unnameableEMBLURL, format: .text, role: .output)
 
         if let referenceVisualizationPublication {
             for outputURL in referenceVisualizationPublication.outputURLs {

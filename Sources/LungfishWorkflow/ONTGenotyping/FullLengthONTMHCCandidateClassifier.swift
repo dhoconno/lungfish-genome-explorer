@@ -703,9 +703,8 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
         _ lhs: AnalyzedAlignment,
         _ rhs: AnalyzedAlignment
     ) -> Bool {
-        lhs.metrics.snps == rhs.metrics.snps
+        biologicalEditBurden(lhs) == biologicalEditBurden(rhs)
             && lhs.metrics.comparableBases == rhs.metrics.comparableBases
-            && lhs.nonIntronIndelBases == rhs.nonIntronIndelBases
             && lhs.input.alignmentScore == rhs.input.alignmentScore
     }
 
@@ -739,15 +738,18 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
     }
 
     private func isRankedBefore(_ lhs: AnalyzedAlignment, _ rhs: AnalyzedAlignment) -> Bool {
-        if lhs.metrics.snps != rhs.metrics.snps { return lhs.metrics.snps < rhs.metrics.snps }
+        let lhsEditBurden = biologicalEditBurden(lhs)
+        let rhsEditBurden = biologicalEditBurden(rhs)
+        if lhsEditBurden != rhsEditBurden { return lhsEditBurden < rhsEditBurden }
         if lhs.metrics.comparableBases != rhs.metrics.comparableBases {
             return lhs.metrics.comparableBases > rhs.metrics.comparableBases
         }
-        if lhs.nonIntronIndelBases != rhs.nonIntronIndelBases {
-            return lhs.nonIntronIndelBases < rhs.nonIntronIndelBases
-        }
         if lhs.input.alignmentScore != rhs.input.alignmentScore {
             return lhs.input.alignmentScore > rhs.input.alignmentScore
+        }
+        if lhs.metrics.snps != rhs.metrics.snps { return lhs.metrics.snps < rhs.metrics.snps }
+        if lhs.nonIntronIndelBases != rhs.nonIntronIndelBases {
+            return lhs.nonIntronIndelBases < rhs.nonIntronIndelBases
         }
         let nameOrder = lhs.localizedReferenceName.localizedStandardCompare(rhs.localizedReferenceName)
         if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
@@ -758,6 +760,10 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
             return lhs.input.evidence.referenceStart < rhs.input.evidence.referenceStart
         }
         return lhs.input.cigar < rhs.input.cigar
+    }
+
+    private func biologicalEditBurden(_ hit: AnalyzedAlignment) -> Int {
+        hit.metrics.snps + hit.nonIntronIndelBases
     }
 
     private func candidateRecord(

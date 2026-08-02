@@ -1168,24 +1168,32 @@ public struct ONTMHCCandidateGenBankArtifactURLs: Codable, Equatable, Sendable {
         candidateAlleles: nil,
         unnameableClusters: nil,
         candidateFASTA: nil,
-        unnameableFASTA: nil
+        unnameableFASTA: nil,
+        candidateEMBL: nil,
+        unnameableEMBL: nil
     )
 
     public let candidateAlleles: URL?
     public let unnameableClusters: URL?
     public let candidateFASTA: URL?
     public let unnameableFASTA: URL?
+    public let candidateEMBL: URL?
+    public let unnameableEMBL: URL?
 
     public init(
         candidateAlleles: URL?,
         unnameableClusters: URL?,
         candidateFASTA: URL? = nil,
-        unnameableFASTA: URL? = nil
+        unnameableFASTA: URL? = nil,
+        candidateEMBL: URL? = nil,
+        unnameableEMBL: URL? = nil
     ) {
         self.candidateAlleles = candidateAlleles?.standardizedFileURL
         self.unnameableClusters = unnameableClusters?.standardizedFileURL
         self.candidateFASTA = candidateFASTA?.standardizedFileURL
         self.unnameableFASTA = unnameableFASTA?.standardizedFileURL
+        self.candidateEMBL = candidateEMBL?.standardizedFileURL
+        self.unnameableEMBL = unnameableEMBL?.standardizedFileURL
     }
 }
 
@@ -2718,6 +2726,20 @@ public enum ONTGenotypeResultBundle {
                     "Un-nameable GenBank requires the corresponding un-nameable JSON and FASTA declarations."
                 )
             }
+            if artifactManifest.candidateEMBL != nil,
+               artifactManifest.candidateJSON == nil || artifactManifest.candidateFASTA == nil {
+                throw integrityFailure(
+                    .candidateArtifactDocumentReferenceMismatch,
+                    "Candidate EMBL requires the corresponding candidate JSON and FASTA declarations."
+                )
+            }
+            if artifactManifest.unnameableEMBL != nil,
+               artifactManifest.unnameableJSON == nil || artifactManifest.unnameableFASTA == nil {
+                throw integrityFailure(
+                    .candidateArtifactDocumentReferenceMismatch,
+                    "Un-nameable EMBL requires the corresponding un-nameable JSON and FASTA declarations."
+                )
+            }
             let parsedReferences = [
                 artifactManifest.candidateJSON,
                 artifactManifest.candidateFASTA,
@@ -2762,6 +2784,8 @@ public enum ONTGenotypeResultBundle {
             for reference in [
                 artifactManifest.candidateGenBank,
                 artifactManifest.unnameableGenBank,
+                artifactManifest.candidateEMBL,
+                artifactManifest.unnameableEMBL,
                 artifactManifest.rawUnmatchedFASTA,
                 artifactManifest.sourceIdentityMap,
             ].compactMap({ $0 }) {
@@ -2894,6 +2918,12 @@ public enum ONTGenotypeResultBundle {
                     try normalizedValidatedArtifactURL($0, in: bundleURL)
                 },
                 unnameableFASTA: try artifactManifest.unnameableFASTA.map {
+                    try normalizedValidatedArtifactURL($0, in: bundleURL)
+                },
+                candidateEMBL: try artifactManifest.candidateEMBL.map {
+                    try normalizedValidatedArtifactURL($0, in: bundleURL)
+                },
+                unnameableEMBL: try artifactManifest.unnameableEMBL.map {
                     try normalizedValidatedArtifactURL($0, in: bundleURL)
                 }
             )

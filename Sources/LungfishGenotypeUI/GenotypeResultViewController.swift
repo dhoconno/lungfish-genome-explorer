@@ -1080,6 +1080,13 @@ public final class GenotypeResultViewController: NSViewController {
                     candidates: result.mhcCandidates?.candidates ?? [],
                     genBankURL: result.mhcCandidateGenBankArtifactURLs.candidateAlleles
                 )
+            candidateSequenceRecordsByStableClusterID.merge(
+                GenotypeAlleleSequenceRecord.incompleteCandidateCatalogRetainingValidRecords(
+                    records: result.mhcUnnameableClusters?.clusters ?? [],
+                    genBankURL: result.mhcCandidateGenBankArtifactURLs.unnameableClusters
+                ),
+                uniquingKeysWith: { validated, _ in validated }
+            )
         } else {
             knownSequenceRecordsByRowID = [:]
             candidateSequenceRecordsByStableClusterID = [:]
@@ -3776,6 +3783,7 @@ public final class GenotypeResultViewController: NSViewController {
             var rows: [(String, String)] = [
                 ("Classification", interpretation.classification == .novel ? "Novel" : "Extension"),
                 ("Review status", "Incomplete reference span; not reference-ready"),
+                ("Validation", "This partial sequence cannot be fully validated and must not be treated as a named allele."),
                 ("Closest reference", interpretation.closestReferenceName),
             ]
             if let sample,
@@ -5084,6 +5092,12 @@ public final class GenotypeResultViewController: NSViewController {
         }
         if let unnameableURL = candidateGenBankURLs.unnameableClusters {
             artifactRows.append(artifactRow(label: "Un-nameable Clusters GenBank", url: unnameableURL))
+        }
+        if let candidateURL = candidateGenBankURLs.candidateEMBL {
+            artifactRows.append(artifactRow(label: "Candidate Alleles EMBL", url: candidateURL))
+        }
+        if let unnameableURL = candidateGenBankURLs.unnameableEMBL {
+            artifactRows.append(artifactRow(label: "Un-nameable Clusters EMBL", url: unnameableURL))
         }
         let alignmentArtifactURLs = result.alignmentArtifactURLs
         if let genotypingBAMURL = alignmentArtifactURLs.genotypingBAM {

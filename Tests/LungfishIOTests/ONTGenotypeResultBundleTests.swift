@@ -1925,14 +1925,26 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
             sha256: String(repeating: "e", count: 64),
             sizeBytes: 2_048
         )
+        let candidateEMBL = ONTMHCArtifactReference(
+            path: "candidate_alleles.embl",
+            sha256: String(repeating: "f", count: 64),
+            sizeBytes: 3_072
+        )
+        let unnameableEMBL = ONTMHCArtifactReference(
+            path: "unnameable_unmatched_clusters.embl",
+            sha256: String(repeating: "1", count: 64),
+            sizeBytes: 5_120
+        )
         let manifest = ONTMHCCandidateArtifactManifest(
             schemaVersion: 2,
             genotypingEvidence: nil,
             reciprocalEvidence: nil,
             candidateJSON: nil,
             candidateFASTA: nil,
+            candidateEMBL: candidateEMBL,
             unnameableJSON: nil,
             unnameableFASTA: nil,
+            unnameableEMBL: unnameableEMBL,
             rawUnmatchedFASTA: rawFASTA,
             sourceIdentityMap: sourceIdentityMap
         )
@@ -1943,8 +1955,12 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
 
         XCTAssertEqual(object["raw_unmatched_fasta"] as? [String: Any]? != nil, true)
         XCTAssertEqual(object["source_identity_map"] as? [String: Any]? != nil, true)
+        XCTAssertEqual(object["candidate_embl"] as? [String: Any]? != nil, true)
+        XCTAssertEqual(object["unnameable_embl"] as? [String: Any]? != nil, true)
         XCTAssertEqual(decoded.rawUnmatchedFASTA, rawFASTA)
         XCTAssertEqual(decoded.sourceIdentityMap, sourceIdentityMap)
+        XCTAssertEqual(decoded.candidateEMBL, candidateEMBL)
+        XCTAssertEqual(decoded.unnameableEMBL, unnameableEMBL)
 
         let schema1 = try JSONDecoder().decode(
             ONTMHCCandidateArtifactManifest.self,
@@ -1952,6 +1968,8 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         )
         XCTAssertNil(schema1.rawUnmatchedFASTA)
         XCTAssertNil(schema1.sourceIdentityMap)
+        XCTAssertNil(schema1.candidateEMBL)
+        XCTAssertNil(schema1.unnameableEMBL)
     }
 
     func testRoundTripsManifestWithMHCCandidateArtifacts() throws {

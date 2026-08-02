@@ -9264,11 +9264,15 @@ final class GenotypeResultViewportTests: XCTestCase {
         let unnameableFASTAURL = bundleURL.appendingPathComponent("artifacts/candidates/unnameable_unmatched_clusters.fasta")
         let candidateURL = bundleURL.appendingPathComponent("artifacts/candidates/candidate_alleles.gb")
         let unnameableURL = bundleURL.appendingPathComponent("artifacts/candidates/unnameable_unmatched_clusters.gb")
+        let candidateEMBLURL = bundleURL.appendingPathComponent("artifacts/candidates/candidate_alleles.embl")
+        let unnameableEMBLURL = bundleURL.appendingPathComponent("artifacts/candidates/unnameable_unmatched_clusters.embl")
         let candidateGenBankArtifactURLs = ONTMHCCandidateGenBankArtifactURLs(
             candidateAlleles: candidateURL,
             unnameableClusters: unnameableURL,
             candidateFASTA: candidateFASTAURL,
-            unnameableFASTA: unnameableFASTAURL
+            unnameableFASTA: unnameableFASTAURL,
+            candidateEMBL: candidateEMBLURL,
+            unnameableEMBL: unnameableEMBLURL
         )
         let controller = GenotypeResultViewController()
         _ = controller.view
@@ -9286,6 +9290,8 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(lensText.contains("Un-nameable Clusters FASTA"))
         XCTAssertTrue(lensText.contains("Candidate Alleles GenBank"))
         XCTAssertTrue(lensText.contains("Un-nameable Clusters GenBank"))
+        XCTAssertTrue(lensText.contains("Candidate Alleles EMBL"))
+        XCTAssertTrue(lensText.contains("Un-nameable Clusters EMBL"))
     }
 
     func testArtifactsLensOmitsCandidateGenBankArtifactsWhenAbsent() {
@@ -9300,6 +9306,8 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertFalse(lensText.contains("Un-nameable Clusters FASTA"))
         XCTAssertFalse(lensText.contains("Candidate Alleles GenBank"))
         XCTAssertFalse(lensText.contains("Un-nameable Clusters GenBank"))
+        XCTAssertFalse(lensText.contains("Candidate Alleles EMBL"))
+        XCTAssertFalse(lensText.contains("Un-nameable Clusters EMBL"))
         XCTAssertFalse(lensText.contains("Genotyping Evidence BAM"))
         XCTAssertFalse(lensText.contains("Genotyping Evidence BAI"))
         XCTAssertFalse(lensText.contains("Reciprocal Evidence BAM"))

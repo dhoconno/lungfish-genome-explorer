@@ -296,7 +296,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         )
         XCTAssertEqual(
             candidateGenBankStep.resolvedOptions["externalRecordGate"],
-            .string("emit-only-typed-externalSequence-with-reference-readiness=reference-ready;non-ready-omitted;no-untrimmed-external-fallback")
+            .string("reference-ready-records-or-explicit-incomplete-span-diagnostic-records;unavailable-omitted;diagnostic-records-never-reference-ready")
         )
         XCTAssertEqual(
             candidateGenBankStep.resolvedOptions["outerCDSTrimRule"],
