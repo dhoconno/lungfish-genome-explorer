@@ -39,6 +39,55 @@ final class FASTQBatchImportTests: XCTestCase {
 
     // MARK: - Pair Detection
 
+    func testONTBAMImportProducesFASTQBundleWithBAMProvenanceAndCleansWorkspace() async throws {
+        let runner = NativeToolRunner.shared
+        guard await runner.isToolAvailable(.samtools),
+              await runner.isToolAvailable(.pigz),
+              await runner.isToolAvailable(.seqkit) else {
+            throw XCTSkip("Managed samtools, pigz, and seqkit are required for this integration test")
+        }
+
+        let fixtureBAM = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/sarscov2/test.paired_end.sorted.bam")
+        let pair = SamplePair(sampleName: "ont-bam", r1: fixtureBAM, r2: nil)
+        let config = FASTQBatchImporter.ImportConfig(
+            projectDirectory: tempDir,
+            platform: .ont,
+            qualityBinning: QualityBinningScheme.none,
+            optimizeStorage: false,
+            threads: 2
+        )
+
+        let result = await FASTQBatchImporter.runBatchImport(pairs: [pair], config: config, log: nil)
+
+        XCTAssertEqual(result.completed, 1, "Import should succeed. Errors: \(result.errors)")
+        let bundleURL = FASTQBatchImporter.bundleOutputURL(for: pair, in: tempDir)
+        let fastqURL = bundleURL.appendingPathComponent("ont-bam.fastq.gz")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fastqURL.path))
+        let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: provenanceURL)
+        )
+        XCTAssertTrue(envelope.files.contains {
+            $0.path == fixtureBAM.path && $0.format == .bam && $0.checksumSHA256 != nil && $0.fileSize != nil
+        })
+        XCTAssertTrue(envelope.argv.contains(fixtureBAM.path))
+        XCTAssertTrue(envelope.steps.contains { $0.toolName == "samtools" && $0.exitStatus == 0 })
+        XCTAssertTrue(envelope.steps.contains { $0.toolName == "pigz" && $0.exitStatus == 0 })
+        XCTAssertEqual(envelope.options.resolvedDefaults["sourceFormat"], .string("bam"))
+        XCTAssertEqual(envelope.options.resolvedDefaults["bamPrimaryReadFilter"], .integer(2304))
+
+        let projectTemp = tempDir.appendingPathComponent(".tmp", isDirectory: true)
+        let remaining = (try? FileManager.default.contentsOfDirectory(
+            at: projectTemp,
+            includingPropertiesForKeys: nil
+        )) ?? []
+        XCTAssertFalse(remaining.contains { $0.lastPathComponent.hasPrefix("fastq-import-") })
+    }
+
     func testPairDetectionFromFixtures() throws {
         let r1 = TestFixtures.sarscov2.fastqR1
         let r2 = TestFixtures.sarscov2.fastqR2

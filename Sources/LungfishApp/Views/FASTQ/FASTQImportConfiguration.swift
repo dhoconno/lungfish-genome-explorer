@@ -184,12 +184,13 @@ public func groupFASTQByPairs(_ urls: [URL]) -> [FASTQFilePair] {
         ("_1", "_2"),
     ]
 
-    // Strip .gz then .fastq/.fq to get the stem
+    // Strip the read-file extension to get the stem. BAM inputs remain single-end.
     func stem(of url: URL) -> String {
         var name = url.lastPathComponent
         if name.hasSuffix(".gz") { name = String(name.dropLast(3)) }
         if name.hasSuffix(".fastq") { name = String(name.dropLast(6)) }
         else if name.hasSuffix(".fq") { name = String(name.dropLast(3)) }
+        else if name.lowercased().hasSuffix(".bam") { name = String(name.dropLast(4)) }
         return name
     }
 

@@ -115,6 +115,34 @@ final class FASTQBatchImporterTests: XCTestCase {
         XCTAssertNil(gammaEntry?.r2, "Gamma should be single-end")
     }
 
+    func testPairDetectionFromDirectoryIncludesBAMAsSingleEndSample() throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FASTQBatchImporterTests-bam-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let bamURL = tmpDir.appendingPathComponent("NanoporeSample.BAM")
+        FileManager.default.createFile(atPath: bamURL.path, contents: Data([0x42]))
+
+        let pairs = try FASTQBatchImporter.detectPairsFromDirectory(tmpDir)
+
+        XCTAssertEqual(pairs.count, 1)
+        XCTAssertEqual(pairs[0].sampleName, "NanoporeSample")
+        XCTAssertEqual(pairs[0].r1.standardizedFileURL, bamURL.standardizedFileURL)
+        XCTAssertNil(pairs[0].r2)
+    }
+
+    func testBAMIsRecordedAsBAMInImportProvenance() {
+        XCTAssertEqual(
+            FASTQBatchImporter.provenanceFormat(for: URL(fileURLWithPath: "/tmp/reads.bam")),
+            .bam
+        )
+        XCTAssertEqual(
+            FASTQBatchImporter.provenanceFormat(for: URL(fileURLWithPath: "/tmp/reads.fastq.gz")),
+            .fastq
+        )
+    }
+
     func testPairDetectionFromEmptyDirectoryThrows() throws {
         let tmpDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("FASTQBatchImporterTests-empty-\(UUID().uuidString)")

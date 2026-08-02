@@ -347,8 +347,8 @@ extension MainSplitViewController {
             return
         }
 
-        // Auto-detect platform from the first R1 file
-        let detectedPlatform = LungfishIO.SequencingPlatform.detect(fromFASTQ: pairs[0].r1) ?? .unknown
+        // BAM read input is Oxford Nanopore-only; FASTQ keeps header-based detection.
+        let detectedPlatform = Self.detectedImportPlatform(for: pairs)
 
         FASTQImportConfigSheet.present(
             on: window,
@@ -368,6 +368,14 @@ extension MainSplitViewController {
                 }
             }
         )
+    }
+
+    nonisolated static func detectedImportPlatform(for pairs: [FASTQFilePair]) -> LungfishIO.SequencingPlatform {
+        guard let first = pairs.first else { return .unknown }
+        if SequencingReadImportSource.isBAM(first.r1) {
+            return .oxfordNanopore
+        }
+        return LungfishIO.SequencingPlatform.detect(fromFASTQ: first.r1) ?? .unknown
     }
 
     /// Entry point for Import Center FASTQ import (no sidebar request ID).

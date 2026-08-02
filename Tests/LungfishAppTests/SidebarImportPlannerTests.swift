@@ -54,7 +54,7 @@ final class SidebarImportPlannerTests: XCTestCase {
         XCTAssertTrue(plan.shouldAutoDisplayImportedContent)
     }
 
-    func testPlanExcludesScientificTrackFilesFromGenericCopy() throws {
+    func testPlanRoutesBAMReadInputButExcludesOtherScientificTracks() throws {
         let filenames = [
             "reads.bam",
             "reads.cram",
@@ -74,10 +74,7 @@ final class SidebarImportPlannerTests: XCTestCase {
             for: filenames.map { tempDir.appendingPathComponent($0) }
         )
 
-        XCTAssertTrue(
-            plan.sourceURLs.isEmpty,
-            "BAM/CRAM/VCF/BCF files must use dedicated import flows so provenance is recorded."
-        )
+        XCTAssertEqual(plan.sourceURLs, [tempDir.appendingPathComponent("reads.bam").standardizedFileURL])
     }
 
     func testPlanKeepsExplicitReferenceBundleAtomic() throws {

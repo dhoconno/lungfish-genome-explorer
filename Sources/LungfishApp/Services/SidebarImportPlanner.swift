@@ -130,6 +130,9 @@ public enum SidebarImportPlanner {
 
     private static func shouldImportRegularFile(_ url: URL) -> Bool {
         guard !url.pathExtension.isEmpty else { return false }
+        if SequencingReadImportSource.isSupported(url) {
+            return true
+        }
         switch ReferenceBundleImportService.classify(url) {
         case .variantTrack, .alignmentTrack:
             return false
