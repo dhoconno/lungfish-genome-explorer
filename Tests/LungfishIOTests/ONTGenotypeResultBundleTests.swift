@@ -6,6 +6,29 @@ import XCTest
 @testable import LungfishIO
 
 final class ONTGenotypeResultBundleTests: XCTestCase {
+    func testNativeGenotypeMatrixContentRecognizesConventionalCalls() {
+        let result = makeResult(calls: [
+            makeCall(sample: "S1", genotype: "Mafa-A1*001:01", uniqueReads: 7),
+        ])
+
+        XCTAssertTrue(result.hasNativeGenotypeMatrixContent)
+    }
+
+    func testNativeGenotypeMatrixContentRecognizesReviewableCatalogRows() {
+        let result = makeResult(
+            calls: [],
+            reviewableRowCatalog: reviewableRowCatalog()
+        )
+
+        XCTAssertTrue(result.hasNativeGenotypeMatrixContent)
+    }
+
+    func testNativeGenotypeMatrixContentRejectsEmptyResults() {
+        let result = makeResult(calls: [], reviewableRowCatalog: nil)
+
+        XCTAssertFalse(result.hasNativeGenotypeMatrixContent)
+    }
+
     func testReviewableRowCatalogRoundTripsAndResolvesReferenceAndCandidateExactly() throws {
         let catalog = reviewableRowCatalog()
 
@@ -2923,7 +2946,10 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         )
     }
 
-    private func makeResult(calls: [ONTGenotypeCall]) -> ONTGenotypeResultBundleData {
+    private func makeResult(
+        calls: [ONTGenotypeCall],
+        reviewableRowCatalog: GenotypeReviewableRowCatalog? = nil
+    ) -> ONTGenotypeResultBundleData {
         ONTGenotypeResultBundleData(
             bundleURL: URL(fileURLWithPath: "/tmp/example.lungfishgenotype"),
             manifest: ONTGenotypeResultBundleManifest(
@@ -2944,7 +2970,19 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
             ),
             stats: ONTGenotypeRunStats(),
             calls: calls,
-            samples: []
+            samples: [],
+            haplotypeAnalysis: nil,
+            mhcCandidates: nil,
+            mhcUnnameableClusters: nil,
+            mhcCandidateSequencesByStableClusterID: [:],
+            mhcCandidateGenBankArtifactURLs: .empty,
+            mhcAlignmentArtifactURLs: .empty,
+            mhcReferenceVisualizations: nil,
+            integrityWarnings: [],
+            referenceMetadata: nil,
+            provisionalExon2SequencesByGenotype: [:],
+            provisionalExon2ArtifactURLs: .empty,
+            reviewableRowCatalog: reviewableRowCatalog
         )
     }
 

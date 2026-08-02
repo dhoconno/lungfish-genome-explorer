@@ -1249,6 +1249,10 @@ public struct ONTGenotypeResultBundleData: Codable, Equatable, Sendable {
         mhcAlignmentArtifactURLs
     }
 
+    public var hasNativeGenotypeMatrixContent: Bool {
+        !calls.isEmpty || reviewableRowCatalog?.rows.isEmpty == false
+    }
+
     public init(
         bundleURL: URL,
         manifest: ONTGenotypeResultBundleManifest,

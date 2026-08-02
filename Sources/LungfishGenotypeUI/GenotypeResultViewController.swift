@@ -860,7 +860,8 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func defaultSummaryViewMode(for result: ONTGenotypeResultBundleData) -> GenotypeSummaryViewMode {
-        result.haplotypeAnalysis == nil && !result.calls.isEmpty ? .matrix : .outline
+        guard result.haplotypeAnalysis == nil else { return .outline }
+        return result.hasNativeGenotypeMatrixContent ? .matrix : .outline
     }
 
     private func initialSummaryViewMode(for result: ONTGenotypeResultBundleData) -> GenotypeSummaryViewMode {
@@ -9190,6 +9191,12 @@ extension GenotypeResultViewController {
 
     var testingSummaryViewMode: GenotypeSummaryViewMode {
         displayState.summaryViewMode
+    }
+
+    func testingDefaultSummaryViewMode(
+        for result: ONTGenotypeResultBundleData
+    ) -> GenotypeSummaryViewMode {
+        defaultSummaryViewMode(for: result)
     }
 
     var testingPanelLayout: GenotypeResultPanelLayout {

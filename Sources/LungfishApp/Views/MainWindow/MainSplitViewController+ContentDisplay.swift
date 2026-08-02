@@ -781,7 +781,7 @@ extension MainSplitViewController {
 
     static func shouldPreviewPrimaryWorkbook(for result: ONTGenotypeResultBundleData) -> Bool {
         result.haplotypeAnalysis == nil
-            && result.calls.isEmpty
+            && !result.hasNativeGenotypeMatrixContent
             && FileManager.default.fileExists(atPath: result.artifacts.workbookURL.path)
     }
 
