@@ -1645,9 +1645,10 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
     }
 }
 
-/// A biologically useful provisional interpretation retained for a candidate
-/// that cannot be published as a reference-ready allele because its sequence
-/// does not span the required reference interval.
+/// A backward-compatible interpretation retained by legacy bundles that stored
+/// a classified candidate in the un-nameable document because its reference
+/// span was incomplete. New writers publish resolved observed sequences as
+/// ordinary named candidates instead.
 public struct ONTMHCIncompleteCandidateInterpretation: Codable, Equatable, Sendable {
     public let provisionalName: String
     public let locus: String
@@ -1673,10 +1674,7 @@ public struct ONTMHCIncompleteCandidateInterpretation: Codable, Equatable, Senda
     }
 
     public init(candidate: ONTMHCCandidateRecord) {
-        let differenceCount = candidate.snpCount
-            + max(0, candidate.insertedBases - candidate.longGapBases)
-            + candidate.deletedBases
-        provisionalName = "\(candidate.closestReferenceName)_partial_\(differenceCount)diff"
+        provisionalName = candidate.provisionalName
         locus = candidate.locus
         classification = candidate.classification
         closestReferenceName = candidate.closestReferenceName

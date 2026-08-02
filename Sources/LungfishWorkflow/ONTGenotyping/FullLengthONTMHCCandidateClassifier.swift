@@ -703,7 +703,7 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
         _ lhs: AnalyzedAlignment,
         _ rhs: AnalyzedAlignment
     ) -> Bool {
-        biologicalEditBurden(lhs) == biologicalEditBurden(rhs)
+        lhs.metrics.snps == rhs.metrics.snps
             && lhs.metrics.comparableBases == rhs.metrics.comparableBases
             && lhs.input.alignmentScore == rhs.input.alignmentScore
     }
@@ -738,18 +738,12 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
     }
 
     private func isRankedBefore(_ lhs: AnalyzedAlignment, _ rhs: AnalyzedAlignment) -> Bool {
-        let lhsEditBurden = biologicalEditBurden(lhs)
-        let rhsEditBurden = biologicalEditBurden(rhs)
-        if lhsEditBurden != rhsEditBurden { return lhsEditBurden < rhsEditBurden }
+        if lhs.metrics.snps != rhs.metrics.snps { return lhs.metrics.snps < rhs.metrics.snps }
         if lhs.metrics.comparableBases != rhs.metrics.comparableBases {
             return lhs.metrics.comparableBases > rhs.metrics.comparableBases
         }
         if lhs.input.alignmentScore != rhs.input.alignmentScore {
             return lhs.input.alignmentScore > rhs.input.alignmentScore
-        }
-        if lhs.metrics.snps != rhs.metrics.snps { return lhs.metrics.snps < rhs.metrics.snps }
-        if lhs.nonIntronIndelBases != rhs.nonIntronIndelBases {
-            return lhs.nonIntronIndelBases < rhs.nonIntronIndelBases
         }
         let nameOrder = lhs.localizedReferenceName.localizedStandardCompare(rhs.localizedReferenceName)
         if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
@@ -760,10 +754,6 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
             return lhs.input.evidence.referenceStart < rhs.input.evidence.referenceStart
         }
         return lhs.input.cigar < rhs.input.cigar
-    }
-
-    private func biologicalEditBurden(_ hit: AnalyzedAlignment) -> Int {
-        hit.metrics.snps + hit.nonIntronIndelBases
     }
 
     private func candidateRecord(

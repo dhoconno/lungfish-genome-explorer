@@ -49,7 +49,7 @@ struct FullLengthONTMHCCandidateCanonicalizer {
     }
 
     enum Error: Swift.Error, LocalizedError, Equatable {
-        case notReferenceReady(rawStableClusterID: String, readiness: String)
+        case noPublishableObservedSequence(rawStableClusterID: String, readiness: String)
         case conflictingInterpretations(
             canonicalStableClusterID: String,
             rawStableClusterIDs: [String]
@@ -57,8 +57,8 @@ struct FullLengthONTMHCCandidateCanonicalizer {
 
         var errorDescription: String? {
             switch self {
-            case .notReferenceReady(let id, let readiness):
-                return "Named MHC candidate '\(id)' cannot be published because its UTR-trimmed genomic sequence is \(readiness)."
+            case .noPublishableObservedSequence(let id, let readiness):
+                return "Named MHC candidate '\(id)' cannot be published because no resolved observed sequence is available (\(readiness))."
             case .conflictingInterpretations(let id, let rawIDs):
                 return "Identical UTR-trimmed MHC sequence '\(id)' has conflicting biological interpretations across raw clusters: \(rawIDs.joined(separator: ", "))."
             }
@@ -68,9 +68,9 @@ struct FullLengthONTMHCCandidateCanonicalizer {
     func aggregate(_ inputs: [Input]) throws -> [Output] {
         var bySequence: [String: [Input]] = [:]
         for input in inputs {
-            guard input.canonicalization.referenceReadiness == .referenceReady,
+            guard input.canonicalization.referenceReadiness != .unavailable,
                   let external = input.canonicalization.externalSequence else {
-                throw Error.notReferenceReady(
+                throw Error.noPublishableObservedSequence(
                     rawStableClusterID: input.record.stableClusterID,
                     readiness: input.canonicalization.referenceReadiness.rawValue
                 )

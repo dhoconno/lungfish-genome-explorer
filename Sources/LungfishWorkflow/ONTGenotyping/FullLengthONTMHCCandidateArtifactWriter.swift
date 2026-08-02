@@ -728,9 +728,11 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             )
         ))
         let referenceVisualization: ONTMHCReferenceVisualizationArtifact?
+        let referenceCatalog: MHCReferenceRecordCatalog?
         if let referenceBundleURL = request.referenceBundleURL,
            referenceBundleURL.pathExtension.lowercased() == "lungfishref",
            fileManager.fileExists(atPath: referenceBundleURL.path) {
+            referenceCatalog = try MHCReferenceRecordCatalog.load(from: referenceBundleURL)
             referenceVisualization = try MHCReferenceVisualizationArtifactBuilder().build(.init(
                 referenceBundleURL: referenceBundleURL,
                 exactKnownRawReferenceIDs: [],
@@ -738,6 +740,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                 unnameable: rawUnnameableDocument
             )).document
         } else {
+            referenceCatalog = nil
             referenceVisualization = nil
         }
         let canonicalizationStartedAt = Date()
@@ -751,7 +754,11 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                 ],
                 analysisName: request.analysisName,
                 projectBundleName: request.projectBundleName,
-                minimumIntronGapBases: request.thresholds.minimumIntronGapBases
+                minimumIntronGapBases: request.thresholds.minimumIntronGapBases,
+                referenceCatalogCoverage: referenceCatalogCoverage(
+                    rawReferenceID: candidate.selectedEvidence.referenceName,
+                    catalog: referenceCatalog
+                )
             )
             return FullLengthONTMHCCandidateCanonicalizer.Input(
                 record: candidate,
@@ -760,7 +767,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             )
         }
         let demotedCandidateInputs = preparedCandidates.filter {
-            $0.canonicalization.referenceReadiness != .referenceReady
+            $0.canonicalization.referenceReadiness == .unavailable
                 || $0.canonicalization.externalSequence == nil
         }
         let demotedCandidateIDs = Set(demotedCandidateInputs.map(\.record.stableClusterID))
@@ -1227,8 +1234,8 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             "analysisName": request.analysisName,
             "projectBundleName": request.projectBundleName ?? "unavailable",
             "recordIdentity": "external-or-canonical-FASTA-record-id;raw-stable-cluster-id-retained-in-source-metadata",
-            "externalRecordGate": "reference-ready-records-or-explicit-incomplete-span-diagnostic-records;unavailable-omitted;diagnostic-records-never-reference-ready",
-            "outerCDSTrimRule": "reference-ready-candidates+reference-ready-unnameables:crop-to-outer-lifted-CDS-span+rebase-annotations;retain-intervening-introns",
+            "externalRecordGate": "resolved-observed-sequence-required;complete-and-partial-named-candidates-published;unavailable-omitted",
+            "outerCDSTrimRule": "complete-or-partial-lifted-CDS-span;observed-bases-only;rebase-annotations;retain-observed-intervening-introns",
             "referenceCoordinateConvention": "zero-based-half-open",
             "reciprocalCIGARCoordinateSource": "one-based-reference-start-plus-SAM-CIGAR",
             "reverseAlignmentRule": "project-oriented-query-then-convert-to-stored-candidate-coordinates",
@@ -1242,7 +1249,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             "codingConsequenceRule": "transcript-strand+codon-start+translation-table;group-same-codon-substitutions;scope-unresolved-to-intersecting-exon-summary;group-touching-replacement-indels-by-reference-span;ordinary-indels-frame-delta",
             "cDNAIntronFillRule": "internal-query-insertion-at-least-minimum-intron-gap;excluded-from-cDNA-lifted-CDS+CDS-indels;genomic-long-insertions-retained;source-CDS-complete-assessment-includes-deletions",
             "consequenceAmbiguityRule": "partial+unsupported+ambiguous+unassessed-CDS=unresolved-never-coerced",
-            "candidateUTRTrimRule": "reference-ready-only:crop-to-outer-lifted-CDS-span-in-stored-orientation;retain-intervening-introns;rebase-annotations+consequence-candidate-coordinates;non-ready-omitted",
+            "candidateUTRTrimRule": "resolved-complete-or-partial-lifted-CDS:crop-to-observed-outer-lifted-CDS-span-in-stored-orientation;retain-observed-intervening-introns;never-impute-missing-reference-bases",
         ]) { _, candidate in candidate }
         let unnameableGenBankResolvedOptions = commonGenBankResolvedOptions.merging([
             "translationRule": "unnameable-only:recomputed-from-lifted-CDS-when-five-prime-boundary-is-aligned;source-translation-table-not-gated;terminal-stop-removed;internal-stops-retained-and-counted;status-uses-boundary-coverage",
@@ -1900,7 +1907,8 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
             "minimumIdentity": String(thresholds.minimumIdentity),
             "minimumShorterCoverage": String(thresholds.minimumShorterCoverage),
             "minimumIntronGapBases": String(thresholds.minimumIntronGapBases),
-            "novelDistanceMetric": "SNP-substitutions+ordinary-inserted-and-deleted-bases;intron-sized-cDNA-fills-excluded",
+            "closestReferenceRanking": "snp-count-in-shared-aligned-region;then-comparable-bases;then-alignment-score;then-deterministic-reference-evidence-order",
+            "provisionalNovelNameMetric": "SNP-substitutions-in-shared-aligned-region;indels-reported-separately-and-not-counted-in-_Nnt_nov-label",
             "zeroSNPClassificationOrder": "1:eligible-genomic-zero-snp=known;2:eligible-cdna-zero-snp-structural-extension=extension;3:eligible-cdna-zero-snp-end-to-end=known;4:otherwise=candidate",
             "extensionRule": "cdna-coverage>=0.95;each-cdna-deficit<20;no-hard-clip;cluster-flank-or-structural-segment>=20",
             "knownCDNARule": "extension-eligibility;cluster-coverage>=0.95;each-cluster-structural-segment<20",
@@ -1913,6 +1921,25 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
             "reciprocalCDNAOrientation": "query=cluster,target=reference-cdna;cluster-structure=I+S;cdna-deficit=reference-flanks+D+N+H",
             "allCompatibleReferenceRule": "secondary=yes;-N=reference-record-count;no-fixed-secondary-cap",
         ]
+    }
+
+    func referenceCatalogCoverage(
+        rawReferenceID: String,
+        catalog: MHCReferenceRecordCatalog?
+    ) -> FullLengthONTMHCCandidateGenBankArtifactBuilder.ReferenceCatalogCoverage? {
+        guard let catalog,
+              let selected = catalog.record(sequenceID: rawReferenceID),
+              selected.moleculeClass == .genomicDNA,
+              let longest = catalog.records.lazy.filter({
+                  $0.locus == selected.locus && $0.moleculeClass == .genomicDNA
+              }).map(\.sequenceLength).max(),
+              longest > selected.sequenceLength else {
+            return nil
+        }
+        return .init(
+            selectedReferenceLength: selected.sequenceLength,
+            longestSameLocusGenomicReferenceLength: longest
+        )
     }
 
     static func canonicalizationResolvedOptions(
@@ -1928,8 +1955,8 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
             "rawIdentity": "exact-normalized-full-consensus-sequence",
             "canonicalIdentity": "exact-normalized-UTR-trimmed-genomic-sequence",
             "canonicalStableID": "first-128-bits-SHA256-with-UUID-version-and-variant-bits",
-            "outerCDSTrimRule": "reference-ready-only:outer-lifted-CDS-span;retain-intervening-introns",
-            "referenceReadinessRule": "external-artifacts-require-reference-ready-canonicalization",
+            "outerCDSTrimRule": "resolved-complete-or-partial-lifted-CDS-span;retain-observed-intervening-introns;never-impute-missing-reference-bases",
+            "referenceReadinessRule": "named-candidate-artifacts-require-resolved-observed-sequence;partial-reference-coverage-is-allowed-and-declared",
             "terminalLocalClipRescueRule": "complete-missing-reference-prefix-or-suffix-only;adjacent-terminal-soft-clip-must-supply-all-missing-bases;suffix-of-leading-S-or-prefix-of-trailing-S;oriented-query-base-comparison;substitution-only-no-indel-inference",
             "terminalLocalClipRescueAudit": "GenBank-COMMENT-records-leading+trailing-rescued-bases+rescued-substitutions+substitution-only-no-indel-inference;selected-CIGAR-and-evidence-retained",
             "terminalLocalClipRescueFeatureRule": "missing-range-wholly-within-one-terminal-CDS-interval",
@@ -1944,13 +1971,16 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
             "canonicalCandidateCount": String(canonicalCandidateCount),
             "rawUnnameableCount": String(rawUnnameableCount),
             "externalUnnameableCount": String(externalUnnameableCount),
-            "nonReferenceReadyCandidateDemotionRule": "incomplete=>unnameable:incomplete-reference-span;unavailable-or-missing-external-sequence=>unnameable:reference-canonicalization-unavailable",
+            "nonReferenceReadyCandidateDemotionRule": "unavailable-or-missing-observed-external-sequence=>unnameable:reference-canonicalization-unavailable;incomplete-with-resolved-observed-sequence=>named-candidate",
+            "partialCandidatePublicationRule": "incomplete-with-resolved-observed-sequence=>named-candidate;observed-bases-only;missing-reference-bases-not-imputed",
+            "candidateReferenceRanking": "snp-count-in-shared-aligned-region;then-comparable-bases;then-alignment-score;then-deterministic-reference-evidence-order",
+            "shortSelectedReferenceCoverageRule": "when-selected-genomic-reference-is-shorter-than-longest-same-locus-genomic-catalog-record:publish-named-candidate+declare-outside-selected-reference-unassessed",
             "nonReferenceReadyCandidateDemotionCount": String(
                 incompleteCandidateDemotionCount + unavailableCandidateDemotionCount
             ),
             "incompleteCandidateDemotionCount": String(incompleteCandidateDemotionCount),
             "reviewableIncompleteCandidateCount": String(incompleteCandidateDemotionCount),
-            "reviewableIncompleteCandidateRule": "classified-candidate-demoted-only-for-incomplete-reference-span;reviewable-not-reference-ready;diagnostic-fasta-genbank-embl-with-validation-warning;excluded-from-reference-ready-candidate-publication",
+            "reviewableIncompleteCandidateRule": "resolved-incomplete-reference-span-published-as-named-candidate-with-explicit-observed-coverage-comments;unresolved-sequence-remains-unnameable",
             "unavailableCandidateDemotionCount": String(
                 unavailableCandidateDemotionCount
             ),

@@ -940,13 +940,13 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
         ) else {
             return XCTFail("Expected candidate")
         }
-        XCTAssertEqual(candidate.closestReferenceName, referenceA.alleleName)
-        XCTAssertEqual(candidate.mappingQuality, 30)
-        XCTAssertEqual(candidate.alignmentScore, 1_500)
-        XCTAssertEqual(candidate.insertedBases, 0)
+        XCTAssertEqual(candidate.closestReferenceName, referenceB.alleleName)
+        XCTAssertEqual(candidate.mappingQuality, 60)
+        XCTAssertEqual(candidate.alignmentScore, 2_000)
+        XCTAssertEqual(candidate.insertedBases, 1)
     }
 
-    func testClosestReferenceUsesCompleteEditBurdenInsteadOfSubstitutionCountAlone() throws {
+    func testClosestReferenceUsesSNPCountWithinSharedSequenceBeforeIndels() throws {
         let fewerSNPsButMoreEdits = MHCReferenceRecord(
             sequenceID: "ref-fewer-snps-more-edits",
             alleleName: "Mamu-DRB1*03:09:01:01",
@@ -984,18 +984,15 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
             return XCTFail("Expected novel candidate")
         }
 
-        XCTAssertEqual(candidate.closestReferenceName, moreSNPsButFewerEdits.alleleName)
-        XCTAssertEqual(candidate.snpCount, 2)
-        XCTAssertEqual(candidate.insertedBases, 0)
+        XCTAssertEqual(candidate.closestReferenceName, fewerSNPsButMoreEdits.alleleName)
+        XCTAssertEqual(candidate.snpCount, 1)
+        XCTAssertEqual(candidate.insertedBases, 3)
         XCTAssertEqual(candidate.deletedBases, 0)
         XCTAssertEqual(
             candidate.reciprocalHitSummary.closestMatchTargetNames,
-            [moreSNPsButFewerEdits.sequenceID]
+            [fewerSNPsButMoreEdits.sequenceID]
         )
-
-        let partial = ONTMHCIncompleteCandidateInterpretation(candidate: candidate)
-        XCTAssertEqual(partial.provisionalName, "Mamu-DRB1*03:09:01:02_partial_2diff")
-        XCTAssertEqual(partial.observedDifferenceCount, 2)
+        XCTAssertEqual(candidate.provisionalName, "Mamu-DRB1*03:09:01:01_1nt_nov")
     }
 
     func testRejectsInvalidThresholdsAndNumericInputs() throws {
