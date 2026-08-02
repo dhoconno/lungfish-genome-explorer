@@ -378,11 +378,28 @@ private extension MHCReferenceRecordCatalog {
 
         let designation = starParts[1]
         let fields = designation.split(separator: ":", omittingEmptySubsequences: false)
-        guard let firstField = fields.first,
-              isNumericAlleleField(firstField) else { return false }
+        guard let firstField = fields.first else { return false }
+        if firstField.first == "W" {
+            guard locusParts[1].hasPrefix("DRB"), isPrimaryAlleleField(firstField) else {
+                return false
+            }
+        } else if !isPrimaryAlleleField(firstField) {
+            return false
+        }
         return fields.dropFirst().allSatisfy {
             isNumericAlleleField($0) || isControlledProvisionalField($0)
         }
+    }
+
+    static func isPrimaryAlleleField(_ field: Substring) -> Bool {
+        if isNumericAlleleField(field) {
+            return true
+        }
+
+        guard field.first == "W" else { return false }
+        let numericIdentifier = field.dropFirst()
+        return !numericIdentifier.isEmpty
+            && numericIdentifier.allSatisfy(isASCIIDigit)
     }
 
     static func isNumericAlleleField(_ field: Substring) -> Bool {

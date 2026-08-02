@@ -96,8 +96,10 @@ public struct FullLengthONTMHCFinalBAMParser: @unchecked Sendable {
             )
         }
         let referenceMoleculeClasses: [String: MHCReferenceMoleculeClass]
+        let referenceAlleleNames: [String: String]
         if let referenceRecords {
             var resolvedClasses: [String: MHCReferenceMoleculeClass] = [:]
+            var resolvedAlleleNames: [String: String] = [:]
             for record in referenceRecords {
                 guard let sequenceLength = referenceLengths[record.sequenceID] else {
                     throw validationError(
@@ -117,6 +119,7 @@ public struct FullLengthONTMHCFinalBAMParser: @unchecked Sendable {
                         message: "Reference metadata contains duplicate sequence ID '\(record.sequenceID)'."
                     )
                 }
+                resolvedAlleleNames[record.sequenceID] = record.alleleName
             }
             if let missingID = Set(referenceLengths.keys)
                 .subtracting(resolvedClasses.keys)
@@ -128,10 +131,12 @@ public struct FullLengthONTMHCFinalBAMParser: @unchecked Sendable {
                 )
             }
             referenceMoleculeClasses = resolvedClasses
+            referenceAlleleNames = resolvedAlleleNames
         } else {
             referenceMoleculeClasses = referenceLengths.mapValues {
                 $0 < cdnaThreshold ? .cDNA : .genomicDNA
             }
+            referenceAlleleNames = [:]
         }
 
         var targets: [String: Target] = [:]
@@ -188,6 +193,7 @@ public struct FullLengthONTMHCFinalBAMParser: @unchecked Sendable {
                 clusterRecords: sample.clusterRecords,
                 referenceLengths: referenceLengths,
                 referenceMoleculeClasses: referenceMoleculeClasses,
+                referenceAlleleNames: referenceAlleleNames,
                 minUnmatchedReads: minUnmatchedReads
             )
         }

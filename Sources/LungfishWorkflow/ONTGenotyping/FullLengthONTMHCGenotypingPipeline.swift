@@ -8692,7 +8692,9 @@ private struct FullLengthONTMHCSampleResult: Sendable, Codable {
                 totalInputReads: readCount,
                 clusterCount: clusterRecords.count,
                 clusteredReads: clusterRecords.reduce(0) { $0 + $1.readCount },
-                assignedReads: summary.rows.reduce(0) { $0 + $1.clusterReads },
+                assignedReads: FullLengthONTMHCClusterReportBuilder.assignedReadCount(
+                    genotypeRows: summary.rows
+                ),
                 unmatchedClusters: summary.unmatchedClusters.count,
                 cdnaClusters: summary.cdnaMatchedClusters.count,
                 savontPreset: sampleSummary.savontPreset,

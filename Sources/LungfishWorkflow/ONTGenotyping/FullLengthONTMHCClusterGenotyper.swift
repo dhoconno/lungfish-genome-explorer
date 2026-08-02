@@ -161,6 +161,7 @@ public enum FullLengthONTMHCClusterGenotyper {
         let clusterLengths: [String: Int]
         let referenceLengths: [String: Int]
         let referenceMoleculeClasses: [String: MHCReferenceMoleculeClass]
+        let referenceAlleleNames: [String: String]
         let minUnmatchedReads: Int
 
         private var bestKnownScoreByCluster: [String: Int] = [:]
@@ -173,6 +174,7 @@ public enum FullLengthONTMHCClusterGenotyper {
             clusterRecords: [FullLengthONTMHCClusterFASTARecord],
             referenceLengths: [String: Int],
             referenceMoleculeClasses: [String: MHCReferenceMoleculeClass],
+            referenceAlleleNames: [String: String] = [:],
             minUnmatchedReads: Int
         ) {
             self.sampleID = sampleID
@@ -182,6 +184,7 @@ public enum FullLengthONTMHCClusterGenotyper {
             )
             self.referenceLengths = referenceLengths
             self.referenceMoleculeClasses = referenceMoleculeClasses
+            self.referenceAlleleNames = referenceAlleleNames
             self.minUnmatchedReads = minUnmatchedReads
         }
 
@@ -289,10 +292,11 @@ public enum FullLengthONTMHCClusterGenotyper {
                         sample: sampleID,
                         cluster: cluster,
                         clusterReads: parseReadCount(cluster),
-                        allele: hit.allele,
+                        allele: referenceAlleleNames[hit.allele] ?? hit.allele,
                         alleleLength: alleleLength,
                         alignedBases: hit.matchedBases,
-                        score: hit.score
+                        score: hit.score,
+                        referenceSequenceID: referenceAlleleNames[hit.allele] == nil ? nil : hit.allele
                     ))
                 }
             }
@@ -635,9 +639,7 @@ public enum FullLengthONTMHCClusterReportBuilder {
         sampleReadCounts: [String: Int]
     ) -> [FullLengthONTMHCReportRow] {
         let sampleAssignedReads = Dictionary(grouping: genotypeRows, by: \.sample).mapValues { rows in
-            Dictionary(grouping: rows, by: \.cluster).values.reduce(0) { total, clusterRows in
-                total + (clusterRows.map(\.clusterReads).max() ?? 0)
-            }
+            assignedReadCount(genotypeRows: rows)
         }
         let overallInputReads = sampleReadCounts.values.reduce(0, +)
         let overallRetainedReads = sampleAssignedReads.values.reduce(0, +)
@@ -677,6 +679,12 @@ public enum FullLengthONTMHCClusterReportBuilder {
                 overallUniqueRetainedReads: overallRetainedReads,
                 overallUniqueRetainedPercent: overallRetainedPercent
             )
+        }
+    }
+
+    static func assignedReadCount(genotypeRows: [FullLengthONTMHCClusterGenotypeRow]) -> Int {
+        Dictionary(grouping: genotypeRows, by: \.cluster).values.reduce(0) { total, clusterRows in
+            total + (clusterRows.map(\.clusterReads).max() ?? 0)
         }
     }
 
