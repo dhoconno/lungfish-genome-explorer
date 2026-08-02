@@ -968,6 +968,40 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(state.inspectedTargetCount, 4)
     }
 
+    func testSingleRowContextFilterReportsWhetherAnyColumnsHaveCalls() throws {
+        let target = GenotypeAnnotationSidecar.MatrixTarget.row(
+            locus: "MHC-A",
+            genotype: "A1"
+        )
+        func item(callSampleCount: Int) throws -> GenotypeMatrixContextMenuItemState {
+            let state = GenotypeMatrixContextMenuBuilder.make(snapshot: .init(
+                selectionTargets: [target],
+                capability: GenotypeMatrixReviewCapability.evaluate(
+                    selection: [target],
+                    evidence: .init(),
+                    reviews: [],
+                    comments: [],
+                    isWritable: false
+                ),
+                visibilityCapability: .init(
+                    selection: .init(targets: [target]),
+                    visibility: .init()
+                ),
+                keyModifierRawValue: 0,
+                selectedRowCallSampleCount: callSampleCount
+            ))
+            return try XCTUnwrap(state.visibilityItems.first {
+                $0.command == .showOnlyColumnsWithSelectedRowCalls
+            })
+        }
+
+        XCTAssertEqual(try item(callSampleCount: 2).availability, .enabled)
+        XCTAssertEqual(
+            try item(callSampleCount: 0).availability.disabledReason,
+            "This row has no genotype calls with read support."
+        )
+    }
+
     func testMatrixVisibilityContextBuilderCoversSparseMixedAndEmptySelections() {
         func state(
             _ targets: [GenotypeAnnotationSidecar.MatrixTarget]
@@ -1547,8 +1581,11 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(rowMenu.visibilityItems.map(\.title), [
             "Hide 1 Selected Row",
             "Show Only 1 Selected Row",
+            "Show Only Columns with Calls in This Row",
         ])
         XCTAssertTrue(controller.testingPerformMatrixContextCommand(.editComment))
+        XCTAssertTrue(controller.testingPerformMatrixContextCommand(.showOnlyColumnsWithSelectedRowCalls))
+        XCTAssertEqual(controller.testingVisibleMatrixSamples, ["AnimalA"])
 
         let columnTarget = GenotypeAnnotationSidecar.MatrixTarget.column(sample: "AnimalA")
         let headerMenu = try XCTUnwrap(controller.testingBuildMatrixContextMenu(for: columnTarget))
@@ -1557,6 +1594,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(headerMenu.visibilityItems.map(\.title), [
             "Hide 1 Selected Column",
             "Show Only 1 Selected Column",
+            "Show All Rows and Columns",
         ])
         XCTAssertTrue(controller.testingPerformMatrixContextCommand(.editComment))
 

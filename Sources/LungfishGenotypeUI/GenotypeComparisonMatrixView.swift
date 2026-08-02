@@ -3065,7 +3065,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             capability: matrixReviewCapability,
             visibilityCapability: matrixVisibilityCapability,
             keyModifierRawValue: NSEvent.ModifierFlags([.command, .option]).rawValue,
-            manualHaplotypeEditSample: manualHaplotypeEditSample
+            manualHaplotypeEditSample: manualHaplotypeEditSample,
+            selectedRowCallSampleCount: selectedRowCallSamples()?.count
         )
     }
 
@@ -3169,6 +3170,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             value = "genotype-matrix-visibility-hide-columns"
         case .showOnlySelectedColumns:
             value = "genotype-matrix-visibility-show-only-columns"
+        case .showOnlyColumnsWithSelectedRowCalls:
+            value = "genotype-matrix-visibility-show-only-row-calls"
         case .resetVisibility:
             value = "genotype-matrix-visibility-show-all"
         case .markFalsePositive, .markFalseNegative, .clearReview,
@@ -3218,6 +3221,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             return hideSelectedColumns()
         case .showOnlySelectedColumns:
             return showOnlySelectedColumns()
+        case .showOnlyColumnsWithSelectedRowCalls:
+            return showOnlyColumnsWithSelectedRowCalls()
         case .resetVisibility:
             return resetVisibility()
         case .markFalsePositive:
@@ -3285,6 +3290,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             return matrixVisibilityCapability.canHideSelectedColumns
         case .showOnlySelectedColumns:
             return matrixVisibilityCapability.canShowOnlySelectedColumns
+        case .showOnlyColumnsWithSelectedRowCalls:
+            return !(selectedRowCallSamples()?.isEmpty ?? true)
         case .resetVisibility:
             return matrixVisibilityCapability.canResetVisibility
         case .markFalsePositive, .markFalseNegative, .clearReview,
@@ -4170,6 +4177,31 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             ),
             announcement: "Showing only selected columns."
         )
+    }
+
+    @discardableResult
+    private func showOnlyColumnsWithSelectedRowCalls() -> Bool {
+        guard let samples = selectedRowCallSamples(), !samples.isEmpty else {
+            return false
+        }
+        return applyVisibilityState(
+            visibilityState.showingOnlySamples(samples),
+            announcement: "Showing only columns with genotype calls in the selected row."
+        )
+    }
+
+    private func selectedRowCallSamples() -> Set<String>? {
+        guard selectedMatrixTargets.count == 1,
+              case let .row(locus, genotype, stableClusterID) = selectedMatrixTargets[0] else {
+            return nil
+        }
+        let rowID: GenotypeCandidateMatrixRowID = stableClusterID.map {
+            .candidate(stableClusterID: $0)
+        } ?? .known(locus: locus, genotype: genotype)
+        guard let row = allRows.first(where: { $0.id == rowID }) else { return nil }
+        return Set(row.sampleSupport.compactMap { support in
+            support.passedUniqueReads > 0 ? support.sample : nil
+        })
     }
 
     @discardableResult
