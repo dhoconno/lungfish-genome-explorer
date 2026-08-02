@@ -1852,6 +1852,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             calls: result.calls,
             samples: result.samples,
             candidateDocument: candidateDocument,
+            unnameableDocument: result.mhcUnnameableClusters,
             logicalSampleNames: sampleNames,
             candidateSettings: effectiveCandidateDisplaySettings,
             usesBiologicalAlleleOrder: usesBiologicalAlleleOrder
@@ -2482,12 +2483,19 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     private func appendMissingCandidateSamples(from result: ONTGenotypeResultBundleData) {
-        guard let candidateDocument = validatedMHCCandidateDocument(from: result) else { return }
         var seen = Set(sampleNames)
-        let candidateSamples = candidateDocument.observations.map(\.sampleID).sorted {
+        let interpretedUnnameableIDs = Set(result.mhcUnnameableClusters?.clusters.compactMap {
+            $0.candidateInterpretation == nil ? nil : $0.stableClusterID
+        } ?? [])
+        let candidateSamples = (
+            validatedMHCCandidateDocument(from: result)?.observations.map(\.sampleID) ?? []
+        ) + (result.mhcUnnameableClusters?.observations.compactMap {
+            interpretedUnnameableIDs.contains($0.stableClusterID) ? $0.sampleID : nil
+        } ?? [])
+        let sortedCandidateSamples = candidateSamples.sorted {
             $0.localizedStandardCompare($1) == .orderedAscending
         }
-        sampleNames.append(contentsOf: candidateSamples.filter { seen.insert($0).inserted })
+        sampleNames.append(contentsOf: sortedCandidateSamples.filter { seen.insert($0).inserted })
     }
 
     private func sampleReadTitles(from result: ONTGenotypeResultBundleData) -> [String: String] {
@@ -3631,14 +3639,19 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         if isProvisionalExon2(row) {
             return ["Provisional exon 2"]
         }
-        switch row.candidate?.classification {
+        var qualifiers: [String] = []
+        switch row.candidateClassification {
         case .novel:
-            return ["Novel candidate"]
+            qualifiers.append("Novel candidate")
         case .extension:
-            return ["Extension candidate"]
+            qualifiers.append("Extension candidate")
         case nil:
-            return []
+            break
         }
+        if row.isIncompleteReferenceSpanCandidate {
+            qualifiers.append("Incomplete reference span")
+        }
+        return qualifiers
     }
 
     private func sampleEvidenceAccessibilityLabel(
@@ -3649,13 +3662,16 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         if isProvisionalExon2(row) {
             parts.append("Designation: Provisional exon 2.")
         }
-        switch row.candidate?.classification {
+        switch row.candidateClassification {
         case .novel:
             parts.append("Candidate classification: novel.")
         case .extension:
             parts.append("Candidate classification: extension.")
         case nil:
             break
+        }
+        if row.isIncompleteReferenceSpanCandidate {
+            parts.append("Incomplete reference span; reviewable but not reference-ready.")
         }
         parts.append(semantics.accessibilityLabel)
         return parts.joined(separator: " ")
@@ -3686,7 +3702,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             fraction: fraction,
             semantics: GenotypeVisibleSampleAlleleSemantics(
                 isProvisionalExon2: isProvisionalExon2(row),
-                candidateClassification: row.candidate?.classification,
+                candidateClassification: row.candidateClassification,
                 cell: semanticCellState(for: sample, row: row)
             )
         )

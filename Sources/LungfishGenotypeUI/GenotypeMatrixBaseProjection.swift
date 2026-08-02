@@ -64,6 +64,7 @@ struct GenotypeMatrixBaseProjection: Sendable {
         let calls: [ONTGenotypeCall]
         let samples: [ONTGenotypeSampleResult]
         let candidateDocument: ONTMHCCandidateAllelesDocument?
+        let unnameableDocument: ONTMHCUnnameableClustersDocument?
         let logicalSampleNames: [String]
         let showKnown: Bool
         let showSharedCandidates: Bool
@@ -87,6 +88,7 @@ struct GenotypeMatrixBaseProjection: Sendable {
         calls: [ONTGenotypeCall],
         samples: [ONTGenotypeSampleResult],
         candidateDocument: ONTMHCCandidateAllelesDocument?,
+        unnameableDocument: ONTMHCUnnameableClustersDocument? = nil,
         logicalSampleNames: [String],
         candidateSettings: ONTMHCCandidateDisplaySettings,
         usesBiologicalAlleleOrder: Bool = false
@@ -130,14 +132,24 @@ struct GenotypeMatrixBaseProjection: Sendable {
         candidateRows = GenotypeCandidateMatrixProjection.rows(
             knownRows: [],
             candidateDocument: candidateDocument,
+            unnameableDocument: unnameableDocument,
             settings: candidateSettings,
             usesBiologicalAlleleOrder: usesBiologicalAlleleOrder
         )
-        candidateCellCount = candidateDocument.map { document in
+        let candidateCells = candidateDocument.map { document in
             Set(document.observations.map {
                 CandidateCell(stableClusterID: $0.stableClusterID, sample: $0.sampleID)
-            }).count
-        } ?? 0
+            })
+        } ?? []
+        let interpretedClusterIDs = Set(unnameableDocument?.clusters.compactMap {
+            $0.candidateInterpretation == nil ? nil : $0.stableClusterID
+        } ?? [])
+        let incompleteCandidateCells = Set((unnameableDocument?.observations ?? []).compactMap {
+            interpretedClusterIDs.contains($0.stableClusterID)
+                ? CandidateCell(stableClusterID: $0.stableClusterID, sample: $0.sampleID)
+                : nil
+        })
+        candidateCellCount = candidateCells.union(incompleteCandidateCells).count
         var viewedFractions: [CellIdentity: Double] = [:]
         var retainedFractions: [CellIdentity: Double] = [:]
         for occurrence in knownOccurrences {
@@ -181,6 +193,30 @@ struct GenotypeMatrixBaseProjection: Sendable {
                 }
             }
         }
+        if eligibleSampleCount > 0, let unnameableDocument {
+            let observationsByCluster = Dictionary(
+                grouping: unnameableDocument.observations,
+                by: \.stableClusterID
+            )
+            for record in unnameableDocument.clusters {
+                guard let interpretation = record.candidateInterpretation else { continue }
+                let supportingSamples = Set(
+                    (observationsByCluster[record.stableClusterID] ?? []).map(\.sampleID)
+                )
+                let populationFraction =
+                    Double(supportingSamples.count) / Double(eligibleSampleCount)
+                for sample in supportingSamples {
+                    let identity = CellIdentity(
+                        locus: interpretation.locus,
+                        genotype: interpretation.provisionalName,
+                        sample: sample,
+                        stableClusterID: record.stableClusterID
+                    )
+                    viewedFractions[identity] = populationFraction
+                    retainedFractions[identity] = populationFraction
+                }
+            }
+        }
         supportFractionsByDenominator = [
             .viewedLocus: viewedFractions,
             .sampleRetained: retainedFractions,
@@ -188,10 +224,12 @@ struct GenotypeMatrixBaseProjection: Sendable {
         totalRowCount = Set(calls.map {
             KnownRow(locus: $0.locusGroup, genotype: $0.genotype)
         }).count + (candidateDocument?.candidates.count ?? 0)
+            + interpretedClusterIDs.count
         scientificIdentity = ScientificIdentity(
             calls: calls,
             samples: samples,
             candidateDocument: candidateDocument,
+            unnameableDocument: unnameableDocument,
             logicalSampleNames: logicalSampleNames,
             showKnown: candidateSettings.showKnown,
             showSharedCandidates: candidateSettings.showSharedCandidates,
@@ -266,7 +304,8 @@ struct GenotypeMatrixBaseProjection: Sendable {
                     tintCategory: row.tintCategory,
                     sampleSupport: support,
                     evidenceBySample: row.evidenceBySample,
-                    candidate: row.candidate
+                    candidate: row.candidate,
+                    incompleteCandidateInterpretation: row.incompleteCandidateInterpretation
                 )
             }
         }

@@ -1635,6 +1635,66 @@ public struct ONTMHCCandidateRecord: Codable, Equatable, Sendable {
     }
 }
 
+/// A biologically useful provisional interpretation retained for a candidate
+/// that cannot be published as a reference-ready allele because its sequence
+/// does not span the required reference interval.
+public struct ONTMHCIncompleteCandidateInterpretation: Codable, Equatable, Sendable {
+    public let provisionalName: String
+    public let locus: String
+    public let classification: ONTMHCCandidateClassification
+    public let closestReferenceName: String
+    public let closestReferenceClass: MHCReferenceMoleculeClass
+    public let snpCount: Int
+    public let insertedBases: Int
+    public let deletedBases: Int
+    public let longGapBases: Int
+    public let comparableBases: Int
+    public let shorterCoverage: Double
+    public let identity: Double
+    public let mappingQuality: Int
+    public let alignmentScore: Int
+    public let extensionOf: [String]
+    public let provisionalNamingAmbiguous: Bool
+
+    public init(candidate: ONTMHCCandidateRecord) {
+        provisionalName = candidate.provisionalName
+        locus = candidate.locus
+        classification = candidate.classification
+        closestReferenceName = candidate.closestReferenceName
+        closestReferenceClass = candidate.closestReferenceClass
+        snpCount = candidate.snpCount
+        insertedBases = candidate.insertedBases
+        deletedBases = candidate.deletedBases
+        longGapBases = candidate.longGapBases
+        comparableBases = candidate.comparableBases
+        shorterCoverage = candidate.shorterCoverage
+        identity = candidate.identity
+        mappingQuality = candidate.mappingQuality
+        alignmentScore = candidate.alignmentScore
+        extensionOf = candidate.extensionOf
+        provisionalNamingAmbiguous = candidate.provisionalNamingAmbiguous
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case provisionalName = "provisional_name"
+        case locus
+        case classification
+        case closestReferenceName = "closest_reference_name"
+        case closestReferenceClass = "closest_reference_class"
+        case snpCount = "snp_count"
+        case insertedBases = "inserted_bases"
+        case deletedBases = "deleted_bases"
+        case longGapBases = "long_gap_bases"
+        case comparableBases = "comparable_bases"
+        case shorterCoverage = "shorter_coverage"
+        case identity
+        case mappingQuality = "mapping_quality"
+        case alignmentScore = "alignment_score"
+        case extensionOf = "extension_of"
+        case provisionalNamingAmbiguous = "provisional_naming_ambiguous"
+    }
+}
+
 public struct ONTMHCUnnameableRecord: Codable, Equatable, Sendable {
     public let stableClusterID: String
     public let reason: ONTMHCUnnameableReason
@@ -1649,6 +1709,7 @@ public struct ONTMHCUnnameableRecord: Codable, Equatable, Sendable {
     public let reciprocalHitSummary: ONTMHCReciprocalQueryHitSummary
     public let selectedEvidence: ONTMHCEvidenceLocator?
     public let selectedAlignmentIsReverse: Bool?
+    public let candidateInterpretation: ONTMHCIncompleteCandidateInterpretation?
     /// Retained only when decoding or constructing schema-version 1 records.
     public let evidence: [ONTMHCEvidenceLocator]
     private let evidenceWireShape: ONTMHCEvidenceWireShape
@@ -1668,7 +1729,8 @@ public struct ONTMHCUnnameableRecord: Codable, Equatable, Sendable {
         fastaRecordID: String? = nil,
         sequenceSHA256: String? = nil,
         reciprocalHitSummary: ONTMHCReciprocalQueryHitSummary,
-        selectedEvidence: ONTMHCEvidenceLocator?
+        selectedEvidence: ONTMHCEvidenceLocator?,
+        candidateInterpretation: ONTMHCIncompleteCandidateInterpretation? = nil
     ) {
         self.init(
             stableClusterID: stableClusterID,
@@ -1683,7 +1745,8 @@ public struct ONTMHCUnnameableRecord: Codable, Equatable, Sendable {
             sequenceSHA256: sequenceSHA256,
             reciprocalHitSummary: reciprocalHitSummary,
             selectedEvidence: selectedEvidence,
-            selectedAlignmentIsReverse: nil
+            selectedAlignmentIsReverse: nil,
+            candidateInterpretation: candidateInterpretation
         )
     }
 
@@ -1700,7 +1763,8 @@ public struct ONTMHCUnnameableRecord: Codable, Equatable, Sendable {
         sequenceSHA256: String? = nil,
         reciprocalHitSummary: ONTMHCReciprocalQueryHitSummary,
         selectedEvidence: ONTMHCEvidenceLocator?,
-        selectedAlignmentIsReverse: Bool? = nil
+        selectedAlignmentIsReverse: Bool? = nil,
+        candidateInterpretation: ONTMHCIncompleteCandidateInterpretation? = nil
     ) {
         self.stableClusterID = stableClusterID
         self.reason = reason
@@ -1715,6 +1779,7 @@ public struct ONTMHCUnnameableRecord: Codable, Equatable, Sendable {
         self.reciprocalHitSummary = reciprocalHitSummary
         self.selectedEvidence = selectedEvidence
         self.selectedAlignmentIsReverse = selectedAlignmentIsReverse
+        self.candidateInterpretation = candidateInterpretation
         self.evidence = []
         self.evidenceWireShape = .compactSummaries
     }
@@ -1748,6 +1813,7 @@ public struct ONTMHCUnnameableRecord: Codable, Equatable, Sendable {
         )
         self.selectedEvidence = nil
         self.selectedAlignmentIsReverse = nil
+        self.candidateInterpretation = nil
         self.evidence = evidence
         self.evidenceWireShape = .legacyLocators
     }
@@ -1787,6 +1853,10 @@ public struct ONTMHCUnnameableRecord: Codable, Equatable, Sendable {
                 selectedAlignmentIsReverse: try container.decodeIfPresent(
                     Bool.self,
                     forKey: .selectedAlignmentIsReverse
+                ),
+                candidateInterpretation: try container.decodeIfPresent(
+                    ONTMHCIncompleteCandidateInterpretation.self,
+                    forKey: .candidateInterpretation
                 )
             )
         } else {
@@ -1821,6 +1891,7 @@ public struct ONTMHCUnnameableRecord: Codable, Equatable, Sendable {
         try container.encode(supportingSampleIDs, forKey: .supportingSampleIDs)
         try container.encodeIfPresent(fastaRecordID, forKey: .fastaRecordID)
         try container.encodeIfPresent(sequenceSHA256, forKey: .sequenceSHA256)
+        try container.encodeIfPresent(candidateInterpretation, forKey: .candidateInterpretation)
         switch evidenceWireShape {
         case .legacyLocators:
             try container.encode(evidence, forKey: .evidence)
@@ -1864,6 +1935,7 @@ public struct ONTMHCUnnameableRecord: Codable, Equatable, Sendable {
         case reciprocalHitSummary = "reciprocal_hit_summary"
         case selectedEvidence = "selected_evidence"
         case selectedAlignmentIsReverse = "selected_alignment_is_reverse"
+        case candidateInterpretation = "candidate_interpretation"
         case evidence
     }
 }

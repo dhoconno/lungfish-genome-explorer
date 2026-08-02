@@ -622,6 +622,50 @@ public struct GenotypeReviewableRowCandidate: Equatable, Sendable {
         }
     }
 
+    public static func fullLengthIncompleteCandidates(
+        from document: ONTMHCUnnameableClustersDocument
+    ) -> [Self] {
+        let interpretedIDs = Set(document.clusters.compactMap { record in
+            record.candidateInterpretation == nil ? nil : record.stableClusterID
+        })
+        var supportByStableID: [String: [String: Int]] = [:]
+        var validationErrorByStableID:
+            [String: GenotypeReviewableRowCatalogPublisherError] = [:]
+        for observation in document.observations
+            where interpretedIDs.contains(observation.stableClusterID) {
+            let current = supportByStableID[
+                observation.stableClusterID,
+                default: [:]
+            ][observation.sampleID, default: 0]
+            let addition = current.addingReportingOverflow(
+                observation.aggregatedSampleReadCount
+            )
+            if addition.overflow {
+                validationErrorByStableID[observation.stableClusterID] =
+                    .invalidSupport(sample: observation.sampleID, value: Int.max)
+            } else {
+                supportByStableID[
+                    observation.stableClusterID,
+                    default: [:]
+                ][observation.sampleID] = addition.partialValue
+            }
+        }
+        return document.clusters.compactMap { record in
+            guard record.reason == .incompleteReferenceSpan,
+                  let interpretation = record.candidateInterpretation else {
+                return nil
+            }
+            return Self(
+                kind: .candidate,
+                stableID: record.stableClusterID,
+                displayName: interpretation.provisionalName,
+                locus: interpretation.locus,
+                supportBySample: supportByStableID[record.stableClusterID] ?? [:],
+                validationError: validationErrorByStableID[record.stableClusterID]
+            )
+        }
+    }
+
     private init(
         kind: GenotypeReviewableRowCatalog.RowKind,
         stableID: String,

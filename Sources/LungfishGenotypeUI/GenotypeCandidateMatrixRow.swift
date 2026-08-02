@@ -31,6 +31,15 @@ struct GenotypeCandidateMatrixRow: Equatable, Sendable {
     let sampleSupport: [ONTGenotypeSampleSupport]
     let evidenceBySample: [String: [ONTMHCEvidenceLocator]]
     let candidate: ONTMHCCandidateRecord?
+    let incompleteCandidateInterpretation: ONTMHCIncompleteCandidateInterpretation?
+
+    var candidateClassification: ONTMHCCandidateClassification? {
+        candidate?.classification ?? incompleteCandidateInterpretation?.classification
+    }
+
+    var isIncompleteReferenceSpanCandidate: Bool {
+        incompleteCandidateInterpretation != nil
+    }
 
     var genotype: String { alleleName }
     var sampleCount: Int { sampleSupport.count }
@@ -55,7 +64,8 @@ struct GenotypeCandidateMatrixRow: Equatable, Sendable {
             tintCategory: nil,
             sampleSupport: call.sampleSupport,
             evidenceBySample: [:],
-            candidate: nil
+            candidate: nil,
+            incompleteCandidateInterpretation: nil
         )
     }
 }
@@ -64,6 +74,7 @@ enum GenotypeCandidateMatrixProjection {
     static func rows(
         knownRows: [ONTGenotypeSharedCall],
         candidateDocument: ONTMHCCandidateAllelesDocument?,
+        unnameableDocument: ONTMHCUnnameableClustersDocument? = nil,
         settings: ONTMHCCandidateDisplaySettings,
         usesBiologicalAlleleOrder: Bool = false
     ) -> [GenotypeCandidateMatrixRow] {
@@ -99,7 +110,54 @@ enum GenotypeCandidateMatrixProjection {
                     tintCategory: tintCategory(for: candidate),
                     sampleSupport: sampleSupport,
                     evidenceBySample: evidenceBySample,
-                    candidate: candidate
+                    candidate: candidate,
+                    incompleteCandidateInterpretation: nil
+                ))
+            }
+        }
+
+        if let unnameableDocument {
+            let observationsByCluster = Dictionary(
+                grouping: unnameableDocument.observations,
+                by: \.stableClusterID
+            )
+            for record in unnameableDocument.clusters {
+                guard record.reason == .incompleteReferenceSpan,
+                      let interpretation = record.candidateInterpretation,
+                      isVisible(record.supportClass, settings: settings) else {
+                    continue
+                }
+                let observations = observationsByCluster[record.stableClusterID] ?? []
+                let observationsBySample = Dictionary(grouping: observations, by: \.sampleID)
+                let sampleSupport: [ONTGenotypeSampleSupport] = observationsBySample.map { sample, values in
+                    let reads = values.reduce(0) {
+                        $0 + $1.aggregatedSampleReadCount
+                    }
+                    return ONTGenotypeSampleSupport(
+                        sample: sample,
+                        passedAlignments: reads,
+                        passedUniqueReads: reads,
+                        sampleUniqueRetainedReads: nil
+                    )
+                }.sorted { $0.sample.localizedStandardCompare($1.sample) == .orderedAscending }
+                let evidenceBySample = observationsBySample.mapValues { values in
+                    values.flatMap(\.evidence).sorted(by: evidenceComesBefore)
+                }
+                rows.append(GenotypeCandidateMatrixRow(
+                    id: .candidate(stableClusterID: record.stableClusterID),
+                    alleleName: interpretation.provisionalName,
+                    locus: interpretation.locus,
+                    stableClusterID: record.stableClusterID,
+                    population: record.supportClass == .shared
+                        ? .sharedCandidate : .singletonCandidate,
+                    tintCategory: tintCategory(
+                        classification: interpretation.classification,
+                        supportClass: record.supportClass
+                    ),
+                    sampleSupport: sampleSupport,
+                    evidenceBySample: evidenceBySample,
+                    candidate: nil,
+                    incompleteCandidateInterpretation: interpretation
                 ))
             }
         }
@@ -113,14 +171,31 @@ enum GenotypeCandidateMatrixProjection {
         _ candidate: ONTMHCCandidateRecord,
         settings: ONTMHCCandidateDisplaySettings
     ) -> Bool {
-        switch candidate.supportClass {
+        isVisible(candidate.supportClass, settings: settings)
+    }
+
+    private static func isVisible(
+        _ supportClass: ONTMHCCandidateSupportClass,
+        settings: ONTMHCCandidateDisplaySettings
+    ) -> Bool {
+        switch supportClass {
         case .shared: settings.showSharedCandidates
         case .singleton: settings.showSingletonCandidates
         }
     }
 
     private static func tintCategory(for candidate: ONTMHCCandidateRecord) -> ONTMHCCandidateTintCategory {
-        switch (candidate.classification, candidate.supportClass) {
+        tintCategory(
+            classification: candidate.classification,
+            supportClass: candidate.supportClass
+        )
+    }
+
+    private static func tintCategory(
+        classification: ONTMHCCandidateClassification,
+        supportClass: ONTMHCCandidateSupportClass
+    ) -> ONTMHCCandidateTintCategory {
+        switch (classification, supportClass) {
         case (.novel, .shared): .sharedNovel
         case (.novel, .singleton): .singletonNovel
         case (.extension, .shared): .sharedExtension

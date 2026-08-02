@@ -920,6 +920,7 @@ private struct FullLengthONTMHCRollbackFailureRecovery: Sendable {
 struct FullLengthONTMHCReviewCatalogAuthority: Sendable {
     let referenceRecords: [MHCReferenceRecord]
     let candidateDocument: ONTMHCCandidateAllelesDocument
+    let unnameableDocument: ONTMHCUnnameableClustersDocument?
     let snapshots: [GenotypeReviewAuthorityFileSnapshot]
 
     func requireUnchanged() throws {
@@ -950,6 +951,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         referenceCatalogURL: URL,
         expectedCandidateDocument: ONTMHCCandidateAllelesDocument,
         candidateURL: URL,
+        expectedUnnameableDocument: ONTMHCUnnameableClustersDocument? = nil,
+        unnameableURL: URL? = nil,
         authorityObserver: () throws -> Void = {}
     ) throws -> FullLengthONTMHCReviewCatalogAuthority {
         let referenceSnapshot = try GenotypeReviewAuthorityFileSnapshot.capture(
@@ -958,6 +961,9 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         let candidateSnapshot = try GenotypeReviewAuthorityFileSnapshot.capture(
             candidateURL
         )
+        let unnameableSnapshot = try unnameableURL.map {
+            try GenotypeReviewAuthorityFileSnapshot.capture($0)
+        }
         let referenceProjection = try JSONDecoder().decode(
             FullLengthONTMHCReferenceCatalogProjection.self,
             from: referenceSnapshot.data
@@ -974,13 +980,25 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             throw GenotypeReviewableRowCatalogPublisherError
                 .authorityChanged(candidateURL.path)
         }
+        let unnameableDocument = try unnameableSnapshot.map {
+            try JSONDecoder().decode(
+                ONTMHCUnnameableClustersDocument.self,
+                from: $0.data
+            )
+        }
+        guard unnameableDocument == expectedUnnameableDocument else {
+            throw GenotypeReviewableRowCatalogPublisherError
+                .authorityChanged(unnameableURL?.path ?? candidateURL.path)
+        }
         try authorityObserver()
         try referenceSnapshot.requireUnchanged()
         try candidateSnapshot.requireUnchanged()
+        try unnameableSnapshot?.requireUnchanged()
         return FullLengthONTMHCReviewCatalogAuthority(
             referenceRecords: referenceProjection.records,
             candidateDocument: candidateDocument,
-            snapshots: [referenceSnapshot, candidateSnapshot]
+            unnameableDocument: unnameableDocument,
+            snapshots: [referenceSnapshot, candidateSnapshot] + [unnameableSnapshot].compactMap { $0 }
         )
     }
 
@@ -1999,6 +2017,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 sampleNames: sampleSummaries.map(\.sample),
                 candidateDocument: candidateDocument,
                 candidateJSONURL: candidateArtifactResult.candidateJSONURL,
+                unnameableDocument: unnameableDocument,
+                unnameableJSONURL: candidateArtifactResult.unnameableJSONURL,
                 genotypingEvidenceBAMURL: cohortAlignmentResult.bamURL,
                 genotypingEvidenceBAIURL: cohortAlignmentResult.baiURL
             )
@@ -5580,6 +5600,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         sampleNames: [String],
         candidateDocument: ONTMHCCandidateAllelesDocument,
         candidateJSONURL: URL,
+        unnameableDocument: ONTMHCUnnameableClustersDocument,
+        unnameableJSONURL: URL,
         genotypingEvidenceBAMURL: URL,
         genotypingEvidenceBAIURL: URL
     ) throws -> GenotypeReviewableRowCatalogPublication? {
@@ -5610,7 +5632,9 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             expectedReferenceRecords: referenceRecords,
             referenceCatalogURL: referenceCatalogProjectionURL,
             expectedCandidateDocument: candidateDocument,
-            candidateURL: candidateJSONURL
+            candidateURL: candidateJSONURL,
+            expectedUnnameableDocument: unnameableDocument,
+            unnameableURL: unnameableJSONURL
         )
         let exactReferenceRecords = reviewAuthority.referenceRecords
         let exactCandidateDocument = reviewAuthority.candidateDocument
@@ -5628,6 +5652,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             "--sample-roster", request.sampleSummaryCSVURL.path,
             "--calls", request.reportCSVURL.path,
             "--candidate-json", candidateJSONURL.path,
+            "--unnameable-json", unnameableJSONURL.path,
             "--genotyping-bam", genotypingEvidenceBAMURL.path,
             "--genotyping-bai", genotypingEvidenceBAIURL.path,
             "--output", outputURL.path,
@@ -5646,6 +5671,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             csvAuthority.sampleSnapshot.descriptor(format: .text, role: .input),
             csvAuthority.reportSnapshot.descriptor(format: .text, role: .input),
             reviewAuthority.snapshots[1].descriptor(format: .json, role: .input),
+            reviewAuthority.snapshots[2].descriptor(format: .json, role: .input),
             bamSnapshot.descriptor(format: .bam, role: .input),
             baiSnapshot.descriptor(format: nil, role: .index),
         ]
@@ -5654,9 +5680,12 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 referenceRecords: exactReferenceRecords,
                 authoritativeSamples: csvAuthority.roster,
                 calls: sharedCalls,
-                candidates: GenotypeReviewableRowCandidate.fullLengthCandidates(
-                    from: exactCandidateDocument
-                ),
+                candidates:
+                    GenotypeReviewableRowCandidate.fullLengthCandidates(
+                        from: exactCandidateDocument
+                    ) + GenotypeReviewableRowCandidate.fullLengthIncompleteCandidates(
+                        from: reviewAuthority.unnameableDocument ?? unnameableDocument
+                    ),
                 inputDescriptors: descriptors,
                 workflowName: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
                 workflowVersion: "1",
@@ -5664,7 +5693,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 argv: argv,
                 userVisibleOptions: [
                     "workflowMode": .string(GenotypeResultWorkflowMode.genotypeOnly.rawValue),
-                    "candidateDesignation": .string("full-length-candidate"),
+                    "candidateDesignation": .string("full-length-candidate-or-incomplete-reference-span-review"),
                 ],
                 resolvedDefaults: [
                     "supportMetric": .string("passed-unique-reads"),
@@ -8452,6 +8481,13 @@ enum FullLengthONTMHCUnifiedPivotWorkbookBuilder {
     ) -> [[FullLengthONTMHCWorkbookCell]] {
         let tintsByStableID = Dictionary(uniqueKeysWithValues: projection.candidateRows.map {
             ($0.stableClusterID, $0.tintCategory)
+        } + projection.unnameableRows.compactMap { row in
+            row.candidateInterpretation.map {
+                (row.stableClusterID, incompleteCandidateTint(
+                    classification: $0.classification,
+                    supportClass: row.supportClass
+                ))
+            }
         })
         return buildRows(
             reportRows: reportRows,
@@ -8479,7 +8515,8 @@ enum FullLengthONTMHCUnifiedPivotWorkbookBuilder {
         let sampleNames = completeSampleOrder(
             sampleOrder,
             reportRows: reportRows,
-            candidateRows: projection.candidateRows
+            candidateRows: projection.candidateRows,
+            unnameableRows: projection.unnameableRows
         )
         var rows = [[
             "call_type",
@@ -8545,6 +8582,27 @@ enum FullLengthONTMHCUnifiedPivotWorkbookBuilder {
             })
         }
 
+        for row in projection.unnameableRows {
+            guard let interpretation = row.candidateInterpretation else { continue }
+            dataRows.append([
+                "candidate-incomplete",
+                row.stableClusterID,
+                interpretation.provisionalName,
+                row.stableClusterID,
+                interpretation.locus,
+                interpretation.classification.rawValue,
+                row.supportClass,
+                interpretation.closestReferenceName,
+                ONTMHCUnnameableReason.incompleteReferenceSpan.rawValue,
+                String(row.occurrenceCount),
+                String(row.independentSampleCount),
+                String(row.totalClusterReads),
+            ] + sampleNames.map { sample in
+                guard let count = row.readsBySample[sample], count > 0 else { return "" }
+                return String(count)
+            })
+        }
+
         dataRows.sort { lhs, rhs in
             MHCAlleleDisplayOrder.compare(
                 lhs[2],
@@ -8561,14 +8619,21 @@ enum FullLengthONTMHCUnifiedPivotWorkbookBuilder {
     private static func completeSampleOrder(
         _ sampleOrder: [String],
         reportRows: [FullLengthONTMHCReportRow],
-        candidateRows: [FullLengthONTMHCCandidateWorkbookRow]
+        candidateRows: [FullLengthONTMHCCandidateWorkbookRow],
+        unnameableRows: [FullLengthONTMHCUnnameableWorkbookRow]
     ) -> [String] {
         var seen = Set<String>()
         var result: [String] = []
         for sample in sampleOrder where seen.insert(sample).inserted {
             result.append(sample)
         }
-        let missing = Set(reportRows.map(\.sample) + candidateRows.flatMap { Array($0.readsBySample.keys) })
+        let missing = Set(
+            reportRows.map(\.sample)
+                + candidateRows.flatMap { Array($0.readsBySample.keys) }
+                + unnameableRows.compactMap { row in
+                    row.candidateInterpretation == nil ? nil : Array(row.readsBySample.keys)
+                }.flatMap { $0 }
+        )
             .subtracting(seen)
             .sorted(by: localizedStandardLessThan)
         result.append(contentsOf: missing)
@@ -8577,6 +8642,18 @@ enum FullLengthONTMHCUnifiedPivotWorkbookBuilder {
 
     private static func localizedStandardLessThan(_ lhs: String, _ rhs: String) -> Bool {
         lhs.localizedStandardCompare(rhs) == .orderedAscending
+    }
+
+    private static func incompleteCandidateTint(
+        classification: ONTMHCCandidateClassification,
+        supportClass: String
+    ) -> FullLengthONTMHCWorkbookTintCategory {
+        switch (classification, supportClass == ONTMHCCandidateSupportClass.shared.rawValue) {
+        case (.novel, true): .sharedNovel
+        case (.novel, false): .singletonNovel
+        case (.extension, true): .sharedExtension
+        case (.extension, false): .singletonExtension
+        }
     }
 }
 

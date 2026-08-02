@@ -351,6 +351,12 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         XCTAssertEqual(demoted.selectedEvidence?.queryName, fixture.novelID)
         XCTAssertEqual(demoted.reciprocalHitSummary.queryName, fixture.novelID)
         XCTAssertEqual(demoted.supportingSampleIDs, ["sample-a", "sample-b"])
+        XCTAssertEqual(demoted.candidateInterpretation?.classification, .novel)
+        XCTAssertEqual(demoted.candidateInterpretation?.locus, "Mafa-A1")
+        XCTAssertEqual(
+            demoted.candidateInterpretation?.provisionalName,
+            "Mafa-A1*018:01:01:01_5nt_nov"
+        )
         XCTAssertEqual(
             Set(unnameable.observations.filter {
                 $0.stableClusterID == fixture.novelID
@@ -367,6 +373,7 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
             unavailable.reason,
             .referenceCanonicalizationUnavailable
         )
+        XCTAssertNil(unavailable.candidateInterpretation)
         XCTAssertNil(unavailable.fastaRecordID)
         XCTAssertNil(unavailable.sequenceSHA256)
 
@@ -425,6 +432,14 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         XCTAssertEqual(
             canonicalization.resolvedOptions["incompleteCandidateDemotionCount"],
             "1"
+        )
+        XCTAssertEqual(
+            canonicalization.resolvedOptions["reviewableIncompleteCandidateCount"],
+            "1"
+        )
+        XCTAssertEqual(
+            canonicalization.resolvedOptions["reviewableIncompleteCandidateRule"],
+            "classified-candidate-demoted-only-for-incomplete-reference-span;reviewable-not-reference-ready;excluded-from-public-candidate-fasta-and-genbank"
         )
         XCTAssertEqual(
             canonicalization.resolvedOptions["unavailableCandidateDemotionCount"],

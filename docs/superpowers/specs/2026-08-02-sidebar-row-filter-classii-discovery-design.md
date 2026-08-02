@@ -121,7 +121,6 @@ as required by `AGENTS.md`.
   incomplete-reference-span demotions retain provisional interpretation.
 - Projection tests verify that partial candidates appear in Unified with their
   read counts but remain absent from reference-ready candidate FASTA/GenBank.
-- A real CN29 run verifies that the known call remains and both high-support
+- A real CN29 run verifies that the known call remains and high-support
   partial novel clusters are reviewable, with complete provenance and no
   relaxation of zero-SNP known-call rules.
-

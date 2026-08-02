@@ -5679,6 +5679,16 @@ print(wb[wb.sheetnames[0]]["Z97"].value or "")
         XCTAssertFalse(script.contains("MHC-DPA/B Haplotype"))
     }
 
+    func testWorkbookRefreshKeepsIncompleteSpanCandidatesInUnifiedPivot() {
+        let script = GenotypeWorkbookRevisionService().workbookOverrideScript
+        XCTAssertTrue(
+            script.contains(
+                "if clean(row.get(\"record_category\")) in (\"candidate\", \"candidate-incomplete\")"
+            )
+        )
+        XCTAssertTrue(script.contains("if record_category == \"candidate-incomplete\""))
+    }
+
     func testRecognizedLegacyGenotypeOnlyKindsUseSharedManualAuthority()
         throws
     {

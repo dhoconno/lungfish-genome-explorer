@@ -812,7 +812,11 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                     sequenceSHA256: nil,
                     reciprocalHitSummary: input.record.reciprocalHitSummary,
                     selectedEvidence: input.record.selectedEvidence,
-                    selectedAlignmentIsReverse: input.record.selectedAlignmentIsReverse
+                    selectedAlignmentIsReverse: input.record.selectedAlignmentIsReverse,
+                    candidateInterpretation:
+                        input.canonicalization.referenceReadiness == .incomplete
+                            ? ONTMHCIncompleteCandidateInterpretation(candidate: input.record)
+                            : nil
                 ),
                 input.canonicalization
             )
@@ -834,7 +838,8 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                     sequenceSHA256: nil,
                     reciprocalHitSummary: prepared.record.reciprocalHitSummary,
                     selectedEvidence: prepared.record.selectedEvidence,
-                    selectedAlignmentIsReverse: prepared.record.selectedAlignmentIsReverse
+                    selectedAlignmentIsReverse: prepared.record.selectedAlignmentIsReverse,
+                    candidateInterpretation: prepared.record.candidateInterpretation
                 )
             }
             let external = Self.normalizedSequence(sequence)
@@ -851,7 +856,8 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                 sequenceSHA256: Self.sha256(Data(external.utf8)),
                 reciprocalHitSummary: prepared.record.reciprocalHitSummary,
                 selectedEvidence: prepared.record.selectedEvidence,
-                selectedAlignmentIsReverse: prepared.record.selectedAlignmentIsReverse
+                selectedAlignmentIsReverse: prepared.record.selectedAlignmentIsReverse,
+                candidateInterpretation: prepared.record.candidateInterpretation
             )
         }
         let duplicateUnnameableExternalIDs = Dictionary(
@@ -1808,6 +1814,8 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
                 incompleteCandidateDemotionCount + unavailableCandidateDemotionCount
             ),
             "incompleteCandidateDemotionCount": String(incompleteCandidateDemotionCount),
+            "reviewableIncompleteCandidateCount": String(incompleteCandidateDemotionCount),
+            "reviewableIncompleteCandidateRule": "classified-candidate-demoted-only-for-incomplete-reference-span;reviewable-not-reference-ready;excluded-from-public-candidate-fasta-and-genbank",
             "unavailableCandidateDemotionCount": String(
                 unavailableCandidateDemotionCount
             ),
