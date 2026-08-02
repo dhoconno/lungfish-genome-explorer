@@ -1016,6 +1016,14 @@ final class FastqGenotypingCommandTests: XCTestCase {
         XCTAssertEqual(command.chunkJobs, max(1, ProcessInfo.processInfo.activeProcessorCount))
     }
 
+    func testONTPacBioBarcodeDemuxHelpExplainsRepeatedSampleNumbering() {
+        let help = FastqONTPacBioBarcodeDemuxSubcommand.helpMessage()
+
+        XCTAssertTrue(help.contains("Repeated sample IDs"), help)
+        XCTAssertTrue(help.contains("_1, _2"), help)
+        XCTAssertTrue(help.contains("Unique sample IDs remain unchanged"), help)
+    }
+
     func testONTPacBioBarcodeDemuxProvenanceOutputsDescribeDirectories() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("ont-pacbio-cli-provenance-\(UUID().uuidString)", isDirectory: true)

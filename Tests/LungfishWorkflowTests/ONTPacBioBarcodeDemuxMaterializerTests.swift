@@ -3,6 +3,57 @@ import LungfishIO
 @testable import LungfishWorkflow
 
 final class ONTPacBioBarcodeDemuxMaterializerTests: XCTestCase {
+    func testSampleNameResolverPreservesUniqueSampleName() throws {
+        let resolved = try ONTPacBioBarcodeSampleNameResolver.resolve([
+            barcodeSheetRow(2, sampleID: "Unique Sample"),
+        ])
+
+        XCTAssertEqual(resolved.map(\.resolvedSampleID), ["Unique_Sample"])
+        XCTAssertEqual(resolved.map(\.originalSampleID), ["Unique Sample"])
+        XCTAssertEqual(resolved.map(\.sourceRow), [2])
+    }
+
+    func testSampleNameResolverNumbersEveryRepeatedNameInSheetOrder() throws {
+        let resolved = try ONTPacBioBarcodeSampleNameResolver.resolve([
+            barcodeSheetRow(2, sampleID: "Repeated"),
+            barcodeSheetRow(4, sampleID: "Repeated"),
+            barcodeSheetRow(7, sampleID: "Repeated"),
+        ])
+
+        XCTAssertEqual(resolved.map(\.resolvedSampleID), [
+            "Repeated_1",
+            "Repeated_2",
+            "Repeated_3",
+        ])
+        XCTAssertEqual(resolved.map(\.sourceRow), [2, 4, 7])
+    }
+
+    func testSampleNameResolverGroupsFilesystemEquivalentNamesIgnoringCase() throws {
+        let resolved = try ONTPacBioBarcodeSampleNameResolver.resolve([
+            barcodeSheetRow(2, sampleID: "Sample A"),
+            barcodeSheetRow(3, sampleID: "Sample_A"),
+            barcodeSheetRow(4, sampleID: "sample_a"),
+        ])
+
+        XCTAssertEqual(resolved.map(\.resolvedSampleID), [
+            "Sample_A_1",
+            "Sample_A_2",
+            "sample_a_3",
+        ])
+    }
+
+    func testSampleNameResolverRejectsGeneratedNameCollidingWithExplicitName() throws {
+        XCTAssertThrowsError(try ONTPacBioBarcodeSampleNameResolver.resolve([
+            barcodeSheetRow(2, sampleID: "Sample"),
+            barcodeSheetRow(3, sampleID: "Sample"),
+            barcodeSheetRow(8, sampleID: "Sample_1"),
+        ])) { error in
+            let message = error.localizedDescription
+            XCTAssertTrue(message.contains("Sample_1"), message)
+            XCTAssertTrue(message.contains("rows 2 and 8"), message)
+        }
+    }
+
     func testDefaultChunkJobsUsesActiveProcessorCount() {
         let expected = max(1, ProcessInfo.processInfo.activeProcessorCount)
 
@@ -100,6 +151,129 @@ final class ONTPacBioBarcodeDemuxMaterializerTests: XCTestCase {
         let progressEvents = progressRecorder.events()
         XCTAssertTrue(progressEvents.contains { $0.1.contains("Running exact PacBio barcode demultiplexing") })
         XCTAssertTrue(progressEvents.contains { $0.1.contains("PacBio barcode demultiplexing complete") })
+    }
+
+    func testRepeatedPacBioSampleNamesMaterializeNumberedBundlesInSheetOrder() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let inputDirectory = root.appendingPathComponent("barcode13", isDirectory: true)
+        try FileManager.default.createDirectory(at: inputDirectory, withIntermediateDirectories: true)
+        let chunk = inputDirectory.appendingPathComponent("chunk-1.fastq")
+        let barcodesCSV = root.appendingPathComponent("repeated-samples.csv")
+        let outputDirectory = root.appendingPathComponent("mhc-pacbio-demux", isDirectory: true)
+
+        try writeFASTQ(records: [
+            (
+                "read-for-first-row",
+                exactBarcodeRead(forward: "CACATATCAGAGTGCG", reverse: "CTATACATAGTGATGT")
+            ),
+            (
+                "read-for-second-row",
+                exactBarcodeRead(forward: "ACACACAGACTGTGAG", reverse: "CACTCACGTGTGATAT")
+            ),
+        ], to: chunk)
+        try """
+        sample_id,barcode_1,barcode_2
+        LN94_Mamu-E,bc1001,bc1021
+
+        LN94_Mamu-E,bc1002,bc1022
+        LN94_Mamu-E,bc1003,bc1023
+        """.write(to: barcodesCSV, atomically: true, encoding: .utf8)
+
+        let result = try await ONTPacBioBarcodeDemuxMaterializer().run(
+            ONTPacBioBarcodeDemuxMaterializationRequest(
+                inputURL: inputDirectory,
+                barcodeDefinitionsURL: barcodesCSV,
+                outputDirectory: outputDirectory,
+                force: true,
+                threads: 1,
+                chunkJobs: 1,
+                maxReadsPerSlice: 0
+            ),
+            progress: { _, _ in }
+        )
+
+        XCTAssertEqual(result.outputBundleURLs.map(\.lastPathComponent).sorted(), [
+            "LN94_Mamu-E_1.lungfishfastq",
+            "LN94_Mamu-E_2.lungfishfastq",
+        ])
+        let firstFASTQ = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(
+            for: outputDirectory.appendingPathComponent("LN94_Mamu-E_1.lungfishfastq")
+        ))
+        let secondFASTQ = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(
+            for: outputDirectory.appendingPathComponent("LN94_Mamu-E_2.lungfishfastq")
+        ))
+        let firstRecords = try await FASTQReader(validateSequence: false).readAll(from: firstFASTQ)
+        let secondRecords = try await FASTQReader(validateSequence: false).readAll(from: secondFASTQ)
+        XCTAssertEqual(firstRecords.map(\.identifier), ["read-for-first-row"])
+        XCTAssertEqual(secondRecords.map(\.identifier), ["read-for-second-row"])
+
+        let manifest = try jsonObject(at: result.manifestURL)
+        let nameAssignments = try XCTUnwrap(manifest["sampleNameAssignments"] as? [[String: Any]])
+        XCTAssertEqual(nameAssignments.count, 3)
+        XCTAssertEqual(nameAssignments.compactMap { $0["sourceRow"] as? Int }, [2, 4, 5])
+        XCTAssertEqual(nameAssignments.compactMap { $0["originalSampleID"] as? String }, [
+            "LN94_Mamu-E",
+            "LN94_Mamu-E",
+            "LN94_Mamu-E",
+        ])
+        XCTAssertEqual(nameAssignments.compactMap { $0["resolvedSampleID"] as? String }, [
+            "LN94_Mamu-E_1",
+            "LN94_Mamu-E_2",
+            "LN94_Mamu-E_3",
+        ])
+        XCTAssertEqual(nameAssignments.compactMap { $0["barcode_1"] as? String }, [
+            "bc1001",
+            "bc1002",
+            "bc1003",
+        ])
+        XCTAssertEqual(nameAssignments.compactMap { $0["barcode_2"] as? String }, [
+            "bc1021",
+            "bc1022",
+            "bc1023",
+        ])
+
+        let firstBundleManifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(
+            in: outputDirectory.appendingPathComponent("LN94_Mamu-E_1.lungfishfastq")
+        ))
+        let firstNotes = try XCTUnwrap(firstBundleManifest.provenance?.notes)
+        XCTAssertTrue(firstNotes.contains("Original sample ID: LN94_Mamu-E"), firstNotes)
+        XCTAssertTrue(firstNotes.contains("Resolved output ID: LN94_Mamu-E_1"), firstNotes)
+        XCTAssertTrue(firstNotes.contains("Source row: 2"), firstNotes)
+        XCTAssertTrue(firstNotes.contains("Barcode pair: bc1001 / bc1021"), firstNotes)
+    }
+
+    func testConflictingResolvedPacBioSampleNamesFailBeforeCreatingOutputDirectory() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let inputDirectory = root.appendingPathComponent("barcode13", isDirectory: true)
+        try FileManager.default.createDirectory(at: inputDirectory, withIntermediateDirectories: true)
+        let barcodesCSV = root.appendingPathComponent("conflicting-samples.csv")
+        let outputDirectory = root.appendingPathComponent("mhc-pacbio-demux", isDirectory: true)
+        try """
+        sample_id,barcode_1,barcode_2
+        Sample,bc1001,bc1021
+        Sample,bc1002,bc1022
+        Sample_1,bc1003,bc1023
+        """.write(to: barcodesCSV, atomically: true, encoding: .utf8)
+
+        do {
+            _ = try await ONTPacBioBarcodeDemuxMaterializer().run(
+                ONTPacBioBarcodeDemuxMaterializationRequest(
+                    inputURL: inputDirectory,
+                    barcodeDefinitionsURL: barcodesCSV,
+                    outputDirectory: outputDirectory
+                )
+            )
+            XCTFail("Expected conflicting resolved sample names to fail validation")
+        } catch {
+            let message = error.localizedDescription
+            XCTAssertTrue(message.contains("Sample_1"), message)
+            XCTAssertTrue(message.contains("rows 2 and 4"), message)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: outputDirectory.path))
+        }
     }
 
     func testBuiltInPacBioSampleSheetMatchesONTReadsWithAdapterFlanks() async throws {
@@ -208,6 +382,20 @@ final class ONTPacBioBarcodeDemuxMaterializerTests: XCTestCase {
         try text.write(to: url, atomically: true, encoding: .utf8)
     }
 
+    private func barcodeSheetRow(
+        _ sourceRow: Int,
+        sampleID: String
+    ) -> ONTPacBioBarcodeSheetAssignment {
+        ONTPacBioBarcodeSheetAssignment(
+            sourceRow: sourceRow,
+            assignment: FASTQSampleBarcodeAssignment(
+                sampleID: sampleID,
+                forwardBarcodeID: "bc1001",
+                reverseBarcodeID: "bc1021"
+            )
+        )
+    }
+
     private func reverseComplement(_ sequence: String) -> String {
         let complements: [Character: Character] = [
             "A": "T",
@@ -217,6 +405,10 @@ final class ONTPacBioBarcodeDemuxMaterializerTests: XCTestCase {
             "N": "N",
         ]
         return String(sequence.reversed().map { complements[$0] ?? "N" })
+    }
+
+    private func exactBarcodeRead(forward: String, reverse: String) -> String {
+        forward + String(repeating: "A", count: 2_050) + reverseComplement(reverse)
     }
 
     private func jsonObject(at url: URL) throws -> [String: Any] {

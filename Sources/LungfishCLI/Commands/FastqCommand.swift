@@ -2843,6 +2843,9 @@ struct FastqONTPacBioBarcodeDemuxSubcommand: AsyncParsableCommand {
             barcode IDs, and writes one materialized .lungfishfastq bundle per
             sample. Barcode definitions must contain sample_id, barcode_1, and
             barcode_2 columns, or headerless rows in that order.
+
+            Repeated sample IDs are numbered _1, _2, and so on.
+            Unique sample IDs remain unchanged.
             """
     )
 
