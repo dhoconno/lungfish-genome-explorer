@@ -15534,6 +15534,40 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(definitionMatrix.isHidden)
     }
 
+    func testCandidateOnlyGenotypeResultDefaultsToRawMatrix() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let result = makeResult(
+            samples: [],
+            calls: [],
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
+            reviewableRowCatalog: GenotypeReviewableRowCatalog(
+                schemaID: GenotypeReviewableRowCatalog.schemaID,
+                schemaVersion: GenotypeReviewableRowCatalog.schemaVersion,
+                samples: ["DW472"],
+                rows: [
+                    .init(
+                        kind: .candidate,
+                        callID: "candidate:MHC-E:candidate-1",
+                        displayName: "Mafa-E*02:04:01:01_10nt_nov",
+                        locus: "MHC-E",
+                        stableID: "candidate-1",
+                        section: "candidate",
+                        sortKey: "MHC-E|Mafa-E*02:04:01:01_10nt_nov",
+                        supportBySample: ["DW472": 17]
+                    ),
+                ]
+            )
+        )
+
+        XCTAssertEqual(controller.testingDefaultSummaryViewMode(for: result), .matrix)
+
+        controller.configure(result: result)
+
+        XCTAssertEqual(controller.testingSummaryViewMode, .matrix)
+        XCTAssertFalse(controller.testingComparisonMatrixIsHidden)
+    }
+
     func testAIHaplotypingCompletionResetsGenotypeOnlyMatrixDefaultToOutline() {
         let controller = GenotypeResultViewController()
         _ = controller.view
@@ -22130,7 +22164,8 @@ final class GenotypeResultViewportTests: XCTestCase {
             [String: ONTGenotypeProvisionalExon2Sequence] = [:],
         provisionalExon2ArtifactURLs:
             ONTGenotypeProvisionalExon2ArtifactURLs = .empty,
-        manifest: ONTGenotypeResultBundleManifest? = nil
+        manifest: ONTGenotypeResultBundleManifest? = nil,
+        reviewableRowCatalog: GenotypeReviewableRowCatalog? = nil
     ) -> ONTGenotypeResultBundleData {
         let resolvedManifest = manifest ?? ONTGenotypeResultBundleManifest(
             kind: kind,
@@ -22172,7 +22207,8 @@ final class GenotypeResultViewportTests: XCTestCase {
             referenceMetadata: referenceMetadata,
             provisionalExon2SequencesByGenotype:
                 provisionalExon2SequencesByGenotype,
-            provisionalExon2ArtifactURLs: provisionalExon2ArtifactURLs
+            provisionalExon2ArtifactURLs: provisionalExon2ArtifactURLs,
+            reviewableRowCatalog: reviewableRowCatalog
         )
     }
 

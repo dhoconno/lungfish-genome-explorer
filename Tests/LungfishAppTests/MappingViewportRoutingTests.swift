@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import XCTest
 @testable import LungfishApp
@@ -395,6 +396,31 @@ final class MappingViewportRoutingTests: XCTestCase {
             controller.inspectorController.viewModel.documentSectionViewModel.genotypeResultDocument?.summaryViewMode,
             .matrix
         )
+    }
+
+    func testCandidateOnlyGenotypeResultDisplaysNativeRawMatrix() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeCandidateOnlyRoute-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = try makeGenotypeResultBundle(
+            root: root,
+            name: "candidate-only",
+            haplotypeAnalysisPath: nil,
+            includeGenotypeCalls: false,
+            genotypeOnlyWorkflowKind: .fullLengthONTMHCGenotype,
+            includeReviewableRowCatalog: true
+        )
+        let controller = MainSplitViewController()
+        _ = controller.view
+
+        await controller.testingDisplayGenotypeResultBundleAndWait(bundleURL)
+
+        XCTAssertNil(controller.viewerController.testQuickLookURL)
+        let resultController = try XCTUnwrap(
+            controller.viewerController.genotypeResultViewController
+        )
+        XCTAssertEqual(resultController.testingSummaryViewMode, .matrix)
+        XCTAssertFalse(resultController.testingComparisonMatrixIsHidden)
     }
 
     func testGenotypeMatrixReviewProductionBridgeSharesCapabilityAndRoutesSemanticCommands() async throws {
@@ -2272,7 +2298,8 @@ final class MappingViewportRoutingTests: XCTestCase {
         name: String,
         haplotypeAnalysisPath: String?,
         includeGenotypeCalls: Bool = true,
-        genotypeOnlyWorkflowKind: GenotypeResultWorkflowKind? = nil
+        genotypeOnlyWorkflowKind: GenotypeResultWorkflowKind? = nil,
+        includeReviewableRowCatalog: Bool = false
     ) throws -> URL {
         let bundleURL = root.appendingPathComponent("\(name).lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
@@ -2305,6 +2332,44 @@ final class MappingViewportRoutingTests: XCTestCase {
         try #"{"workflow":"test"}"#
             .write(to: provenanceJSON, atomically: true, encoding: .utf8)
 
+        let reviewableRowCatalog: ONTMHCArtifactReference?
+        if includeReviewableRowCatalog {
+            let catalog = GenotypeReviewableRowCatalog(
+                schemaID: GenotypeReviewableRowCatalog.schemaID,
+                schemaVersion: GenotypeReviewableRowCatalog.schemaVersion,
+                samples: ["DW472"],
+                rows: [
+                    .init(
+                        kind: .candidate,
+                        callID: "candidate:MHC-E:candidate-1",
+                        displayName: "Mafa-E*02:04:01:01_10nt_nov",
+                        locus: "MHC-E",
+                        stableID: "candidate-1",
+                        section: "candidate",
+                        sortKey: "MHC-E|Mafa-E*02:04:01:01_10nt_nov",
+                        supportBySample: ["DW472": 17]
+                    ),
+                ]
+            )
+            let catalogData = try catalog.encoded()
+            let catalogPath = "artifacts/projections/genotype-reviewable-rows.json"
+            let catalogURL = bundleURL.appendingPathComponent(catalogPath)
+            try FileManager.default.createDirectory(
+                at: catalogURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try catalogData.write(to: catalogURL)
+            reviewableRowCatalog = ONTMHCArtifactReference(
+                path: catalogPath,
+                sha256: SHA256.hash(data: catalogData)
+                    .map { String(format: "%02x", $0) }
+                    .joined(),
+                sizeBytes: Int64(catalogData.count)
+            )
+        } else {
+            reviewableRowCatalog = nil
+        }
+
         let manifest = ONTGenotypeResultBundleManifest(
             kind: genotypeOnlyWorkflowKind?.rawValue
                 ?? "ont-barcode-genotype",
@@ -2322,7 +2387,8 @@ final class MappingViewportRoutingTests: XCTestCase {
             haplotypeAnalysisPath: haplotypeAnalysisPath,
             haplotypeDefinitionSetID: haplotypeAnalysisPath == nil
                 ? nil
-                : "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"
+                : "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            reviewableRowCatalog: reviewableRowCatalog
         )
         try ONTGenotypeResultBundle.writeManifest(manifest, to: bundleURL)
         return bundleURL
