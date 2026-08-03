@@ -190,9 +190,7 @@ public struct GenotypeResultDisplayState: Equatable {
     public func normalized(forGenotypeOnlyResult isGenotypeOnlyResult: Bool) -> Self {
         guard isGenotypeOnlyResult else { return self }
         var normalized = self
-        if normalized.viewportLens == .review {
-            normalized.viewportLens = .summary
-        }
+        normalized.viewportLens = .summary
         normalized.summaryViewMode = .matrix
         normalized.layout = .listTop
         return normalized

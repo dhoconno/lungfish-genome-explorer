@@ -4971,6 +4971,10 @@ final class GenotypeResultViewportTests: XCTestCase {
             (.sharedExtension, .extension, .shared, "shared-ext"),
             (.singletonExtension, .extension, .singleton, "singleton-ext"),
         ]
+        let candidateSpecs = categories + [
+            (.sharedExtension, .partialExtension, .shared, "shared-partial-ext"),
+            (.singletonExtension, .partialExtension, .singleton, "singleton-partial-ext"),
+        ]
         let customTints = Dictionary(uniqueKeysWithValues: categories.enumerated().map { index, value in
             (value.0, AnnotationColor(
                 red: Double(index + 1) / 10,
@@ -4979,7 +4983,7 @@ final class GenotypeResultViewportTests: XCTestCase {
                 alpha: Double(index + 4) / 10
             ))
         })
-        let candidates = categories.map { category, classification, support, id in
+        let candidates = candidateSpecs.map { _, classification, support, id in
             makeCandidate(
                 id: id,
                 name: id,
@@ -4999,7 +5003,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         let matrix = GenotypeComparisonMatrixView()
         matrix.configure(result: result, sidecar: sidecar)
 
-        for (category, _, _, id) in categories {
+        for (category, _, _, id) in candidateSpecs {
             let rowID = GenotypeCandidateMatrixRowID.candidate(stableClusterID: id)
             let color = try XCTUnwrap(matrix.testingBackgroundColor(rowID: rowID, column: .alleleName))
             let expected = try XCTUnwrap(customTints[category])
@@ -11461,17 +11465,29 @@ final class GenotypeResultViewportTests: XCTestCase {
             support: .singleton,
             samples: ["AnimalA"]
         )
+        let partialExtensionCandidate = makeCandidate(
+            id: "partial-extension-candidate",
+            name: "Mafa-A1*007:06_partial_ext",
+            classification: .partialExtension,
+            support: .singleton,
+            samples: ["AnimalA"]
+        )
         let controller = GenotypeResultViewController()
         _ = controller.view
         controller.configure(result: makeCandidateResult(
             bundleURL: bundleURL,
             calls: [call],
-            candidates: [extensionCandidate],
+            candidates: [extensionCandidate, partialExtensionCandidate],
             observations: [
                 makeCandidateObservation(
                     cluster: "extension-candidate",
                     sample: "AnimalA",
                     reads: 21
+                ),
+                makeCandidateObservation(
+                    cluster: "partial-extension-candidate",
+                    sample: "AnimalA",
+                    reads: 19
                 ),
             ],
             provisionalExon2SequencesByGenotype: [
@@ -11532,6 +11548,16 @@ final class GenotypeResultViewportTests: XCTestCase {
         ])
         XCTAssertTrue(extensionRow.accessibilityLabel.contains(
             "Candidate classification: extension."
+        ))
+        let partialExtensionRow = try XCTUnwrap(rows.first {
+            $0.allele == partialExtensionCandidate.provisionalName
+        })
+        XCTAssertEqual(partialExtensionRow.qualifiers, [
+            "Partial extension candidate",
+            "Sample comment",
+        ])
+        XCTAssertTrue(partialExtensionRow.accessibilityLabel.contains(
+            "Candidate classification: partial extension."
         ))
 
         // A false-negative cell cannot be present in this evidence panel:
@@ -14166,7 +14192,7 @@ final class GenotypeResultViewportTests: XCTestCase {
     }
 
     func testComparisonMatrixAlignsBottomRowsWhenSampleScrollerOccupiesBottomChrome() {
-        let matrix = makeManyRowComparisonMatrix(sampleCount: 6)
+        let matrix = makeManyRowComparisonMatrix(sampleCount: 12)
         matrix.frame = NSRect(x: 0, y: 0, width: 900, height: 180)
         matrix.layoutSubtreeIfNeeded()
         matrix.testingConfigureSampleMatrixLegacyHorizontalScroller()

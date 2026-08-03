@@ -556,6 +556,30 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             thresholds: request.thresholds,
             reciprocalBAMPath: reciprocalBAMRelativePath
         ).classify(clusters)
+        var classificationOutcomeCounts = [
+            "knownOutcomeCount": 0,
+            "extensionOutcomeCount": 0,
+            "partialExtensionOutcomeCount": 0,
+            "novelOutcomeCount": 0,
+            "unnameableOutcomeCount": 0,
+        ]
+        for result in classifications {
+            switch result {
+            case .known:
+                classificationOutcomeCounts["knownOutcomeCount", default: 0] += 1
+            case .candidate(let candidate):
+                switch candidate.classification {
+                case .extension:
+                    classificationOutcomeCounts["extensionOutcomeCount", default: 0] += 1
+                case .partialExtension:
+                    classificationOutcomeCounts["partialExtensionOutcomeCount", default: 0] += 1
+                case .novel:
+                    classificationOutcomeCounts["novelOutcomeCount", default: 0] += 1
+                }
+            case .unnameable:
+                classificationOutcomeCounts["unnameableOutcomeCount", default: 0] += 1
+            }
+        }
         let reciprocalViewDescriptor = try FullLengthONTMHCArtifactDescriptor(
             url: reciprocalViewURL,
             role: .commandOutput,
@@ -584,9 +608,11 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                 "--novel-distance", "snp-substitutions-only",
                 reciprocalViewURL.path,
             ],
-            resolvedOptions: Self.candidateResolvedOptions(request.thresholds).merging([
+            resolvedOptions: Self.candidateResolvedOptions(request.thresholds).merging(
+                classificationOutcomeCounts.mapValues(String.init)
+            ) { current, _ in current }.merging([
                 "provenanceOutputException": "typed in-memory classification result is consumed by the candidate and unnameable render steps",
-                "documentSchemaVersion": "4",
+                "documentSchemaVersion": "5",
                 "reciprocalSecondaryAlignmentLimit": String(reciprocalSecondaryAlignmentLimit),
                 "reciprocalSecondaryAlignmentLimitRule": "reference-record-count;at-least-one",
                 "reciprocalBAMPath": reciprocalBAMRelativePath,
@@ -625,7 +651,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         )
         let rawCreatedAt = Self.iso8601(Date())
         let rawCandidateDocument = ONTMHCCandidateAllelesDocument(
-            schemaVersion: 3,
+            schemaVersion: 4,
             createdAt: rawCreatedAt,
             thresholds: request.thresholds,
             inputs: [],
@@ -637,7 +663,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             }
         )
         let rawUnnameableDocument = ONTMHCUnnameableClustersDocument(
-            schemaVersion: 3,
+            schemaVersion: 4,
             createdAt: rawCreatedAt,
             thresholds: request.thresholds,
             inputs: [],
@@ -661,7 +687,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         let canonicalizationPayloadStartedAt = Date()
         try writeCanonicalJSON(
             FullLengthONTMHCCanonicalizationInputDocument(
-                schemaVersion: 1,
+                schemaVersion: 2,
                 thresholds: request.thresholds,
                 observations: rawObservationPayload,
                 rawCandidates: rawCandidates,
@@ -710,7 +736,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                 ["--input", $0.path]
             } + ["--output", canonicalizationPayloadURL.path],
             resolvedOptions: [
-                "schemaVersion": "1",
+                "schemaVersion": "2",
                 "serialization": "canonical-json-sorted-keys-pretty-printed-LF",
                 "observationCount": String(rawObservationPayload.count),
                 "rawCandidateCount": String(rawCandidates.count),
@@ -930,6 +956,10 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             thresholds: request.thresholds,
             rawCandidateCount: rawCandidates.count,
             canonicalCandidateCount: candidates.count,
+            partialExtensionReconciliationCount: canonicalCandidates.filter { output in
+                output.record.classification == .partialExtension
+                    && Set(output.rawInputs.map(\.record.classification)).count > 1
+            }.count,
             rawUnnameableCount: rawUnnameable.count,
             externalUnnameableCount: unnameableExternalSequences.count,
             incompleteCandidateDemotionCount: demotedCandidateInputs.filter {
@@ -1128,7 +1158,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         let evidence = [reciprocalBAMReference, reciprocalBAIReference]
             + (request.genotypingEvidence.map { [$0.bam, $0.bai] } ?? [])
         let candidateDocument = ONTMHCCandidateAllelesDocument(
-            schemaVersion: 4,
+            schemaVersion: 5,
             createdAt: createdAt,
             thresholds: request.thresholds,
             inputs: [referenceInput, stableUnmatchedInput],
@@ -1138,7 +1168,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             observations: candidateObservations
         )
         let unnameableDocument = ONTMHCUnnameableClustersDocument(
-            schemaVersion: 4,
+            schemaVersion: 5,
             createdAt: createdAt,
             thresholds: request.thresholds,
             inputs: [referenceInput, stableUnmatchedInput],
@@ -1909,7 +1939,10 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
             "minimumIntronGapBases": String(thresholds.minimumIntronGapBases),
             "closestReferenceRanking": "snp-count-in-shared-aligned-region;then-comparable-bases;then-alignment-score;then-deterministic-reference-evidence-order",
             "provisionalNovelNameMetric": "SNP-substitutions-in-shared-aligned-region;indels-reported-separately-and-not-counted-in-_Nnt_nov-label",
-            "zeroSNPClassificationOrder": "1:eligible-genomic-zero-snp=known;2:eligible-cdna-zero-snp-structural-extension=extension;3:eligible-cdna-zero-snp-end-to-end=known;4:otherwise=candidate",
+            "zeroSNPClassificationOrder": "1:exact-end-to-end-genomic-zero-snp=known;2:zero-snp-genomic-shared-sequence-with-incomplete-end-coverage=partial-extension;3:eligible-cdna-zero-snp-structural-extension+no-genomic-zero-snp=extension;4:eligible-cdna-zero-snp-end-to-end=known;5:otherwise-broad-genomic-zero-snp=known;6:otherwise=candidate",
+            "exactGenomicKnownRule": "zero-snp;reference-start=1;full-reference-span;full-query-span;no-I-D-N-S-H",
+            "partialExtensionRule": "genomic-zero-snp-shared-sequence;no-I-D-N;incomplete-reference-or-candidate-end-coverage;no-exact-end-to-end-genomic-zero-snp;cDNA-extension-evidence-retained-when-present",
+            "partialExtensionPrecedence": "exact-genomic-known>partial-extension>extension>legacy-broad-genomic-known",
             "extensionRule": "cdna-coverage>=0.95;each-cdna-deficit<20;no-hard-clip;cluster-flank-or-structural-segment>=20",
             "knownCDNARule": "extension-eligibility;cluster-coverage>=0.95;each-cluster-structural-segment<20",
             "cDNACoverageNumerator": "comparable-query-reference-bases-excluding-cdna-deficit-operations",
@@ -1946,6 +1979,7 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
         thresholds: ONTMHCCandidateThresholds,
         rawCandidateCount: Int,
         canonicalCandidateCount: Int,
+        partialExtensionReconciliationCount: Int,
         rawUnnameableCount: Int,
         externalUnnameableCount: Int,
         incompleteCandidateDemotionCount: Int,
@@ -1964,6 +1998,10 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
             "terminalLocalClipRescueMismatchAllowance": "max(1,floor(0.20*missing-bases))",
             "terminalLocalClipRescueMissingBasesUpperBoundExclusive": String(thresholds.minimumIntronGapBases),
             "candidateMergeFields": "classification,locus,provisional-name,closest-reference-name,closest-reference-raw-id,closest-reference-class,extension-of,provisional-naming-ambiguous",
+            "partialExtensionCanonicalReconciliationRule": "identical-published-sequence;same-locus;same-compatible-genomic-allele;partial-extension-or-novel-only;no-I-D-N;partial-extension-wins;raw-interpretations-retained-in-source-map",
+            "partialExtensionCanonicalReconciliationCount": String(
+                partialExtensionReconciliationCount
+            ),
             "representativeRule": "highest-total-cluster-reads;then-lexical-raw-stable-id",
             "observationMergeKey": "canonical-stable-cluster-id,sample-id,read-group-id",
             "observationAggregationRule": "sum-read-counts;union-source-cluster-ids-and-counts;deduplicate-compact-hit-shapes",
@@ -1995,7 +2033,7 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
             "\($0.path)|sha256=\($0.sha256)|size-bytes=\($0.sizeBytes)"
         }.sorted().joined(separator: ";")
         return [
-            "documentSchemaVersion": "4",
+            "documentSchemaVersion": "5",
             "evidenceArtifacts": evidenceArtifacts,
             "reciprocalBAMPath": reciprocalBAMPath,
             "reciprocalLocatorIdentity": "bam-path,query-name,reference-name,read-group-id,reference-start,cigar",

@@ -1519,7 +1519,7 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         XCTAssertEqual(malformed.calls.count, 1)
         XCTAssertEqual(malformed.integrityWarnings.first?.code, .candidateArtifactMalformedJSON)
 
-        let schemaFixture = try CandidateBundleFixture(candidateSchemaVersion: 5)
+        let schemaFixture = try CandidateBundleFixture(candidateSchemaVersion: 6)
         defer { schemaFixture.remove() }
         let schema = try ONTGenotypeResultBundle.loadResult(from: schemaFixture.bundleURL)
         XCTAssertEqual(schema.calls.count, 1)
@@ -1527,7 +1527,7 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
 
         let unnameableSchemaFixture = try CandidateBundleFixture(
             candidateSchemaVersion: 1,
-            unnameableSchemaVersion: 5
+            unnameableSchemaVersion: 6
         )
         defer { unnameableSchemaFixture.remove() }
         let unnameableSchema = try ONTGenotypeResultBundle.loadResult(

@@ -124,6 +124,11 @@ public struct ONTMHCCandidateArtifactManifest: Codable, Equatable, Sendable {
 public enum ONTMHCCandidateClassification: String, Codable, Sendable {
     case novel
     case `extension`
+    case partialExtension = "partial-extension"
+
+    public var isExtensionLike: Bool {
+        self == .extension || self == .partialExtension
+    }
 }
 
 public enum ONTMHCCandidateSupportClass: String, Codable, Sendable {

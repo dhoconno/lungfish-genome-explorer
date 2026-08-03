@@ -4424,6 +4424,8 @@ public final class GenotypeResultViewController: NSViewController {
             qualifiers.append("Novel candidate")
         case .extension:
             qualifiers.append("Extension candidate")
+        case .partialExtension:
+            qualifiers.append("Partial extension candidate")
         case nil:
             break
         }
@@ -4466,6 +4468,8 @@ public final class GenotypeResultViewController: NSViewController {
             details.append("Candidate classification: novel.")
         case .extension:
             details.append("Candidate classification: extension.")
+        case .partialExtension:
+            details.append("Candidate classification: partial extension.")
         case nil:
             break
         }

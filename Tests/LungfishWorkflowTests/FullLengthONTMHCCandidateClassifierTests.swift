@@ -37,6 +37,63 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
         XCTAssertEqual(calls.first?.evidence.cigar, "600=50I600=")
     }
 
+    func testIncompleteZeroSNPGenomicMatchWithCDNAExtensionIsPartialExtension() throws {
+        let cluster = makeCluster(
+            sequenceLength: 1_200,
+            alignments: [
+                alignment(reference: cdnaReference, cigar: "500=50I500="),
+                alignment(reference: genomicReference, cigar: "1100=100S"),
+            ]
+        )
+
+        guard case .candidate(let candidate) = try FullLengthONTMHCCandidateClassifier()
+            .classify(cluster) else {
+            return XCTFail("Expected partial extension candidate")
+        }
+        XCTAssertEqual(candidate.classification, .partialExtension)
+        XCTAssertEqual(
+            candidate.provisionalName,
+            "Mafa-A1*018:01:01:01_partial_ext"
+        )
+        XCTAssertEqual(candidate.extensionOf, ["Mafa-A1*018:01:01:01"])
+        XCTAssertEqual(candidate.snpCount, 0)
+        XCTAssertEqual(candidate.selectedEvidence.referenceName, genomicReference.sequenceID)
+    }
+
+    func testIncompleteZeroSNPGenomicMatchWithoutCDNAEvidenceIsPartialExtension() throws {
+        let cluster = makeCluster(
+            sequenceLength: 1_200,
+            alignments: [alignment(reference: genomicReference, cigar: "1100=100S")]
+        )
+
+        guard case .candidate(let candidate) = try FullLengthONTMHCCandidateClassifier()
+            .classify(cluster) else {
+            return XCTFail("Expected partial extension candidate")
+        }
+        XCTAssertEqual(candidate.classification, .partialExtension)
+        XCTAssertEqual(candidate.provisionalName, "Mafa-A1*018:01:01:01_partial_ext")
+        XCTAssertEqual(candidate.extensionOf, ["Mafa-A1*018:01:01:01"])
+        XCTAssertTrue(candidate.extensionInterpretations.isEmpty)
+        XCTAssertEqual(candidate.snpCount, 0)
+        XCTAssertEqual(candidate.selectedEvidence.referenceName, genomicReference.sequenceID)
+    }
+
+    func testExactEndToEndZeroSNPGenomicMatchRemainsKnownDespiteCDNAExtensionEvidence() throws {
+        let cluster = makeCluster(
+            sequenceLength: 1_200,
+            alignments: [
+                alignment(reference: cdnaReference, cigar: "500=50I500="),
+                alignment(reference: genomicReference, cigar: "1200="),
+            ]
+        )
+
+        guard case .known(let calls) = try FullLengthONTMHCCandidateClassifier()
+            .classify(cluster) else {
+            return XCTFail("Expected exact genomic known call")
+        }
+        XCTAssertEqual(calls.map(\.reference.sequenceID), [genomicReference.sequenceID])
+    }
+
     func testCompleteExactCDNAWithOnlyIntronSizedQueryInsertionsIsExtension() throws {
         let cluster = makeCluster(
             sequenceLength: 1_050,

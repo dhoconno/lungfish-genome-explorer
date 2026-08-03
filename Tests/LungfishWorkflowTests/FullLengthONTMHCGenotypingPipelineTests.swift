@@ -3187,7 +3187,8 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         ] {
             XCTAssertNotNil(structuralStep.resolvedOptions[key], key)
         }
-        XCTAssertEqual(structuralStep.resolvedOptions["candidateDocumentSchemaVersion"], .integer(4))
+        XCTAssertEqual(structuralStep.resolvedOptions["candidateDocumentSchemaVersion"], .integer(5))
+        XCTAssertNotNil(structuralStep.resolvedOptions["partialExtensionDeferralRule"])
         XCTAssertEqual(
             structuralStep.resolvedOptions["cohortCDNAReferenceCoverageDefinition"],
             .string("comparable query/reference bases / annotated cDNA reference length, clamped to 1; I/S/H deficit bases excluded")
@@ -4525,6 +4526,115 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(reportRows.map(\.genotype), ["Mamu-A1*001"])
         XCTAssertEqual(reportRows.map(\.passedUniqueReads), [12])
         XCTAssertEqual(reportRows.map(\.passedAlignments), [12])
+    }
+
+    func testStreamingClusterGenotyperDefersIncompleteGenomicMatchWithCDNAExtension() throws {
+        let cluster = FullLengthONTMHCClusterFASTARecord(
+            name: "DRB-partial-extension_ReadCount-12",
+            sequence: String(repeating: "A", count: 1_200),
+            readCount: 12
+        )
+        var accumulator = FullLengthONTMHCClusterGenotyper.StreamingAccumulator(
+            sampleID: "CN29",
+            clusterRecords: [cluster],
+            referenceLengths: ["genomic": 1_100, "cdna": 1_000],
+            referenceMoleculeClasses: ["genomic": .genomicDNA, "cdna": .cDNA],
+            referenceAlleleNames: [
+                "genomic": "Mamu-DRB*W001:01",
+                "cdna": "Mamu-DRB*W001:01",
+            ],
+            minUnmatchedReads: 5
+        )
+        try accumulator.consume(
+            allele: "genomic",
+            cluster: cluster.name,
+            flag: 0,
+            position: 1,
+            metrics: FullLengthONTMHCSAMMetrics(cigar: "1100=100S", nm: nil)
+        )
+        try accumulator.consume(
+            allele: "cdna",
+            cluster: cluster.name,
+            flag: 0,
+            position: 1,
+            metrics: FullLengthONTMHCSAMMetrics(cigar: "500=200D500=", nm: nil)
+        )
+
+        let summary = accumulator.summary()
+
+        XCTAssertTrue(summary.rows.isEmpty)
+        XCTAssertEqual(summary.unmatchedClusters.map(\.name), [cluster.name])
+        XCTAssertEqual(
+            summary.cdnaStructuralInterpretations.map(\.relationship),
+            [.extension]
+        )
+    }
+
+    func testStreamingClusterGenotyperDefersIncompleteGenomicMatchWithoutCDNAEvidence() throws {
+        let cluster = FullLengthONTMHCClusterFASTARecord(
+            name: "DRB-partial-overlap_ReadCount-12",
+            sequence: String(repeating: "A", count: 1_200),
+            readCount: 12
+        )
+        var accumulator = FullLengthONTMHCClusterGenotyper.StreamingAccumulator(
+            sampleID: "CN29",
+            clusterRecords: [cluster],
+            referenceLengths: ["genomic": 1_100],
+            referenceMoleculeClasses: ["genomic": .genomicDNA],
+            referenceAlleleNames: ["genomic": "Mamu-DRB*W001:01"],
+            minUnmatchedReads: 5
+        )
+        try accumulator.consume(
+            allele: "genomic",
+            cluster: cluster.name,
+            flag: 0,
+            position: 101,
+            metrics: FullLengthONTMHCSAMMetrics(cigar: "1100=", nm: nil)
+        )
+
+        let summary = accumulator.summary()
+
+        XCTAssertTrue(summary.rows.isEmpty)
+        XCTAssertEqual(summary.unmatchedClusters.map(\.name), [cluster.name])
+        XCTAssertTrue(summary.cdnaStructuralInterpretations.isEmpty)
+    }
+
+    func testStreamingClusterGenotyperKeepsExactGenomicMatchDespiteCDNAExtension() throws {
+        let cluster = FullLengthONTMHCClusterFASTARecord(
+            name: "DRB-exact_ReadCount-12",
+            sequence: String(repeating: "A", count: 1_200),
+            readCount: 12
+        )
+        var accumulator = FullLengthONTMHCClusterGenotyper.StreamingAccumulator(
+            sampleID: "CN29",
+            clusterRecords: [cluster],
+            referenceLengths: ["genomic": 1_200, "cdna": 1_000],
+            referenceMoleculeClasses: ["genomic": .genomicDNA, "cdna": .cDNA],
+            referenceAlleleNames: [
+                "genomic": "Mamu-DRB*W001:01",
+                "cdna": "Mamu-DRB*W001:01",
+            ],
+            minUnmatchedReads: 5
+        )
+        try accumulator.consume(
+            allele: "genomic",
+            cluster: cluster.name,
+            flag: 0,
+            position: 1,
+            metrics: FullLengthONTMHCSAMMetrics(cigar: "1200=", nm: nil)
+        )
+        try accumulator.consume(
+            allele: "cdna",
+            cluster: cluster.name,
+            flag: 0,
+            position: 1,
+            metrics: FullLengthONTMHCSAMMetrics(cigar: "500=200D500=", nm: nil)
+        )
+
+        let summary = accumulator.summary()
+
+        XCTAssertEqual(summary.rows.map(\.allele), ["Mamu-DRB*W001:01"])
+        XCTAssertTrue(summary.unmatchedClusters.isEmpty)
     }
 
     func testClusterGenotyperReportsSNPClosestMatchForUnmatchedCluster() throws {

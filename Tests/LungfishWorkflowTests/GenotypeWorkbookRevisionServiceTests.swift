@@ -459,12 +459,12 @@ final class GenotypeWorkbookRevisionServiceTests: XCTestCase {
         try assertNoRetiredWorkbookGeneration(in: paused.root)
     }
 
-    func testExplicitWorkbookUpdateAcceptsWriterShapedSchemaV4UnnameableIdentity() throws {
+    func testExplicitWorkbookUpdateAcceptsWriterShapedSchemaV5CandidateDocument() throws {
         XCTAssertTrue(pythonCanImportOpenpyxl(), "The managed test runtime must provide openpyxl")
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
-        let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "schema-v4-update")
-        try installCandidateArtifacts(in: fixture.bundleURL, schemaVersion: 4)
+        let fixture = try makeGenericMatrixWorkbookBundle(in: root, outputName: "schema-v5-update")
+        try installCandidateArtifacts(in: fixture.bundleURL, schemaVersion: 5)
         try installMinimalUnifiedPivot(in: fixture.bundleURL)
         let beforeScientificArtifacts = try ONTGenotypeResultBundle.loadManifest(from: fixture.bundleURL)
         let evidenceURL = ONTGenotypeResultBundle.resolvedURL(

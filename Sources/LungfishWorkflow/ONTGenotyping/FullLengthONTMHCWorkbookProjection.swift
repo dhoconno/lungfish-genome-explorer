@@ -291,6 +291,10 @@ enum FullLengthONTMHCUnmatchedWorksheetBuilder {
             return .sharedExtension
         case (ONTMHCCandidateClassification.extension.rawValue, _):
             return .singletonExtension
+        case (ONTMHCCandidateClassification.partialExtension.rawValue, ONTMHCCandidateSupportClass.shared.rawValue):
+            return .sharedExtension
+        case (ONTMHCCandidateClassification.partialExtension.rawValue, _):
+            return .singletonExtension
         default:
             return nil
         }
@@ -1081,6 +1085,8 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
         case (.novel, .singleton): .singletonNovel
         case (.extension, .shared): .sharedExtension
         case (.extension, .singleton): .singletonExtension
+        case (.partialExtension, .shared): .sharedExtension
+        case (.partialExtension, .singleton): .singletonExtension
         }
     }
 

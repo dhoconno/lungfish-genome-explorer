@@ -1879,7 +1879,9 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 ]),
                 "alignmentCountSemantics": .string("unique-schema-v1-locator-tuples"),
                 "queryCountSemantics": .string("unique-locator-count-per-query-and-target"),
-                "exactGenomicRule": .string("zero SNP substitutions; existing genomic indel-only behavior retained"),
+                "exactGenomicRule": .string("zero SNP substitutions; exact end-to-end genomic known status additionally requires full reference and consensus spans from target position 1 with no I/D/N/S/H"),
+                "partialExtensionDeferralRule": .string("a zero-SNP genomic overlap with no I/D/N but incomplete reference or consensus end coverage is deferred from initial known calls for reciprocal partial-extension classification; an exact end-to-end genomic match still wins"),
+                "legacyBroadGenomicRule": .string("zero-SNP genomic relationships containing internal I/D/N events retain prior known-call behavior unless qualifying cDNA extension evidence independently supports an extension"),
                 "cdnaCompatibilityRule": .string("zero SNP substitutions; cDNA reference coverage >= 0.95; no individual cDNA-deficit I/S/H event >= 20 bases"),
                 "knownCDNAStructuralRule": .string("compatible cDNA; cluster coverage >= 0.95; each terminal cluster flank < 20 bases; no individual cluster-side D/N segment >= 20 bases"),
                 "extensionCDNAStructuralRule": .string("compatible cDNA plus any terminal cluster flank or individual cluster-side D/N segment >= 20 bases"),
@@ -1895,7 +1897,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 "secondaryAlignmentCompletenessRule": .string("cohort minimap2 -N equals per-sample consensus target count; reciprocal minimap2 -N equals reference record count; secondary=yes; no fixed cap"),
                 "eventThresholdSemantics": .string("20-base threshold is applied to each individual event and each terminal side; event lengths are never summed to cross the threshold"),
                 "classificationPrecedence": .array([
-                    .string("exact genomic known"), .string("structural cDNA extension candidate"),
+                    .string("exact genomic known"), .string("partial extension candidate"),
+                    .string("structural cDNA extension candidate"),
                     .string("end-to-end cDNA known"), .string("SNP-defined novel"), .string("un-nameable"),
                 ]),
                 "perReferenceCollapseRule": .string("retain one best full-coverage interpretation per raw cDNA reference ID by relationship, cDNA coverage, cluster coverage, then score; retain all compatible reference IDs"),
@@ -1903,7 +1906,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 "genomicLocusResolutionRule": .string("unambiguous genomic reciprocal evidence resolves locus and closest comparison; naming cDNAs are filtered to that locus while all compatible cDNA interpretations remain in the audit payload"),
                 "provisionalNamingAmbiguityRule": .string("one compatible in-locus cDNA name supplies _ext base; otherwise genomic closest supplies base and provisional_naming_ambiguous is true"),
                 "candidateSequenceIdentityRule": .string("complete consensus, reverse-complemented as a whole when selected strand is reverse; mapped-interval crop is metadata only and never defines candidate identity, deduplicated FASTA, reciprocal input, or full-length Excel sequence"),
-                "candidateDocumentSchemaVersion": .integer(4),
+                "candidateDocumentSchemaVersion": .integer(5),
                 "referenceMoleculeClassSource": .string("materialized annotated MHC reference catalog; length threshold is fallback only when metadata is absent"),
                 "retainedCDNAExtensionInterpretationCount": .integer(
                     genotypingHitSummariesByTarget.values.reduce(0) {
@@ -8657,6 +8660,8 @@ enum FullLengthONTMHCUnifiedPivotWorkbookBuilder {
         case (.novel, false): .singletonNovel
         case (.extension, true): .sharedExtension
         case (.extension, false): .singletonExtension
+        case (.partialExtension, true): .sharedExtension
+        case (.partialExtension, false): .singletonExtension
         }
     }
 }

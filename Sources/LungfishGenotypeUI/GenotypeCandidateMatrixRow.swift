@@ -200,6 +200,8 @@ enum GenotypeCandidateMatrixProjection {
         case (.novel, .singleton): .singletonNovel
         case (.extension, .shared): .sharedExtension
         case (.extension, .singleton): .singletonExtension
+        case (.partialExtension, .shared): .sharedExtension
+        case (.partialExtension, .singleton): .singletonExtension
         }
     }
 

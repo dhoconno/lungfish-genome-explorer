@@ -3645,6 +3645,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             qualifiers.append("Novel candidate")
         case .extension:
             qualifiers.append("Extension candidate")
+        case .partialExtension:
+            qualifiers.append("Partial extension candidate")
         case nil:
             break
         }
@@ -3667,6 +3669,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             parts.append("Candidate classification: novel.")
         case .extension:
             parts.append("Candidate classification: extension.")
+        case .partialExtension:
+            parts.append("Candidate classification: partial extension.")
         case nil:
             break
         }

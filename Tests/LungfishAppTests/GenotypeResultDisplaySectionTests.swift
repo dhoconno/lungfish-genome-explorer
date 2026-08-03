@@ -9,6 +9,11 @@ import SwiftUI
 
 @MainActor
 final class GenotypeResultDisplaySectionTests: XCTestCase {
+    func testCandidateDocumentSchemaFiveIsSupported() {
+        XCTAssertTrue(isSupportedMHCCandidateDocumentSchemaVersion(5))
+        XCTAssertFalse(isSupportedMHCCandidateDocumentSchemaVersion(6))
+    }
+
     func testMatrixVisibilityCapabilityPresentsExactScopeAndActiveStatus() {
         let viewModel = GenotypeResultDisplaySectionViewModel()
         let empty = GenotypeMatrixVisibilityCapabilitySnapshot(

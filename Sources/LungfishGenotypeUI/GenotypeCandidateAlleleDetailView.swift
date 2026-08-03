@@ -881,6 +881,7 @@ final class GenotypeCandidateAlleleDetailView: NSView {
         switch classification {
         case .novel: return "Novel"
         case .extension: return "Extension"
+        case .partialExtension: return "Partial extension"
         }
     }
 

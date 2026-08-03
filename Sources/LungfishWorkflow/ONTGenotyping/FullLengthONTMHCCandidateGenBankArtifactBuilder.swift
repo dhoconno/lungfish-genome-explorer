@@ -303,7 +303,7 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
         guard !stableID.isEmpty, !sequence.isEmpty, input.minimumIntronGapBases > 0 else {
             throw Error.invalidInput(stableClusterID: stableID, detail: "identity, sequence, and intron threshold must be nonempty and positive")
         }
-        let isExtension = input.subject.candidateRecord?.classification == .extension
+        let isExtension = input.subject.candidateRecord?.classification.isExtensionLike == true
 
         var annotations = [SequenceAnnotation(
             type: .source,
@@ -510,7 +510,7 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
             }
         } else if let evidence = input.subject.selectedEvidence,
                   let candidate = input.subject.candidateRecord,
-                  candidate.classification == .extension {
+                  candidate.classification.isExtensionLike {
             let orientation = input.selectedAlignmentIsReverse.map {
                 $0 ? "reverse" : "forward"
             } ?? "unavailable"
@@ -817,9 +817,18 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
             values.insert("Lungfish project: \(project)", at: 1)
         }
         if let candidate = input.subject.candidateRecord,
-           candidate.classification == .extension {
+           candidate.classification.isExtensionLike {
+            if candidate.classification == .partialExtension {
+                values.append(
+                    "Lungfish partial extension: the selected genomic comparison is zero-SNP across the shared sequence, but it is not an exact end-to-end match"
+                )
+                values.append(incompleteGenomicComparisonComment(candidate))
+            }
             if candidate.extensionOf.isEmpty {
-                values.append("Lungfish extension of: unavailable (no cDNA allele name recorded)")
+                let missingName = candidate.classification == .partialExtension
+                    ? "no compatible allele name recorded"
+                    : "no cDNA allele name recorded"
+                values.append("Lungfish extension of: unavailable (\(missingName))")
             } else {
                 values.append("Lungfish extension of: \(candidate.extensionOf.joined(separator: ", "))")
             }
@@ -843,10 +852,37 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
                 )
             }
             if candidate.provisionalNamingAmbiguous {
-                values.append("Lungfish provisional naming ambiguity: multiple compatible cDNA allele names; provisional base name was not assigned from a unique cDNA interpretation")
+                if candidate.classification == .partialExtension {
+                    values.append("Lungfish provisional naming ambiguity: multiple compatible allele names; provisional base name was not assigned from a unique interpretation")
+                } else {
+                    values.append("Lungfish provisional naming ambiguity: multiple compatible cDNA allele names; provisional base name was not assigned from a unique cDNA interpretation")
+                }
             }
         }
         return values
+    }
+
+    func incompleteGenomicComparisonComment(_ candidate: ONTMHCCandidateRecord) -> String {
+        let firstSum = candidate.snpCount.addingReportingOverflow(candidate.insertedBases)
+        let completeSum = firstSum.partialValue.addingReportingOverflow(candidate.deletedBases)
+        guard !firstSum.overflow,
+              !completeSum.overflow,
+              let metrics = try? FullLengthONTMHCSAMMetrics(
+                cigar: candidate.selectedEvidence.cigar,
+                nm: completeSum.partialValue
+              ) else {
+            return "Lungfish incomplete genomic comparison: start=\(candidate.selectedEvidence.referenceStart); cigar=\(candidate.selectedEvidence.cigar); detailed CIGAR metrics unavailable"
+        }
+        return "Lungfish incomplete genomic comparison: "
+            + "start=\(candidate.selectedEvidence.referenceStart); "
+            + "cigar=\(candidate.selectedEvidence.cigar); "
+            + "reference span=\(metrics.referenceSpan); "
+            + "candidate span=\(metrics.querySpan); "
+            + "insertions=\(metrics.insertedBases); "
+            + "deletions=\(metrics.deletedBases); "
+            + "skipped=\(metrics.skippedReferenceBases); "
+            + "soft clipped=\(metrics.softClippedBases); "
+            + "hard clipped=\(metrics.hardClippedBases)"
     }
 
     func copiedRecordFields(_ reference: ONTMHCReferenceVisualizationRecord?) -> [GenBankRecordField] {

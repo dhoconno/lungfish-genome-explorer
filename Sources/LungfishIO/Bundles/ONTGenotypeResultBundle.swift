@@ -3220,14 +3220,14 @@ public enum ONTGenotypeResultBundle {
         guard let dictionary = object as? [String: Any], let schema = dictionary["schema_version"] as? Int else {
             throw integrityFailure(
                 .candidateArtifactMalformedJSON,
-                "Candidate artifact must be a JSON object with integer schema_version 1, 2, 3, or 4.",
+                "Candidate artifact must be a JSON object with integer schema_version 1, 2, 3, 4, or 5.",
                 path: path
             )
         }
-        guard (1 ... 4).contains(schema) else {
+        guard (1 ... 5).contains(schema) else {
             throw integrityFailure(
                 .candidateArtifactSchemaUnsupported,
-                "Candidate artifact schema \(schema) is unsupported; expected schema 1, 2, 3, or 4.",
+                "Candidate artifact schema \(schema) is unsupported; expected schema 1, 2, 3, 4, or 5.",
                 path: path
             )
         }
@@ -3460,7 +3460,8 @@ public enum ONTGenotypeResultBundle {
         unnameable: ONTMHCUnnameableClustersDocument?,
         documentPath: String
     ) throws {
-        guard candidates?.schemaVersion == 4 || unnameable?.schemaVersion == 4 else { return }
+        guard (candidates?.schemaVersion ?? 0) >= 4
+                || (unnameable?.schemaVersion ?? 0) >= 4 else { return }
         var ownerByRawSourceID: [String: String] = [:]
         for record in candidates?.candidates ?? [] {
             let owner = "candidate:\(record.stableClusterID)"

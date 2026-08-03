@@ -1919,6 +1919,46 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         XCTAssertFalse(comments.contains { $0.hasPrefix("INTRON-") })
     }
 
+    func testPartialExtensionCommentsExplainCDNAEvidenceAndIncompleteGenomicMatch() throws {
+        let interpretation = ONTMHCCDNAExtensionInterpretation(
+            rawReferenceID: "ref-cdna", alleleName: "Mamu-DRB*W001:01", locus: "Mamu-DRB",
+            cDNAReferenceCoverage: 1, clusterCoverage: 0.8,
+            leadingClusterFlankBases: 0, trailingClusterFlankBases: 100,
+            largestClusterStructuralSegmentBases: 100, largestCDNADeficitSegmentBases: 0,
+            snpSubstitutions: 0, ordinaryIndelBases: 0, isReverse: false,
+            alignmentScore: 1_000, identity: 1
+        )
+        let candidate = try makeCandidate(
+            stableID: "partial-extension-a", sequenceSHA256: "partial-extension-hash",
+            cigar: "8=1S", referenceName: "ref-genomic", referenceClass: .genomicDNA,
+            classification: .partialExtension, extensionOf: ["Mamu-DRB*W001:01"],
+            extensionInterpretations: [interpretation], snpCount: 0
+        )
+        let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+            subject: .candidate(candidate), sequence: "ATGGAAGCT", selectedAlignmentIsReverse: false,
+            closestReference: makeReference(
+                id: "ref-genomic",
+                sequence: "ATGGAAGC",
+                features: [feature(type: "CDS", start: 0, end: 8)]
+            ),
+            analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
+        )
+
+        let comments = try buildRecord(input).values(forRecordField: "COMMENT")
+
+        XCTAssertTrue(comments.contains {
+            $0 == "Lungfish partial extension: the selected genomic comparison is zero-SNP across the shared sequence, but it is not an exact end-to-end match"
+        })
+        XCTAssertTrue(comments.contains {
+            $0 == "Lungfish incomplete genomic comparison: start=1; cigar=8=1S; reference span=8; candidate span=9; insertions=0; deletions=0; skipped=0; soft clipped=1; hard clipped=0"
+        }, comments.joined(separator: "\n"))
+        XCTAssertTrue(comments.contains { $0 == "Lungfish extension of: Mamu-DRB*W001:01" })
+        XCTAssertTrue(comments.contains {
+            $0.contains("Lungfish cDNA sequence comparison:")
+                && $0.contains("allele=Mamu-DRB*W001:01")
+        })
+    }
+
     func testExtensionWithoutVisualizationOmitsReferenceComparisonPlaceholders() throws {
         let candidate = try makeCandidate(
             stableID: "extension-no-visualization", sequenceSHA256: "no-visualization-hash",
@@ -2117,7 +2157,8 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         classification: ONTMHCCandidateClassification = .novel,
         extensionOf: [String] = [],
         extensionInterpretations: [ONTMHCCDNAExtensionInterpretation] = [],
-        provisionalNamingAmbiguous: Bool = false
+        provisionalNamingAmbiguous: Bool = false,
+        snpCount: Int = 1
     ) throws -> ONTMHCCandidateRecord {
         let evidence = ONTMHCEvidenceLocator(
             bamPath: "artifacts/alignments/unmatched-to-reference.bam",
@@ -2135,7 +2176,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             supportClass: .shared,
             closestReferenceName: "Mafa-A1*001",
             closestReferenceClass: referenceClass,
-            snpCount: 1,
+            snpCount: snpCount,
             insertedBases: 0,
             deletedBases: 0,
             longGapBases: 0,
