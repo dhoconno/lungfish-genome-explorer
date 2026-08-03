@@ -1593,6 +1593,32 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         XCTAssertTrue(result.integrityWarnings.isEmpty)
     }
 
+    func testSchemaV5AcceptsPartialExtensionWithoutCDNAExtensionInterpretations() throws {
+        let fixture = try CandidateBundleFixture(
+            candidateSchemaVersion: 5,
+            unnameableSchemaVersion: 5
+        )
+        defer { fixture.remove() }
+        let data = try Data(contentsOf: fixture.candidateJSONURL)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        var candidates = try XCTUnwrap(object["candidates"] as? [[String: Any]])
+        candidates[0]["classification"] = "partial-extension"
+        candidates[0]["provisional_name"] = "Mafa-A1*001:01_partial_ext"
+        candidates[0]["extension_of"] = ["Mafa-A1*001:01"]
+        candidates[0]["extension_interpretations"] = []
+        object["candidates"] = candidates
+        try fixture.replaceCandidateJSON(try JSONSerialization.data(withJSONObject: object))
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertEqual(result.mhcCandidates?.candidates.first?.classification, .partialExtension)
+        XCTAssertEqual(
+            result.mhcCandidates?.candidates.first?.extensionOf,
+            ["Mafa-A1*001:01"]
+        )
+        XCTAssertTrue(result.integrityWarnings.isEmpty)
+    }
+
     func testSchemaV4RejectsRepresentativeAndObservationRawBindingMismatches() throws {
         let representativeFixture = try CandidateBundleFixture(
             candidateSchemaVersion: 4,

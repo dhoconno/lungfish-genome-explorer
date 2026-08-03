@@ -3299,14 +3299,23 @@ public enum ONTGenotypeResultBundle {
                 let rawIDs = interpretations.compactMap { $0["raw_reference_id"] as? String }
                 guard interpretationNames.count == interpretations.count,
                       rawIDs.count == interpretations.count,
-                      Set(rawIDs).count == rawIDs.count,
-                      Set(interpretationNames) == Set(extensionOf) else {
+                      Set(rawIDs).count == rawIDs.count else {
                     return false
                 }
-                if record["classification"] as? String == "extension" {
-                    return !extensionOf.isEmpty && !interpretations.isEmpty
+                let extensionNames = Set(extensionOf)
+                let interpretedNames = Set(interpretationNames)
+                switch record["classification"] as? String {
+                case "extension":
+                    return !extensionOf.isEmpty
+                        && !interpretations.isEmpty
+                        && interpretedNames == extensionNames
+                case "partial-extension":
+                    return schema >= 5
+                        && !extensionOf.isEmpty
+                        && interpretedNames.isSubset(of: extensionNames)
+                default:
+                    return extensionOf.isEmpty && interpretations.isEmpty
                 }
-                return extensionOf.isEmpty && interpretations.isEmpty
             }
             guard valid else {
                 throw integrityFailure(
