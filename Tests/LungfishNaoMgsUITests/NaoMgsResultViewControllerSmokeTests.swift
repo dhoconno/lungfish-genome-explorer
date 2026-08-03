@@ -592,11 +592,12 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
         scrollView.contentView.scroll(to: NSPoint(x: 0, y: 24))
         scrollView.reflectScrolledClipView(scrollView.contentView)
         let baselineOrigin = scrollView.contentView.bounds.origin
+        XCTAssertEqual(baselineOrigin.y, 24, accuracy: 0.5)
 
         settings.contentTextSizePreference = .custom(200)
         NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         controller.view.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        drainDeferredUIWork()
         XCTAssertEqual(ObjectIdentifier(try XCTUnwrap(controller.testOverviewHostingView)), baselineHostingIdentity)
         XCTAssertTrue(controller.testOverviewIsContained)
         XCTAssertGreaterThan(controller.testDetailContentView.frame.height, baselineHeight)
@@ -605,7 +606,7 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
         settings.contentTextSizePreference = .custom(100)
         NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         controller.view.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        drainDeferredUIWork()
         XCTAssertTrue(controller.testOverviewIsContained)
         XCTAssertEqual(controller.testDetailContentView.frame.height, baselineHeight, accuracy: 1)
         XCTAssertEqual(scrollView.contentView.bounds.origin, baselineOrigin)
@@ -614,7 +615,7 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
         provider.bodyPointSize = 26
         NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         controller.view.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        drainDeferredUIWork()
         XCTAssertTrue(controller.testOverviewIsContained)
         XCTAssertGreaterThan(controller.testDetailContentView.frame.height, baselineHeight)
         XCTAssertEqual(scrollView.contentView.bounds.origin, baselineOrigin)
@@ -622,7 +623,7 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
         provider.bodyPointSize = 13
         NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         controller.view.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        drainDeferredUIWork()
         XCTAssertTrue(controller.testOverviewIsContained)
         XCTAssertEqual(controller.testDetailContentView.frame.height, baselineHeight, accuracy: 1)
         XCTAssertEqual(scrollView.contentView.bounds.origin, baselineOrigin)
@@ -755,11 +756,12 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
         detailScroll.contentView.scroll(to: NSPoint(x: 0, y: 30))
         detailScroll.reflectScrolledClipView(detailScroll.contentView)
         let baselineScrollOrigin = detailScroll.contentView.bounds.origin
+        XCTAssertEqual(baselineScrollOrigin.y, 30, accuracy: 0.5)
 
         provider.bodyPointSize = 26
         NotificationCenter.default.post(name: .contentTextSizeDidChange, object: nil)
         controller.view.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.03))
+        drainDeferredUIWork()
 
         let enlargedSizes: [CGFloat?] = [
             title.font?.pointSize,
@@ -917,6 +919,16 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
             result.append(contentsOf: descendants(of: type, in: subview))
         }
         return result
+    }
+
+    @MainActor private func drainDeferredUIWork(iterations: Int = 3) {
+        for _ in 0..<iterations {
+            let deferredWorkCompleted = expectation(description: "Deferred UI work completed")
+            DispatchQueue.main.async {
+                deferredWorkCompleted.fulfill()
+            }
+            wait(for: [deferredWorkCompleted], timeout: 2)
+        }
     }
 }
 
