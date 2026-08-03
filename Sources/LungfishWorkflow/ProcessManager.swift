@@ -7,6 +7,7 @@
 import Foundation
 import os.log
 import LungfishCore
+import Darwin
 
 // MARK: - ProcessHandle
 
@@ -207,8 +208,8 @@ public actor ProcessManager: ProcessManaging {
     private struct ProcessEntry: @unchecked Sendable {
         let handle: ProcessHandle
         let process: Process
-        var stdoutContinuation: AsyncStream<String>.Continuation?
-        var stderrContinuation: AsyncStream<String>.Continuation?
+        let stdoutReader: PipeOutputReader
+        let stderrReader: PipeOutputReader
     }
 
     private final class PipeOutputLineBuffer: @unchecked Sendable {
@@ -255,6 +256,168 @@ public actor ProcessManager: ProcessManaging {
 
         private func decodeLine(_ data: Data) -> String {
             String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
+        }
+    }
+
+    private final class PipeOutputReader: @unchecked Sendable {
+        private static let callbackReadLimit = 1024 * 1024
+        // Darwin's FIONREAD (`_IOR('f', 127, int)`) is not imported into Swift.
+        private static let bytesAvailableIOControlRequest: UInt = 0x4004_667F
+
+        private let fileHandle: FileHandle
+        private let continuation: AsyncStream<String>.Continuation?
+        private let lineBuffer = PipeOutputLineBuffer()
+        private let queue = DispatchQueue(label: "org.lungfish.process-output-reader.\(UUID().uuidString)")
+        private let schedulingLock = NSLock()
+        private var readScheduled = false
+        private var isFinished = false
+
+        init(
+            pipe: Pipe,
+            continuation: AsyncStream<String>.Continuation?
+        ) throws {
+            self.fileHandle = pipe.fileHandleForReading
+            self.continuation = continuation
+            let descriptor = fileHandle.fileDescriptor
+            let flags = fcntl(descriptor, F_GETFL)
+            guard flags >= 0 else {
+                throw Self.posixError(operation: "read pipe flags")
+            }
+            guard fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) != -1 else {
+                throw Self.posixError(operation: "enable nonblocking pipe reads")
+            }
+            fileHandle.readabilityHandler = { [weak self] _ in
+                self?.scheduleRead()
+            }
+        }
+
+        func finishAfterProcessTermination() {
+            queue.sync {
+                guard !isFinished else { return }
+                fileHandle.readabilityHandler = nil
+                let availableByteCount = bufferedByteCount()
+                if availableByteCount > 0 {
+                    _ = drainAvailableData(maximumBytes: availableByteCount)
+                }
+                finish()
+            }
+        }
+
+        func cancel() {
+            queue.sync {
+                guard !isFinished else { return }
+                fileHandle.readabilityHandler = nil
+                isFinished = true
+                continuation?.finish()
+            }
+        }
+
+        private func scheduleRead() {
+            schedulingLock.lock()
+            guard !readScheduled else {
+                schedulingLock.unlock()
+                return
+            }
+            readScheduled = true
+            schedulingLock.unlock()
+
+            queue.async { [weak self] in
+                self?.performScheduledRead()
+            }
+        }
+
+        private func performScheduledRead() {
+            guard !isFinished else {
+                completeScheduledRead()
+                return
+            }
+            let result = drainAvailableData(maximumBytes: Self.callbackReadLimit)
+            completeScheduledRead()
+            if result.reachedEOF {
+                finish()
+            } else if result.exhaustedBudget {
+                scheduleRead()
+            }
+        }
+
+        private func completeScheduledRead() {
+            schedulingLock.lock()
+            readScheduled = false
+            schedulingLock.unlock()
+        }
+
+        /// Reads every byte currently available without waiting for a writer
+        /// inherited by a detached descendant to close its copy of the pipe.
+        private func drainAvailableData(
+            maximumBytes: Int
+        ) -> (reachedEOF: Bool, exhaustedBudget: Bool) {
+            let descriptor = fileHandle.fileDescriptor
+            var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+            var drainedByteCount = 0
+
+            while drainedByteCount < maximumBytes {
+                let requestedByteCount = min(buffer.count, maximumBytes - drainedByteCount)
+                let count = buffer.withUnsafeMutableBytes { bytes in
+                    Darwin.read(descriptor, bytes.baseAddress, requestedByteCount)
+                }
+                if count > 0 {
+                    consume(Data(buffer.prefix(count)))
+                    drainedByteCount += count
+                    continue
+                }
+                if count == 0 {
+                    return (true, false)
+                }
+                if errno == EINTR {
+                    continue
+                }
+                if errno == EAGAIN || errno == EWOULDBLOCK {
+                    return (false, false)
+                }
+
+                // The stream cannot surface a read error separately. Complete
+                // it with every byte already delivered instead of hanging the
+                // workflow indefinitely.
+                return (true, false)
+            }
+            return (false, true)
+        }
+
+        private func bufferedByteCount() -> Int {
+            var availableByteCount: Int32 = 0
+            guard ioctl(
+                fileHandle.fileDescriptor,
+                Self.bytesAvailableIOControlRequest,
+                &availableByteCount
+            ) != -1 else {
+                return Self.callbackReadLimit
+            }
+            return max(0, Int(availableByteCount))
+        }
+
+        private func consume(_ data: Data) {
+            guard !data.isEmpty else { return }
+            for line in lineBuffer.append(data) where !line.isEmpty {
+                continuation?.yield(line)
+            }
+        }
+
+        private func finish() {
+            guard !isFinished else { return }
+            isFinished = true
+            fileHandle.readabilityHandler = nil
+            for line in lineBuffer.finish() where !line.isEmpty {
+                continuation?.yield(line)
+            }
+            continuation?.finish()
+        }
+
+        private static func posixError(operation: String) -> NSError {
+            NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(errno),
+                userInfo: [NSLocalizedDescriptionKey: "Could not \(operation): \(String(cString: strerror(errno)))"]
+            )
         }
     }
 
@@ -343,16 +506,31 @@ public actor ProcessManager: ProcessManaging {
         let capturedTerminationContinuation = terminationContinuation
 
         // Start reading stdout asynchronously
-        self.setupPipeReader(
-            pipe: stdoutPipe,
-            continuation: stdoutContinuation
-        )
-
-        // Start reading stderr asynchronously
-        self.setupPipeReader(
-            pipe: stderrPipe,
-            continuation: stderrContinuation
-        )
+        let stdoutReader: PipeOutputReader
+        let stderrReader: PipeOutputReader
+        do {
+            stdoutReader = try self.setupPipeReader(
+                pipe: stdoutPipe,
+                continuation: stdoutContinuation
+            )
+            do {
+                stderrReader = try self.setupPipeReader(
+                    pipe: stderrPipe,
+                    continuation: stderrContinuation
+                )
+            } catch {
+                stdoutReader.cancel()
+                throw error
+            }
+        } catch {
+            stdoutContinuation?.finish()
+            stderrContinuation?.finish()
+            terminationContinuation.finish()
+            throw WorkflowError.processError(
+                operation: "configure process output pipes",
+                underlying: error
+            )
+        }
 
         // Set up termination handler
         process.terminationHandler = { [weak self, logger, handleId] terminatedProcess in
@@ -389,8 +567,8 @@ public actor ProcessManager: ProcessManaging {
             logger.error("Failed to launch process: \(error.localizedDescription)")
 
             // Clean up continuations
-            stdoutContinuation?.finish()
-            stderrContinuation?.finish()
+            stdoutReader.cancel()
+            stderrReader.cancel()
             terminationContinuation.finish()
 
             throw WorkflowError.processError(
@@ -417,8 +595,8 @@ public actor ProcessManager: ProcessManaging {
         let entry = ProcessEntry(
             handle: updatedHandle,
             process: process,
-            stdoutContinuation: stdoutContinuation,
-            stderrContinuation: stderrContinuation
+            stdoutReader: stdoutReader,
+            stderrReader: stderrReader
         )
         activeProcesses[handleId] = entry
 
@@ -433,28 +611,8 @@ public actor ProcessManager: ProcessManaging {
     private nonisolated func setupPipeReader(
         pipe: Pipe,
         continuation: AsyncStream<String>.Continuation?
-    ) {
-        let fileHandle = pipe.fileHandleForReading
-        let capturedContinuation = continuation
-        let lineBuffer = PipeOutputLineBuffer()
-
-        fileHandle.readabilityHandler = { handle in
-            let data = handle.availableData
-
-            if data.isEmpty {
-                // EOF reached
-                handle.readabilityHandler = nil
-                for line in lineBuffer.finish() where !line.isEmpty {
-                    capturedContinuation?.yield(line)
-                }
-                capturedContinuation?.finish()
-                return
-            }
-
-            for line in lineBuffer.append(data) where !line.isEmpty {
-                capturedContinuation?.yield(line)
-            }
-        }
+    ) throws -> PipeOutputReader {
+        try PipeOutputReader(pipe: pipe, continuation: continuation)
     }
 
     /// Called when a process terminates.
@@ -462,9 +620,12 @@ public actor ProcessManager: ProcessManaging {
         guard let entry = activeProcesses[handleId] else { return }
         NativeProcessRegistry.shared.unregister(entry.process)
 
-        // Finish the continuations
-        entry.stdoutContinuation?.finish()
-        entry.stderrContinuation?.finish()
+        // A process can terminate before FileHandle delivers its final
+        // readability callback. Drain both pipes explicitly before completing
+        // their streams so callers receive every buffered byte without waiting
+        // indefinitely for a later EOF notification.
+        entry.stdoutReader.finishAfterProcessTermination()
+        entry.stderrReader.finishAfterProcessTermination()
 
         // Remove from active processes
         activeProcesses.removeValue(forKey: handleId)

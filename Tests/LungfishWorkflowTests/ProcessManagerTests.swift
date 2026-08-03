@@ -42,6 +42,74 @@ final class ProcessManagerTests: XCTestCase {
         XCTAssertEqual(result.stderr, "warn ing\ntail")
     }
 
+    func testRunAndWaitDrainsOutputWrittenImmediatelyBeforeExit() async throws {
+        let tempDir = try makeTemporaryDirectory()
+        let scriptURL = tempDir.appendingPathComponent("exit-output.sh")
+        let script = """
+        #!/bin/sh
+        printf 'stdout-tail'
+        printf 'stderr-tail' >&2
+        """
+        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: scriptURL.path
+        )
+
+        for iteration in 0..<25 {
+            let result = try await ProcessManager.shared.runAndWait(
+                executable: scriptURL,
+                arguments: [],
+                workingDirectory: tempDir,
+                environment: nil
+            )
+
+            XCTAssertEqual(result.exitCode, 0, "iteration \(iteration)")
+            XCTAssertEqual(result.stdout, "stdout-tail", "iteration \(iteration)")
+            XCTAssertEqual(result.stderr, "stderr-tail", "iteration \(iteration)")
+        }
+    }
+
+    func testRunAndWaitDoesNotWaitForBackgroundDescendantHoldingPipesOpen() async throws {
+        let tempDir = try makeTemporaryDirectory()
+        let scriptURL = tempDir.appendingPathComponent("background-pipe-holder.sh")
+        let childPIDFile = tempDir.appendingPathComponent("child.pid")
+        let script = """
+        #!/bin/sh
+        printf 'root-stdout\n'
+        (while :; do printf 'child-output'; done) &
+        echo $! > "$1"
+        printf 'root-stderr' >&2
+        """
+        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: scriptURL.path
+        )
+        defer {
+            if let childPIDText = try? String(contentsOf: childPIDFile, encoding: .utf8),
+               let childPID = Int32(
+                    childPIDText.trimmingCharacters(in: .whitespacesAndNewlines)
+               ) {
+                kill(childPID, SIGTERM)
+            }
+        }
+
+        let start = Date()
+        let result = try await ProcessManager.shared.runAndWait(
+            executable: scriptURL,
+            arguments: [childPIDFile.path],
+            workingDirectory: tempDir,
+            environment: nil
+        )
+        let elapsed = Date().timeIntervalSince(start)
+
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertTrue(result.stdout.hasPrefix("root-stdout\n"))
+        XCTAssertEqual(result.stderr, "root-stderr")
+        XCTAssertLessThan(elapsed, 1.5)
+    }
+
     func testTerminateKillsSpawnedProcessTree() async throws {
         let tempDir = try makeTemporaryDirectory()
         let childPIDFile = tempDir.appendingPathComponent("child.pid")
