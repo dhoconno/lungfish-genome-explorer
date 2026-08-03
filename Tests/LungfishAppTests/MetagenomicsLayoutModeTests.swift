@@ -1052,14 +1052,19 @@ final class MetagenomicsLayoutModeTests: XCTestCase {
         setLayoutPreference(.stacked, legacyTableOnLeft: false)
 
         let vc = TaxTriageResultViewController()
-        _ = vc.view
-        vc.view.frame = NSRect(x: 0, y: 0, width: 1200, height: 800)
-        vc.testSplitView.frame = NSRect(x: 0, y: 0, width: 1200, height: 700)
-        vc.testSplitView.layoutSubtreeIfNeeded()
-        vc.viewDidLayout()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
+            styleMask: [.titled, .resizable, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = vc
+        window.layoutIfNeeded()
+        vc.view.layoutSubtreeIfNeeded()
         vc.testLeftPaneContainer.isHidden = true
 
         let totalExtent = vc.testSplitView.bounds.height
+        XCTAssertGreaterThan(totalExtent, 0)
         let clamped = vc.splitView(
             vc.testSplitView,
             constrainSplitPosition: totalExtent,

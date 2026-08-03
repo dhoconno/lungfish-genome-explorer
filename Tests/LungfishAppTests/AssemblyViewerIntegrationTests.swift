@@ -8,7 +8,16 @@ final class AssemblyViewerIntegrationTests: XCTestCase {
     func testBlastCallbackReceivesRealFastaPayload() async throws {
         let vc = AssemblyResultViewController()
         _ = vc.view
-        try await vc.configureForTesting(result: makeAssemblyResult())
+        try await vc.configureForTesting(
+            result: makeAssemblyResult(),
+            materializationRunner: { _ in
+                LungfishCLIRunner.Output(
+                    stdout: ">contig_7 annotated header\nAACCGGTT\n",
+                    stderr: "",
+                    status: 0
+                )
+            }
+        )
 
         let exp = expectation(description: "blast callback")
         vc.onBlastVerification = { request in

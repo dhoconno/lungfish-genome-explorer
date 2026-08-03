@@ -1136,6 +1136,7 @@ final class MappingViewportRoutingTests: XCTestCase {
             updateRunner: { request, _ in
                 request.bundleURL.appendingPathComponent("current.xlsx")
             },
+            workbookOpener: { _ in },
             idleScheduler: { _, _ in IdleCancellation() }
         )
         let splitController = MainSplitViewController()

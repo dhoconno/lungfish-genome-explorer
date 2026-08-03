@@ -359,7 +359,7 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
         )
     }
 
-    func testInspectorDocumentOmitsInjectedMHCAlignmentArtifactsForNonFullLengthResult() throws {
+    func testInspectorDocumentListsOnlyGenotypingEvidenceForNonFullLengthResult() throws {
         let bundleURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeNonMHCAlignmentArtifactRows-\(UUID().uuidString)", isDirectory: true)
         let alignmentArtifactURLs = ONTMHCAlignmentArtifactURLs(
@@ -379,14 +379,16 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
         ))
 
         let rows = try XCTUnwrap(inspector.viewModel.documentSectionViewModel.genotypeResultDocument?.artifactRows)
-        for label in [
-            "Genotyping Evidence BAM",
-            "Genotyping Evidence BAI",
-            "Reciprocal Evidence BAM",
-            "Reciprocal Evidence BAI",
-        ] {
-            XCTAssertFalse(rows.contains { $0.label == label })
-        }
+        XCTAssertTrue(rows.contains {
+            $0.label == "Genotyping Evidence BAM"
+                && $0.fileURL == alignmentArtifactURLs.genotypingBAM?.standardizedFileURL
+        })
+        XCTAssertTrue(rows.contains {
+            $0.label == "Genotyping Evidence BAI"
+                && $0.fileURL == alignmentArtifactURLs.genotypingBAI?.standardizedFileURL
+        })
+        XCTAssertFalse(rows.contains { $0.label == "Reciprocal Evidence BAM" })
+        XCTAssertFalse(rows.contains { $0.label == "Reciprocal Evidence BAI" })
     }
 
     func testInspectorDocumentExposesCurrentWorkbookUpdateWhenManualHaplotypesChanged() throws {

@@ -686,9 +686,13 @@ extension AssemblyResultViewController: NSSplitViewDelegate {
 extension AssemblyResultViewController {
     func configureForTesting(
         result: AssemblyResult,
-        scalarPasteboard: PasteboardWriting = DefaultPasteboard()
+        scalarPasteboard: PasteboardWriting = DefaultPasteboard(),
+        materializationRunner: AssemblyContigMaterializationAction.Runner? = nil
     ) async throws {
         self.scalarPasteboard = scalarPasteboard
+        if let materializationRunner {
+            materializationAction.runner = materializationRunner
+        }
         loadGeneration += 1
         let generation = loadGeneration
         try await load(result: result, generation: generation)
