@@ -107,6 +107,35 @@ final class FullLengthONTMHCFinalBAMParserTests: XCTestCase {
         XCTAssertTrue(summary.cdnaMatchedClusters.isEmpty)
     }
 
+    func testAnnotatedAlleleNameIsUsedForKnownCallWhileSequenceIDIsRetained() throws {
+        let fixture = try Fixture.singleReference(
+            referenceLength: 1_000,
+            clusterLength: 1_000,
+            moleculeClass: .genomicDNA
+        )
+        defer { fixture.remove() }
+        try fixture.writeSAM(records: [
+            fixture.record(qname: "allele-A", rname: "S1|cluster_ReadCount-8", cigar: "1000="),
+        ])
+        let localizedReferences = fixture.annotatedReferences.map {
+            MHCReferenceRecord(
+                sequenceID: $0.sequenceID,
+                alleleName: "Mamu-DRB*W001:01",
+                locus: "Mamu-DRB",
+                moleculeClass: $0.moleculeClass,
+                classEvidence: $0.classEvidence,
+                sequenceLength: $0.sequenceLength
+            )
+        }
+
+        let summary = try XCTUnwrap(
+            try fixture.parse(referenceRecords: localizedReferences)["S1"]
+        )
+
+        XCTAssertEqual(summary.rows.map(\.allele), ["Mamu-DRB*W001:01"])
+        XCTAssertEqual(summary.rows.map(\.referenceSequenceID), ["allele-A"])
+    }
+
     func testAllowsOneBaseCDNAIndelInEndToEndKnownMatch() throws {
         let fixture = try Fixture.singleReference(
             referenceLength: 1_000,

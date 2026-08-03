@@ -1316,11 +1316,7 @@ extension ImportCommand {
             if let explicitName {
                 rawName = explicitName
             } else {
-                var stripped = sourceURL
-                while !stripped.pathExtension.isEmpty {
-                    stripped = stripped.deletingPathExtension()
-                }
-                rawName = stripped.lastPathComponent
+                rawName = ReferenceBundleImportService.defaultBundleName(for: sourceURL)
             }
 
             let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)

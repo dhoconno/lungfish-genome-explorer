@@ -31,7 +31,6 @@ final class ImportFastaGenBankAnnotationTests: XCTestCase {
         let command = try ImportCommand.FASTASubcommand.parse([
             inputURL.path,
             "--output-dir", projectURL.path,
-            "--name", "MN908947.3",
             "--quiet",
         ])
         try await command.run()

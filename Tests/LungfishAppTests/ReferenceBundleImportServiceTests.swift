@@ -204,4 +204,25 @@ final class ReferenceBundleImportServiceTests: XCTestCase {
             "fna"
         )
     }
+
+    func testDefaultBundleNamePreservesVersionPunctuation() {
+        XCTAssertEqual(
+            ReferenceBundleImportService.defaultBundleName(
+                for: URL(fileURLWithPath: "/tmp/IPD-MHC_NHKIR_Mamu-DRB.v3.17.0.0.2.gb")
+            ),
+            "IPD-MHC_NHKIR_Mamu-DRB.v3.17.0.0.2"
+        )
+        XCTAssertEqual(
+            ReferenceBundleImportService.defaultBundleName(
+                for: URL(fileURLWithPath: "/tmp/IPD-MHC_NHKIR_Mamu-DRB.v3.17.0.0.2.gb.gz")
+            ),
+            "IPD-MHC_NHKIR_Mamu-DRB.v3.17.0.0.2"
+        )
+        XCTAssertEqual(
+            ReferenceBundleImportService.defaultBundleName(
+                for: URL(fileURLWithPath: "/tmp/reference.release.2026.fa")
+            ),
+            "reference.release.2026"
+        )
+    }
 }

@@ -4963,6 +4963,25 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(reportRows[0].passedUniqueReads, 34)
     }
 
+    func testAssignedReadCountCountsCompatibleAlleleTiesOncePerCluster() {
+        let rows = ["Mamu-DRB*W001:01", "Mamu-DRB*W002:01"].map { allele in
+            FullLengthONTMHCClusterGenotypeRow(
+                sample: "CN29",
+                cluster: "final_consensus_0_depth_12",
+                clusterReads: 12,
+                allele: allele,
+                alleleLength: 6_000,
+                alignedBases: 3_800,
+                score: 3_800
+            )
+        }
+
+        XCTAssertEqual(
+            FullLengthONTMHCClusterReportBuilder.assignedReadCount(genotypeRows: rows),
+            12
+        )
+    }
+
     func testReciprocalKnownTiesCountSourceReadsOnceAndWorkbookPreservesReferenceIdentity() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("full-length-ont-mhc-reciprocal-known-ties-\(UUID().uuidString)", isDirectory: true)

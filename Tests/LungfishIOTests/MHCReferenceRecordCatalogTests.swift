@@ -275,6 +275,108 @@ final class MHCReferenceRecordCatalogTests: XCTestCase {
         XCTAssertEqual(record.locus, "Mafa-B")
     }
 
+    func testEstablishedDRBWAlleleIsAcceptedFromAnnotations() throws {
+        let bundleURL = try makeBundle(
+            fasta: """
+            >NHP00524 Mamu-DRB*W001:01, DRB locus allele.
+            AAAAAAAAAA
+            """,
+            annotations: [
+                .init(
+                    sequenceID: "NHP00524",
+                    sequenceLength: 10,
+                    fields: [
+                        "feature.allele": ["Mamu-DRB*W001:01"],
+                        "feature.gene": ["DRB"],
+                        "feature.mol_type": ["genomic DNA"],
+                    ]
+                )
+            ]
+        )
+
+        let record = try XCTUnwrap(
+            MHCReferenceRecordCatalog.load(from: bundleURL)
+                .record(sequenceID: "NHP00524")
+        )
+
+        XCTAssertEqual(record.alleleName, "Mamu-DRB*W001:01")
+        XCTAssertEqual(record.locus, "Mamu-DRB")
+    }
+
+    func testEstablishedDRBWAlleleIsAcceptedFromFASTAHeader() throws {
+        let bundleURL = try makeBundle(
+            fasta: """
+            >NHP00527 Mamu-DRB*W020:02:01:01, DRB locus allele.
+            AAAAAAAAAA
+            """,
+            annotations: nil
+        )
+
+        let record = try XCTUnwrap(
+            MHCReferenceRecordCatalog.load(from: bundleURL)
+                .record(sequenceID: "NHP00527")
+        )
+
+        XCTAssertEqual(record.alleleName, "Mamu-DRB*W020:02:01:01")
+        XCTAssertEqual(record.locus, "Mamu-DRB")
+    }
+
+    func testUnknownAlphabeticPrimaryAllelePrefixRemainsRejected() throws {
+        let bundleURL = try makeBundle(
+            fasta: """
+            >unknown-prefix reference record
+            AAAAAAAAAA
+            """,
+            annotations: [
+                .init(
+                    sequenceID: "unknown-prefix",
+                    sequenceLength: 10,
+                    fields: [
+                        "feature.allele": ["Mamu-DRB*X001:01"],
+                        "feature.gene": ["DRB"],
+                        "feature.mol_type": ["genomic DNA"],
+                    ]
+                )
+            ]
+        )
+
+        XCTAssertThrowsError(try MHCReferenceRecordCatalog.load(from: bundleURL)) { error in
+            guard case let MHCReferenceRecordCatalogError.invalidAlleleAnnotations(sequenceID, values) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertEqual(sequenceID, "unknown-prefix")
+            XCTAssertEqual(values, ["Mamu-DRB*X001:01"])
+        }
+    }
+
+    func testWPrimaryAllelePrefixRemainsRestrictedToDRBLoci() throws {
+        let bundleURL = try makeBundle(
+            fasta: """
+            >wrong-locus reference record
+            AAAAAAAAAA
+            """,
+            annotations: [
+                .init(
+                    sequenceID: "wrong-locus",
+                    sequenceLength: 10,
+                    fields: [
+                        "feature.allele": ["Mamu-A1*W001:01"],
+                        "feature.gene": ["A1"],
+                        "feature.mol_type": ["genomic DNA"],
+                    ]
+                )
+            ]
+        )
+
+        XCTAssertThrowsError(try MHCReferenceRecordCatalog.load(from: bundleURL)) { error in
+            guard case let MHCReferenceRecordCatalogError.invalidAlleleAnnotations(sequenceID, values) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertEqual(sequenceID, "wrong-locus")
+            XCTAssertEqual(values, ["Mamu-A1*W001:01"])
+        }
+    }
+
     func testControlledProvisionalAlleleFieldsAreAcceptedFromAnnotations() throws {
         let bundleURL = try makeBundle(
             fasta: """

@@ -146,7 +146,7 @@ public final class ReferenceBundleImportService: @unchecked Sendable {
         OperationMarker.markInProgress(outputDirectory, detail: "Importing reference bundle\u{2026}")
         defer { OperationMarker.clearInProgress(outputDirectory) }
 
-        let baseName = sanitizedBaseName(preferredBundleName ?? defaultBundleName(for: sourceURL))
+        let baseName = sanitizedBaseName(preferredBundleName ?? Self.defaultBundleName(for: sourceURL))
         let bundleName = makeUniqueBundleName(base: baseName, in: outputDirectory)
 
         let tempDirectory = try ProjectTempDirectory.createFromContext(
@@ -215,9 +215,12 @@ public final class ReferenceBundleImportService: @unchecked Sendable {
         return directory.appendingPathComponent("\(safeName).lungfishref", isDirectory: true)
     }
 
-    private func defaultBundleName(for sourceURL: URL) -> String {
+    public static func defaultBundleName(for sourceURL: URL) -> String {
         var stripped = sourceURL
-        while !stripped.pathExtension.isEmpty {
+        if compressionExtensions.contains(stripped.pathExtension.lowercased()) {
+            stripped = stripped.deletingPathExtension()
+        }
+        if standaloneReferenceExtensions.contains(stripped.pathExtension.lowercased()) {
             stripped = stripped.deletingPathExtension()
         }
         let base = stripped.lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
