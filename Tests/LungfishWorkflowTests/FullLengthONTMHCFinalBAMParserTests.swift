@@ -199,7 +199,7 @@ final class FullLengthONTMHCFinalBAMParserTests: XCTestCase {
         XCTAssertEqual(summary.closestMatches.map(\.cluster), ["unmatched_ReadCount-6", "cdna_ReadCount-7"])
     }
 
-    func testAcceptsTerminalHardClipsFromFinalBAMValidation() throws {
+    func testAcceptsTerminalHardClipsAndDefersIncompleteGenomicMatch() throws {
         let fixture = try Fixture(
             references: [("allele-A", String(repeating: "A", count: 453))],
             samples: [
@@ -230,9 +230,9 @@ final class FullLengthONTMHCFinalBAMParserTests: XCTestCase {
             try fixture.parse(referenceRecords: fixture.annotatedReferences)["S1"]
         )
 
-        XCTAssertEqual(summary.rows.map(\.allele), ["allele-A"])
-        XCTAssertEqual(summary.rows.map(\.cluster), ["cluster_ReadCount-8"])
-        XCTAssertTrue(summary.unmatchedClusters.isEmpty)
+        XCTAssertTrue(summary.rows.isEmpty)
+        XCTAssertEqual(summary.unmatchedClusters.map(\.name), ["cluster_ReadCount-8"])
+        XCTAssertEqual(summary.closestMatches.map(\.closestReference), ["allele-A"])
     }
 
     func testRejectsUnknownTargetWithLineAndContext() throws {
