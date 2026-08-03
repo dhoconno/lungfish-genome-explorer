@@ -348,23 +348,6 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
                 projection: projection,
                 reference: reference
             )
-            substitutionCount = projection.changes.events.reduce(into: 0) { count, event in
-                guard case let .substitution(referencePosition, _, _, _) = event else {
-                    return
-                }
-                if canonicalReferenceRange?.contains(referencePosition) ?? true {
-                    count += 1
-                }
-            }
-            comparableBases = projection.referenceToOrientedQuery.keys.reduce(into: 0) {
-                count, referencePosition in
-                if canonicalReferenceRange?.contains(referencePosition) ?? true {
-                    count += 1
-                }
-            }
-            identity = comparableBases > 0
-                ? Double(comparableBases - substitutionCount) / Double(comparableBases)
-                : 0
             if !isExtension,
                (projection.leadingTerminalRescuedBases > 0
                 || projection.trailingTerminalRescuedBases > 0) {
@@ -396,6 +379,39 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
             if let cds = lifted.annotations.first(where: { $0.type == .cds }) {
                 liftedCDSTrimRange = cds.start..<cds.end
             }
+            substitutionCount = projection.changes.events.reduce(into: 0) { count, event in
+                guard case let .substitution(
+                    referencePosition,
+                    orientedQueryPosition,
+                    _,
+                    _
+                ) = event,
+                canonicalReferenceRange?.contains(referencePosition) ?? true else {
+                    return
+                }
+                let storedCandidatePosition = projection.changes.storedCandidatePosition(
+                    orientedPosition: orientedQueryPosition
+                )
+                if liftedCDSTrimRange?.contains(storedCandidatePosition) ?? true {
+                    count += 1
+                }
+            }
+            comparableBases = projection.referenceToOrientedQuery.reduce(into: 0) {
+                count, mapping in
+                let (referencePosition, orientedQueryPosition) = mapping
+                guard canonicalReferenceRange?.contains(referencePosition) ?? true else {
+                    return
+                }
+                let storedCandidatePosition = projection.changes.storedCandidatePosition(
+                    orientedPosition: orientedQueryPosition
+                )
+                if liftedCDSTrimRange?.contains(storedCandidatePosition) ?? true {
+                    count += 1
+                }
+            }
+            identity = comparableBases > 0
+                ? Double(comparableBases - substitutionCount) / Double(comparableBases)
+                : 0
             let canonicalCandidateLength = liftedCDSTrimRange?.count ?? sequence.count
             let canonicalReferenceLength = canonicalReferenceRange?.count
                 ?? reference.sequence.count

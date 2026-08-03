@@ -1988,6 +1988,7 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
         candidateResolvedOptions(thresholds).merging([
             "rawIdentity": "exact-normalized-full-consensus-sequence",
             "canonicalIdentity": "exact-normalized-UTR-trimmed-genomic-sequence",
+            "canonicalComparisonScope": "mapped-reference-bases-whose-candidate-coordinates-fall-within-the-published-outer-lifted-CDS-span",
             "canonicalStableID": "first-128-bits-SHA256-with-UUID-version-and-variant-bits",
             "outerCDSTrimRule": "resolved-complete-or-partial-lifted-CDS-span;retain-observed-intervening-introns;never-impute-missing-reference-bases",
             "referenceReadinessRule": "named-candidate-artifacts-require-resolved-observed-sequence;partial-reference-coverage-is-allowed-and-declared",
