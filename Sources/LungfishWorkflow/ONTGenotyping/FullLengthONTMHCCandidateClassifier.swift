@@ -410,7 +410,7 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
                         ? extensionNames[0]
                         : partial.resolvedReference!.alleleName,
                     analyzed: analyzed,
-                    closestHits: eligibleZeroSNPGenomic,
+                    closestHits: partialZeroSNPGenomic,
                     classification: .partialExtension,
                     extensionOf: extensionNames,
                     extensionInterpretations: [],

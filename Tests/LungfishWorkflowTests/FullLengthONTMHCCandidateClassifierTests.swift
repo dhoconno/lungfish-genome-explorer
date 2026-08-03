@@ -78,6 +78,35 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
         XCTAssertEqual(candidate.selectedEvidence.referenceName, genomicReference.sequenceID)
     }
 
+    func testPartialExtensionClosestMatchesExcludeBetterIndelOnlyRelationship() throws {
+        let indelReference = MHCReferenceRecord(
+            sequenceID: "ref-indel",
+            alleleName: "Mafa-A1*019:01",
+            locus: "Mafa-A1",
+            moleculeClass: .genomicDNA,
+            classEvidence: .annotatedMetadata,
+            sequenceLength: 1_200
+        )
+        let cluster = makeCluster(
+            sequenceLength: 1_201,
+            alignments: [
+                alignment(reference: indelReference, cigar: "600=1I600="),
+                alignment(reference: genomicReference, cigar: "1100=101S"),
+            ]
+        )
+
+        guard case .candidate(let candidate) = try FullLengthONTMHCCandidateClassifier()
+            .classify(cluster) else {
+            return XCTFail("Expected partial extension candidate")
+        }
+        XCTAssertEqual(candidate.classification, .partialExtension)
+        XCTAssertEqual(candidate.selectedEvidence.referenceName, genomicReference.sequenceID)
+        XCTAssertEqual(
+            candidate.reciprocalHitSummary.closestMatchTargetNames,
+            [genomicReference.sequenceID]
+        )
+    }
+
     func testExactEndToEndZeroSNPGenomicMatchRemainsKnownDespiteCDNAExtensionEvidence() throws {
         let cluster = makeCluster(
             sequenceLength: 1_200,
