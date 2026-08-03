@@ -16,6 +16,7 @@ public enum ProvenanceWriterError: Error, LocalizedError, Sendable, Equatable {
     )
     case unsafeStagedSignatureArtifact(provider: String, path: String)
     case unsafeStagedArtifact(path: String, reason: String)
+    case unsafeExistingArtifact(path: String, reason: String)
     case exclusivePublicationFailed(path: String, code: Int32)
     case exclusivePublicationIdentityMismatch(path: String)
     case exclusivePublicationCleanupFailed(
@@ -48,6 +49,8 @@ public enum ProvenanceWriterError: Error, LocalizedError, Sendable, Equatable {
             return "Provenance signing provider '\(provider)' produced an artifact outside the staging directory: \(path)."
         case .unsafeStagedArtifact(let path, let reason):
             return "Unsafe staged provenance artifact at \(path): \(reason)."
+        case .unsafeExistingArtifact(let path, let reason):
+            return "Unsafe existing provenance artifact at \(path): \(reason)."
         case .exclusivePublicationFailed(let path, let code):
             return "Could not publish a new provenance artifact without replacement at \(path): \(POSIXError(.init(rawValue: code) ?? .EIO).localizedDescription)"
         case .exclusivePublicationIdentityMismatch(let path):
@@ -966,6 +969,17 @@ public struct ProvenanceWriter: Sendable {
                             fileManager: .default
                         )
                 } catch {
+                    try Self.restoreDetachedAfterFailure(
+                        displacedURL,
+                        to: destinationURL,
+                        originalError: error
+                    )
+                }
+                guard case .file = priorState else {
+                    let error = ProvenanceWriterError.unsafeExistingArtifact(
+                        path: destinationURL.path,
+                        reason: "the existing destination is not a regular file"
+                    )
                     try Self.restoreDetachedAfterFailure(
                         displacedURL,
                         to: destinationURL,
