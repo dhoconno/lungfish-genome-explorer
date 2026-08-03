@@ -5330,7 +5330,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
     }
 
-    func testGenotypeOnlyResultUsesCompactSummaryAuditLensControlAndMatrixLayout() throws {
+    func testGenotypeOnlyResultUsesMatrixWithoutLensControl() throws {
         let controller = GenotypeResultViewController()
         _ = controller.view
         controller.configure(result: makeResult(samples: [], calls: [
@@ -5351,8 +5351,8 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(controller.testingFirstPaneIsMatrix)
         XCTAssertFalse(controller.testingComparisonMatrixIsHidden)
         XCTAssertFalse(controller.testingDetailScrollViewIsHidden)
-        XCTAssertFalse(controller.testingLensControlIsHidden)
-        XCTAssertEqual(controller.testingContentHostTopInset, 36)
+        XCTAssertTrue(controller.testingLensControlIsHidden)
+        XCTAssertEqual(controller.testingContentHostTopInset, 0)
         let lensControl = try XCTUnwrap(
             controller.view.firstDescendant(ofType: NSSegmentedControl.self)
         )
@@ -5406,7 +5406,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertLessThanOrEqual(searchFrame.maxY, safeAreaTop)
     }
 
-    func testGenotypeOnlyResultExposesAuditButRejectsHaplotypingReview() {
+    func testGenotypeOnlyResultKeepsMatrixWhenDefinitionsRequestWouldOpenAudit() {
         let controller = GenotypeResultViewController()
         _ = controller.view
         controller.configure(result: makeResult(samples: [], calls: [
@@ -5422,6 +5422,13 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(controller.testingVisibleLensIdentifier, "audit")
         XCTAssertEqual(controller.testingSummaryViewMode, .matrix)
         XCTAssertEqual(controller.testingPanelLayout, .listTop)
+
+        NotificationCenter.default.post(
+            name: .genotypeResultOpenHaplotypeDefinitions,
+            object: nil
+        )
+        XCTAssertEqual(controller.testingVisibleLensIdentifier, "summary")
+        XCTAssertEqual(controller.testingSummaryViewMode, .matrix)
 
         controller.testingSetUnappliedDisplayState(GenotypeResultDisplayState(
             viewportLens: .review,
@@ -5507,18 +5514,16 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertFalse(controller.testingFirstPaneIsMatrix)
     }
 
-    func testEmptyTypedGenotypeOnlyResultKeepsCompactSummaryAuditHeader()
+    func testEmptyTypedGenotypeOnlyResultKeepsMatrixWithoutLensControl()
         throws
     {
         let controller = GenotypeResultViewController()
         _ = controller.view
         controller.configure(result: makeResult(samples: [], calls: []))
 
-        controller.testingSelectLens(.audit)
-
-        XCTAssertEqual(controller.testingVisibleLensIdentifier, "audit")
-        XCTAssertFalse(controller.testingLensControlIsHidden)
-        XCTAssertEqual(controller.testingContentHostTopInset, 36)
+        XCTAssertEqual(controller.testingVisibleLensIdentifier, "summary")
+        XCTAssertTrue(controller.testingLensControlIsHidden)
+        XCTAssertEqual(controller.testingContentHostTopInset, 0)
         let lensControl = try XCTUnwrap(
             controller.view.firstDescendant(ofType: NSSegmentedControl.self)
         )
@@ -15640,7 +15645,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertFalse(controller.testingComparisonMatrixIsHidden)
     }
 
-    func testAIHaplotypingCompletionResetsGenotypeOnlyMatrixDefaultToOutline() {
+    func testAIHaplotypingCompletionResetsGenotypeOnlyMatrixDefaultToOutline() throws {
         let controller = GenotypeResultViewController()
         _ = controller.view
         let calls = [makeCall(sample: "DW472", genotype: "12_M9_B_001_01", reads: 150)]
@@ -15680,10 +15685,53 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(controller.testingSummaryViewMode, .outline)
         XCTAssertFalse(controller.testingLensControlIsHidden)
         XCTAssertEqual(controller.testingContentHostTopInset, 48)
+        let lensControl = try XCTUnwrap(
+            controller.view.firstDescendant(ofType: NSSegmentedControl.self)
+        )
+        XCTAssertEqual(lensControl.segmentCount, 3)
+        XCTAssertEqual(
+            (0..<lensControl.segmentCount).map {
+                lensControl.label(forSegment: $0)
+            },
+            ["Summary", "Review", "Audit"]
+        )
+        XCTAssertEqual(lensControl.controlSize, .regular)
 
-        controller.testingSelectLens(.review)
-
+        lensControl.selectedSegment = 1
+        XCTAssertTrue(lensControl.sendAction(lensControl.action, to: lensControl.target))
         XCTAssertEqual(controller.testingVisibleLensIdentifier, "review")
+        lensControl.selectedSegment = 2
+        XCTAssertTrue(lensControl.sendAction(lensControl.action, to: lensControl.target))
+        XCTAssertEqual(controller.testingVisibleLensIdentifier, "audit")
+    }
+
+    func testHaplotypedCompletionReturningToGenotypeOnlyRestoresMatrixOnlyView() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let calls = [makeCall(sample: "DW472", genotype: "12_M9_B_001_01", reads: 150)]
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "ai-provisional:test",
+            definitionSetName: "AI provisional",
+            speciesName: "Test macaque",
+            samples: []
+        )
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: calls,
+            haplotypeAnalysis: analysis
+        ))
+        controller.testingSelectLens(.audit)
+
+        controller.applyAIHaplotypingCompleted(result: makeResult(
+            samples: [],
+            calls: calls
+        ))
+
+        XCTAssertEqual(controller.testingVisibleLensIdentifier, "summary")
+        XCTAssertEqual(controller.testingSummaryViewMode, .matrix)
+        XCTAssertTrue(controller.testingLensControlIsHidden)
+        XCTAssertEqual(controller.testingContentHostTopInset, 0)
     }
 
     func testHaplotypedBundleRemembersGenotypeMatrixSummaryPreference() throws {

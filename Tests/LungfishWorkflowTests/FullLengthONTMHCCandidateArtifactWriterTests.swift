@@ -1735,6 +1735,396 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         XCTAssertEqual(result.classifiedClusters[index].observations.first?.sourceClusterReadCounts, ["known-source": 13])
     }
 
+    func testPostCropZeroSNPIncompleteGenomicCandidateBecomesPartialExtension() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let postCropSequence = String(repeating: "A", count: 1_194)
+        let postCropID = stableID(postCropSequence)
+        fixture.additionalSAM = "\(postCropID)\t0\tref-genomic\t1\t60\t100=1X400=4D400=2D293=\t*\t0\t0\t*\t*\tNM:i:7\tAS:i:1180\n"
+        let observation = FullLengthONTMHCCandidateSequenceObservation(
+            sampleID: "post-crop-sample",
+            readGroupID: "post-crop-sample",
+            sourceClusterID: "post-crop-source",
+            clusterReadCount: 17,
+            sequence: postCropSequence,
+            genotypingHitSummaries: [try ONTMHCGenotypingTargetHitSummary(
+                bamPath: "artifacts/alignments/genotyping-evidence.bam",
+                targetName: "post-crop-sample|post-crop-source",
+                alignmentCount: 1,
+                queryAlignmentCounts: ["ref-genomic": 1],
+                exactMatchQueryNames: [],
+                closestMatchQueryNames: ["ref-genomic"]
+            )]
+        )
+
+        let result = try await fixture.write(
+            observations: fixture.observations + [observation],
+            canonicalizationProvider: { input in
+                let canonicalization = try Fixture.referenceReadyCanonicalization(
+                    input: input,
+                    trimRange: 0..<input.sequence.count,
+                    substitutionCountOverride:
+                        input.subject.candidateRecord?.stableClusterID == postCropID
+                            ? 0
+                            : nil
+                )
+                guard input.subject.candidateRecord?.stableClusterID == postCropID else {
+                    return canonicalization
+                }
+                return FullLengthONTMHCCandidateCanonicalization(
+                    record: canonicalization.record,
+                    rawSequence: canonicalization.rawSequence,
+                    externalSequence: canonicalization.externalSequence,
+                    trimRange: canonicalization.trimRange,
+                    translationStatus: .incompleteUnresolved,
+                    referenceReadiness: .incomplete,
+                    substitutionCount: canonicalization.substitutionCount,
+                    comparableBases: canonicalization.comparableBases,
+                    identity: canonicalization.identity,
+                    shorterCoverage: canonicalization.shorterCoverage
+                )
+            }
+        )
+
+        let index = try XCTUnwrap(
+            result.classifiedClusters.firstIndex { $0.stableClusterID == postCropID }
+        )
+        guard case .candidate(let candidate) = result.classifications[index] else {
+            return XCTFail("Expected the incomplete post-crop zero-SNP candidate to remain reviewable")
+        }
+        XCTAssertEqual(candidate.classification, .partialExtension)
+        XCTAssertEqual(candidate.provisionalName, "Mafa-A1*018:01:01:01_partial_ext")
+        XCTAssertEqual(candidate.snpCount, 0)
+        XCTAssertEqual(candidate.deletedBases, 6)
+        XCTAssertEqual(
+            result.classifiedClusters[index].observations.first?
+                .sourceClusterReadCounts,
+            ["post-crop-source": 17]
+        )
+        XCTAssertTrue(try fastaHeaders(result.candidateFASTAURL).contains(postCropID))
+        let candidateJSON = try String(contentsOf: result.candidateJSONURL, encoding: .utf8)
+        XCTAssertFalse(candidateJSON.contains("_0nt_nov"))
+        XCTAssertTrue(candidateJSON.contains("_partial_ext"))
+
+        let sourceMapURL = fixture.outputURL.appendingPathComponent(
+            "artifacts/internal/mhc-candidate-source-map.json"
+        )
+        let sourceMap = try JSONDecoder().decode(
+            ONTMHCCandidateSourceIdentityDocument.self,
+            from: Data(contentsOf: sourceMapURL)
+        )
+        let source = try XCTUnwrap(
+            sourceMap.records.first { $0.rawStableClusterID == postCropID }
+        )
+        XCTAssertEqual(source.classification, "partial-extension")
+        XCTAssertEqual(source.canonicalStableClusterID, postCropID)
+        XCTAssertEqual(
+            source.referenceReadiness,
+            "not-reference-ready-incomplete"
+        )
+
+        let canonicalization = try XCTUnwrap(result.transformationRecords.first {
+            $0.workflowName
+                == "lungfish-in-process:canonicalize-and-aggregate-mhc-candidates"
+        })
+        XCTAssertEqual(
+            canonicalization.resolvedOptions[
+                "postCropZeroSNPIncompleteGenomicRule"
+            ],
+            "resolved-incomplete-novel-with-zero-canonical-substitutions-and-genomic-reference-becomes-partial-extension;missing-reference-bases-are-not-imputed"
+        )
+        XCTAssertEqual(
+            canonicalization.resolvedOptions[
+                "postCropZeroSNPIncompleteGenomicCount"
+            ],
+            "1"
+        )
+        XCTAssertEqual(
+            canonicalization.resolvedOptions[
+                "postCropZeroSNPIncompleteGenomicRawClusterCount"
+            ],
+            "1"
+        )
+    }
+
+    func testPostCropZeroSNPReferenceReadyGenomicCandidateFoldsBackToKnown() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let novelID = fixture.novelID
+
+        let result = try await fixture.write(
+            observations: fixture.observations,
+            canonicalizationProvider: { input in
+                try Fixture.referenceReadyCanonicalization(
+                    input: input,
+                    trimRange: 0..<input.sequence.count,
+                    substitutionCountOverride:
+                        input.subject.candidateRecord?.stableClusterID == novelID
+                            ? 0
+                            : nil
+                )
+            }
+        )
+
+        let index = try XCTUnwrap(
+            result.classifiedClusters.firstIndex { $0.stableClusterID == novelID }
+        )
+        guard case .known(let calls) = result.classifications[index] else {
+            return XCTFail("Expected the reference-ready zero-SNP candidate to fold back to a named allele")
+        }
+        XCTAssertEqual(calls.map(\.reference.alleleName), ["Mafa-A1*018:01:01:01"])
+        XCTAssertFalse(try fastaHeaders(result.candidateFASTAURL).contains(novelID))
+        XCTAssertFalse(
+            try String(contentsOf: result.candidateJSONURL, encoding: .utf8)
+                .contains("_0nt_nov")
+        )
+        let canonicalization = try XCTUnwrap(result.transformationRecords.first {
+            $0.workflowName
+                == "lungfish-in-process:canonicalize-and-aggregate-mhc-candidates"
+        })
+        XCTAssertEqual(
+            canonicalization.resolvedOptions["postCropZeroSNPGenomicPromotionCount"],
+            "1"
+        )
+    }
+
+    func testPostCropZeroSNPReferenceTieDoesNotClaimOneKnownAllele() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let novelID = fixture.novelID
+        fixture.additionalSAM = "\(novelID)\t256\tref-genomic-2\t1\t60\t595=5X600=\t*\t0\t0\t*\t*\tNM:i:5\tAS:i:1190\n"
+        let tiedReference = MHCReferenceRecord(
+            sequenceID: "ref-genomic-2",
+            alleleName: "Mafa-A1*018:01:01:02",
+            locus: "Mafa-A1",
+            moleculeClass: .genomicDNA,
+            classEvidence: .annotatedMetadata,
+            sequenceLength: 1_200
+        )
+
+        let result = try await fixture.write(
+            observations: fixture.observations,
+            referenceRecords: fixture.defaultReferenceRecords + [tiedReference],
+            canonicalizationProvider: { input in
+                try Fixture.referenceReadyCanonicalization(
+                    input: input,
+                    trimRange: 0..<input.sequence.count,
+                    substitutionCountOverride:
+                        input.subject.candidateRecord?.stableClusterID == novelID
+                            ? 0
+                            : nil
+                )
+            }
+        )
+
+        let index = try XCTUnwrap(
+            result.classifiedClusters.firstIndex { $0.stableClusterID == novelID }
+        )
+        guard case .candidate(let candidate) = result.classifications[index] else {
+            return XCTFail("Expected an unresolved reference tie to remain a candidate")
+        }
+        XCTAssertEqual(candidate.classification, .novel)
+        XCTAssertEqual(candidate.snpCount, 0)
+        XCTAssertEqual(
+            Set(candidate.reciprocalHitSummary.closestMatchTargetNames),
+            ["ref-genomic", "ref-genomic-2"]
+        )
+        let canonicalization = try XCTUnwrap(result.transformationRecords.first {
+            $0.workflowName
+                == "lungfish-in-process:canonicalize-and-aggregate-mhc-candidates"
+        })
+        XCTAssertEqual(
+            canonicalization.resolvedOptions["postCropZeroSNPGenomicPromotionCount"],
+            "0"
+        )
+    }
+
+    func testPostCropZeroSNPMixedReadinessClassifiesEachRawObservationIndependently()
+        async throws
+    {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let completeID = fixture.novelID
+        let incompleteSequence = fixture.novelSequence + "G"
+        let incompleteID = stableID(incompleteSequence)
+        fixture.additionalSAM = "\(incompleteID)\t0\tref-genomic\t1\t60\t595=5X600=1S\t*\t0\t0\t*\t*\tNM:i:5\tAS:i:1190\n"
+        let incompleteObservation = FullLengthONTMHCCandidateSequenceObservation(
+            sampleID: "incomplete-sample",
+            readGroupID: "incomplete-sample",
+            sourceClusterID: "incomplete-source",
+            clusterReadCount: 19,
+            sequence: incompleteSequence,
+            genotypingHitSummaries: [try ONTMHCGenotypingTargetHitSummary(
+                bamPath: "artifacts/alignments/genotyping-evidence.bam",
+                targetName: "incomplete-sample|incomplete-source",
+                alignmentCount: 1,
+                queryAlignmentCounts: ["ref-genomic": 1],
+                exactMatchQueryNames: [],
+                closestMatchQueryNames: ["ref-genomic"]
+            )]
+        )
+
+        let result = try await fixture.write(
+            observations: fixture.observations + [incompleteObservation],
+            canonicalizationProvider: { input in
+                let rawID = input.subject.candidateRecord?.stableClusterID
+                let isIncomplete = rawID == incompleteID
+                let trimEnd = isIncomplete
+                    ? input.sequence.count - 1
+                    : input.sequence.count
+                let canonicalization = try Fixture.referenceReadyCanonicalization(
+                    input: input,
+                    trimRange: 0..<trimEnd,
+                    substitutionCountOverride:
+                        rawID == completeID || isIncomplete ? 0 : nil
+                )
+                guard isIncomplete else { return canonicalization }
+                return FullLengthONTMHCCandidateCanonicalization(
+                    record: canonicalization.record,
+                    rawSequence: canonicalization.rawSequence,
+                    externalSequence: canonicalization.externalSequence,
+                    trimRange: canonicalization.trimRange,
+                    translationStatus: .incompleteUnresolved,
+                    referenceReadiness: .incomplete,
+                    substitutionCount: canonicalization.substitutionCount,
+                    comparableBases: canonicalization.comparableBases,
+                    identity: canonicalization.identity,
+                    shorterCoverage: canonicalization.shorterCoverage
+                )
+            }
+        )
+
+        let completeIndex = try XCTUnwrap(
+            result.classifiedClusters.firstIndex { $0.stableClusterID == completeID }
+        )
+        guard case .known = result.classifications[completeIndex] else {
+            return XCTFail("Expected the complete observation to fold back to known")
+        }
+        let incompleteIndex = try XCTUnwrap(
+            result.classifiedClusters.firstIndex { $0.stableClusterID == incompleteID }
+        )
+        guard case .candidate(let partial) = result.classifications[incompleteIndex] else {
+            return XCTFail("Expected the incomplete observation to remain reviewable")
+        }
+        XCTAssertEqual(partial.classification, .partialExtension)
+        XCTAssertEqual(partial.supportingSampleIDs, ["incomplete-sample"])
+        XCTAssertEqual(partial.totalClusterReads, 19)
+        let candidateHeaders = try fastaHeaders(result.candidateFASTAURL)
+        XCTAssertTrue(candidateHeaders.contains(partial.stableClusterID))
+
+        let sourceMap = try JSONDecoder().decode(
+            ONTMHCCandidateSourceIdentityDocument.self,
+            from: Data(contentsOf: fixture.outputURL.appendingPathComponent(
+                "artifacts/internal/mhc-candidate-source-map.json"
+            ))
+        )
+        XCTAssertEqual(
+            sourceMap.records.first { $0.rawStableClusterID == completeID }?.classification,
+            "known"
+        )
+        XCTAssertEqual(
+            sourceMap.records.first { $0.rawStableClusterID == incompleteID }?.classification,
+            "partial-extension"
+        )
+    }
+
+    func testPostCropZeroSNPIncompleteAndAmbiguousReadyInputsPublishOnePartialCandidate()
+        async throws
+    {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let readyID = fixture.novelID
+        let incompleteSequence = fixture.novelSequence + "G"
+        let incompleteID = stableID(incompleteSequence)
+        fixture.additionalSAM = """
+        \(readyID)\t256\tref-genomic-2\t1\t60\t595=5X600=\t*\t0\t0\t*\t*\tNM:i:5\tAS:i:1190
+        \(incompleteID)\t0\tref-genomic\t1\t60\t595=5X600=1S\t*\t0\t0\t*\t*\tNM:i:5\tAS:i:1190
+        """
+        let incompleteObservation = FullLengthONTMHCCandidateSequenceObservation(
+            sampleID: "incomplete-sample",
+            readGroupID: "incomplete-sample",
+            sourceClusterID: "incomplete-source",
+            clusterReadCount: 19,
+            sequence: incompleteSequence,
+            genotypingHitSummaries: []
+        )
+        let tiedReference = MHCReferenceRecord(
+            sequenceID: "ref-genomic-2",
+            alleleName: "Mafa-A1*018:01:01:02",
+            locus: "Mafa-A1",
+            moleculeClass: .genomicDNA,
+            classEvidence: .annotatedMetadata,
+            sequenceLength: 1_200
+        )
+
+        let result = try await fixture.write(
+            observations: fixture.observations + [incompleteObservation],
+            referenceRecords: fixture.defaultReferenceRecords + [tiedReference],
+            canonicalizationProvider: { input in
+                let rawID = input.subject.candidateRecord?.stableClusterID
+                let isIncomplete = rawID == incompleteID
+                let trimEnd = isIncomplete
+                    ? input.sequence.count - 1
+                    : input.sequence.count
+                let canonicalization = try Fixture.referenceReadyCanonicalization(
+                    input: input,
+                    trimRange: 0..<trimEnd,
+                    substitutionCountOverride:
+                        rawID == readyID || isIncomplete ? 0 : nil
+                )
+                guard isIncomplete else { return canonicalization }
+                return FullLengthONTMHCCandidateCanonicalization(
+                    record: canonicalization.record,
+                    rawSequence: canonicalization.rawSequence,
+                    externalSequence: canonicalization.externalSequence,
+                    trimRange: canonicalization.trimRange,
+                    translationStatus: .incompleteUnresolved,
+                    referenceReadiness: .incomplete,
+                    substitutionCount: canonicalization.substitutionCount,
+                    comparableBases: canonicalization.comparableBases,
+                    identity: canonicalization.identity,
+                    shorterCoverage: canonicalization.shorterCoverage
+                )
+            }
+        )
+
+        let relevant = zip(result.classifiedClusters, result.classifications).filter {
+            $0.0.stableClusterID == readyID || $0.0.stableClusterID == incompleteID
+        }
+        XCTAssertEqual(relevant.count, 2)
+        for (_, classification) in relevant {
+            guard case .candidate(let candidate) = classification else {
+                return XCTFail("Expected both observations to use one conservative candidate")
+            }
+            XCTAssertEqual(candidate.classification, .partialExtension)
+            XCTAssertEqual(candidate.stableClusterID, readyID)
+        }
+        let document = try JSONDecoder().decode(
+            ONTMHCCandidateAllelesDocument.self,
+            from: Data(contentsOf: result.candidateJSONURL)
+        )
+        let partials = document.candidates.filter {
+            $0.stableClusterID == readyID && $0.classification == .partialExtension
+        }
+        XCTAssertEqual(partials.count, 1)
+        XCTAssertEqual(Set(partials[0].sourceSequenceClusterIDs), [readyID, incompleteID])
+        XCTAssertEqual(
+            Set(partials[0].extensionOf),
+            ["Mafa-A1*018:01:01:01", "Mafa-A1*018:01:01:02"]
+        )
+        XCTAssertTrue(partials[0].provisionalNamingAmbiguous)
+        let canonicalization = try XCTUnwrap(result.transformationRecords.first {
+            $0.workflowName
+                == "lungfish-in-process:canonicalize-and-aggregate-mhc-candidates"
+        })
+        XCTAssertEqual(
+            canonicalization.resolvedOptions[
+                "postCropZeroSNPIncompleteGenomicRawClusterCount"
+            ],
+            "1"
+        )
+    }
+
     func testReciprocalSAMParserRejectsMalformedAndDuplicateIntegerTags() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }

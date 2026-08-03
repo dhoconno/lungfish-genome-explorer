@@ -517,7 +517,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private var viewportHeaderHeight: CGFloat {
-        isGenotypeOnlyResult ? 36 : 48
+        isGenotypeOnlyResult ? 0 : 48
     }
 
     private var isFullLengthMHCGenotypeViewport: Bool {
@@ -590,6 +590,12 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     @objc private func handleHaplotypeDefinitionsRequest(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
+        guard !isGenotypeOnlyResult else {
+            showLens(.summary)
+            onDisplayStateChanged?(displayState)
+            return
+        }
         showLens(.audit)
         onDisplayStateChanged?(displayState)
     }
@@ -2402,6 +2408,7 @@ public final class GenotypeResultViewController: NSViewController {
         }
         lensControl.controlSize = isGenotypeOnlyResult ? .small : .regular
         lensControl.selectedSegment = segmentIndex(for: selectedLens)
+        lensControl.isHidden = isGenotypeOnlyResult || lenses.count <= 1
         lensControl.invalidateIntrinsicContentSize()
     }
 
@@ -2611,7 +2618,7 @@ public final class GenotypeResultViewController: NSViewController {
             equalTo: view.safeAreaLayoutGuide.topAnchor,
             constant: viewportHeaderHeight
         )
-        lensControl.isHidden = false
+        lensControl.isHidden = isGenotypeOnlyResult || availableLenses.count <= 1
 
         NSLayoutConstraint.activate([
             lensControl.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
@@ -2626,7 +2633,7 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func applyViewportHeaderVisibility() {
         guard isViewLoaded else { return }
-        lensControl.isHidden = false
+        lensControl.isHidden = isGenotypeOnlyResult || availableLenses.count <= 1
         contentHostTopConstraint.constant = viewportHeaderHeight
     }
 
@@ -5248,6 +5255,7 @@ public final class GenotypeResultViewController: NSViewController {
             hasHaplotypingResult: hasHaplotypingResult
         )
         invalidateGenotypeSearchIndex()
+        configureAvailableLensSegments()
         applyViewportHeaderVisibility()
         liveHaplotypeAnalysis = nil
         comparisonMatrixConfigured = false

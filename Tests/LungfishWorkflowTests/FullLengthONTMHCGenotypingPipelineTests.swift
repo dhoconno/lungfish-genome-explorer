@@ -288,6 +288,36 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         let canonicalizationStep = try XCTUnwrap(envelope.steps.first {
             $0.toolName == "lungfish-in-process:canonicalize-and-aggregate-mhc-candidates"
         })
+        let finalParserStep = try XCTUnwrap(envelope.steps.first {
+            $0.toolName == "lungfish final cohort BAM genotype parser"
+        })
+        let finalParserInputPaths = Set(finalParserStep.inputs.map(\.path))
+        XCTAssertTrue(finalParserInputPaths.contains(
+            request.outputDirectory.appendingPathComponent(
+                "artifacts/alignments/unmatched-to-reference.bam"
+            ).path
+        ))
+        XCTAssertTrue(finalParserInputPaths.contains(
+            request.outputDirectory.appendingPathComponent(
+                "artifacts/alignments/unmatched-to-reference.bam.bai"
+            ).path
+        ))
+        XCTAssertTrue(finalParserInputPaths.contains(
+            request.outputDirectory.appendingPathComponent(
+                "artifacts/internal/mhc-candidate-canonicalization-input.json"
+            ).path
+        ))
+        XCTAssertTrue(finalParserInputPaths.contains(
+            request.outputDirectory.appendingPathComponent(
+                "artifacts/internal/mhc-candidate-source-map.json"
+            ).path
+        ))
+        XCTAssertEqual(
+            finalParserStep.resolvedOptions["postCropKnownFoldbackRule"],
+            .string(
+                "uniquely-resolved-reference-ready-zero-canonical-substitution-genomic-candidates-fold-back-to-named-allele;ambiguous-reference-ties-remain-candidates;incomplete-zero-canonical-substitution-genomic-candidates-remain-reviewable-partial-extensions"
+            )
+        )
         XCTAssertEqual(
             canonicalizationStep.resolvedOptions["canonicalComparisonScope"],
             .string("mapped-reference-bases-whose-candidate-coordinates-fall-within-the-published-outer-lifted-CDS-span")

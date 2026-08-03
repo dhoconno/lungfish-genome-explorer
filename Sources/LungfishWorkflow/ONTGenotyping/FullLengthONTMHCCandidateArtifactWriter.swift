@@ -797,10 +797,139 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                 || $0.canonicalization.externalSequence == nil
         }
         let demotedCandidateIDs = Set(demotedCandidateInputs.map(\.record.stableClusterID))
-        let canonicalCandidates = try FullLengthONTMHCCandidateCanonicalizer()
+        let aggregatedCanonicalCandidates = try FullLengthONTMHCCandidateCanonicalizer()
             .aggregate(preparedCandidates.filter {
                 !demotedCandidateIDs.contains($0.record.stableClusterID)
             })
+        let referencesByID = Dictionary(uniqueKeysWithValues: request.referenceRecords.map {
+            ($0.sequenceID, $0)
+        })
+        let zeroCanonicalSNPGenomicOutputs = aggregatedCanonicalCandidates.filter {
+            $0.record.classification == .novel
+                && $0.record.snpCount == 0
+                && $0.record.closestReferenceClass == .genomicDNA
+        }
+        let zeroCanonicalSNPGenomicIDs = Set(
+            zeroCanonicalSNPGenomicOutputs.map(\.record.stableClusterID)
+        )
+        let hasUniqueCompatibleGenomicReference: (
+            FullLengthONTMHCCandidateCanonicalizer.Input
+        ) -> Bool = { input in
+            Set(input.record.reciprocalHitSummary.closestMatchTargetNames.compactMap {
+                rawID -> String? in
+                guard let reference = referencesByID[rawID],
+                      reference.moleculeClass == .genomicDNA,
+                      reference.locus == input.record.locus else {
+                    return nil
+                }
+                return reference.sequenceID
+            }).count == 1
+        }
+        let promotedInputs = zeroCanonicalSNPGenomicOutputs.flatMap { output in
+            output.rawInputs.filter {
+                $0.canonicalization.referenceReadiness == .referenceReady
+                    && hasUniqueCompatibleGenomicReference($0)
+            }
+        }
+        var allCanonicalCandidates = aggregatedCanonicalCandidates.filter {
+            !zeroCanonicalSNPGenomicIDs.contains($0.record.stableClusterID)
+        }
+        for output in zeroCanonicalSNPGenomicOutputs {
+            let incompleteInputs = output.rawInputs.filter {
+                $0.canonicalization.referenceReadiness == .incomplete
+            }
+            let ambiguousReferenceReadyInputs = output.rawInputs.filter {
+                $0.canonicalization.referenceReadiness == .referenceReady
+                    && !hasUniqueCompatibleGenomicReference($0)
+            }
+            if !incompleteInputs.isEmpty {
+                let incompleteOutputs = try FullLengthONTMHCCandidateCanonicalizer()
+                    .aggregate(incompleteInputs + ambiguousReferenceReadyInputs)
+                allCanonicalCandidates.append(contentsOf: incompleteOutputs.map {
+                    Self.postCropPartialExtensionOutput(
+                        from: $0,
+                        referencesByID: referencesByID
+                    )
+                })
+            } else if !ambiguousReferenceReadyInputs.isEmpty {
+                allCanonicalCandidates.append(contentsOf:
+                    try FullLengthONTMHCCandidateCanonicalizer().aggregate(
+                        ambiguousReferenceReadyInputs
+                    )
+                )
+            }
+        }
+        allCanonicalCandidates.sort {
+            $0.record.stableClusterID < $1.record.stableClusterID
+        }
+        let postCropIncompleteCandidates = allCanonicalCandidates.filter {
+            $0.record.classification == .partialExtension
+                && $0.rawInputs.allSatisfy { $0.record.classification == .novel }
+                && $0.rawInputs.contains {
+                    $0.canonicalization.substitutionCount == 0
+                        && $0.canonicalization.referenceReadiness == .incomplete
+                }
+        }
+        let postCropIncompleteRawIDs = Set(postCropIncompleteCandidates.flatMap {
+            $0.rawInputs.compactMap {
+                $0.canonicalization.referenceReadiness == .incomplete
+                    ? $0.record.stableClusterID
+                    : nil
+            }
+        })
+        let postCropIncompleteCandidateByRawID = Dictionary(uniqueKeysWithValues:
+            postCropIncompleteCandidates.flatMap { output in
+                output.rawInputs.map { ($0.record.stableClusterID, output.record) }
+            }
+        )
+        let postCropAmbiguousCandidateByRawID = Dictionary(uniqueKeysWithValues:
+            allCanonicalCandidates.filter {
+                $0.record.classification == .novel
+                    && $0.record.snpCount == 0
+                    && $0.record.closestReferenceClass == .genomicDNA
+                    && $0.rawInputs.contains {
+                        $0.canonicalization.referenceReadiness == .referenceReady
+                            && !hasUniqueCompatibleGenomicReference($0)
+                    }
+            }.flatMap { output in
+                output.rawInputs.map { ($0.record.stableClusterID, output.record) }
+            }
+        )
+        let promotedRawIDs = Set(promotedInputs.map(\.record.stableClusterID))
+        let promotedCanonicalCandidates = zeroCanonicalSNPGenomicOutputs.filter { output in
+            output.rawInputs.contains {
+                promotedRawIDs.contains($0.record.stableClusterID)
+            }
+        }
+        let clustersByID = Dictionary(uniqueKeysWithValues: clusters.map {
+            ($0.stableClusterID, $0)
+        })
+        let promotedKnownCallPairs = try promotedInputs.map { input in
+                (
+                    input.record.stableClusterID,
+                    try Self.postCropKnownCall(
+                        from: input,
+                        referencesByID: referencesByID,
+                        clustersByID: clustersByID
+                    )
+                )
+        }
+        let promotedKnownCallsByRawID = Dictionary(
+            uniqueKeysWithValues: promotedKnownCallPairs
+        )
+        let effectiveClassifications = zip(clusters, classifications).map {
+            cluster, classification in
+            guard let call = promotedKnownCallsByRawID[cluster.stableClusterID] else {
+                guard let candidate = postCropIncompleteCandidateByRawID[
+                    cluster.stableClusterID
+                ] ?? postCropAmbiguousCandidateByRawID[cluster.stableClusterID] else {
+                    return classification
+                }
+                return FullLengthONTMHCCandidateClassificationResult.candidate(candidate)
+            }
+            return FullLengthONTMHCCandidateClassificationResult.known([call])
+        }
+        let canonicalCandidates = allCanonicalCandidates
         let candidates = canonicalCandidates.map(\.record)
         let canonicalSequenceByID = Dictionary(uniqueKeysWithValues: canonicalCandidates.map {
             ($0.record.stableClusterID, $0.sequence)
@@ -967,7 +1096,12 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             }.count,
             unavailableCandidateDemotionCount: demotedCandidateInputs.filter {
                 $0.canonicalization.referenceReadiness != .incomplete
-            }.count
+            }.count,
+            postCropZeroSNPGenomicPromotionCount: promotedCanonicalCandidates.count,
+            postCropZeroSNPGenomicPromotionRawClusterCount: promotedRawIDs.count,
+            postCropZeroSNPIncompleteGenomicCount: postCropIncompleteCandidates.count,
+            postCropZeroSNPIncompleteGenomicRawClusterCount:
+                postCropIncompleteRawIDs.count
         )
         transformations.append(.init(
             workflowName: "lungfish-in-process:canonicalize-and-aggregate-mhc-candidates",
@@ -977,7 +1111,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                 "--observation-merge-key", "canonical-stable-cluster-id,sample-id,read-group-id",
             ] + canonicalizationInputDescriptors.flatMap { ["--input", $0.path] },
             resolvedOptions: canonicalizationResolvedOptions.merging([
-                "provenanceOutputException": "typed in-memory canonical candidates and external-ready unnameable records are consumed by artifact render steps",
+                "provenanceOutputException": "typed in-memory canonical candidates, effective known-call foldbacks, and external-ready unnameable records are consumed by report and artifact render steps",
             ]) { _, value in value },
             inputs: canonicalizationInputDescriptors,
             outputs: [],
@@ -1037,12 +1171,19 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             request.rawUnmatchedConsensusesFASTAURL,
             finalRelativePath: "artifacts/internal/raw-unmatched-consensuses.fasta"
         )
-        let canonicalCandidateByRawID = Dictionary(uniqueKeysWithValues: canonicalCandidates.flatMap {
+        var canonicalCandidateByRawID = Dictionary(uniqueKeysWithValues: allCanonicalCandidates.flatMap {
             output in output.rawInputs.map { ($0.record.stableClusterID, output) }
         })
+        for output in promotedCanonicalCandidates {
+            for input in output.rawInputs where promotedRawIDs.contains(
+                input.record.stableClusterID
+            ) {
+                canonicalCandidateByRawID[input.record.stableClusterID] = output
+            }
+        }
         let classificationByRawID = Dictionary(uniqueKeysWithValues: zip(
             clusters,
-            classifications
+            effectiveClassifications
         ).map { cluster, result -> (String, String) in
             if demotedCandidateIDs.contains(cluster.stableClusterID) {
                 return (cluster.stableClusterID, "unnameable")
@@ -1531,7 +1672,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             unnameableEMBLURL: request.outputDirectoryURL.appendingPathComponent("unnameable_unmatched_clusters.embl"),
             manifest: manifest,
             classifiedClusters: clusters,
-            classifications: classifications,
+            classifications: effectiveClassifications,
             commandRecords: commands,
             toolVersions: toolVersions,
             toolVersionDiscoveryRecords: toolVersions.map(\.discoveryCommand),
@@ -1559,6 +1700,118 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
 
     static func normalizedSequence(_ sequence: String) -> String {
         sequence.filter { !$0.isWhitespace }.uppercased()
+    }
+
+    static func postCropKnownCall(
+        from input: FullLengthONTMHCCandidateCanonicalizer.Input,
+        referencesByID: [String: MHCReferenceRecord],
+        clustersByID: [String: FullLengthONTMHCCandidateCluster]
+    ) throws -> FullLengthONTMHCKnownReferenceCall {
+        let record = input.record
+        guard input.canonicalization.substitutionCount == 0,
+              record.closestReferenceClass == .genomicDNA,
+              let reference = referencesByID[record.selectedEvidence.referenceName],
+              reference.moleculeClass == .genomicDNA else {
+            throw FullLengthONTMHCCandidateArtifactWriterError(
+                "Could not resolve the named genomic reference for post-crop zero-SNP candidate '\(record.stableClusterID)'."
+            )
+        }
+        guard let alignment = clustersByID[record.stableClusterID]?.alignments.first(where: {
+            $0.evidence == record.selectedEvidence
+        }) else {
+            throw FullLengthONTMHCCandidateArtifactWriterError(
+                "Could not preserve reciprocal alignment evidence while promoting post-crop zero-SNP candidate '\(record.stableClusterID)'."
+            )
+        }
+        let allIndels = record.insertedBases.addingReportingOverflow(record.deletedBases)
+        let nonIntronIndels = allIndels.partialValue.subtractingReportingOverflow(
+            record.longGapBases
+        )
+        guard !allIndels.overflow,
+              !nonIntronIndels.overflow,
+              nonIntronIndels.partialValue >= 0 else {
+            throw FullLengthONTMHCCandidateArtifactWriterError(
+                "Invalid indel accounting while promoting post-crop zero-SNP candidate '\(record.stableClusterID)'."
+            )
+        }
+        return FullLengthONTMHCKnownReferenceCall(
+            reference: reference,
+            cigar: alignment.cigar,
+            nm: alignment.nm,
+            mappingQuality: alignment.mappingQuality,
+            alignmentScore: alignment.alignmentScore,
+            comparableBases: input.canonicalization.comparableBases,
+            matchedBases: input.canonicalization.comparableBases,
+            insertedBases: record.insertedBases,
+            deletedBases: record.deletedBases,
+            nonIntronIndelBases: nonIntronIndels.partialValue,
+            longGapBases: record.longGapBases,
+            shorterCoverage: input.canonicalization.shorterCoverage,
+            identity: input.canonicalization.identity,
+            evidence: alignment.evidence
+        )
+    }
+
+    static func postCropPartialExtensionOutput(
+        from output: FullLengthONTMHCCandidateCanonicalizer.Output,
+        referencesByID: [String: MHCReferenceRecord]
+    ) -> FullLengthONTMHCCandidateCanonicalizer.Output {
+        let source = output.record
+        let compatibleNames = Set(
+            output.rawInputs.flatMap {
+                $0.record.reciprocalHitSummary.closestMatchTargetNames
+            }.compactMap { rawID in
+                guard let reference = referencesByID[rawID],
+                      reference.moleculeClass == .genomicDNA,
+                      reference.locus == source.locus else {
+                    return nil
+                }
+                return reference.alleleName
+            }
+        ).union(output.rawInputs.map(\.record.closestReferenceName)).sorted()
+        let uniqueName = compatibleNames.count == 1
+            ? compatibleNames[0]
+            : source.closestReferenceName
+        let record = ONTMHCCandidateRecord(
+            stableClusterID: source.stableClusterID,
+            sourceSequenceClusterIDs: source.sourceSequenceClusterIDs,
+            representativeSourceSequenceClusterID:
+                source.representativeSourceSequenceClusterID,
+            provisionalName: "\(uniqueName)_partial_ext",
+            locus: source.locus,
+            classification: .partialExtension,
+            supportClass: source.supportClass,
+            closestReferenceName: source.closestReferenceName,
+            closestReferenceClass: source.closestReferenceClass,
+            snpCount: 0,
+            insertedBases: source.insertedBases,
+            deletedBases: source.deletedBases,
+            longGapBases: source.longGapBases,
+            comparableBases: source.comparableBases,
+            shorterCoverage: source.shorterCoverage,
+            identity: source.identity,
+            mappingQuality: source.mappingQuality,
+            alignmentScore: source.alignmentScore,
+            independentSampleCount: source.independentSampleCount,
+            occurrenceCount: source.occurrenceCount,
+            totalClusterReads: source.totalClusterReads,
+            supportingSampleIDs: source.supportingSampleIDs,
+            fastaRecordID: source.fastaRecordID,
+            sequenceSHA256: source.sequenceSHA256,
+            reciprocalHitSummary: source.reciprocalHitSummary,
+            selectedEvidence: source.selectedEvidence,
+            selectedAlignmentIsReverse: source.selectedAlignmentIsReverse,
+            extensionOf: compatibleNames,
+            extensionInterpretations: source.extensionInterpretations,
+            provisionalNamingAmbiguous: compatibleNames.count != 1
+        )
+        return .init(
+            record: record,
+            observations: output.observations,
+            sequence: output.sequence,
+            representativeCanonicalization: output.representativeCanonicalization,
+            rawInputs: output.rawInputs
+        )
     }
 
     private func validateInternalPublicationPath(
@@ -1983,7 +2236,11 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
         rawUnnameableCount: Int,
         externalUnnameableCount: Int,
         incompleteCandidateDemotionCount: Int,
-        unavailableCandidateDemotionCount: Int
+        unavailableCandidateDemotionCount: Int,
+        postCropZeroSNPGenomicPromotionCount: Int,
+        postCropZeroSNPGenomicPromotionRawClusterCount: Int,
+        postCropZeroSNPIncompleteGenomicCount: Int,
+        postCropZeroSNPIncompleteGenomicRawClusterCount: Int
     ) -> [String: String] {
         candidateResolvedOptions(thresholds).merging([
             "rawIdentity": "exact-normalized-full-consensus-sequence",
@@ -2022,6 +2279,20 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
             "reviewableIncompleteCandidateRule": "resolved-incomplete-reference-span-published-as-named-candidate-with-explicit-observed-coverage-comments;unresolved-sequence-remains-unnameable",
             "unavailableCandidateDemotionCount": String(
                 unavailableCandidateDemotionCount
+            ),
+            "postCropZeroSNPGenomicPromotionRule": "uniquely-resolved-reference-ready-novel-with-zero-canonical-substitutions-and-genomic-reference-folds-back-to-named-allele;ambiguous-reference-ties-remain-candidates",
+            "postCropZeroSNPGenomicPromotionCount": String(
+                postCropZeroSNPGenomicPromotionCount
+            ),
+            "postCropZeroSNPGenomicPromotionRawClusterCount": String(
+                postCropZeroSNPGenomicPromotionRawClusterCount
+            ),
+            "postCropZeroSNPIncompleteGenomicRule": "resolved-incomplete-novel-with-zero-canonical-substitutions-and-genomic-reference-becomes-partial-extension;missing-reference-bases-are-not-imputed",
+            "postCropZeroSNPIncompleteGenomicCount": String(
+                postCropZeroSNPIncompleteGenomicCount
+            ),
+            "postCropZeroSNPIncompleteGenomicRawClusterCount": String(
+                postCropZeroSNPIncompleteGenomicRawClusterCount
             ),
         ]) { _, value in value }
     }

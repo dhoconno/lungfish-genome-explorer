@@ -1981,6 +1981,12 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             genotypeRows: allGenotypeRows,
             to: request.statsJSONURL
         )
+        let candidateCanonicalizationInputURL = request.outputDirectory.appendingPathComponent(
+            "artifacts/internal/mhc-candidate-canonicalization-input.json"
+        )
+        let candidateSourceMapURL = request.outputDirectory.appendingPathComponent(
+            "artifacts/internal/mhc-candidate-source-map.json"
+        )
         pipelineSteps.append(FullLengthONTMHCProvenanceStep(
             toolName: "lungfish final cohort BAM genotype parser",
             toolVersion: WorkflowRun.currentAppVersion,
@@ -1990,12 +1996,25 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 "--include-header",
                 "--cdna-threshold", String(request.cdnaThreshold),
                 "--min-unmatched-reads", String(request.minUnmatchedReads),
+                "--reciprocal-known-bam", candidateArtifactResult.reciprocalBAMURL.path,
+                "--reciprocal-known-bai", candidateArtifactResult.reciprocalBAIURL.path,
+                "--candidate-canonicalization-input", candidateCanonicalizationInputURL.path,
+                "--candidate-source-map", candidateSourceMapURL.path,
                 cohortAlignmentResult.bamURL.path,
+            ],
+            resolvedOptions: [
+                "postCropKnownFoldbackRule": .string(
+                    "uniquely-resolved-reference-ready-zero-canonical-substitution-genomic-candidates-fold-back-to-named-allele;ambiguous-reference-ties-remain-candidates;incomplete-zero-canonical-substitution-genomic-candidates-remain-reviewable-partial-extensions"
+                ),
             ],
             inputs: [
                 cohortAlignmentResult.bamURL,
                 URL(fileURLWithPath: bamView.commandRecord.stdoutLogDescriptor.path),
                 referenceFASTAURL,
+                candidateArtifactResult.reciprocalBAMURL,
+                candidateArtifactResult.reciprocalBAIURL,
+                candidateCanonicalizationInputURL,
+                candidateSourceMapURL,
             ] + authoritativeResults.map(\.clustersFASTAURL),
             outputs: [request.reportCSVURL, request.sampleSummaryCSVURL, request.statsJSONURL],
             exitStatus: 0,
