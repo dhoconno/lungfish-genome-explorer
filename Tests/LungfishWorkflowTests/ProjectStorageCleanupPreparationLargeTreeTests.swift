@@ -351,7 +351,7 @@ final class ProjectStorageCleanupPreparationLargeTreeTests: XCTestCase {
             .string("move-to-trash")
         )
         let expectedInventory = ParameterValue.array(
-            try prepared.journal.items.map { try $0.parameterValue() }
+            prepared.journal.items.map { $0.parameterValue() }
         )
         XCTAssertEqual(
             provenance.options.resolvedDefaults["cleanupInventory"],

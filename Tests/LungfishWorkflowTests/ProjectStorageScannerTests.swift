@@ -237,6 +237,62 @@ final class ProjectStorageScannerTests: XCTestCase {
         XCTAssertTrue(unsafe.classification.reason.contains("marker"))
     }
 
+    func testDeadActiveTempWithoutRunLockIsRemovableButWorkflowStagingIsNot()
+        throws
+    {
+        let tempRoot = project.appendingPathComponent(".tmp", isDirectory: true)
+        let preview = tempRoot.appendingPathComponent(
+            "fasta-preview-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try makeOwnedDirectory(
+            preview,
+            runID: UUID(),
+            state: .active,
+            processIdentity: .init(
+                processIdentifier: 61,
+                processStartTime: 600,
+                bootSessionID: UUID().uuidString
+            )
+        )
+        let stagingRun = UUID()
+        let staging = project.appendingPathComponent(
+            ".unsafe.lungfishgenotype.run-staging-\(stagingRun.uuidString)",
+            isDirectory: true
+        )
+        try makeOwnedDirectory(
+            staging,
+            runID: stagingRun,
+            state: .active,
+            processIdentity: .init(
+                processIdentifier: 62,
+                processStartTime: 700,
+                bootSessionID: UUID().uuidString
+            )
+        )
+
+        let entries = Dictionary(
+            uniqueKeysWithValues: try ProjectStorageScanner(
+                processInspector: { _ in nil },
+                lockProbe: { _ in
+                    XCTFail("No lock should be probed")
+                    return .missing
+                }
+            ).scan(projectURL: project).entries.map {
+                ($0.relativePath, $0.classification)
+            }
+        )
+
+        XCTAssertEqual(
+            try XCTUnwrap(entries[".tmp/\(preview.lastPathComponent)"]).code,
+            .conclusivelyOrphanedOwnedWork
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(entries[staging.lastPathComponent]).code,
+            .unsafeLock
+        )
+    }
+
     func testActiveOrphanRequiresDeadProcessUnlockedIdentityKeepFalseAndNoLiveHistory()
         throws
     {

@@ -2087,16 +2087,16 @@ public struct ProjectStorageCleanupExecutor: Sendable {
                     ),
                     "sourceRelativePath":
                         .string(journalItem.sourceRelativePath),
-                    "sourceDevice":
-                        .integer(Int(journalItem.sourceIdentity.device)),
-                    "sourceInode":
-                        .integer(Int(journalItem.sourceIdentity.inode)),
+                    "sourceDevice": exactCleanupParameterValue(
+                        journalItem.sourceIdentity.device
+                    ),
+                    "sourceInode": exactCleanupParameterValue(
+                        journalItem.sourceIdentity.inode
+                    ),
                     "aggregateTreeDigest":
                         .string(journalItem.aggregateTreeDigest),
                     "inventory": .array(
-                        (try? journalItem.inventory.map {
-                            try $0.parameterValue()
-                        }) ?? []
+                        journalItem.inventory.map { $0.parameterValue() }
                     ),
                     "state": .string(summaryItem.state.rawValue),
                 ]

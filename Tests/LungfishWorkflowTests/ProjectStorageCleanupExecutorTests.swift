@@ -4221,9 +4221,7 @@ final class ProjectStorageCleanupExecutorTests: XCTestCase {
             XCTAssertEqual(
                 disposition["inventory"],
                 .array(
-                    try preparedItem.inventory.map {
-                        try $0.parameterValue()
-                    }
+                    preparedItem.inventory.map { $0.parameterValue() }
                 ),
                 file: file,
                 line: line

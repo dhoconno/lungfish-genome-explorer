@@ -968,29 +968,56 @@ final class ProjectStorageCleanupProvenanceTests: XCTestCase {
         XCTAssertTrue(replaced.value)
     }
 
-    func testInventoryParameterValueRejectsLossyNumericRepresentation() {
+    func testInventoryParameterValuePreservesLargeUnsignedValuesAsDecimalStrings()
+        throws
+    {
+        let exFATInode: UInt64 = 18_446_744_073_709_486_468
         let inventory = ProjectStorageCleanupInventoryEntry(
             relativePath: "huge.bin",
             logicalSize: UInt64.max,
             allocatedSize: 0,
             sha256: String(repeating: "a", count: 64),
             device: 1,
-            inode: 2,
+            inode: exFATInode,
             modifiedSeconds: 3,
             modifiedNanoseconds: 4,
             changedSeconds: 5,
             changedNanoseconds: 6
         )
 
-        XCTAssertThrowsError(try inventory.parameterValue()) {
-            guard case ProjectStorageCleanupPreparationError
-                .parameterRepresentationOverflow(
-                    field: "logicalSize",
-                    path: "huge.bin"
-                ) = $0 else {
-                return XCTFail("Unexpected error: \($0)")
-            }
-        }
+        let values = try XCTUnwrap(
+            inventory.parameterValue().dictionaryValue
+        )
+        XCTAssertEqual(values["logicalSize"], .string(String(UInt64.max)))
+        XCTAssertEqual(values["inode"], .string(String(exFATInode)))
+        XCTAssertEqual(values["device"], .integer(1))
+    }
+
+    func testDirectoryLinkCountAllowsExFATSemanticsOnlyForExFAT() {
+        XCTAssertTrue(
+            projectStorageDirectoryLinkCountIsPlausible(
+                1,
+                fileSystemType: "exfat"
+            )
+        )
+        XCTAssertTrue(
+            projectStorageDirectoryLinkCountIsPlausible(
+                2,
+                fileSystemType: "apfs"
+            )
+        )
+        XCTAssertFalse(
+            projectStorageDirectoryLinkCountIsPlausible(
+                1,
+                fileSystemType: "apfs"
+            )
+        )
+        XCTAssertFalse(
+            projectStorageDirectoryLinkCountIsPlausible(
+                0,
+                fileSystemType: "exfat"
+            )
+        )
     }
 
     private func makeRequest(

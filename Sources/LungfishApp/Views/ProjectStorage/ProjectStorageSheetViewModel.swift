@@ -6,9 +6,18 @@ import LungfishWorkflow
 final class ProjectStorageSheetViewModel {
     private enum CleanupSummaryError: Error, LocalizedError {
         case duplicateItemIdentifier
+        case duplicateSourcePath
+        case unknownSourcePath
 
         var errorDescription: String? {
-            "The cleanup receipt contains a duplicate item identifier."
+            switch self {
+            case .duplicateItemIdentifier:
+                "The cleanup receipt contains a duplicate item identifier."
+            case .duplicateSourcePath:
+                "The cleanup receipt contains a duplicate source path."
+            case .unknownSourcePath:
+                "The cleanup receipt names an item outside the cleanup scan."
+            }
         }
     }
 
@@ -478,18 +487,22 @@ final class ProjectStorageSheetViewModel {
             return
         }
         do {
-            cleanupItems = try Self.validatedCleanupItems(summary.items)
+            let validatedItems = try Self.validatedCleanupItems(summary.items)
+            cleanupItems = try Self.cleanupItemsByEntryID(
+                Array(validatedItems.values),
+                entries: entries
+            )
         } catch {
             receiveCleanupFailure(error)
             return
         }
-        let movedItemIDs = Set(
-            summary.items.compactMap {
-                $0.state == .movedToTrash ? $0.itemID : nil
+        let movedEntryIDs = Set(
+            cleanupItems.compactMap { entryID, item in
+                item.state == .movedToTrash ? entryID : nil
             }
         )
         removedAllocatedBytes = saturatedTotal(
-            entries.filter { movedItemIDs.contains($0.id) },
+            entries.filter { movedEntryIDs.contains($0.id) },
             keyPath: \.allocatedBytes
         )
         receiptURL = summaryURL
@@ -677,6 +690,25 @@ final class ProjectStorageSheetViewModel {
             }
         }
         return validated
+    }
+
+    private static func cleanupItemsByEntryID(
+        _ items: [ProjectStorageCleanupExecutionSummary.Item],
+        entries: [ProjectStorageEntry]
+    ) throws -> [UUID: ProjectStorageCleanupExecutionSummary.Item] {
+        let entryIDsByPath = Dictionary(
+            uniqueKeysWithValues: entries.map { ($0.relativePath, $0.id) }
+        )
+        var result: [UUID: ProjectStorageCleanupExecutionSummary.Item] = [:]
+        for item in items {
+            guard let entryID = entryIDsByPath[item.sourceRelativePath] else {
+                throw CleanupSummaryError.unknownSourcePath
+            }
+            guard result.updateValue(item, forKey: entryID) == nil else {
+                throw CleanupSummaryError.duplicateSourcePath
+            }
+        }
+        return result
     }
 
     private func removableEntries(

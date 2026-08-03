@@ -41,64 +41,20 @@ public struct ProjectStorageCleanupInventoryEntry:
         self.changedNanoseconds = changedNanoseconds
     }
 
-    func parameterValue() throws -> ParameterValue {
+    func parameterValue() -> ParameterValue {
         .dictionary([
-            "allocatedSize": .integer(
-                try checkedParameterInteger(
-                    allocatedSize,
-                    field: "allocatedSize",
-                    path: relativePath
-                )
+            "allocatedSize": exactCleanupParameterValue(allocatedSize),
+            "changedNanoseconds": exactCleanupParameterValue(
+                changedNanoseconds
             ),
-            "changedNanoseconds": .integer(
-                try checkedParameterInteger(
-                    changedNanoseconds,
-                    field: "changedNanoseconds",
-                    path: relativePath
-                )
+            "changedSeconds": exactCleanupParameterValue(changedSeconds),
+            "device": exactCleanupParameterValue(device),
+            "inode": exactCleanupParameterValue(inode),
+            "logicalSize": exactCleanupParameterValue(logicalSize),
+            "modifiedNanoseconds": exactCleanupParameterValue(
+                modifiedNanoseconds
             ),
-            "changedSeconds": .integer(
-                try checkedParameterInteger(
-                    changedSeconds,
-                    field: "changedSeconds",
-                    path: relativePath
-                )
-            ),
-            "device": .integer(
-                try checkedParameterInteger(
-                    device,
-                    field: "device",
-                    path: relativePath
-                )
-            ),
-            "inode": .integer(
-                try checkedParameterInteger(
-                    inode,
-                    field: "inode",
-                    path: relativePath
-                )
-            ),
-            "logicalSize": .integer(
-                try checkedParameterInteger(
-                    logicalSize,
-                    field: "logicalSize",
-                    path: relativePath
-                )
-            ),
-            "modifiedNanoseconds": .integer(
-                try checkedParameterInteger(
-                    modifiedNanoseconds,
-                    field: "modifiedNanoseconds",
-                    path: relativePath
-                )
-            ),
-            "modifiedSeconds": .integer(
-                try checkedParameterInteger(
-                    modifiedSeconds,
-                    field: "modifiedSeconds",
-                    path: relativePath
-                )
-            ),
+            "modifiedSeconds": exactCleanupParameterValue(modifiedSeconds),
             "relativePath": .string(relativePath),
             "sha256": .string(sha256),
         ])
@@ -215,28 +171,22 @@ public struct ProjectStorageCleanupJournal: Codable, Equatable, Sendable {
             self.error = error
         }
 
-        func parameterValue() throws -> ParameterValue {
+        func parameterValue() -> ParameterValue {
             .dictionary([
                 "aggregateTreeDigest": .string(aggregateTreeDigest),
                 "classificationCode": .string(classification.code.rawValue),
                 "classificationEvidenceDigest":
                     .string(classificationEvidenceDigest),
                 "intendedAction": .string(intendedAction.rawValue),
-                "inventory": .array(try inventory.map { try $0.parameterValue() }),
-                "sourceCategory": .string(sourceCategory.rawValue),
-                "sourceDevice": .integer(
-                    try checkedParameterInteger(
-                        sourceIdentity.device,
-                        field: "sourceDevice",
-                        path: sourceRelativePath
-                    )
+                "inventory": .array(
+                    inventory.map { $0.parameterValue() }
                 ),
-                "sourceInode": .integer(
-                    try checkedParameterInteger(
-                        sourceIdentity.inode,
-                        field: "sourceInode",
-                        path: sourceRelativePath
-                    )
+                "sourceCategory": .string(sourceCategory.rawValue),
+                "sourceDevice": exactCleanupParameterValue(
+                    sourceIdentity.device
+                ),
+                "sourceInode": exactCleanupParameterValue(
+                    sourceIdentity.inode
                 ),
                 "sourceRelativePath": .string(sourceRelativePath),
             ])
@@ -317,8 +267,8 @@ public struct ProjectStorageCleanupJournal: Codable, Equatable, Sendable {
         self.provenanceFileName = provenanceFileName
     }
 
-    func inventoryParameterValue() throws -> ParameterValue {
-        .array(try items.map { try $0.parameterValue() })
+    func inventoryParameterValue() -> ParameterValue {
+        .array(items.map { $0.parameterValue() })
     }
 }
 
@@ -373,16 +323,13 @@ public struct ProjectStorageCleanupPreparationRequest: Sendable {
     }
 }
 
-private func checkedParameterInteger<T: BinaryInteger>(
-    _ value: T,
-    field: String,
-    path: String
-) throws -> Int {
-    guard let integer = Int(exactly: value) else {
-        throw ProjectStorageCleanupPreparationError
-            .parameterRepresentationOverflow(field: field, path: path)
+func exactCleanupParameterValue<T: BinaryInteger>(
+    _ value: T
+) -> ParameterValue {
+    if let integer = Int(exactly: value) {
+        return .integer(integer)
     }
-    return integer
+    return .string(String(value))
 }
 
 public struct ProjectStorageCleanupPreparation: Sendable {

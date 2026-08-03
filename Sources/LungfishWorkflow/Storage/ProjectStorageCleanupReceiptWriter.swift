@@ -336,7 +336,7 @@ public struct ProjectStorageCleanupReceiptWriter: Sendable {
             completedAt.timeIntervalSince(request.startedAt)
         )
         let inventoryValue = ParameterValue.array(
-            try journalItems.map { try $0.parameterValue() }
+            journalItems.map { $0.parameterValue() }
         )
         let options = mergedOptions(
             request.options,
@@ -944,7 +944,10 @@ public struct ProjectStorageCleanupReceiptWriter: Sendable {
               FileSystemObjectIdentity(from: stagingInformation)
                 == createdIdentity,
               stagingInformation.st_uid == Darwin.geteuid(),
-              stagingInformation.st_nlink >= 2,
+              projectStorageDirectoryLinkCountIsPlausible(
+                stagingInformation.st_nlink,
+                descriptor: staging
+              ),
               stagingInformation.st_mode & 0o777 == 0o700 else {
             let validationError =
                 ProjectStorageCleanupPreparationError
@@ -1205,7 +1208,10 @@ public struct ProjectStorageCleanupReceiptWriter: Sendable {
         guard Darwin.fstat(descriptor, &information) == 0,
               information.st_mode & S_IFMT == S_IFDIR,
               information.st_uid == Darwin.geteuid(),
-              information.st_nlink >= 2,
+              projectStorageDirectoryLinkCountIsPlausible(
+                information.st_nlink,
+                descriptor: descriptor
+              ),
               information.st_mode & 0o700 == 0o700,
               information.st_mode & 0o022 == 0,
               !requiresPrivatePermissions
@@ -1631,6 +1637,33 @@ public struct ProjectStorageCleanupReceiptWriter: Sendable {
                     .contains($0)
             }
     }
+}
+
+func projectStorageDirectoryLinkCountIsPlausible(
+    _ linkCount: nlink_t,
+    fileSystemType: String
+) -> Bool {
+    if linkCount >= 2 { return true }
+    return linkCount == 1
+        && fileSystemType.caseInsensitiveCompare("exfat") == .orderedSame
+}
+
+private func projectStorageDirectoryLinkCountIsPlausible(
+    _ linkCount: nlink_t,
+    descriptor: Int32
+) -> Bool {
+    var information = statfs()
+    guard Darwin.fstatfs(descriptor, &information) == 0 else {
+        return false
+    }
+    let fileSystemType = withUnsafeBytes(of: information.f_fstypename) {
+        bytes -> String in
+        String(decoding: bytes.prefix { $0 != 0 }, as: UTF8.self)
+    }
+    return projectStorageDirectoryLinkCountIsPlausible(
+        linkCount,
+        fileSystemType: fileSystemType
+    )
 }
 
 private func shellEscapeForCleanup(_ value: String) -> String {

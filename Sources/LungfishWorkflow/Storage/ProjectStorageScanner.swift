@@ -351,6 +351,7 @@ public struct ProjectStorageScanner {
                 case .workflowStaging, .temporary:
                     classification = classifyOwnedWork(
                         candidate.url,
+                        category: candidate.category,
                         projectURL: project
                     )
                 }
@@ -561,6 +562,7 @@ public struct ProjectStorageScanner {
 
     private func classifyOwnedWork(
         _ url: URL,
+        category: ProjectStorageEntry.Category,
         projectURL: URL
     ) -> ProjectStorageClassification {
         let marker: OwnedWorkDirectoryMarker
@@ -655,40 +657,41 @@ public struct ProjectStorageScanner {
                     + "fails closed."
             )
         }
-        guard let lockRelativePath = marker.lockRelativePath else {
+        if let lockRelativePath = marker.lockRelativePath {
+            let lockURL = projectURL.appendingPathComponent(
+                lockRelativePath
+            )
+            do {
+                switch try lockProbe(lockURL) {
+                case .unlocked:
+                    break
+                case .held:
+                    return .notRemovable(
+                        .heldLock,
+                        reason: "The recorded run lock is held."
+                    )
+                case .missing:
+                    return .notRemovable(
+                        .unsafeLock,
+                        reason:
+                            "The recorded run lock is missing, so unlocked "
+                            + "state is not proven."
+                    )
+                }
+            } catch {
+                return .notRemovable(
+                    .unsafeLock,
+                    reason:
+                        "The recorded run lock is unsafe or unavailable: "
+                        + error.localizedDescription
+                )
+            }
+        } else if category != .temporary {
             return .notRemovable(
                 .unsafeLock,
                 reason:
                     "An active orphan has no recorded lock to prove "
                     + "unlocked."
-            )
-        }
-        let lockURL = projectURL.appendingPathComponent(
-            lockRelativePath
-        )
-        do {
-            switch try lockProbe(lockURL) {
-            case .unlocked:
-                break
-            case .held:
-                return .notRemovable(
-                    .heldLock,
-                    reason: "The recorded run lock is held."
-                )
-            case .missing:
-                return .notRemovable(
-                    .unsafeLock,
-                    reason:
-                        "The recorded run lock is missing, so unlocked "
-                        + "state is not proven."
-                )
-            }
-        } catch {
-            return .notRemovable(
-                .unsafeLock,
-                reason:
-                    "The recorded run lock is unsafe or unavailable: "
-                    + error.localizedDescription
             )
         }
         if operationHistoryClaimsLiveWork(

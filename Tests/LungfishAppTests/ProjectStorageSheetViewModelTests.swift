@@ -986,6 +986,57 @@ final class ProjectStorageSheetViewModelTests: XCTestCase {
         )
     }
 
+    func testCleanupResultMatchesReceiptItemsBySourcePath() {
+        let moved = entry(
+            path: ".tmp/fasta-preview",
+            category: .temporary,
+            logical: 10_000,
+            allocated: 12_000
+        )
+        let model = makeModel()
+        model.receiveScanResult(
+            .init(projectIdentity: projectIdentity, entries: [moved])
+        )
+        let trashPath = "/Users/test/.Trash/fasta-preview"
+        let receiptItemID = UUID()
+
+        model.receiveCleanupResult(
+            summary: .init(
+                cleanupID: UUID(),
+                projectRoot: projectURL.path,
+                projectIdentity: projectIdentity,
+                state: .completed,
+                items: [
+                    .init(
+                        itemID: receiptItemID,
+                        sourceRelativePath: moved.relativePath,
+                        state: .movedToTrash,
+                        quarantineRelativePath: nil,
+                        trashDestinationPath: trashPath,
+                        reason: nil
+                    ),
+                ],
+                startedAt: Date(timeIntervalSince1970: 10),
+                completedAt: Date(timeIntervalSince1970: 11),
+                exitStatus: 0,
+                wallTimeSeconds: 1,
+                stderr: ""
+            ),
+            summaryURL: URL(fileURLWithPath: "/project/history/summary.json"),
+            provenanceURL: URL(
+                fileURLWithPath: "/project/history/provenance.json"
+            )
+        )
+
+        XCTAssertEqual(model.removedAllocatedBytes, moved.allocatedBytes)
+        XCTAssertEqual(model.cleanupItems[moved.id]?.itemID, receiptItemID)
+        XCTAssertEqual(
+            model.trashDestinationURLs[moved.id],
+            URL(fileURLWithPath: trashPath)
+        )
+        XCTAssertEqual(model.cleanupStatusText(for: moved), "Moved to Trash")
+    }
+
     func testDuplicateCleanupItemIdentifiersFailSafely() {
         let source = entry(path: ".tmp/duplicate", category: .temporary)
         let duplicateItems = [
