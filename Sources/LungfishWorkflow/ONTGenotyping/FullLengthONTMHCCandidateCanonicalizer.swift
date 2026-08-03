@@ -127,10 +127,14 @@ struct FullLengthONTMHCCandidateCanonicalizer {
             let source = representative.record
             let canonicalSubstitutionCount = representative.canonicalization.substitutionCount
             let mergedExtensionOf = Set(
-                values.flatMap { input in
-                    if reconcilesAsPartialExtension,
-                       input.record.classification == .novel {
-                        return [input.record.closestReferenceName]
+                values.flatMap { input -> [String] in
+                    if reconcilesAsPartialExtension {
+                        guard input.record.classification == .partialExtension else {
+                            return []
+                        }
+                        return input.record.extensionOf.isEmpty
+                            ? [input.record.closestReferenceName]
+                            : input.record.extensionOf
                     }
                     return input.record.extensionOf
                 }
@@ -224,7 +228,10 @@ struct FullLengthONTMHCCandidateCanonicalizer {
         // Values reach this point only after resolving to the same published
         // sequence. A raw SNP call may therefore describe sequence that was
         // trimmed from that published record. Reconcile it only when every raw
-        // interpretation points to the same genomic allele without an indel.
+        // interpretation points to a genomic allele without an indel. A partial
+        // observed region can be identical across multiple named references.
+        // Reconcile a novel interpretation only when its reference was already
+        // identified as a zero-SNP compatible name by a partial-extension record.
         guard values.contains(where: { $0.record.classification == .partialExtension }),
               values.allSatisfy({
                   $0.record.classification == .partialExtension
@@ -239,10 +246,20 @@ struct FullLengthONTMHCCandidateCanonicalizer {
               }) else {
             return false
         }
-        let compatibleNames = Set(values.flatMap { input in
-            input.record.extensionOf + [input.record.closestReferenceName]
+        let partialCompatibleNames = Set(values.flatMap { input -> [String] in
+            guard input.record.classification == .partialExtension else {
+                return []
+            }
+            return input.record.extensionOf.isEmpty
+                ? [input.record.closestReferenceName]
+                : input.record.extensionOf
         })
-        return compatibleNames.count == 1
+        let novelReferenceNames = Set(values.compactMap { input in
+            input.record.classification == .novel
+                ? input.record.closestReferenceName
+                : nil
+        })
+        return novelReferenceNames.isSubset(of: partialCompatibleNames)
     }
 
     private func provisionalName(

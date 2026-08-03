@@ -1998,7 +1998,7 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
             "terminalLocalClipRescueMismatchAllowance": "max(1,floor(0.20*missing-bases))",
             "terminalLocalClipRescueMissingBasesUpperBoundExclusive": String(thresholds.minimumIntronGapBases),
             "candidateMergeFields": "classification,locus,provisional-name,closest-reference-name,closest-reference-raw-id,closest-reference-class,extension-of,provisional-naming-ambiguous",
-            "partialExtensionCanonicalReconciliationRule": "identical-published-sequence;same-locus;same-compatible-genomic-allele;partial-extension-or-novel-only;no-I-D-N;partial-extension-wins;raw-interpretations-retained-in-source-map",
+            "partialExtensionCanonicalReconciliationRule": "identical-published-sequence;same-locus;genomic-only;novel-reference-must-be-listed-by-partial-extension;partial-extension-or-novel-only;no-I-D-N;partial-extension-wins;raw-interpretations-retained-in-artifacts/internal/mhc-candidate-canonicalization-input.json",
             "partialExtensionCanonicalReconciliationCount": String(
                 partialExtensionReconciliationCount
             ),

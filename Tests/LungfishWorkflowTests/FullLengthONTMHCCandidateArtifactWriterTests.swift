@@ -618,6 +618,105 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         )
     }
 
+    func testCanonicalizerMergesAmbiguousDRBReferencesIntoPartialExtension() throws {
+        let sequence = "ATGGCTTAA"
+        let result = try FullLengthONTMHCCandidateCanonicalizer().aggregate([
+            canonicalizerInput(
+                rawID: "raw-partial",
+                externalSequence: sequence,
+                locus: "Mamu-DRB",
+                classification: .partialExtension,
+                provisionalName: "Mamu-DRB1*03:03:01:01_partial_ext",
+                closestReferenceName: "Mamu-DRB1*03:03:01:01",
+                closestReferenceRawID: "ref-a",
+                totalReads: 8,
+                extensionOf: ["Mamu-DRB1*03:03:01:01", "Mamu-DRB1*03:09:01:01"],
+                provisionalNamingAmbiguous: true,
+                snpCount: 0,
+                canonicalSubstitutionCount: 0
+            ),
+            canonicalizerInput(
+                rawID: "raw-novel-a",
+                externalSequence: sequence,
+                locus: "Mamu-DRB",
+                classification: .novel,
+                provisionalName: "Mamu-DRB1*03:03:01:01_1nt_nov",
+                closestReferenceName: "Mamu-DRB1*03:03:01:01",
+                closestReferenceRawID: "ref-a",
+                totalReads: 12,
+                snpCount: 1,
+                canonicalSubstitutionCount: 0
+            ),
+            canonicalizerInput(
+                rawID: "raw-novel-b",
+                externalSequence: sequence,
+                locus: "Mamu-DRB",
+                classification: .novel,
+                provisionalName: "Mamu-DRB1*03:09:01:01_1nt_nov",
+                closestReferenceName: "Mamu-DRB1*03:09:01:01",
+                closestReferenceRawID: "ref-b",
+                totalReads: 10,
+                snpCount: 1,
+                canonicalSubstitutionCount: 0
+            ),
+        ])
+
+        XCTAssertEqual(result.count, 1)
+        XCTAssertEqual(result[0].record.classification, .partialExtension)
+        XCTAssertEqual(
+            result[0].record.extensionOf,
+            ["Mamu-DRB1*03:03:01:01", "Mamu-DRB1*03:09:01:01"]
+        )
+        XCTAssertEqual(result[0].record.provisionalName, "Mamu-DRB1*03:03:01:01_partial_ext")
+        XCTAssertTrue(result[0].record.provisionalNamingAmbiguous)
+        XCTAssertEqual(result[0].record.totalClusterReads, 30)
+        XCTAssertEqual(
+            result[0].record.sourceSequenceClusterIDs,
+            ["raw-novel-a", "raw-novel-b", "raw-partial"]
+        )
+        XCTAssertEqual(result[0].observations.count, 3)
+        XCTAssertEqual(
+            result[0].observations.reduce(0) { $0 + $1.aggregatedSampleReadCount },
+            30
+        )
+        XCTAssertEqual(result[0].rawInputs.map(\.record.stableClusterID), [
+            "raw-novel-a", "raw-novel-b", "raw-partial",
+        ])
+    }
+
+    func testCanonicalizerRejectsNovelReferenceNotDeclaredByPartialExtension() throws {
+        let sequence = "ATGGCTTAA"
+        let inputs = [
+            try canonicalizerInput(
+                rawID: "raw-partial",
+                externalSequence: sequence,
+                locus: "Mamu-DRB",
+                classification: .partialExtension,
+                provisionalName: "Mamu-DRB1*03:03:01:01_partial_ext",
+                closestReferenceName: "Mamu-DRB1*03:03:01:01",
+                closestReferenceRawID: "ref-a",
+                extensionOf: ["Mamu-DRB1*03:03:01:01"],
+                snpCount: 0,
+                canonicalSubstitutionCount: 0
+            ),
+            try canonicalizerInput(
+                rawID: "raw-novel-b",
+                externalSequence: sequence,
+                locus: "Mamu-DRB",
+                classification: .novel,
+                provisionalName: "Mamu-DRB1*03:09:01:01_1nt_nov",
+                closestReferenceName: "Mamu-DRB1*03:09:01:01",
+                closestReferenceRawID: "ref-b",
+                snpCount: 1,
+                canonicalSubstitutionCount: 1
+            ),
+        ]
+
+        XCTAssertThrowsError(try FullLengthONTMHCCandidateCanonicalizer().aggregate(inputs)) {
+            XCTAssertTrue($0.localizedDescription.contains("conflicting biological interpretations"))
+        }
+    }
+
     func testCanonicalizerMergesTrimmedAwayRawSNPIntoCompatiblePartialExtension() throws {
         let sequence = "ATGGCTTAA"
         let result = try FullLengthONTMHCCandidateCanonicalizer().aggregate([
@@ -905,7 +1004,7 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         XCTAssertEqual(canonicalization.resolvedOptions["canonicalCandidateCount"], "2")
         XCTAssertEqual(
             canonicalization.resolvedOptions["partialExtensionCanonicalReconciliationRule"],
-            "identical-published-sequence;same-locus;same-compatible-genomic-allele;partial-extension-or-novel-only;no-I-D-N;partial-extension-wins;raw-interpretations-retained-in-source-map"
+            "identical-published-sequence;same-locus;genomic-only;novel-reference-must-be-listed-by-partial-extension;partial-extension-or-novel-only;no-I-D-N;partial-extension-wins;raw-interpretations-retained-in-artifacts/internal/mhc-candidate-canonicalization-input.json"
         )
         XCTAssertEqual(
             canonicalization.resolvedOptions["partialExtensionCanonicalReconciliationCount"],
