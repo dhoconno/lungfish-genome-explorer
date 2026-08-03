@@ -156,9 +156,16 @@ final class BatchTableViewTests: XCTestCase {
                 backing: .buffered,
                 defer: false
             )
+            window.animationBehavior = .none
+            window.isReleasedWhenClosed = false
             window.contentView = table
             window.makeKeyAndOrderFront(nil)
-            defer { window.close() }
+            defer {
+                _ = window.makeFirstResponder(nil)
+                table.removeFromSuperview()
+                window.contentView = nil
+                window.orderOut(nil)
+            }
             let searchField = try XCTUnwrap(table.firstDescendant(of: NSSearchField.self))
             _ = try XCTUnwrap(table.firstDescendant(of: NSScrollView.self))
             let headerClipView = try XCTUnwrap(table.tableView.headerView?.superview as? NSClipView)
