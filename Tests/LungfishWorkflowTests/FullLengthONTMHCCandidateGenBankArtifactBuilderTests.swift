@@ -919,6 +919,129 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         XCTAssertEqual(result.shorterCoverage, 1)
     }
 
+    func testCanonicalComparisonExcludesAlignedBasesBeyondObservedPartialCDS() throws {
+        let referenceSequence = "ATGAAAAAAACCCGGAAAAAAAAAATTTAA"
+        let baselineSequence = String(referenceSequence.dropFirst(8).prefix(12))
+        var candidateBases = Array(referenceSequence.dropFirst(8).prefix(12))
+        candidateBases[10] = candidateBases[10] == "A" ? "C" : "A"
+        let candidateSequence = String(candidateBases)
+        let candidate = try makeCandidate(
+            stableID: "candidate-partial-cds-trailing-mismatch",
+            sequenceSHA256: sha256Hex(candidateSequence),
+            cigar: "10=1X1=",
+            referenceName: "ref-partial-cds-trailing-mismatch",
+            referenceClass: .genomicDNA,
+            referenceStart: 9
+        )
+        let joinedCDS = "join(1..3,11..15,26..30)"
+        let reference = makeReference(
+            id: "ref-partial-cds-trailing-mismatch",
+            sequence: referenceSequence,
+            features: [
+                feature(type: "CDS", start: 0, end: 3, rawGenBankLocation: joinedCDS, sourceOrdinal: 1),
+                feature(type: "CDS", start: 10, end: 15, rawGenBankLocation: joinedCDS, sourceOrdinal: 1),
+                feature(type: "CDS", start: 25, end: 30, rawGenBankLocation: joinedCDS, sourceOrdinal: 1),
+            ]
+        )
+        let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+            subject: .candidate(candidate),
+            sequence: candidateSequence,
+            selectedAlignmentIsReverse: false,
+            closestReference: reference,
+            analysisName: "run",
+            projectBundleName: nil,
+            minimumIntronGapBases: 20
+        )
+
+        let result = try FullLengthONTMHCCandidateGenBankArtifactBuilder().build(from: input)
+        let baseline = try FullLengthONTMHCCandidateGenBankArtifactBuilder().build(from: .init(
+            subject: .candidate(makeCandidate(
+                stableID: "candidate-partial-cds-baseline",
+                sequenceSHA256: sha256Hex(baselineSequence),
+                cigar: "12=",
+                referenceName: "ref-partial-cds-trailing-mismatch",
+                referenceClass: .genomicDNA,
+                referenceStart: 9
+            )),
+            sequence: baselineSequence,
+            selectedAlignmentIsReverse: false,
+            closestReference: reference,
+            analysisName: "run",
+            projectBundleName: nil,
+            minimumIntronGapBases: 20
+        ))
+
+        XCTAssertEqual(result.externalSequence, String(candidateSequence.dropFirst(2).prefix(5)))
+        XCTAssertEqual(result.externalSequence, baseline.externalSequence)
+        XCTAssertEqual(result.trimRange, 2..<7)
+        XCTAssertEqual(result.substitutionCount, 0)
+        XCTAssertEqual(result.substitutionCount, baseline.substitutionCount)
+        XCTAssertEqual(result.comparableBases, 5)
+        XCTAssertEqual(result.comparableBases, baseline.comparableBases)
+        XCTAssertEqual(result.identity, 1)
+        XCTAssertEqual(result.shorterCoverage, 1)
+    }
+
+    func testReverseCanonicalComparisonUsesStoredCoordinatesForPartialCDSCrop() throws {
+        let referenceSequence = "ATGAAAAAAACCCGGAAAAAAAAAATTTAA"
+        let baselineOriented = String(referenceSequence.dropFirst(8).prefix(12))
+        var changedOrientedBases = Array(baselineOriented)
+        changedOrientedBases[8] = changedOrientedBases[8] == "A" ? "C" : "A"
+        let changedStored = TranslationEngine.reverseComplement(String(changedOrientedBases))
+        let baselineStored = TranslationEngine.reverseComplement(baselineOriented)
+        let joinedCDS = "join(1..3,11..15,26..30)"
+        let reference = makeReference(
+            id: "ref-reverse-partial-cds-trailing-mismatch",
+            sequence: referenceSequence,
+            features: [
+                feature(type: "CDS", start: 0, end: 3, rawGenBankLocation: joinedCDS, sourceOrdinal: 1),
+                feature(type: "CDS", start: 10, end: 15, rawGenBankLocation: joinedCDS, sourceOrdinal: 1),
+                feature(type: "CDS", start: 25, end: 30, rawGenBankLocation: joinedCDS, sourceOrdinal: 1),
+            ]
+        )
+        let builder = FullLengthONTMHCCandidateGenBankArtifactBuilder()
+        let changed = try builder.build(from: .init(
+            subject: .candidate(makeCandidate(
+                stableID: "candidate-reverse-partial-cds-trailing-mismatch",
+                sequenceSHA256: sha256Hex(changedStored),
+                cigar: "8=1X3=",
+                referenceName: reference.rawReferenceID,
+                referenceClass: .genomicDNA,
+                referenceStart: 9
+            )),
+            sequence: changedStored,
+            selectedAlignmentIsReverse: true,
+            closestReference: reference,
+            analysisName: "run",
+            projectBundleName: nil,
+            minimumIntronGapBases: 20
+        ))
+        let baseline = try builder.build(from: .init(
+            subject: .candidate(makeCandidate(
+                stableID: "candidate-reverse-partial-cds-baseline",
+                sequenceSHA256: sha256Hex(baselineStored),
+                cigar: "12=",
+                referenceName: reference.rawReferenceID,
+                referenceClass: .genomicDNA,
+                referenceStart: 9
+            )),
+            sequence: baselineStored,
+            selectedAlignmentIsReverse: true,
+            closestReference: reference,
+            analysisName: "run",
+            projectBundleName: nil,
+            minimumIntronGapBases: 20
+        ))
+
+        XCTAssertEqual(changed.trimRange, 5..<10)
+        XCTAssertEqual(changed.externalSequence, baseline.externalSequence)
+        XCTAssertEqual(changed.substitutionCount, 0)
+        XCTAssertEqual(changed.substitutionCount, baseline.substitutionCount)
+        XCTAssertEqual(changed.comparableBases, 5)
+        XCTAssertEqual(changed.comparableBases, baseline.comparableBases)
+        XCTAssertEqual(changed.identity, 1)
+    }
+
     func testInsufficientTerminalSoftClipDoesNotRescuePartialCDS() throws {
         let referenceSequence = "ATGCAAGCT"
         let candidateSequence = "TTCAAGCT"

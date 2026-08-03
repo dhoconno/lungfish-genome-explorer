@@ -285,6 +285,13 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         let candidateGenBankStep = try XCTUnwrap(envelope.steps.first {
             $0.toolName.contains("render-mhc-candidate-genbank")
         })
+        let canonicalizationStep = try XCTUnwrap(envelope.steps.first {
+            $0.toolName == "lungfish-in-process:canonicalize-and-aggregate-mhc-candidates"
+        })
+        XCTAssertEqual(
+            canonicalizationStep.resolvedOptions["canonicalComparisonScope"],
+            .string("mapped-reference-bases-whose-candidate-coordinates-fall-within-the-published-outer-lifted-CDS-span")
+        )
         XCTAssertTrue(candidateGenBankStep.inputs.contains { $0.path == annotationDatabaseURL.path })
         XCTAssertEqual(
             candidateGenBankStep.resolvedOptions["candidateUTRTrimRule"],

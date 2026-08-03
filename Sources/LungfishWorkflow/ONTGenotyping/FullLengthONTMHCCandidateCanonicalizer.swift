@@ -52,15 +52,16 @@ struct FullLengthONTMHCCandidateCanonicalizer {
         case noPublishableObservedSequence(rawStableClusterID: String, readiness: String)
         case conflictingInterpretations(
             canonicalStableClusterID: String,
-            rawStableClusterIDs: [String]
+            rawStableClusterIDs: [String],
+            interpretations: [String]
         )
 
         var errorDescription: String? {
             switch self {
             case .noPublishableObservedSequence(let id, let readiness):
                 return "Named MHC candidate '\(id)' cannot be published because no resolved observed sequence is available (\(readiness))."
-            case .conflictingInterpretations(let id, let rawIDs):
-                return "Identical UTR-trimmed MHC sequence '\(id)' has conflicting biological interpretations across raw clusters: \(rawIDs.joined(separator: ", "))."
+            case .conflictingInterpretations(let id, let rawIDs, let interpretations):
+                return "Identical UTR-trimmed MHC sequence '\(id)' has conflicting biological interpretations across raw clusters: \(rawIDs.joined(separator: ", ")). Interpretation details: \(interpretations.joined(separator: "; "))."
             }
         }
     }
@@ -85,7 +86,10 @@ struct FullLengthONTMHCCandidateCanonicalizer {
             guard keyed.count == 1 || reconcilesAsPartialExtension else {
                 throw Error.conflictingInterpretations(
                     canonicalStableClusterID: canonicalID,
-                    rawStableClusterIDs: values.map(\.record.stableClusterID).sorted()
+                    rawStableClusterIDs: values.map(\.record.stableClusterID).sorted(),
+                    interpretations: values
+                        .sorted { $0.record.stableClusterID < $1.record.stableClusterID }
+                        .map(interpretationSummary)
                 )
             }
             let sorted = values.sorted {
@@ -222,6 +226,14 @@ struct FullLengthONTMHCCandidateCanonicalizer {
                 ? false
                 : record.provisionalNamingAmbiguous
         )
+    }
+
+    private func interpretationSummary(_ input: Input) -> String {
+        let record = input.record
+        let extensionOf = record.extensionOf.isEmpty
+            ? "-"
+            : record.extensionOf.sorted().joined(separator: ",")
+        return "\(record.stableClusterID): classification=\(record.classification.rawValue), locus=\(record.locus), provisional-name=\(record.provisionalName), reference=\(record.closestReferenceName), raw-reference=\(record.selectedEvidence.referenceName), reference-class=\(record.closestReferenceClass.rawValue), raw-snps=\(record.snpCount), canonical-snps=\(input.canonicalization.substitutionCount), I/D/N=\(record.insertedBases)/\(record.deletedBases)/\(record.longGapBases), extension-of=\(extensionOf), naming-ambiguous=\(record.provisionalNamingAmbiguous)"
     }
 
     private func canReconcileAsPartialExtension(_ values: [Input]) -> Bool {

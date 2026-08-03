@@ -717,6 +717,52 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         }
     }
 
+    func testCanonicalizerConflictReportsBiologicalInterpretationDetails() throws {
+        let sequence = "ATGGCTTAA"
+        let inputs = [
+            try canonicalizerInput(
+                rawID: "raw-partial",
+                externalSequence: sequence,
+                locus: "Mamu-DRB",
+                classification: .partialExtension,
+                provisionalName: "Mamu-DRB1*03:03:01:01_partial_ext",
+                closestReferenceName: "Mamu-DRB1*03:03:01:01",
+                closestReferenceRawID: "ref-a",
+                extensionOf: ["Mamu-DRB1*03:03:01:01"],
+                snpCount: 0,
+                canonicalSubstitutionCount: 0
+            ),
+            try canonicalizerInput(
+                rawID: "raw-novel",
+                externalSequence: sequence,
+                locus: "Mamu-DRB",
+                classification: .novel,
+                provisionalName: "Mamu-DRB1*03:09:01:01_1nt_nov",
+                closestReferenceName: "Mamu-DRB1*03:09:01:01",
+                closestReferenceRawID: "ref-b",
+                closestReferenceClass: .cDNA,
+                snpCount: 1,
+                canonicalSubstitutionCount: 1
+            ),
+        ]
+
+        XCTAssertThrowsError(try FullLengthONTMHCCandidateCanonicalizer().aggregate(inputs)) {
+            let message = $0.localizedDescription
+            XCTAssertTrue(message.contains("raw-partial: classification=partial-extension"))
+            XCTAssertTrue(message.contains("locus=Mamu-DRB"))
+            XCTAssertTrue(message.contains("provisional-name=Mamu-DRB1*03:03:01:01_partial_ext"))
+            XCTAssertTrue(message.contains("reference=Mamu-DRB1*03:03:01:01"))
+            XCTAssertTrue(message.contains("reference-class=genomicDNA"))
+            XCTAssertTrue(message.contains("canonical-snps=0"))
+            XCTAssertTrue(message.contains("I/D/N=0/0/0"))
+            XCTAssertTrue(message.contains("extension-of=Mamu-DRB1*03:03:01:01"))
+            XCTAssertTrue(message.contains("raw-novel: classification=novel"))
+            XCTAssertTrue(message.contains("reference-class=cDNA"))
+            XCTAssertTrue(message.contains("canonical-snps=1"))
+            XCTAssertTrue(message.contains("extension-of=-"))
+        }
+    }
+
     func testCanonicalizerMergesTrimmedAwayRawSNPIntoCompatiblePartialExtension() throws {
         let sequence = "ATGGCTTAA"
         let result = try FullLengthONTMHCCandidateCanonicalizer().aggregate([
@@ -999,6 +1045,10 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         XCTAssertEqual(
             canonicalization.resolvedOptions["representativeRule"],
             "highest-total-cluster-reads;then-lexical-raw-stable-id"
+        )
+        XCTAssertEqual(
+            canonicalization.resolvedOptions["canonicalComparisonScope"],
+            "mapped-reference-bases-whose-candidate-coordinates-fall-within-the-published-outer-lifted-CDS-span"
         )
         XCTAssertEqual(canonicalization.resolvedOptions["rawCandidateCount"], "2")
         XCTAssertEqual(canonicalization.resolvedOptions["canonicalCandidateCount"], "2")
