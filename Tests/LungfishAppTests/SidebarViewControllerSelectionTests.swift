@@ -849,6 +849,82 @@ final class SidebarViewControllerSelectionTests: XCTestCase {
         )
     }
 
+    func testFilesystemReloadPreservesTopVisibleItemAndOffset() throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SidebarScrollAnchor-\(UUID().uuidString)", isDirectory: true)
+        let projectURL = tempRoot.appendingPathComponent("Fixture.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        for index in 0..<80 {
+            try "row \(index)\n".write(
+                to: projectURL.appendingPathComponent(String(format: "item-%03d.txt", index)),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        let sidebar = SidebarViewController()
+        sidebar.loadViewIfNeeded()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 300),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = sidebar
+        sidebar.view.frame = NSRect(x: 0, y: 0, width: 320, height: 300)
+
+        defer {
+            sidebar.closeProject()
+            window.contentViewController = nil
+            try? FileManager.default.removeItem(at: tempRoot)
+        }
+
+        sidebar.openProject(at: projectURL)
+        window.layoutIfNeeded()
+        sidebar.view.layoutSubtreeIfNeeded()
+        let scrollView = try XCTUnwrap(sidebar.outlineView.enclosingScrollView)
+        XCTAssertGreaterThan(sidebar.outlineView.numberOfRows, 55)
+        scrollView.frame = NSRect(x: 0, y: 0, width: 320, height: 180)
+        sidebar.outlineView.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: scrollView.contentSize.width,
+            height: sidebar.outlineView.rowHeight * CGFloat(sidebar.outlineView.numberOfRows)
+        )
+        let targetY = sidebar.outlineView.rect(ofRow: 55).minY
+        XCTAssertGreaterThan(targetY, 0)
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: targetY))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        XCTAssertGreaterThan(scrollView.contentView.bounds.minY, 0)
+
+        let beforeVisibleY = scrollView.contentView.bounds.minY
+        let beforeRow = sidebar.outlineView.row(at: NSPoint(x: 0, y: beforeVisibleY))
+        let beforeItem = try XCTUnwrap(sidebar.outlineView.item(atRow: beforeRow) as? SidebarItem)
+        let beforeURL = try XCTUnwrap(beforeItem.url?.standardizedFileURL)
+        let beforeOffset = sidebar.outlineView.rect(ofRow: beforeRow).minY
+            - beforeVisibleY
+        XCTAssertGreaterThan(beforeRow, 0, "Fixture must scroll away from the top before reload.")
+
+        try "new row\n".write(
+            to: projectURL.appendingPathComponent("item-000a.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+        sidebar.reloadFromFilesystem()
+        window.layoutIfNeeded()
+        sidebar.view.layoutSubtreeIfNeeded()
+
+        let afterVisibleY = scrollView.contentView.bounds.minY
+        let afterRow = sidebar.outlineView.row(at: NSPoint(x: 0, y: afterVisibleY))
+        let afterItem = try XCTUnwrap(sidebar.outlineView.item(atRow: afterRow) as? SidebarItem)
+        let afterURL = try XCTUnwrap(afterItem.url?.standardizedFileURL)
+        let afterOffset = sidebar.outlineView.rect(ofRow: afterRow).minY
+            - afterVisibleY
+
+        XCTAssertEqual(afterURL, beforeURL)
+        XCTAssertEqual(afterOffset, beforeOffset, accuracy: 0.5)
+    }
+
     func testPackageBundlesUnderAnalysesAreRecognizedBeforeFolderRecursion() throws {
         let tempRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("SidebarAnalysisBundles-\(UUID().uuidString)", isDirectory: true)

@@ -399,6 +399,12 @@ extension InspectorViewController {
                 candidateGenBankURLs.unnameableClusters.map {
                     GenotypeResultArtifactRow(label: "Un-nameable Clusters GenBank", fileURL: $0)
                 },
+                candidateGenBankURLs.candidateEMBL.map {
+                    GenotypeResultArtifactRow(label: "Candidate Alleles EMBL", fileURL: $0)
+                },
+                candidateGenBankURLs.unnameableEMBL.map {
+                    GenotypeResultArtifactRow(label: "Un-nameable Clusters EMBL", fileURL: $0)
+                },
                 alignmentArtifactURLs.genotypingBAM.map {
                     GenotypeResultArtifactRow(label: "Genotyping Evidence BAM", fileURL: $0)
                 },

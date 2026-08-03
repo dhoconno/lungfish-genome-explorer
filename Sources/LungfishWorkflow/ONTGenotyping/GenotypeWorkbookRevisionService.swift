@@ -1985,7 +1985,7 @@ public struct GenotypeWorkbookRevisionService {
     }
 
     private func validateCandidateDocumentSchema(_ schemaVersion: Int, label: String) throws {
-        guard (1 ... 4).contains(schemaVersion) else {
+        guard (1 ... 5).contains(schemaVersion) else {
             throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
                 "Unsupported \(label) workbook document schema \(schemaVersion)."
             )
@@ -2151,6 +2151,12 @@ public struct GenotypeWorkbookRevisionService {
                 guard candidate.provisionalName.hasSuffix("_ext") else {
                     throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
                         "Candidate \(candidate.stableClusterID) has a non-authoritative extension label."
+                    )
+                }
+            case .partialExtension:
+                guard candidate.provisionalName.hasSuffix("_partial_ext") else {
+                    throw GenotypeWorkbookRevisionError.workbookOverrideFailed(
+                        "Candidate \(candidate.stableClusterID) has a non-authoritative partial-extension label."
                     )
                 }
             }

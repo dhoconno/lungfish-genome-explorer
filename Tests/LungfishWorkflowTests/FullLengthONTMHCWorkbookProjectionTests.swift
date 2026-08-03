@@ -142,6 +142,7 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
     func testSchemaV4NonexportableUnnameableProducesBlankExternalSequenceMetadata() throws {
         let legacy = makeDocuments()
         let original = try XCTUnwrap(legacy.unnameable.clusters.first)
+        let provisionalCandidate = try XCTUnwrap(legacy.candidates.candidates.first)
         let unnameableDocument = ONTMHCUnnameableClustersDocument(
             schemaVersion: 4,
             createdAt: legacy.unnameable.createdAt,
@@ -159,7 +160,9 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
                     supportingSampleIDs: original.supportingSampleIDs,
                     fastaRecordID: nil,
                     sequenceSHA256: nil,
-                    evidence: original.evidence
+                    reciprocalHitSummary: original.reciprocalHitSummary,
+                    selectedEvidence: original.selectedEvidence,
+                    candidateInterpretation: .init(candidate: provisionalCandidate)
                 ),
             ],
             observations: legacy.unnameable.observations
@@ -187,7 +190,10 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
         )
 
         let row = try XCTUnwrap(rows.first { $0.stableClusterID == original.stableClusterID })
-        XCTAssertEqual(row.recordCategory, .unnameable)
+        XCTAssertEqual(row.recordCategory, .candidateIncomplete)
+        XCTAssertEqual(row.provisionalAlleleName, provisionalCandidate.provisionalName)
+        XCTAssertEqual(row.locus, provisionalCandidate.locus)
+        XCTAssertEqual(row.classificationOrReason, provisionalCandidate.classification.rawValue)
         XCTAssertEqual(row.fastaRecordID, "")
         XCTAssertEqual(row.sequenceSHA256, "")
         XCTAssertNil(row.nucleotideSequence)
@@ -203,6 +209,21 @@ final class FullLengthONTMHCWorkbookProjectionTests: XCTestCase {
         XCTAssertEqual(
             object["internal_evidence_reference"] as? String,
             row.internalEvidenceReference
+        )
+
+        let unified = FullLengthONTMHCUnifiedPivotWorkbookBuilder.buildRows(
+            reportRows: [],
+            projection: projection,
+            sampleOrder: ["sample-a", "sample-b"]
+        )
+        let header = unified[0]
+        let partial = try XCTUnwrap(unified.dropFirst().first {
+            $0[header.firstIndex(of: "stable_cluster_id")!] == original.stableClusterID
+        })
+        XCTAssertEqual(partial[header.firstIndex(of: "call_type")!], "candidate-incomplete")
+        XCTAssertEqual(
+            partial[header.firstIndex(of: "display_name")!],
+            provisionalCandidate.provisionalName
         )
     }
 

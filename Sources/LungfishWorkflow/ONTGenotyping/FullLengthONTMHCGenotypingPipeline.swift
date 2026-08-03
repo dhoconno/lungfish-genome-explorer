@@ -920,6 +920,7 @@ private struct FullLengthONTMHCRollbackFailureRecovery: Sendable {
 struct FullLengthONTMHCReviewCatalogAuthority: Sendable {
     let referenceRecords: [MHCReferenceRecord]
     let candidateDocument: ONTMHCCandidateAllelesDocument
+    let unnameableDocument: ONTMHCUnnameableClustersDocument?
     let snapshots: [GenotypeReviewAuthorityFileSnapshot]
 
     func requireUnchanged() throws {
@@ -950,6 +951,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         referenceCatalogURL: URL,
         expectedCandidateDocument: ONTMHCCandidateAllelesDocument,
         candidateURL: URL,
+        expectedUnnameableDocument: ONTMHCUnnameableClustersDocument? = nil,
+        unnameableURL: URL? = nil,
         authorityObserver: () throws -> Void = {}
     ) throws -> FullLengthONTMHCReviewCatalogAuthority {
         let referenceSnapshot = try GenotypeReviewAuthorityFileSnapshot.capture(
@@ -958,6 +961,9 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         let candidateSnapshot = try GenotypeReviewAuthorityFileSnapshot.capture(
             candidateURL
         )
+        let unnameableSnapshot = try unnameableURL.map {
+            try GenotypeReviewAuthorityFileSnapshot.capture($0)
+        }
         let referenceProjection = try JSONDecoder().decode(
             FullLengthONTMHCReferenceCatalogProjection.self,
             from: referenceSnapshot.data
@@ -974,13 +980,25 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             throw GenotypeReviewableRowCatalogPublisherError
                 .authorityChanged(candidateURL.path)
         }
+        let unnameableDocument = try unnameableSnapshot.map {
+            try JSONDecoder().decode(
+                ONTMHCUnnameableClustersDocument.self,
+                from: $0.data
+            )
+        }
+        guard unnameableDocument == expectedUnnameableDocument else {
+            throw GenotypeReviewableRowCatalogPublisherError
+                .authorityChanged(unnameableURL?.path ?? candidateURL.path)
+        }
         try authorityObserver()
         try referenceSnapshot.requireUnchanged()
         try candidateSnapshot.requireUnchanged()
+        try unnameableSnapshot?.requireUnchanged()
         return FullLengthONTMHCReviewCatalogAuthority(
             referenceRecords: referenceProjection.records,
             candidateDocument: candidateDocument,
-            snapshots: [referenceSnapshot, candidateSnapshot]
+            unnameableDocument: unnameableDocument,
+            snapshots: [referenceSnapshot, candidateSnapshot] + [unnameableSnapshot].compactMap { $0 }
         )
     }
 
@@ -1861,7 +1879,9 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 ]),
                 "alignmentCountSemantics": .string("unique-schema-v1-locator-tuples"),
                 "queryCountSemantics": .string("unique-locator-count-per-query-and-target"),
-                "exactGenomicRule": .string("zero SNP substitutions; existing genomic indel-only behavior retained"),
+                "exactGenomicRule": .string("zero SNP substitutions; exact end-to-end genomic known status additionally requires full reference and consensus spans from target position 1 with no I/D/N/S/H"),
+                "partialExtensionDeferralRule": .string("a zero-SNP genomic overlap with no I/D/N but incomplete reference or consensus end coverage is deferred from initial known calls for reciprocal partial-extension classification; an exact end-to-end genomic match still wins"),
+                "legacyBroadGenomicRule": .string("zero-SNP genomic relationships containing internal I/D/N events retain prior known-call behavior unless qualifying cDNA extension evidence independently supports an extension"),
                 "cdnaCompatibilityRule": .string("zero SNP substitutions; cDNA reference coverage >= 0.95; no individual cDNA-deficit I/S/H event >= 20 bases"),
                 "knownCDNAStructuralRule": .string("compatible cDNA; cluster coverage >= 0.95; each terminal cluster flank < 20 bases; no individual cluster-side D/N segment >= 20 bases"),
                 "extensionCDNAStructuralRule": .string("compatible cDNA plus any terminal cluster flank or individual cluster-side D/N segment >= 20 bases"),
@@ -1877,7 +1897,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 "secondaryAlignmentCompletenessRule": .string("cohort minimap2 -N equals per-sample consensus target count; reciprocal minimap2 -N equals reference record count; secondary=yes; no fixed cap"),
                 "eventThresholdSemantics": .string("20-base threshold is applied to each individual event and each terminal side; event lengths are never summed to cross the threshold"),
                 "classificationPrecedence": .array([
-                    .string("exact genomic known"), .string("structural cDNA extension candidate"),
+                    .string("exact genomic known"), .string("partial extension candidate"),
+                    .string("structural cDNA extension candidate"),
                     .string("end-to-end cDNA known"), .string("SNP-defined novel"), .string("un-nameable"),
                 ]),
                 "perReferenceCollapseRule": .string("retain one best full-coverage interpretation per raw cDNA reference ID by relationship, cDNA coverage, cluster coverage, then score; retain all compatible reference IDs"),
@@ -1885,7 +1906,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 "genomicLocusResolutionRule": .string("unambiguous genomic reciprocal evidence resolves locus and closest comparison; naming cDNAs are filtered to that locus while all compatible cDNA interpretations remain in the audit payload"),
                 "provisionalNamingAmbiguityRule": .string("one compatible in-locus cDNA name supplies _ext base; otherwise genomic closest supplies base and provisional_naming_ambiguous is true"),
                 "candidateSequenceIdentityRule": .string("complete consensus, reverse-complemented as a whole when selected strand is reverse; mapped-interval crop is metadata only and never defines candidate identity, deduplicated FASTA, reciprocal input, or full-length Excel sequence"),
-                "candidateDocumentSchemaVersion": .integer(4),
+                "candidateDocumentSchemaVersion": .integer(5),
                 "referenceMoleculeClassSource": .string("materialized annotated MHC reference catalog; length threshold is fallback only when metadata is absent"),
                 "retainedCDNAExtensionInterpretationCount": .integer(
                     genotypingHitSummariesByTarget.values.reduce(0) {
@@ -1999,6 +2020,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 sampleNames: sampleSummaries.map(\.sample),
                 candidateDocument: candidateDocument,
                 candidateJSONURL: candidateArtifactResult.candidateJSONURL,
+                unnameableDocument: unnameableDocument,
+                unnameableJSONURL: candidateArtifactResult.unnameableJSONURL,
                 genotypingEvidenceBAMURL: cohortAlignmentResult.bamURL,
                 genotypingEvidenceBAIURL: cohortAlignmentResult.baiURL
             )
@@ -5580,6 +5603,8 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         sampleNames: [String],
         candidateDocument: ONTMHCCandidateAllelesDocument,
         candidateJSONURL: URL,
+        unnameableDocument: ONTMHCUnnameableClustersDocument,
+        unnameableJSONURL: URL,
         genotypingEvidenceBAMURL: URL,
         genotypingEvidenceBAIURL: URL
     ) throws -> GenotypeReviewableRowCatalogPublication? {
@@ -5610,7 +5635,9 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             expectedReferenceRecords: referenceRecords,
             referenceCatalogURL: referenceCatalogProjectionURL,
             expectedCandidateDocument: candidateDocument,
-            candidateURL: candidateJSONURL
+            candidateURL: candidateJSONURL,
+            expectedUnnameableDocument: unnameableDocument,
+            unnameableURL: unnameableJSONURL
         )
         let exactReferenceRecords = reviewAuthority.referenceRecords
         let exactCandidateDocument = reviewAuthority.candidateDocument
@@ -5628,6 +5655,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             "--sample-roster", request.sampleSummaryCSVURL.path,
             "--calls", request.reportCSVURL.path,
             "--candidate-json", candidateJSONURL.path,
+            "--unnameable-json", unnameableJSONURL.path,
             "--genotyping-bam", genotypingEvidenceBAMURL.path,
             "--genotyping-bai", genotypingEvidenceBAIURL.path,
             "--output", outputURL.path,
@@ -5646,6 +5674,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             csvAuthority.sampleSnapshot.descriptor(format: .text, role: .input),
             csvAuthority.reportSnapshot.descriptor(format: .text, role: .input),
             reviewAuthority.snapshots[1].descriptor(format: .json, role: .input),
+            reviewAuthority.snapshots[2].descriptor(format: .json, role: .input),
             bamSnapshot.descriptor(format: .bam, role: .input),
             baiSnapshot.descriptor(format: nil, role: .index),
         ]
@@ -5654,9 +5683,12 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 referenceRecords: exactReferenceRecords,
                 authoritativeSamples: csvAuthority.roster,
                 calls: sharedCalls,
-                candidates: GenotypeReviewableRowCandidate.fullLengthCandidates(
-                    from: exactCandidateDocument
-                ),
+                candidates:
+                    GenotypeReviewableRowCandidate.fullLengthCandidates(
+                        from: exactCandidateDocument
+                    ) + GenotypeReviewableRowCandidate.fullLengthIncompleteCandidates(
+                        from: reviewAuthority.unnameableDocument ?? unnameableDocument
+                    ),
                 inputDescriptors: descriptors,
                 workflowName: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
                 workflowVersion: "1",
@@ -5664,7 +5696,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
                 argv: argv,
                 userVisibleOptions: [
                     "workflowMode": .string(GenotypeResultWorkflowMode.genotypeOnly.rawValue),
-                    "candidateDesignation": .string("full-length-candidate"),
+                    "candidateDesignation": .string("full-length-candidate-or-incomplete-reference-span-review"),
                 ],
                 resolvedDefaults: [
                     "supportMetric": .string("passed-unique-reads"),
@@ -6427,9 +6459,11 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         explicit["mhcCandidateJSON"] = .file(candidateArtifactResult.candidateJSONURL)
         explicit["mhcCandidateFASTA"] = .file(candidateArtifactResult.candidateFASTAURL)
         explicit["mhcCandidateGenBank"] = .file(candidateArtifactResult.candidateGenBankURL)
+        explicit["mhcCandidateEMBL"] = .file(candidateArtifactResult.candidateEMBLURL)
         explicit["mhcUnnameableJSON"] = .file(candidateArtifactResult.unnameableJSONURL)
         explicit["mhcUnnameableFASTA"] = .file(candidateArtifactResult.unnameableFASTAURL)
         explicit["mhcUnnameableGenBank"] = .file(candidateArtifactResult.unnameableGenBankURL)
+        explicit["mhcUnnameableEMBL"] = .file(candidateArtifactResult.unnameableEMBLURL)
         if let referenceVisualizationPublication {
             explicit["mhcReferenceVisualizationRecords"] = .file(
                 referenceVisualizationPublication.recordsJSONURL
@@ -6514,9 +6548,11 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
         .output(candidateArtifactResult.candidateJSONURL, format: .json, role: .output)
         .output(candidateArtifactResult.candidateFASTAURL, format: .fasta, role: .output)
         .output(candidateArtifactResult.candidateGenBankURL, format: .genBank, role: .output)
+        .output(candidateArtifactResult.candidateEMBLURL, format: .text, role: .output)
         .output(candidateArtifactResult.unnameableJSONURL, format: .json, role: .output)
         .output(candidateArtifactResult.unnameableFASTAURL, format: .fasta, role: .output)
         .output(candidateArtifactResult.unnameableGenBankURL, format: .genBank, role: .output)
+        .output(candidateArtifactResult.unnameableEMBLURL, format: .text, role: .output)
 
         if let referenceVisualizationPublication {
             for outputURL in referenceVisualizationPublication.outputURLs {
@@ -8452,6 +8488,13 @@ enum FullLengthONTMHCUnifiedPivotWorkbookBuilder {
     ) -> [[FullLengthONTMHCWorkbookCell]] {
         let tintsByStableID = Dictionary(uniqueKeysWithValues: projection.candidateRows.map {
             ($0.stableClusterID, $0.tintCategory)
+        } + projection.unnameableRows.compactMap { row in
+            row.candidateInterpretation.map {
+                (row.stableClusterID, incompleteCandidateTint(
+                    classification: $0.classification,
+                    supportClass: row.supportClass
+                ))
+            }
         })
         return buildRows(
             reportRows: reportRows,
@@ -8479,7 +8522,8 @@ enum FullLengthONTMHCUnifiedPivotWorkbookBuilder {
         let sampleNames = completeSampleOrder(
             sampleOrder,
             reportRows: reportRows,
-            candidateRows: projection.candidateRows
+            candidateRows: projection.candidateRows,
+            unnameableRows: projection.unnameableRows
         )
         var rows = [[
             "call_type",
@@ -8545,6 +8589,27 @@ enum FullLengthONTMHCUnifiedPivotWorkbookBuilder {
             })
         }
 
+        for row in projection.unnameableRows {
+            guard let interpretation = row.candidateInterpretation else { continue }
+            dataRows.append([
+                "candidate-incomplete",
+                row.stableClusterID,
+                interpretation.provisionalName,
+                row.stableClusterID,
+                interpretation.locus,
+                interpretation.classification.rawValue,
+                row.supportClass,
+                interpretation.closestReferenceName,
+                ONTMHCUnnameableReason.incompleteReferenceSpan.rawValue,
+                String(row.occurrenceCount),
+                String(row.independentSampleCount),
+                String(row.totalClusterReads),
+            ] + sampleNames.map { sample in
+                guard let count = row.readsBySample[sample], count > 0 else { return "" }
+                return String(count)
+            })
+        }
+
         dataRows.sort { lhs, rhs in
             MHCAlleleDisplayOrder.compare(
                 lhs[2],
@@ -8561,14 +8626,21 @@ enum FullLengthONTMHCUnifiedPivotWorkbookBuilder {
     private static func completeSampleOrder(
         _ sampleOrder: [String],
         reportRows: [FullLengthONTMHCReportRow],
-        candidateRows: [FullLengthONTMHCCandidateWorkbookRow]
+        candidateRows: [FullLengthONTMHCCandidateWorkbookRow],
+        unnameableRows: [FullLengthONTMHCUnnameableWorkbookRow]
     ) -> [String] {
         var seen = Set<String>()
         var result: [String] = []
         for sample in sampleOrder where seen.insert(sample).inserted {
             result.append(sample)
         }
-        let missing = Set(reportRows.map(\.sample) + candidateRows.flatMap { Array($0.readsBySample.keys) })
+        let missing = Set(
+            reportRows.map(\.sample)
+                + candidateRows.flatMap { Array($0.readsBySample.keys) }
+                + unnameableRows.compactMap { row in
+                    row.candidateInterpretation == nil ? nil : Array(row.readsBySample.keys)
+                }.flatMap { $0 }
+        )
             .subtracting(seen)
             .sorted(by: localizedStandardLessThan)
         result.append(contentsOf: missing)
@@ -8577,6 +8649,20 @@ enum FullLengthONTMHCUnifiedPivotWorkbookBuilder {
 
     private static func localizedStandardLessThan(_ lhs: String, _ rhs: String) -> Bool {
         lhs.localizedStandardCompare(rhs) == .orderedAscending
+    }
+
+    private static func incompleteCandidateTint(
+        classification: ONTMHCCandidateClassification,
+        supportClass: String
+    ) -> FullLengthONTMHCWorkbookTintCategory {
+        switch (classification, supportClass == ONTMHCCandidateSupportClass.shared.rawValue) {
+        case (.novel, true): .sharedNovel
+        case (.novel, false): .singletonNovel
+        case (.extension, true): .sharedExtension
+        case (.extension, false): .singletonExtension
+        case (.partialExtension, true): .sharedExtension
+        case (.partialExtension, false): .singletonExtension
+        }
     }
 }
 

@@ -131,6 +131,7 @@ enum FullLengthONTMHCWorkbookProjectionError: Error, LocalizedError, Equatable, 
 
 enum FullLengthONTMHCUnmatchedRecordCategory: String, Codable, Equatable, Sendable {
     case candidate
+    case candidateIncomplete = "candidate-incomplete"
     case unnameable = "un-nameable"
 }
 
@@ -278,7 +279,9 @@ enum FullLengthONTMHCUnmatchedWorksheetBuilder {
     private static func tintCategory(
         for row: FullLengthONTMHCNormalizedUnmatchedRow
     ) -> FullLengthONTMHCWorkbookTintCategory? {
-        guard row.recordCategory == .candidate else { return nil }
+        guard row.recordCategory == .candidate || row.recordCategory == .candidateIncomplete else {
+            return nil
+        }
         switch (row.classificationOrReason, row.supportClass) {
         case (ONTMHCCandidateClassification.novel.rawValue, ONTMHCCandidateSupportClass.shared.rawValue):
             return .sharedNovel
@@ -287,6 +290,10 @@ enum FullLengthONTMHCUnmatchedWorksheetBuilder {
         case (ONTMHCCandidateClassification.extension.rawValue, ONTMHCCandidateSupportClass.shared.rawValue):
             return .sharedExtension
         case (ONTMHCCandidateClassification.extension.rawValue, _):
+            return .singletonExtension
+        case (ONTMHCCandidateClassification.partialExtension.rawValue, ONTMHCCandidateSupportClass.shared.rawValue):
+            return .sharedExtension
+        case (ONTMHCCandidateClassification.partialExtension.rawValue, _):
             return .singletonExtension
         default:
             return nil
@@ -352,6 +359,7 @@ struct FullLengthONTMHCUnnameableWorkbookRow: Equatable, Sendable {
     let reciprocalHitSummary: ONTMHCReciprocalQueryHitSummary
     let selectedEvidence: ONTMHCEvidenceLocator?
     let evidence: [ONTMHCEvidenceLocator]
+    let candidateInterpretation: ONTMHCIncompleteCandidateInterpretation?
 }
 
 struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
@@ -457,7 +465,8 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
                 failedMetrics: record.failedMetrics,
                 reciprocalHitSummary: record.reciprocalHitSummary,
                 selectedEvidence: record.selectedEvidence,
-                evidence: record.evidence.sorted(by: Self.evidenceLess)
+                evidence: record.evidence.sorted(by: Self.evidenceLess),
+                candidateInterpretation: record.candidateInterpretation
             )
         }
     }
@@ -567,20 +576,22 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
                 ? row.reciprocalHitSummary.closestMatchTargetNames.first
                 : nil
             let closestReferenceRawID = row.selectedEvidence?.referenceName ?? deterministicSummaryReference
+            let interpretation = row.candidateInterpretation
             return FullLengthONTMHCNormalizedUnmatchedRow(
-                recordCategory: .unnameable,
+                recordCategory: interpretation == nil ? .unnameable : .candidateIncomplete,
                 stableClusterID: row.stableClusterID,
-                provisionalAlleleName: nil,
-                locus: nil,
-                classificationOrReason: row.reason,
-                closestReferenceAllele: closestReferenceRawID.flatMap { knownAlleleDisplayNames[$0] },
+                provisionalAlleleName: interpretation?.provisionalName,
+                locus: interpretation?.locus,
+                classificationOrReason: interpretation?.classification.rawValue ?? row.reason,
+                closestReferenceAllele: interpretation?.closestReferenceName
+                    ?? closestReferenceRawID.flatMap { knownAlleleDisplayNames[$0] },
                 closestReferenceRawID: closestReferenceRawID,
-                extensionOf: [],
-                snpCount: nil,
-                insertedBases: nil,
-                deletedBases: nil,
-                longGapBases: nil,
-                comparableBases: nil,
+                extensionOf: interpretation?.extensionOf ?? [],
+                snpCount: interpretation?.snpCount,
+                insertedBases: interpretation?.insertedBases,
+                deletedBases: interpretation?.deletedBases,
+                longGapBases: interpretation?.longGapBases,
+                comparableBases: interpretation?.comparableBases,
                 failedMetrics: row.failedMetrics,
                 supportClass: row.supportClass,
                 independentSampleCount: row.independentSampleCount,
@@ -1074,6 +1085,8 @@ struct FullLengthONTMHCWorkbookProjection: Equatable, Sendable {
         case (.novel, .singleton): .singletonNovel
         case (.extension, .shared): .sharedExtension
         case (.extension, .singleton): .singletonExtension
+        case (.partialExtension, .shared): .sharedExtension
+        case (.partialExtension, .singleton): .singletonExtension
         }
     }
 

@@ -25,6 +25,12 @@ private struct SidebarDirectoryEntry {
     let isDirectory: Bool
 }
 
+private struct SidebarScrollAnchor {
+    let url: URL?
+    let offsetFromVisibleTop: CGFloat
+    let fallbackY: CGFloat
+}
+
 private let sidebarDirectoryEntryResourceKeys: Set<URLResourceKey> = [
     .isDirectoryKey,
     .isHiddenKey,
@@ -935,6 +941,7 @@ public class SidebarViewController: NSViewController {
         // Save current selection to restore after reload
         let selectedURLs = selectedItems().compactMap { $0.url?.standardizedFileURL }
         let selectedURLSet = Set(selectedURLs)
+        let scrollAnchor = captureScrollAnchor()
 
         // Suppress selection side effects while rebuilding and restoring rows.
         suppressSelectionCallbacks = true
@@ -963,6 +970,7 @@ public class SidebarViewController: NSViewController {
 
         // Restore selection if possible
         restoreSelection(urls: selectedURLs)
+        restoreScrollAnchor(scrollAnchor)
         suppressSelectionCallbacks = false
 
         // Propagate selection only if it actually changed after refresh.
@@ -987,6 +995,54 @@ public class SidebarViewController: NSViewController {
         let itemCount = rootItems.reduce(0) { $0 + countItems(in: $1) }
         sidebarLogger.info("reloadFromFilesystem: Sidebar updated with \(itemCount) items")
         scheduleUniversalSearchRebuild()
+    }
+
+    private func captureScrollAnchor() -> SidebarScrollAnchor? {
+        guard let scrollView = outlineView.enclosingScrollView else { return nil }
+        let visibleTop = scrollView.contentView.bounds.minY
+        let row = topVisibleRow(at: visibleTop)
+        let item = row.flatMap { outlineView.item(atRow: $0) as? SidebarItem }
+        let offset = row.map { outlineView.rect(ofRow: $0).minY - visibleTop } ?? 0
+        return SidebarScrollAnchor(
+            url: item?.url?.standardizedFileURL,
+            offsetFromVisibleTop: offset,
+            fallbackY: visibleTop
+        )
+    }
+
+    private func topVisibleRow(at visibleTop: CGFloat) -> Int? {
+        let probes: [CGFloat] = [0, 1, outlineView.rowHeight / 2, outlineView.rowHeight]
+        for delta in probes {
+            let row = outlineView.row(at: NSPoint(x: 0, y: visibleTop + delta))
+            if row >= 0 { return row }
+        }
+        return nil
+    }
+
+    private func restoreScrollAnchor(_ anchor: SidebarScrollAnchor?) {
+        guard let anchor,
+              let scrollView = outlineView.enclosingScrollView else { return }
+
+        outlineView.layoutSubtreeIfNeeded()
+        let targetY: CGFloat
+        if let url = anchor.url,
+           let item = findItem(byURL: url),
+           outlineView.row(forItem: item) >= 0 {
+            let row = outlineView.row(forItem: item)
+            targetY = outlineView.rect(ofRow: row).minY - anchor.offsetFromVisibleTop
+        } else {
+            targetY = anchor.fallbackY
+        }
+
+        let lastRow = outlineView.numberOfRows - 1
+        let contentHeight = lastRow >= 0 ? outlineView.rect(ofRow: lastRow).maxY : 0
+        let maximumY = max(0, contentHeight - scrollView.contentView.bounds.height)
+        let clampedY = min(max(0, targetY), maximumY)
+        scrollView.contentView.scroll(to: NSPoint(
+            x: scrollView.contentView.bounds.minX,
+            y: clampedY
+        ))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
     /// Incrementally updates the sidebar for specific changed paths.

@@ -1080,6 +1080,13 @@ public final class GenotypeResultViewController: NSViewController {
                     candidates: result.mhcCandidates?.candidates ?? [],
                     genBankURL: result.mhcCandidateGenBankArtifactURLs.candidateAlleles
                 )
+            candidateSequenceRecordsByStableClusterID.merge(
+                GenotypeAlleleSequenceRecord.incompleteCandidateCatalogRetainingValidRecords(
+                    records: result.mhcUnnameableClusters?.clusters ?? [],
+                    genBankURL: result.mhcCandidateGenBankArtifactURLs.unnameableClusters
+                ),
+                uniquingKeysWith: { validated, _ in validated }
+            )
         } else {
             knownSequenceRecordsByRowID = [:]
             candidateSequenceRecordsByStableClusterID = [:]
@@ -1344,6 +1351,27 @@ public final class GenotypeResultViewController: NSViewController {
                     genotype: candidate.provisionalName,
                     sample: observation.sampleID,
                     stableClusterID: candidate.stableClusterID
+                )
+                readsByTarget[target, default: 0] += observation.aggregatedSampleReadCount
+            }
+        }
+        if let unnameableDocument = result.mhcUnnameableClusters {
+            let interpretationsByStableID = Dictionary(
+                unnameableDocument.clusters.compactMap { record in
+                    record.candidateInterpretation.map {
+                        (record.stableClusterID, $0)
+                    }
+                },
+                uniquingKeysWith: { _, latest in latest }
+            )
+            for observation in unnameableDocument.observations {
+                guard let interpretation = interpretationsByStableID[observation.stableClusterID]
+                else { continue }
+                let target = GenotypeAnnotationSidecar.MatrixTarget.cell(
+                    locus: interpretation.locus,
+                    genotype: interpretation.provisionalName,
+                    sample: observation.sampleID,
+                    stableClusterID: observation.stableClusterID
                 )
                 readsByTarget[target, default: 0] += observation.aggregatedSampleReadCount
             }
@@ -3744,9 +3772,51 @@ public final class GenotypeResultViewController: NSViewController {
         matrixTargets: [GenotypeAnnotationSidecar.MatrixTarget]
     ) {
         guard let result,
+              let stableClusterID = row.stableClusterID else {
+            showEmptySelection()
+            return
+        }
+        if let interpretation = row.incompleteCandidateInterpretation {
+            currentSharedCall = nil
+            currentCandidateRow = row
+            currentSelectedSample = sample
+            var rows: [(String, String)] = [
+                ("Classification", interpretation.classification == .novel ? "Novel" : "Extension"),
+                ("Review status", "Incomplete reference span; not reference-ready"),
+                ("Validation", "This partial sequence cannot be fully validated and must not be treated as a named allele."),
+                ("Closest reference", interpretation.closestReferenceName),
+            ]
+            if let sample,
+               let support = row.support(for: sample) {
+                rows.append(("Read support", String(support.passedUniqueReads)))
+            }
+            rows.append(contentsOf: matrixCommentDetailRows(
+                for: row.sharedCall,
+                sample: sample,
+                matrixTargets: matrixTargets
+            ))
+            let target = GenotypeResultHighlightTarget(
+                genotype: row.genotype,
+                locus: row.locus,
+                sample: sample,
+                stableClusterID: stableClusterID
+            )
+            if isFullLengthMHCGenotypeViewport {
+                showAlleleSequenceRows(for: matrixTargets)
+            }
+            publishSelectionState(GenotypeResultSelectionState(
+                title: row.alleleName,
+                subtitle: "\(row.locus) provisional candidate",
+                detailRows: rows,
+                highlightTarget: target,
+                highlightStyle: comparisonMatrix.highlightStyle(for: target),
+                matrixTargets: matrixTargets
+            ))
+            return
+        }
+        guard
               validatedMHCCandidateDocument(from: result) != nil,
               let candidate = row.candidate,
-              let stableClusterID = row.stableClusterID,
               let presentation = candidatePresentationsByStableClusterID[stableClusterID] else {
             showEmptySelection()
             return
@@ -4354,6 +4424,8 @@ public final class GenotypeResultViewController: NSViewController {
             qualifiers.append("Novel candidate")
         case .extension:
             qualifiers.append("Extension candidate")
+        case .partialExtension:
+            qualifiers.append("Partial extension candidate")
         case nil:
             break
         }
@@ -4396,6 +4468,8 @@ public final class GenotypeResultViewController: NSViewController {
             details.append("Candidate classification: novel.")
         case .extension:
             details.append("Candidate classification: extension.")
+        case .partialExtension:
+            details.append("Candidate classification: partial extension.")
         case nil:
             break
         }
@@ -5022,6 +5096,12 @@ public final class GenotypeResultViewController: NSViewController {
         }
         if let unnameableURL = candidateGenBankURLs.unnameableClusters {
             artifactRows.append(artifactRow(label: "Un-nameable Clusters GenBank", url: unnameableURL))
+        }
+        if let candidateURL = candidateGenBankURLs.candidateEMBL {
+            artifactRows.append(artifactRow(label: "Candidate Alleles EMBL", url: candidateURL))
+        }
+        if let unnameableURL = candidateGenBankURLs.unnameableEMBL {
+            artifactRows.append(artifactRow(label: "Un-nameable Clusters EMBL", url: unnameableURL))
         }
         let alignmentArtifactURLs = result.alignmentArtifactURLs
         if let genotypingBAMURL = alignmentArtifactURLs.genotypingBAM {
@@ -6882,6 +6962,7 @@ public final class GenotypeResultViewController: NSViewController {
         let rows = GenotypeCandidateMatrixProjection.rows(
             knownRows: knownRows,
             candidateDocument: validatedMHCCandidateDocument(from: result),
+            unnameableDocument: result.mhcUnnameableClusters,
             settings: settings,
             usesBiologicalAlleleOrder:
                 result.manifest.kind == "full-length-ont-mhc-genotype"

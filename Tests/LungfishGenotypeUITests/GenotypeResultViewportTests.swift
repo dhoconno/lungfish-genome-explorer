@@ -968,6 +968,40 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(state.inspectedTargetCount, 4)
     }
 
+    func testSingleRowContextFilterReportsWhetherAnyColumnsHaveCalls() throws {
+        let target = GenotypeAnnotationSidecar.MatrixTarget.row(
+            locus: "MHC-A",
+            genotype: "A1"
+        )
+        func item(callSampleCount: Int) throws -> GenotypeMatrixContextMenuItemState {
+            let state = GenotypeMatrixContextMenuBuilder.make(snapshot: .init(
+                selectionTargets: [target],
+                capability: GenotypeMatrixReviewCapability.evaluate(
+                    selection: [target],
+                    evidence: .init(),
+                    reviews: [],
+                    comments: [],
+                    isWritable: false
+                ),
+                visibilityCapability: .init(
+                    selection: .init(targets: [target]),
+                    visibility: .init()
+                ),
+                keyModifierRawValue: 0,
+                selectedRowCallSampleCount: callSampleCount
+            ))
+            return try XCTUnwrap(state.visibilityItems.first {
+                $0.command == .showOnlyColumnsWithSelectedRowCalls
+            })
+        }
+
+        XCTAssertEqual(try item(callSampleCount: 2).availability, .enabled)
+        XCTAssertEqual(
+            try item(callSampleCount: 0).availability.disabledReason,
+            "This row has no genotype calls with read support."
+        )
+    }
+
     func testMatrixVisibilityContextBuilderCoversSparseMixedAndEmptySelections() {
         func state(
             _ targets: [GenotypeAnnotationSidecar.MatrixTarget]
@@ -1547,8 +1581,11 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(rowMenu.visibilityItems.map(\.title), [
             "Hide 1 Selected Row",
             "Show Only 1 Selected Row",
+            "Show Only Columns with Calls in This Row",
         ])
         XCTAssertTrue(controller.testingPerformMatrixContextCommand(.editComment))
+        XCTAssertTrue(controller.testingPerformMatrixContextCommand(.showOnlyColumnsWithSelectedRowCalls))
+        XCTAssertEqual(controller.testingVisibleMatrixSamples, ["AnimalA"])
 
         let columnTarget = GenotypeAnnotationSidecar.MatrixTarget.column(sample: "AnimalA")
         let headerMenu = try XCTUnwrap(controller.testingBuildMatrixContextMenu(for: columnTarget))
@@ -1557,6 +1594,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(headerMenu.visibilityItems.map(\.title), [
             "Hide 1 Selected Column",
             "Show Only 1 Selected Column",
+            "Show All Rows and Columns",
         ])
         XCTAssertTrue(controller.testingPerformMatrixContextCommand(.editComment))
 
@@ -4933,6 +4971,10 @@ final class GenotypeResultViewportTests: XCTestCase {
             (.sharedExtension, .extension, .shared, "shared-ext"),
             (.singletonExtension, .extension, .singleton, "singleton-ext"),
         ]
+        let candidateSpecs = categories + [
+            (.sharedExtension, .partialExtension, .shared, "shared-partial-ext"),
+            (.singletonExtension, .partialExtension, .singleton, "singleton-partial-ext"),
+        ]
         let customTints = Dictionary(uniqueKeysWithValues: categories.enumerated().map { index, value in
             (value.0, AnnotationColor(
                 red: Double(index + 1) / 10,
@@ -4941,7 +4983,7 @@ final class GenotypeResultViewportTests: XCTestCase {
                 alpha: Double(index + 4) / 10
             ))
         })
-        let candidates = categories.map { category, classification, support, id in
+        let candidates = candidateSpecs.map { _, classification, support, id in
             makeCandidate(
                 id: id,
                 name: id,
@@ -4961,7 +5003,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         let matrix = GenotypeComparisonMatrixView()
         matrix.configure(result: result, sidecar: sidecar)
 
-        for (category, _, _, id) in categories {
+        for (category, _, _, id) in candidateSpecs {
             let rowID = GenotypeCandidateMatrixRowID.candidate(stableClusterID: id)
             let color = try XCTUnwrap(matrix.testingBackgroundColor(rowID: rowID, column: .alleleName))
             let expected = try XCTUnwrap(customTints[category])
@@ -9226,11 +9268,15 @@ final class GenotypeResultViewportTests: XCTestCase {
         let unnameableFASTAURL = bundleURL.appendingPathComponent("artifacts/candidates/unnameable_unmatched_clusters.fasta")
         let candidateURL = bundleURL.appendingPathComponent("artifacts/candidates/candidate_alleles.gb")
         let unnameableURL = bundleURL.appendingPathComponent("artifacts/candidates/unnameable_unmatched_clusters.gb")
+        let candidateEMBLURL = bundleURL.appendingPathComponent("artifacts/candidates/candidate_alleles.embl")
+        let unnameableEMBLURL = bundleURL.appendingPathComponent("artifacts/candidates/unnameable_unmatched_clusters.embl")
         let candidateGenBankArtifactURLs = ONTMHCCandidateGenBankArtifactURLs(
             candidateAlleles: candidateURL,
             unnameableClusters: unnameableURL,
             candidateFASTA: candidateFASTAURL,
-            unnameableFASTA: unnameableFASTAURL
+            unnameableFASTA: unnameableFASTAURL,
+            candidateEMBL: candidateEMBLURL,
+            unnameableEMBL: unnameableEMBLURL
         )
         let controller = GenotypeResultViewController()
         _ = controller.view
@@ -9248,6 +9294,8 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(lensText.contains("Un-nameable Clusters FASTA"))
         XCTAssertTrue(lensText.contains("Candidate Alleles GenBank"))
         XCTAssertTrue(lensText.contains("Un-nameable Clusters GenBank"))
+        XCTAssertTrue(lensText.contains("Candidate Alleles EMBL"))
+        XCTAssertTrue(lensText.contains("Un-nameable Clusters EMBL"))
     }
 
     func testArtifactsLensOmitsCandidateGenBankArtifactsWhenAbsent() {
@@ -9262,6 +9310,8 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertFalse(lensText.contains("Un-nameable Clusters FASTA"))
         XCTAssertFalse(lensText.contains("Candidate Alleles GenBank"))
         XCTAssertFalse(lensText.contains("Un-nameable Clusters GenBank"))
+        XCTAssertFalse(lensText.contains("Candidate Alleles EMBL"))
+        XCTAssertFalse(lensText.contains("Un-nameable Clusters EMBL"))
         XCTAssertFalse(lensText.contains("Genotyping Evidence BAM"))
         XCTAssertFalse(lensText.contains("Genotyping Evidence BAI"))
         XCTAssertFalse(lensText.contains("Reciprocal Evidence BAM"))
@@ -11415,17 +11465,29 @@ final class GenotypeResultViewportTests: XCTestCase {
             support: .singleton,
             samples: ["AnimalA"]
         )
+        let partialExtensionCandidate = makeCandidate(
+            id: "partial-extension-candidate",
+            name: "Mafa-A1*007:06_partial_ext",
+            classification: .partialExtension,
+            support: .singleton,
+            samples: ["AnimalA"]
+        )
         let controller = GenotypeResultViewController()
         _ = controller.view
         controller.configure(result: makeCandidateResult(
             bundleURL: bundleURL,
             calls: [call],
-            candidates: [extensionCandidate],
+            candidates: [extensionCandidate, partialExtensionCandidate],
             observations: [
                 makeCandidateObservation(
                     cluster: "extension-candidate",
                     sample: "AnimalA",
                     reads: 21
+                ),
+                makeCandidateObservation(
+                    cluster: "partial-extension-candidate",
+                    sample: "AnimalA",
+                    reads: 19
                 ),
             ],
             provisionalExon2SequencesByGenotype: [
@@ -11486,6 +11548,16 @@ final class GenotypeResultViewportTests: XCTestCase {
         ])
         XCTAssertTrue(extensionRow.accessibilityLabel.contains(
             "Candidate classification: extension."
+        ))
+        let partialExtensionRow = try XCTUnwrap(rows.first {
+            $0.allele == partialExtensionCandidate.provisionalName
+        })
+        XCTAssertEqual(partialExtensionRow.qualifiers, [
+            "Partial extension candidate",
+            "Sample comment",
+        ])
+        XCTAssertTrue(partialExtensionRow.accessibilityLabel.contains(
+            "Candidate classification: partial extension."
         ))
 
         // A false-negative cell cannot be present in this evidence panel:
@@ -14120,7 +14192,7 @@ final class GenotypeResultViewportTests: XCTestCase {
     }
 
     func testComparisonMatrixAlignsBottomRowsWhenSampleScrollerOccupiesBottomChrome() {
-        let matrix = makeManyRowComparisonMatrix(sampleCount: 6)
+        let matrix = makeManyRowComparisonMatrix(sampleCount: 12)
         matrix.frame = NSRect(x: 0, y: 0, width: 900, height: 180)
         matrix.layoutSubtreeIfNeeded()
         matrix.testingConfigureSampleMatrixLegacyHorizontalScroller()

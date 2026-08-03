@@ -190,9 +190,7 @@ public struct GenotypeResultDisplayState: Equatable {
     public func normalized(forGenotypeOnlyResult isGenotypeOnlyResult: Bool) -> Self {
         guard isGenotypeOnlyResult else { return self }
         var normalized = self
-        if normalized.viewportLens == .review {
-            normalized.viewportLens = .summary
-        }
+        normalized.viewportLens = .summary
         normalized.summaryViewMode = .matrix
         normalized.layout = .listTop
         return normalized
@@ -334,6 +332,7 @@ enum GenotypeMatrixContextCommand: Int, CaseIterable, Equatable {
     case showOnlySelectedRows
     case hideSelectedColumns
     case showOnlySelectedColumns
+    case showOnlyColumnsWithSelectedRowCalls
     case resetVisibility
     case markFalsePositive
     case markFalseNegative
@@ -346,7 +345,8 @@ enum GenotypeMatrixContextCommand: Int, CaseIterable, Equatable {
     var isSelectionTargetedVisibilityCommand: Bool {
         switch self {
         case .hideSelectedRows, .showOnlySelectedRows,
-             .hideSelectedColumns, .showOnlySelectedColumns:
+             .hideSelectedColumns, .showOnlySelectedColumns,
+             .showOnlyColumnsWithSelectedRowCalls:
             true
         case .resetVisibility, .markFalsePositive, .markFalseNegative, .clearReview,
              .editComment, .removeComments, .selectSupportedCells,
@@ -389,19 +389,22 @@ struct GenotypeMatrixContextMenuSnapshot: Equatable, Sendable {
     let visibilityCapability: GenotypeMatrixVisibilityCapabilitySnapshot
     let keyModifierRawValue: UInt
     let manualHaplotypeEditSample: String?
+    let selectedRowCallSampleCount: Int?
 
     init(
         selectionTargets: [GenotypeAnnotationSidecar.MatrixTarget],
         capability: GenotypeMatrixReviewCapabilityState,
         visibilityCapability: GenotypeMatrixVisibilityCapabilitySnapshot,
         keyModifierRawValue: UInt,
-        manualHaplotypeEditSample: String? = nil
+        manualHaplotypeEditSample: String? = nil,
+        selectedRowCallSampleCount: Int? = nil
     ) {
         self.selectionTargets = selectionTargets
         self.capability = capability
         self.visibilityCapability = visibilityCapability
         self.keyModifierRawValue = keyModifierRawValue
         self.manualHaplotypeEditSample = manualHaplotypeEditSample
+        self.selectedRowCallSampleCount = selectedRowCallSampleCount
     }
 }
 
@@ -427,7 +430,10 @@ struct GenotypeMatrixContextMenuBuilder {
         let visibilityCapability = snapshot.visibilityCapability
         var visibilityItems: [GenotypeMatrixContextMenuItemState] = []
         var visibilitySubmenus: [GenotypeMatrixContextMenuSubmenuState] = []
-        let rowItems = rowVisibilityItems(capability: visibilityCapability)
+        let rowItems = rowVisibilityItems(
+            capability: visibilityCapability,
+            selectedRowCallSampleCount: snapshot.selectedRowCallSampleCount
+        )
         let columnItems = columnVisibilityItems(capability: visibilityCapability)
         switch visibilityCapability.selectionShape {
         case .rows:
@@ -461,7 +467,7 @@ struct GenotypeMatrixContextMenuBuilder {
                 keyModifierRawValue: 0
             ))
         }
-        var items = [
+        var items: [GenotypeMatrixContextMenuItemState] = [
             GenotypeMatrixContextMenuItemState(
                 title: "Mark False Positive",
                 command: .markFalsePositive,
@@ -532,10 +538,11 @@ struct GenotypeMatrixContextMenuBuilder {
     }
 
     private static func rowVisibilityItems(
-        capability: GenotypeMatrixVisibilityCapabilitySnapshot
+        capability: GenotypeMatrixVisibilityCapabilitySnapshot,
+        selectedRowCallSampleCount: Int?
     ) -> [GenotypeMatrixContextMenuItemState] {
         guard capability.canHideSelectedRows else { return [] }
-        return [
+        var items: [GenotypeMatrixContextMenuItemState] = [
             .init(
                 title: capability.hideSelectedRowsTitle,
                 command: .hideSelectedRows,
@@ -551,6 +558,19 @@ struct GenotypeMatrixContextMenuBuilder {
                 keyModifierRawValue: 0
             ),
         ]
+        if case .rows(count: 1) = capability.selectionShape,
+           let selectedRowCallSampleCount {
+            items.append(.init(
+                title: "Show Only Columns with Calls in This Row",
+                command: .showOnlyColumnsWithSelectedRowCalls,
+                availability: selectedRowCallSampleCount > 0
+                    ? .enabled
+                    : .disabled(reason: "This row has no genotype calls with read support."),
+                keyEquivalent: "",
+                keyModifierRawValue: 0
+            ))
+        }
+        return items
     }
 
     private static func columnVisibilityItems(

@@ -179,6 +179,89 @@ final class GenotypeMatrixBaseProjectionTests: XCTestCase {
         XCTAssertEqual(original.derive(.unfiltered).rows, tinted.derive(.unfiltered).rows)
     }
 
+    func testIncompleteReferenceSpanCandidateRemainsReviewableWithoutExternalSequence() throws {
+        let candidate = makeCandidate(
+            id: "partial-drb",
+            name: "Mamu-DRB*W001:01_1nt_nov",
+            support: .singleton,
+            samples: ["CN29"]
+        )
+        let artifact = ONTMHCArtifactReference(
+            path: "unnameable.fasta",
+            sha256: String(repeating: "c", count: 64),
+            sizeBytes: 1
+        )
+        let document = ONTMHCUnnameableClustersDocument(
+            schemaVersion: 4,
+            createdAt: "2026-08-02T00:00:00Z",
+            thresholds: .defaults,
+            sequenceFASTA: artifact,
+            clusters: [
+                ONTMHCUnnameableRecord(
+                    stableClusterID: candidate.stableClusterID,
+                    reason: .incompleteReferenceSpan,
+                    failedMetrics: ["reference_coverage": 0.4],
+                    supportClass: .singleton,
+                    independentSampleCount: 1,
+                    occurrenceCount: 1,
+                    totalClusterReads: 267,
+                    supportingSampleIDs: ["CN29"],
+                    reciprocalHitSummary: try ONTMHCReciprocalQueryHitSummary(
+                        bamPath: "reciprocal.bam",
+                        queryName: candidate.stableClusterID,
+                        alignmentCount: 1,
+                        targetAlignmentCounts: [candidate.closestReferenceName: 1],
+                        exactMatchTargetNames: [],
+                        closestMatchTargetNames: [candidate.closestReferenceName]
+                    ),
+                    selectedEvidence: nil,
+                    candidateInterpretation: .init(candidate: candidate)
+                ),
+                ONTMHCUnnameableRecord(
+                    stableClusterID: "unclassified",
+                    reason: .noAlignment,
+                    failedMetrics: [:],
+                    supportClass: .singleton,
+                    independentSampleCount: 1,
+                    occurrenceCount: 1,
+                    totalClusterReads: 10,
+                    supportingSampleIDs: ["CN29"],
+                    reciprocalHitSummary: try ONTMHCReciprocalQueryHitSummary(
+                        bamPath: "reciprocal.bam",
+                        queryName: "unclassified",
+                        alignmentCount: 0,
+                        targetAlignmentCounts: [:],
+                        exactMatchTargetNames: [],
+                        closestMatchTargetNames: []
+                    ),
+                    selectedEvidence: nil
+                ),
+            ],
+            observations: [
+                makeObservation(cluster: candidate.stableClusterID, sample: "CN29", reads: 267),
+                makeObservation(cluster: "unclassified", sample: "CN29", reads: 10),
+            ]
+        )
+
+        let projection = GenotypeMatrixBaseProjection(
+            calls: [],
+            samples: [],
+            candidateDocument: nil,
+            unnameableDocument: document,
+            logicalSampleNames: ["CN29"],
+            candidateSettings: .default
+        )
+        let derived = projection.derive(.unfiltered)
+
+        XCTAssertEqual(derived.rows.map(\.stableClusterID), ["partial-drb"])
+        XCTAssertEqual(derived.rows.first?.genotype, "Mamu-DRB*W001:01_1nt_nov")
+        XCTAssertEqual(derived.rows.first?.sampleSupport.first?.passedUniqueReads, 267)
+        XCTAssertEqual(derived.rows.first?.incompleteCandidateInterpretation?.classification, .novel)
+        XCTAssertNil(derived.rows.first?.candidate)
+        XCTAssertEqual(derived.totalRowCount, 1)
+        XCTAssertEqual(derived.hiddenCellCount, 0)
+    }
+
     func testCachedProjectionMatchesLegacyOracleAcrossScientificEdgeCases() {
         let calls = [
             makeCall(sample: "S0", genotype: "Mafa-A1*000:01", reads: 0, retainedReads: 0),
@@ -365,7 +448,8 @@ final class GenotypeMatrixBaseProjectionTests: XCTestCase {
                     tintCategory: row.tintCategory,
                     sampleSupport: support,
                     evidenceBySample: row.evidenceBySample,
-                    candidate: row.candidate
+                    candidate: row.candidate,
+                    incompleteCandidateInterpretation: row.incompleteCandidateInterpretation
                 )
             }
         }

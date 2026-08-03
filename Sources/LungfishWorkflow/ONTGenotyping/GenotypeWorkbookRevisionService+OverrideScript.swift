@@ -76,7 +76,7 @@ def load_json_path(key, collection):
         return {"schema_version": 1, collection: [], "observations": []}
     with open(path) as handle:
         document = json.load(handle)
-    if int(document.get("schema_version", 0)) not in (1, 2, 3, 4):
+    if int(document.get("schema_version", 0)) not in (1, 2, 3, 4, 5):
         raise ValueError(f"Unsupported candidate workbook JSON schema in {path}")
     if not isinstance(document.get(collection), list) or not isinstance(document.get("observations"), list):
         raise ValueError(f"Malformed candidate workbook JSON in {path}")
@@ -3674,11 +3674,17 @@ def write_two_sheet_mhc_contract():
 
     candidate_rows = [
         row for row in normalized_unmatched_rows
-        if clean(row.get("record_category")) == "candidate"
+        if clean(row.get("record_category")) in ("candidate", "candidate-incomplete")
     ]
     for record in candidate_rows:
+        record_category = clean(record.get("record_category"))
+        call_type = (
+            "candidate-incomplete"
+            if record_category == "candidate-incomplete"
+            else f"candidate-{clean(record.get('classification_or_reason'))}"
+        )
         values = {
-            "call_type": f"candidate-{clean(record.get('classification_or_reason'))}",
+            "call_type": call_type,
             "call_id": clean(record.get("stable_cluster_id")),
             "display_name": clean(record.get("provisional_allele_name")),
             "stable_cluster_id": clean(record.get("stable_cluster_id")),

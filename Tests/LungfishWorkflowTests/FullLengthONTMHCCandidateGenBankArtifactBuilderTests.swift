@@ -358,7 +358,13 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             selectedAlignmentIsReverse: false,
             closestReference: makeReference(
                 id: "ref-m-and-skip", sequence: "ATGAAAGCC",
-                features: [feature(type: "CDS", start: 0, end: 9)]
+                features: [
+                    feature(
+                        type: "exon", start: 0, end: 9,
+                        qualifiers: ["number": ["2"]], sourceOrdinal: 1
+                    ),
+                    feature(type: "CDS", start: 0, end: 9, sourceOrdinal: 2),
+                ]
             ),
             analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
         )
@@ -372,7 +378,19 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         XCTAssertEqual(source.qualifier("translation_status"), "incomplete/unresolved")
         XCTAssertEqual(source.qualifier("trim_status"), "trimmed-to-partial-lifted-CDS")
         XCTAssertEqual(source.qualifier("reference_readiness_status"), "not-reference-ready-incomplete")
-        XCTAssertTrue(comments.contains("Lungfish reference readiness: not reference-ready; partial or unresolved lifted CDS"))
+        XCTAssertTrue(comments.contains {
+            $0 == "Lungfish unobserved internal reference sequence: 4..6 (3 bases)"
+        }, comments.joined(separator: "\n"))
+        XCTAssertTrue(comments.contains {
+            $0 == "Lungfish annotated reference features partially observed: exon 2 (6 of 9 bases observed; 3 missing)"
+        }, comments.joined(separator: "\n"))
+        XCTAssertTrue(comments.contains {
+            $0 == "Lungfish partial candidate sequence contains observed bases only; missing reference bases were not imputed"
+        }, comments.joined(separator: "\n"))
+        XCTAssertEqual(
+            source.qualifier("unobserved_internal_reference_regions"),
+            "4..6 (3 bases)"
+        )
     }
 
     func testExon23SummaryExcludesExon1OnlyUnresolvedEvidence() throws {
@@ -482,9 +500,9 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
                 $0 == "\(prefix) unavailable: translation table 2 is unsupported"
             }, comments.joined(separator: "\n"))
         }
-        XCTAssertTrue(comments.contains(
-            "Lungfish reference readiness: not reference-ready; partial or unresolved lifted CDS"
-        ))
+        XCTAssertTrue(comments.contains {
+            $0.hasPrefix("Lungfish candidate reference assessment:")
+        })
     }
 
     func testConsequenceCommentsRoundTripThroughGenBankWriterAndReader() throws {
@@ -926,7 +944,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
 
         let result = try FullLengthONTMHCCandidateGenBankArtifactBuilder().build(from: input)
 
-        XCTAssertNil(result.externalSequence)
+        XCTAssertEqual(result.externalSequence, "CAAGCT")
         XCTAssertEqual(result.referenceReadiness, .incomplete)
         XCTAssertEqual(result.substitutionCount, 0)
         XCTAssertFalse(result.record.values(forRecordField: "COMMENT").contains {
@@ -957,7 +975,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
 
         let result = try FullLengthONTMHCCandidateGenBankArtifactBuilder().build(from: input)
 
-        XCTAssertNil(result.externalSequence)
+        XCTAssertEqual(result.externalSequence, "AAAAA")
         XCTAssertEqual(result.referenceReadiness, .incomplete)
         XCTAssertFalse(result.record.values(forRecordField: "COMMENT").contains {
             $0.hasPrefix("Lungfish terminal local-clipping rescue:")
@@ -987,7 +1005,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
 
         let result = try FullLengthONTMHCCandidateGenBankArtifactBuilder().build(from: input)
 
-        XCTAssertNil(result.externalSequence)
+        XCTAssertEqual(result.externalSequence, "AAAT")
         XCTAssertEqual(result.referenceReadiness, .incomplete)
     }
 
@@ -1014,7 +1032,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
 
         let result = try FullLengthONTMHCCandidateGenBankArtifactBuilder().build(from: input)
 
-        XCTAssertNil(result.externalSequence)
+        XCTAssertEqual(result.externalSequence, "AAAT")
         XCTAssertEqual(result.referenceReadiness, .incomplete)
         XCTAssertFalse(result.record.values(forRecordField: "COMMENT").contains {
             $0.hasPrefix("Lungfish terminal local-clipping rescue:")
@@ -1044,7 +1062,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
 
         let result = try FullLengthONTMHCCandidateGenBankArtifactBuilder().build(from: input)
 
-        XCTAssertNil(result.externalSequence)
+        XCTAssertEqual(result.externalSequence, "AAAT")
         XCTAssertEqual(result.referenceReadiness, .incomplete)
         XCTAssertFalse(result.record.values(forRecordField: "COMMENT").contains {
             $0.hasPrefix("Lungfish terminal local-clipping rescue:")
@@ -1086,7 +1104,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         XCTAssertEqual(result.substitutionCount, 1)
     }
 
-    func testPartialLiftedCDSCropsButRemainsIncompleteAndNotReferenceReady() throws {
+    func testPartialLiftedCDSPublishesObservedSequenceAndDocumentsMissingReferenceFeatures() throws {
         let fullCandidateSequence = "TTCAAGCTGG"
         let candidate = try makeCandidate(
             stableID: "candidate-trimmed-partial",
@@ -1101,7 +1119,21 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             selectedAlignmentIsReverse: false,
             closestReference: makeReference(
                 id: "ref-trimmed-partial", sequence: "ATGCAAGCT",
-                features: [feature(type: "CDS", start: 0, end: 9)]
+                features: [
+                    feature(
+                        type: "exon", start: 0, end: 2,
+                        qualifiers: ["number": ["1"]], sourceOrdinal: 1
+                    ),
+                    feature(
+                        type: "intron", start: 2, end: 5,
+                        qualifiers: ["number": ["1"]], sourceOrdinal: 2
+                    ),
+                    feature(
+                        type: "exon", start: 5, end: 9,
+                        qualifiers: ["number": ["2"]], sourceOrdinal: 3
+                    ),
+                    feature(type: "CDS", start: 0, end: 9, sourceOrdinal: 4),
+                ]
             ),
             analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
         )
@@ -1110,7 +1142,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         let record = result.record
         let source = try XCTUnwrap(record.annotations.first(where: { $0.type == .source }))
         XCTAssertEqual(result.rawSequence, fullCandidateSequence)
-        XCTAssertNil(result.externalSequence)
+        XCTAssertEqual(result.externalSequence, "CAAGCT")
         XCTAssertEqual(result.trimRange, 2..<8)
         XCTAssertEqual(result.translationStatus, .incompleteUnresolved)
         XCTAssertEqual(result.referenceReadiness, .incomplete)
@@ -1119,9 +1151,35 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         XCTAssertEqual(source.qualifier("trim_status"), "trimmed-to-partial-lifted-CDS")
         XCTAssertEqual(source.qualifier("reference_readiness_status"), "not-reference-ready-incomplete")
         let comments = record.values(forRecordField: "COMMENT")
-        XCTAssertTrue(comments.contains { $0.contains("partial lifted CDS") }, comments.joined(separator: "\n"))
-        XCTAssertTrue(comments.contains { $0.contains("not reference-ready") }, comments.joined(separator: "\n"))
-        XCTAssertTrue(try FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).isEmpty)
+        XCTAssertTrue(comments.contains {
+            $0 == "Lungfish partial reference coverage: observed reference interval 4..9 of 9 bases"
+        }, comments.joined(separator: "\n"))
+        XCTAssertTrue(comments.contains {
+            $0 == "Lungfish missing terminal reference sequence: leading=3 bases; trailing=0 bases"
+        }, comments.joined(separator: "\n"))
+        XCTAssertTrue(comments.contains {
+            $0 == "Lungfish annotated reference features absent from observed sequence: exon 1"
+        }, comments.joined(separator: "\n"))
+        XCTAssertTrue(comments.contains {
+            $0 == "Lungfish annotated reference features partially observed: intron 1 (2 of 3 bases observed; 1 missing)"
+        }, comments.joined(separator: "\n"))
+        XCTAssertTrue(comments.contains {
+            $0 == "Lungfish partial candidate sequence contains observed bases only; missing reference bases were not imputed"
+        }, comments.joined(separator: "\n"))
+        XCTAssertEqual(source.qualifier("observed_reference_start"), "4")
+        XCTAssertEqual(source.qualifier("observed_reference_end"), "9")
+        XCTAssertEqual(source.qualifier("reference_sequence_length"), "9")
+        XCTAssertEqual(source.qualifier("missing_leading_reference_bases"), "3")
+        XCTAssertEqual(source.qualifier("missing_trailing_reference_bases"), "0")
+        XCTAssertEqual(source.qualifier("missing_reference_features"), "exon 1")
+        XCTAssertEqual(
+            source.qualifier("partially_observed_reference_features"),
+            "intron 1 (2 of 3 bases observed; 1 missing)"
+        )
+        XCTAssertEqual(
+            try FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).count,
+            1
+        )
     }
 
     func testCandidateWithoutLiftedCDSRemainsUntrimmedAndExplicitlyUnavailable() throws {
@@ -1155,6 +1213,43 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         XCTAssertEqual(source.qualifier("reference_readiness_status"), "not-reference-ready-unavailable")
         XCTAssertTrue(record.values(forRecordField: "COMMENT").contains { $0.contains("UTR trimming unavailable") && $0.contains("no lifted CDS") })
         XCTAssertTrue(try FullLengthONTMHCCandidateGenBankArtifactBuilder().records(from: [input]).isEmpty)
+    }
+
+    func testShortCatalogReferenceDocumentsCoverageThatCannotBeAssessed() throws {
+        let sequence = "ATGCAAGCT"
+        let candidate = try makeCandidate(
+            stableID: "candidate-short-catalog-reference",
+            sequenceSHA256: sha256Hex(sequence),
+            cigar: "9=",
+            referenceName: "ref-short-catalog",
+            referenceClass: .genomicDNA
+        )
+        let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+            subject: .candidate(candidate),
+            sequence: sequence,
+            selectedAlignmentIsReverse: false,
+            closestReference: makeReference(
+                id: "ref-short-catalog", sequence: sequence,
+                features: [feature(type: "CDS", start: 0, end: sequence.count)]
+            ),
+            analysisName: "run",
+            projectBundleName: nil,
+            minimumIntronGapBases: 20,
+            referenceCatalogCoverage: .init(
+                selectedReferenceLength: 9,
+                longestSameLocusGenomicReferenceLength: 18
+            )
+        )
+
+        let result = try FullLengthONTMHCCandidateGenBankArtifactBuilder().build(from: input)
+        let source = try XCTUnwrap(result.record.annotations.first(where: { $0.type == .source }))
+        XCTAssertEqual(result.referenceReadiness, .referenceReady)
+        XCTAssertTrue(result.record.values(forRecordField: "COMMENT").contains {
+            $0 == "Lungfish closest-reference catalog coverage: selected genomic reference record spans 9 bases; same-locus genomic records span up to 18 bases; sequence outside the selected reference record cannot be assessed"
+        })
+        XCTAssertEqual(source.qualifier("selected_reference_length"), "9")
+        XCTAssertEqual(source.qualifier("longest_same_locus_reference_length"), "18")
+        XCTAssertEqual(source.qualifier("outside_selected_reference_coverage"), "unassessed")
     }
 
     func testCDNAGapSplitsExonsAndRecomputesCandidateTranslation() throws {
@@ -1824,6 +1919,46 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         XCTAssertFalse(comments.contains { $0.hasPrefix("INTRON-") })
     }
 
+    func testPartialExtensionCommentsExplainCDNAEvidenceAndIncompleteGenomicMatch() throws {
+        let interpretation = ONTMHCCDNAExtensionInterpretation(
+            rawReferenceID: "ref-cdna", alleleName: "Mamu-DRB*W001:01", locus: "Mamu-DRB",
+            cDNAReferenceCoverage: 1, clusterCoverage: 0.8,
+            leadingClusterFlankBases: 0, trailingClusterFlankBases: 100,
+            largestClusterStructuralSegmentBases: 100, largestCDNADeficitSegmentBases: 0,
+            snpSubstitutions: 0, ordinaryIndelBases: 0, isReverse: false,
+            alignmentScore: 1_000, identity: 1
+        )
+        let candidate = try makeCandidate(
+            stableID: "partial-extension-a", sequenceSHA256: "partial-extension-hash",
+            cigar: "8=1S", referenceName: "ref-genomic", referenceClass: .genomicDNA,
+            classification: .partialExtension, extensionOf: ["Mamu-DRB*W001:01"],
+            extensionInterpretations: [interpretation], snpCount: 0
+        )
+        let input = FullLengthONTMHCCandidateGenBankArtifactBuilder.Input(
+            subject: .candidate(candidate), sequence: "ATGGAAGCT", selectedAlignmentIsReverse: false,
+            closestReference: makeReference(
+                id: "ref-genomic",
+                sequence: "ATGGAAGC",
+                features: [feature(type: "CDS", start: 0, end: 8)]
+            ),
+            analysisName: "run", projectBundleName: nil, minimumIntronGapBases: 20
+        )
+
+        let comments = try buildRecord(input).values(forRecordField: "COMMENT")
+
+        XCTAssertTrue(comments.contains {
+            $0 == "Lungfish partial extension: the selected genomic comparison is zero-SNP across the shared sequence, but it is not an exact end-to-end match"
+        })
+        XCTAssertTrue(comments.contains {
+            $0 == "Lungfish incomplete genomic comparison: start=1; cigar=8=1S; reference span=8; candidate span=9; insertions=0; deletions=0; skipped=0; soft clipped=1; hard clipped=0"
+        }, comments.joined(separator: "\n"))
+        XCTAssertTrue(comments.contains { $0 == "Lungfish extension of: Mamu-DRB*W001:01" })
+        XCTAssertTrue(comments.contains {
+            $0.contains("Lungfish cDNA sequence comparison:")
+                && $0.contains("allele=Mamu-DRB*W001:01")
+        })
+    }
+
     func testExtensionWithoutVisualizationOmitsReferenceComparisonPlaceholders() throws {
         let candidate = try makeCandidate(
             stableID: "extension-no-visualization", sequenceSHA256: "no-visualization-hash",
@@ -2022,7 +2157,8 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
         classification: ONTMHCCandidateClassification = .novel,
         extensionOf: [String] = [],
         extensionInterpretations: [ONTMHCCDNAExtensionInterpretation] = [],
-        provisionalNamingAmbiguous: Bool = false
+        provisionalNamingAmbiguous: Bool = false,
+        snpCount: Int = 1
     ) throws -> ONTMHCCandidateRecord {
         let evidence = ONTMHCEvidenceLocator(
             bamPath: "artifacts/alignments/unmatched-to-reference.bam",
@@ -2040,7 +2176,7 @@ final class FullLengthONTMHCCandidateGenBankArtifactBuilderTests: XCTestCase {
             supportClass: .shared,
             closestReferenceName: "Mafa-A1*001",
             closestReferenceClass: referenceClass,
-            snpCount: 1,
+            snpCount: snpCount,
             insertedBases: 0,
             deletedBases: 0,
             longGapBases: 0,

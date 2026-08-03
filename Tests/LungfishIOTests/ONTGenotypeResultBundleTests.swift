@@ -1519,7 +1519,7 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         XCTAssertEqual(malformed.calls.count, 1)
         XCTAssertEqual(malformed.integrityWarnings.first?.code, .candidateArtifactMalformedJSON)
 
-        let schemaFixture = try CandidateBundleFixture(candidateSchemaVersion: 5)
+        let schemaFixture = try CandidateBundleFixture(candidateSchemaVersion: 6)
         defer { schemaFixture.remove() }
         let schema = try ONTGenotypeResultBundle.loadResult(from: schemaFixture.bundleURL)
         XCTAssertEqual(schema.calls.count, 1)
@@ -1527,7 +1527,7 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
 
         let unnameableSchemaFixture = try CandidateBundleFixture(
             candidateSchemaVersion: 1,
-            unnameableSchemaVersion: 5
+            unnameableSchemaVersion: 6
         )
         defer { unnameableSchemaFixture.remove() }
         let unnameableSchema = try ONTGenotypeResultBundle.loadResult(
@@ -1590,6 +1590,32 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
             ["canonical-candidate": "ACGT"]
         )
         XCTAssertNil(result.mhcCandidateSequencesByStableClusterID["raw-b"])
+        XCTAssertTrue(result.integrityWarnings.isEmpty)
+    }
+
+    func testSchemaV5AcceptsPartialExtensionWithoutCDNAExtensionInterpretations() throws {
+        let fixture = try CandidateBundleFixture(
+            candidateSchemaVersion: 5,
+            unnameableSchemaVersion: 5
+        )
+        defer { fixture.remove() }
+        let data = try Data(contentsOf: fixture.candidateJSONURL)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        var candidates = try XCTUnwrap(object["candidates"] as? [[String: Any]])
+        candidates[0]["classification"] = "partial-extension"
+        candidates[0]["provisional_name"] = "Mafa-A1*001:01_partial_ext"
+        candidates[0]["extension_of"] = ["Mafa-A1*001:01"]
+        candidates[0]["extension_interpretations"] = []
+        object["candidates"] = candidates
+        try fixture.replaceCandidateJSON(try JSONSerialization.data(withJSONObject: object))
+
+        let result = try ONTGenotypeResultBundle.loadResult(from: fixture.bundleURL)
+
+        XCTAssertEqual(result.mhcCandidates?.candidates.first?.classification, .partialExtension)
+        XCTAssertEqual(
+            result.mhcCandidates?.candidates.first?.extensionOf,
+            ["Mafa-A1*001:01"]
+        )
         XCTAssertTrue(result.integrityWarnings.isEmpty)
     }
 
@@ -1925,14 +1951,26 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
             sha256: String(repeating: "e", count: 64),
             sizeBytes: 2_048
         )
+        let candidateEMBL = ONTMHCArtifactReference(
+            path: "candidate_alleles.embl",
+            sha256: String(repeating: "f", count: 64),
+            sizeBytes: 3_072
+        )
+        let unnameableEMBL = ONTMHCArtifactReference(
+            path: "unnameable_unmatched_clusters.embl",
+            sha256: String(repeating: "1", count: 64),
+            sizeBytes: 5_120
+        )
         let manifest = ONTMHCCandidateArtifactManifest(
             schemaVersion: 2,
             genotypingEvidence: nil,
             reciprocalEvidence: nil,
             candidateJSON: nil,
             candidateFASTA: nil,
+            candidateEMBL: candidateEMBL,
             unnameableJSON: nil,
             unnameableFASTA: nil,
+            unnameableEMBL: unnameableEMBL,
             rawUnmatchedFASTA: rawFASTA,
             sourceIdentityMap: sourceIdentityMap
         )
@@ -1943,8 +1981,12 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
 
         XCTAssertEqual(object["raw_unmatched_fasta"] as? [String: Any]? != nil, true)
         XCTAssertEqual(object["source_identity_map"] as? [String: Any]? != nil, true)
+        XCTAssertEqual(object["candidate_embl"] as? [String: Any]? != nil, true)
+        XCTAssertEqual(object["unnameable_embl"] as? [String: Any]? != nil, true)
         XCTAssertEqual(decoded.rawUnmatchedFASTA, rawFASTA)
         XCTAssertEqual(decoded.sourceIdentityMap, sourceIdentityMap)
+        XCTAssertEqual(decoded.candidateEMBL, candidateEMBL)
+        XCTAssertEqual(decoded.unnameableEMBL, unnameableEMBL)
 
         let schema1 = try JSONDecoder().decode(
             ONTMHCCandidateArtifactManifest.self,
@@ -1952,6 +1994,8 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
         )
         XCTAssertNil(schema1.rawUnmatchedFASTA)
         XCTAssertNil(schema1.sourceIdentityMap)
+        XCTAssertNil(schema1.candidateEMBL)
+        XCTAssertNil(schema1.unnameableEMBL)
     }
 
     func testRoundTripsManifestWithMHCCandidateArtifacts() throws {

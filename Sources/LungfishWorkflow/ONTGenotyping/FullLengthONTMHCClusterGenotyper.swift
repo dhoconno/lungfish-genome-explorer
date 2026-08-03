@@ -168,6 +168,8 @@ public enum FullLengthONTMHCClusterGenotyper {
         private var bestKnownHitsByCluster: [String: [String: Hit]] = [:]
         private var closestHitByCluster: [String: Hit] = [:]
         private var cdnaInterpretationsByCluster: [String: [String: FullLengthONTMHCCDNAStructuralInterpretation]] = [:]
+        private var exactZeroSNPGenomicClusters = Set<String>()
+        private var partialEndCoverageZeroSNPGenomicClusters = Set<String>()
 
         init(
             sampleID: String,
@@ -240,6 +242,23 @@ public enum FullLengthONTMHCClusterGenotyper {
             switch moleculeClass {
             case .genomicDNA:
                 isKnownGenotype = hit.snps == 0
+                if isKnownGenotype {
+                    let isExactEndToEnd = position == 1
+                        && metrics.referenceSpan == clusterLength
+                        && metrics.querySpan == alleleLength
+                        && metrics.insertedBases == 0
+                        && metrics.deletedBases == 0
+                        && metrics.skippedReferenceBases == 0
+                        && metrics.softClippedBases == 0
+                        && metrics.hardClippedBases == 0
+                    if isExactEndToEnd {
+                        exactZeroSNPGenomicClusters.insert(cluster)
+                    } else if metrics.insertedBases == 0,
+                              metrics.deletedBases == 0,
+                              metrics.skippedReferenceBases == 0 {
+                        partialEndCoverageZeroSNPGenomicClusters.insert(cluster)
+                    }
+                }
             case .cDNA:
                 let interpretation = try FullLengthONTMHCCDNAStructuralClassifier.classifyCohort(
                     referenceSequenceID: allele,
@@ -275,11 +294,14 @@ public enum FullLengthONTMHCClusterGenotyper {
             let clusterRecordByName = Dictionary(
                 uniqueKeysWithValues: clusterRecords.map { ($0.name, $0) }
             )
+            let deferredPartialExtensionClusters = partialEndCoverageZeroSNPGenomicClusters
+                .subtracting(exactZeroSNPGenomicClusters)
             let matchedClusters = Set(bestKnownHitsByCluster.keys)
+                .subtracting(deferredPartialExtensionClusters)
             var cdnaClusters = Set<String>()
             var rows: [FullLengthONTMHCClusterGenotypeRow] = []
 
-            for cluster in bestKnownHitsByCluster.keys.sorted(by: localizedStandardLessThan) {
+            for cluster in matchedClusters.sorted(by: localizedStandardLessThan) {
                 guard let hitsByAllele = bestKnownHitsByCluster[cluster] else { continue }
                 for hit in hitsByAllele.values {
                     guard let alleleLength = referenceLengths[hit.allele], alleleLength > 0 else {

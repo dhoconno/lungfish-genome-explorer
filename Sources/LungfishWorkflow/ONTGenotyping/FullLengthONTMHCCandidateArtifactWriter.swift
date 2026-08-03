@@ -106,9 +106,11 @@ struct FullLengthONTMHCCandidateArtifactResult: Sendable, Equatable {
     let candidateFASTAURL: URL
     let candidateJSONURL: URL
     let candidateGenBankURL: URL
+    let candidateEMBLURL: URL
     let unnameableFASTAURL: URL
     let unnameableJSONURL: URL
     let unnameableGenBankURL: URL
+    let unnameableEMBLURL: URL
     let manifest: ONTMHCCandidateArtifactManifest
     let classifiedClusters: [FullLengthONTMHCCandidateCluster]
     let classifications: [FullLengthONTMHCCandidateClassificationResult]
@@ -125,9 +127,11 @@ struct FullLengthONTMHCCandidateArtifactResult: Sendable, Equatable {
             manifest.candidateJSON,
             manifest.candidateFASTA,
             manifest.candidateGenBank,
+            manifest.candidateEMBL,
             manifest.unnameableJSON,
             manifest.unnameableFASTA,
             manifest.unnameableGenBank,
+            manifest.unnameableEMBL,
             manifest.rawUnmatchedFASTA,
             manifest.sourceIdentityMap,
         ].compactMap { $0 }
@@ -552,6 +556,30 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             thresholds: request.thresholds,
             reciprocalBAMPath: reciprocalBAMRelativePath
         ).classify(clusters)
+        var classificationOutcomeCounts = [
+            "knownOutcomeCount": 0,
+            "extensionOutcomeCount": 0,
+            "partialExtensionOutcomeCount": 0,
+            "novelOutcomeCount": 0,
+            "unnameableOutcomeCount": 0,
+        ]
+        for result in classifications {
+            switch result {
+            case .known:
+                classificationOutcomeCounts["knownOutcomeCount", default: 0] += 1
+            case .candidate(let candidate):
+                switch candidate.classification {
+                case .extension:
+                    classificationOutcomeCounts["extensionOutcomeCount", default: 0] += 1
+                case .partialExtension:
+                    classificationOutcomeCounts["partialExtensionOutcomeCount", default: 0] += 1
+                case .novel:
+                    classificationOutcomeCounts["novelOutcomeCount", default: 0] += 1
+                }
+            case .unnameable:
+                classificationOutcomeCounts["unnameableOutcomeCount", default: 0] += 1
+            }
+        }
         let reciprocalViewDescriptor = try FullLengthONTMHCArtifactDescriptor(
             url: reciprocalViewURL,
             role: .commandOutput,
@@ -580,9 +608,11 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                 "--novel-distance", "snp-substitutions-only",
                 reciprocalViewURL.path,
             ],
-            resolvedOptions: Self.candidateResolvedOptions(request.thresholds).merging([
+            resolvedOptions: Self.candidateResolvedOptions(request.thresholds).merging(
+                classificationOutcomeCounts.mapValues(String.init)
+            ) { current, _ in current }.merging([
                 "provenanceOutputException": "typed in-memory classification result is consumed by the candidate and unnameable render steps",
-                "documentSchemaVersion": "4",
+                "documentSchemaVersion": "5",
                 "reciprocalSecondaryAlignmentLimit": String(reciprocalSecondaryAlignmentLimit),
                 "reciprocalSecondaryAlignmentLimitRule": "reference-record-count;at-least-one",
                 "reciprocalBAMPath": reciprocalBAMRelativePath,
@@ -621,7 +651,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         )
         let rawCreatedAt = Self.iso8601(Date())
         let rawCandidateDocument = ONTMHCCandidateAllelesDocument(
-            schemaVersion: 3,
+            schemaVersion: 4,
             createdAt: rawCreatedAt,
             thresholds: request.thresholds,
             inputs: [],
@@ -633,7 +663,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             }
         )
         let rawUnnameableDocument = ONTMHCUnnameableClustersDocument(
-            schemaVersion: 3,
+            schemaVersion: 4,
             createdAt: rawCreatedAt,
             thresholds: request.thresholds,
             inputs: [],
@@ -657,7 +687,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         let canonicalizationPayloadStartedAt = Date()
         try writeCanonicalJSON(
             FullLengthONTMHCCanonicalizationInputDocument(
-                schemaVersion: 1,
+                schemaVersion: 2,
                 thresholds: request.thresholds,
                 observations: rawObservationPayload,
                 rawCandidates: rawCandidates,
@@ -706,7 +736,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                 ["--input", $0.path]
             } + ["--output", canonicalizationPayloadURL.path],
             resolvedOptions: [
-                "schemaVersion": "1",
+                "schemaVersion": "2",
                 "serialization": "canonical-json-sorted-keys-pretty-printed-LF",
                 "observationCount": String(rawObservationPayload.count),
                 "rawCandidateCount": String(rawCandidates.count),
@@ -724,9 +754,11 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             )
         ))
         let referenceVisualization: ONTMHCReferenceVisualizationArtifact?
+        let referenceCatalog: MHCReferenceRecordCatalog?
         if let referenceBundleURL = request.referenceBundleURL,
            referenceBundleURL.pathExtension.lowercased() == "lungfishref",
            fileManager.fileExists(atPath: referenceBundleURL.path) {
+            referenceCatalog = try MHCReferenceRecordCatalog.load(from: referenceBundleURL)
             referenceVisualization = try MHCReferenceVisualizationArtifactBuilder().build(.init(
                 referenceBundleURL: referenceBundleURL,
                 exactKnownRawReferenceIDs: [],
@@ -734,6 +766,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                 unnameable: rawUnnameableDocument
             )).document
         } else {
+            referenceCatalog = nil
             referenceVisualization = nil
         }
         let canonicalizationStartedAt = Date()
@@ -747,7 +780,11 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                 ],
                 analysisName: request.analysisName,
                 projectBundleName: request.projectBundleName,
-                minimumIntronGapBases: request.thresholds.minimumIntronGapBases
+                minimumIntronGapBases: request.thresholds.minimumIntronGapBases,
+                referenceCatalogCoverage: referenceCatalogCoverage(
+                    rawReferenceID: candidate.selectedEvidence.referenceName,
+                    catalog: referenceCatalog
+                )
             )
             return FullLengthONTMHCCandidateCanonicalizer.Input(
                 record: candidate,
@@ -756,7 +793,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             )
         }
         let demotedCandidateInputs = preparedCandidates.filter {
-            $0.canonicalization.referenceReadiness != .referenceReady
+            $0.canonicalization.referenceReadiness == .unavailable
                 || $0.canonicalization.externalSequence == nil
         }
         let demotedCandidateIDs = Set(demotedCandidateInputs.map(\.record.stableClusterID))
@@ -812,13 +849,39 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                     sequenceSHA256: nil,
                     reciprocalHitSummary: input.record.reciprocalHitSummary,
                     selectedEvidence: input.record.selectedEvidence,
-                    selectedAlignmentIsReverse: input.record.selectedAlignmentIsReverse
+                    selectedAlignmentIsReverse: input.record.selectedAlignmentIsReverse,
+                    candidateInterpretation:
+                        input.canonicalization.referenceReadiness == .incomplete
+                            ? ONTMHCIncompleteCandidateInterpretation(candidate: input.record)
+                            : nil
                 ),
                 input.canonicalization
             )
         })
         preparedUnnameable.sort { $0.record.stableClusterID < $1.record.stableClusterID }
         let unnameable = preparedUnnameable.map { prepared -> ONTMHCUnnameableRecord in
+            if prepared.record.reason == .incompleteReferenceSpan,
+               prepared.record.candidateInterpretation != nil {
+                let diagnostic = Self.normalizedSequence(
+                    prepared.canonicalization.record.sequence.asString()
+                )
+                return ONTMHCUnnameableRecord(
+                    stableClusterID: prepared.record.stableClusterID,
+                    reason: prepared.record.reason,
+                    failedMetrics: prepared.record.failedMetrics,
+                    supportClass: prepared.record.supportClass,
+                    independentSampleCount: prepared.record.independentSampleCount,
+                    occurrenceCount: prepared.record.occurrenceCount,
+                    totalClusterReads: prepared.record.totalClusterReads,
+                    supportingSampleIDs: prepared.record.supportingSampleIDs,
+                    fastaRecordID: prepared.record.stableClusterID,
+                    sequenceSHA256: Self.sha256(Data(diagnostic.utf8)),
+                    reciprocalHitSummary: prepared.record.reciprocalHitSummary,
+                    selectedEvidence: prepared.record.selectedEvidence,
+                    selectedAlignmentIsReverse: prepared.record.selectedAlignmentIsReverse,
+                    candidateInterpretation: prepared.record.candidateInterpretation
+                )
+            }
             guard let sequence = prepared.canonicalization.externalSequence,
                   prepared.canonicalization.referenceReadiness == .referenceReady else {
                 return ONTMHCUnnameableRecord(
@@ -834,7 +897,8 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                     sequenceSHA256: nil,
                     reciprocalHitSummary: prepared.record.reciprocalHitSummary,
                     selectedEvidence: prepared.record.selectedEvidence,
-                    selectedAlignmentIsReverse: prepared.record.selectedAlignmentIsReverse
+                    selectedAlignmentIsReverse: prepared.record.selectedAlignmentIsReverse,
+                    candidateInterpretation: prepared.record.candidateInterpretation
                 )
             }
             let external = Self.normalizedSequence(sequence)
@@ -851,7 +915,8 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                 sequenceSHA256: Self.sha256(Data(external.utf8)),
                 reciprocalHitSummary: prepared.record.reciprocalHitSummary,
                 selectedEvidence: prepared.record.selectedEvidence,
-                selectedAlignmentIsReverse: prepared.record.selectedAlignmentIsReverse
+                selectedAlignmentIsReverse: prepared.record.selectedAlignmentIsReverse,
+                candidateInterpretation: prepared.record.candidateInterpretation
             )
         }
         let duplicateUnnameableExternalIDs = Dictionary(
@@ -869,8 +934,16 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             unnameable,
             preparedUnnameable
         ).compactMap { record, prepared -> (String, String)? in
-            guard let id = record.fastaRecordID,
-                  let sequence = prepared.canonicalization.externalSequence else { return nil }
+            guard let id = record.fastaRecordID else { return nil }
+            let sequence: String
+            if record.reason == .incompleteReferenceSpan,
+               record.candidateInterpretation != nil {
+                sequence = prepared.canonicalization.record.sequence.asString()
+            } else if let external = prepared.canonicalization.externalSequence {
+                sequence = external
+            } else {
+                return nil
+            }
             return (id, Self.normalizedSequence(sequence))
         })
         let canonicalizationInputDescriptors = [
@@ -883,6 +956,10 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             thresholds: request.thresholds,
             rawCandidateCount: rawCandidates.count,
             canonicalCandidateCount: candidates.count,
+            partialExtensionReconciliationCount: canonicalCandidates.filter { output in
+                output.record.classification == .partialExtension
+                    && Set(output.rawInputs.map(\.record.classification)).count > 1
+            }.count,
             rawUnnameableCount: rawUnnameable.count,
             externalUnnameableCount: unnameableExternalSequences.count,
             incompleteCandidateDemotionCount: demotedCandidateInputs.filter {
@@ -932,7 +1009,10 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         let unnameableFASTARecords = unnameable.compactMap { record -> (String, String)? in
             guard let id = record.fastaRecordID,
                   let sequence = unnameableExternalSequences[id] else { return nil }
-            return (id, sequence)
+            let header = record.reason == .incompleteReferenceSpan
+                ? id + " partial_observation cannot_be_fully_validated not_reference_ready"
+                : id
+            return (header, sequence)
         }
         try writeFASTA(unnameableFASTARecords, to: unnameableFASTAURL)
         let unnameableFASTADescriptor = try FullLengthONTMHCArtifactDescriptor(
@@ -1078,7 +1158,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         let evidence = [reciprocalBAMReference, reciprocalBAIReference]
             + (request.genotypingEvidence.map { [$0.bam, $0.bai] } ?? [])
         let candidateDocument = ONTMHCCandidateAllelesDocument(
-            schemaVersion: 4,
+            schemaVersion: 5,
             createdAt: createdAt,
             thresholds: request.thresholds,
             inputs: [referenceInput, stableUnmatchedInput],
@@ -1088,7 +1168,7 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             observations: candidateObservations
         )
         let unnameableDocument = ONTMHCUnnameableClustersDocument(
-            schemaVersion: 4,
+            schemaVersion: 5,
             createdAt: createdAt,
             thresholds: request.thresholds,
             inputs: [referenceInput, stableUnmatchedInput],
@@ -1164,14 +1244,15 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
         let unnameableGenBankRecords = try zip(unnameable, preparedUnnameable).compactMap {
             record, prepared -> GenBankRecord? in
             guard let externalID = record.fastaRecordID,
-                  let externalSequence = prepared.canonicalization.externalSequence else {
-                return nil
-            }
+                  let externalSequence = unnameableExternalSequences[externalID] else { return nil }
             return try canonicalGenBankRecord(
                 prepared.canonicalization.record,
                 externalID: externalID,
                 externalSequence: externalSequence,
-                rawSourceIDs: [record.stableClusterID]
+                rawSourceIDs: [record.stableClusterID],
+                diagnosticPartialInterpretation:
+                    record.reason == .incompleteReferenceSpan
+                        ? record.candidateInterpretation : nil
             )
         }
         try GenBankWriter(url: unnameableGenBankURL).write(unnameableGenBankRecords)
@@ -1183,8 +1264,8 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             "analysisName": request.analysisName,
             "projectBundleName": request.projectBundleName ?? "unavailable",
             "recordIdentity": "external-or-canonical-FASTA-record-id;raw-stable-cluster-id-retained-in-source-metadata",
-            "externalRecordGate": "emit-only-typed-externalSequence-with-reference-readiness=reference-ready;non-ready-omitted;no-untrimmed-external-fallback",
-            "outerCDSTrimRule": "reference-ready-candidates+reference-ready-unnameables:crop-to-outer-lifted-CDS-span+rebase-annotations;retain-intervening-introns",
+            "externalRecordGate": "resolved-observed-sequence-required;complete-and-partial-named-candidates-published;unavailable-omitted",
+            "outerCDSTrimRule": "complete-or-partial-lifted-CDS-span;observed-bases-only;rebase-annotations;retain-observed-intervening-introns",
             "referenceCoordinateConvention": "zero-based-half-open",
             "reciprocalCIGARCoordinateSource": "one-based-reference-start-plus-SAM-CIGAR",
             "reverseAlignmentRule": "project-oriented-query-then-convert-to-stored-candidate-coordinates",
@@ -1198,11 +1279,11 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             "codingConsequenceRule": "transcript-strand+codon-start+translation-table;group-same-codon-substitutions;scope-unresolved-to-intersecting-exon-summary;group-touching-replacement-indels-by-reference-span;ordinary-indels-frame-delta",
             "cDNAIntronFillRule": "internal-query-insertion-at-least-minimum-intron-gap;excluded-from-cDNA-lifted-CDS+CDS-indels;genomic-long-insertions-retained;source-CDS-complete-assessment-includes-deletions",
             "consequenceAmbiguityRule": "partial+unsupported+ambiguous+unassessed-CDS=unresolved-never-coerced",
-            "candidateUTRTrimRule": "reference-ready-only:crop-to-outer-lifted-CDS-span-in-stored-orientation;retain-intervening-introns;rebase-annotations+consequence-candidate-coordinates;non-ready-omitted",
+            "candidateUTRTrimRule": "resolved-complete-or-partial-lifted-CDS:crop-to-observed-outer-lifted-CDS-span-in-stored-orientation;retain-observed-intervening-introns;never-impute-missing-reference-bases",
         ]) { _, candidate in candidate }
         let unnameableGenBankResolvedOptions = commonGenBankResolvedOptions.merging([
             "translationRule": "unnameable-only:recomputed-from-lifted-CDS-when-five-prime-boundary-is-aligned;source-translation-table-not-gated;terminal-stop-removed;internal-stops-retained-and-counted;status-uses-boundary-coverage",
-            "unnameableSequenceRule": "reference-ready+paired-external-FASTA-id+sequence-SHA-256-only:crop-to-outer-lifted-CDS-span-in-stored-orientation;retain-intervening-introns;rebase-annotations;otherwise-omit",
+            "unnameableSequenceRule": "reference-ready:canonical-outer-CDS;incomplete-reference-span:diagnostic-observed-partial-sequence+warning+raw-stable-id;unavailable:omit",
             "unnameableFeatureLiftoverRule": "project-gene+mRNA+transcript+exon+CDS+UTR;omit-reference-introns;exclude-query-insertions-at-least-minimum-intron-gap-from-lifted-features",
             "unnameableConsequenceRule": "do-not-render-candidate-nucleotide-or-protein-consequence-COMMENT-summaries",
         ]) { _, unnameable in unnameable }
@@ -1235,6 +1316,61 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             finalRelativePath: "unnameable_unmatched_clusters.gb"
         )
 
+        let candidateEMBLURL = stagedRootURL.appendingPathComponent("candidate_alleles.embl")
+        let candidateEMBLStartedAt = Date()
+        try FullLengthONTMHCEMBLWriter().write(candidateGenBankRecords, to: candidateEMBLURL)
+        let candidateEMBLDescriptor = try FullLengthONTMHCArtifactDescriptor(
+            url: candidateEMBLURL, role: .commandOutput, phase: .staging
+        )
+        let candidateEMBLCompletedAt = Date()
+        transformations.append(Self.renderTransformation(
+            name: "render-mhc-candidate-embl",
+            inputs: canonicalizationInputDescriptors
+                + [candidateJSONDescriptor, candidateFASTADescriptor],
+            output: candidateEMBLDescriptor,
+            recordCount: candidateGenBankRecords.count,
+            additionalResolvedOptions: candidateGenBankResolvedOptions.merging([
+                "flatFileFormat": "EMBL",
+                "validationCommentRule": "preserve-GenBank-validation-comments",
+            ]) { _, candidate in candidate },
+            startedAt: candidateEMBLStartedAt,
+            completedAt: candidateEMBLCompletedAt
+        ))
+
+        let unnameableEMBLURL = stagedRootURL.appendingPathComponent(
+            "unnameable_unmatched_clusters.embl"
+        )
+        let unnameableEMBLStartedAt = Date()
+        try FullLengthONTMHCEMBLWriter().write(
+            unnameableGenBankRecords,
+            to: unnameableEMBLURL
+        )
+        let unnameableEMBLDescriptor = try FullLengthONTMHCArtifactDescriptor(
+            url: unnameableEMBLURL, role: .commandOutput, phase: .staging
+        )
+        let unnameableEMBLCompletedAt = Date()
+        transformations.append(Self.renderTransformation(
+            name: "render-mhc-unnameable-embl",
+            inputs: canonicalizationInputDescriptors
+                + [unnameableJSONDescriptor, unnameableFASTADescriptor],
+            output: unnameableEMBLDescriptor,
+            recordCount: unnameableGenBankRecords.count,
+            additionalResolvedOptions: unnameableGenBankResolvedOptions.merging([
+                "flatFileFormat": "EMBL",
+                "validationCommentRule": "partial-observation-warning-required",
+            ]) { _, candidate in candidate },
+            startedAt: unnameableEMBLStartedAt,
+            completedAt: unnameableEMBLCompletedAt
+        ))
+        let candidateEMBLReference = try artifactReference(
+            candidateEMBLURL,
+            finalRelativePath: "candidate_alleles.embl"
+        )
+        let unnameableEMBLReference = try artifactReference(
+            unnameableEMBLURL,
+            finalRelativePath: "unnameable_unmatched_clusters.embl"
+        )
+
         try Task.checkCancellation()
         try safety.revalidatePathContext(pathContext)
         try revalidateInternalPublicationPath(internalPublicationPathContext, safety: safety)
@@ -1244,9 +1380,11 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             candidateFASTADescriptor,
             candidateJSONDescriptor,
             candidateGenBankDescriptor,
+            candidateEMBLDescriptor,
             unnameableFASTADescriptor,
             unnameableJSONDescriptor,
             unnameableGenBankDescriptor,
+            unnameableEMBLDescriptor,
             stagedCanonicalizationPayloadDescriptor,
             sourceMapDescriptor,
         ]
@@ -1294,8 +1432,10 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
                 "deduplicated_unmatched_clusters.fasta",
                 "candidate_alleles.fasta", "candidate-alleles.json",
                 "candidate_alleles.gb",
+                "candidate_alleles.embl",
                 "unnameable_unmatched_clusters.fasta", "unnameable-unmatched-clusters.json",
                 "unnameable_unmatched_clusters.gb",
+                "unnameable_unmatched_clusters.embl",
                 "artifacts/internal/mhc-candidate-canonicalization-input.json",
                 "artifacts/internal/mhc-candidate-source-map.json",
             ]
@@ -1308,9 +1448,11 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             (request.outputDirectoryURL.appendingPathComponent("candidate_alleles.fasta"), .sourceClusterFASTA),
             (request.outputDirectoryURL.appendingPathComponent("candidate-alleles.json"), .commandOutput),
             (request.outputDirectoryURL.appendingPathComponent("candidate_alleles.gb"), .commandOutput),
+            (request.outputDirectoryURL.appendingPathComponent("candidate_alleles.embl"), .commandOutput),
             (request.outputDirectoryURL.appendingPathComponent("unnameable_unmatched_clusters.fasta"), .sourceClusterFASTA),
             (request.outputDirectoryURL.appendingPathComponent("unnameable-unmatched-clusters.json"), .commandOutput),
             (request.outputDirectoryURL.appendingPathComponent("unnameable_unmatched_clusters.gb"), .commandOutput),
+            (request.outputDirectoryURL.appendingPathComponent("unnameable_unmatched_clusters.embl"), .commandOutput),
             (request.outputDirectoryURL.appendingPathComponent("artifacts/internal/mhc-candidate-canonicalization-input.json"), .commandInput),
             (request.outputDirectoryURL.appendingPathComponent("artifacts/internal/mhc-candidate-source-map.json"), .commandOutput),
         ]
@@ -1362,9 +1504,11 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             candidateJSON: candidateJSONReference,
             candidateFASTA: candidateFASTAReference,
             candidateGenBank: candidateGenBankReference,
+            candidateEMBL: candidateEMBLReference,
             unnameableJSON: unnameableJSONReference,
             unnameableFASTA: unnameableFASTAReference,
             unnameableGenBank: unnameableGenBankReference,
+            unnameableEMBL: unnameableEMBLReference,
             rawUnmatchedFASTA: rawInternalFASTAReference,
             sourceIdentityMap: try artifactReference(
                 request.outputDirectoryURL.appendingPathComponent(
@@ -1380,9 +1524,11 @@ struct FullLengthONTMHCCandidateArtifactWriter: @unchecked Sendable {
             candidateFASTAURL: request.outputDirectoryURL.appendingPathComponent("candidate_alleles.fasta"),
             candidateJSONURL: request.outputDirectoryURL.appendingPathComponent("candidate-alleles.json"),
             candidateGenBankURL: request.outputDirectoryURL.appendingPathComponent("candidate_alleles.gb"),
+            candidateEMBLURL: request.outputDirectoryURL.appendingPathComponent("candidate_alleles.embl"),
             unnameableFASTAURL: request.outputDirectoryURL.appendingPathComponent("unnameable_unmatched_clusters.fasta"),
             unnameableJSONURL: request.outputDirectoryURL.appendingPathComponent("unnameable-unmatched-clusters.json"),
             unnameableGenBankURL: request.outputDirectoryURL.appendingPathComponent("unnameable_unmatched_clusters.gb"),
+            unnameableEMBLURL: request.outputDirectoryURL.appendingPathComponent("unnameable_unmatched_clusters.embl"),
             manifest: manifest,
             classifiedClusters: clusters,
             classifications: classifications,
@@ -1514,7 +1660,8 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
         externalID: String,
         externalSequence: String,
         rawSourceIDs: [String],
-        canonicalCandidate: ONTMHCCandidateRecord? = nil
+        canonicalCandidate: ONTMHCCandidateRecord? = nil,
+        diagnosticPartialInterpretation: ONTMHCIncompleteCandidateInterpretation? = nil
     ) throws -> GenBankRecord {
         var annotations = record.annotations
         let sequence = Self.normalizedSequence(externalSequence)
@@ -1531,6 +1678,20 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
             annotations[sourceIndex].qualifiers["genbank_sequence_sha256"] = .init(
                 sequenceSHA256
             )
+            if let partial = diagnosticPartialInterpretation {
+                annotations[sourceIndex].qualifiers["provisional_name"] = .init(
+                    partial.provisionalName
+                )
+                annotations[sourceIndex].qualifiers["classification"] = .init(
+                    partial.classification.rawValue
+                )
+                annotations[sourceIndex].qualifiers["reference_readiness_status"] = .init(
+                    FullLengthONTMHCReferenceReadiness.incomplete.rawValue
+                )
+                annotations[sourceIndex].qualifiers["validation_scope"] = .init(
+                    "partial-observation-only"
+                )
+            }
             if let candidate = canonicalCandidate {
                 annotations[sourceIndex].qualifiers[
                     "representative_source_sequence_cluster_id"
@@ -1600,8 +1761,25 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
                 )
             })
         }
+        if let partial = diagnosticPartialInterpretation {
+            let warning = "Lungfish partial observation: this sequence does not span the required reference interval, cannot be fully validated, is not reference-ready, and must not be treated as a named allele. Closest-reference assignment and observed differences are provisional."
+            let nextOrdinal = (recordFields.map(\.ordinal).max() ?? -1) + 1
+            recordFields.append(
+                GenBankRecordField(key: "COMMENT", value: warning, ordinal: nextOrdinal)
+            )
+            recordFields.append(
+                GenBankRecordField(
+                    key: "COMMENT",
+                    value: "Lungfish partial interpretation: \(partial.provisionalName); closest reference=\(partial.closestReferenceName); observed differences=\(partial.observedDifferenceCount) (SNP=\(partial.snpCount), inserted=\(partial.insertedBases), deleted=\(partial.deletedBases)).",
+                    ordinal: nextOrdinal + 1
+                )
+            )
+        }
         let definition: String?
-        if let candidate = canonicalCandidate {
+        if let partial = diagnosticPartialInterpretation {
+            definition = partial.provisionalName
+                + "; Lungfish diagnostic partial MHC observation; not reference-ready"
+        } else if let candidate = canonicalCandidate {
             if let original = record.definition,
                let separator = original.firstIndex(of: ";") {
                 definition = candidate.provisionalName + String(original[separator...])
@@ -1759,8 +1937,12 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
             "minimumIdentity": String(thresholds.minimumIdentity),
             "minimumShorterCoverage": String(thresholds.minimumShorterCoverage),
             "minimumIntronGapBases": String(thresholds.minimumIntronGapBases),
-            "novelDistanceMetric": "SNP-substitutions-only",
-            "zeroSNPClassificationOrder": "1:eligible-genomic-zero-snp=known;2:eligible-cdna-zero-snp-structural-extension=extension;3:eligible-cdna-zero-snp-end-to-end=known;4:otherwise=candidate",
+            "closestReferenceRanking": "snp-count-in-shared-aligned-region;then-comparable-bases;then-alignment-score;then-deterministic-reference-evidence-order",
+            "provisionalNovelNameMetric": "SNP-substitutions-in-shared-aligned-region;indels-reported-separately-and-not-counted-in-_Nnt_nov-label",
+            "zeroSNPClassificationOrder": "1:exact-end-to-end-genomic-zero-snp=known;2:zero-snp-genomic-shared-sequence-with-incomplete-end-coverage=partial-extension;3:eligible-cdna-zero-snp-structural-extension+no-genomic-zero-snp=extension;4:eligible-cdna-zero-snp-end-to-end=known;5:otherwise-broad-genomic-zero-snp=known;6:otherwise=candidate",
+            "exactGenomicKnownRule": "zero-snp;reference-start=1;full-reference-span;full-query-span;no-I-D-N-S-H",
+            "partialExtensionRule": "genomic-zero-snp-shared-sequence;no-I-D-N;incomplete-reference-or-candidate-end-coverage;no-exact-end-to-end-genomic-zero-snp;cDNA-extension-evidence-retained-when-present",
+            "partialExtensionPrecedence": "exact-genomic-known>partial-extension>extension>legacy-broad-genomic-known",
             "extensionRule": "cdna-coverage>=0.95;each-cdna-deficit<20;no-hard-clip;cluster-flank-or-structural-segment>=20",
             "knownCDNARule": "extension-eligibility;cluster-coverage>=0.95;each-cluster-structural-segment<20",
             "cDNACoverageNumerator": "comparable-query-reference-bases-excluding-cdna-deficit-operations",
@@ -1774,10 +1956,30 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
         ]
     }
 
+    func referenceCatalogCoverage(
+        rawReferenceID: String,
+        catalog: MHCReferenceRecordCatalog?
+    ) -> FullLengthONTMHCCandidateGenBankArtifactBuilder.ReferenceCatalogCoverage? {
+        guard let catalog,
+              let selected = catalog.record(sequenceID: rawReferenceID),
+              selected.moleculeClass == .genomicDNA,
+              let longest = catalog.records.lazy.filter({
+                  $0.locus == selected.locus && $0.moleculeClass == .genomicDNA
+              }).map(\.sequenceLength).max(),
+              longest > selected.sequenceLength else {
+            return nil
+        }
+        return .init(
+            selectedReferenceLength: selected.sequenceLength,
+            longestSameLocusGenomicReferenceLength: longest
+        )
+    }
+
     static func canonicalizationResolvedOptions(
         thresholds: ONTMHCCandidateThresholds,
         rawCandidateCount: Int,
         canonicalCandidateCount: Int,
+        partialExtensionReconciliationCount: Int,
         rawUnnameableCount: Int,
         externalUnnameableCount: Int,
         incompleteCandidateDemotionCount: Int,
@@ -1787,8 +1989,8 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
             "rawIdentity": "exact-normalized-full-consensus-sequence",
             "canonicalIdentity": "exact-normalized-UTR-trimmed-genomic-sequence",
             "canonicalStableID": "first-128-bits-SHA256-with-UUID-version-and-variant-bits",
-            "outerCDSTrimRule": "reference-ready-only:outer-lifted-CDS-span;retain-intervening-introns",
-            "referenceReadinessRule": "external-artifacts-require-reference-ready-canonicalization",
+            "outerCDSTrimRule": "resolved-complete-or-partial-lifted-CDS-span;retain-observed-intervening-introns;never-impute-missing-reference-bases",
+            "referenceReadinessRule": "named-candidate-artifacts-require-resolved-observed-sequence;partial-reference-coverage-is-allowed-and-declared",
             "terminalLocalClipRescueRule": "complete-missing-reference-prefix-or-suffix-only;adjacent-terminal-soft-clip-must-supply-all-missing-bases;suffix-of-leading-S-or-prefix-of-trailing-S;oriented-query-base-comparison;substitution-only-no-indel-inference",
             "terminalLocalClipRescueAudit": "GenBank-COMMENT-records-leading+trailing-rescued-bases+rescued-substitutions+substitution-only-no-indel-inference;selected-CIGAR-and-evidence-retained",
             "terminalLocalClipRescueFeatureRule": "missing-range-wholly-within-one-terminal-CDS-interval",
@@ -1796,6 +1998,10 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
             "terminalLocalClipRescueMismatchAllowance": "max(1,floor(0.20*missing-bases))",
             "terminalLocalClipRescueMissingBasesUpperBoundExclusive": String(thresholds.minimumIntronGapBases),
             "candidateMergeFields": "classification,locus,provisional-name,closest-reference-name,closest-reference-raw-id,closest-reference-class,extension-of,provisional-naming-ambiguous",
+            "partialExtensionCanonicalReconciliationRule": "identical-published-sequence;same-locus;same-compatible-genomic-allele;partial-extension-or-novel-only;no-I-D-N;partial-extension-wins;raw-interpretations-retained-in-source-map",
+            "partialExtensionCanonicalReconciliationCount": String(
+                partialExtensionReconciliationCount
+            ),
             "representativeRule": "highest-total-cluster-reads;then-lexical-raw-stable-id",
             "observationMergeKey": "canonical-stable-cluster-id,sample-id,read-group-id",
             "observationAggregationRule": "sum-read-counts;union-source-cluster-ids-and-counts;deduplicate-compact-hit-shapes",
@@ -1803,11 +2009,16 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
             "canonicalCandidateCount": String(canonicalCandidateCount),
             "rawUnnameableCount": String(rawUnnameableCount),
             "externalUnnameableCount": String(externalUnnameableCount),
-            "nonReferenceReadyCandidateDemotionRule": "incomplete=>unnameable:incomplete-reference-span;unavailable-or-missing-external-sequence=>unnameable:reference-canonicalization-unavailable",
+            "nonReferenceReadyCandidateDemotionRule": "unavailable-or-missing-observed-external-sequence=>unnameable:reference-canonicalization-unavailable;incomplete-with-resolved-observed-sequence=>named-candidate",
+            "partialCandidatePublicationRule": "incomplete-with-resolved-observed-sequence=>named-candidate;observed-bases-only;missing-reference-bases-not-imputed",
+            "candidateReferenceRanking": "snp-count-in-shared-aligned-region;then-comparable-bases;then-alignment-score;then-deterministic-reference-evidence-order",
+            "shortSelectedReferenceCoverageRule": "when-selected-genomic-reference-is-shorter-than-longest-same-locus-genomic-catalog-record:publish-named-candidate+declare-outside-selected-reference-unassessed",
             "nonReferenceReadyCandidateDemotionCount": String(
                 incompleteCandidateDemotionCount + unavailableCandidateDemotionCount
             ),
             "incompleteCandidateDemotionCount": String(incompleteCandidateDemotionCount),
+            "reviewableIncompleteCandidateCount": String(incompleteCandidateDemotionCount),
+            "reviewableIncompleteCandidateRule": "resolved-incomplete-reference-span-published-as-named-candidate-with-explicit-observed-coverage-comments;unresolved-sequence-remains-unnameable",
             "unavailableCandidateDemotionCount": String(
                 unavailableCandidateDemotionCount
             ),
@@ -1822,7 +2033,7 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
             "\($0.path)|sha256=\($0.sha256)|size-bytes=\($0.sizeBytes)"
         }.sorted().joined(separator: ";")
         return [
-            "documentSchemaVersion": "4",
+            "documentSchemaVersion": "5",
             "evidenceArtifacts": evidenceArtifacts,
             "reciprocalBAMPath": reciprocalBAMPath,
             "reciprocalLocatorIdentity": "bam-path,query-name,reference-name,read-group-id,reference-start,cigar",
@@ -2044,9 +2255,11 @@ private extension FullLengthONTMHCCandidateArtifactWriter {
             "candidate_alleles.fasta",
             "candidate-alleles.json",
             "candidate_alleles.gb",
+            "candidate_alleles.embl",
             "unnameable_unmatched_clusters.fasta",
             "unnameable-unmatched-clusters.json",
             "unnameable_unmatched_clusters.gb",
+            "unnameable_unmatched_clusters.embl",
         ]
     }
 

@@ -295,7 +295,7 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         XCTAssertEqual(render.resolvedOptions["recordCount"], "1")
     }
 
-    func testIncompleteNamedCandidateIsDemotedWithoutPublishingAnExternalSequence() async throws {
+    func testIncompleteCandidatePublishesAsNamedObservedSequence() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let incompleteCandidateID = fixture.novelID
@@ -321,9 +321,10 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
             ONTMHCCandidateAllelesDocument.self,
             from: Data(contentsOf: result.candidateJSONURL)
         )
-        XCTAssertFalse(candidates.candidates.contains {
+        let partial = try XCTUnwrap(candidates.candidates.first {
             $0.sourceSequenceClusterIDs.contains(fixture.novelID)
         })
+        XCTAssertEqual(partial.provisionalName, "Mafa-A1*018:01:01:01_5nt_nov")
         XCTAssertFalse(candidates.candidates.contains {
             $0.sourceSequenceClusterIDs.contains(fixture.extensionID)
         })
@@ -332,31 +333,9 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
             ONTMHCUnnameableClustersDocument.self,
             from: Data(contentsOf: result.unnameableJSONURL)
         )
-        let demoted = try XCTUnwrap(unnameable.clusters.first {
+        XCTAssertFalse(unnameable.clusters.contains {
             $0.stableClusterID == fixture.novelID
         })
-        XCTAssertEqual(demoted.reason.rawValue, "incomplete-reference-span")
-        XCTAssertEqual(demoted.failedMetrics["reference_ready"], 0)
-        XCTAssertEqual(
-            demoted.failedMetrics["canonical_comparable_bases"],
-            1_200
-        )
-        XCTAssertEqual(
-            demoted.failedMetrics["canonical_identity"],
-            Double(1_195) / 1_200
-        )
-        XCTAssertEqual(demoted.failedMetrics["canonical_shorter_coverage"], 1)
-        XCTAssertNil(demoted.fastaRecordID)
-        XCTAssertNil(demoted.sequenceSHA256)
-        XCTAssertEqual(demoted.selectedEvidence?.queryName, fixture.novelID)
-        XCTAssertEqual(demoted.reciprocalHitSummary.queryName, fixture.novelID)
-        XCTAssertEqual(demoted.supportingSampleIDs, ["sample-a", "sample-b"])
-        XCTAssertEqual(
-            Set(unnameable.observations.filter {
-                $0.stableClusterID == fixture.novelID
-            }.map(\.sampleID)),
-            ["sample-a", "sample-b"]
-        )
         XCTAssertTrue(unnameable.evidence.contains {
             $0.path == "artifacts/alignments/unmatched-to-reference.bam"
         })
@@ -367,22 +346,28 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
             unavailable.reason,
             .referenceCanonicalizationUnavailable
         )
+        XCTAssertNil(unavailable.candidateInterpretation)
         XCTAssertNil(unavailable.fastaRecordID)
         XCTAssertNil(unavailable.sequenceSHA256)
 
         XCTAssertFalse(try fastaHeaders(result.unnameableFASTAURL).contains(fixture.novelID))
-        XCTAssertFalse(try fastaHeaders(result.candidateFASTAURL).contains(fixture.novelID))
+        XCTAssertTrue(try fastaHeaders(result.candidateFASTAURL).contains(partial.stableClusterID))
         XCTAssertFalse(
             try fastaHeaders(result.unnameableFASTAURL).contains(fixture.extensionID)
         )
         XCTAssertFalse(
             try fastaHeaders(result.candidateFASTAURL).contains(fixture.extensionID)
         )
-        let externalGenBankAccessions = try (
-            GenBankReader(url: result.candidateGenBankURL).readAllSync()
-                + GenBankReader(url: result.unnameableGenBankURL).readAllSync()
-        ).compactMap(\.accession)
-        XCTAssertFalse(externalGenBankAccessions.contains(fixture.novelID))
+        let candidateGenBankRecords = try GenBankReader(
+            url: result.candidateGenBankURL
+        ).readAllSync()
+        let partialGenBank = try XCTUnwrap(candidateGenBankRecords.first {
+            $0.accession == partial.stableClusterID
+        })
+        XCTAssertEqual(partialGenBank.sequence.asString(), fixture.novelSequence)
+        let partialEMBL = try String(contentsOf: result.candidateEMBLURL, encoding: .utf8)
+        XCTAssertTrue(partialEMBL.contains("ID   \(partial.stableClusterID);"), partialEMBL)
+        XCTAssertEqual(result.manifest.candidateEMBL?.path, "candidate_alleles.embl")
 
         let rawFASTA = try String(
             contentsOf: fixture.outputURL.appendingPathComponent(
@@ -402,29 +387,40 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         let sourceIdentity = try XCTUnwrap(sourceMap.records.first {
             $0.rawStableClusterID == fixture.novelID
         })
-        XCTAssertEqual(sourceIdentity.classification, "unnameable")
+        XCTAssertEqual(sourceIdentity.classification, "novel")
         XCTAssertEqual(
             sourceIdentity.referenceReadiness,
             FullLengthONTMHCReferenceReadiness.incomplete.rawValue
         )
-        XCTAssertNil(sourceIdentity.canonicalStableClusterID)
-        XCTAssertNil(sourceIdentity.canonicalSequenceSHA256)
+        XCTAssertEqual(sourceIdentity.canonicalStableClusterID, fixture.novelID)
+        XCTAssertEqual(
+            sourceIdentity.canonicalSequenceSHA256,
+            sha256HexString(fixture.novelSequence)
+        )
 
         let canonicalization = try XCTUnwrap(result.transformationRecords.first {
             $0.workflowName
                 == "lungfish-in-process:canonicalize-and-aggregate-mhc-candidates"
         })
         XCTAssertEqual(
-            canonicalization.resolvedOptions["nonReferenceReadyCandidateDemotionRule"],
-            "incomplete=>unnameable:incomplete-reference-span;unavailable-or-missing-external-sequence=>unnameable:reference-canonicalization-unavailable"
+            canonicalization.resolvedOptions["partialCandidatePublicationRule"],
+            "incomplete-with-resolved-observed-sequence=>named-candidate;observed-bases-only;missing-reference-bases-not-imputed"
         )
         XCTAssertEqual(
             canonicalization.resolvedOptions["nonReferenceReadyCandidateDemotionCount"],
-            "2"
+            "1"
         )
         XCTAssertEqual(
             canonicalization.resolvedOptions["incompleteCandidateDemotionCount"],
-            "1"
+            "0"
+        )
+        XCTAssertEqual(
+            canonicalization.resolvedOptions["reviewableIncompleteCandidateCount"],
+            "0"
+        )
+        XCTAssertEqual(
+            canonicalization.resolvedOptions["candidateReferenceRanking"],
+            "snp-count-in-shared-aligned-region;then-comparable-bases;then-alignment-score;then-deterministic-reference-evidence-order"
         )
         XCTAssertEqual(
             canonicalization.resolvedOptions["unavailableCandidateDemotionCount"],
@@ -543,6 +539,121 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         XCTAssertEqual(result.first?.record.extensionOf, ["Mafa-A1*001", "Mafa-A1*002"])
     }
 
+    func testCanonicalizerMergesSameLocusPartialExtensionInterpretationsForIdenticalSequence() throws {
+        let sequence = "ATGGCTTAA"
+        let result = try FullLengthONTMHCCandidateCanonicalizer().aggregate([
+            canonicalizerInput(
+                rawID: "raw-a",
+                externalSequence: sequence,
+                classification: .partialExtension,
+                provisionalName: "Mamu-DRB1*03:03:01:01_partial_ext",
+                closestReferenceName: "Mamu-DRB1*03:03:01:01",
+                closestReferenceRawID: "ref-a",
+                totalReads: 12,
+                extensionOf: ["Mamu-DRB1*03:03:01:01"],
+                snpCount: 0,
+                canonicalSubstitutionCount: 0
+            ),
+            canonicalizerInput(
+                rawID: "raw-b",
+                externalSequence: sequence,
+                classification: .partialExtension,
+                provisionalName: "Mamu-DRB1*03:09:01:01_partial_ext",
+                closestReferenceName: "Mamu-DRB1*03:09:01:01",
+                closestReferenceRawID: "ref-b",
+                totalReads: 8,
+                extensionOf: ["Mamu-DRB1*03:09:01:01"],
+                snpCount: 0,
+                canonicalSubstitutionCount: 0
+            ),
+        ])
+
+        XCTAssertEqual(result.count, 1)
+        XCTAssertEqual(result[0].record.classification, .partialExtension)
+        XCTAssertEqual(
+            result[0].record.extensionOf,
+            ["Mamu-DRB1*03:03:01:01", "Mamu-DRB1*03:09:01:01"]
+        )
+        XCTAssertEqual(result[0].record.provisionalName, "Mamu-DRB1*03:03:01:01_partial_ext")
+        XCTAssertTrue(result[0].record.provisionalNamingAmbiguous)
+        XCTAssertEqual(result[0].record.totalClusterReads, 20)
+    }
+
+    func testCanonicalizerMergesCanonicalZeroSNPNovelIntoPartialExtension() throws {
+        let sequence = "ATGGCTTAA"
+        let result = try FullLengthONTMHCCandidateCanonicalizer().aggregate([
+            canonicalizerInput(
+                rawID: "raw-partial",
+                externalSequence: sequence,
+                classification: .partialExtension,
+                provisionalName: "Mamu-DRB1*10:07:01:03_partial_ext",
+                closestReferenceName: "Mamu-DRB1*10:07:01:03",
+                closestReferenceRawID: "ref-a",
+                totalReads: 8,
+                extensionOf: ["Mamu-DRB1*10:07:01:03"],
+                snpCount: 0,
+                canonicalSubstitutionCount: 0
+            ),
+            canonicalizerInput(
+                rawID: "raw-noncoding-snp",
+                externalSequence: sequence,
+                classification: .novel,
+                provisionalName: "Mamu-DRB1*10:07:01:03_1nt_nov",
+                closestReferenceName: "Mamu-DRB1*10:07:01:03",
+                closestReferenceRawID: "ref-a",
+                totalReads: 12,
+                snpCount: 1,
+                canonicalSubstitutionCount: 0
+            ),
+        ])
+
+        XCTAssertEqual(result.count, 1)
+        XCTAssertEqual(result[0].record.classification, .partialExtension)
+        XCTAssertEqual(result[0].record.provisionalName, "Mamu-DRB1*10:07:01:03_partial_ext")
+        XCTAssertEqual(result[0].record.extensionOf, ["Mamu-DRB1*10:07:01:03"])
+        XCTAssertEqual(result[0].record.totalClusterReads, 20)
+        XCTAssertEqual(
+            result[0].record.representativeSourceSequenceClusterID,
+            "raw-partial"
+        )
+    }
+
+    func testCanonicalizerMergesTrimmedAwayRawSNPIntoCompatiblePartialExtension() throws {
+        let sequence = "ATGGCTTAA"
+        let result = try FullLengthONTMHCCandidateCanonicalizer().aggregate([
+            canonicalizerInput(
+                rawID: "raw-partial",
+                externalSequence: sequence,
+                classification: .partialExtension,
+                provisionalName: "Mamu-DRB1*10:07:01:03_partial_ext",
+                closestReferenceName: "Mamu-DRB1*10:07:01:03",
+                closestReferenceRawID: "ref-a",
+                totalReads: 8,
+                extensionOf: ["Mamu-DRB1*10:07:01:03"],
+                snpCount: 0,
+                canonicalSubstitutionCount: 1
+            ),
+            canonicalizerInput(
+                rawID: "raw-trimmed-snp",
+                externalSequence: sequence,
+                classification: .novel,
+                provisionalName: "Mamu-DRB1*10:07:01:03_1nt_nov",
+                closestReferenceName: "Mamu-DRB1*10:07:01:03",
+                closestReferenceRawID: "ref-a",
+                totalReads: 12,
+                snpCount: 1,
+                canonicalSubstitutionCount: 1
+            ),
+        ])
+
+        XCTAssertEqual(result.count, 1)
+        XCTAssertEqual(result[0].record.classification, .partialExtension)
+        XCTAssertEqual(result[0].record.provisionalName, "Mamu-DRB1*10:07:01:03_partial_ext")
+        XCTAssertEqual(result[0].record.extensionOf, ["Mamu-DRB1*10:07:01:03"])
+        XCTAssertEqual(result[0].record.totalClusterReads, 20)
+        XCTAssertEqual(result[0].record.sourceSequenceClusterIDs, ["raw-partial", "raw-trimmed-snp"])
+    }
+
     func testCanonicalizerKeepsOneBaseDifferenceInsideTrimmedSequenceSeparate() throws {
         let first = try canonicalizerInput(
             rawID: "raw-a",
@@ -636,6 +747,10 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         XCTAssertTrue(unnameableGenBank.contains("ACCESSION"), unnameableGenBank)
         XCTAssertEqual(result.manifest.candidateGenBank?.path, "candidate_alleles.gb")
         XCTAssertEqual(result.manifest.unnameableGenBank?.path, "unnameable_unmatched_clusters.gb")
+        XCTAssertEqual(result.manifest.candidateEMBL?.path, "candidate_alleles.embl")
+        XCTAssertEqual(result.manifest.unnameableEMBL?.path, "unnameable_unmatched_clusters.embl")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.candidateEMBLURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.unnameableEMBLURL.path))
         let candidate = try JSONDecoder().decode(
             ONTMHCCandidateAllelesDocument.self,
             from: Data(contentsOf: result.candidateJSONURL)
@@ -654,7 +769,8 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         let unnameableObjects = try XCTUnwrap(unnameableObject["clusters"] as? [[String: Any]])
         XCTAssertTrue(observationObjects.allSatisfy { $0["evidence"] == nil })
         XCTAssertTrue(unnameableObjects.allSatisfy { $0["evidence"] == nil })
-        XCTAssertEqual(candidate.schemaVersion, 4)
+        XCTAssertEqual(candidate.schemaVersion, 5)
+        XCTAssertEqual(unnameable.schemaVersion, 5)
         XCTAssertEqual(candidate.inputs.map(\.path), [
             fixture.referenceFASTAURL.path,
             "artifacts/internal/raw-unmatched-consensuses.fasta",
@@ -693,6 +809,8 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
             "lungfish-in-process:render-mhc-unnameable-json",
             "lungfish-in-process:render-mhc-candidate-genbank",
             "lungfish-in-process:render-mhc-unnameable-genbank",
+            "lungfish-in-process:render-mhc-candidate-embl",
+            "lungfish-in-process:render-mhc-unnameable-embl",
             "lungfish-in-process:render-mhc-candidate-source-identity",
             "lungfish-in-process:publish-canonical-deduplicated-unmatched-fasta",
             "lungfish-in-process:capture-mhc-candidate-artifact-checksums",
@@ -705,17 +823,38 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         XCTAssertEqual(classification.resolvedOptions["minimumIdentity"], "0.75")
         XCTAssertEqual(classification.resolvedOptions["minimumShorterCoverage"], "0.7")
         XCTAssertEqual(classification.resolvedOptions["minimumIntronGapBases"], "20")
-        XCTAssertEqual(classification.resolvedOptions["novelDistanceMetric"], "SNP-substitutions-only")
+        XCTAssertEqual(
+            classification.resolvedOptions["closestReferenceRanking"],
+            "snp-count-in-shared-aligned-region;then-comparable-bases;then-alignment-score;then-deterministic-reference-evidence-order"
+        )
+        XCTAssertEqual(
+            classification.resolvedOptions["provisionalNovelNameMetric"],
+            "SNP-substitutions-in-shared-aligned-region;indels-reported-separately-and-not-counted-in-_Nnt_nov-label"
+        )
+        XCTAssertNil(classification.resolvedOptions["novelDistanceMetric"])
         XCTAssertNil(classification.resolvedOptions["zeroSNPIndelClassification"])
         XCTAssertEqual(
             classification.resolvedOptions["zeroSNPClassificationOrder"],
-            "1:eligible-genomic-zero-snp=known;2:eligible-cdna-zero-snp-structural-extension=extension;3:eligible-cdna-zero-snp-end-to-end=known;4:otherwise=candidate"
+            "1:exact-end-to-end-genomic-zero-snp=known;2:zero-snp-genomic-shared-sequence-with-incomplete-end-coverage=partial-extension;3:eligible-cdna-zero-snp-structural-extension+no-genomic-zero-snp=extension;4:eligible-cdna-zero-snp-end-to-end=known;5:otherwise-broad-genomic-zero-snp=known;6:otherwise=candidate"
         )
         XCTAssertEqual(
             classification.resolvedOptions["extensionRule"],
             "cdna-coverage>=0.95;each-cdna-deficit<20;no-hard-clip;cluster-flank-or-structural-segment>=20"
         )
-        XCTAssertEqual(classification.resolvedOptions["documentSchemaVersion"], "4")
+        XCTAssertEqual(classification.resolvedOptions["documentSchemaVersion"], "5")
+        XCTAssertEqual(
+            classification.resolvedOptions["exactGenomicKnownRule"],
+            "zero-snp;reference-start=1;full-reference-span;full-query-span;no-I-D-N-S-H"
+        )
+        XCTAssertEqual(
+            classification.resolvedOptions["partialExtensionRule"],
+            "genomic-zero-snp-shared-sequence;no-I-D-N;incomplete-reference-or-candidate-end-coverage;no-exact-end-to-end-genomic-zero-snp;cDNA-extension-evidence-retained-when-present"
+        )
+        XCTAssertEqual(
+            classification.resolvedOptions["partialExtensionPrecedence"],
+            "exact-genomic-known>partial-extension>extension>legacy-broad-genomic-known"
+        )
+        XCTAssertEqual(classification.resolvedOptions["partialExtensionOutcomeCount"], "0")
         XCTAssertEqual(
             classification.resolvedOptions["knownCDNARule"],
             "extension-eligibility;cluster-coverage>=0.95;each-cluster-structural-segment<20"
@@ -765,6 +904,14 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         XCTAssertEqual(canonicalization.resolvedOptions["rawCandidateCount"], "2")
         XCTAssertEqual(canonicalization.resolvedOptions["canonicalCandidateCount"], "2")
         XCTAssertEqual(
+            canonicalization.resolvedOptions["partialExtensionCanonicalReconciliationRule"],
+            "identical-published-sequence;same-locus;same-compatible-genomic-allele;partial-extension-or-novel-only;no-I-D-N;partial-extension-wins;raw-interpretations-retained-in-source-map"
+        )
+        XCTAssertEqual(
+            canonicalization.resolvedOptions["partialExtensionCanonicalReconciliationCount"],
+            "0"
+        )
+        XCTAssertEqual(
             canonicalization.resolvedOptions["terminalLocalClipRescueRule"],
             "complete-missing-reference-prefix-or-suffix-only;adjacent-terminal-soft-clip-must-supply-all-missing-bases;suffix-of-leading-S-or-prefix-of-trailing-S;oriented-query-base-comparison;substitution-only-no-indel-inference"
         )
@@ -797,7 +944,7 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         let candidateRender = try XCTUnwrap(
             transformations["lungfish-in-process:render-mhc-candidate-json"]
         )
-        XCTAssertEqual(candidateRender.resolvedOptions["documentSchemaVersion"], "4")
+        XCTAssertEqual(candidateRender.resolvedOptions["documentSchemaVersion"], "5")
         XCTAssertEqual(candidateRender.resolvedOptions["perAlignmentLocatorArrays"], "omitted")
         XCTAssertTrue(
             candidateRender.resolvedOptions["evidenceArtifacts"]?.contains(
@@ -855,7 +1002,7 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         )
         XCTAssertEqual(
             candidateGenBankRender.resolvedOptions["candidateUTRTrimRule"],
-            "reference-ready-only:crop-to-outer-lifted-CDS-span-in-stored-orientation;retain-intervening-introns;rebase-annotations+consequence-candidate-coordinates;non-ready-omitted"
+            "resolved-complete-or-partial-lifted-CDS:crop-to-observed-outer-lifted-CDS-span-in-stored-orientation;retain-observed-intervening-introns;never-impute-missing-reference-bases"
         )
         let unnameableGenBankRender = try XCTUnwrap(
             transformations["lungfish-in-process:render-mhc-unnameable-genbank"]
@@ -866,7 +1013,7 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         )
         XCTAssertEqual(
             unnameableGenBankRender.resolvedOptions["unnameableSequenceRule"],
-            "reference-ready+paired-external-FASTA-id+sequence-SHA-256-only:crop-to-outer-lifted-CDS-span-in-stored-orientation;retain-intervening-introns;rebase-annotations;otherwise-omit"
+            "reference-ready:canonical-outer-CDS;incomplete-reference-span:diagnostic-observed-partial-sequence+warning+raw-stable-id;unavailable:omit"
         )
         XCTAssertEqual(
             unnameableGenBankRender.resolvedOptions["unnameableFeatureLiftoverRule"],
@@ -904,11 +1051,11 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         )
         XCTAssertEqual(
             candidateGenBankRender.resolvedOptions["externalRecordGate"],
-            "emit-only-typed-externalSequence-with-reference-readiness=reference-ready;non-ready-omitted;no-untrimmed-external-fallback"
+            "resolved-observed-sequence-required;complete-and-partial-named-candidates-published;unavailable-omitted"
         )
         XCTAssertEqual(
             candidateGenBankRender.resolvedOptions["outerCDSTrimRule"],
-            "reference-ready-candidates+reference-ready-unnameables:crop-to-outer-lifted-CDS-span+rebase-annotations;retain-intervening-introns"
+            "complete-or-partial-lifted-CDS-span;observed-bases-only;rebase-annotations;retain-observed-intervening-introns"
         )
         let construction = try XCTUnwrap(
             transformations["lungfish-in-process:construct-stable-unmatched-cluster-fasta"]
@@ -949,9 +1096,11 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
             result.candidateFASTAURL.path,
             result.candidateJSONURL.path,
             result.candidateGenBankURL.path,
+            result.candidateEMBLURL.path,
             result.unnameableFASTAURL.path,
             result.unnameableJSONURL.path,
             result.unnameableGenBankURL.path,
+            result.unnameableEMBLURL.path,
             fixture.outputURL.appendingPathComponent(
                 "artifacts/internal/mhc-candidate-canonicalization-input.json"
             ).path,
@@ -1063,7 +1212,7 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
             $0.workflowName == "lungfish-in-process:capture-mhc-candidate-artifact-checksums"
         })
         let captures = provider.captures
-        XCTAssertEqual(captures.count, 11)
+        XCTAssertEqual(captures.count, 13)
         XCTAssertLessThanOrEqual(checksum.startedAt, try XCTUnwrap(captures.first).startedAt)
         XCTAssertGreaterThanOrEqual(checksum.completedAt, try XCTUnwrap(captures.last).completedAt)
         XCTAssertEqual(
@@ -1539,6 +1688,7 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
         rawID: String,
         externalSequence: String,
         locus: String = "Mafa-A1",
+        classification: ONTMHCCandidateClassification = .novel,
         provisionalName: String = "Mafa-A1*001_1nt_nov",
         closestReferenceName: String = "Mafa-A1*001",
         closestReferenceRawID: String = "ref-a",
@@ -1566,7 +1716,7 @@ final class FullLengthONTMHCCandidateArtifactWriterTests: XCTestCase {
             representativeSourceSequenceClusterID: rawID,
             provisionalName: provisionalName,
             locus: locus,
-            classification: .novel,
+            classification: classification,
             supportClass: .singleton,
             closestReferenceName: closestReferenceName,
             closestReferenceClass: closestReferenceClass,
@@ -1959,8 +2109,8 @@ private extension FullLengthONTMHCCandidateArtifactWriterTests {
             return .init(
                 record: diagnostic.record,
                 rawSequence: input.sequence,
-                externalSequence: nil,
-                trimRange: nil,
+                externalSequence: diagnostic.externalSequence,
+                trimRange: diagnostic.trimRange,
                 translationStatus: .incompleteUnresolved,
                 referenceReadiness: .incomplete,
                 substitutionCount: diagnostic.substitutionCount,

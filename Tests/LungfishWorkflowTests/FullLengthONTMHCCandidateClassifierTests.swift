@@ -37,6 +37,92 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
         XCTAssertEqual(calls.first?.evidence.cigar, "600=50I600=")
     }
 
+    func testIncompleteZeroSNPGenomicMatchWithCDNAExtensionIsPartialExtension() throws {
+        let cluster = makeCluster(
+            sequenceLength: 1_200,
+            alignments: [
+                alignment(reference: cdnaReference, cigar: "500=50I500="),
+                alignment(reference: genomicReference, cigar: "1100=100S"),
+            ]
+        )
+
+        guard case .candidate(let candidate) = try FullLengthONTMHCCandidateClassifier()
+            .classify(cluster) else {
+            return XCTFail("Expected partial extension candidate")
+        }
+        XCTAssertEqual(candidate.classification, .partialExtension)
+        XCTAssertEqual(
+            candidate.provisionalName,
+            "Mafa-A1*018:01:01:01_partial_ext"
+        )
+        XCTAssertEqual(candidate.extensionOf, ["Mafa-A1*018:01:01:01"])
+        XCTAssertEqual(candidate.snpCount, 0)
+        XCTAssertEqual(candidate.selectedEvidence.referenceName, genomicReference.sequenceID)
+    }
+
+    func testIncompleteZeroSNPGenomicMatchWithoutCDNAEvidenceIsPartialExtension() throws {
+        let cluster = makeCluster(
+            sequenceLength: 1_200,
+            alignments: [alignment(reference: genomicReference, cigar: "1100=100S")]
+        )
+
+        guard case .candidate(let candidate) = try FullLengthONTMHCCandidateClassifier()
+            .classify(cluster) else {
+            return XCTFail("Expected partial extension candidate")
+        }
+        XCTAssertEqual(candidate.classification, .partialExtension)
+        XCTAssertEqual(candidate.provisionalName, "Mafa-A1*018:01:01:01_partial_ext")
+        XCTAssertEqual(candidate.extensionOf, ["Mafa-A1*018:01:01:01"])
+        XCTAssertTrue(candidate.extensionInterpretations.isEmpty)
+        XCTAssertEqual(candidate.snpCount, 0)
+        XCTAssertEqual(candidate.selectedEvidence.referenceName, genomicReference.sequenceID)
+    }
+
+    func testPartialExtensionClosestMatchesExcludeBetterIndelOnlyRelationship() throws {
+        let indelReference = MHCReferenceRecord(
+            sequenceID: "ref-indel",
+            alleleName: "Mafa-A1*019:01",
+            locus: "Mafa-A1",
+            moleculeClass: .genomicDNA,
+            classEvidence: .annotatedMetadata,
+            sequenceLength: 1_200
+        )
+        let cluster = makeCluster(
+            sequenceLength: 1_201,
+            alignments: [
+                alignment(reference: indelReference, cigar: "600=1I600="),
+                alignment(reference: genomicReference, cigar: "1100=101S"),
+            ]
+        )
+
+        guard case .candidate(let candidate) = try FullLengthONTMHCCandidateClassifier()
+            .classify(cluster) else {
+            return XCTFail("Expected partial extension candidate")
+        }
+        XCTAssertEqual(candidate.classification, .partialExtension)
+        XCTAssertEqual(candidate.selectedEvidence.referenceName, genomicReference.sequenceID)
+        XCTAssertEqual(
+            candidate.reciprocalHitSummary.closestMatchTargetNames,
+            [genomicReference.sequenceID]
+        )
+    }
+
+    func testExactEndToEndZeroSNPGenomicMatchRemainsKnownDespiteCDNAExtensionEvidence() throws {
+        let cluster = makeCluster(
+            sequenceLength: 1_200,
+            alignments: [
+                alignment(reference: cdnaReference, cigar: "500=50I500="),
+                alignment(reference: genomicReference, cigar: "1200="),
+            ]
+        )
+
+        guard case .known(let calls) = try FullLengthONTMHCCandidateClassifier()
+            .classify(cluster) else {
+            return XCTFail("Expected exact genomic known call")
+        }
+        XCTAssertEqual(calls.map(\.reference.sequenceID), [genomicReference.sequenceID])
+    }
+
     func testCompleteExactCDNAWithOnlyIntronSizedQueryInsertionsIsExtension() throws {
         let cluster = makeCluster(
             sequenceLength: 1_050,
@@ -940,10 +1026,59 @@ final class FullLengthONTMHCCandidateClassifierTests: XCTestCase {
         ) else {
             return XCTFail("Expected candidate")
         }
-        XCTAssertEqual(candidate.closestReferenceName, referenceA.alleleName)
-        XCTAssertEqual(candidate.mappingQuality, 30)
-        XCTAssertEqual(candidate.alignmentScore, 1_500)
-        XCTAssertEqual(candidate.insertedBases, 0)
+        XCTAssertEqual(candidate.closestReferenceName, referenceB.alleleName)
+        XCTAssertEqual(candidate.mappingQuality, 60)
+        XCTAssertEqual(candidate.alignmentScore, 2_000)
+        XCTAssertEqual(candidate.insertedBases, 1)
+    }
+
+    func testClosestReferenceUsesSNPCountWithinSharedSequenceBeforeIndels() throws {
+        let fewerSNPsButMoreEdits = MHCReferenceRecord(
+            sequenceID: "ref-fewer-snps-more-edits",
+            alleleName: "Mamu-DRB1*03:09:01:01",
+            locus: "Mamu-DRB1",
+            moleculeClass: .genomicDNA,
+            classEvidence: .annotatedMetadata,
+            sequenceLength: 1_200
+        )
+        let moreSNPsButFewerEdits = MHCReferenceRecord(
+            sequenceID: "ref-more-snps-fewer-edits",
+            alleleName: "Mamu-DRB1*03:09:01:02",
+            locus: "Mamu-DRB1",
+            moleculeClass: .genomicDNA,
+            classEvidence: .annotatedMetadata,
+            sequenceLength: 1_201
+        )
+        let cluster = makeCluster(
+            sequenceLength: 1_203,
+            alignments: [
+                alignment(
+                    reference: fewerSNPsButMoreEdits,
+                    cigar: "1X3I1199=",
+                    score: 1_500
+                ),
+                alignment(
+                    reference: moreSNPsButFewerEdits,
+                    cigar: "2X1199=",
+                    score: 2_000
+                ),
+            ]
+        )
+
+        guard case .candidate(let candidate) = try FullLengthONTMHCCandidateClassifier()
+            .classify(cluster) else {
+            return XCTFail("Expected novel candidate")
+        }
+
+        XCTAssertEqual(candidate.closestReferenceName, fewerSNPsButMoreEdits.alleleName)
+        XCTAssertEqual(candidate.snpCount, 1)
+        XCTAssertEqual(candidate.insertedBases, 3)
+        XCTAssertEqual(candidate.deletedBases, 0)
+        XCTAssertEqual(
+            candidate.reciprocalHitSummary.closestMatchTargetNames,
+            [fewerSNPsButMoreEdits.sequenceID]
+        )
+        XCTAssertEqual(candidate.provisionalName, "Mamu-DRB1*03:09:01:01_1nt_nov")
     }
 
     func testRejectsInvalidThresholdsAndNumericInputs() throws {

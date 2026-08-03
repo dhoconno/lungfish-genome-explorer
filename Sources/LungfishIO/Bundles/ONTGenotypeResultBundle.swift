@@ -1168,24 +1168,32 @@ public struct ONTMHCCandidateGenBankArtifactURLs: Codable, Equatable, Sendable {
         candidateAlleles: nil,
         unnameableClusters: nil,
         candidateFASTA: nil,
-        unnameableFASTA: nil
+        unnameableFASTA: nil,
+        candidateEMBL: nil,
+        unnameableEMBL: nil
     )
 
     public let candidateAlleles: URL?
     public let unnameableClusters: URL?
     public let candidateFASTA: URL?
     public let unnameableFASTA: URL?
+    public let candidateEMBL: URL?
+    public let unnameableEMBL: URL?
 
     public init(
         candidateAlleles: URL?,
         unnameableClusters: URL?,
         candidateFASTA: URL? = nil,
-        unnameableFASTA: URL? = nil
+        unnameableFASTA: URL? = nil,
+        candidateEMBL: URL? = nil,
+        unnameableEMBL: URL? = nil
     ) {
         self.candidateAlleles = candidateAlleles?.standardizedFileURL
         self.unnameableClusters = unnameableClusters?.standardizedFileURL
         self.candidateFASTA = candidateFASTA?.standardizedFileURL
         self.unnameableFASTA = unnameableFASTA?.standardizedFileURL
+        self.candidateEMBL = candidateEMBL?.standardizedFileURL
+        self.unnameableEMBL = unnameableEMBL?.standardizedFileURL
     }
 }
 
@@ -2718,6 +2726,20 @@ public enum ONTGenotypeResultBundle {
                     "Un-nameable GenBank requires the corresponding un-nameable JSON and FASTA declarations."
                 )
             }
+            if artifactManifest.candidateEMBL != nil,
+               artifactManifest.candidateJSON == nil || artifactManifest.candidateFASTA == nil {
+                throw integrityFailure(
+                    .candidateArtifactDocumentReferenceMismatch,
+                    "Candidate EMBL requires the corresponding candidate JSON and FASTA declarations."
+                )
+            }
+            if artifactManifest.unnameableEMBL != nil,
+               artifactManifest.unnameableJSON == nil || artifactManifest.unnameableFASTA == nil {
+                throw integrityFailure(
+                    .candidateArtifactDocumentReferenceMismatch,
+                    "Un-nameable EMBL requires the corresponding un-nameable JSON and FASTA declarations."
+                )
+            }
             let parsedReferences = [
                 artifactManifest.candidateJSON,
                 artifactManifest.candidateFASTA,
@@ -2762,6 +2784,8 @@ public enum ONTGenotypeResultBundle {
             for reference in [
                 artifactManifest.candidateGenBank,
                 artifactManifest.unnameableGenBank,
+                artifactManifest.candidateEMBL,
+                artifactManifest.unnameableEMBL,
                 artifactManifest.rawUnmatchedFASTA,
                 artifactManifest.sourceIdentityMap,
             ].compactMap({ $0 }) {
@@ -2894,6 +2918,12 @@ public enum ONTGenotypeResultBundle {
                     try normalizedValidatedArtifactURL($0, in: bundleURL)
                 },
                 unnameableFASTA: try artifactManifest.unnameableFASTA.map {
+                    try normalizedValidatedArtifactURL($0, in: bundleURL)
+                },
+                candidateEMBL: try artifactManifest.candidateEMBL.map {
+                    try normalizedValidatedArtifactURL($0, in: bundleURL)
+                },
+                unnameableEMBL: try artifactManifest.unnameableEMBL.map {
                     try normalizedValidatedArtifactURL($0, in: bundleURL)
                 }
             )
@@ -3190,14 +3220,14 @@ public enum ONTGenotypeResultBundle {
         guard let dictionary = object as? [String: Any], let schema = dictionary["schema_version"] as? Int else {
             throw integrityFailure(
                 .candidateArtifactMalformedJSON,
-                "Candidate artifact must be a JSON object with integer schema_version 1, 2, 3, or 4.",
+                "Candidate artifact must be a JSON object with integer schema_version 1, 2, 3, 4, or 5.",
                 path: path
             )
         }
-        guard (1 ... 4).contains(schema) else {
+        guard (1 ... 5).contains(schema) else {
             throw integrityFailure(
                 .candidateArtifactSchemaUnsupported,
-                "Candidate artifact schema \(schema) is unsupported; expected schema 1, 2, 3, or 4.",
+                "Candidate artifact schema \(schema) is unsupported; expected schema 1, 2, 3, 4, or 5.",
                 path: path
             )
         }
@@ -3269,14 +3299,23 @@ public enum ONTGenotypeResultBundle {
                 let rawIDs = interpretations.compactMap { $0["raw_reference_id"] as? String }
                 guard interpretationNames.count == interpretations.count,
                       rawIDs.count == interpretations.count,
-                      Set(rawIDs).count == rawIDs.count,
-                      Set(interpretationNames) == Set(extensionOf) else {
+                      Set(rawIDs).count == rawIDs.count else {
                     return false
                 }
-                if record["classification"] as? String == "extension" {
-                    return !extensionOf.isEmpty && !interpretations.isEmpty
+                let extensionNames = Set(extensionOf)
+                let interpretedNames = Set(interpretationNames)
+                switch record["classification"] as? String {
+                case "extension":
+                    return !extensionOf.isEmpty
+                        && !interpretations.isEmpty
+                        && interpretedNames == extensionNames
+                case "partial-extension":
+                    return schema >= 5
+                        && !extensionOf.isEmpty
+                        && interpretedNames.isSubset(of: extensionNames)
+                default:
+                    return extensionOf.isEmpty && interpretations.isEmpty
                 }
-                return extensionOf.isEmpty && interpretations.isEmpty
             }
             guard valid else {
                 throw integrityFailure(
@@ -3430,7 +3469,8 @@ public enum ONTGenotypeResultBundle {
         unnameable: ONTMHCUnnameableClustersDocument?,
         documentPath: String
     ) throws {
-        guard candidates?.schemaVersion == 4 || unnameable?.schemaVersion == 4 else { return }
+        guard (candidates?.schemaVersion ?? 0) >= 4
+                || (unnameable?.schemaVersion ?? 0) >= 4 else { return }
         var ownerByRawSourceID: [String: String] = [:]
         for record in candidates?.candidates ?? [] {
             let owner = "candidate:\(record.stableClusterID)"

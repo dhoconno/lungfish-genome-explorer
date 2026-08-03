@@ -122,6 +122,51 @@ struct GenotypeAlleleSequenceRecord: Equatable {
         return result
     }
 
+    static func incompleteCandidateCatalogRetainingValidRecords(
+        records incompleteRecords: [ONTMHCUnnameableRecord],
+        genBankURL: URL?
+    ) -> [String: Self] {
+        let incompleteRecords = incompleteRecords.filter {
+            $0.reason == .incompleteReferenceSpan
+                && $0.candidateInterpretation != nil
+                && $0.fastaRecordID != nil
+                && $0.sequenceSHA256 != nil
+        }
+        guard !incompleteRecords.isEmpty, let genBankURL,
+              let genBankRecords = try? GenBankReader(url: genBankURL).readAllSync() else {
+            return [:]
+        }
+        let recordsByAccession = Dictionary(grouping: genBankRecords.compactMap { record in
+            record.accession.map { ($0, record) }
+        }, by: \.0)
+        var result: [String: Self] = [:]
+        for incomplete in incompleteRecords {
+            guard let accession = incomplete.fastaRecordID,
+                  let expectedChecksum = incomplete.sequenceSHA256,
+                  let displayName = incomplete.candidateInterpretation?.provisionalName,
+                  let indexedRecords = recordsByAccession[accession],
+                  indexedRecords.count == 1,
+                  let record = indexedRecords.first?.1 else { continue }
+            let sequence = record.sequence.asString().uppercased()
+            let actualChecksum = SHA256.hash(data: Data(sequence.utf8))
+                .map { String(format: "%02x", $0) }
+                .joined()
+            guard actualChecksum == expectedChecksum.lowercased() else { continue }
+            result[incomplete.stableClusterID] = Self(
+                identity: incomplete.stableClusterID,
+                displayName: displayName,
+                genBankText: cleanGenBankText(record),
+                fastaText: fasta(
+                    accession: accession,
+                    displayName: "partial observation; cannot be fully validated",
+                    sequence: sequence
+                ),
+                emblText: EMBLFormatter.format(record: record, sequence: sequence)
+            )
+        }
+        return result
+    }
+
     private static func candidateRecord(
         candidate: ONTMHCCandidateRecord,
         record: GenBankRecord

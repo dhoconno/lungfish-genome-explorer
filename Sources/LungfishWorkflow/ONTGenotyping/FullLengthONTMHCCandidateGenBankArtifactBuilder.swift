@@ -4,6 +4,11 @@ import LungfishCore
 import LungfishIO
 
 struct FullLengthONTMHCCandidateGenBankArtifactBuilder {
+    struct ReferenceCatalogCoverage: Sendable {
+        let selectedReferenceLength: Int
+        let longestSameLocusGenomicReferenceLength: Int
+    }
+
     enum Subject: Sendable {
         case candidate(ONTMHCCandidateRecord)
         case unnameable(ONTMHCUnnameableRecord)
@@ -146,6 +151,27 @@ struct FullLengthONTMHCCandidateGenBankArtifactBuilder {
         let analysisName: String
         let projectBundleName: String?
         let minimumIntronGapBases: Int
+        let referenceCatalogCoverage: ReferenceCatalogCoverage?
+
+        init(
+            subject: Subject,
+            sequence: String,
+            selectedAlignmentIsReverse: Bool?,
+            closestReference: ONTMHCReferenceVisualizationRecord?,
+            analysisName: String,
+            projectBundleName: String?,
+            minimumIntronGapBases: Int,
+            referenceCatalogCoverage: ReferenceCatalogCoverage? = nil
+        ) {
+            self.subject = subject
+            self.sequence = sequence
+            self.selectedAlignmentIsReverse = selectedAlignmentIsReverse
+            self.closestReference = closestReference
+            self.analysisName = analysisName
+            self.projectBundleName = projectBundleName
+            self.minimumIntronGapBases = minimumIntronGapBases
+            self.referenceCatalogCoverage = referenceCatalogCoverage
+        }
     }
 
     enum Error: Swift.Error, LocalizedError, Equatable {
@@ -183,6 +209,17 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
     struct Insertion {
         let referenceBoundary: Int
         let orientedQueryRange: Range<Int>
+    }
+
+    struct PartialReferenceCoverage {
+        let observedStart: Int
+        let observedEnd: Int
+        let referenceLength: Int
+        let missingLeadingBases: Int
+        let missingTrailingBases: Int
+        let missingInternalRanges: [Range<Int>]
+        let missingFeatures: [String]
+        let partiallyObservedFeatures: [String]
     }
 
     struct Projection {
@@ -266,7 +303,7 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
         guard !stableID.isEmpty, !sequence.isEmpty, input.minimumIntronGapBases > 0 else {
             throw Error.invalidInput(stableClusterID: stableID, detail: "identity, sequence, and intron threshold must be nonempty and positive")
         }
-        let isExtension = input.subject.candidateRecord?.classification == .extension
+        let isExtension = input.subject.candidateRecord?.classification.isExtensionLike == true
 
         var annotations = [SequenceAnnotation(
             type: .source,
@@ -283,6 +320,7 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
         var comparableBases = 0
         var identity = 0.0
         var shorterCoverage = 0.0
+        var partialReferenceCoverage: PartialReferenceCoverage?
 
         if let evidence = input.subject.selectedEvidence,
            let isReverse = input.selectedAlignmentIsReverse,
@@ -306,6 +344,10 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
             let canonicalReferenceRange = terminalCDSIntervals.map {
                 $0.leading.lowerBound..<$0.trailing.upperBound
             }
+            partialReferenceCoverage = makePartialReferenceCoverage(
+                projection: projection,
+                reference: reference
+            )
             substitutionCount = projection.changes.events.reduce(into: 0) { count, event in
                 guard case let .substitution(referencePosition, _, _, _) = event else {
                     return
@@ -468,7 +510,7 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
             }
         } else if let evidence = input.subject.selectedEvidence,
                   let candidate = input.subject.candidateRecord,
-                  candidate.classification == .extension {
+                  candidate.classification.isExtensionLike {
             let orientation = input.selectedAlignmentIsReverse.map {
                 $0 ? "reverse" : "forward"
             } ?? "unavailable"
@@ -524,10 +566,103 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
         } else {
             referenceReadiness = .referenceReady
         }
-        let externalSequence = referenceReadiness == .referenceReady
+        let externalSequence = (referenceReadiness == .referenceReady
+            || (input.subject.isCandidate && referenceReadiness == .incomplete))
             && input.subject.hasDeclaredExternalSequenceIdentity
             ? liftedCDSTrimRange.map { substring(sequence, in: $0) }
             : nil
+
+        if input.subject.isCandidate,
+           let coverage = input.referenceCatalogCoverage,
+           coverage.longestSameLocusGenomicReferenceLength
+                > coverage.selectedReferenceLength {
+            comments.append(
+                "Lungfish closest-reference catalog coverage: selected genomic reference record "
+                    + "spans " + String(coverage.selectedReferenceLength)
+                    + " bases; same-locus genomic records span up to "
+                    + String(coverage.longestSameLocusGenomicReferenceLength)
+                    + " bases; sequence outside the selected reference record cannot be assessed"
+            )
+            annotations[0].qualifiers["selected_reference_length"] = .init(
+                String(coverage.selectedReferenceLength)
+            )
+            annotations[0].qualifiers["longest_same_locus_reference_length"] = .init(
+                String(coverage.longestSameLocusGenomicReferenceLength)
+            )
+            annotations[0].qualifiers["outside_selected_reference_coverage"] = .init(
+                "unassessed"
+            )
+        }
+
+        if input.subject.isCandidate,
+           referenceReadiness == .incomplete,
+           let coverage = partialReferenceCoverage {
+            comments.append(
+                "Lungfish partial reference coverage: observed reference interval "
+                    + String(coverage.observedStart + 1) + ".." + String(coverage.observedEnd)
+                    + " of " + String(coverage.referenceLength) + " bases"
+            )
+            comments.append(
+                "Lungfish missing terminal reference sequence: leading="
+                    + String(coverage.missingLeadingBases) + " bases; trailing="
+                    + String(coverage.missingTrailingBases) + " bases"
+            )
+            if !coverage.missingInternalRanges.isEmpty {
+                comments.append(
+                    "Lungfish unobserved internal reference sequence: "
+                        + coverage.missingInternalRanges.map(formatReferenceRange).joined(
+                            separator: "; "
+                        )
+                )
+            }
+            if !coverage.missingFeatures.isEmpty {
+                comments.append(
+                    "Lungfish annotated reference features absent from observed sequence: "
+                        + coverage.missingFeatures.joined(separator: "; ")
+                )
+            }
+            if !coverage.partiallyObservedFeatures.isEmpty {
+                comments.append(
+                    "Lungfish annotated reference features partially observed: "
+                        + coverage.partiallyObservedFeatures.joined(separator: "; ")
+                )
+            }
+            comments.append(
+                "Lungfish partial candidate sequence contains observed bases only; "
+                    + "missing reference bases were not imputed"
+            )
+            annotations[0].qualifiers["reference_coverage_status"] = .init("partial")
+            annotations[0].qualifiers["observed_reference_start"] = .init(
+                String(coverage.observedStart + 1)
+            )
+            annotations[0].qualifiers["observed_reference_end"] = .init(
+                String(coverage.observedEnd)
+            )
+            annotations[0].qualifiers["reference_sequence_length"] = .init(
+                String(coverage.referenceLength)
+            )
+            annotations[0].qualifiers["missing_leading_reference_bases"] = .init(
+                String(coverage.missingLeadingBases)
+            )
+            annotations[0].qualifiers["missing_trailing_reference_bases"] = .init(
+                String(coverage.missingTrailingBases)
+            )
+            if !coverage.missingInternalRanges.isEmpty {
+                annotations[0].qualifiers["unobserved_internal_reference_regions"] = .init(
+                    coverage.missingInternalRanges.map(formatReferenceRange).joined(separator: ", ")
+                )
+            }
+            if !coverage.missingFeatures.isEmpty {
+                annotations[0].qualifiers["missing_reference_features"] = .init(
+                    coverage.missingFeatures.joined(separator: ", ")
+                )
+            }
+            if !coverage.partiallyObservedFeatures.isEmpty {
+                annotations[0].qualifiers["partially_observed_reference_features"] = .init(
+                    coverage.partiallyObservedFeatures.joined(separator: ", ")
+                )
+            }
+        }
 
         let outputSequence: String
         let sequenceLabel = input.subject.isCandidate ? "candidate" : "un-nameable"
@@ -552,7 +687,12 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
                         + "; trim end=" + String(trimRange.upperBound)
                         + "; retained length=" + String(outputSequence.count)
                 )
-                comments.append("Lungfish reference readiness: not reference-ready; partial or unresolved lifted CDS")
+                if partialReferenceCoverage == nil {
+                    comments.append(
+                        "Lungfish candidate reference assessment: observed sequence published; "
+                            + "translation or feature assessment remains incomplete"
+                    )
+                }
             } else {
                 trimStatus = "trimmed-to-outer-lifted-CDS"
                 comments.append(
@@ -677,9 +817,18 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
             values.insert("Lungfish project: \(project)", at: 1)
         }
         if let candidate = input.subject.candidateRecord,
-           candidate.classification == .extension {
+           candidate.classification.isExtensionLike {
+            if candidate.classification == .partialExtension {
+                values.append(
+                    "Lungfish partial extension: the selected genomic comparison is zero-SNP across the shared sequence, but it is not an exact end-to-end match"
+                )
+                values.append(incompleteGenomicComparisonComment(candidate))
+            }
             if candidate.extensionOf.isEmpty {
-                values.append("Lungfish extension of: unavailable (no cDNA allele name recorded)")
+                let missingName = candidate.classification == .partialExtension
+                    ? "no compatible allele name recorded"
+                    : "no cDNA allele name recorded"
+                values.append("Lungfish extension of: unavailable (\(missingName))")
             } else {
                 values.append("Lungfish extension of: \(candidate.extensionOf.joined(separator: ", "))")
             }
@@ -703,10 +852,37 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
                 )
             }
             if candidate.provisionalNamingAmbiguous {
-                values.append("Lungfish provisional naming ambiguity: multiple compatible cDNA allele names; provisional base name was not assigned from a unique cDNA interpretation")
+                if candidate.classification == .partialExtension {
+                    values.append("Lungfish provisional naming ambiguity: multiple compatible allele names; provisional base name was not assigned from a unique interpretation")
+                } else {
+                    values.append("Lungfish provisional naming ambiguity: multiple compatible cDNA allele names; provisional base name was not assigned from a unique cDNA interpretation")
+                }
             }
         }
         return values
+    }
+
+    func incompleteGenomicComparisonComment(_ candidate: ONTMHCCandidateRecord) -> String {
+        let firstSum = candidate.snpCount.addingReportingOverflow(candidate.insertedBases)
+        let completeSum = firstSum.partialValue.addingReportingOverflow(candidate.deletedBases)
+        guard !firstSum.overflow,
+              !completeSum.overflow,
+              let metrics = try? FullLengthONTMHCSAMMetrics(
+                cigar: candidate.selectedEvidence.cigar,
+                nm: completeSum.partialValue
+              ) else {
+            return "Lungfish incomplete genomic comparison: start=\(candidate.selectedEvidence.referenceStart); cigar=\(candidate.selectedEvidence.cigar); detailed CIGAR metrics unavailable"
+        }
+        return "Lungfish incomplete genomic comparison: "
+            + "start=\(candidate.selectedEvidence.referenceStart); "
+            + "cigar=\(candidate.selectedEvidence.cigar); "
+            + "reference span=\(metrics.referenceSpan); "
+            + "candidate span=\(metrics.querySpan); "
+            + "insertions=\(metrics.insertedBases); "
+            + "deletions=\(metrics.deletedBases); "
+            + "skipped=\(metrics.skippedReferenceBases); "
+            + "soft clipped=\(metrics.softClippedBases); "
+            + "hard clipped=\(metrics.hardClippedBases)"
     }
 
     func copiedRecordFields(_ reference: ONTMHCReferenceVisualizationRecord?) -> [GenBankRecordField] {
@@ -995,6 +1171,102 @@ private extension FullLengthONTMHCCandidateGenBankArtifactBuilder {
             return nil
         }
         return (leading, trailing)
+    }
+
+    func makePartialReferenceCoverage(
+        projection: Projection,
+        reference: ONTMHCReferenceVisualizationRecord
+    ) -> PartialReferenceCoverage? {
+        guard let observedStart = projection.referenceToOrientedQuery.keys.min(),
+              let observedLast = projection.referenceToOrientedQuery.keys.max() else {
+            return nil
+        }
+        let observedEnd = observedLast + 1
+        let referenceLength = reference.sequence.count
+        let missingLeadingBases = observedStart
+        let missingTrailingBases = max(0, referenceLength - observedEnd)
+        let missingInternalRanges = contiguousRanges(
+            in: observedStart..<observedEnd,
+            where: { !projection.maps(referencePosition: $0) }
+        )
+
+        var seenMissing = Set<String>()
+        var seenPartial = Set<String>()
+        var missingFeatures: [String] = []
+        var partiallyObservedFeatures: [String] = []
+        for feature in reference.features.sorted(by: {
+            if $0.start != $1.start { return $0.start < $1.start }
+            if $0.end != $1.end { return $0.end < $1.end }
+            return $0.sourceOrdinal < $1.sourceOrdinal
+        }) {
+            guard let type = AnnotationType.from(rawString: feature.type),
+                  [.exon, .intron, .utr5, .utr3].contains(type) else {
+                continue
+            }
+            let base: String
+            switch type {
+            case .utr5: base = "5' UTR"
+            case .utr3: base = "3' UTR"
+            default: base = feature.type.lowercased()
+            }
+            let number = feature.qualifiers["number"]?.first?.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            let label = number.map { $0.isEmpty ? base : "\(base) \($0)" } ?? base
+            let observedBases = feature.interval.reduce(into: 0) { count, position in
+                if projection.maps(referencePosition: position) { count += 1 }
+            }
+            if observedBases == 0 {
+                if seenMissing.insert(label).inserted { missingFeatures.append(label) }
+            } else if observedBases < feature.interval.count {
+                let detail = label + " (" + String(observedBases) + " of "
+                    + String(feature.interval.count) + " bases observed; "
+                    + String(feature.interval.count - observedBases) + " missing)"
+                if seenPartial.insert(label).inserted {
+                    partiallyObservedFeatures.append(detail)
+                }
+            }
+        }
+        guard missingLeadingBases > 0
+                || missingTrailingBases > 0
+                || !missingInternalRanges.isEmpty
+                || !missingFeatures.isEmpty
+                || !partiallyObservedFeatures.isEmpty else {
+            return nil
+        }
+        return PartialReferenceCoverage(
+            observedStart: observedStart,
+            observedEnd: observedEnd,
+            referenceLength: referenceLength,
+            missingLeadingBases: missingLeadingBases,
+            missingTrailingBases: missingTrailingBases,
+            missingInternalRanges: missingInternalRanges,
+            missingFeatures: missingFeatures,
+            partiallyObservedFeatures: partiallyObservedFeatures
+        )
+    }
+
+    func contiguousRanges(
+        in bounds: Range<Int>,
+        where includes: (Int) -> Bool
+    ) -> [Range<Int>] {
+        var result: [Range<Int>] = []
+        var start: Int?
+        for position in bounds {
+            if includes(position) {
+                start = start ?? position
+            } else if let rangeStart = start {
+                result.append(rangeStart..<position)
+                start = nil
+            }
+        }
+        if let start { result.append(start..<bounds.upperBound) }
+        return result
+    }
+
+    func formatReferenceRange(_ range: Range<Int>) -> String {
+        String(range.lowerBound + 1) + ".." + String(range.upperBound)
+            + " (" + String(range.count) + " bases)"
     }
 
     func liftFeatures(

@@ -49,7 +49,7 @@ struct FullLengthONTMHCCandidateCanonicalizer {
     }
 
     enum Error: Swift.Error, LocalizedError, Equatable {
-        case notReferenceReady(rawStableClusterID: String, readiness: String)
+        case noPublishableObservedSequence(rawStableClusterID: String, readiness: String)
         case conflictingInterpretations(
             canonicalStableClusterID: String,
             rawStableClusterIDs: [String]
@@ -57,8 +57,8 @@ struct FullLengthONTMHCCandidateCanonicalizer {
 
         var errorDescription: String? {
             switch self {
-            case .notReferenceReady(let id, let readiness):
-                return "Named MHC candidate '\(id)' cannot be published because its UTR-trimmed genomic sequence is \(readiness)."
+            case .noPublishableObservedSequence(let id, let readiness):
+                return "Named MHC candidate '\(id)' cannot be published because no resolved observed sequence is available (\(readiness))."
             case .conflictingInterpretations(let id, let rawIDs):
                 return "Identical UTR-trimmed MHC sequence '\(id)' has conflicting biological interpretations across raw clusters: \(rawIDs.joined(separator: ", "))."
             }
@@ -68,9 +68,9 @@ struct FullLengthONTMHCCandidateCanonicalizer {
     func aggregate(_ inputs: [Input]) throws -> [Output] {
         var bySequence: [String: [Input]] = [:]
         for input in inputs {
-            guard input.canonicalization.referenceReadiness == .referenceReady,
+            guard input.canonicalization.referenceReadiness != .unavailable,
                   let external = input.canonicalization.externalSequence else {
-                throw Error.notReferenceReady(
+                throw Error.noPublishableObservedSequence(
                     rawStableClusterID: input.record.stableClusterID,
                     readiness: input.canonicalization.referenceReadiness.rawValue
                 )
@@ -81,13 +81,20 @@ struct FullLengthONTMHCCandidateCanonicalizer {
         return try bySequence.map { sequence, values in
             let canonicalID = FullLengthONTMHCCandidateArtifactWriter.stableClusterID(for: sequence)
             let keyed = Dictionary(grouping: values, by: { mergeKey($0, sequence: sequence) })
-            guard keyed.count == 1 else {
+            let reconcilesAsPartialExtension = canReconcileAsPartialExtension(values)
+            guard keyed.count == 1 || reconcilesAsPartialExtension else {
                 throw Error.conflictingInterpretations(
                     canonicalStableClusterID: canonicalID,
                     rawStableClusterIDs: values.map(\.record.stableClusterID).sorted()
                 )
             }
-            let sorted = values.sorted(by: representativeLessThan)
+            let sorted = values.sorted {
+                if reconcilesAsPartialExtension,
+                   $0.record.classification != $1.record.classification {
+                    return $0.record.classification == .partialExtension
+                }
+                return representativeLessThan($0, $1)
+            }
             let representative = sorted[0]
             let rawIDs = values.map(\.record.stableClusterID).sorted()
             let rawObservations = values.flatMap { input in
@@ -119,10 +126,29 @@ struct FullLengthONTMHCCandidateCanonicalizer {
             )
             let source = representative.record
             let canonicalSubstitutionCount = representative.canonicalization.substitutionCount
-            let canonicalProvisionalName = provisionalName(
-                for: representative,
-                substitutionCount: canonicalSubstitutionCount
-            )
+            let mergedExtensionOf = Set(
+                values.flatMap { input in
+                    if reconcilesAsPartialExtension,
+                       input.record.classification == .novel {
+                        return [input.record.closestReferenceName]
+                    }
+                    return input.record.extensionOf
+                }
+            ).sorted()
+            let partialNamingAmbiguous = source.classification == .partialExtension
+                && (mergedExtensionOf.count != 1
+                    || values.contains { $0.record.provisionalNamingAmbiguous })
+            let canonicalProvisionalName: String
+            if source.classification == .partialExtension,
+               mergedExtensionOf.count == 1,
+               let uniqueExtension = mergedExtensionOf.first {
+                canonicalProvisionalName = "\(uniqueExtension)_partial_ext"
+            } else {
+                canonicalProvisionalName = provisionalName(
+                    for: representative,
+                    substitutionCount: canonicalSubstitutionCount
+                )
+            }
             let record = ONTMHCCandidateRecord(
                 stableClusterID: canonicalID,
                 sourceSequenceClusterIDs: rawIDs,
@@ -153,9 +179,11 @@ struct FullLengthONTMHCCandidateCanonicalizer {
                 reciprocalHitSummary: source.reciprocalHitSummary,
                 selectedEvidence: source.selectedEvidence,
                 selectedAlignmentIsReverse: source.selectedAlignmentIsReverse,
-                extensionOf: source.extensionOf.sorted(),
+                extensionOf: mergedExtensionOf,
                 extensionInterpretations: extensionInterpretations,
-                provisionalNamingAmbiguous: source.provisionalNamingAmbiguous
+                provisionalNamingAmbiguous: source.classification == .partialExtension
+                    ? partialNamingAmbiguous
+                    : source.provisionalNamingAmbiguous
             )
             return Output(
                 record: record,
@@ -170,20 +198,51 @@ struct FullLengthONTMHCCandidateCanonicalizer {
     private func mergeKey(_ input: Input, sequence: String) -> CandidateMergeKey {
         let record = input.record
         let substitutionCount = input.canonicalization.substitutionCount
+        let isPartialExtension = record.classification == .partialExtension
         return CandidateMergeKey(
             sequence: sequence,
             classification: record.classification.rawValue,
             locus: record.locus,
-            provisionalName: provisionalName(
-                for: input,
-                substitutionCount: substitutionCount
-            ),
-            closestReferenceName: record.closestReferenceName,
-            closestReferenceRawID: record.selectedEvidence.referenceName,
+            provisionalName: isPartialExtension
+                ? "partial-extension"
+                : provisionalName(for: input, substitutionCount: substitutionCount),
+            closestReferenceName: isPartialExtension
+                ? "compatible-partial-extension-reference"
+                : record.closestReferenceName,
+            closestReferenceRawID: isPartialExtension
+                ? "compatible-partial-extension-reference"
+                : record.selectedEvidence.referenceName,
             closestReferenceClass: record.closestReferenceClass.rawValue,
-            extensionOf: record.extensionOf.sorted(),
-            provisionalNamingAmbiguous: record.provisionalNamingAmbiguous
+            extensionOf: isPartialExtension ? [] : record.extensionOf.sorted(),
+            provisionalNamingAmbiguous: isPartialExtension
+                ? false
+                : record.provisionalNamingAmbiguous
         )
+    }
+
+    private func canReconcileAsPartialExtension(_ values: [Input]) -> Bool {
+        // Values reach this point only after resolving to the same published
+        // sequence. A raw SNP call may therefore describe sequence that was
+        // trimmed from that published record. Reconcile it only when every raw
+        // interpretation points to the same genomic allele without an indel.
+        guard values.contains(where: { $0.record.classification == .partialExtension }),
+              values.allSatisfy({
+                  $0.record.classification == .partialExtension
+                      || $0.record.classification == .novel
+              }),
+              Set(values.map(\.record.locus)).count == 1,
+              values.allSatisfy({
+                  $0.record.closestReferenceClass == .genomicDNA
+                      && $0.record.insertedBases == 0
+                      && $0.record.deletedBases == 0
+                      && $0.record.longGapBases == 0
+              }) else {
+            return false
+        }
+        let compatibleNames = Set(values.flatMap { input in
+            input.record.extensionOf + [input.record.closestReferenceName]
+        })
+        return compatibleNames.count == 1
     }
 
     private func provisionalName(

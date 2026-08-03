@@ -227,11 +227,18 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
 
         let eligible = analyzed.filter { $0.failure == nil }
 
-        let knownGenomic = bestTies(eligible.filter {
+        let eligibleZeroSNPGenomic = eligible.filter {
             $0.metrics.snps == 0 && $0.resolvedReference?.moleculeClass == .genomicDNA
+        }
+        let zeroSNPGenomic = bestTies(eligibleZeroSNPGenomic)
+        let exactZeroSNPGenomic = bestTies(eligibleZeroSNPGenomic.filter {
+            isExactEndToEndGenomicMatch($0, clusterLength: cluster.sequenceLength)
         })
-        if !knownGenomic.isEmpty {
-            return .known(knownCalls(knownGenomic))
+        let partialZeroSNPGenomic = bestTies(eligibleZeroSNPGenomic.filter {
+            isPartialEndCoverageGenomicMatch($0, clusterLength: cluster.sequenceLength)
+        })
+        if !exactZeroSNPGenomic.isEmpty {
+            return .known(knownCalls(exactZeroSNPGenomic))
         }
 
         let rawExtensionHits = eligible.filter {
@@ -362,6 +369,9 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
             let namingAlleleName = namingExtensionNames.count == 1
                 ? namingExtensionNames[0]
                 : comparisonHit.resolvedReference!.alleleName
+            let classification: ONTMHCCandidateClassification = zeroSNPGenomic.isEmpty
+                ? .extension
+                : .partialExtension
             return .candidate(try candidateRecord(
                 cluster: cluster,
                 support: support,
@@ -369,11 +379,45 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
                 namingAlleleName: namingAlleleName,
                 analyzed: analyzed,
                 closestHits: eligibleGenomic.isEmpty ? (extensionHits.isEmpty ? [comparisonHit] : extensionHits) : eligibleGenomic,
-                classification: .extension,
+                classification: classification,
                 extensionOf: allExtensionNames,
                 extensionInterpretations: allExtensionInterpretations,
                 provisionalNamingAmbiguous: namingExtensionNames.count != 1
             ))
+        }
+
+        if !zeroSNPGenomic.isEmpty {
+            if let partial = best(partialZeroSNPGenomic) {
+                let partialLoci = Set(partialZeroSNPGenomic.compactMap { $0.resolvedReference?.locus })
+                if partialLoci.count > 1 {
+                    return .unnameable(try unnameableRecord(
+                        cluster: cluster,
+                        support: support,
+                        reason: .unresolvedLocus,
+                        failedMetrics: ["ambiguous_partial_extension_locus": 1],
+                        analyzed: analyzed,
+                        selectedHit: partial
+                    ))
+                }
+                let extensionNames = Set(partialZeroSNPGenomic.compactMap {
+                    $0.resolvedReference?.alleleName
+                }).sorted(by: localizedStandardLessThan)
+                return .candidate(try candidateRecord(
+                    cluster: cluster,
+                    support: support,
+                    hit: partial,
+                    namingAlleleName: extensionNames.count == 1
+                        ? extensionNames[0]
+                        : partial.resolvedReference!.alleleName,
+                    analyzed: analyzed,
+                    closestHits: partialZeroSNPGenomic,
+                    classification: .partialExtension,
+                    extensionOf: extensionNames,
+                    extensionInterpretations: [],
+                    provisionalNamingAmbiguous: extensionNames.count != 1
+                ))
+            }
+            return .known(knownCalls(zeroSNPGenomic))
         }
 
         // Exact cDNA matches and zero-SNP indel-only relationships that do not
@@ -705,7 +749,6 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
     ) -> Bool {
         lhs.metrics.snps == rhs.metrics.snps
             && lhs.metrics.comparableBases == rhs.metrics.comparableBases
-            && lhs.nonIntronIndelBases == rhs.nonIntronIndelBases
             && lhs.input.alignmentScore == rhs.input.alignmentScore
     }
 
@@ -743,9 +786,6 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
         if lhs.metrics.comparableBases != rhs.metrics.comparableBases {
             return lhs.metrics.comparableBases > rhs.metrics.comparableBases
         }
-        if lhs.nonIntronIndelBases != rhs.nonIntronIndelBases {
-            return lhs.nonIntronIndelBases < rhs.nonIntronIndelBases
-        }
         if lhs.input.alignmentScore != rhs.input.alignmentScore {
             return lhs.input.alignmentScore > rhs.input.alignmentScore
         }
@@ -777,6 +817,8 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
         switch classification {
         case .extension:
             provisionalName = "\(namingAlleleName)_ext"
+        case .partialExtension:
+            provisionalName = "\(namingAlleleName)_partial_ext"
         case .novel:
             precondition(hit.metrics.snps > 0, "Novel candidates must contain at least one SNP substitution")
             provisionalName = "\(reference.alleleName)_\(hit.metrics.snps)nt_nov"
@@ -822,6 +864,40 @@ public struct FullLengthONTMHCCandidateClassifier: Sendable {
             extensionInterpretations: extensionInterpretations,
             provisionalNamingAmbiguous: provisionalNamingAmbiguous
         )
+    }
+
+    private func isExactEndToEndGenomicMatch(
+        _ hit: AnalyzedAlignment,
+        clusterLength: Int
+    ) -> Bool {
+        guard let reference = hit.resolvedReference,
+              reference.moleculeClass == .genomicDNA else {
+            return false
+        }
+        return hit.metrics.snps == 0
+            && hit.input.evidence.referenceStart == 1
+            && hit.metrics.referenceSpan == reference.sequenceLength
+            && hit.metrics.querySpan == clusterLength
+            && hit.metrics.insertedBases == 0
+            && hit.metrics.deletedBases == 0
+            && hit.metrics.skippedReferenceBases == 0
+            && hit.metrics.softClippedBases == 0
+            && hit.metrics.hardClippedBases == 0
+    }
+
+    private func isPartialEndCoverageGenomicMatch(
+        _ hit: AnalyzedAlignment,
+        clusterLength: Int
+    ) -> Bool {
+        guard let reference = hit.resolvedReference,
+              reference.moleculeClass == .genomicDNA,
+              hit.metrics.snps == 0,
+              hit.metrics.insertedBases == 0,
+              hit.metrics.deletedBases == 0,
+              hit.metrics.skippedReferenceBases == 0 else {
+            return false
+        }
+        return !isExactEndToEndGenomicMatch(hit, clusterLength: clusterLength)
     }
 
     private func extensionInterpretation(
