@@ -655,6 +655,23 @@ final class GenotypeManualHaplotypeSampleBandView:
         }
     }
 
+    var focusedEffectiveTarget: GenotypeHaplotypeBandTarget? {
+        (window?.firstResponder as? GenotypeHaplotypeBandTargetButton)?
+            .haplotypeTarget
+    }
+
+    @discardableResult
+    func restoreFocus(
+        to target: GenotypeHaplotypeBandTarget?
+    ) -> Bool {
+        guard let target,
+              let button = effectiveHitTargets[target],
+              let window else {
+            return false
+        }
+        return window.makeFirstResponder(button)
+    }
+
 #if DEBUG
     var testingStripBackgroundColor: NSColor { .windowBackgroundColor }
     var testingStripSeparatorColor: NSColor { .separatorColor }

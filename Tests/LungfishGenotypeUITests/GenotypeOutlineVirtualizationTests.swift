@@ -176,4 +176,57 @@ final class GenotypeOutlineVirtualizationTests: XCTestCase {
         XCTAssertEqual(clickedCell?.0, "C3")
         XCTAssertEqual(clickedCell?.1, "MHC-B")
     }
+
+    func testTargetedEffectiveCallRefreshPreservesHaplotypeTargetFocus()
+        throws {
+        let view = GenotypeOutlineView()
+        let originalRows = [makeRow("AnimalA"), makeRow("AnimalB")]
+        view.configure(rows: originalRows)
+        let window = host(view, size: NSSize(width: 800, height: 300))
+        let originalTarget = try XCTUnwrap(
+            view.testingHaplotypeTargetButton(
+                sample: "AnimalA",
+                locus: "MHC-A",
+                slot: .h1
+            )
+        )
+        XCTAssertTrue(window.makeFirstResponder(originalTarget))
+
+        let updated = GenotypeOutlineView.Row(
+            animalId: "AnimalA",
+            gsId: "AnimalA",
+            loci: ["MHC-A", "MHC-B"],
+            tapeSlots: [
+                .init(
+                    locus: "MHC-A",
+                    h1: .manual(tokenIndex: 2, label: "M2A"),
+                    h2: .reference(tokenIndex: 1, label: "M1A")
+                ),
+                .init(
+                    locus: "MHC-B",
+                    h1: .reference(tokenIndex: 1, label: "M1B"),
+                    h2: .reference(tokenIndex: 1, label: "M1B")
+                ),
+            ],
+            blockKind: .blockCoherent,
+            commentSummary: "M1/M2 reviewed",
+            noteIssueCount: 0
+        )
+        view.applyEffectiveHaplotypeRows(
+            [updated, originalRows[1]],
+            changedSamples: ["AnimalA"]
+        )
+        let refreshedTarget = try XCTUnwrap(
+            view.testingHaplotypeTargetButton(
+                sample: "AnimalA",
+                locus: "MHC-A",
+                slot: .h1
+            )
+        )
+
+        XCTAssertTrue(window.firstResponder === refreshedTarget)
+        XCTAssertTrue(
+            (refreshedTarget.accessibilityLabel() ?? "").contains("M2A")
+        )
+    }
 }

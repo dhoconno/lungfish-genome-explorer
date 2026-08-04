@@ -516,8 +516,10 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     /// only changed sample columns.
     func setHaplotypeBand(
         mode: GenotypeHaplotypeBandMode,
-        snapshot: GenotypeHaplotypeCallBandSnapshot?
+        snapshot: GenotypeHaplotypeCallBandSnapshot?,
+        invalidatingSamples: Set<String>? = nil
     ) {
+        let focusedTarget = manualHaplotypeSampleBand.focusedEffectiveTarget
         let previousMode = haplotypeBandMode
         let previousSnapshot = effectiveHaplotypeBandSnapshot
         hasExplicitHaplotypeBandConfiguration = true
@@ -530,9 +532,10 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         let changedSamples: Set<String>
         if previousMode == .effectiveMiSeqCalls,
            mode == .effectiveMiSeqCalls {
-            changedSamples = effectiveHaplotypeBandSnapshot.changedSamples(
-                comparedTo: previousSnapshot
-            )
+            changedSamples = invalidatingSamples
+                ?? effectiveHaplotypeBandSnapshot.changedSamples(
+                    comparedTo: previousSnapshot
+                )
         } else {
             changedSamples = Set(sampleNames)
                 .union(previousSnapshot.sampleNames)
@@ -575,6 +578,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 )
             }
         }
+        _ = manualHaplotypeSampleBand.restoreFocus(to: focusedTarget)
     }
 
     /// Replaces workbook-backed scientific rows while preserving analyst view

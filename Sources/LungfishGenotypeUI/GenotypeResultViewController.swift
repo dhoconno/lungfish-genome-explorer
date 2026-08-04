@@ -172,6 +172,19 @@ public final class GenotypeResultViewController: NSViewController {
         case failure(Error, sidecarBeforeAttempt: GenotypeAnnotationSidecar)
     }
 
+    private enum EffectiveHaplotypeMutationOutcome {
+        case changed
+        case unchanged
+        case failure(Error)
+
+        var error: Error? {
+            if case let .failure(error) = self {
+                return error
+            }
+            return nil
+        }
+    }
+
     private enum ManualHaplotypeEditorError: Error, LocalizedError {
         case unavailable
 
@@ -308,6 +321,8 @@ public final class GenotypeResultViewController: NSViewController {
     private var artifactLensBuildCount = 0
 #if DEBUG
     private var testingLayoutApplicationCount = 0
+    private var testingSampleDetailSheetPresentationCounter = 0
+    private var testingSheetAlertHandler: ((Error) -> Void)?
     private var testingCohortSummaryRebuildCount = 0
 #endif
     private static let generatedContentHostingViewIdentifier =
@@ -465,6 +480,12 @@ public final class GenotypeResultViewController: NSViewController {
     private var effectiveHaplotypeProjection: GenotypeEffectiveHaplotypeProjection?
     private var effectiveHaplotypeProjectionInput: EffectiveHaplotypeProjectionInput?
     private var effectiveHaplotypeProjectionGeneration: UInt64 = 0
+#if DEBUG
+    private var lastEffectiveHaplotypeMutationChangedKeys =
+        Set<GenotypeEffectiveHaplotypeKey>()
+    private var lastEffectiveHaplotypeRefreshedKeys =
+        Set<GenotypeEffectiveHaplotypeKey>()
+#endif
     /// Per-project haplotype-definition store. Reads from / writes to
     /// `<projectRoot>/Haplotype Definitions/`. Populated from the bundle's
     /// surrounding project root in `configure(result:)`.
@@ -1301,11 +1322,13 @@ public final class GenotypeResultViewController: NSViewController {
                 liveHaplotypeAnalysis = nil
             }
             rebuildActiveHaplotypeAnalysisIndexes()
+            applyComparisonMatrixHaplotypeBandProjection()
             rebuildOutline()
             rebuildHaplotypeMatrix()
             rebuildCohortSummary()
         } else {
             clearUnsupportedHaplotypePresentation()
+            applyComparisonMatrixHaplotypeBandProjection()
         }
         refreshPresentationPolicy()
         displayState = normalizedDisplayState(displayState)
@@ -2673,6 +2696,10 @@ public final class GenotypeResultViewController: NSViewController {
         outlineView.onLocusCellClicked = { [weak self] animalId, locus in
             self?.selectCellEvidence(animalId: animalId, locus: locus)
         }
+        outlineView.onHaplotypeTargetActivated = {
+            [weak self] animalId, locus, _ in
+            self?.selectCellEvidence(animalId: animalId, locus: locus)
+        }
         quickFilterBar.onStateChanged = { [weak self] state in
             self?.applyQuickFilterState(state)
         }
@@ -2935,10 +2962,7 @@ public final class GenotypeResultViewController: NSViewController {
         }
         comparisonMatrix.onHaplotypeBandTargetSelected = {
             [weak self] target in
-            self?.selectCellEvidence(
-                animalId: target.sample,
-                locus: target.locus
-            )
+            self?.selectHaplotypeBandTarget(target)
         }
         comparisonMatrix.onManualHaplotypeBandExpansionChanged = {
             [weak self] expanded in
@@ -6273,6 +6297,35 @@ public final class GenotypeResultViewController: NSViewController {
         effectiveHaplotypeProjectionGeneration &+= 1
     }
 
+    /// Keeps the lightweight haplotype header projection independent from the
+    /// comparison matrix's lazy scientific-row configuration. Applicable
+    /// miSeq results always publish the controller-owned effective calls;
+    /// genotype-only workflows retain the legacy manual-assignment band.
+    private func applyComparisonMatrixHaplotypeBandProjection(
+        invalidatedKeys: Set<GenotypeEffectiveHaplotypeKey>? = nil
+    ) {
+        if presentationPolicy?.appliesToHaplotypedMiSeq == true,
+           let effectiveHaplotypeProjection {
+            comparisonMatrix.setHaplotypeBand(
+                mode: .effectiveMiSeqCalls,
+                snapshot: GenotypeHaplotypeCallBandSnapshot(
+                    projection: effectiveHaplotypeProjection,
+                    isEditable: !(annotationStore?.isReadOnly ?? true)
+                ),
+                invalidatingSamples: invalidatedKeys.map {
+                    Set($0.map(\.sample))
+                }
+            )
+        } else if case .eligible = manualHaplotypeEligibility {
+            comparisonMatrix.setHaplotypeBand(
+                mode: .manualAssignments,
+                snapshot: nil
+            )
+        } else {
+            comparisonMatrix.setHaplotypeBand(mode: .none, snapshot: nil)
+        }
+    }
+
     private func resultWithActiveHaplotypeAnalysis(_ result: ONTGenotypeResultBundleData) -> ONTGenotypeResultBundleData {
         guard let active = activeHaplotypeAnalysis(),
               active != result.haplotypeAnalysis else {
@@ -6964,13 +7017,38 @@ public final class GenotypeResultViewController: NSViewController {
         let allowedSamples = filteredSampleNames(result: result, sidecar: annotationStore?.sidecar)
         var rows: [GenotypeOutlineView.Row] = []
         for sample in analysis.samples where allowedSamples.contains(sample.sample) {
-            let tapeSlots = outlineTapeSlots(
+            let row = makeOutlineRow(
                 for: sample,
                 loci: loci,
+                includedLoci: includedLoci,
                 observed: observed
             )
-            let effectiveCalls = sample.calls.filter { includedLoci.contains($0.locus) }.map { call in
-                let effective = effectiveHaplotypeCall(sample: sample.sample, call: call)
+            rows.append(row)
+            outlineRowsBySample[sample.sample] = row
+            outlineRowOrder.append(sample.sample)
+        }
+        outlineView.configure(rows: rows)
+        syncOutlineReviewSelection()
+    }
+
+    private func makeOutlineRow(
+        for sample: GenotypeHaplotypeSampleAnalysis,
+        loci: [String],
+        includedLoci: Set<String>,
+        observed: GenotypeObservedLociIndex
+    ) -> GenotypeOutlineView.Row {
+        let tapeSlots = outlineTapeSlots(
+            for: sample,
+            loci: loci,
+            observed: observed
+        )
+        let effectiveCalls = sample.calls
+            .filter { includedLoci.contains($0.locus) }
+            .map { call in
+                let effective = effectiveHaplotypeCall(
+                    sample: sample.sample,
+                    call: call
+                )
                 return (
                     locus: call.locus,
                     h1: effective.h1,
@@ -6980,30 +7058,37 @@ public final class GenotypeResultViewController: NSViewController {
                     observedGenotypes: call.observedGenotypes
                 )
             }
-            let blockKind = GenotypeBlockClassifier.classify(
-                calls: effectiveCalls.map { (locus: $0.locus, h1: $0.h1, h2: $0.h2) }
-            )
-            let comment = outlineCommentSummary(for: sample, effectiveCalls: effectiveCalls)
-            let issueCount = outlineNoteIssueCount(for: sample, effectiveCalls: effectiveCalls)
-            // Per-locus call text is retained for export and inspector context.
-            let perLocusCallText: [(locus: String, h1: String, h2: String, status: GenotypeHaplotypeCallStatus)] =
-                effectiveCalls.map { (locus: $0.locus, h1: $0.h1, h2: $0.h2, status: $0.status) }
-            let row = GenotypeOutlineView.Row(
-                animalId: sample.sample,
-                gsId: nil,
-                loci: loci,
-                tapeSlots: tapeSlots,
-                blockKind: blockKind,
-                commentSummary: comment,
-                noteIssueCount: issueCount,
-                perLocusCallText: perLocusCallText
-            )
-            rows.append(row)
-            outlineRowsBySample[sample.sample] = row
-            outlineRowOrder.append(sample.sample)
+        let blockKind = GenotypeBlockClassifier.classify(
+            calls: effectiveCalls.map {
+                (locus: $0.locus, h1: $0.h1, h2: $0.h2)
+            }
+        )
+        let comment = outlineCommentSummary(
+            for: sample,
+            effectiveCalls: effectiveCalls
+        )
+        let issueCount = outlineNoteIssueCount(
+            for: sample,
+            effectiveCalls: effectiveCalls
+        )
+        let perLocusCallText: [(
+            locus: String,
+            h1: String,
+            h2: String,
+            status: GenotypeHaplotypeCallStatus
+        )] = effectiveCalls.map {
+            (locus: $0.locus, h1: $0.h1, h2: $0.h2, status: $0.status)
         }
-        outlineView.configure(rows: rows)
-        syncOutlineReviewSelection()
+        return GenotypeOutlineView.Row(
+            animalId: sample.sample,
+            gsId: nil,
+            loci: loci,
+            tapeSlots: tapeSlots,
+            blockKind: blockKind,
+            commentSummary: comment,
+            noteIssueCount: issueCount,
+            perLocusCallText: perLocusCallText
+        )
     }
 
     private func rebuildHaplotypeMatrix() {
@@ -7692,7 +7777,24 @@ public final class GenotypeResultViewController: NSViewController {
                     ),
                     isManual: h2Manual
                 )
-                return GenotypeHaplotypeTapeView.Slot(locus: locus, h1: h1, h2: h2)
+                let isEditable = !(annotationStore?.isReadOnly ?? true)
+                return GenotypeHaplotypeTapeView.Slot(
+                    locus: locus,
+                    h1: h1,
+                    h2: h2,
+                    h1Semantics: .init(
+                        value: effective.h1,
+                        status: effective.h1Status,
+                        source: effective.h1Source,
+                        isEditable: isEditable
+                    ),
+                    h2Semantics: .init(
+                        value: displayedH2,
+                        status: effective.h2Status,
+                        source: effective.h2Source,
+                        isEditable: isEditable
+                    )
+                )
             }
             // Locus wasn't part of the haplotype analysis; show unanalyzed
             // status when raw reads support it, otherwise truly empty.
@@ -7990,6 +8092,36 @@ public final class GenotypeResultViewController: NSViewController {
         }
     }
 
+    /// Matrix-band activation selects the same effective call evidence as the
+    /// outline without changing the active presentation. The target button is
+    /// retained by the band refresh, so keyboard and accessibility focus can
+    /// remain on the exact sample/locus/slot that initiated editing.
+    private func selectHaplotypeBandTarget(
+        _ target: GenotypeHaplotypeBandTarget
+    ) {
+        guard outlineRowsBySample[target.sample] != nil else { return }
+        currentSelectedSample = target.sample
+        currentSelectedLocus = target.locus
+        syncOutlineReviewSelection()
+        publishSelectionState(.init(
+            title: target.sample,
+            subtitle: "Review \(target.locus) \(target.slot.displayName)",
+            detailRows: [
+                ("Animal", target.sample),
+                ("Selected locus", target.locus),
+                ("Selected slot", target.slot.displayName),
+            ],
+            highlightTarget: nil,
+            highlightColor: nil,
+            highlightStyle: .default,
+            animalId: target.sample
+        ))
+        if callEvidenceHost == nil {
+            installCallEvidenceHost()
+        }
+        updateCallEvidence()
+    }
+
     private func applyOverrideFromInspector(haplotype: String, slot: HaplotypeSlot) {
         _ = applyOverridesFromInspector([
             .init(slot: slot, haplotypeName: haplotype),
@@ -8001,9 +8133,7 @@ public final class GenotypeResultViewController: NSViewController {
         _ requests: [GenotypeCallEvidenceView.HaplotypeOverrideRequest],
         presentErrors: Bool = true
     ) -> Error? {
-        guard let store = annotationStore else { return nil }
         guard let evidence = callEvidence else { return nil }
-        let author = annotationAuthorProvider()
         let requests = requests.filter { !$0.haplotypeName.isEmpty }
         guard !requests.isEmpty else { return nil }
         let rawCall = rawLocusCall(sample: evidence.sample, locus: evidence.locus)
@@ -8025,25 +8155,11 @@ public final class GenotypeResultViewController: NSViewController {
                 rationale: "Replaced \(evidence.locus) \(request.slot.displayName) \(displayOriginal) -> \(request.haplotypeName) from Review inspector candidate matrix."
             )
         }
-        do {
-            let result = try store.mutateCallOverrides(
-                mutations,
-                author: author,
-                analysisIdentity: analysisIdentity
-            )
-            guard result.didChange else { return nil }
-            markCurrentWorkbookDirty(
-                requiresFullUpdate: true,
-                legacyStatus: "current.xlsx does not include workbook changes."
-            )
-            refreshAfterHaplotypeOverride()
-            return nil
-        } catch {
-            if presentErrors {
-                presentSheetAlert(error: error)
-            }
-            return error
-        }
+        return commitEffectiveHaplotypeMutation(
+            mutations,
+            analysisIdentity: analysisIdentity,
+            presentErrors: presentErrors
+        ).error
     }
 
     private func rawLocusCall(sample sampleId: String, locus: String) -> GenotypeHaplotypeLocusCall? {
@@ -8199,6 +8315,9 @@ public final class GenotypeResultViewController: NSViewController {
         }
         let rows = presentation.rows
         let overrides = presentation.overrides
+#if DEBUG
+        testingSampleDetailSheetPresentationCounter += 1
+#endif
         let definitionSet = definitionSetForResult(result)
         let allowedTargets: (String) -> [String] = { locus in
             guard let definitionSet else { return [] }
@@ -8289,120 +8408,209 @@ public final class GenotypeResultViewController: NSViewController {
     private func saveOverride(forAnimal animalId: String,
                               row: GenotypeSampleDetailSheet.CallRow,
                               draft: GenotypeOverrideSection.OverrideDraft) {
-        guard let store = annotationStore else { return }
-        let author = annotationAuthorProvider()
-        do {
-            let result = try mutateSampleDetailOverride(
-                store: store,
-                animalId: animalId,
-                row: row,
-                target: draft.target,
-                reason: draft.reason,
-                rationale: draft.rationale,
-                author: author
-            )
-            if result.didChange {
-                markCurrentWorkbookDirty(
-                    requiresFullUpdate: true,
-                    legacyStatus:
-                        "current.xlsx does not include workbook changes."
-                )
-                refreshAfterHaplotypeOverride()
-            }
-        } catch {
-            presentSheetAlert(error: error)
-            return
+        let mutation = sampleDetailOverrideMutation(
+            animalId: animalId,
+            row: row,
+            target: draft.target,
+            reason: draft.reason,
+            rationale: draft.rationale
+        )
+        switch commitEffectiveHaplotypeMutation([mutation]) {
+        case .changed:
+            // Re-present the sheet with fresh state so the analyst can keep
+            // working after a persisted change.
+            dismissSampleDetailSheet()
+            presentSampleDetailSheet(forAnimal: animalId)
+        case .unchanged, .failure:
+            break
         }
-        // Re-present the sheet with fresh state so the analyst can keep working.
-        dismissSampleDetailSheet()
-        presentSampleDetailSheet(forAnimal: animalId)
     }
 
     private func clearOverride(forAnimal animalId: String,
                                row: GenotypeSampleDetailSheet.CallRow) {
-        guard let store = annotationStore else { return }
-        let author = annotationAuthorProvider()
         let existing = effectiveHaplotypeProjection?.authoritativeOverride(
             sample: animalId,
             locus: row.locus,
             slot: row.slot
         )
-        do {
-            let result = try mutateSampleDetailOverride(
-                store: store,
-                animalId: animalId,
-                row: row,
-                target: nil,
-                reason: existing?.reasonTag ?? .analystJudgment,
-                rationale: "Restore pipeline call",
-                author: author
-            )
-            if result.didChange {
-                markCurrentWorkbookDirty(
-                    requiresFullUpdate: true,
-                    legacyStatus:
-                        "current.xlsx does not include workbook changes."
-                )
-                refreshAfterHaplotypeOverride()
-            }
-        } catch {
-            presentSheetAlert(error: error)
-            return
+        let mutation = sampleDetailOverrideMutation(
+            animalId: animalId,
+            row: row,
+            target: nil,
+            reason: existing?.reasonTag ?? .analystJudgment,
+            rationale: "Restore pipeline call"
+        )
+        switch commitEffectiveHaplotypeMutation([mutation]) {
+        case .changed:
+            dismissSampleDetailSheet()
+            presentSampleDetailSheet(forAnimal: animalId)
+        case .unchanged, .failure:
+            break
         }
-        dismissSampleDetailSheet()
-        presentSampleDetailSheet(forAnimal: animalId)
     }
 
-    private func mutateSampleDetailOverride(
-        store: GenotypeAnnotationStore,
+    private func sampleDetailOverrideMutation(
         animalId: String,
         row: GenotypeSampleDetailSheet.CallRow,
         target: String?,
         reason: GenotypeAnnotationSidecar.OverrideReasonTag,
-        rationale: String,
-        author: String
-    ) throws -> CallOverrideMutationResult {
+        rationale: String
+    ) -> CallOverrideMutation {
         let rawCall = rawLocusCall(sample: animalId, locus: row.locus)
         let baseline = row.slot == .h1
             ? (rawCall?.haplotype1 ?? row.callName)
             : (rawCall?.haplotype2 ?? row.callName)
-        return try store.mutateCallOverrides(
-            [
-                .init(
-                    target: .init(
-                        sample: animalId,
-                        locus: row.locus,
-                        slot: row.slot
-                    ),
-                    baseline: baseline,
-                    after: target ?? baseline,
-                    reason: reason,
-                    rationale: rationale
-                ),
-            ],
-            author: author,
-            analysisIdentity: activeCallOverrideAnalysisIdentity()
+        return CallOverrideMutation(
+            target: .init(
+                sample: animalId,
+                locus: row.locus,
+                slot: row.slot
+            ),
+            baseline: baseline,
+            after: target ?? baseline,
+            reason: reason,
+            rationale: rationale
         )
     }
 
-    private func refreshAfterHaplotypeOverride() {
-        rebuildEffectiveHaplotypeProjectionIfNeeded()
-        invalidateGenotypeSearchIndex()
-        rebuildHaplotypeLens()
-        rebuildOutline()
-        rebuildHaplotypeMatrix()
-        rebuildCohortSummary()
-        applyComparisonMatrixCohortFilter()
-        updateCallEvidence()
-        if selectedLens == .audit {
-            rebuildArtifactLens()
+    /// Single transaction boundary for effective haplotype editing from the
+    /// Calls outline/Inspector/detail sheet and the Matrix haplotype band.
+    /// Failed and no-op mutations do not alter the cached projection, view
+    /// state, workbook phase, or Inspector publication.
+    @discardableResult
+    private func commitEffectiveHaplotypeMutation(
+        _ mutations: [CallOverrideMutation],
+        analysisIdentity: GenotypeEffectiveHaplotypeIdentity? = nil,
+        presentErrors: Bool = true
+    ) -> EffectiveHaplotypeMutationOutcome {
+#if DEBUG
+        lastEffectiveHaplotypeMutationChangedKeys = []
+        lastEffectiveHaplotypeRefreshedKeys = []
+#endif
+        guard let store = annotationStore else {
+            let error = ManualHaplotypeEditorError.unavailable
+            if presentErrors {
+                presentSheetAlert(error: error)
+            }
+            return .failure(error)
         }
-        if let sidecar = annotationStore?.sidecar {
-            onAnnotationSidecarChanged?(sidecar)
+        do {
+            let result = try store.mutateCallOverrides(
+                mutations,
+                author: annotationAuthorProvider(),
+                analysisIdentity:
+                    analysisIdentity ?? activeCallOverrideAnalysisIdentity()
+            )
+            guard result.didChange else { return .unchanged }
+#if DEBUG
+            lastEffectiveHaplotypeMutationChangedKeys = result.changedKeys
+#endif
+            refreshAfterEffectiveHaplotypeMutation(
+                changedKeys: result.changedKeys
+            )
+            markCurrentWorkbookDirty(
+                requiresFullUpdate: true,
+                legacyStatus:
+                    "current.xlsx does not include workbook changes."
+            )
+            onAnnotationSidecarChanged?(store.sidecar)
+            announceEffectiveHaplotypeMutation(mutations)
+            return .changed
+        } catch {
+            if presentErrors {
+                presentSheetAlert(error: error)
+            }
+            return .failure(error)
         }
     }
 
+    private func refreshAfterEffectiveHaplotypeMutation(
+        changedKeys: Set<GenotypeEffectiveHaplotypeKey>
+    ) {
+        rebuildEffectiveHaplotypeProjectionIfNeeded()
+        applyComparisonMatrixHaplotypeBandProjection(
+            invalidatedKeys: changedKeys
+        )
+        invalidateGenotypeSearchIndex()
+        refreshOutlineRows(changedKeys: changedKeys)
+        let selectedKeyChanged = changedKeys.contains {
+            $0.sample == currentSelectedSample
+                && $0.locus == currentSelectedLocus
+        }
+        if selectedKeyChanged {
+            updateCallEvidence()
+        }
+        if selectedLens == .audit {
+            rebuildArtifactLens()
+        }
+#if DEBUG
+        lastEffectiveHaplotypeRefreshedKeys = changedKeys
+#endif
+    }
+
+    private func refreshOutlineRows(
+        changedKeys: Set<GenotypeEffectiveHaplotypeKey>
+    ) {
+        guard !changedKeys.isEmpty,
+              let result,
+              let analysis = activeHaplotypeAnalysis() else {
+            return
+        }
+        let changedSamples = Set(changedKeys.map(\.sample))
+        let observed = observedLociIndex
+            ?? GenotypeObservedLociIndex.build(from: result)
+        let loci = effectiveIncludedLoci(for: analysis, observed: observed)
+        let includedLoci = Set(loci)
+        let allowedSamples = filteredSampleNames(
+            result: result,
+            sidecar: annotationStore?.sidecar
+        )
+        for sample in analysis.samples
+        where changedSamples.contains(sample.sample) {
+            if allowedSamples.contains(sample.sample) {
+                outlineRowsBySample[sample.sample] = makeOutlineRow(
+                    for: sample,
+                    loci: loci,
+                    includedLoci: includedLoci,
+                    observed: observed
+                )
+            } else {
+                outlineRowsBySample.removeValue(forKey: sample.sample)
+            }
+        }
+        outlineRowOrder = analysis.samples.compactMap {
+            outlineRowsBySample[$0.sample] == nil ? nil : $0.sample
+        }
+        outlineView.applyEffectiveHaplotypeRows(
+            outlineRowOrder.compactMap { outlineRowsBySample[$0] },
+            changedSamples: changedSamples
+        )
+        syncOutlineReviewSelection()
+    }
+
+    private func announceEffectiveHaplotypeMutation(
+        _ mutations: [CallOverrideMutation]
+    ) {
+        let restored = mutations.allSatisfy { $0.after == $0.baseline }
+        NSAccessibility.post(
+            element: view,
+            notification: .announcementRequested,
+            userInfo: [
+                NSAccessibility.NotificationUserInfoKey.announcement:
+                    restored ? "Pipeline call restored" : "Override saved",
+                NSAccessibility.NotificationUserInfoKey.priority:
+                    NSAccessibilityPriorityLevel.medium.rawValue,
+            ]
+        )
+    }
+
     private func presentSheetAlert(error: Error) {
+#if DEBUG
+        if let testingSheetAlertHandler {
+            testingSheetAlertHandler(error)
+            return
+        }
+#endif
         if let window = view.window ?? NSApp.keyWindow {
             NSAlert(error: error).beginSheetModal(for: window, completionHandler: { _ in })
         } else {
@@ -9668,6 +9876,16 @@ struct GenotypeResultProjectionPerformanceSnapshot: Equatable {
 }
 
 extension GenotypeResultViewController {
+    var testingLastEffectiveHaplotypeMutationChangedKeys:
+        Set<GenotypeEffectiveHaplotypeKey> {
+        lastEffectiveHaplotypeMutationChangedKeys
+    }
+
+    var testingLastEffectiveHaplotypeRefreshedKeys:
+        Set<GenotypeEffectiveHaplotypeKey> {
+        lastEffectiveHaplotypeRefreshedKeys
+    }
+
     var testingComparisonMatrix: GenotypeComparisonMatrixView {
         ensureComparisonMatrixConfigured()
         return comparisonMatrix
@@ -10957,49 +11175,80 @@ extension GenotypeResultViewController {
     func testingSaveSampleDetailOverrideWithoutPresentingSheet(
         sample: String,
         row: GenotypeSampleDetailSheet.CallRow,
-        target: String
+        target: String,
+        rationale: String = "Testing sample-detail Save"
     ) -> Error? {
-        guard let store = annotationStore else { return nil }
-        do {
-            _ = try mutateSampleDetailOverride(
-                store: store,
+        commitEffectiveHaplotypeMutation(
+            [sampleDetailOverrideMutation(
                 animalId: sample,
                 row: row,
                 target: target,
                 reason: .misCall,
-                rationale: "Testing sample-detail Save",
-                author: annotationAuthorProvider()
-            )
-            return nil
-        } catch {
-            return error
-        }
+                rationale: rationale
+            )],
+            presentErrors: false
+        ).error
     }
 
     func testingClearSampleDetailOverrideWithoutPresentingSheet(
         sample: String,
         row: GenotypeSampleDetailSheet.CallRow
     ) -> Error? {
-        guard let store = annotationStore else { return nil }
         let existing = effectiveHaplotypeProjection?.authoritativeOverride(
             sample: sample,
             locus: row.locus,
             slot: row.slot
         )
-        do {
-            _ = try mutateSampleDetailOverride(
-                store: store,
+        return commitEffectiveHaplotypeMutation(
+            [sampleDetailOverrideMutation(
                 animalId: sample,
                 row: row,
                 target: nil,
                 reason: existing?.reasonTag ?? .analystJudgment,
-                rationale: "Restore pipeline call",
-                author: annotationAuthorProvider()
-            )
-            return nil
-        } catch {
-            return error
-        }
+                rationale: "Restore pipeline call"
+            )],
+            presentErrors: false
+        ).error
+    }
+
+    var testingSampleDetailSheetPresentationCount: Int {
+        testingSampleDetailSheetPresentationCounter
+    }
+
+    func testingClearSampleDetailOverrideThroughSheetPath(
+        sample: String,
+        row: GenotypeSampleDetailSheet.CallRow
+    ) {
+        clearOverride(forAnimal: sample, row: row)
+    }
+
+    func testingSetSheetAlertHandler(
+        _ handler: ((Error) -> Void)?
+    ) {
+        testingSheetAlertHandler = handler
+    }
+
+    func testingRemoveEffectiveHaplotypeAnnotationStore() {
+        annotationStore = nil
+    }
+
+    /// Installs a store with controlled read-only/publication behavior while
+    /// retaining the controller's visible projection and selection state.
+    /// Used to prove failures cannot partially refresh synchronized views.
+    func testingInstallEffectiveHaplotypeAnnotationStore(
+        _ store: GenotypeAnnotationStore
+    ) {
+        annotationStore = store
+        currentWorkbookIsReadOnly = store.isReadOnly
+        refreshPresentationPolicy()
+        effectiveHaplotypeProjectionInput = nil
+        rebuildEffectiveHaplotypeProjectionIfNeeded()
+        applyComparisonMatrixHaplotypeBandProjection()
+        rebuildMatrixAnnotationIndexes()
+        comparisonMatrix.applyAnnotationSidecar(
+            store.sidecar,
+            reload: false
+        )
     }
 
     func testingUnresolvedReviewLoci(sample: String) -> [String] {

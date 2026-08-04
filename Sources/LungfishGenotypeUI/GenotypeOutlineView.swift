@@ -58,6 +58,8 @@ final class GenotypeOutlineView: NSView {
     /// Passes (animalId, locusName). The controller updates the persistent
     /// Review inspector with `GenotypeCallEvidenceView` for that cell.
     var onLocusCellClicked: ((String, String) -> Void)?
+    var onHaplotypeTargetActivated:
+        ((String, String, HaplotypeSlot) -> Void)?
     private(set) var numberOfRows: Int = 0
     private var rows: [Row] = []
     private var reviewSelection = ReviewSelection()
@@ -150,6 +152,95 @@ final class GenotypeOutlineView: NSView {
         numberOfRows = rows.count
         rebuildHeader()
         tableView.reloadData()
+    }
+
+    /// Replaces the logical row snapshot while reloading only samples whose
+    /// effective haplotype calls changed. Structural filter/order changes
+    /// still use a full reload, but ordinary overrides never reconstruct
+    /// unrelated visible rows.
+    func applyEffectiveHaplotypeRows(
+        _ rows: [Row],
+        changedSamples: Set<String>
+    ) {
+        let focusedTarget = focusedHaplotypeTargetSnapshot()
+        let previousIDs = self.rows.map(\.animalId)
+        let nextIDs = rows.map(\.animalId)
+        self.rows = rows
+        numberOfRows = rows.count
+        guard previousIDs == nextIDs else {
+            rebuildHeader()
+            tableView.reloadData()
+            restoreFocusedHaplotypeTarget(focusedTarget)
+            return
+        }
+        let indexes = IndexSet(nextIDs.indices.filter {
+            changedSamples.contains(nextIDs[$0])
+        })
+        guard !indexes.isEmpty else { return }
+        tableView.reloadData(
+            forRowIndexes: indexes,
+            columnIndexes: IndexSet(integer: 0)
+        )
+        restoreFocusedHaplotypeTarget(focusedTarget)
+    }
+
+    private func focusedHaplotypeTargetSnapshot()
+        -> (sample: String, accessibilityIdentifier: String)? {
+        guard let view = window?.firstResponder as? NSView else {
+            return nil
+        }
+        let identifier = view.accessibilityIdentifier()
+        guard !identifier.isEmpty else { return nil }
+        var ancestor: NSView? = view
+        while let current = ancestor {
+            if let rowID = current.identifier?.rawValue,
+               rows.contains(where: { $0.animalId == rowID }) {
+                return (rowID, identifier)
+            }
+            guard current !== self else { break }
+            ancestor = current.superview
+        }
+        return nil
+    }
+
+    private func restoreFocusedHaplotypeTarget(
+        _ snapshot: (sample: String, accessibilityIdentifier: String)?
+    ) {
+        guard let snapshot,
+              let row = rows.firstIndex(where: {
+                  $0.animalId == snapshot.sample
+              }),
+              let cell = tableView.view(
+                  atColumn: 0,
+                  row: row,
+                  makeIfNecessary: true
+              ),
+              let target = descendantView(
+                  in: cell,
+                  accessibilityIdentifier: snapshot.accessibilityIdentifier
+              ),
+              let window else {
+            return
+        }
+        _ = window.makeFirstResponder(target)
+    }
+
+    private func descendantView(
+        in view: NSView,
+        accessibilityIdentifier: String
+    ) -> NSView? {
+        if view.accessibilityIdentifier() == accessibilityIdentifier {
+            return view
+        }
+        for subview in view.subviews {
+            if let match = descendantView(
+                in: subview,
+                accessibilityIdentifier: accessibilityIdentifier
+            ) {
+                return match
+            }
+        }
+        return nil
     }
 
     func setReviewSelection(sample: String?, locus: String?) {
@@ -343,6 +434,13 @@ final class GenotypeOutlineView: NSView {
         tape.sampleAccessibilityLabel = row.animalId
         tape.isReviewSelected = isSelectedSample
         tape.selectedLocus = isSelectedSample ? reviewSelection.locus : nil
+        tape.onTargetActivated = { [weak self] locus, slot in
+            self?.onHaplotypeTargetActivated?(
+                row.animalId,
+                locus,
+                slot
+            )
+        }
         // No fixed width — let the tape expand to consume all available
         // horizontal space so locus columns line up under the headers.
         // The tape draws columns as `bounds.width / slots.count`, so wider
@@ -591,6 +689,28 @@ extension GenotypeOutlineView {
 
     func testingSimulateTapeClick(sample: String, locus: String) {
         onLocusCellClicked?(sample, locus)
+    }
+
+    func testingHaplotypeTargetButton(
+        sample: String,
+        locus: String,
+        slot: HaplotypeSlot
+    ) -> NSButton? {
+        guard let row = rows.firstIndex(where: { $0.animalId == sample }) else {
+            return nil
+        }
+        tableView.scrollRowToVisible(row)
+        testingForceRowMaterialization()
+        guard let cell = tableView.view(
+            atColumn: 0,
+            row: row,
+            makeIfNecessary: true
+        ) else {
+            return nil
+        }
+        return tapeViews(in: cell)
+            .first(where: { $0.sampleAccessibilityLabel == sample })?
+            .testingTargetButton(locus: locus, slot: slot)
     }
 
     var testingVisibleText: String {

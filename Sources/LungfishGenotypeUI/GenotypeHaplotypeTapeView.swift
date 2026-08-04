@@ -1,5 +1,6 @@
 import AppKit
 import LungfishCore
+import LungfishIO
 import LungfishKit
 
 @MainActor
@@ -22,15 +23,51 @@ final class GenotypeHaplotypeTapeView: NSView {
         let locus: String
         let h1: Cell
         let h2: Cell
+        let h1Semantics: TargetSemantics?
+        let h2Semantics: TargetSemantics?
+
+        init(
+            locus: String,
+            h1: Cell,
+            h2: Cell,
+            h1Semantics: TargetSemantics? = nil,
+            h2Semantics: TargetSemantics? = nil
+        ) {
+            self.locus = locus
+            self.h1 = h1
+            self.h2 = h2
+            self.h1Semantics = h1Semantics
+            self.h2Semantics = h2Semantics
+        }
+
+        /// Scientific cell equality intentionally excludes presentation-only
+        /// accessibility metadata so existing row snapshots remain stable
+        /// when editability/source narration changes.
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.locus == rhs.locus
+                && lhs.h1 == rhs.h1
+                && lhs.h2 == rhs.h2
+        }
+    }
+
+    struct TargetSemantics: Equatable {
+        let value: String
+        let status: GenotypeHaplotypeCallStatus
+        let source: GenotypeEffectiveHaplotypeValue.Source
+        let isEditable: Bool
     }
 
     private(set) var swatchCount: Int = 0
-    var sampleAccessibilityLabel: String = ""
+    var sampleAccessibilityLabel: String = "" {
+        didSet { refreshTargetButtons() }
+    }
+    var onTargetActivated: ((String, HaplotypeSlot) -> Void)?
     var showOverrideHatching: ((Slot, HaplotypeSlot) -> Bool)? = nil
     var isReviewSelected: Bool = false {
         didSet {
             guard oldValue != isReviewSelected else { return }
             accessibilityElementsCache = nil
+            refreshTargetButtons()
             setNeedsDisplay(bounds)
         }
     }
@@ -38,11 +75,17 @@ final class GenotypeHaplotypeTapeView: NSView {
         didSet {
             guard oldValue != selectedLocus else { return }
             accessibilityElementsCache = nil
+            refreshTargetButtons()
             setNeedsDisplay(bounds)
         }
     }
 
     private var slots: [Slot] = []
+    private struct TargetKey: Hashable {
+        let locus: String
+        let slot: HaplotypeSlot
+    }
+    private var targetButtons: [TargetKey: HaplotypeTapeTargetButton] = [:]
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -60,10 +103,16 @@ final class GenotypeHaplotypeTapeView: NSView {
         self.slots = slots
         self.swatchCount = slots.count * 2
         accessibilityElementsCache = nil
+        refreshTargetButtons()
         setNeedsDisplay(bounds)
     }
 
     override var isFlipped: Bool { true }
+
+    override func layout() {
+        super.layout()
+        refreshTargetButtons()
+    }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
@@ -282,7 +331,7 @@ final class GenotypeHaplotypeTapeView: NSView {
 
     // MARK: Accessibility
 
-    private var accessibilityElementsCache: [NSAccessibilityElement]?
+    private var accessibilityElementsCache: [NSView]?
     private var lastAccessibilityBounds: NSRect = .zero
 
     override func accessibilityChildren() -> [Any]? {
@@ -294,15 +343,10 @@ final class GenotypeHaplotypeTapeView: NSView {
             lastAccessibilityBounds = bounds
             return []
         }
-        let columnWidth = bounds.width / CGFloat(slots.count)
-        let halfHeight = bounds.height / 2.0
-        var children: [NSAccessibilityElement] = []
-        for (index, slot) in slots.enumerated() {
-            let x = CGFloat(index) * columnWidth
-            let topRect = NSRect(x: x, y: 0, width: columnWidth, height: halfHeight)
-            let botRect = NSRect(x: x, y: halfHeight, width: columnWidth, height: halfHeight)
-            children.append(makeAccessibilityElement(for: slot, slot: .h1, frame: topRect))
-            children.append(makeAccessibilityElement(for: slot, slot: .h2, frame: botRect))
+        let children = slots.flatMap { slot in
+            HaplotypeSlot.allCases.compactMap {
+                targetButtons[.init(locus: slot.locus, slot: $0)]
+            }
         }
         accessibilityElementsCache = children
         lastAccessibilityBounds = bounds
@@ -316,21 +360,108 @@ final class GenotypeHaplotypeTapeView: NSView {
         }
     }
 
-    private func makeAccessibilityElement(
-        for slot: Slot, slot tapeSlot: HaplotypeSlot, frame: NSRect
-    ) -> NSAccessibilityElement {
-        let value = cellLabel(tapeSlot == .h1 ? slot.h1 : slot.h2)
-        let isSelected = isReviewSelected && selectedLocus == slot.locus
-        let element = NSAccessibilityElement()
-        element.setAccessibilityRole(.button)
-        element.setAccessibilityFrameInParentSpace(frame)
-        let label = [sampleAccessibilityLabel, slot.locus, tapeSlot.displayName, value, isSelected ? "selected" : ""]
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-        element.setAccessibilityLabel(label)
-        element.setAccessibilitySelected(isSelected)
-        element.setAccessibilityParent(self)
-        return element
+    private func refreshTargetButtons() {
+        guard !slots.isEmpty, bounds.width > 0, bounds.height > 0 else {
+            if slots.isEmpty {
+                for button in targetButtons.values {
+                    button.removeFromSuperview()
+                }
+                targetButtons.removeAll()
+                accessibilityElementsCache = []
+            }
+            return
+        }
+        let columnWidth = bounds.width / CGFloat(slots.count)
+        let halfHeight = bounds.height / 2
+        var active = Set<TargetKey>()
+        for (index, value) in slots.enumerated() {
+            for slot in HaplotypeSlot.allCases {
+                let key = TargetKey(locus: value.locus, slot: slot)
+                active.insert(key)
+                let button: HaplotypeTapeTargetButton
+                if let existing = targetButtons[key] {
+                    button = existing
+                } else {
+                    button = HaplotypeTapeTargetButton(
+                        locus: value.locus,
+                        slot: slot
+                    )
+                    button.onActivate = { [weak self] locus, slot in
+                        self?.onTargetActivated?(locus, slot)
+                    }
+                    targetButtons[key] = button
+                    addSubview(button)
+                }
+                let cell = slot == .h1 ? value.h1 : value.h2
+                let semantics = slot == .h1
+                    ? value.h1Semantics : value.h2Semantics
+                let status = semantics?.status
+                    ?? inferredStatus(for: cell)
+                let source = semantics?.source
+                    ?? inferredSource(for: cell)
+                let effectiveValue = semantics?.value ?? cellLabel(cell)
+                let selected = isReviewSelected
+                    && selectedLocus == value.locus
+                button.frame = NSRect(
+                    x: CGFloat(index) * columnWidth,
+                    y: slot == .h1 ? 0 : halfHeight,
+                    width: columnWidth,
+                    height: halfHeight
+                )
+                button.setAccessibilityLabel(
+                    [
+                        sampleAccessibilityLabel,
+                        value.locus,
+                        slot.displayName,
+                        effectiveValue,
+                        "status",
+                        GenotypeHaplotypeCallBandSnapshot.statusLabel(status),
+                        "source",
+                        GenotypeHaplotypeCallBandSnapshot.sourceLabel(source),
+                        selected ? "selected" : "",
+                    ]
+                    .filter { !$0.isEmpty }
+                    .joined(separator: " ")
+                )
+                button.setAccessibilitySelected(selected)
+                button.setAccessibilityHelp(
+                    semantics?.isEditable == false
+                        ? "Opens read-only call evidence."
+                        : "Opens call evidence and override editing."
+                )
+                button.setAccessibilityIdentifier(
+                    "haplotype-call-\(sampleAccessibilityLabel)-\(value.locus)-\(slot.rawValue)"
+                )
+            }
+        }
+        for key in Set(targetButtons.keys).subtracting(active) {
+            targetButtons.removeValue(forKey: key)?.removeFromSuperview()
+        }
+        accessibilityElementsCache = nil
+    }
+
+    private func inferredStatus(
+        for cell: Cell
+    ) -> GenotypeHaplotypeCallStatus {
+        switch cell {
+        case .notAssayed:
+            return .notAssayed
+        case .error:
+            return .noHaplotype
+        case .unanalyzed:
+            return .noHaplotype
+        case .empty, .reference, .weakReference, .manual, .recombinant:
+            return .called
+        }
+    }
+
+    private func inferredSource(
+        for cell: Cell
+    ) -> GenotypeEffectiveHaplotypeValue.Source {
+        if case .manual = cell {
+            return .analystOverride
+        }
+        return .pipeline
     }
 
     private func cellLabel(_ cell: Cell) -> String {
@@ -346,10 +477,74 @@ final class GenotypeHaplotypeTapeView: NSView {
     }
 }
 
+@MainActor
+private final class HaplotypeTapeTargetButton: NSButton {
+    let locus: String
+    let haplotypeSlot: HaplotypeSlot
+    var onActivate: ((String, HaplotypeSlot) -> Void)?
+
+    init(locus: String, slot: HaplotypeSlot) {
+        self.locus = locus
+        self.haplotypeSlot = slot
+        super.init(frame: .zero)
+        title = ""
+        isBordered = false
+        focusRingType = .exterior
+        target = self
+        action = #selector(activate(_:))
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func accessibilityPerformPress() -> Bool {
+        performClick(nil)
+        return true
+    }
+
+    override func keyDown(with event: NSEvent) {
+        let characters = event.charactersIgnoringModifiers
+        if event.keyCode == 36
+            || event.keyCode == 76
+            || event.keyCode == 49
+            || characters == "\r"
+            || characters == "\n"
+            || characters == " " {
+            performClick(nil)
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    @objc private func activate(_ sender: NSButton) {
+        onActivate?(locus, haplotypeSlot)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        if window?.firstResponder === self {
+            NSFocusRingPlacement.only.set()
+            bounds.fill()
+        }
+    }
+}
+
 #if DEBUG
 extension GenotypeHaplotypeTapeView {
     var testingSelectedLocus: String? { selectedLocus }
     var testingIsReviewSelected: Bool { isReviewSelected }
+
+    func testingTargetButton(
+        locus: String,
+        slot: HaplotypeSlot
+    ) -> NSButton? {
+        refreshTargetButtons()
+        return targetButtons[.init(locus: locus, slot: slot)]
+    }
 
     func testingFillColor(for cell: Cell) -> NSColor? {
         switch cell {

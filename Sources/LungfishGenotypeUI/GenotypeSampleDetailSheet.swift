@@ -174,11 +174,16 @@ struct GenotypeSampleDetailSheet: View {
                 Button {
                     onClearOverride(row)
                 } label: {
-                    Label("Clear", systemImage: "arrow.uturn.backward")
-                        .labelStyle(.iconOnly)
+                    Label(
+                        "Restore Pipeline Call",
+                        systemImage: "arrow.uturn.backward"
+                    )
                 }
                 .buttonStyle(.borderless)
-                .help("Revert to the pipeline call (\(override.originalCall))")
+                .help(
+                    "Restore the pipeline call \(override.originalCall) for "
+                        + "\(row.locus) \(row.slot.displayName)."
+                )
             }
             Button(editingRowId == row.id ? "Hide" : (override == nil ? "Override\u{2026}" : "Edit\u{2026}")) {
                 if editingRowId == row.id {

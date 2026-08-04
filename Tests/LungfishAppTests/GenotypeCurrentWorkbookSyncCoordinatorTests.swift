@@ -709,6 +709,74 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(runner.invocations.first?.request.annotationOnly, true)
     }
 
+    func testHaplotypedMiSeqEffectiveCallsAndFinalAnnotationPayloadReachNextPublication()
+        async throws {
+        let bundle = bundleURL("miseq-effective-call-publication")
+        let finalAnnotationURL = bundle.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-08-04T00:00:00Z"
+        )
+        sidecar.callOverrides = [
+            .init(
+                sample: "Sample-A",
+                locus: "MHC-A",
+                slot: .h2,
+                originalCall: "A2",
+                overrideCall: "A2-review",
+                reasonTag: .misCall,
+                rationale: "Confirmed in synchronized Calls and Matrix views",
+                author: "Analyst",
+                timestamp: "2026-08-04T00:01:00Z"
+            ),
+        ]
+        let annotationData = try sidecar.encoded()
+        let effectiveCalls = [
+            GenotypeWorkbookHaplotypeCall(
+                sample: "Sample-A", locus: "MHC-A",
+                haplotype1: "A1", haplotype2: "A2-review",
+                status: "called", notes: ""
+            ),
+            GenotypeWorkbookHaplotypeCall(
+                sample: "Sample-B", locus: "MHC-B",
+                haplotype1: "D1", haplotype2: "D2",
+                status: "called", notes: ""
+            ),
+        ]
+        let runner = ControlledRunner()
+        runner.automaticallySucceed = true
+        let coordinator = makeCoordinator(recorded: nil, runner: runner)
+        let request = GenotypeCurrentWorkbookSyncCoordinator.Request(
+            bundleURL: bundle,
+            calls: effectiveCalls,
+            includedLoci: ["MHC-A", "MHC-B"],
+            annotationSidecarURL: finalAnnotationURL,
+            annotationSidecarData: annotationData,
+            annotationOnly: false,
+            haplotypeProjectionMode: .haplotyped,
+            fingerprint: try makeFingerprint("a"),
+            routeContext: nil
+        )
+
+        _ = try await coordinator.synchronize(
+            request,
+            intent: .automaticIdle
+        )
+
+        let admitted = try XCTUnwrap(runner.invocations.first?.request)
+        XCTAssertEqual(admitted.calls, effectiveCalls)
+        XCTAssertEqual(admitted.includedLoci, ["MHC-A", "MHC-B"])
+        XCTAssertEqual(
+            admitted.annotationSidecarURL,
+            finalAnnotationURL.standardizedFileURL,
+            "Publication provenance must identify the final stored sidecar, not staging."
+        )
+        XCTAssertEqual(admitted.annotationSidecarData, annotationData)
+        XCTAssertEqual(admitted.haplotypeProjectionMode, .haplotyped)
+        XCTAssertFalse(admitted.annotationOnly)
+    }
+
     func testJoiningAutomaticUpdateRunsOnceAndUpdateAndViewOpensExactlyOnce() async throws {
         let bundle = bundleURL("join")
         let fingerprint = try makeFingerprint("c")
