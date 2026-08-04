@@ -196,6 +196,21 @@ public final class GenotypeResultViewController: NSViewController {
         let overrides: [GenotypeAnnotationSidecar.CallOverride]
     }
 
+    private struct EffectiveHaplotypeCall {
+        let h1: String
+        let h2: String
+        let h1Status: GenotypeHaplotypeCallStatus
+        let h2Status: GenotypeHaplotypeCallStatus
+        let h1Source: GenotypeEffectiveHaplotypeValue.Source
+        let h2Source: GenotypeEffectiveHaplotypeValue.Source
+        let status: GenotypeHaplotypeCallStatus
+    }
+
+    private struct SampleDetailPresentation {
+        let rows: [GenotypeSampleDetailSheet.CallRow]
+        let overrides: [GenotypeAnnotationSidecar.CallOverride]
+    }
+
     public var onSelectionStateChanged: ((GenotypeResultSelectionState?) -> Void)?
     public var onDisplaySummaryChanged: ((Int, Int, Int) -> Void)?
     public var onDisplayStateChanged: ((GenotypeResultDisplayState) -> Void)?
@@ -7377,7 +7392,7 @@ public final class GenotypeResultViewController: NSViewController {
                 let h1Overridden = hasCallOverride(sample: sample.sample, locus: call.locus, slot: .h1)
                 let h1 = outlineCell(
                     for: effective.h1,
-                    status: effective.status,
+                    status: effective.h1Status,
                     isWeakSupport: !h1Manual && !h1Overridden && isWeakAutomatedHaplotype(
                         effective.h1,
                         in: call,
@@ -7391,13 +7406,13 @@ public final class GenotypeResultViewController: NSViewController {
                 let displayedH2 = normalizedHomozygousSecondHaplotype(
                     h1: effective.h1,
                     h2: effective.h2,
-                    status: effective.status
+                    status: effective.h2Status
                 )
                 let h2Manual = hasManualHaplotypeAssignment(sample: sample.sample, locus: call.locus, slot: .h2)
                 let h2Overridden = hasCallOverride(sample: sample.sample, locus: call.locus, slot: .h2)
                 let h2 = outlineCell(
                     for: displayedH2,
-                    status: effective.status,
+                    status: effective.h2Status,
                     isWeakSupport: !h2Manual && !h2Overridden && call.haplotype2 == displayedH2 && isWeakAutomatedHaplotype(
                         displayedH2,
                         in: call,
@@ -7435,29 +7450,59 @@ public final class GenotypeResultViewController: NSViewController {
     private func effectiveHaplotypeCall(
         sample sampleId: String,
         call: GenotypeHaplotypeLocusCall
-    ) -> (h1: String, h2: String, status: GenotypeHaplotypeCallStatus) {
+    ) -> EffectiveHaplotypeCall {
         if let snapshot = effectiveHaplotypeProjection?.snapshot(
             sample: sampleId,
             locus: call.locus
         ) {
-            return (
-                snapshot.h1.effective,
-                snapshot.h2.effective,
-                snapshot.status
+            return EffectiveHaplotypeCall(
+                h1: snapshot.h1.effective,
+                h2: snapshot.h2.effective,
+                h1Status: snapshot.h1.status,
+                h2Status: snapshot.h2.status,
+                h1Source: snapshot.h1.source,
+                h2Source: snapshot.h2.source,
+                status: snapshot.status
             )
         }
         let h1 = displayedCallName(sample: sampleId, locus: call.locus, slot: .h1, fallback: call.haplotype1)
         let h2 = displayedCallName(sample: sampleId, locus: call.locus, slot: .h2, fallback: call.haplotype2)
-        let hasOverride = hasCallOverride(sample: sampleId, locus: call.locus, slot: .h1)
-            || hasCallOverride(sample: sampleId, locus: call.locus, slot: .h2)
-            || hasManualHaplotypeAssignment(sample: sampleId, locus: call.locus, slot: .h1)
-            || hasManualHaplotypeAssignment(sample: sampleId, locus: call.locus, slot: .h2)
+        let h1HasOverride = hasCallOverride(
+            sample: sampleId,
+            locus: call.locus,
+            slot: .h1
+        ) || hasManualHaplotypeAssignment(
+            sample: sampleId,
+            locus: call.locus,
+            slot: .h1
+        )
+        let h2HasOverride = hasCallOverride(
+            sample: sampleId,
+            locus: call.locus,
+            slot: .h2
+        ) || hasManualHaplotypeAssignment(
+            sample: sampleId,
+            locus: call.locus,
+            slot: .h2
+        )
+        let hasOverride = h1HasOverride || h2HasOverride
         let hasUnresolvedOverride = h1 == GenotypeHaplotypeOverrideTargets.unresolved
             || h2 == GenotypeHaplotypeOverrideTargets.unresolved
+        let status: GenotypeHaplotypeCallStatus
         if hasOverride && !hasUnresolvedOverride && !h1.hasPrefix("ERR") && !h2.hasPrefix("ERR") {
-            return (h1, h2, .called)
+            status = .called
+        } else {
+            status = call.status
         }
-        return (h1, h2, call.status)
+        return EffectiveHaplotypeCall(
+            h1: h1,
+            h2: h2,
+            h1Status: status,
+            h2Status: status,
+            h1Source: h1HasOverride ? .analystOverride : .pipeline,
+            h2Source: h2HasOverride ? .analystOverride : .pipeline,
+            status: status
+        )
     }
 
     private func outlineCell(
@@ -7838,25 +7883,12 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func presentSampleDetailSheet(forAnimal animalId: String) {
-        guard let result, let analysis = activeHaplotypeAnalysis() else { return }
-        guard let sampleAnalysis = analysis.samples.first(where: { $0.sample == animalId }) else { return }
-        let rows: [GenotypeSampleDetailSheet.CallRow] = sampleAnalysis.calls.flatMap { call -> [GenotypeSampleDetailSheet.CallRow] in
-            let effective = effectiveHaplotypeCall(sample: animalId, call: call)
-            return [
-                GenotypeSampleDetailSheet.CallRow(
-                    locus: call.locus, slot: .h1,
-                    callName: effective.h1, status: effective.status,
-                    observedGenotypeCount: call.observedGenotypeCount
-                ),
-                GenotypeSampleDetailSheet.CallRow(
-                    locus: call.locus, slot: .h2,
-                    callName: effective.h2, status: effective.status,
-                    observedGenotypeCount: call.observedGenotypeCount
-                ),
-            ]
+        guard let result,
+              let presentation = sampleDetailPresentation(for: animalId) else {
+            return
         }
-        let overrides = annotationStore?.sidecar.callOverrides
-            .filter { $0.sample == animalId } ?? []
+        let rows = presentation.rows
+        let overrides = presentation.overrides
         let definitionSet = definitionSetForResult(result)
         let allowedTargets: (String) -> [String] = { locus in
             guard let definitionSet else { return [] }
@@ -7889,6 +7921,52 @@ public final class GenotypeResultViewController: NSViewController {
         )
         sampleDetailHostingController = hostingController
         presentAsSheet(hostingController)
+    }
+
+    private func sampleDetailPresentation(
+        for animalId: String
+    ) -> SampleDetailPresentation? {
+        guard let analysis = activeHaplotypeAnalysis(),
+              let sampleAnalysis = analysis.samples.first(where: {
+                $0.sample == animalId
+              }) else {
+            return nil
+        }
+        let rows: [GenotypeSampleDetailSheet.CallRow] = sampleAnalysis.calls.flatMap { call -> [GenotypeSampleDetailSheet.CallRow] in
+            let effective = effectiveHaplotypeCall(sample: animalId, call: call)
+            return [
+                GenotypeSampleDetailSheet.CallRow(
+                    locus: call.locus, slot: .h1,
+                    callName: effective.h1,
+                    status: effective.h1Status,
+                    source: effective.h1Source,
+                    observedGenotypeCount: call.observedGenotypeCount
+                ),
+                GenotypeSampleDetailSheet.CallRow(
+                    locus: call.locus, slot: .h2,
+                    callName: effective.h2,
+                    status: effective.h2Status,
+                    source: effective.h2Source,
+                    observedGenotypeCount: call.observedGenotypeCount
+                ),
+            ]
+        }
+        let overrides: [GenotypeAnnotationSidecar.CallOverride]
+        if let effectiveHaplotypeProjection {
+            overrides = sampleAnalysis.calls.flatMap { call in
+                HaplotypeSlot.allCases.compactMap { slot in
+                    effectiveHaplotypeProjection.authoritativeOverride(
+                        sample: animalId,
+                        locus: call.locus,
+                        slot: slot
+                    )
+                }
+            }
+        } else {
+            overrides = annotationStore?.sidecar.callOverrides
+                .filter { $0.sample == animalId } ?? []
+        }
+        return SampleDetailPresentation(rows: rows, overrides: overrides)
     }
 
     private func dismissSampleDetailSheet() {
@@ -10496,6 +10574,22 @@ extension GenotypeResultViewController {
             loci: effectiveIncludedLoci(for: analysis, observed: observed),
             observed: observed
         )
+    }
+
+    func testingSampleDetailRows(
+        sample: String
+    ) -> [GenotypeSampleDetailSheet.CallRow] {
+        sampleDetailPresentation(for: sample)?.rows ?? []
+    }
+
+    func testingSampleDetailOverrides(
+        sample: String
+    ) -> [GenotypeAnnotationSidecar.CallOverride] {
+        sampleDetailPresentation(for: sample)?.overrides ?? []
+    }
+
+    func testingUnresolvedReviewLoci(sample: String) -> [String] {
+        unresolvedReviewLoci(for: sample)
     }
 
     func testingCurrentWorkbookHaplotypeCalls() -> [GenotypeWorkbookHaplotypeCall] {

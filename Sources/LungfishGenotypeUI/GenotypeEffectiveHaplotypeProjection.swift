@@ -49,6 +49,9 @@ struct GenotypeEffectiveHaplotypeProjection: Equatable, Sendable {
     let orderedLoci: [String]
     let values: [GenotypeEffectiveHaplotypeKey: GenotypeEffectiveHaplotypeValue]
 
+    private let authoritativeOverrides: [
+        GenotypeEffectiveHaplotypeKey: GenotypeAnnotationSidecar.CallOverride
+    ]
     private let locusSnapshots: [LocusKey: GenotypeEffectiveHaplotypeLocusSnapshot]
     private let sampleSnapshots: [String: GenotypeEffectiveHaplotypeSampleSnapshot]
 
@@ -212,6 +215,7 @@ struct GenotypeEffectiveHaplotypeProjection: Equatable, Sendable {
         self.orderedSamples = orderedSamples
         self.orderedLoci = orderedLoci
         self.values = values
+        self.authoritativeOverrides = latestOverrides.mapValues(\.entry)
         self.locusSnapshots = locusSnapshots
         self.sampleSnapshots = sampleSnapshots
     }
@@ -239,6 +243,20 @@ struct GenotypeEffectiveHaplotypeProjection: Equatable, Sendable {
             return false
         }
         return value.source != .pipeline
+    }
+
+    func authoritativeOverride(
+        sample: String,
+        locus: String,
+        slot: HaplotypeSlot
+    ) -> GenotypeAnnotationSidecar.CallOverride? {
+        authoritativeOverrides[
+            GenotypeEffectiveHaplotypeKey(
+                sample: sample,
+                locus: locus,
+                slot: slot
+            )
+        ]
     }
 
     func snapshot(sample: String) -> GenotypeEffectiveHaplotypeSampleSnapshot? {
@@ -273,19 +291,30 @@ struct GenotypeEffectiveHaplotypeProjection: Equatable, Sendable {
         _ h1: GenotypeHaplotypeCallStatus,
         _ h2: GenotypeHaplotypeCallStatus
     ) -> GenotypeHaplotypeCallStatus {
-        if h1 == .called, h2 == .called {
-            return .called
-        }
-        if h1 == h2 {
+        if isUnresolvedStatus(h1) {
             return h1
         }
-        if h1 != .called, h1 != .specialCase {
-            return h1
-        }
-        if h2 != .called, h2 != .specialCase {
+        if isUnresolvedStatus(h2) {
             return h2
         }
-        return .specialCase
+        if h1 == .notAssayed || h2 == .notAssayed {
+            return .notAssayed
+        }
+        if h1 == .specialCase || h2 == .specialCase {
+            return .specialCase
+        }
+        return .called
+    }
+
+    private static func isUnresolvedStatus(
+        _ status: GenotypeHaplotypeCallStatus
+    ) -> Bool {
+        switch status {
+        case .noHaplotype, .tooManyHaplotypes, .tooManyGenotypes:
+            return true
+        case .called, .notAssayed, .specialCase:
+            return false
+        }
     }
 
     private struct LocusKey: Hashable, Sendable {

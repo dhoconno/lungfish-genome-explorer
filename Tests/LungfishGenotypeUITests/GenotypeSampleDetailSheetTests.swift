@@ -22,6 +22,7 @@ final class GenotypeSampleDetailSheetTests: XCTestCase {
                 slot: .h1,
                 callName: "M1A",
                 status: .called,
+                source: .pipeline,
                 observedGenotypeCount: 2
             ),
         ]

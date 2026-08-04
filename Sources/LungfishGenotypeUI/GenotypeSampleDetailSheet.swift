@@ -18,6 +18,7 @@ struct GenotypeSampleDetailSheet: View {
         let slot: HaplotypeSlot
         let callName: String
         let status: GenotypeHaplotypeCallStatus
+        let source: GenotypeEffectiveHaplotypeValue.Source
         let observedGenotypeCount: Int
         var id: String { "\(locus)/\(slot.rawValue)" }
     }

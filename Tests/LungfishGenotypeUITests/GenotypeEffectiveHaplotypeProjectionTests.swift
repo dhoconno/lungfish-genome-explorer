@@ -131,6 +131,14 @@ final class GenotypeEffectiveHaplotypeProjectionTests: XCTestCase {
             projection.value(sample: "Sample-1", locus: "MHC-A", slot: .h1)?.source,
             .analystOverride
         )
+        XCTAssertEqual(
+            projection.authoritativeOverride(
+                sample: "Sample-1",
+                locus: "MHC-A",
+                slot: .h1
+            )?.overrideCall,
+            "tie-second"
+        )
     }
 
     func testMalformedTimestampCannotCreateAnEffectiveOverride() {
@@ -153,6 +161,13 @@ final class GenotypeEffectiveHaplotypeProjectionTests: XCTestCase {
             effective: "M1A",
             status: .called,
             source: .pipeline
+        )
+        XCTAssertNil(
+            projection.authoritativeOverride(
+                sample: "Sample-1",
+                locus: "MHC-A",
+                slot: .h2
+            )
         )
     }
 
@@ -191,6 +206,49 @@ final class GenotypeEffectiveHaplotypeProjectionTests: XCTestCase {
             projection.snapshot(sample: "Sample-1", locus: "MHC-B")?.status,
             .noHaplotype
         )
+    }
+
+    func testUnresolvedH2OutranksNotAssayedRegardlessOfSlotOrder() throws {
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "definition-2",
+            definitionSetName: "Definition 2",
+            speciesName: "Macaque",
+            samples: [
+                .init(sample: "Sample-1", calls: [
+                    call(
+                        locus: "MHC-A",
+                        h1: "Not assayed",
+                        h2: "Not assayed",
+                        status: .notAssayed
+                    ),
+                ]),
+            ]
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-08-03T00:00:00Z"
+        )
+        sidecar.callOverrides = [
+            override(
+                sample: "Sample-1",
+                locus: "MHC-A",
+                slot: .h2,
+                value: GenotypeHaplotypeOverrideTargets.unresolved,
+                timestamp: "2026-08-03T01:00:00Z"
+            ),
+        ]
+
+        let projection = GenotypeEffectiveHaplotypeProjection(
+            analysis: analysis,
+            sidecar: sidecar
+        )
+        let snapshot = try XCTUnwrap(
+            projection.snapshot(sample: "Sample-1", locus: "MHC-A")
+        )
+
+        XCTAssertEqual(snapshot.h1.status, .notAssayed)
+        XCTAssertEqual(snapshot.h2.status, .noHaplotype)
+        XCTAssertEqual(snapshot.status, .noHaplotype)
     }
 
     private func makeAnalysis() -> GenotypeHaplotypeAnalysis {

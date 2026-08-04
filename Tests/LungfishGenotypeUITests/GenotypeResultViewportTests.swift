@@ -21569,6 +21569,194 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(mhcBSlot.h2.testingLabel, "M2B")
     }
 
+    func testHaplotypedMiSeqPreservesPerSlotStatusAndReviewEligibility() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "GenotypeResultPerSlotProjection-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent(
+            "example.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-08-03T00:00:00Z"
+        )
+        sidecar.callOverrides = [
+            .init(
+                sample: "DW472",
+                locus: "MHC-A",
+                slot: .h1,
+                originalCall: "Not assayed",
+                overrideCall: "M1A",
+                reasonTag: .analystJudgment,
+                rationale: "Resolved H1.",
+                author: "test",
+                timestamp: "2026-08-03T01:00:00Z"
+            ),
+            .init(
+                sample: "DW472",
+                locus: "MHC-A",
+                slot: .h2,
+                originalCall: "Not assayed",
+                overrideCall: GenotypeHaplotypeOverrideTargets.unresolved,
+                reasonTag: .analystJudgment,
+                rationale: "H2 remains unresolved.",
+                author: "test",
+                timestamp: "2026-08-03T01:00:00Z"
+            ),
+        ]
+        try ONTGenotypeResultBundleData.writeAnnotationSidecar(
+            sidecar,
+            forBundleAt: bundleURL
+        )
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            definitionSetName: "Mauritian cynomolgus macaques",
+            speciesName: "Mauritian cynomolgus macaques",
+            samples: [
+                .init(sample: "DW472", calls: [
+                    .init(
+                        locus: "MHC-A",
+                        sourceLocus: "Mafa-A",
+                        haplotype1: "Not assayed",
+                        haplotype2: "Not assayed",
+                        status: .notAssayed,
+                        matchedHaplotypes: [],
+                        observedGenotypeCount: 0,
+                        observedGenotypes: []
+                    ),
+                ]),
+            ]
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [],
+            haplotypeAnalysis: analysis
+        ))
+
+        let rows = controller.testingSampleDetailRows(sample: "DW472")
+        let h1 = try XCTUnwrap(rows.first { $0.locus == "MHC-A" && $0.slot == .h1 })
+        let h2 = try XCTUnwrap(rows.first { $0.locus == "MHC-A" && $0.slot == .h2 })
+        XCTAssertEqual(h1.callName, "M1A")
+        XCTAssertEqual(h1.status, .called)
+        XCTAssertEqual(h1.source, .analystOverride)
+        XCTAssertEqual(h2.callName, GenotypeHaplotypeOverrideTargets.unresolved)
+        XCTAssertEqual(h2.status, .noHaplotype)
+        XCTAssertEqual(h2.source, .analystOverride)
+        XCTAssertEqual(controller.testingUnresolvedReviewLoci(sample: "DW472"), ["MHC-A"])
+
+        let outline = try XCTUnwrap(
+            controller.testingOutlineSlots(sample: "DW472").first {
+                $0.locus == "MHC-A"
+            }
+        )
+        XCTAssertEqual(outline.h1.testingLabel, "M1A")
+        XCTAssertFalse(outline.h1.testingIsError)
+        XCTAssertEqual(outline.h2.testingLabel, GenotypeHaplotypeOverrideTargets.unresolved)
+        XCTAssertTrue(outline.h2.testingIsError)
+    }
+
+    func testHaplotypedMiSeqDetailUsesOnlyProjectionAuthoritativeOverride() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "GenotypeResultAuthoritativeOverride-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent(
+            "example.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        func entry(_ value: String, timestamp: String) -> GenotypeAnnotationSidecar.CallOverride {
+            .init(
+                sample: "DW472",
+                locus: "MHC-A",
+                slot: .h1,
+                originalCall: "M0A",
+                overrideCall: value,
+                reasonTag: .analystJudgment,
+                rationale: value,
+                author: "test",
+                timestamp: timestamp
+            )
+        }
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-08-03T00:00:00Z"
+        )
+        sidecar.callOverrides = [
+            entry("authoritative", timestamp: "2026-08-03T03:00:00Z"),
+            entry("older-out-of-order", timestamp: "2026-08-03T01:00:00Z"),
+            entry("malformed", timestamp: "not-a-timestamp"),
+            .init(
+                sample: "Other",
+                locus: "MHC-A",
+                slot: .h1,
+                originalCall: "M0A",
+                overrideCall: "unrelated",
+                reasonTag: .analystJudgment,
+                rationale: "unrelated",
+                author: "test",
+                timestamp: "2026-08-03T04:00:00Z"
+            ),
+        ]
+        try ONTGenotypeResultBundleData.writeAnnotationSidecar(
+            sidecar,
+            forBundleAt: bundleURL
+        )
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            definitionSetName: "Mauritian cynomolgus macaques",
+            speciesName: "Mauritian cynomolgus macaques",
+            samples: [
+                .init(sample: "DW472", calls: [
+                    .init(
+                        locus: "MHC-A",
+                        sourceLocus: "Mafa-A",
+                        haplotype1: "M0A",
+                        haplotype2: "M0A",
+                        status: .called,
+                        matchedHaplotypes: [],
+                        observedGenotypeCount: 2,
+                        observedGenotypes: []
+                    ),
+                ]),
+            ]
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [],
+            haplotypeAnalysis: analysis
+        ))
+
+        let rows = controller.testingSampleDetailRows(sample: "DW472")
+        XCTAssertEqual(
+            rows.first { $0.locus == "MHC-A" && $0.slot == .h1 }?.callName,
+            "authoritative"
+        )
+        let overrides = controller.testingSampleDetailOverrides(sample: "DW472")
+        XCTAssertEqual(overrides.count, 1)
+        XCTAssertEqual(overrides.first?.overrideCall, "authoritative")
+        XCTAssertEqual(overrides.first?.timestamp, "2026-08-03T03:00:00Z")
+    }
+
     func testInspectorOverrideAppliesExplicitSelectedHaplotypeSlot() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeResultExplicitOverride-\(UUID().uuidString)", isDirectory: true)
