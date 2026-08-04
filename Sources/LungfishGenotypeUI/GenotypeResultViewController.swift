@@ -335,6 +335,12 @@ public final class GenotypeResultViewController: NSViewController {
     private var testingSampleDetailSheetPresentationCounter = 0
     private var testingSheetAlertHandler: ((Error) -> Void)?
     private var testingCohortSummaryRebuildCount = 0
+    private var testingSynchronizedMiSeqMatrixConfigureCount = 0
+    private var testingSynchronizedMiSeqHaplotypeAnalysisRunCount = 0
+    private var testingSynchronizedMiSeqWorkbookReloadCount = 0
+    private var testingSynchronizedMiSeqHaplotypeModelRebuildCount = 0
+    private var testingSynchronizedMiSeqUnrelatedOutlineRowReloadCount = 0
+    private var testingSynchronizedMiSeqTargetSamples: Set<String>?
 #endif
     private static let generatedContentHostingViewIdentifier =
         NSUserInterfaceItemIdentifier("GenotypeGeneratedContentHostingView")
@@ -925,6 +931,9 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func ensureComparisonMatrixConfigured() {
         guard !comparisonMatrixConfigured, let result else { return }
+#if DEBUG
+        testingSynchronizedMiSeqMatrixConfigureCount += 1
+#endif
         comparisonMatrixConfigured = true
         comparisonMatrix.configure(
             result: comparisonMatrixPresentationResult(from: result),
@@ -1703,11 +1712,20 @@ public final class GenotypeResultViewController: NSViewController {
             || displayState.supportDenominator != state.supportDenominator
         let matrixOnlyChange = state != displayState
             && state == displayState.replacingMatrixPresentation(from: state)
+        var presentationSwitchState = displayState
+        presentationSwitchState.viewportLens = state.viewportLens
+        presentationSwitchState.summaryViewMode = state.summaryViewMode
+        let isHaplotypedMiSeqPresentationOnlyChange =
+            presentationPolicy?.appliesToHaplotypedMiSeq == true
+                && previousViewMode != state.summaryViewMode
+                && state == presentationSwitchState
         var cohortFlagState = displayState
         cohortFlagState.cohortFlagThreshold = state.cohortFlagThreshold
         let cohortFlagOnlyChange = state != displayState
             && state == cohortFlagState
-        let narrowDisplayChange = matrixOnlyChange || cohortFlagOnlyChange
+        let narrowDisplayChange = matrixOnlyChange
+            || cohortFlagOnlyChange
+            || isHaplotypedMiSeqPresentationOnlyChange
         displayState = state
         persistSummaryViewPreferenceIfNeeded(
             previousViewMode: previousViewMode,
@@ -1733,8 +1751,10 @@ public final class GenotypeResultViewController: NSViewController {
         if !narrowDisplayChange {
             rebuildConsumerLens()
         }
-        if previousViewMode != state.summaryViewMode
-            || previousAncillary != state.showsAncillaryLoci
+        if (
+            previousViewMode != state.summaryViewMode
+                && !isHaplotypedMiSeqPresentationOnlyChange
+        ) || previousAncillary != state.showsAncillaryLoci
             || previousIncludedLoci != state.includedLoci {
             rebuildOutline()
             rebuildHaplotypeMatrix()
@@ -5878,6 +5898,9 @@ public final class GenotypeResultViewController: NSViewController {
             }
             return
         }
+#if DEBUG
+        testingSynchronizedMiSeqWorkbookReloadCount += 1
+#endif
         currentWorkbookResultReloadTask?.cancel()
         resultConfigurationGeneration &+= 1
         let expectedBundleURL = bundleURL.standardizedFileURL
@@ -6219,6 +6242,9 @@ public final class GenotypeResultViewController: NSViewController {
             liveHaplotypeAnalysis = nil
             return
         }
+#if DEBUG
+        testingSynchronizedMiSeqHaplotypeAnalysisRunCount += 1
+#endif
         haplotypeWorkCount += 1
         guard let result, let definitionSet = definitionSetForResult(result) else {
             liveHaplotypeAnalysis = nil
@@ -7020,6 +7046,16 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func rebuildOutline() {
+#if DEBUG
+        // A broad outline rebuild during a targeted call override reloads all
+        // existing rows, so retain that work in the Task 7 snapshot.
+        testingSynchronizedMiSeqHaplotypeModelRebuildCount += 1
+        testingSynchronizedMiSeqUnrelatedOutlineRowReloadCount +=
+            outlineRowOrder.lazy.filter {
+                self.testingSynchronizedMiSeqTargetSamples?.contains($0)
+                    != true
+            }.count
+#endif
         outlineRowsBySample.removeAll()
         outlineRowOrder.removeAll()
         guard hasHaplotypingResult else {
@@ -8570,6 +8606,10 @@ public final class GenotypeResultViewController: NSViewController {
     private func refreshAfterEffectiveHaplotypeMutation(
         changedKeys: Set<GenotypeEffectiveHaplotypeKey>
     ) {
+#if DEBUG
+        testingSynchronizedMiSeqTargetSamples = Set(changedKeys.map(\.sample))
+        defer { testingSynchronizedMiSeqTargetSamples = nil }
+#endif
         rebuildEffectiveHaplotypeProjectionIfNeeded()
         applyComparisonMatrixHaplotypeBandProjection(
             invalidatedKeys: changedKeys
@@ -8600,6 +8640,7 @@ public final class GenotypeResultViewController: NSViewController {
             return
         }
         let changedSamples = Set(changedKeys.map(\.sample))
+        let previousRowOrder = outlineRowOrder
         let observed = observedLociIndex
             ?? GenotypeObservedLociIndex.build(from: result)
         let loci = effectiveIncludedLoci(for: analysis, observed: observed)
@@ -8624,6 +8665,15 @@ public final class GenotypeResultViewController: NSViewController {
         outlineRowOrder = analysis.samples.compactMap {
             outlineRowsBySample[$0.sample] == nil ? nil : $0.sample
         }
+#if DEBUG
+        if previousRowOrder != outlineRowOrder {
+            // GenotypeOutlineView structurally falls back to reloadData when
+            // row identity/order changes. Count only rows outside the target.
+            testingSynchronizedMiSeqUnrelatedOutlineRowReloadCount += Set(
+                previousRowOrder + outlineRowOrder
+            ).subtracting(changedSamples).count
+        }
+#endif
         outlineView.applyEffectiveHaplotypeRows(
             outlineRowOrder.compactMap { outlineRowsBySample[$0] },
             changedSamples: changedSamples
@@ -9918,6 +9968,17 @@ struct GenotypeResultProjectionPerformanceSnapshot: Equatable {
     let layoutApplicationCount: Int
 }
 
+struct GenotypeSynchronizedMiSeqPerformanceSnapshot: Equatable {
+    let matrixConfigureCount: Int
+    let baseProjectionBuildCount: Int
+    let columnRebuildCount: Int
+    let bandInvalidationCount: Int
+    let haplotypeAnalysisRunCount: Int
+    let workbookReloadCount: Int
+    let haplotypeModelRebuildCount: Int
+    let unrelatedRowReloadCount: Int
+}
+
 extension GenotypeResultViewController {
     var testingLastEffectiveHaplotypeMutationChangedKeys:
         Set<GenotypeEffectiveHaplotypeKey> {
@@ -9932,6 +9993,44 @@ extension GenotypeResultViewController {
     var testingComparisonMatrix: GenotypeComparisonMatrixView {
         ensureComparisonMatrixConfigured()
         return comparisonMatrix
+    }
+
+    /// Resets Task 7 instrumentation without configuring the lazy matrix.
+    func testingResetSynchronizedMiSeqPerformanceCounters() {
+        testingSynchronizedMiSeqMatrixConfigureCount = 0
+        testingSynchronizedMiSeqHaplotypeAnalysisRunCount = 0
+        testingSynchronizedMiSeqWorkbookReloadCount = 0
+        testingSynchronizedMiSeqHaplotypeModelRebuildCount = 0
+        testingSynchronizedMiSeqUnrelatedOutlineRowReloadCount = 0
+        testingSynchronizedMiSeqTargetSamples = nil
+        comparisonMatrix.testingResetSynchronizedMiSeqPerformanceCounters()
+    }
+
+    /// Reads Task 7 instrumentation without configuring the lazy matrix.
+    var testingSynchronizedMiSeqPerformanceSnapshot:
+        GenotypeSynchronizedMiSeqPerformanceSnapshot {
+        GenotypeSynchronizedMiSeqPerformanceSnapshot(
+            matrixConfigureCount:
+                testingSynchronizedMiSeqMatrixConfigureCount,
+            baseProjectionBuildCount:
+                comparisonMatrix
+                    .testingSynchronizedMiSeqBaseProjectionBuildCount,
+            columnRebuildCount:
+                comparisonMatrix.testingSynchronizedMiSeqColumnRebuildCount,
+            bandInvalidationCount:
+                comparisonMatrix
+                    .testingSynchronizedMiSeqBandInvalidationCount,
+            haplotypeAnalysisRunCount:
+                testingSynchronizedMiSeqHaplotypeAnalysisRunCount,
+            workbookReloadCount:
+                testingSynchronizedMiSeqWorkbookReloadCount,
+            haplotypeModelRebuildCount:
+                testingSynchronizedMiSeqHaplotypeModelRebuildCount,
+            unrelatedRowReloadCount:
+                comparisonMatrix
+                    .testingSynchronizedMiSeqUnrelatedRowReloadCount
+                    + testingSynchronizedMiSeqUnrelatedOutlineRowReloadCount
+        )
     }
 
     func testingResetProjectionPerformanceCounters() {

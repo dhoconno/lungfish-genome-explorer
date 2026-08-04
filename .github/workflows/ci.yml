@@ -75,6 +75,14 @@ jobs:
       - name: Run smoke package tests
         run: swift test --filter '^(LungfishCoreTests\.(BundleManifestTests|GenomicRegionTests|RuntimeResourceLocatorTests|SequenceTests)|LungfishWorkflowTests\.(BAMPrimerTrimProvenanceTests|MappingProvenanceTests|ScientificProvenancePolicyTests)|LungfishCLITests\.ScientificCLIProvenanceCoverageTests)(/|$)'
 
+      - name: Run synchronized miSeq correctness and instrumentation tests
+        run: |
+          swift test --filter GenotypeResultPresentationPolicyTests
+          swift test --filter GenotypeEffectiveHaplotypeProjectionTests
+          swift test --filter GenotypeAnnotationStoreCallOverrideTests
+          swift test --filter GenotypeResultViewportTests/testHaplotypedMiSeq
+          swift test --filter GenotypeManualHaplotypePerformanceTests
+
       - name: Install script test dependencies
         run: |
           brew install ripgrep

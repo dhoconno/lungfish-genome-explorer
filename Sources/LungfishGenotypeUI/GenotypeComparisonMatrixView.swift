@@ -435,6 +435,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private var testingCommitToVisibleTotalSeconds: TimeInterval = 0
     private var testingCommitToVisibleMaximumSeconds: TimeInterval = 0
     private var testingColumnRebuildCount = 0
+    private var testingSynchronizedMiSeqBandInvalidationCounter = 0
     private var testingVisibleSettlementGeneration = 0
     private var testingVisibilityMutationPassCount = 0
     private var testingAccessibilityValueChangedCount = 0
@@ -546,6 +547,13 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 .union(previousSnapshot.sampleNames)
                 .union(effectiveHaplotypeBandSnapshot.sampleNames)
             : changedSamples
+
+#if DEBUG
+        if result != nil, mode == .effectiveMiSeqCalls {
+            testingSynchronizedMiSeqBandInvalidationCounter +=
+                changedSamples.count
+        }
+#endif
 
         if structureChanged {
             applyManualHaplotypeBandPresentation()
@@ -6067,11 +6075,13 @@ private final class GenotypeMatrixTableView: NSTableView {
     private(set) var testingFullReloadCount = 0
     private(set) var testingPartialReloadCount = 0
     private(set) var testingPartialReloadedCellCount = 0
+    private(set) var testingReloadedRowCount = 0
 
     func testingResetReloadCounters() {
         testingFullReloadCount = 0
         testingPartialReloadCount = 0
         testingPartialReloadedCellCount = 0
+        testingReloadedRowCount = 0
     }
 
 #endif
@@ -6087,6 +6097,7 @@ private final class GenotypeMatrixTableView: NSTableView {
     override func reloadData() {
 #if DEBUG
         testingFullReloadCount += 1
+        testingReloadedRowCount += numberOfRows
 #endif
         super.reloadData()
     }
@@ -6095,6 +6106,7 @@ private final class GenotypeMatrixTableView: NSTableView {
 #if DEBUG
         testingPartialReloadCount += 1
         testingPartialReloadedCellCount += rowIndexes.count * columnIndexes.count
+        testingReloadedRowCount += rowIndexes.count
 #endif
         super.reloadData(forRowIndexes: rowIndexes, columnIndexes: columnIndexes)
     }
@@ -8232,6 +8244,33 @@ extension GenotypeComparisonMatrixView {
         testingColumnRebuildCount = 0
         testingVisibleSettlementGeneration &+= 1
         testingResetReloadCounters()
+    }
+
+    func testingResetSynchronizedMiSeqPerformanceCounters() {
+        testingBaseProjectionBuildCount = 0
+        testingColumnRebuildCount = 0
+        testingSynchronizedMiSeqBandInvalidationCounter = 0
+        testingManualHaplotypeBandInvalidatedSampleSet.removeAll()
+        testingResetReloadCounters()
+    }
+
+    var testingSynchronizedMiSeqBaseProjectionBuildCount: Int {
+        testingBaseProjectionBuildCount
+    }
+
+    var testingSynchronizedMiSeqColumnRebuildCount: Int {
+        testingColumnRebuildCount
+    }
+
+    var testingSynchronizedMiSeqBandInvalidationCount: Int {
+        testingSynchronizedMiSeqBandInvalidationCounter
+    }
+
+    var testingSynchronizedMiSeqUnrelatedRowReloadCount: Int {
+        // A haplotype-band override must not reload either genotype table;
+        // every row counted here is unrelated to that targeted band update.
+        pinnedTableView.testingReloadedRowCount
+            + tableView.testingReloadedRowCount
     }
 
     var testingProjectionPerformanceSnapshot:

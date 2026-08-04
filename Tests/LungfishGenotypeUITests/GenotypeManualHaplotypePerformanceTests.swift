@@ -6,6 +6,235 @@ import LungfishIO
 
 @MainActor
 final class GenotypeManualHaplotypePerformanceTests: XCTestCase {
+    func testHaplotypedMiSeqDefaultPerformsZeroMatrixConfigurationWork()
+        throws
+    {
+        let fixture = GenotypeManualHaplotypeTask10Fixture(sampleCount: 150)
+        let bundleURL = try makeTemporaryBundleURL(
+            named: "DefaultHaplotypeCalls"
+        )
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.testingResetSynchronizedMiSeqPerformanceCounters()
+
+        controller.configure(
+            result: fixture.result(
+                workflowMode: .haplotyped,
+                bundleURL: bundleURL,
+                haplotypeAnalysis: fixture.haplotypeAnalysis
+            )
+        )
+
+        let performance =
+            controller.testingSynchronizedMiSeqPerformanceSnapshot
+        XCTAssertEqual(controller.testingSummaryViewMode, .outline)
+        XCTAssertEqual(performance.matrixConfigureCount, 0)
+        XCTAssertEqual(performance.baseProjectionBuildCount, 0)
+        XCTAssertEqual(performance.columnRebuildCount, 0)
+        XCTAssertEqual(performance.unrelatedRowReloadCount, 0)
+    }
+
+    func testWarmHaplotypedMiSeqPresentationSwitchesReuseConfiguredModels()
+        throws
+    {
+        let fixture = GenotypeManualHaplotypeTask10Fixture(sampleCount: 150)
+        let bundleURL = try makeTemporaryBundleURL(named: "WarmSwitches")
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(
+            result: fixture.result(
+                workflowMode: .haplotyped,
+                bundleURL: bundleURL,
+                haplotypeAnalysis: fixture.haplotypeAnalysis
+            )
+        )
+        controller.testingApplyDisplayState(
+            GenotypeResultDisplayState(summaryViewMode: .matrix)
+        )
+        controller.testingApplyDisplayState(
+            GenotypeResultDisplayState(summaryViewMode: .outline)
+        )
+        controller.testingResetSynchronizedMiSeqPerformanceCounters()
+
+        for index in 0..<20 {
+            controller.testingApplyDisplayState(
+                GenotypeResultDisplayState(
+                    summaryViewMode: index.isMultiple(of: 2)
+                        ? .matrix
+                        : .outline
+                )
+            )
+        }
+
+        let performance =
+            controller.testingSynchronizedMiSeqPerformanceSnapshot
+        XCTAssertEqual(performance.matrixConfigureCount, 0)
+        XCTAssertEqual(performance.baseProjectionBuildCount, 0)
+        XCTAssertEqual(performance.columnRebuildCount, 0)
+        XCTAssertEqual(performance.haplotypeAnalysisRunCount, 0)
+        XCTAssertEqual(performance.workbookReloadCount, 0)
+        XCTAssertEqual(performance.haplotypeModelRebuildCount, 0)
+        XCTAssertEqual(performance.unrelatedRowReloadCount, 0)
+    }
+
+    func testChangedKeyOverrideInvalidatesOnlyItsBandSample()
+        throws
+    {
+        let fixture = GenotypeManualHaplotypeTask10Fixture(sampleCount: 100)
+        let bundleURL = try makeTemporaryBundleURL(named: "TargetedOverride")
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(
+            result: fixture.result(
+                workflowMode: .haplotyped,
+                bundleURL: bundleURL,
+                haplotypeAnalysis: fixture.haplotypeAnalysis
+            )
+        )
+        controller.testingApplyDisplayState(
+            GenotypeResultDisplayState(summaryViewMode: .matrix)
+        )
+        let row = try XCTUnwrap(
+            controller.testingSampleDetailRows(sample: fixture.samples[0])
+                .first { $0.locus == "MHC-A" && $0.slot == .h1 }
+        )
+        controller.testingResetSynchronizedMiSeqPerformanceCounters()
+
+        XCTAssertNil(
+            controller.testingSaveSampleDetailOverrideWithoutPresentingSheet(
+                sample: fixture.samples[0],
+                row: row,
+                target: "MHC-A-Override"
+            )
+        )
+
+        let performance =
+            controller.testingSynchronizedMiSeqPerformanceSnapshot
+        XCTAssertEqual(performance.matrixConfigureCount, 0)
+        XCTAssertEqual(performance.baseProjectionBuildCount, 0)
+        XCTAssertEqual(performance.columnRebuildCount, 0)
+        XCTAssertEqual(performance.bandInvalidationCount, 1)
+        XCTAssertEqual(performance.haplotypeAnalysisRunCount, 0)
+        XCTAssertEqual(performance.workbookReloadCount, 0)
+        XCTAssertEqual(performance.haplotypeModelRebuildCount, 0)
+        XCTAssertEqual(performance.unrelatedRowReloadCount, 0)
+        XCTAssertEqual(
+            controller.testingLastEffectiveHaplotypeRefreshedKeys,
+            [
+                .init(
+                    sample: fixture.samples[0],
+                    locus: "MHC-A",
+                    slot: .h1
+                ),
+            ]
+        )
+    }
+
+    func testRetainedDemultiplexingSizeWarmSwitchesMeetReleaseFrameBudgets()
+        throws
+    {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment[
+                "LUNGFISH_RELEASE_PERFORMANCE_TEST"
+            ] == "1",
+            "Set LUNGFISH_RELEASE_PERFORMANCE_TEST=1 for the local release gate."
+        )
+        let fixture = GenotypeManualHaplotypeTask10Fixture(sampleCount: 52)
+        let bundleURL = try makeTemporaryBundleURL(named: "ReleaseWarmSwitch")
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1_200, height: 720),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        window.contentView = controller.view
+        controller.view.frame = window.contentView?.bounds ?? .zero
+        controller.configure(
+            result: fixture.result(
+                workflowMode: .haplotyped,
+                bundleURL: bundleURL,
+                haplotypeAnalysis: fixture.haplotypeAnalysis,
+                genotypeCount: 120
+            )
+        )
+        window.makeKeyAndOrderFront(nil)
+        controller.testingApplyDisplayState(
+            GenotypeResultDisplayState(summaryViewMode: .matrix)
+        )
+        controller.testingApplyDisplayState(
+            GenotypeResultDisplayState(summaryViewMode: .outline)
+        )
+        settleVisiblePresentation(controller: controller, window: window)
+        for index in 0..<20 {
+            controller.testingApplyDisplayState(
+                GenotypeResultDisplayState(
+                    summaryViewMode: index.isMultiple(of: 2)
+                        ? .matrix
+                        : .outline
+                )
+            )
+            settleVisiblePresentation(
+                controller: controller,
+                window: window
+            )
+        }
+        controller.testingResetSynchronizedMiSeqPerformanceCounters()
+
+        var samples: [TimeInterval] = []
+        var matrixSamples: [TimeInterval] = []
+        var outlineSamples: [TimeInterval] = []
+        samples.reserveCapacity(240)
+        for index in 0..<240 {
+            let start = CFAbsoluteTimeGetCurrent()
+            controller.testingApplyDisplayState(
+                GenotypeResultDisplayState(
+                    summaryViewMode: index.isMultiple(of: 2)
+                        ? .matrix
+                        : .outline
+                )
+            )
+            settleVisiblePresentation(
+                controller: controller,
+                window: window
+            )
+            let elapsed = CFAbsoluteTimeGetCurrent() - start
+            samples.append(elapsed)
+            if index.isMultiple(of: 2) {
+                matrixSamples.append(elapsed)
+            } else {
+                outlineSamples.append(elapsed)
+            }
+        }
+
+        let p95 = percentile(samples, 0.95)
+        let p99 = percentile(samples, 0.99)
+        print(
+            "Synchronized miSeq warm switch benchmark (seconds): "
+                + "samples=\(samples.count), p95=\(p95), p99=\(p99), "
+                + "matrix_p95=\(percentile(matrixSamples, 0.95)), "
+                + "outline_p95=\(percentile(outlineSamples, 0.95))"
+        )
+        XCTAssertLessThanOrEqual(p95, 0.0167)
+        XCTAssertLessThanOrEqual(p99, 0.0334)
+    }
+
+    private func settleVisiblePresentation(
+        controller: GenotypeResultViewController,
+        window: NSWindow
+    ) {
+        controller.view.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+    }
+
     func testRepresentativeMatrixInteractionsMeetReleaseFrameBudgets()
         throws
     {
@@ -570,6 +799,25 @@ final class GenotypeManualHaplotypePerformanceTests: XCTestCase {
             : 0
     }
 
+    private func makeTemporaryBundleURL(named name: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "\(name)-\(UUID().uuidString).lungfishgenotype",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: url,
+            withIntermediateDirectories: true
+        )
+        try Data(#"{"analysis":"performance-test-fixture"}"#.utf8)
+            .write(
+                to: url.appendingPathComponent(
+                    ONTGenotypeResultBundleManifest.filename
+                )
+            )
+        return url
+    }
+
 #if DEBUG
     private func makePerformanceComparisonModel(
         rowCount: Int,
@@ -918,17 +1166,41 @@ struct GenotypeManualHaplotypeTask10Fixture {
 
     func result(
         workflowMode: GenotypeResultWorkflowMode,
-        bundleURL requestedBundleURL: URL? = nil
+        bundleURL requestedBundleURL: URL? = nil,
+        haplotypeAnalysis: GenotypeHaplotypeAnalysis? = nil,
+        genotypeCount: Int? = nil
     ) -> ONTGenotypeResultBundleData {
-        let genotypes = [
-            "01_Mafa_A1_001_01",
-            "12_Mafa_B_001_01",
-            "21_Mafa_DRB_001_01",
-            "31_Mafa_DQA1_001_01",
-            "41_Mafa_DQB1_001_01",
-            "51_Mafa_DPA1_001_01",
-            "61_Mafa_DPB1_001_01",
-        ]
+        let genotypes: [String]
+        if let genotypeCount {
+            genotypes = (0..<genotypeCount).map { index in
+                let locus = index.isMultiple(of: 2) ? "A1" : "DQB1"
+                return String(
+                    format: "%02d_Mafa_%@_%03d_01",
+                    index % 20,
+                    locus,
+                    index
+                )
+            }
+        } else {
+            genotypes = [
+                "01_Mafa_A1_001_01",
+                "12_Mafa_B_001_01",
+                "21_Mafa_DRB_001_01",
+                "31_Mafa_DQA1_001_01",
+                "41_Mafa_DQB1_001_01",
+                "51_Mafa_DPA1_001_01",
+                "61_Mafa_DPB1_001_01",
+            ]
+        }
+        let retainedSampleTotalReads = genotypeCount == nil ? nil : 16_000
+        let retainedSampleUniqueReads = genotypeCount == nil ? nil : 12_000
+        let retainedSamplePercent = genotypeCount == nil ? nil : 75.0
+        let retainedOverallInputReads = genotypeCount == nil
+            ? nil
+            : 16_000 * samples.count
+        let retainedOverallUniqueReads = genotypeCount == nil
+            ? nil
+            : 12_000 * samples.count
         var allCalls: [ONTGenotypeCall] = []
         var sampleResults: [ONTGenotypeSampleResult] = []
         allCalls.reserveCapacity(samples.count * genotypes.count)
@@ -940,12 +1212,12 @@ struct GenotypeManualHaplotypeTask10Fixture {
                     genotype: genotype,
                     passedAlignments: 100 + sampleIndex + genotypeIndex,
                     passedUniqueReads: 100 + sampleIndex + genotypeIndex,
-                    sampleTotalReads: nil,
-                    sampleUniqueRetainedReads: nil,
-                    sampleUniqueRetainedPercent: nil,
-                    overallInputReads: nil,
-                    overallUniqueRetainedReads: nil,
-                    overallUniqueRetainedPercent: nil
+                    sampleTotalReads: retainedSampleTotalReads,
+                    sampleUniqueRetainedReads: retainedSampleUniqueReads,
+                    sampleUniqueRetainedPercent: retainedSamplePercent,
+                    overallInputReads: retainedOverallInputReads,
+                    overallUniqueRetainedReads: retainedOverallUniqueReads,
+                    overallUniqueRetainedPercent: retainedSamplePercent
                 )
             }
             allCalls += calls
@@ -958,8 +1230,8 @@ struct GenotypeManualHaplotypeTask10Fixture {
                     passedUniqueReads: calls.reduce(0) {
                         $0 + $1.passedUniqueReads
                     },
-                    sampleTotalReads: nil,
-                    sampleUniqueRetainedPercent: nil,
+                    sampleTotalReads: retainedSampleTotalReads,
+                    sampleUniqueRetainedPercent: retainedSamplePercent,
                     calls: calls
                 )
             )
@@ -1001,7 +1273,7 @@ struct GenotypeManualHaplotypeTask10Fixture {
             ),
             calls: allCalls,
             samples: sampleResults,
-            haplotypeAnalysis: nil,
+            haplotypeAnalysis: haplotypeAnalysis,
             mhcCandidates: nil,
             mhcUnnameableClusters: nil,
             mhcCandidateSequencesByStableClusterID: [:],
@@ -1010,6 +1282,39 @@ struct GenotypeManualHaplotypeTask10Fixture {
             mhcReferenceVisualizations: nil,
             integrityWarnings: [],
             referenceMetadata: nil
+        )
+    }
+
+    var haplotypeAnalysis: GenotypeHaplotypeAnalysis {
+        GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "performance.haplotype-definitions",
+            definitionSetName: "Performance haplotype definitions",
+            speciesName: "Test species",
+            samples: samples.enumerated().map { index, sample in
+                .init(sample: sample, calls: [
+                    .init(
+                        locus: "MHC-A",
+                        sourceLocus: "Mafa-A",
+                        haplotype1: "A\(index % 11)-H1",
+                        haplotype2: "A\(index % 13)-H2",
+                        status: .called,
+                        matchedHaplotypes: [],
+                        observedGenotypeCount: 2,
+                        observedGenotypes: ["A1", "A2"]
+                    ),
+                    .init(
+                        locus: "MHC-B",
+                        sourceLocus: "Mafa-B",
+                        haplotype1: "B\(index % 17)-H1",
+                        haplotype2: "B\(index % 19)-H2",
+                        status: .called,
+                        matchedHaplotypes: [],
+                        observedGenotypeCount: 2,
+                        observedGenotypes: ["B1", "B2"]
+                    ),
+                ])
+            }
         )
     }
 }
