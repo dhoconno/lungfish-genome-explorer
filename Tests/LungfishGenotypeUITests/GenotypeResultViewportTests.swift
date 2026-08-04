@@ -23475,6 +23475,43 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
     }
 
+    func testHaplotypedMiSeqMatrixSelectionControlsVisibleCurationPane()
+        throws
+    {
+        let fixture = try makeSynchronizedMiSeqFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: fixture.result)
+        var state = GenotypeResultDisplayState()
+        state.summaryViewMode = .matrix
+        controller.testingApplyDisplayState(state)
+
+        XCTAssertEqual(controller.testingSummaryViewMode, .matrix)
+        XCTAssertTrue(controller.testingCohortSummaryIsHidden)
+        XCTAssertFalse(controller.testingDetailScrollViewIsHidden)
+        XCTAssertEqual(controller.testingDetailArrangedSubviewCount, 0)
+
+        controller.testingComparisonMatrix.testingSelectMatrixTargets([
+            .column(sample: "Sample-A"),
+        ])
+
+        XCTAssertTrue(controller.testingCohortSummaryIsHidden)
+        XCTAssertFalse(controller.testingDetailScrollViewIsHidden)
+        XCTAssertEqual(controller.testingMountedSampleWorkbenchCount, 1)
+        XCTAssertEqual(
+            controller.testingEffectiveHaplotypeEditorSample,
+            "Sample-A"
+        )
+
+        controller.testingComparisonMatrix.testingSelectMatrixTargets([])
+
+        XCTAssertTrue(controller.testingCohortSummaryIsHidden)
+        XCTAssertFalse(controller.testingDetailScrollViewIsHidden)
+        XCTAssertEqual(controller.testingMountedSampleWorkbenchCount, 0)
+        XCTAssertEqual(controller.testingDetailArrangedSubviewCount, 0)
+    }
+
     func testHaplotypedMiSeqColumnSelectionUsesSharedAssignmentEditorAndAuditedOverrides()
         throws
     {
