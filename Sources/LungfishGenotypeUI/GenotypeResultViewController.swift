@@ -3943,16 +3943,24 @@ public final class GenotypeResultViewController: NSViewController {
             callEvidenceHost?.isHidden = true
         }
 
-        if isGenotypeOnlyResult && showsRawMatrix {
+        if rawMatrixUsesSampleCurationDetail && showsRawMatrix {
             cohortSummaryPanel.isHidden = true
             detailScrollView.isHidden = false
             detailContainer.isHidden = false
             callEvidenceHost?.isHidden = true
+            if currentSelectionState?.matrixTargets.isEmpty ?? true {
+                showEmptySelection()
+            }
         }
 
         if showsRawMatrix {
             ensureComparisonMatrixConfigured()
         }
+    }
+
+    private var rawMatrixUsesSampleCurationDetail: Bool {
+        isGenotypeOnlyResult
+            || presentationPolicy?.appliesToHaplotypedMiSeq == true
     }
 
     private func tapeCell(for haplotypeName: String, status: GenotypeHaplotypeCallStatus) -> GenotypeHaplotypeTapeView.Cell {
@@ -4318,12 +4326,7 @@ public final class GenotypeResultViewController: NSViewController {
         currentCandidateRow = nil
         currentSelectedSample = nil
         currentSelectedLocus = nil
-        manualHaplotypeEditorModel = nil
-        effectiveHaplotypeEditorModel = nil
-        sampleComparisonModel = nil
-        manualHaplotypeDraftRevisionCancellable = nil
-        sampleCurationTrailingModel = nil
-        manualHaplotypeEditorHostView = nil
+        teardownSampleCurationWorkbench()
         alleleSequenceDetailWidthConstraint?.isActive = false
         alleleSequenceDetailWidthConstraint = nil
         alleleSequenceDetailHeightConstraint?.isActive = false
@@ -4331,7 +4334,11 @@ public final class GenotypeResultViewController: NSViewController {
         removeArrangedSubviews(from: detailStack)
         renderedAlleleSequenceRecordIdentities = []
         alleleSequenceDetailView.clear()
-        if !isFullLengthMHCGenotypeViewport {
+        let keepsRawMatrixDetailEmpty =
+            displayState.summaryViewMode == .matrix
+                && rawMatrixUsesSampleCurationDetail
+        if !isFullLengthMHCGenotypeViewport
+            && !keepsRawMatrixDetailEmpty {
             detailStack.addArrangedSubview(caption("Select a sample column or allele row to view details."))
         }
         publishSelectionState(nil)
