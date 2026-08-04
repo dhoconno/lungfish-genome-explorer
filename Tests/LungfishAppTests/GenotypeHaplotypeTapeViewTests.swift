@@ -55,8 +55,9 @@ final class GenotypeHaplotypeTapeViewTests: XCTestCase {
             return XCTFail("Expected accessibility children")
         }
         XCTAssertEqual(children.count, 2)
-        if let first = children.first as? NSAccessibilityElement,
+        if let first = children.first as? NSButton,
            let label = first.accessibilityLabel() {
+            XCTAssertEqual(first.accessibilityRole(), .button)
             XCTAssertTrue(label.contains("H17C119"))
             XCTAssertTrue(label.contains("MHC-A"))
             XCTAssertTrue(label.contains("H1"))
@@ -75,10 +76,11 @@ final class GenotypeHaplotypeTapeViewTests: XCTestCase {
         view.sampleAccessibilityLabel = "DW474"
 
         guard let children = view.accessibilityChildren(),
-              let first = children.first as? NSAccessibilityElement,
+              let first = children.first as? NSButton,
               let label = first.accessibilityLabel() else {
             return XCTFail("Expected NSAccessibilityElement child")
         }
+        XCTAssertEqual(first.accessibilityRole(), .button)
         XCTAssertTrue(label.contains("not observed"))
         XCTAssertFalse(label.contains("absent"))
     }

@@ -125,11 +125,17 @@ final class PortableExclusiveRenameTests: XCTestCase {
     }
 
     func testFallbackHoldsAndRevalidatesRegularSourceAndReservation() throws {
+        struct CloseCall: Equatable {
+            let descriptor: Int32
+            let status: Int32
+        }
+
         let source = try makeFile("source", contents: "payload")
         let destination = root.appendingPathComponent("destination")
         let sourceIdentity = try fileInfo(at: source)
         let heldSource = LockedValue<Int32?>(nil)
         let heldReservation = LockedValue<Int32?>(nil)
+        let closeCalls = LockedValue<[CloseCall]>([])
         let finalValidationCompleted = LockedValue(false)
         let renameObservedFinalValidation = LockedValue(false)
 
@@ -157,6 +163,13 @@ final class PortableExclusiveRenameTests: XCTestCase {
                             destinationName
                         )
                     },
+                    closeDescriptor: { descriptor in
+                        let status = Darwin.close(descriptor)
+                        var calls = closeCalls.value
+                        calls.append(.init(descriptor: descriptor, status: status))
+                        closeCalls.value = calls
+                        return status
+                    },
                     afterFinalWitnessValidation: {
                         finalValidationCompleted.value = true
                     }
@@ -168,8 +181,19 @@ final class PortableExclusiveRenameTests: XCTestCase {
         XCTAssertNotNil(heldSource.value)
         XCTAssertNotNil(heldReservation.value)
         XCTAssertTrue(renameObservedFinalValidation.value)
-        XCTAssertEqual(Darwin.fcntl(try XCTUnwrap(heldSource.value), F_GETFD), -1)
-        XCTAssertEqual(Darwin.fcntl(try XCTUnwrap(heldReservation.value), F_GETFD), -1)
+        XCTAssertEqual(
+            closeCalls.value,
+            [
+                .init(
+                    descriptor: try XCTUnwrap(heldReservation.value),
+                    status: 0
+                ),
+                .init(
+                    descriptor: try XCTUnwrap(heldSource.value),
+                    status: 0
+                ),
+            ]
+        )
     }
 
     func testFallbackRejectsSourceNameSubstitutionAfterReservation() throws {

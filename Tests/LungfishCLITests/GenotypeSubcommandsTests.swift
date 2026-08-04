@@ -19,7 +19,8 @@ final class GenotypeSubcommandsTests: XCTestCase {
             Set(names),
             [
                 "list-samples", "list-cohorts", "ai-haplotyping", "apply-annotations",
-                "replay-matrix-annotation", "replay-manual-haplotype-assignments",
+                "replay-call-overrides", "replay-matrix-annotation",
+                "replay-manual-haplotype-assignments",
                 "export", "export-xlsx",
                 "export-pivot-xlsx", "export-labkey"
             ]
