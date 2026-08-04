@@ -27,8 +27,11 @@ struct GenotypeSampleDetailSheet: View {
     let rows: [CallRow]
     let overrides: [GenotypeAnnotationSidecar.CallOverride]
     let allowedTargetsForLocus: (String) -> [String]
-    var onSaveOverride: (CallRow, GenotypeOverrideSection.OverrideDraft) -> Void
-    var onClearOverride: (CallRow) -> Void
+    var onSaveOverride: (
+        CallRow,
+        GenotypeOverrideSection.OverrideDraft
+    ) -> GenotypeHaplotypeMutationOutcome
+    var onClearOverride: (CallRow) -> GenotypeHaplotypeMutationOutcome
     var onDismiss: () -> Void
     var typographyModel: ContentTypographyModel = .shared
 
@@ -120,8 +123,9 @@ struct GenotypeSampleDetailSheet: View {
                     originalCall: override?.originalCall ?? row.callName,
                     allowedTargets: allowedTargetsForLocus(row.locus),
                     onSave: { draft in
-                        onSaveOverride(row, draft)
-                        editingRowId = nil
+                        if onSaveOverride(row, draft) == .changed {
+                            editingRowId = nil
+                        }
                     },
                     onCancel: {
                         editingRowId = nil
@@ -171,37 +175,47 @@ struct GenotypeSampleDetailSheet: View {
     ) -> some View {
         HStack(spacing: 8) {
             if let override {
-                Button {
-                    onClearOverride(row)
-                } label: {
-                    Label(
-                        "Restore Pipeline Call",
-                        systemImage: "arrow.uturn.backward"
-                    )
+                GenotypeMutationActionButton(
+                    title: "Restore Pipeline Call",
+                    accessibilityIdentifier:
+                        "genotype-sample-detail-restore-"
+                        + "\(row.locus)-\(row.slot.rawValue)",
+                    systemImageName: "arrow.uturn.backward",
+                    isBorderless: true,
+                    help:
+                        "Restore the pipeline call \(override.originalCall) "
+                        + "for \(row.locus) \(row.slot.displayName)."
+                ) {
+                    if onClearOverride(row) == .changed {
+                        editingRowId = nil
+                    }
                 }
-                .buttonStyle(.borderless)
-                .help(
-                    "Restore the pipeline call \(override.originalCall) for "
-                        + "\(row.locus) \(row.slot.displayName)."
-                )
             }
-            Button(editingRowId == row.id ? "Hide" : (override == nil ? "Override\u{2026}" : "Edit\u{2026}")) {
+            GenotypeMutationActionButton(
+                title: editingRowId == row.id
+                    ? "Hide"
+                    : (override == nil ? "Override\u{2026}" : "Edit\u{2026}"),
+                accessibilityIdentifier:
+                    "genotype-sample-detail-edit-"
+                    + "\(row.locus)-\(row.slot.rawValue)"
+            ) {
                 if editingRowId == row.id {
                     editingRowId = nil
                 } else {
                     editingRowId = row.id
                     if let override {
-                        editingDraft = GenotypeOverrideSection.OverrideDraft(
-                            target: override.overrideCall,
-                            reason: override.reasonTag,
-                            rationale: override.rationale
-                        )
+                        editingDraft =
+                            GenotypeOverrideSection.OverrideDraft(
+                                target: override.overrideCall,
+                                reason: override.reasonTag,
+                                rationale: override.rationale
+                            )
                     } else {
-                        editingDraft = GenotypeOverrideSection.OverrideDraft()
+                        editingDraft =
+                            GenotypeOverrideSection.OverrideDraft()
                     }
                 }
             }
-            .controlSize(.small)
         }
     }
 

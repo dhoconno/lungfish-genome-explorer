@@ -183,6 +183,17 @@ public final class GenotypeResultViewController: NSViewController {
             }
             return nil
         }
+
+        var viewOutcome: GenotypeHaplotypeMutationOutcome {
+            switch self {
+            case .changed:
+                return .changed
+            case .unchanged:
+                return .unchanged
+            case .failure:
+                return .failure
+            }
+        }
     }
 
     private enum ManualHaplotypeEditorError: Error, LocalizedError {
@@ -3129,13 +3140,24 @@ public final class GenotypeResultViewController: NSViewController {
         syncOutlineReviewSelection()
     }
 
-    private func makeCallEvidenceView(evidence: GenotypeCallEvidenceView.Evidence?) -> GenotypeCallEvidenceView {
-        var view = GenotypeCallEvidenceView(evidence: evidence)
+    private func makeCallEvidenceView(
+        evidence: GenotypeCallEvidenceView.Evidence?,
+        initialPendingOverrides:
+            GenotypeCallEvidenceView.PendingOverrides = .init()
+    ) -> GenotypeCallEvidenceView {
+        var view = GenotypeCallEvidenceView(
+            evidence: evidence,
+            initialPendingOverrides: initialPendingOverrides
+        )
         view.onOverrideRequested = { [weak self] haplotypeName, slot in
-            self?.applyOverrideFromInspector(haplotype: haplotypeName, slot: slot)
+            self?.applyOverrideFromInspector(
+                haplotype: haplotypeName,
+                slot: slot
+            ).viewOutcome ?? .failure
         }
         view.onOverridesRequested = { [weak self] requests in
-            _ = self?.applyOverridesFromInspector(requests)
+            self?.applyOverridesFromInspector(requests).viewOutcome
+                ?? .failure
         }
         view.onConfirmRequested = { [weak self] in
             self?.confirmCurrentCallEvidence()
@@ -8122,8 +8144,11 @@ public final class GenotypeResultViewController: NSViewController {
         updateCallEvidence()
     }
 
-    private func applyOverrideFromInspector(haplotype: String, slot: HaplotypeSlot) {
-        _ = applyOverridesFromInspector([
+    private func applyOverrideFromInspector(
+        haplotype: String,
+        slot: HaplotypeSlot
+    ) -> EffectiveHaplotypeMutationOutcome {
+        applyOverridesFromInspector([
             .init(slot: slot, haplotypeName: haplotype),
         ])
     }
@@ -8132,10 +8157,10 @@ public final class GenotypeResultViewController: NSViewController {
     private func applyOverridesFromInspector(
         _ requests: [GenotypeCallEvidenceView.HaplotypeOverrideRequest],
         presentErrors: Bool = true
-    ) -> Error? {
-        guard let evidence = callEvidence else { return nil }
+    ) -> EffectiveHaplotypeMutationOutcome {
+        guard let evidence = callEvidence else { return .unchanged }
         let requests = requests.filter { !$0.haplotypeName.isEmpty }
-        guard !requests.isEmpty else { return nil }
+        guard !requests.isEmpty else { return .unchanged }
         let rawCall = rawLocusCall(sample: evidence.sample, locus: evidence.locus)
         let analysisIdentity = activeCallOverrideAnalysisIdentity()
         let mutations = requests.map { request in
@@ -8159,7 +8184,7 @@ public final class GenotypeResultViewController: NSViewController {
             mutations,
             analysisIdentity: analysisIdentity,
             presentErrors: presentErrors
-        ).error
+        )
     }
 
     private func rawLocusCall(sample sampleId: String, locus: String) -> GenotypeHaplotypeLocusCall? {
@@ -8309,15 +8334,24 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func presentSampleDetailSheet(forAnimal animalId: String) {
-        guard let result,
-              let presentation = sampleDetailPresentation(for: animalId) else {
+        guard let rootView = makeSampleDetailSheet(forAnimal: animalId) else {
             return
         }
-        let rows = presentation.rows
-        let overrides = presentation.overrides
 #if DEBUG
         testingSampleDetailSheetPresentationCounter += 1
 #endif
+        let hostingController = NSHostingController(rootView: rootView)
+        sampleDetailHostingController = hostingController
+        presentAsSheet(hostingController)
+    }
+
+    private func makeSampleDetailSheet(
+        forAnimal animalId: String
+    ) -> GenotypeSampleDetailSheet? {
+        guard let result,
+              let presentation = sampleDetailPresentation(for: animalId) else {
+            return nil
+        }
         let definitionSet = definitionSetForResult(result)
         let allowedTargets: (String) -> [String] = { locus in
             guard let definitionSet else { return [] }
@@ -8331,25 +8365,26 @@ public final class GenotypeResultViewController: NSViewController {
             )
         }
 
-        let hostingController = NSHostingController(
-            rootView: GenotypeSampleDetailSheet(
-                sampleId: animalId,
-                rows: rows,
-                overrides: overrides,
-                allowedTargetsForLocus: allowedTargets,
-                onSaveOverride: { [weak self] row, draft in
-                    self?.saveOverride(forAnimal: animalId, row: row, draft: draft)
-                },
-                onClearOverride: { [weak self] row in
-                    self?.clearOverride(forAnimal: animalId, row: row)
-                },
-                onDismiss: { [weak self] in
-                    self?.dismissSampleDetailSheet()
-                }
-            )
+        return GenotypeSampleDetailSheet(
+            sampleId: animalId,
+            rows: presentation.rows,
+            overrides: presentation.overrides,
+            allowedTargetsForLocus: allowedTargets,
+            onSaveOverride: { [weak self] row, draft in
+                self?.saveOverride(
+                    forAnimal: animalId,
+                    row: row,
+                    draft: draft
+                ) ?? .failure
+            },
+            onClearOverride: { [weak self] row in
+                self?.clearOverride(forAnimal: animalId, row: row)
+                    ?? .failure
+            },
+            onDismiss: { [weak self] in
+                self?.dismissSampleDetailSheet()
+            }
         )
-        sampleDetailHostingController = hostingController
-        presentAsSheet(hostingController)
     }
 
     private func sampleDetailPresentation(
@@ -8407,7 +8442,8 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func saveOverride(forAnimal animalId: String,
                               row: GenotypeSampleDetailSheet.CallRow,
-                              draft: GenotypeOverrideSection.OverrideDraft) {
+                              draft: GenotypeOverrideSection.OverrideDraft)
+        -> GenotypeHaplotypeMutationOutcome {
         let mutation = sampleDetailOverrideMutation(
             animalId: animalId,
             row: row,
@@ -8421,13 +8457,17 @@ public final class GenotypeResultViewController: NSViewController {
             // working after a persisted change.
             dismissSampleDetailSheet()
             presentSampleDetailSheet(forAnimal: animalId)
-        case .unchanged, .failure:
-            break
+            return .changed
+        case .unchanged:
+            return .unchanged
+        case .failure:
+            return .failure
         }
     }
 
     private func clearOverride(forAnimal animalId: String,
-                               row: GenotypeSampleDetailSheet.CallRow) {
+                               row: GenotypeSampleDetailSheet.CallRow)
+        -> GenotypeHaplotypeMutationOutcome {
         let existing = effectiveHaplotypeProjection?.authoritativeOverride(
             sample: animalId,
             locus: row.locus,
@@ -8444,8 +8484,11 @@ public final class GenotypeResultViewController: NSViewController {
         case .changed:
             dismissSampleDetailSheet()
             presentSampleDetailSheet(forAnimal: animalId)
-        case .unchanged, .failure:
-            break
+            return .changed
+        case .unchanged:
+            return .unchanged
+        case .failure:
+            return .failure
         }
     }
 
@@ -9988,17 +10031,20 @@ extension GenotypeResultViewController {
     }
 
     func testingApplyOverrideFromInspector(haplotype: String, slot: HaplotypeSlot) {
-        applyOverrideFromInspector(haplotype: haplotype, slot: slot)
+        _ = applyOverrideFromInspector(haplotype: haplotype, slot: slot)
     }
 
     func testingApplyOverridesFromInspector(_ requests: [GenotypeCallEvidenceView.HaplotypeOverrideRequest]) {
-        applyOverridesFromInspector(requests)
+        _ = applyOverridesFromInspector(requests)
     }
 
     func testingApplyOverridesFromInspectorWithoutPresentingError(
         _ requests: [GenotypeCallEvidenceView.HaplotypeOverrideRequest]
     ) -> Error? {
-        applyOverridesFromInspector(requests, presentErrors: false)
+        applyOverridesFromInspector(
+            requests,
+            presentErrors: false
+        ).error
     }
 
     var testingCurrentSelectedSample: String? {
@@ -10011,6 +10057,21 @@ extension GenotypeResultViewController {
 
     var testingCallEvidencePaneHidden: Bool {
         detailContainer.isHidden || (callEvidenceHost?.isHidden ?? true)
+    }
+
+    func testingCallEvidenceRootView(
+        pendingRequests: [
+            GenotypeCallEvidenceView.HaplotypeOverrideRequest
+        ] = []
+    ) -> GenotypeCallEvidenceView {
+        var pendingOverrides = GenotypeCallEvidenceView.PendingOverrides()
+        for request in pendingRequests {
+            pendingOverrides.stage(request)
+        }
+        return makeCallEvidenceView(
+            evidence: callEvidence,
+            initialPendingOverrides: pendingOverrides
+        )
     }
 
     func testingOutlineIssueCount(sample: String) -> Int? {
@@ -11172,6 +11233,12 @@ extension GenotypeResultViewController {
         sampleDetailPresentation(for: sample)?.overrides ?? []
     }
 
+    func testingSampleDetailRootView(
+        sample: String
+    ) -> GenotypeSampleDetailSheet? {
+        makeSampleDetailSheet(forAnimal: sample)
+    }
+
     func testingSaveSampleDetailOverrideWithoutPresentingSheet(
         sample: String,
         row: GenotypeSampleDetailSheet.CallRow,
@@ -11219,7 +11286,7 @@ extension GenotypeResultViewController {
         sample: String,
         row: GenotypeSampleDetailSheet.CallRow
     ) {
-        clearOverride(forAnimal: sample, row: row)
+        _ = clearOverride(forAnimal: sample, row: row)
     }
 
     func testingSetSheetAlertHandler(

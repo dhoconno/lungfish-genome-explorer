@@ -369,14 +369,36 @@ struct GenotypeCallEvidenceView: View {
     let evidence: Evidence?
     /// Optional callback that fires when the analyst promotes a candidate
     /// haplotype from the review matrix.
-    var onOverrideRequested: ((String, HaplotypeSlot) -> Void)?
-    var onOverridesRequested: (([HaplotypeOverrideRequest]) -> Void)?
+    var onOverrideRequested: ((String, HaplotypeSlot) ->
+        GenotypeHaplotypeMutationOutcome)?
+    var onOverridesRequested: (([HaplotypeOverrideRequest]) ->
+        GenotypeHaplotypeMutationOutcome)?
     var onConfirmRequested: (() -> Void)?
     var onSkipRequested: (() -> Void)?
     var typographyModel: ContentTypographyModel = .shared
 
     @State private var pendingOverrides = PendingOverrides()
     @State private var hiddenGenotypeSections: Set<String> = []
+
+    init(
+        evidence: Evidence?,
+        onOverrideRequested: ((String, HaplotypeSlot) ->
+            GenotypeHaplotypeMutationOutcome)? = nil,
+        onOverridesRequested: (([HaplotypeOverrideRequest]) ->
+            GenotypeHaplotypeMutationOutcome)? = nil,
+        onConfirmRequested: (() -> Void)? = nil,
+        onSkipRequested: (() -> Void)? = nil,
+        typographyModel: ContentTypographyModel = .shared,
+        initialPendingOverrides: PendingOverrides = .init()
+    ) {
+        self.evidence = evidence
+        self.onOverrideRequested = onOverrideRequested
+        self.onOverridesRequested = onOverridesRequested
+        self.onConfirmRequested = onConfirmRequested
+        self.onSkipRequested = onSkipRequested
+        self.typographyModel = typographyModel
+        _pendingOverrides = State(initialValue: initialPendingOverrides)
+    }
 
     private var contentEmphasizedFont: Font { typographyModel.font(for: .emphasizedBody) }
     private var contentCaptionFont: Font { typographyModel.font(for: .caption) }
@@ -1051,14 +1073,15 @@ struct GenotypeCallEvidenceView: View {
             Spacer()
             ForEach(actions) { action in
                 let isPending = pendingOverrides.target(for: action.slot) == action.haplotypeName
-                Button(action.label) {
-                    stageOverride(action)
-                }
-                .controlSize(.small)
-                .lineLimit(1)
-                .help(action.help)
-                .accessibilityLabel(action.help)
-                .foregroundStyle(isPending ? Color.accentColor : Color.primary)
+                GenotypeMutationActionButton(
+                    title: action.label,
+                    accessibilityIdentifier:
+                        "genotype-call-evidence-stage-"
+                        + "\(action.slot.rawValue)-\(action.haplotypeName)",
+                    help: action.help,
+                    tintColor: isPending ? .controlAccentColor : nil,
+                    action: { stageOverride(action) }
+                )
             }
         }
         .padding(.vertical, 3)
@@ -1098,14 +1121,17 @@ struct GenotypeCallEvidenceView: View {
                 if !actions.isEmpty {
                     ForEach(actions) { action in
                         let isPending = pendingOverrides.target(for: action.slot) == action.haplotypeName
-                        Button(action.label) {
-                            stageOverride(action)
-                        }
-                        .controlSize(.small)
-                        .lineLimit(1)
-                        .help(action.help)
-                        .accessibilityLabel(action.help)
-                        .foregroundStyle(isPending ? Color.accentColor : Color.primary)
+                        GenotypeMutationActionButton(
+                            title: action.label,
+                            accessibilityIdentifier:
+                                "genotype-call-evidence-stage-"
+                                + "\(action.slot.rawValue)-"
+                                + action.haplotypeName,
+                            help: action.help,
+                            tintColor:
+                                isPending ? .controlAccentColor : nil,
+                            action: { stageOverride(action) }
+                        )
                     }
                 }
             }
@@ -1154,20 +1180,38 @@ struct GenotypeCallEvidenceView: View {
                     pendingOverrides.clear()
                 }
                 .controlSize(.small)
-                Button("Apply pending") {
+                GenotypeMutationActionButton(
+                    title: "Apply pending",
+                    accessibilityIdentifier:
+                        "genotype-call-evidence-apply-pending",
+                    isEnabled: !pendingOverrides.isEmpty,
+                    keyEquivalent: "\r"
+                ) {
                     let requests = pendingOverrides.requests
-                    pendingOverrides.clear()
-                    if onOverridesRequested != nil {
-                        onOverridesRequested?(requests)
-                    } else {
-                        for request in requests {
-                            onOverrideRequested?(request.haplotypeName, request.slot)
+                    let outcome: GenotypeHaplotypeMutationOutcome
+                    if let onOverridesRequested {
+                        outcome = onOverridesRequested(requests)
+                    } else if let onOverrideRequested {
+                        let outcomes = requests.map {
+                            onOverrideRequested(
+                                $0.haplotypeName,
+                                $0.slot
+                            )
                         }
+                        if outcomes.contains(.failure) {
+                            outcome = .failure
+                        } else if outcomes.contains(.changed) {
+                            outcome = .changed
+                        } else {
+                            outcome = .unchanged
+                        }
+                    } else {
+                        outcome = .failure
+                    }
+                    if outcome == .changed {
+                        pendingOverrides.clear()
                     }
                 }
-                .controlSize(.small)
-                .keyboardShortcut(.defaultAction)
-                .disabled(pendingOverrides.isEmpty)
             }
         }
         .padding(.vertical, 6)

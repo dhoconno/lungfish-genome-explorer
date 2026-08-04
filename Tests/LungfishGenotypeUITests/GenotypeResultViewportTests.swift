@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import SwiftUI
 import CryptoKit
 @testable import LungfishGenotypeUI
 import LungfishCore
@@ -23942,6 +23943,231 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
     }
 
+    func testHaplotypedMiSeqRenderedEvidenceRetainsPendingDraftAcrossNoOpAndFailures()
+        throws {
+        do {
+            let fixture = try makeSynchronizedMiSeqFixture()
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            let controller = GenotypeResultViewController()
+            _ = controller.view
+            controller.configure(result: fixture.result)
+            controller.testingSelectCellEvidence(
+                animalId: "Sample-A",
+                locus: "MHC-A"
+            )
+            let staleRenderedView =
+                controller.testingCallEvidenceRootView(pendingRequests: [
+                    .init(slot: .h1, haplotypeName: "A3"),
+                ])
+            controller.testingApplyOverrideFromInspector(
+                haplotype: "A3",
+                slot: .h1
+            )
+
+            try assertRenderedEvidenceSubmissionRetainsPendingDraft(
+                staleRenderedView
+            )
+
+            XCTAssertTrue(
+                controller
+                    .testingLastEffectiveHaplotypeMutationChangedKeys
+                    .isEmpty
+            )
+            XCTAssertTrue(
+                controller.testingLastEffectiveHaplotypeRefreshedKeys.isEmpty
+            )
+        }
+
+        do {
+            let fixture = try makeSynchronizedMiSeqFixture()
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            let controller = GenotypeResultViewController()
+            _ = controller.view
+            controller.configure(result: fixture.result)
+            controller.testingSelectCellEvidence(
+                animalId: "Sample-A",
+                locus: "MHC-A"
+            )
+            let faultingStore = try GenotypeAnnotationStore(
+                bundleURL: fixture.bundleURL,
+                author: "Faulting Analyst",
+                seedBuiltInSmartCohorts: false,
+                publicationFaultInjector: { point in
+                    point == .beforeProvenancePublication
+                        ? WorkbookSnapshotEncodingTestError.injected
+                        : nil
+                }
+            )
+            controller.testingInstallEffectiveHaplotypeAnnotationStore(
+                faultingStore
+            )
+            var errors: [Error] = []
+            controller.testingSetSheetAlertHandler { errors.append($0) }
+
+            try assertRenderedEvidenceSubmissionRetainsPendingDraft(
+                controller.testingCallEvidenceRootView(pendingRequests: [
+                    .init(slot: .h1, haplotypeName: "A3"),
+                ])
+            )
+
+            XCTAssertEqual(errors.count, 2)
+        }
+
+        do {
+            let fixture = try makeSynchronizedMiSeqFixture()
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            let controller = GenotypeResultViewController()
+            _ = controller.view
+            controller.configure(result: fixture.result)
+            controller.testingSelectCellEvidence(
+                animalId: "Sample-A",
+                locus: "MHC-A"
+            )
+            controller.testingRemoveEffectiveHaplotypeAnnotationStore()
+            var errors: [Error] = []
+            controller.testingSetSheetAlertHandler { errors.append($0) }
+
+            try assertRenderedEvidenceSubmissionRetainsPendingDraft(
+                controller.testingCallEvidenceRootView(pendingRequests: [
+                    .init(slot: .h1, haplotypeName: "A3"),
+                ])
+            )
+
+            XCTAssertEqual(errors.count, 2)
+        }
+
+        do {
+            let fixture = try makeSynchronizedMiSeqFixture()
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            let controller = GenotypeResultViewController()
+            _ = controller.view
+            controller.configure(result: fixture.result)
+            controller.testingSelectCellEvidence(
+                animalId: "Sample-A",
+                locus: "MHC-A"
+            )
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o555],
+                ofItemAtPath: fixture.bundleURL.path
+            )
+            defer {
+                try? FileManager.default.setAttributes(
+                    [.posixPermissions: 0o755],
+                    ofItemAtPath: fixture.bundleURL.path
+                )
+            }
+            let readOnlyStore = try GenotypeAnnotationStore(
+                bundleURL: fixture.bundleURL,
+                author: "Read-only Analyst",
+                seedBuiltInSmartCohorts: false
+            )
+            controller.testingInstallEffectiveHaplotypeAnnotationStore(
+                readOnlyStore
+            )
+            var errors: [Error] = []
+            controller.testingSetSheetAlertHandler { errors.append($0) }
+
+            try assertRenderedEvidenceSubmissionRetainsPendingDraft(
+                controller.testingCallEvidenceRootView(pendingRequests: [
+                    .init(slot: .h1, haplotypeName: "A3"),
+                ])
+            )
+
+            XCTAssertEqual(errors.count, 2)
+        }
+    }
+
+    func testHaplotypedMiSeqRenderedSampleDetailRetainsDraftForNoOpAndFailure()
+        throws {
+        do {
+            let fixture = try makeSynchronizedMiSeqFixture()
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            let controller = GenotypeResultViewController()
+            _ = controller.view
+            controller.configure(result: fixture.result)
+            let row = try XCTUnwrap(
+                controller.testingSampleDetailRows(sample: "Sample-A").first {
+                    $0.locus == "MHC-A" && $0.slot == .h1
+                }
+            )
+            XCTAssertNil(
+                controller.testingSaveSampleDetailOverrideWithoutPresentingSheet(
+                    sample: "Sample-A",
+                    row: row,
+                    target: "A3"
+                )
+            )
+            let renderedView = try XCTUnwrap(
+                controller.testingSampleDetailRootView(sample: "Sample-A")
+            )
+
+            try assertRenderedSampleDetailSaveRetainsDraft(
+                renderedView,
+                row: row
+            )
+
+            XCTAssertTrue(
+                controller.testingLastEffectiveHaplotypeMutationChangedKeys
+                    .isEmpty
+            )
+            XCTAssertTrue(
+                controller.testingLastEffectiveHaplotypeRefreshedKeys.isEmpty
+            )
+        }
+
+        do {
+            let fixture = try makeSynchronizedMiSeqFixture()
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            let controller = GenotypeResultViewController()
+            _ = controller.view
+            controller.configure(result: fixture.result)
+            let row = try XCTUnwrap(
+                controller.testingSampleDetailRows(sample: "Sample-A").first {
+                    $0.locus == "MHC-A" && $0.slot == .h1
+                }
+            )
+            XCTAssertNil(
+                controller.testingSaveSampleDetailOverrideWithoutPresentingSheet(
+                    sample: "Sample-A",
+                    row: row,
+                    target: "A3"
+                )
+            )
+            let staleRenderedView = try XCTUnwrap(
+                controller.testingSampleDetailRootView(sample: "Sample-A")
+            )
+            XCTAssertNil(
+                controller.testingSaveSampleDetailOverrideWithoutPresentingSheet(
+                    sample: "Sample-A",
+                    row: row,
+                    target: "A4"
+                )
+            )
+            let faultingStore = try GenotypeAnnotationStore(
+                bundleURL: fixture.bundleURL,
+                author: "Faulting Analyst",
+                seedBuiltInSmartCohorts: false,
+                publicationFaultInjector: { point in
+                    point == .beforeProvenancePublication
+                        ? WorkbookSnapshotEncodingTestError.injected
+                        : nil
+                }
+            )
+            controller.testingInstallEffectiveHaplotypeAnnotationStore(
+                faultingStore
+            )
+            var errors: [Error] = []
+            controller.testingSetSheetAlertHandler { errors.append($0) }
+
+            try assertRenderedSampleDetailSaveRetainsDraft(
+                staleRenderedView,
+                row: row
+            )
+
+            XCTAssertEqual(errors.count, 2)
+        }
+    }
+
     func testHaplotypedMiSeqPublicationFaultPreservesSynchronizedState()
         throws {
         let fixture = try makeSynchronizedMiSeqFixture()
@@ -24139,6 +24365,133 @@ final class GenotypeResultViewportTests: XCTestCase {
         let root: URL
         let bundleURL: URL
         let result: ONTGenotypeResultBundleData
+    }
+
+    private func assertRenderedEvidenceSubmissionRetainsPendingDraft(
+        _ view: GenotypeCallEvidenceView,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let host = NSHostingView(rootView: view)
+        host.frame = NSRect(x: 0, y: 0, width: 1_200, height: 1_600)
+        let window = NSWindow(
+            contentRect: host.frame,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer { window.close() }
+        flushRenderedMutationHost(host)
+        let apply = try XCTUnwrap(
+            renderedMutationButton(
+                "genotype-call-evidence-apply-pending",
+                in: host
+            ),
+            "Expected rendered Apply pending button after staging A3.",
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(window.makeFirstResponder(apply), file: file, line: line)
+
+        apply.performClick(nil)
+        flushRenderedMutationHost(host)
+
+        let retained = try XCTUnwrap(
+            renderedMutationButton(
+                "genotype-call-evidence-apply-pending",
+                in: host
+            ),
+            "Expected failed/no-op Apply pending to retain its draft.",
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(retained === apply, file: file, line: line)
+        XCTAssertTrue(window.firstResponder === apply, file: file, line: line)
+        retained.performClick(nil)
+        flushRenderedMutationHost(host)
+        XCTAssertTrue(
+            renderedMutationButton(
+                "genotype-call-evidence-apply-pending",
+                in: host
+            ) === apply,
+            file: file,
+            line: line
+        )
+    }
+
+    private func assertRenderedSampleDetailSaveRetainsDraft(
+        _ view: GenotypeSampleDetailSheet,
+        row: GenotypeSampleDetailSheet.CallRow,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let host = NSHostingView(rootView: view)
+        host.frame = NSRect(x: 0, y: 0, width: 1_200, height: 1_200)
+        let window = NSWindow(
+            contentRect: host.frame,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer { window.close() }
+        flushRenderedMutationHost(host)
+        let editIdentifier = "genotype-sample-detail-edit-"
+            + "\(row.locus)-\(row.slot.rawValue)"
+        let edit = try XCTUnwrap(
+            renderedMutationButton(editIdentifier, in: host),
+            "Expected rendered detail-sheet Edit control.",
+            file: file,
+            line: line
+        )
+        edit.performClick(nil)
+        flushRenderedMutationHost(host)
+        let save = try XCTUnwrap(
+            renderedMutationButton("genotypeOverrideSaveButton", in: host),
+            "Expected rendered detail-sheet Save control.",
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(window.makeFirstResponder(save), file: file, line: line)
+
+        save.performClick(nil)
+        flushRenderedMutationHost(host)
+
+        let retained = try XCTUnwrap(
+            renderedMutationButton("genotypeOverrideSaveButton", in: host),
+            "Expected failed/no-op Save to retain its draft.",
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(retained === save, file: file, line: line)
+        XCTAssertTrue(window.firstResponder === save, file: file, line: line)
+        retained.performClick(nil)
+        flushRenderedMutationHost(host)
+        XCTAssertTrue(
+            renderedMutationButton("genotypeOverrideSaveButton", in: host)
+                === save,
+            file: file,
+            line: line
+        )
+    }
+
+    private func renderedMutationButton(
+        _ identifier: String,
+        in root: NSView
+    ) -> NSButton? {
+        descendants(of: root).compactMap { $0 as? NSButton }.first {
+            $0.accessibilityIdentifier() == identifier
+        }
+    }
+
+    private func flushRenderedMutationHost(_ host: NSView) {
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.08))
+        host.layoutSubtreeIfNeeded()
     }
 
     private func makeSynchronizedMiSeqFixture()

@@ -451,6 +451,57 @@ final class GenotypeCallEvidenceViewTests: XCTestCase {
         XCTAssertFalse(pending.isEmpty)
     }
 
+    func testRenderedPendingOverrideClearsOnlyAfterChangedCallback() throws {
+        for outcome in [
+            GenotypeHaplotypeMutationOutcome.unchanged,
+            .failure,
+            .changed,
+        ] {
+            var callbackRequests: [[
+                GenotypeCallEvidenceView.HaplotypeOverrideRequest
+            ]] = []
+            let mounted = mountEvidenceView(
+                onOverridesRequested: {
+                    callbackRequests.append($0)
+                    return outcome
+                }
+            )
+            defer { mounted.window.close() }
+            let stage = try XCTUnwrap(
+                button(
+                    "genotype-call-evidence-stage-h1-M3DP",
+                    in: mounted.host
+                )
+            )
+            stage.performClick(nil)
+            flush(mounted.host)
+            let apply = try XCTUnwrap(
+                button(
+                    "genotype-call-evidence-apply-pending",
+                    in: mounted.host
+                )
+            )
+            XCTAssertTrue(mounted.window.makeFirstResponder(apply))
+
+            apply.performClick(nil)
+            flush(mounted.host)
+
+            XCTAssertEqual(callbackRequests, [[
+                .init(slot: .h1, haplotypeName: "M3DP"),
+            ]])
+            let retainedApply = button(
+                "genotype-call-evidence-apply-pending",
+                in: mounted.host
+            )
+            if outcome == .changed {
+                XCTAssertNil(retainedApply)
+            } else {
+                XCTAssertTrue(retainedApply === apply)
+                XCTAssertTrue(mounted.window.firstResponder === apply)
+            }
+        }
+    }
+
     func testCandidateRowsUseSlotExplicitSetHaplotypeButtonsAndNotObservedMarkers() throws {
         let sourceURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -463,7 +514,8 @@ final class GenotypeCallEvidenceViewTests: XCTestCase {
         XCTAssertFalse(source.contains("Button(\"Set haplotype"))
         XCTAssertTrue(source.contains("overrideActions(for: candidate, evidence: evidence)"))
         XCTAssertTrue(source.contains("@State private var pendingOverrides"))
-        XCTAssertTrue(source.contains("onOverridesRequested?(requests)"))
+        XCTAssertTrue(source.contains("outcome = onOverridesRequested(requests)"))
+        XCTAssertTrue(source.contains("GenotypeMutationActionButton("))
         XCTAssertTrue(source.contains("[not observed]"))
         XCTAssertTrue(source.contains("haplotypeSlotCards(evidence)"))
         XCTAssertTrue(source.contains("slotCard("))
@@ -473,6 +525,73 @@ final class GenotypeCallEvidenceViewTests: XCTestCase {
         XCTAssertFalse(source.contains("diagnosticAlleles(evidence)"))
         XCTAssertFalse(source.contains("coverageBar(evidence)"))
         XCTAssertFalse(source.contains("neighbors(evidence)"))
+    }
+
+    private typealias MountedEvidence = (
+        window: NSWindow,
+        host: NSHostingView<GenotypeCallEvidenceView>
+    )
+
+    private func mountEvidenceView(
+        onOverridesRequested: @escaping (
+            [GenotypeCallEvidenceView.HaplotypeOverrideRequest]
+        ) -> GenotypeHaplotypeMutationOutcome
+    ) -> MountedEvidence {
+        let evidence = GenotypeCallEvidenceView.Evidence(
+            sample: "DW472",
+            locus: "MHC-DP",
+            slot: .h1,
+            callName: "M4DP / M7DP",
+            status: .tooManyHaplotypes,
+            observedGenotypeCount: 3,
+            observedGenotypes: [],
+            diagnosticAlleles: [],
+            locusReadTotal: 500,
+            neighborsBefore: [],
+            neighborsAfter: [],
+            candidateHaplotypes: [
+                .init(
+                    name: "M3DP",
+                    observed: ["15_M3_DPA1_01"],
+                    missing: ["15_M3_DPB1_01"]
+                ),
+            ],
+            h1Name: "M4DP",
+            h2Name: "M7DP",
+            availableHaplotypeNames: ["M3DP", "M4DP", "M7DP"]
+        )
+        var view = GenotypeCallEvidenceView(evidence: evidence)
+        view.onOverridesRequested = onOverridesRequested
+        let host = NSHostingView(rootView: view)
+        host.frame = NSRect(x: 0, y: 0, width: 1_200, height: 1_600)
+        let window = NSWindow(
+            contentRect: host.frame,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        flush(host)
+        return (window, host)
+    }
+
+    private func flush(_ host: NSView) {
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.08))
+        host.layoutSubtreeIfNeeded()
+    }
+
+    private func button(_ identifier: String, in root: NSView) -> NSButton? {
+        let buttons = descendants(of: root).compactMap { $0 as? NSButton }
+        let match = buttons.first {
+            $0.accessibilityIdentifier() == identifier
+        }
+        return match
+    }
+
+    private func descendants(of root: NSView) -> [NSView] {
+        root.subviews.flatMap { [$0] + descendants(of: $0) }
     }
 
     func testCandidateAlleleLinesUseDisplayLabelForMissingAlleles() throws {

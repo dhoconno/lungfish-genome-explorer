@@ -2,9 +2,92 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import AppKit
 import SwiftUI
 import LungfishCore
 import LungfishIO
+
+/// UI-facing result of an effective haplotype mutation. Views use this
+/// outcome to retain analyst drafts on no-op and failed publications without
+/// taking ownership of error presentation.
+enum GenotypeHaplotypeMutationOutcome: Equatable {
+    case changed
+    case unchanged
+    case failure
+}
+
+/// Concrete AppKit action control for mutation paths embedded in SwiftUI.
+/// Stable NSButton identity makes keyboard and accessibility focus survive a
+/// no-op or failed transaction while the surrounding draft remains mounted.
+@MainActor
+struct GenotypeMutationActionButton: NSViewRepresentable {
+    let title: String
+    let accessibilityIdentifier: String
+    var systemImageName: String? = nil
+    var controlSize: NSControl.ControlSize = .small
+    var isBorderless = false
+    var isEnabled = true
+    var keyEquivalent = ""
+    var help: String? = nil
+    var tintColor: NSColor? = nil
+    let action: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(action: action)
+    }
+
+    func makeNSView(context: Context) -> NSButton {
+        let button = NSButton(
+            title: title,
+            target: context.coordinator,
+            action: #selector(Coordinator.performAction)
+        )
+        configure(button, coordinator: context.coordinator)
+        return button
+    }
+
+    func updateNSView(_ button: NSButton, context: Context) {
+        configure(button, coordinator: context.coordinator)
+    }
+
+    private func configure(_ button: NSButton, coordinator: Coordinator) {
+        coordinator.action = action
+        button.title = title
+        button.controlSize = controlSize
+        button.bezelStyle = .rounded
+        button.isBordered = !isBorderless
+        button.isEnabled = isEnabled
+        button.keyEquivalent = keyEquivalent
+        button.toolTip = help
+        button.contentTintColor = tintColor
+        if let systemImageName {
+            button.image = NSImage(
+                systemSymbolName: systemImageName,
+                accessibilityDescription: nil
+            )
+            button.imagePosition = .imageLeading
+        } else {
+            button.image = nil
+        }
+        button.setAccessibilityElement(true)
+        button.setAccessibilityRole(.button)
+        button.setAccessibilityLabel(title)
+        button.setAccessibilityHelp(help)
+        button.setAccessibilityIdentifier(accessibilityIdentifier)
+    }
+
+    final class Coordinator: NSObject {
+        var action: () -> Void
+
+        init(action: @escaping () -> Void) {
+            self.action = action
+        }
+
+        @objc func performAction() {
+            action()
+        }
+    }
+}
 
 /// Inspector Selection tab section that captures an analyst's override for a single
 /// genotype call.
@@ -229,10 +312,13 @@ struct GenotypeOverrideSection: View {
             Button("Cancel", action: onCancel)
                 .controlSize(.small)
                 .keyboardShortcut(.cancelAction)
-            Button("Save") { onSave(draft) }
-                .controlSize(.small)
-                .keyboardShortcut(.defaultAction)
-                .disabled(draft.target.isEmpty)
+            GenotypeMutationActionButton(
+                title: "Save",
+                accessibilityIdentifier: "genotypeOverrideSaveButton",
+                isEnabled: !draft.target.isEmpty,
+                keyEquivalent: "\r",
+                action: { onSave(draft) }
+            )
         }
     }
 
