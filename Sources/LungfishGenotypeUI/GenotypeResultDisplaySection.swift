@@ -264,6 +264,11 @@ public final class GenotypeResultDisplaySectionViewModel {
 
     public func updateMHCCandidatePresentation(from result: ONTGenotypeResultBundleData) {
         presentationPolicy = GenotypeResultPresentationPolicy(
+            legacyBundleKind: result.manifest.kind,
+            legacyWorkflowDeclarationsAbsent:
+                GenotypeResultPresentationPolicy.workflowDeclarationsAreAbsent(
+                    in: result.manifest
+                ),
             workflowKind: result.manifest.workflowKind,
             workflowMode: result.manifest.workflowMode,
             manualHaplotypeEligibility:

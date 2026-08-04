@@ -187,6 +187,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertEqual(request.haplotypeDefinitionSetID, definition.id)
         XCTAssertEqual(request.haplotypeAssayID, definition.assayID)
         XCTAssertEqual(request.haplotypeSpeciesCode, definition.speciesCode)
+        XCTAssertEqual(request.resultWorkflowKind, .miSeqAmpliconMHCGenotype)
     }
 
     func testMHCReferenceBundleSelectionCollapsesHaplotypePickerStackAndSummarizesBundle() throws {
@@ -1001,6 +1002,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertEqual(request.referenceSourceURL, try MCMHaplotypingPreset.mcmMHCmiseq.bundledReferenceBundleURL())
         XCTAssertEqual(request.presetID, MCMHaplotypingPreset.mcmMHCmiseq.id)
         XCTAssertEqual(request.aiSpecialistPresetID, MCMHaplotypingPreset.mcmMHCmiseq.id)
+        XCTAssertEqual(request.resultWorkflowKind, .miSeqAmpliconMHCGenotype)
         XCTAssertNil(request.haplotypeAssayID)
         XCTAssertNil(request.haplotypeDefinitionSetID)
     }
@@ -1049,6 +1051,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             "MHC-DQ": 0.10,
             "MHC-DP": 0.10,
         ])
+        XCTAssertEqual(request.resultWorkflowKind, .miSeqAmpliconMHCGenotype)
     }
 
     func testHaplotypeDefinitionSelectionTracksAssayScope() throws {

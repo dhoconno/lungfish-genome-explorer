@@ -183,6 +183,7 @@ public struct MCMHaplotypingPreset: Codable, Equatable, Sendable {
             extraArguments: extraArguments,
             mode: mode,
             readType: readType,
+            resultWorkflowKind: .miSeqAmpliconMHCGenotype,
             aiSpecialistPresetID: aiSpecialistPresetID
         )
     }

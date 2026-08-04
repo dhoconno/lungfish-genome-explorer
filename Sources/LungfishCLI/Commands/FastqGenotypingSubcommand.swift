@@ -176,7 +176,8 @@ struct FastqGenotypingSubcommand: AsyncParsableCommand {
             lockedReferenceSHA256: referenceConfiguration.preset?.referenceFASTASHA256,
             extraArguments: parsedExtraArguments,
             mode: parsedMode,
-            readType: parsedReadType
+            readType: parsedReadType,
+            resultWorkflowKind: .miSeqAmpliconMHCGenotype
         )
 
         let result = try await ONTBarcodeDemuxGenotypingPipeline().run(
@@ -544,7 +545,8 @@ struct FastqGenotypingCohortSubcommand: AsyncParsableCommand {
             lockedReferenceSHA256: referenceConfiguration.preset?.referenceFASTASHA256,
             extraArguments: parsedExtraArguments,
             mode: parsedMode,
-            readType: parsedReadType
+            readType: parsedReadType,
+            resultWorkflowKind: .miSeqAmpliconMHCGenotype
         )
 
         let result = try await ONTBarcodeDemuxGenotypingPipeline().run(

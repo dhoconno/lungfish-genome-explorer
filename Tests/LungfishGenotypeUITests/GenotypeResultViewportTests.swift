@@ -21748,6 +21748,52 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
     }
 
+    func testBeta19ONTSampleBundleMiSeqResultUsesTwoPresentationSegments() throws {
+        let call = makeCall(
+            sample: "AnimalA",
+            genotype: "01_Mafa_A1_KNOWN",
+            reads: 42
+        )
+        let manifest = ONTGenotypeResultBundleManifest(
+            kind: "ont-barcode-genotype",
+            workflowKind: nil,
+            workflowMode: nil,
+            outputName: "legacy-miseq",
+            analysisName: "Legacy miSeq",
+            primaryWorkbookPath: "legacy-miseq.xlsx",
+            longSummaryCSVPath: "legacy-miseq.retained-demux-genotypes.csv",
+            sampleSummaryCSVPath: "legacy-miseq.retained-demux-samples.csv",
+            statsJSONPath: "legacy-miseq.retained-demux-stats.json",
+            provenancePath: ".lungfish-provenance.json",
+            haplotypeDefinitionSetID: "mcm-mhc-miseq-primary-20260620",
+            haplotypeAssayID: "MHC-exon2-miSeq"
+        )
+        let result = makeResult(
+            samples: [ONTGenotypeSampleResult(
+                sample: "AnimalA",
+                passedAlignments: 42,
+                passedUniqueReads: 42,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: [call]
+            )],
+            calls: [call],
+            haplotypeAnalysis: makeUsableHaplotypedMiSeqAnalysis(
+                sample: "AnimalA"
+            ),
+            manifest: manifest
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: result)
+        XCTAssertEqual(
+            controller.testingLensControlLabels,
+            ["Haplotype Calls", "Genotype Matrix"]
+        )
+        XCTAssertEqual(controller.testingVisibleLensIdentifier, "summary")
+        XCTAssertEqual(controller.testingSummaryViewMode, .outline)
+    }
+
     func testHaplotypedMiSeqCandidateCellSelectionRetainsDetailsAndEvidence()
         throws
     {

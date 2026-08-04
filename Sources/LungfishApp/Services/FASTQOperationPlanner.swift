@@ -651,7 +651,9 @@ extension FASTQOperationLaunchRequest {
                 lockedReferenceSHA256: request.lockedReferenceSHA256,
                 extraArguments: request.extraArguments,
                 mode: request.mode,
-                readType: request.readType
+                readType: request.readType,
+                resultWorkflowKind: request.resultWorkflowKind,
+                aiSpecialistPresetID: request.aiSpecialistPresetID
             ))
         }
     }

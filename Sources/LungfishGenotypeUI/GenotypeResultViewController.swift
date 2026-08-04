@@ -1033,6 +1033,11 @@ public final class GenotypeResultViewController: NSViewController {
             return
         }
         presentationPolicy = GenotypeResultPresentationPolicy(
+            legacyBundleKind: result.manifest.kind,
+            legacyWorkflowDeclarationsAbsent:
+                GenotypeResultPresentationPolicy.workflowDeclarationsAreAbsent(
+                    in: result.manifest
+                ),
             workflowKind: result.manifest.workflowKind,
             workflowMode: result.manifest.workflowMode,
             manualHaplotypeEligibility: manualHaplotypeEligibility,
@@ -1057,6 +1062,11 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func defaultSummaryViewMode(for result: ONTGenotypeResultBundleData) -> GenotypeSummaryViewMode {
         let policy = presentationPolicy ?? GenotypeResultPresentationPolicy(
+            legacyBundleKind: result.manifest.kind,
+            legacyWorkflowDeclarationsAbsent:
+                GenotypeResultPresentationPolicy.workflowDeclarationsAreAbsent(
+                    in: result.manifest
+                ),
             workflowKind: result.manifest.workflowKind,
             workflowMode: result.manifest.workflowMode,
             manualHaplotypeEligibility: manualHaplotypeEligibility,
@@ -6336,6 +6346,11 @@ public final class GenotypeResultViewController: NSViewController {
             return
         }
         let policy = GenotypeResultPresentationPolicy(
+            legacyBundleKind: result.manifest.kind,
+            legacyWorkflowDeclarationsAbsent:
+                GenotypeResultPresentationPolicy.workflowDeclarationsAreAbsent(
+                    in: result.manifest
+                ),
             workflowKind: result.manifest.workflowKind,
             workflowMode: result.manifest.workflowMode,
             manualHaplotypeEligibility: manualHaplotypeEligibility,
@@ -10239,6 +10254,12 @@ extension GenotypeResultViewController {
 
     var testingLensControlIsHidden: Bool {
         lensControl.isHidden
+    }
+
+    var testingLensControlLabels: [String] {
+        (0 ..< lensControl.segmentCount).map {
+            lensControl.label(forSegment: $0) ?? ""
+        }
     }
 
     var testingContentHostTopInset: CGFloat {

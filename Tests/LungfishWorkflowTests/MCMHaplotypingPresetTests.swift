@@ -61,6 +61,7 @@ final class MCMHaplotypingPresetTests: XCTestCase {
         XCTAssertEqual(request.haplotypeDefinitionSetID, preset.haplotypeDefinitionSetID)
         XCTAssertEqual(request.haplotypeAssayID, preset.haplotypeAssayID)
         XCTAssertEqual(request.haplotypeSpeciesCode, preset.haplotypeSpeciesCode)
+        XCTAssertEqual(request.resultWorkflowKind, .miSeqAmpliconMHCGenotype)
         XCTAssertEqual(try testValue(after: "--preset", in: request.argv), preset.id)
         XCTAssertFalse(request.argv.contains("--reference"))
     }

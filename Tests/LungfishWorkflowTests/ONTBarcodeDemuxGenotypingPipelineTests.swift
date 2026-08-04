@@ -2411,7 +2411,8 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             minSupport: 1,
             keepIntermediates: true,
             mode: .ontSampleBundles,
-            readType: .ont
+            readType: .ont,
+            resultWorkflowKind: .miSeqAmpliconMHCGenotype
         )
 
         _ = try await ONTBarcodeDemuxGenotypingPipeline(
@@ -2454,6 +2455,14 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         let options = try XCTUnwrap(provenance["options"] as? [String: Any])
         XCTAssertEqual(options["resolvedMode"] as? String, "ont-sample-bundles")
         XCTAssertEqual(options["resolvedReadType"] as? String, "ont")
+        XCTAssertEqual(
+            options["resultWorkflowKind"] as? String,
+            GenotypeResultWorkflowKind.miSeqAmpliconMHCGenotype.rawValue
+        )
+        XCTAssertEqual(
+            options["resultWorkflowMode"] as? String,
+            GenotypeResultWorkflowMode.genotypeOnly.rawValue
+        )
         XCTAssertEqual(options["mappingPreset"] as? String, "map-ont")
         XCTAssertEqual(options["requireBothEndSoftclips"] as? Bool, true)
         let sampleBundlePreparation = try XCTUnwrap(options["sampleBundleInputPreparation"] as? [String: Any])
@@ -2463,6 +2472,19 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         let canonicalEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: outputDirectory))
         XCTAssertEqual(canonicalEnvelope.workflowName, "ONT Sample Bundle Amplicon Genotyping")
         XCTAssertEqual(canonicalEnvelope.options.explicit["resolvedMode"], .string("ont-sample-bundles"))
+        XCTAssertEqual(
+            canonicalEnvelope.options.explicit["resultWorkflowKind"],
+            .string(GenotypeResultWorkflowKind.miSeqAmpliconMHCGenotype.rawValue)
+        )
+        XCTAssertEqual(
+            canonicalEnvelope.options.explicit["resultWorkflowMode"],
+            .string(GenotypeResultWorkflowMode.genotypeOnly.rawValue)
+        )
+
+        let manifest = try ONTGenotypeResultBundle.loadManifest(from: outputDirectory)
+        XCTAssertEqual(manifest.kind, GenotypeResultWorkflowKind.miSeqAmpliconMHCGenotype.rawValue)
+        XCTAssertEqual(manifest.workflowKind, .miSeqAmpliconMHCGenotype)
+        XCTAssertEqual(manifest.workflowMode, .genotypeOnly)
         XCTAssertEqual(canonicalEnvelope.steps.filter { $0.toolName == "minimap2" }.count, 1)
     }
 

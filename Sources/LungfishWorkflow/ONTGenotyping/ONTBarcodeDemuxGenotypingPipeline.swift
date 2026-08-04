@@ -71,6 +71,7 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
     public let extraArguments: [String]
     public let mode: AmpliconGenotypingMode
     public let readType: AmpliconGenotypingReadType
+    public let resultWorkflowKind: GenotypeResultWorkflowKind?
     public let aiSpecialistPresetID: String?
 
     public init(
@@ -99,6 +100,7 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
         presetVersion: String? = nil,
         lockedReferenceSHA256: String? = nil,
         extraArguments: [String] = [],
+        resultWorkflowKind: GenotypeResultWorkflowKind? = nil,
         aiSpecialistPresetID: String? = nil
     ) {
         self.init(
@@ -129,6 +131,7 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
             extraArguments: extraArguments,
             mode: .ontBarcodeDemux,
             readType: .ont,
+            resultWorkflowKind: resultWorkflowKind,
             aiSpecialistPresetID: aiSpecialistPresetID
         )
     }
@@ -161,6 +164,7 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
         extraArguments: [String] = [],
         mode: AmpliconGenotypingMode = .auto,
         readType: AmpliconGenotypingReadType = .auto,
+        resultWorkflowKind: GenotypeResultWorkflowKind? = nil,
         aiSpecialistPresetID: String? = nil
     ) {
         let normalizedOutputName = Self.sanitizedOutputName(outputName)
@@ -224,6 +228,7 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
         self.extraArguments = extraArguments
         self.mode = effectiveMode
         self.readType = effectiveReadType
+        self.resultWorkflowKind = resultWorkflowKind
         let trimmedAISpecialistPresetID = aiSpecialistPresetID?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.aiSpecialistPresetID = trimmedAISpecialistPresetID?.isEmpty == true ? nil : trimmedAISpecialistPresetID
     }
@@ -261,6 +266,7 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
             extraArguments: extraArguments,
             mode: mode,
             readType: readType,
+            resultWorkflowKind: resultWorkflowKind,
             aiSpecialistPresetID: aiSpecialistPresetID
         )
     }
@@ -1684,7 +1690,15 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         resolvedMode: AmpliconGenotypingMode,
         resolvedReadType: AmpliconGenotypingReadType
     ) -> [String: Any] {
-        [
+        let resultWorkflowKind = Self.resolvedResultWorkflowKind(
+            for: request,
+            resolvedMode: resolvedMode
+        )
+        let resultWorkflowMode = Self.resolvedResultWorkflowMode(
+            for: request,
+            resolvedMode: resolvedMode
+        )
+        return [
             "inputFASTQs": request.inputFASTQURLs.map(\.path),
             "referenceSource": request.referenceSourceURL.path,
             "barcodeDefinitions":
@@ -1725,6 +1739,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "resolvedMode": resolvedMode.rawValue,
             "readType": request.readType.rawValue,
             "resolvedReadType": resolvedReadType.rawValue,
+            "resultWorkflowKind": resultWorkflowKind?.rawValue as Any? ?? NSNull(),
+            "resultWorkflowMode": resultWorkflowMode?.rawValue as Any? ?? NSNull(),
             "aiSpecialistPresetID":
                 request.aiSpecialistPresetID as Any? ?? NSNull(),
         ]
@@ -1761,6 +1777,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "resolvedMode": AmpliconGenotypingMode.auto.rawValue,
             "readType": AmpliconGenotypingReadType.auto.rawValue,
             "resolvedReadType": AmpliconGenotypingReadType.auto.rawValue,
+            "resultWorkflowKind": NSNull(),
+            "resultWorkflowMode": NSNull(),
             "aiSpecialistPresetID": NSNull(),
         ]
     }
@@ -4249,6 +4267,14 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             : NSNull()
         let requireBothEndSoftclips = illuminaPreparation?.requiresBothEndSoftclips
             ?? (resolvedMode == .ontBarcodeDemux)
+        let resultWorkflowKind = Self.resolvedResultWorkflowKind(
+            for: request,
+            resolvedMode: resolvedMode
+        )
+        let resultWorkflowMode = Self.resolvedResultWorkflowMode(
+            for: request,
+            resolvedMode: resolvedMode
+        )
         let options: [String: Any] = [
             "inputFASTQ": request.inputFASTQURL.path,
             "inputFASTQs": request.inputFASTQURLs.map(\.path),
@@ -4256,6 +4282,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "resolvedMode": resolvedMode.rawValue,
             "readType": request.readType.rawValue,
             "resolvedReadType": resolvedReadType.rawValue,
+            "resultWorkflowKind": resultWorkflowKind?.rawValue as Any? ?? NSNull(),
+            "resultWorkflowMode": resultWorkflowMode?.rawValue as Any? ?? NSNull(),
             "reference": request.referenceSourceURL.path,
             "barcodes": request.barcodeDefinitionsURL?.path as Any? ?? NSNull(),
             "demuxManifest": demuxManifestURL.path,
@@ -4299,6 +4327,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "comparisonName": "Illumina-31262",
             "mode": AmpliconGenotypingMode.auto.rawValue,
             "readType": AmpliconGenotypingReadType.auto.rawValue,
+            "resultWorkflowKind": NSNull(),
+            "resultWorkflowMode": NSNull(),
             "haplotypeAssayID": NSNull(),
             "haplotypeSpeciesCode": NSNull(),
             "haplotypeDefinitionScope": NSNull(),
@@ -4974,14 +5004,18 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         completedAt: Date
     ) throws {
         let resolvedHaplotypeDefinitionSet = try resolveHaplotypeDefinitionSet(for: request)
+        let resultWorkflowKind = Self.resolvedResultWorkflowKind(
+            for: request,
+            resolvedMode: resolvedMode
+        )
+        let resultWorkflowMode = Self.resolvedResultWorkflowMode(
+            for: request,
+            resolvedMode: resolvedMode
+        )
         let manifest = ONTGenotypeResultBundleManifest(
-            kind: resolvedMode == .illuminaPaired
-                ? GenotypeResultWorkflowKind.miSeqAmpliconMHCGenotype.rawValue
-                : "ont-barcode-genotype",
-            workflowKind: resolvedMode == .illuminaPaired ? .miSeqAmpliconMHCGenotype : nil,
-            workflowMode: resolvedMode == .illuminaPaired
-                ? (request.haplotypeDefinitionSetID == nil ? .genotypeOnly : .haplotyped)
-                : nil,
+            kind: resultWorkflowKind?.rawValue ?? "ont-barcode-genotype",
+            workflowKind: resultWorkflowKind,
+            workflowMode: resultWorkflowMode,
             outputName: request.outputName,
             analysisName: request.analysisName,
             primaryWorkbookPath: relativePath(from: request.outputDirectory, to: request.workbookURL),
@@ -5017,6 +5051,24 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 to: request.outputDirectory
             )
         }
+    }
+
+    private static func resolvedResultWorkflowKind(
+        for request: ONTBarcodeDemuxGenotypingRunRequest,
+        resolvedMode: AmpliconGenotypingMode
+    ) -> GenotypeResultWorkflowKind? {
+        request.resultWorkflowKind
+            ?? (resolvedMode == .illuminaPaired ? .miSeqAmpliconMHCGenotype : nil)
+    }
+
+    private static func resolvedResultWorkflowMode(
+        for request: ONTBarcodeDemuxGenotypingRunRequest,
+        resolvedMode: AmpliconGenotypingMode
+    ) -> GenotypeResultWorkflowMode? {
+        guard resolvedResultWorkflowKind(for: request, resolvedMode: resolvedMode) != nil else {
+            return nil
+        }
+        return request.haplotypeDefinitionSetID == nil ? .genotypeOnly : .haplotyped
     }
 
     private func generatedAlignmentIntermediateURLs(

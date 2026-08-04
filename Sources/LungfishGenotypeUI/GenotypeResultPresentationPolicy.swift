@@ -5,6 +5,9 @@ import LungfishIO
 /// genotype-result bundles. It deliberately preserves the persisted
 /// `outline` and `matrix` raw values used by existing bundles.
 public struct GenotypeResultPresentationPolicy: Equatable, Sendable {
+    private static let legacyMiSeqBundleKind = "ont-barcode-genotype"
+    private static let miSeqAssayID = "MHC-exon2-miSeq"
+
     public enum Choice: Equatable, Sendable {
         case haplotypeCalls
         case genotypeMatrix
@@ -41,6 +44,8 @@ public struct GenotypeResultPresentationPolicy: Equatable, Sendable {
     private let isReadOnly: Bool
 
     public init(
+        legacyBundleKind: String? = nil,
+        legacyWorkflowDeclarationsAbsent: Bool = false,
         workflowKind: GenotypeResultWorkflowKind?,
         workflowMode: GenotypeResultWorkflowMode?,
         manualHaplotypeEligibility: GenotypeManualHaplotypeEligibility,
@@ -48,8 +53,15 @@ public struct GenotypeResultPresentationPolicy: Equatable, Sendable {
         hasNativeGenotypeMatrixContent: Bool,
         isReadOnly: Bool
     ) {
-        isTypedHaplotypedMiSeq = workflowKind == .miSeqAmpliconMHCGenotype
+        let explicitlyTypedMiSeq = workflowKind == .miSeqAmpliconMHCGenotype
             && workflowMode == .haplotyped
+        let legacyMiSeq = legacyWorkflowDeclarationsAbsent
+            && workflowKind == nil
+            && workflowMode == nil
+            && legacyBundleKind == Self.legacyMiSeqBundleKind
+            && Self.normalizedIdentifier(haplotypeAnalysis?.assayID ?? "")
+                == Self.normalizedIdentifier(Self.miSeqAssayID)
+        isTypedHaplotypedMiSeq = explicitlyTypedMiSeq || legacyMiSeq
         if case .eligible = manualHaplotypeEligibility {
             isGenotypeOnlyResult = true
         } else {
@@ -59,6 +71,21 @@ public struct GenotypeResultPresentationPolicy: Equatable, Sendable {
         hasHaplotypeAnalysis = haplotypeAnalysis != nil
         hasUsableHaplotypeAnalysis = Self.isUsable(haplotypeAnalysis)
         self.isReadOnly = isReadOnly
+    }
+
+    /// Legacy compatibility is allowed only when both workflow declarations
+    /// are genuinely absent. Unsupported future strings, JSON nulls, and
+    /// malformed values intentionally fail closed instead of decoding to the
+    /// same `nil` values as a missing declaration.
+    public static func workflowDeclarationsAreAbsent(
+        in manifest: ONTGenotypeResultBundleManifest
+    ) -> Bool {
+        let kind = manifest.workflowKindDeclaration
+        let mode = manifest.workflowModeDeclaration
+        return kind.originalValue == nil
+            && kind.issue == nil
+            && mode.originalValue == nil
+            && mode.issue == nil
     }
 
     /// True only for the typed, haplotyped miSeq result shape with an analysis

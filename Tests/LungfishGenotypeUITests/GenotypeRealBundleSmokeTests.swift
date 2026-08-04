@@ -51,6 +51,28 @@ final class GenotypeRealBundleSmokeTests: XCTestCase {
         XCTAssertEqual(controller.view.accessibilityLabel(), "Genotype result viewport")
     }
 
+    func testLegacyMiSeqBundleUsesSynchronizedPresentationSelector() throws {
+        let result = try loadRealBundleOrSkip()
+        guard result.manifest.kind == "ont-barcode-genotype",
+              result.manifest.workflowKind == nil,
+              result.manifest.workflowMode == nil,
+              result.haplotypeAnalysis?.assayID == "MHC-exon2-miSeq" else {
+            throw XCTSkip("Real bundle is not the beta19 ONT-sample-bundle miSeq result shape")
+        }
+        guard case .ineligible = GenotypeManualHaplotypeEligibility.evaluate(result) else {
+            return XCTFail("A result with persisted haplotype calls must not enter manual genotype-only mode")
+        }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: result)
+        XCTAssertEqual(
+            controller.testingLensControlLabels,
+            ["Haplotype Calls", "Genotype Matrix"]
+        )
+        XCTAssertEqual(controller.testingVisibleLensIdentifier, "summary")
+        XCTAssertEqual(controller.testingSummaryViewMode, .outline)
+    }
+
     func testCohortSubjectBuilderProducesOneSubjectPerSample() throws {
         let result = try loadRealBundleOrSkip()
         let sidecar = try ONTGenotypeResultBundleData

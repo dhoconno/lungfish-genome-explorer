@@ -1157,7 +1157,8 @@ final class WorkflowOperationDialogState {
                     haplotypeDefinitionSetID: selectedHaplotypeDefinitionSetID,
                     extraArguments: parsedExtraArguments,
                     mode: launchMode,
-                    readType: readType
+                    readType: readType,
+                    resultWorkflowKind: .miSeqAmpliconMHCGenotype
                 )
             case .genotypeOnly:
                 request = ONTBarcodeDemuxGenotypingRunRequest(
@@ -1173,7 +1174,8 @@ final class WorkflowOperationDialogState {
                     keepIntermediates: keepIntermediates,
                     extraArguments: parsedExtraArguments,
                     mode: launchMode,
-                    readType: readType
+                    readType: readType,
+                    resultWorkflowKind: .miSeqAmpliconMHCGenotype
                 )
             }
             return .ontGenotyping(request)

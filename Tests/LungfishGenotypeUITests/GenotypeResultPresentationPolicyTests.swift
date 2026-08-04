@@ -23,6 +23,53 @@ final class GenotypeResultPresentationPolicyTests: XCTestCase {
         XCTAssertEqual(policy.persistencePolicy, .bundle)
     }
 
+    func testLegacyManifestWithDeclaredMiSeqAssayUsesSynchronizedChoices() {
+        let policy = makePolicy(
+            legacyBundleKind: "ont-barcode-genotype",
+            legacyWorkflowDeclarationsAbsent: true,
+            workflowKind: nil,
+            workflowMode: nil,
+            analysis: usableAnalysis(assayID: "MHC-exon2-miSeq")
+        )
+
+        XCTAssertTrue(policy.appliesToHaplotypedMiSeq)
+        XCTAssertEqual(policy.choices.map(\.displayName), [
+            "Haplotype Calls",
+            "Genotype Matrix",
+        ])
+        XCTAssertEqual(policy.defaultSummaryViewMode, .outline)
+        XCTAssertEqual(
+            policy.normalize(displayState: .init(viewportLens: .audit)).viewportLens,
+            .summary
+        )
+    }
+
+    func testLegacyCompatibilityRejectsUnsupportedOrMalformedWorkflowDeclarations() throws {
+        for declaration in [
+            #""workflowKind":"future-mhc-workflow""#,
+            #""workflowMode":{"future":true}"#,
+            #""workflowKind":null"#,
+        ] {
+            let manifest = try decodeManifest(extraDeclaration: declaration)
+            XCTAssertFalse(
+                GenotypeResultPresentationPolicy.workflowDeclarationsAreAbsent(in: manifest),
+                declaration
+            )
+            let policy = makePolicy(
+                legacyBundleKind: manifest.kind,
+                legacyWorkflowDeclarationsAbsent:
+                    GenotypeResultPresentationPolicy.workflowDeclarationsAreAbsent(
+                        in: manifest
+                    ),
+                workflowKind: manifest.workflowKind,
+                workflowMode: manifest.workflowMode,
+                analysis: usableAnalysis()
+            )
+            XCTAssertFalse(policy.appliesToHaplotypedMiSeq, declaration)
+            XCTAssertTrue(policy.choices.isEmpty, declaration)
+        }
+    }
+
     func testExistingPoliciesRemainScopedToTheirWorkflowDeclarations() {
         let cases: [(name: String, policy: GenotypeResultPresentationPolicy, defaultMode: GenotypeSummaryViewMode, applies: Bool)] = [
             (
@@ -49,9 +96,10 @@ final class GenotypeResultPresentationPolicyTests: XCTestCase {
             (
                 "legacy kind-only",
                 makePolicy(
+                    legacyBundleKind: "ont-barcode-genotype",
                     workflowKind: nil,
                     workflowMode: nil,
-                    analysis: usableAnalysis(),
+                    analysis: usableAnalysis(assayID: "unrelated-assay"),
                     hasNativeGenotypeMatrixContent: true
                 ),
                 .outline,
@@ -126,6 +174,8 @@ final class GenotypeResultPresentationPolicyTests: XCTestCase {
     }
 
     private func makePolicy(
+        legacyBundleKind: String? = nil,
+        legacyWorkflowDeclarationsAbsent: Bool = false,
         workflowKind: GenotypeResultWorkflowKind?,
         workflowMode: GenotypeResultWorkflowMode?,
         analysis: GenotypeHaplotypeAnalysis?,
@@ -133,6 +183,8 @@ final class GenotypeResultPresentationPolicyTests: XCTestCase {
         isReadOnly: Bool = false
     ) -> GenotypeResultPresentationPolicy {
         GenotypeResultPresentationPolicy(
+            legacyBundleKind: legacyBundleKind,
+            legacyWorkflowDeclarationsAbsent: legacyWorkflowDeclarationsAbsent,
             workflowKind: workflowKind,
             workflowMode: workflowMode,
             manualHaplotypeEligibility: manualEligibility(
@@ -145,6 +197,30 @@ final class GenotypeResultPresentationPolicyTests: XCTestCase {
         )
     }
 
+    private func decodeManifest(
+        extraDeclaration: String
+    ) throws -> ONTGenotypeResultBundleManifest {
+        let json = """
+        {
+          "schemaVersion": 1,
+          "kind": "ont-barcode-genotype",
+          \(extraDeclaration),
+          "outputName": "legacy",
+          "analysisName": "legacy",
+          "primaryWorkbookPath": "legacy.xlsx",
+          "longSummaryCSVPath": "calls.csv",
+          "sampleSummaryCSVPath": "samples.csv",
+          "statsJSONPath": "stats.json",
+          "provenancePath": "provenance.json",
+          "createdAt": "2026-08-04T00:00:00Z"
+        }
+        """
+        return try JSONDecoder().decode(
+            ONTGenotypeResultBundleManifest.self,
+            from: Data(json.utf8)
+        )
+    }
+
     private func manualEligibility(
         workflowKind: GenotypeResultWorkflowKind?,
         workflowMode: GenotypeResultWorkflowMode?
@@ -154,9 +230,11 @@ final class GenotypeResultPresentationPolicyTests: XCTestCase {
             : .ineligible(reason: "This result declares that haplotyping was performed.")
     }
 
-    private func usableAnalysis() -> GenotypeHaplotypeAnalysis {
+    private func usableAnalysis(
+        assayID: String = "MHC-exon2-miSeq"
+    ) -> GenotypeHaplotypeAnalysis {
         GenotypeHaplotypeAnalysis(
-            assayID: "MHC-exon2-miSeq",
+            assayID: assayID,
             definitionSetID: "definitions",
             definitionSetName: "Definitions",
             speciesName: "Macaque",
