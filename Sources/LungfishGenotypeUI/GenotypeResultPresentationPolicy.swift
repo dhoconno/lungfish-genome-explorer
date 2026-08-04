@@ -140,11 +140,13 @@ public struct GenotypeResultPresentationPolicy: Equatable, Sendable {
 
     public static func isUsable(_ analysis: GenotypeHaplotypeAnalysis?) -> Bool {
         guard let analysis else { return false }
+        var seenSampleIDs = Set<String>()
         var seenKeys = Set<AnalysisCallKey>()
         var callCount = 0
         for sample in analysis.samples {
             let sampleID = normalizedIdentifier(sample.sample)
             guard !sampleID.isEmpty else { return false }
+            guard seenSampleIDs.insert(sampleID).inserted else { return false }
             for call in sample.calls {
                 let locus = normalizedIdentifier(call.locus)
                 guard !locus.isEmpty,

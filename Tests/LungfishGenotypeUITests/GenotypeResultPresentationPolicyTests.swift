@@ -86,6 +86,18 @@ final class GenotypeResultPresentationPolicyTests: XCTestCase {
         }
     }
 
+    func testDuplicateNormalizedSampleIDsWithDistinctLociFallBackToMatrix() {
+        let policy = makePolicy(
+            workflowKind: .miSeqAmpliconMHCGenotype,
+            workflowMode: .haplotyped,
+            analysis: duplicateSampleIDAnalysis()
+        )
+
+        XCTAssertFalse(policy.appliesToHaplotypedMiSeq)
+        XCTAssertEqual(policy.defaultSummaryViewMode, .matrix)
+        XCTAssertEqual(policy.persistencePolicy, .preserveStoredPreference)
+    }
+
     func testStaleReviewAndAuditIngressNormalizeToHaplotypeCalls() {
         let policy = makePolicy(
             workflowKind: .miSeqAmpliconMHCGenotype,
@@ -173,6 +185,19 @@ final class GenotypeResultPresentationPolicyTests: XCTestCase {
             samples: [
                 .init(sample: "Sample-1", calls: [call(locus: "MHC-A")]),
                 .init(sample: "Sample-1", calls: [call(locus: "MHC-A")]),
+            ]
+        )
+    }
+
+    private func duplicateSampleIDAnalysis() -> GenotypeHaplotypeAnalysis {
+        GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "definitions",
+            definitionSetName: "Definitions",
+            speciesName: "Macaque",
+            samples: [
+                .init(sample: "Sample-1", calls: [call(locus: "MHC-A")]),
+                .init(sample: " Sample-1 ", calls: [call(locus: "MHC-B")]),
             ]
         )
     }
