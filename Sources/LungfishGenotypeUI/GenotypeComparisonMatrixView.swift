@@ -215,6 +215,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         ) -> Bool)?
     var onManualHaplotypeEditRequested: ((String) -> Void)?
     var onManualHaplotypeBandExpansionChanged: ((Bool) -> Void)?
+    var onHaplotypeBandTargetSelected:
+        ((GenotypeHaplotypeBandTarget) -> Void)?
     var matrixCommentBodyProvider: ((String?) -> String?)?
     private var contextMenuSnapshotSourceFactory:
         (GenotypeMatrixContextMenuSnapshot) -> any GenotypeMatrixContextMenuSnapshotProviding = {
@@ -250,6 +252,10 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private var manualHaplotypeBandAssignments:
         [ManualHaplotypeAssignment] = []
     private var manualHaplotypeEditingEligible = false
+    private var haplotypeBandMode: GenotypeHaplotypeBandMode = .none
+    private var effectiveHaplotypeBandSnapshot =
+        GenotypeHaplotypeCallBandSnapshot.empty
+    private var hasExplicitHaplotypeBandConfiguration = false
     private var manualHaplotypeBandGeometryDirty = true
     private var manualHaplotypeBandHorizontalOffset: CGFloat?
     private var manualHaplotypeBandBoundsSize = NSSize.zero
@@ -462,6 +468,11 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         } else {
             manualHaplotypeEditingEligible = false
         }
+        if !hasExplicitHaplotypeBandConfiguration {
+            haplotypeBandMode = manualHaplotypeEditingEligible
+                ? .manualAssignments
+                : .none
+        }
         self.metadataStore = metadataStore
         provisionalExon2Genotypes = result.haplotypeAnalysis == nil
             ? Set(result.provisionalExon2SequencesByGenotype.keys)
@@ -499,6 +510,68 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         publishVisibilityCapability()
     }
 
+    /// Supplies the neutral haplotype-band presentation independently of the
+    /// matrix's lazy scientific-row configuration. Calling this before
+    /// `configure` records the newest snapshot; calling it afterward updates
+    /// only changed sample columns.
+    func setHaplotypeBand(
+        mode: GenotypeHaplotypeBandMode,
+        snapshot: GenotypeHaplotypeCallBandSnapshot?
+    ) {
+        let previousMode = haplotypeBandMode
+        let previousSnapshot = effectiveHaplotypeBandSnapshot
+        hasExplicitHaplotypeBandConfiguration = true
+        haplotypeBandMode = mode
+        effectiveHaplotypeBandSnapshot = snapshot ?? .empty
+
+        let changedSamples: Set<String>
+        if previousMode == .effectiveMiSeqCalls,
+           mode == .effectiveMiSeqCalls {
+            changedSamples = effectiveHaplotypeBandSnapshot.changedSamples(
+                comparedTo: previousSnapshot
+            )
+        } else {
+            changedSamples = Set(sampleNames)
+                .union(previousSnapshot.sampleNames)
+                .union(effectiveHaplotypeBandSnapshot.sampleNames)
+        }
+
+        let structureChanged = previousMode != mode
+            || previousSnapshot.orderedLoci
+                != effectiveHaplotypeBandSnapshot.orderedLoci
+        if structureChanged {
+            applyManualHaplotypeBandPresentation()
+        } else if mode == .effectiveMiSeqCalls {
+            manualHaplotypeSampleBand.setHaplotypeBand(
+                mode: mode,
+                snapshot: effectiveHaplotypeBandSnapshot,
+                invalidateAll: false
+            )
+        }
+#if DEBUG
+        testingManualHaplotypeBandInvalidatedSampleSet.formUnion(
+            changedSamples.filter { sample in
+                manualHaplotypeSampleBand.columnFrames[sample]?
+                    .intersects(manualHaplotypeSampleBand.bounds) == true
+            }
+        )
+#endif
+        manualHaplotypeSampleBand.invalidate(samples: changedSamples)
+        updateManualHaplotypeHeaderAccessibility(samples: changedSamples)
+        if displayState.manualHaplotypeBandExpanded {
+            refreshManualHaplotypeAutoFit(
+                samples: changedSamples,
+                remeasure: true
+            )
+        } else {
+            for sample in changedSamples {
+                manualHaplotypeTransientMinimumWidths.removeValue(
+                    forKey: sample
+                )
+            }
+        }
+    }
+
     /// Replaces workbook-backed scientific rows while preserving analyst view
     /// state (stable sample order/widths, sort, filters, and surviving
     /// selection). This is used after current.xlsx is reloaded.
@@ -513,6 +586,11 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             manualHaplotypeEditingEligible = true
         } else {
             manualHaplotypeEditingEligible = false
+        }
+        if !hasExplicitHaplotypeBandConfiguration {
+            haplotypeBandMode = manualHaplotypeEditingEligible
+                ? .manualAssignments
+                : .none
         }
         self.metadataStore = metadataStore
         provisionalExon2Genotypes = result.haplotypeAnalysis == nil
@@ -1014,6 +1092,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             self.onManualHaplotypeBandExpansionChanged?(expanded)
         }
         manualHaplotypeSampleBand.isHidden = true
+        manualHaplotypeSampleBand.onTargetSelected = { [weak self] target in
+            self?.onHaplotypeBandTargetSelected?(target)
+        }
 
         configureTableView(pinnedTableView)
         configureTableView(tableView)
@@ -1216,7 +1297,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         setPinnedPaneWidth(pinnedWidthConstraint?.constant ?? 360, persist: false)
         let nextDisclosureHeight = manualHaplotypeDisclosureHeight
         let disclosureHeightChanged =
-            manualHaplotypeEditingEligible
+            haplotypeBandIsVisible
                 && (
                     manualHaplotypePinnedBand.disclosureHeight
                         != nextDisclosureHeight
@@ -3061,7 +3142,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 
     private func makeContextMenuSnapshot() -> GenotypeMatrixContextMenuSnapshot {
         let manualHaplotypeEditSample: String?
-        if manualHaplotypeEditingEligible,
+        if manualHaplotypeEditorEnabled,
            selectedMatrixTargets.count == 1,
            case let .column(sample) = selectedMatrixTargets[0] {
             manualHaplotypeEditSample = sample
@@ -3278,7 +3359,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         case .editManualHaplotypeAssignments:
             guard targets.count == 1,
                   case let .column(sample) = targets[0],
-                  manualHaplotypeEditingEligible else {
+                  manualHaplotypeEditorEnabled else {
                 return false
             }
             onManualHaplotypeEditRequested?(sample)
@@ -4888,10 +4969,45 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         )
     }
 
+    private var manualHaplotypeEditorEnabled: Bool {
+        manualHaplotypeEditingEligible
+            && haplotypeBandMode == .manualAssignments
+    }
+
+    private var haplotypeBandIsVisible: Bool {
+        haplotypeBandMode != .none
+    }
+
+    private var activeHaplotypeBandLoci: [String] {
+        switch haplotypeBandMode {
+        case .none:
+            return []
+        case .manualAssignments:
+            return GenotypeManualHaplotypeAssignmentBandSnapshot.loci
+                .map(\.workbookLabel)
+        case .effectiveMiSeqCalls:
+            return effectiveHaplotypeBandSnapshot.orderedLoci
+        }
+    }
+
+    private func activeHaplotypeBandValues(sample: String) -> [String] {
+        switch haplotypeBandMode {
+        case .none:
+            return []
+        case .manualAssignments:
+            return manualHaplotypeBandSnapshot.valuesBySample[sample]
+                ?? Array(repeating: "—", count: 7)
+        case .effectiveMiSeqCalls:
+            return effectiveHaplotypeBandSnapshot.renderedValues(
+                sample: sample
+            )
+        }
+    }
+
     private func updateManualHaplotypeBand(
         assignments: [ManualHaplotypeAssignment]
     ) {
-        guard manualHaplotypeEditingEligible else {
+        guard manualHaplotypeEditorEnabled else {
             manualHaplotypeBandAssignments = []
             return
         }
@@ -4981,7 +5097,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private func synchronizeManualHaplotypeDisclosureGeometry(
         force: Bool = false
     ) -> Bool {
-        guard manualHaplotypeEditingEligible else { return false }
+        guard haplotypeBandIsVisible else { return false }
         let width = manualHaplotypeDisclosureAvailableWidth
         let height = manualHaplotypeDisclosureHeight
         let widthChanged =
@@ -5003,7 +5119,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 
     private func applyManualHaplotypeBandPresentation() {
-        let hidden = !manualHaplotypeEditingEligible
+        let hidden = !haplotypeBandIsVisible
         pinnedScrollView.automaticallyAdjustsContentInsets = true
         scrollView.automaticallyAdjustsContentInsets = true
         if pinnedScrollView.contentInsets.top != 0 {
@@ -5018,6 +5134,17 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         }
         manualHaplotypePinnedBand.isHidden = hidden
         manualHaplotypeSampleBand.isHidden = hidden
+        let effectiveSnapshot = haplotypeBandMode == .effectiveMiSeqCalls
+            ? effectiveHaplotypeBandSnapshot
+            : nil
+        manualHaplotypePinnedBand.setHaplotypeBand(
+            mode: haplotypeBandMode,
+            snapshot: effectiveSnapshot
+        )
+        manualHaplotypeSampleBand.setHaplotypeBand(
+            mode: haplotypeBandMode,
+            snapshot: effectiveSnapshot
+        )
         manualHaplotypePinnedBand.isExpanded =
             displayState.manualHaplotypeBandExpanded
         manualHaplotypeSampleBand.isExpanded =
@@ -5067,11 +5194,12 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         ordinaryHeight: CGFloat
     ) -> GenotypeManualHaplotypeHeaderLayout {
         GenotypeManualHaplotypeHeaderLayout(
-            isEligible: manualHaplotypeEditingEligible,
+            isEligible: haplotypeBandIsVisible,
             isExpanded: displayState.manualHaplotypeBandExpanded,
             ordinaryHeight: ordinaryHeight,
             disclosureHeight: manualHaplotypeDisclosureHeight,
-            rowHeight: manualHaplotypeBandRowHeight
+            rowHeight: manualHaplotypeBandRowHeight,
+            locusCount: activeHaplotypeBandLoci.count
         )
     }
 
@@ -5100,7 +5228,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 #if DEBUG
         testingManualHaplotypeGeometryUpdateCount += 1
 #endif
-        guard manualHaplotypeEditingEligible,
+        guard haplotypeBandIsVisible,
               manualHaplotypeBandHeight > 0,
               !manualHaplotypeSampleBand.bounds.isEmpty else {
             if !manualHaplotypeSampleBand.columnFrames.isEmpty {
@@ -5238,15 +5366,27 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private func updateManualHaplotypeHeaderAccessibility(
         samples: Set<String>? = nil
     ) {
-        guard manualHaplotypeEditingEligible else { return }
+        guard haplotypeBandIsVisible else {
+            updateColumnCommentMetadata()
+            return
+        }
         for column in tableView.tableColumns {
             guard let sample = sampleColumnLookup[column.identifier],
                   samples?.contains(sample) ?? true else {
                 continue
             }
-            let summary = manualHaplotypeBandSnapshot
-                .accessibilitySummaryBySample[sample]
-                ?? "No manual haplotype assignments"
+            let summary: String
+            switch haplotypeBandMode {
+            case .none:
+                summary = ""
+            case .manualAssignments:
+                summary = manualHaplotypeBandSnapshot
+                    .accessibilitySummaryBySample[sample]
+                    ?? "No manual haplotype assignments"
+            case .effectiveMiSeqCalls:
+                summary = effectiveHaplotypeBandSnapshot
+                    .accessibilitySummary(sample: sample)
+            }
             let commentCount =
                 sidecarColumnCommentTooltips[sample] == nil ? 0 : 1
             let commentSuffix =
@@ -5368,7 +5508,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private func measureManualHaplotypeTransientMinimumWidths(
         samples: Set<String>
     ) {
-        guard manualHaplotypeEditingEligible,
+        guard haplotypeBandIsVisible,
               displayState.manualHaplotypeBandExpanded,
               !samples.isEmpty else {
             return
@@ -5381,9 +5521,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         for sample in measuredSamples {
             manualHaplotypeTransientMinimumWidths[sample] =
                 GenotypeManualHaplotypeColumnMeasurement.requiredWidth(
-                    values: manualHaplotypeBandSnapshot
-                        .valuesBySample[sample]
-                        ?? Array(repeating: "—", count: 7),
+                    values: activeHaplotypeBandValues(sample: sample),
                     sampleTitle: sample,
                     retainedReadTitle: sampleReadTitleByName[sample],
                     font: assignmentFont,
@@ -7020,6 +7158,41 @@ extension GenotypeComparisonMatrixView {
             .map(\.workbookLabel)
     }
 
+    var testingHaplotypeBandMode: GenotypeHaplotypeBandMode {
+        haplotypeBandMode
+    }
+
+    var testingHaplotypeBandLoci: [String] {
+        activeHaplotypeBandLoci
+    }
+
+    var testingHaplotypeBandExpandedRowCount: Int {
+        displayState.manualHaplotypeBandExpanded
+            ? activeHaplotypeBandLoci.count
+            : 0
+    }
+
+    func testingHaplotypeBandValue(
+        sample: String,
+        locus: String,
+        slot: HaplotypeSlot
+    ) -> GenotypeHaplotypeCallBandSlotValue? {
+        guard haplotypeBandMode == .effectiveMiSeqCalls else { return nil }
+        return effectiveHaplotypeBandSnapshot.value(
+            sample: sample,
+            locus: locus,
+            slot: slot
+        )
+    }
+
+    func testingHaplotypeBandHitTarget(
+        _ target: GenotypeHaplotypeBandTarget
+    ) -> NSButton? {
+        updateManualHaplotypeBandColumnGeometry()
+        manualHaplotypeSampleBand.layoutSubtreeIfNeeded()
+        return manualHaplotypeSampleBand.testingHitTarget(target)
+    }
+
     func testingManualHaplotypeBandValues(sample: String) -> [String] {
         manualHaplotypeBandSnapshot.valuesBySample[sample]
             ?? Array(repeating: "—", count: 7)
@@ -7201,7 +7374,7 @@ extension GenotypeComparisonMatrixView {
         sample: String,
         locus: String
     ) -> GenotypeMatrixManualValueTestingSnapshot? {
-        guard manualHaplotypeEditingEligible,
+        guard manualHaplotypeEditorEnabled,
               displayState.manualHaplotypeBandExpanded,
               let normalizedLocus =
                 GenotypeManualHaplotypeLocus(normalizing: locus),

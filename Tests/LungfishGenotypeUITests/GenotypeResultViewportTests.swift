@@ -6457,6 +6457,8 @@ final class GenotypeResultViewportTests: XCTestCase {
             matrix.testingManualHaplotypeBandLoci,
             ["MHC-A", "MHC-B", "MHC-DRB", "MHC-DQA", "MHC-DQB", "MHC-DPA", "MHC-DPB"]
         )
+        XCTAssertEqual(matrix.testingHaplotypeBandMode, .manualAssignments)
+        XCTAssertEqual(matrix.testingHaplotypeBandExpandedRowCount, 7)
         XCTAssertEqual(
             matrix.testingManualHaplotypeBandValues(sample: "AnimalA").first,
             "A-H1 · A-H2"
@@ -7252,6 +7254,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         let ineligibleSnapshot = try XCTUnwrap(
             ineligible.testingFixedHeaderSnapshot(sample: "AnimalA")
         )
+        XCTAssertEqual(ineligible.testingHaplotypeBandMode, .none)
         XCTAssertTrue(ineligibleSnapshot.manualSectionRect.isEmpty)
         XCTAssertEqual(
             ineligibleSnapshot.totalNativeHeaderHeight,
