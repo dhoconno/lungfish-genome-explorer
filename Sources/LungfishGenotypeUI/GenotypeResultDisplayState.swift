@@ -196,6 +196,14 @@ public struct GenotypeResultDisplayState: Equatable {
         return normalized
     }
 
+    /// Applies the result-scoped presentation rules without changing the raw
+    /// persisted `outline` and `matrix` values used by existing bundles.
+    public func normalized(
+        using presentationPolicy: GenotypeResultPresentationPolicy
+    ) -> Self {
+        presentationPolicy.normalize(displayState: self)
+    }
+
     /// The effective row-visibility threshold. `0` means no row filtering.
     public var activeMinimumReads: Int {
         MinimumReadsThreshold(value: minimumReads).active
