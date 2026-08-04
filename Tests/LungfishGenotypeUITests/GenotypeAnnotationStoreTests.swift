@@ -245,6 +245,11 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString + ".lungfishgenotype")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        try Data(#"{"analysis":"test-fixture"}"#.utf8).write(
+            to: url.appendingPathComponent(
+                ONTGenotypeResultBundleManifest.filename
+            )
+        )
         return url
     }
 

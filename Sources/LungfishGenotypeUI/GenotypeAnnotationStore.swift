@@ -111,6 +111,74 @@ public struct ManualHaplotypeReplacementResult: Equatable, Sendable {
     }
 }
 
+enum CallOverrideMutationError:
+    Error,
+    Equatable,
+    LocalizedError,
+    Sendable
+{
+    case readOnly
+    case emptyMutations
+    case emptyAuthor
+    case emptyTarget
+    case mixedSamples
+    case duplicateTarget(GenotypeEffectiveHaplotypeKey)
+    case baselineMismatch(
+        target: GenotypeEffectiveHaplotypeKey,
+        expected: String,
+        actual: String
+    )
+    case missingPriorSidecar
+
+    public var errorDescription: String? {
+        switch self {
+        case .readOnly:
+            "This bundle is read-only."
+        case .emptyMutations:
+            "A call override Save must contain at least one target."
+        case .emptyAuthor:
+            "A call override author must not be empty."
+        case .emptyTarget:
+            "Call override sample, locus, baseline, and after values must not be empty."
+        case .mixedSamples:
+            "One call override Save may change only one sample."
+        case .duplicateTarget(let target):
+            "Call override target \(target.sample), \(target.locus), \(target.slot.rawValue) appears more than once."
+        case let .baselineMismatch(target, expected, actual):
+            "Call override baseline changed for \(target.sample), \(target.locus), \(target.slot.rawValue): expected \(expected), found \(actual)."
+        case .missingPriorSidecar:
+            "Call overrides require an existing annotation sidecar before they can be saved."
+        }
+    }
+}
+
+struct CallOverrideMutation: Equatable, Sendable {
+    let target: GenotypeEffectiveHaplotypeKey
+    let baseline: String
+    let after: String
+    let reason: GenotypeAnnotationSidecar.OverrideReasonTag
+    let rationale: String
+
+    init(
+        target: GenotypeEffectiveHaplotypeKey,
+        baseline: String,
+        after: String,
+        reason: GenotypeAnnotationSidecar.OverrideReasonTag,
+        rationale: String
+    ) {
+        self.target = target
+        self.baseline = baseline
+        self.after = after
+        self.reason = reason
+        self.rationale = rationale
+    }
+}
+
+struct CallOverrideMutationResult: Equatable, Sendable {
+    let didChange: Bool
+    let changedKeys: Set<GenotypeEffectiveHaplotypeKey>
+}
+
 struct GenotypeMatrixBulkMutationDiagnostics: Equatable {
     var reviewRecordsExamined = 0
     var commentRecordsExamined = 0
@@ -125,6 +193,7 @@ public final class GenotypeAnnotationStore {
     public let author: String
     public private(set) var matrixMutationRevision: UInt64 = 0
     public private(set) var manualHaplotypeAssignmentMutationRevision: UInt64 = 0
+    public private(set) var callOverrideMutationRevision: UInt64 = 0
 
     @ObservationIgnored
     private var lastPersistedSidecar: GenotypeAnnotationSidecar
@@ -245,41 +314,23 @@ public final class GenotypeAnnotationStore {
                        reasonTag: GenotypeAnnotationSidecar.OverrideReasonTag,
                        rationale: String,
                        author editAuthor: String? = nil) throws {
-        let author = editAuthor ?? self.author
-        let timestamp = now()
-        let existing = sidecar.callOverrides.first {
-            $0.sample == sample && $0.locus == locus && $0.slot == slot
-        }
-        let automatedCall = existing?.originalCall ?? originalCall
-        let auditBefore = existing?.overrideCall ?? automatedCall
-        sidecar.callOverrides.removeAll {
-            $0.sample == sample && $0.locus == locus && $0.slot == slot
-        }
-        if overrideCall == automatedCall {
-            guard existing != nil else { return }
-            sidecar.append(audit: .init(
-                action: "clearOverride", sample: sample, locus: locus, slot: slot,
-                before: auditBefore, after: automatedCall,
-                color: nil, reason: reasonTag.rawValue, rationale: rationale,
-                author: author, timestamp: timestamp
-            ))
-            try persist(action: "clearOverride")
-            return
-        }
-        let entry = GenotypeAnnotationSidecar.CallOverride(
-            sample: sample, locus: locus, slot: slot,
-            originalCall: automatedCall, overrideCall: overrideCall,
-            reasonTag: reasonTag, rationale: rationale,
-            author: author, timestamp: timestamp
+        _ = try mutateCallOverrides(
+            [
+                CallOverrideMutation(
+                    target: .init(
+                        sample: sample,
+                        locus: locus,
+                        slot: slot
+                    ),
+                    baseline: originalCall,
+                    after: overrideCall,
+                    reason: reasonTag,
+                    rationale: rationale
+                ),
+            ],
+            author: editAuthor ?? self.author,
+            analysisIdentity: nil
         )
-        sidecar.callOverrides.append(entry)
-        sidecar.append(audit: .init(
-            action: "override", sample: sample, locus: locus, slot: slot,
-            before: auditBefore, after: overrideCall,
-            color: nil, reason: reasonTag.rawValue, rationale: rationale,
-            author: author, timestamp: timestamp
-        ))
-        try persist(action: "applyOverride")
     }
 
     func confirmCall(
@@ -1410,6 +1461,283 @@ public final class GenotypeAnnotationStore {
         return replacementResult
     }
 
+    /// Applies every call override from one user Save as one annotation and
+    /// provenance publication. Observable state changes only after both files
+    /// are durable.
+    @discardableResult
+    func mutateCallOverrides(
+        _ mutations: [CallOverrideMutation],
+        author editAuthor: String,
+        analysisIdentity: GenotypeEffectiveHaplotypeIdentity?
+    ) throws -> CallOverrideMutationResult {
+        guard !isReadOnly else {
+            throw CallOverrideMutationError.readOnly
+        }
+        guard !mutations.isEmpty else {
+            throw CallOverrideMutationError.emptyMutations
+        }
+        let resolvedAuthor = editAuthor
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .precomposedStringWithCanonicalMapping
+        guard !resolvedAuthor.isEmpty else {
+            throw CallOverrideMutationError.emptyAuthor
+        }
+        let selectedSamples = Set(mutations.map(\.target.sample))
+        guard selectedSamples.count == 1 else {
+            throw CallOverrideMutationError.mixedSamples
+        }
+        var seenTargets = Set<GenotypeEffectiveHaplotypeKey>()
+        for mutation in mutations {
+            guard !mutation.target.sample
+                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  !mutation.target.locus
+                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  !mutation.baseline
+                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  !mutation.after
+                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else {
+                throw CallOverrideMutationError.emptyTarget
+            }
+            guard seenTargets.insert(mutation.target).inserted else {
+                throw CallOverrideMutationError.duplicateTarget(
+                    mutation.target
+                )
+            }
+        }
+
+        let unchanged = CallOverrideMutationResult(
+            didChange: false,
+            changedKeys: []
+        )
+        let startedAt = Date()
+        var publishedSidecar: GenotypeAnnotationSidecar?
+        var mutationResult = unchanged
+        let coordinator = annotationPublicationCoordinator()
+        _ = try coordinator.transact { snapshot in
+            guard let priorData = snapshot.annotationData else {
+                throw CallOverrideMutationError.missingPriorSidecar
+            }
+            var latest = try decodedLatestSidecar(from: priorData)
+            guard latest == lastPersistedSidecar else {
+                throw GenotypeAnnotationStorePersistenceError.staleRevision
+            }
+            try latest.promoteToCurrentSchema()
+
+            let priorOverrides = latest.callOverrides
+            var existingByTarget: [
+                GenotypeEffectiveHaplotypeKey:
+                    GenotypeAnnotationSidecar.CallOverride
+            ] = [:]
+            for mutation in mutations {
+                let matches = priorOverrides.enumerated().filter {
+                    _, entry in
+                    entry.sample == mutation.target.sample
+                        && entry.locus == mutation.target.locus
+                        && entry.slot == mutation.target.slot
+                }
+                if let authoritative = authoritativeCallOverride(matches) {
+                    guard authoritative.originalCall
+                            == mutation.baseline else {
+                        throw CallOverrideMutationError.baselineMismatch(
+                            target: mutation.target,
+                            expected: authoritative.originalCall,
+                            actual: mutation.baseline
+                        )
+                    }
+                    existingByTarget[mutation.target] = authoritative
+                }
+            }
+            let changedMutations = mutations.filter { mutation in
+                let before = existingByTarget[mutation.target]
+                if mutation.after == mutation.baseline {
+                    return before != nil
+                }
+                guard let before else { return true }
+                return before.overrideCall != mutation.after
+                    || before.reasonTag != mutation.reason
+                    || before.rationale != mutation.rationale
+                    || before.author != resolvedAuthor
+                    || before.analysisIdentity
+                        != analysisIdentity?.sidecarIdentity
+            }
+            guard !changedMutations.isEmpty else {
+                mutationResult = unchanged
+                return nil
+            }
+
+            let operationID = UUID().uuidString
+            let timestamp = now()
+            let priorSHA256 = sha256Hex(priorData)
+            let changedKeys = Set(changedMutations.map(\.target))
+            let unchangedOverrides = priorOverrides.filter { entry in
+                !changedKeys.contains(.init(
+                    sample: entry.sample,
+                    locus: entry.locus,
+                    slot: entry.slot
+                ))
+            }
+            let sidecarIdentity = analysisIdentity?.sidecarIdentity
+            let replacementOverrides = changedMutations.compactMap {
+                mutation -> GenotypeAnnotationSidecar.CallOverride? in
+                guard mutation.after != mutation.baseline else {
+                    return nil
+                }
+                return GenotypeAnnotationSidecar.CallOverride(
+                    sample: mutation.target.sample,
+                    locus: mutation.target.locus,
+                    slot: mutation.target.slot,
+                    originalCall: mutation.baseline,
+                    overrideCall: mutation.after,
+                    reasonTag: mutation.reason,
+                    rationale: mutation.rationale,
+                    author: resolvedAuthor,
+                    timestamp: timestamp,
+                    analysisIdentity: sidecarIdentity,
+                    operationID: operationID
+                )
+            }
+            latest.callOverrides = unchangedOverrides + replacementOverrides
+
+            let audits = changedMutations.map { mutation in
+                let before = existingByTarget[mutation.target]
+                let restoringPipeline = mutation.after == mutation.baseline
+                return GenotypeAnnotationSidecar.AuditEntry(
+                    action: restoringPipeline ? "clearOverride" : "override",
+                    sample: mutation.target.sample,
+                    locus: mutation.target.locus,
+                    slot: mutation.target.slot,
+                    before: before?.overrideCall ?? mutation.baseline,
+                    after: mutation.after,
+                    color: nil,
+                    reason: mutation.reason.rawValue,
+                    rationale: restoringPipeline
+                        ? "Restore pipeline call"
+                        : mutation.rationale,
+                    author: resolvedAuthor,
+                    timestamp: timestamp,
+                    callOverrideMutation: .init(
+                        operationID: operationID,
+                        priorSidecarSHA256: priorSHA256,
+                        analysisIdentity: sidecarIdentity
+                    )
+                )
+            }
+            for audit in audits {
+                latest.append(audit: audit)
+            }
+
+            let manifestData = try ONTGenotypeResultBundle
+                .readManifestDataNoFollow(from: bundleURL)
+            let replayMutations = zip(changedMutations, audits).map {
+                mutation, audit in
+                GenotypeCallOverrideReplayPayload.TargetMutation(
+                    locus: mutation.target.locus,
+                    slot: mutation.target.slot,
+                    baseline: mutation.baseline,
+                    before: audit.before ?? mutation.baseline,
+                    after: mutation.after,
+                    reason: mutation.reason,
+                    rationale: audit.rationale ?? mutation.rationale
+                )
+            }
+            let replayPayload = GenotypeCallOverrideReplayPayload(
+                operation: .init(
+                    operationID: operationID,
+                    sample: changedMutations[0].target.sample,
+                    author: resolvedAuthor,
+                    timestamp: timestamp,
+                    analysisIdentity: sidecarIdentity
+                ),
+                targetBundle: .init(
+                    bundlePath: bundleURL.standardizedFileURL.path,
+                    manifest: .init(
+                        path: ONTGenotypeResultBundleManifest.filename,
+                        checksumSHA256: sha256Hex(manifestData),
+                        fileSize: UInt64(manifestData.count)
+                    )
+                ),
+                priorSidecar: .init(
+                    descriptor: .init(
+                        path: GenotypeAnnotationSidecar.filename,
+                        checksumSHA256: priorSHA256,
+                        fileSize: UInt64(priorData.count)
+                    ),
+                    revisionSHA256: priorSHA256
+                ),
+                beforeOverrides: priorOverrides,
+                afterOverrides: latest.callOverrides,
+                targetMutations: replayMutations,
+                auditEntries: audits
+            )
+            let replayed = try replayPayload.applying(
+                to: priorData,
+                targetBundleURL: bundleURL,
+                targetManifestData: manifestData
+            )
+            guard replayed == latest else {
+                throw GenotypeCallOverrideReplayPayload.ReplayError
+                    .invalidOperation(
+                        "prepared GUI result does not equal its replay payload."
+                    )
+            }
+            let editContext = callOverrideMutationEditContext(
+                replayPayload: replayPayload
+            )
+            let publication = try annotationPublicationPayload(
+                sidecar: latest,
+                action: "mutateCallOverrides",
+                editContext: editContext,
+                snapshot: snapshot,
+                startedAt: startedAt,
+                endedAt: Date()
+            )
+            publishedSidecar = latest
+            mutationResult = CallOverrideMutationResult(
+                didChange: true,
+                changedKeys: changedKeys
+            )
+            return publication
+        }
+
+        if let publishedSidecar {
+            sidecar = publishedSidecar
+            lastPersistedSidecar = publishedSidecar
+            callOverrideMutationRevision &+= 1
+        }
+        return mutationResult
+    }
+
+    private func authoritativeCallOverride(
+        _ matches: [(offset: Int, element: GenotypeAnnotationSidecar.CallOverride)]
+    ) -> GenotypeAnnotationSidecar.CallOverride? {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [
+            .withInternetDateTime, .withFractionalSeconds,
+        ]
+        let internet = ISO8601DateFormatter()
+        internet.formatOptions = [.withInternetDateTime]
+        var selected: (
+            entry: GenotypeAnnotationSidecar.CallOverride,
+            date: Date,
+            index: Int
+        )?
+        for match in matches {
+            guard let date = fractional.date(
+                from: match.element.timestamp
+            ) ?? internet.date(from: match.element.timestamp) else {
+                continue
+            }
+            if let current = selected,
+               date < current.date
+                || (date == current.date && match.offset < current.index) {
+                continue
+            }
+            selected = (match.element, date, match.offset)
+        }
+        return selected?.entry
+    }
+
     /// Removes the call override for the given (sample, locus, slot) and
     /// appends a "clearOverride" audit entry that records the previous
     /// override and the call it reverts to. A no-op if no override exists.
@@ -1419,20 +1747,32 @@ public final class GenotypeAnnotationStore {
         slot: HaplotypeSlot,
         author editAuthor: String? = nil
     ) throws {
-        guard let existing = sidecar.callOverrides.first(where: {
-            $0.sample == sample && $0.locus == locus && $0.slot == slot
-        }) else { return }
-        let author = editAuthor ?? self.author
-        sidecar.callOverrides.removeAll {
-            $0.sample == sample && $0.locus == locus && $0.slot == slot
+        let matches = sidecar.callOverrides.enumerated().filter {
+            _, entry in
+            entry.sample == sample
+                && entry.locus == locus
+                && entry.slot == slot
         }
-        sidecar.append(audit: .init(
-            action: "clearOverride", sample: sample, locus: locus, slot: slot,
-            before: existing.overrideCall, after: existing.originalCall,
-            color: nil, reason: existing.reasonTag.rawValue, rationale: nil,
-            author: author, timestamp: now()
-        ))
-        try persist(action: "clearOverride")
+        guard let existing = authoritativeCallOverride(matches) else {
+            return
+        }
+        _ = try mutateCallOverrides(
+            [
+                CallOverrideMutation(
+                    target: .init(
+                        sample: sample,
+                        locus: locus,
+                        slot: slot
+                    ),
+                    baseline: existing.originalCall,
+                    after: existing.originalCall,
+                    reason: existing.reasonTag,
+                    rationale: "Restore pipeline call"
+                ),
+            ],
+            author: editAuthor ?? self.author,
+            analysisIdentity: nil
+        )
     }
 
     private func settingsSummary(_ settings: GenotypeAnnotationSidecar.Settings) -> String {
@@ -1835,23 +2175,31 @@ public final class GenotypeAnnotationStore {
 
     private struct ProvenanceEditContext {
         var explicitOptions: [String: ParameterValue]
+        var resolvedDefaults: [String: ParameterValue]
         var resolvedAuthor: String?
         var replayPayload: GenotypeMatrixAnnotationReplayPayload?
         var manualHaplotypeReplayPayload:
             GenotypeManualHaplotypeAssignmentReplayPayload?
+        var callOverrideReplayPayload:
+            GenotypeCallOverrideReplayPayload?
 
         init(
             explicitOptions: [String: ParameterValue],
+            resolvedDefaults: [String: ParameterValue] = [:],
             resolvedAuthor: String? = nil,
             replayPayload: GenotypeMatrixAnnotationReplayPayload? = nil,
             manualHaplotypeReplayPayload:
-                GenotypeManualHaplotypeAssignmentReplayPayload? = nil
+                GenotypeManualHaplotypeAssignmentReplayPayload? = nil,
+            callOverrideReplayPayload:
+                GenotypeCallOverrideReplayPayload? = nil
         ) {
             self.explicitOptions = explicitOptions
+            self.resolvedDefaults = resolvedDefaults
             self.resolvedAuthor = resolvedAuthor
             self.replayPayload = replayPayload
             self.manualHaplotypeReplayPayload =
                 manualHaplotypeReplayPayload
+            self.callOverrideReplayPayload = callOverrideReplayPayload
         }
     }
 
@@ -1973,7 +2321,22 @@ public final class GenotypeAnnotationStore {
         }
         let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: annotationURL)
         let durableReplayArgv: [String]?
-        if editContext?.manualHaplotypeReplayPayload != nil {
+        if editContext?.callOverrideReplayPayload != nil {
+            let replayOutputProvenanceURL =
+                GenotypeCallOverrideReplayPayload
+                    .replayOutputProvenanceURL(
+                        forBundleAt: bundleURL
+                    )
+            durableReplayArgv = [
+                CLICommandIdentity.executableName,
+                "genotype",
+                GenotypeCallOverrideReplayPayload.cliSubcommandName,
+                "--provenance", provenanceURL.path,
+                "--bundle", bundleURL.standardizedFileURL.path,
+            ]
+            explicitOptions["replayOutputProvenance"] =
+                .file(replayOutputProvenanceURL)
+        } else if editContext?.manualHaplotypeReplayPayload != nil {
             let replayOutputProvenanceURL =
                 GenotypeManualHaplotypeAssignmentReplayPayload
                     .replayOutputProvenanceURL(
@@ -2022,7 +2385,18 @@ public final class GenotypeAnnotationStore {
                 originPath: annotationURL.path
             ))
         }
-        if let replayPayload = editContext?.replayPayload {
+        if let replayPayload = editContext?.callOverrideReplayPayload {
+            let replayData = try replayPayload.encoded()
+            explicitOptions["replayFormat"] = .string(
+                GenotypeCallOverrideReplayPayload.format
+            )
+            explicitOptions["replayPayloadBase64"] = .string(
+                replayData.base64EncodedString()
+            )
+            explicitOptions["replayPayloadSHA256"] = .string(
+                sha256Hex(replayData)
+            )
+        } else if let replayPayload = editContext?.replayPayload {
             let replayData = try replayPayload.encoded()
             explicitOptions["replayFormat"] = .string(GenotypeMatrixAnnotationReplayPayload.format)
             explicitOptions["replayPayloadBase64"] = .string(replayData.base64EncodedString())
@@ -2040,7 +2414,18 @@ public final class GenotypeAnnotationStore {
                 sha256Hex(replayData)
             )
         }
-        if let replayPayload =
+        if let replayPayload = editContext?.callOverrideReplayPayload {
+            inputs.append(ProvenanceFileDescriptor(
+                path: bundleURL.appendingPathComponent(
+                    replayPayload.targetBundle.manifest.path
+                ).path,
+                checksumSHA256:
+                    replayPayload.targetBundle.manifest.checksumSHA256,
+                fileSize: replayPayload.targetBundle.manifest.fileSize,
+                format: .json,
+                role: .input
+            ))
+        } else if let replayPayload =
             editContext?.manualHaplotypeReplayPayload {
             inputs.append(ProvenanceFileDescriptor(
                 path: bundleURL.appendingPathComponent(
@@ -2068,6 +2453,11 @@ public final class GenotypeAnnotationStore {
             "manualHaplotypeAssignmentCount": .integer(sidecar.manualHaplotypeAssignments.count),
             "smartCohortCount": .integer(sidecar.smartCohorts.count),
         ]
+        if let editContext {
+            resolvedDefaults.merge(editContext.resolvedDefaults) {
+                _, mutationValue in mutationValue
+            }
+        }
         if action == "setMatrixReview" {
             resolvedDefaults["absentEvidence"] = .string("unsupported")
             resolvedDefaults["supportThreshold"] = .string("passedUniqueReads > 0")
@@ -2115,7 +2505,8 @@ public final class GenotypeAnnotationStore {
             outputs: [output],
             steps: [step],
             wallTimeSeconds: wallTime,
-            exitStatus: 0
+            exitStatus: 0,
+            stderr: ""
         )
     }
 
@@ -2206,6 +2597,64 @@ public final class GenotypeAnnotationStore {
             ],
             resolvedAuthor: replayPayload.operation.author,
             manualHaplotypeReplayPayload: replayPayload
+        )
+    }
+
+    private func callOverrideMutationEditContext(
+        replayPayload: GenotypeCallOverrideReplayPayload
+    ) -> ProvenanceEditContext {
+        let identity: ParameterValue = replayPayload.operation
+            .analysisIdentity.map { identity in
+                .dictionary([
+                    "assayID": .string(identity.assayID),
+                    "analysisRevisionID": identity.analysisRevisionID
+                        .map(ParameterValue.string) ?? .null,
+                    "definitionSetID": .string(identity.definitionSetID),
+                ])
+            } ?? .null
+        let targets = replayPayload.targetMutations.map { mutation in
+            ParameterValue.dictionary([
+                "sample": .string(replayPayload.operation.sample),
+                "locus": .string(mutation.locus),
+                "slot": .string(mutation.slot.rawValue),
+                "baseline": .string(mutation.baseline),
+                "before": .string(mutation.before),
+                "after": .string(mutation.after),
+                "reason": .string(mutation.reason.rawValue),
+                "rationale": .string(mutation.rationale),
+            ])
+        }
+        return ProvenanceEditContext(
+            explicitOptions: [
+                "operationID": .string(
+                    replayPayload.operation.operationID
+                ),
+                "sample": .string(replayPayload.operation.sample),
+                "resolvedAuthor": .string(
+                    replayPayload.operation.author
+                ),
+                "timestamp": .string(
+                    replayPayload.operation.timestamp
+                ),
+                "analysisIdentity": identity,
+                "targetMutations": .array(targets),
+                "priorSidecarSHA256": .string(
+                    replayPayload.priorSidecar.descriptor
+                        .checksumSHA256
+                ),
+                "priorSidecarRevisionSHA256": .string(
+                    replayPayload.priorSidecar.revisionSHA256
+                ),
+                "targetManifestSHA256": .string(
+                    replayPayload.targetBundle.manifest.checksumSHA256
+                ),
+            ],
+            resolvedDefaults: [
+                "changedTargetCount": .integer(targets.count),
+                "restoreRationale": .string("Restore pipeline call"),
+            ],
+            resolvedAuthor: replayPayload.operation.author,
+            callOverrideReplayPayload: replayPayload
         )
     }
 

@@ -26,6 +26,7 @@ struct GenotypeCommandGroup: AsyncParsableCommand {
             GenotypeApplyAnnotationsSubcommand.self,
             GenotypeReplayMatrixAnnotationSubcommand.self,
             GenotypeReplayManualHaplotypeAssignmentsSubcommand.self,
+            GenotypeReplayCallOverridesSubcommand.self,
             GenotypeExportSubcommand.self,
             GenotypeExportXlsxSubcommand.self,
             GenotypeExportPivotXlsxSubcommand.self,

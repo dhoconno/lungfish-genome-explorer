@@ -23,6 +23,104 @@ final class GenotypeAnnotationSidecarTests: XCTestCase {
         XCTAssertEqual(decoded.callOverrides[0].overrideCall, "A1_063")
     }
 
+    func testCurrentCallOverrideRoundTripsAnalysisIdentityAndBatchOperationID() throws {
+        let identity = GenotypeAnnotationSidecar.CallOverrideAnalysisIdentity(
+            assayID: "MHC-exon2-miSeq",
+            analysisRevisionID: "revision-7",
+            definitionSetID: "definition-2"
+        )
+        let structuredAudit = GenotypeAnnotationSidecar.CallOverrideAuditPayload(
+            operationID: "override-operation-001",
+            priorSidecarSHA256: String(repeating: "a", count: 64),
+            analysisIdentity: identity
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-08-03T00:00:00Z"
+        )
+        sidecar.callOverrides = [
+            .init(
+                sample: "Animal-1",
+                locus: "MHC-A",
+                slot: .h1,
+                originalCall: "M1A",
+                overrideCall: "M2A",
+                reasonTag: .analystJudgment,
+                rationale: "Evidence review",
+                author: "Analyst",
+                timestamp: "2026-08-03T01:00:00Z",
+                analysisIdentity: identity,
+                operationID: "override-operation-001"
+            ),
+        ]
+        sidecar.append(audit: .init(
+            action: "override",
+            sample: "Animal-1",
+            locus: "MHC-A",
+            slot: .h1,
+            before: "M1A",
+            after: "M2A",
+            color: nil,
+            reason: "analyst-judgment",
+            rationale: "Evidence review",
+            author: "Analyst",
+            timestamp: "2026-08-03T01:00:00Z",
+            callOverrideMutation: structuredAudit
+        ))
+
+        let decoded = try GenotypeAnnotationSidecar.decode(sidecar.encoded())
+
+        XCTAssertEqual(GenotypeAnnotationSidecar.currentSchemaVersion, 4)
+        XCTAssertEqual(decoded, sidecar)
+        XCTAssertEqual(decoded.callOverrides[0].analysisIdentity, identity)
+        XCTAssertEqual(decoded.callOverrides[0].operationID, "override-operation-001")
+        XCTAssertEqual(
+            decoded.auditLog[0].callOverrideMutation,
+            structuredAudit
+        )
+    }
+
+    func testLegacyOverrideAndAuditDecodeWithoutScientificIdentityMetadata() throws {
+        let legacy = Data(
+            #"""
+            {
+              "schemaVersion": 3,
+              "generatedAt": "2026-08-03T00:00:00Z",
+              "callOverrides": [{
+                "sample": "Animal-1",
+                "locus": "MHC-A",
+                "slot": "h1",
+                "originalCall": "M1A",
+                "overrideCall": "M2A",
+                "reasonTag": "analyst-judgment",
+                "rationale": "Legacy review",
+                "author": "Analyst",
+                "timestamp": "2026-08-03T01:00:00Z"
+              }],
+              "auditLog": [{
+                "action": "override",
+                "sample": "Animal-1",
+                "locus": "MHC-A",
+                "slot": "h1",
+                "before": "M1A",
+                "after": "M2A",
+                "reason": "analyst-judgment",
+                "rationale": "Legacy review",
+                "author": "Analyst",
+                "timestamp": "2026-08-03T01:00:00Z"
+              }]
+            }
+            """#.utf8
+        )
+
+        let decoded = try GenotypeAnnotationSidecar.decode(legacy)
+
+        XCTAssertEqual(decoded.schemaVersion, 3)
+        XCTAssertNil(decoded.callOverrides[0].analysisIdentity)
+        XCTAssertNil(decoded.callOverrides[0].operationID)
+        XCTAssertNil(decoded.auditLog[0].callOverrideMutation)
+        XCTAssertEqual(try decoded.encoded().isEmpty, false)
+    }
+
     func testAIHaplotypeReviewEntryRoundTripsWithoutHumanOverrides() throws {
         let callReview = GenotypeAnnotationSidecar.AIHaplotypeCallReview(
             sample: "DW472",
@@ -179,8 +277,8 @@ final class GenotypeAnnotationSidecarTests: XCTestCase {
         )
     }
 
-    func testVersionOneAndTwoPromoteToCurrentSchemaForMutation() throws {
-        for legacyVersion in [1, 2] {
+    func testLegacyVersionsPromoteToCurrentSchemaForMutation() throws {
+        for legacyVersion in [1, 2, 3] {
             var sidecar = GenotypeAnnotationSidecar.empty(
                 generatedAt: "2026-06-30T00:00:00Z"
             )
@@ -222,7 +320,7 @@ final class GenotypeAnnotationSidecarTests: XCTestCase {
         XCTAssertEqual(decoded.schemaVersion, futureVersion)
     }
 
-    func testVersionThreeSidecarRoundTripsStableIdentityReview() throws {
+    func testCurrentSidecarRoundTripsStableIdentityReview() throws {
         var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-07-01T00:00:00Z")
         let review = GenotypeAnnotationSidecar.MatrixReviewAnnotation(
             target: .cell(
@@ -239,12 +337,12 @@ final class GenotypeAnnotationSidecarTests: XCTestCase {
 
         let decoded = try GenotypeAnnotationSidecar.decode(sidecar.encoded())
 
-        XCTAssertEqual(GenotypeAnnotationSidecar.currentSchemaVersion, 3)
-        XCTAssertEqual(decoded.schemaVersion, 3)
+        XCTAssertEqual(GenotypeAnnotationSidecar.currentSchemaVersion, 4)
+        XCTAssertEqual(decoded.schemaVersion, 4)
         XCTAssertEqual(decoded.matrixReviews, [review])
     }
 
-    func testVersionThreeRoundTripsStructuredManualAssignmentAuditPayload() throws {
+    func testCurrentSchemaRoundTripsStructuredManualAssignmentAuditPayload() throws {
         let before = ManualHaplotypeAssignment(
             sample: "AnimalA",
             locus: "MHC-A",
@@ -295,7 +393,7 @@ final class GenotypeAnnotationSidecarTests: XCTestCase {
 
         let decoded = try GenotypeAnnotationSidecar.decode(sidecar.encoded())
 
-        XCTAssertEqual(decoded.schemaVersion, 3)
+        XCTAssertEqual(decoded.schemaVersion, 4)
         XCTAssertEqual(decoded.auditLog, [audit])
         XCTAssertEqual(
             decoded.auditLog[0].manualHaplotypeAssignment?.before?.diagnosticAlleles,

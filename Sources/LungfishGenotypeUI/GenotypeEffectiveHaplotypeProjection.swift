@@ -25,6 +25,15 @@ struct GenotypeEffectiveHaplotypeIdentity: Equatable, Sendable {
     let assayID: String
     let analysisRevisionID: String?
     let definitionSetID: String
+
+    var sidecarIdentity:
+        GenotypeAnnotationSidecar.CallOverrideAnalysisIdentity {
+        .init(
+            assayID: assayID,
+            analysisRevisionID: analysisRevisionID,
+            definitionSetID: definitionSetID
+        )
+    }
 }
 
 struct GenotypeEffectiveHaplotypeLocusSnapshot: Equatable, Sendable {
@@ -158,6 +167,17 @@ struct GenotypeEffectiveHaplotypeProjection: Equatable, Sendable {
         var values = baselineValues
         for (key, indexedOverride) in latestOverrides {
             guard let baseline = baselineValues[key] else { continue }
+            if let overrideIdentity =
+                    indexedOverride.entry.analysisIdentity,
+               overrideIdentity != identity.sidecarIdentity {
+                values[key] = GenotypeEffectiveHaplotypeValue(
+                    baseline: baseline.baseline,
+                    effective: baseline.effective,
+                    status: baseline.status,
+                    source: .staleOverride
+                )
+                continue
+            }
             let effective = indexedOverride.entry.overrideCall
             values[key] = GenotypeEffectiveHaplotypeValue(
                 baseline: baseline.baseline,

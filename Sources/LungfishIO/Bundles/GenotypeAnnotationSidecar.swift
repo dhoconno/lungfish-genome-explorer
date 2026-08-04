@@ -117,7 +117,7 @@ public struct ONTMHCCandidateDisplaySettings: Codable, Equatable, Sendable {
 public struct GenotypeAnnotationSidecar: Codable, Equatable, Sendable {
     public static let filename = "annotations.json"
     public static let oldestSupportedSchemaVersion = 1
-    public static let currentSchemaVersion = 3
+    public static let currentSchemaVersion = 4
 
     public enum SchemaMutationError: Error, Equatable, LocalizedError, Sendable {
         case unsupportedFutureSchemaVersion(found: Int, current: Int)
@@ -343,6 +343,22 @@ public struct GenotypeAnnotationSidecar: Codable, Equatable, Sendable {
 }
 
 public extension GenotypeAnnotationSidecar {
+    struct CallOverrideAnalysisIdentity: Codable, Equatable, Hashable, Sendable {
+        public let assayID: String
+        public let analysisRevisionID: String?
+        public let definitionSetID: String
+
+        public init(
+            assayID: String,
+            analysisRevisionID: String?,
+            definitionSetID: String
+        ) {
+            self.assayID = assayID
+            self.analysisRevisionID = analysisRevisionID
+            self.definitionSetID = definitionSetID
+        }
+    }
+
     struct CallOverride: Codable, Equatable, Sendable {
         public let sample: String
         public let locus: String
@@ -353,11 +369,34 @@ public extension GenotypeAnnotationSidecar {
         public let rationale: String
         public let author: String
         public let timestamp: String
+        public let analysisIdentity: CallOverrideAnalysisIdentity?
+        public let operationID: String?
 
         public init(sample: String, locus: String, slot: HaplotypeSlot,
                     originalCall: String, overrideCall: String,
                     reasonTag: OverrideReasonTag, rationale: String,
                     author: String, timestamp: String) {
+            self.init(
+                sample: sample,
+                locus: locus,
+                slot: slot,
+                originalCall: originalCall,
+                overrideCall: overrideCall,
+                reasonTag: reasonTag,
+                rationale: rationale,
+                author: author,
+                timestamp: timestamp,
+                analysisIdentity: nil,
+                operationID: nil
+            )
+        }
+
+        public init(sample: String, locus: String, slot: HaplotypeSlot,
+                    originalCall: String, overrideCall: String,
+                    reasonTag: OverrideReasonTag, rationale: String,
+                    author: String, timestamp: String,
+                    analysisIdentity: CallOverrideAnalysisIdentity?,
+                    operationID: String?) {
             self.sample = sample
             self.locus = locus
             self.slot = slot
@@ -367,6 +406,8 @@ public extension GenotypeAnnotationSidecar {
             self.rationale = rationale
             self.author = author
             self.timestamp = timestamp
+            self.analysisIdentity = analysisIdentity
+            self.operationID = operationID
         }
     }
 
@@ -941,6 +982,22 @@ public extension GenotypeAnnotationSidecar {
         }
     }
 
+    struct CallOverrideAuditPayload: Codable, Equatable, Sendable {
+        public let operationID: String
+        public let priorSidecarSHA256: String?
+        public let analysisIdentity: CallOverrideAnalysisIdentity?
+
+        public init(
+            operationID: String,
+            priorSidecarSHA256: String?,
+            analysisIdentity: CallOverrideAnalysisIdentity?
+        ) {
+            self.operationID = operationID
+            self.priorSidecarSHA256 = priorSidecarSHA256
+            self.analysisIdentity = analysisIdentity
+        }
+    }
+
     struct AuditEntry: Codable, Equatable, Sendable {
         public let action: String
         public let sample: String
@@ -954,6 +1011,7 @@ public extension GenotypeAnnotationSidecar {
         public let author: String
         public let timestamp: String
         public let manualHaplotypeAssignment: ManualHaplotypeAssignmentAuditPayload?
+        public let callOverrideMutation: CallOverrideAuditPayload?
 
         public init(action: String, sample: String, locus: String?, slot: HaplotypeSlot?,
                     before: String?, after: String?, color: String?,
@@ -971,7 +1029,8 @@ public extension GenotypeAnnotationSidecar {
                 rationale: rationale,
                 author: author,
                 timestamp: timestamp,
-                manualHaplotypeAssignment: nil
+                manualHaplotypeAssignment: nil,
+                callOverrideMutation: nil
             )
         }
 
@@ -980,6 +1039,51 @@ public extension GenotypeAnnotationSidecar {
                     reason: String?, rationale: String?,
                     author: String, timestamp: String,
                     manualHaplotypeAssignment: ManualHaplotypeAssignmentAuditPayload?) {
+            self.init(
+                action: action,
+                sample: sample,
+                locus: locus,
+                slot: slot,
+                before: before,
+                after: after,
+                color: color,
+                reason: reason,
+                rationale: rationale,
+                author: author,
+                timestamp: timestamp,
+                manualHaplotypeAssignment: manualHaplotypeAssignment,
+                callOverrideMutation: nil
+            )
+        }
+
+        public init(action: String, sample: String, locus: String?, slot: HaplotypeSlot?,
+                    before: String?, after: String?, color: String?,
+                    reason: String?, rationale: String?,
+                    author: String, timestamp: String,
+                    callOverrideMutation: CallOverrideAuditPayload?) {
+            self.init(
+                action: action,
+                sample: sample,
+                locus: locus,
+                slot: slot,
+                before: before,
+                after: after,
+                color: color,
+                reason: reason,
+                rationale: rationale,
+                author: author,
+                timestamp: timestamp,
+                manualHaplotypeAssignment: nil,
+                callOverrideMutation: callOverrideMutation
+            )
+        }
+
+        public init(action: String, sample: String, locus: String?, slot: HaplotypeSlot?,
+                    before: String?, after: String?, color: String?,
+                    reason: String?, rationale: String?,
+                    author: String, timestamp: String,
+                    manualHaplotypeAssignment: ManualHaplotypeAssignmentAuditPayload?,
+                    callOverrideMutation: CallOverrideAuditPayload?) {
             self.action = action
             self.sample = sample
             self.locus = locus
@@ -992,6 +1096,7 @@ public extension GenotypeAnnotationSidecar {
             self.author = author
             self.timestamp = timestamp
             self.manualHaplotypeAssignment = manualHaplotypeAssignment
+            self.callOverrideMutation = callOverrideMutation
         }
     }
 }

@@ -29,16 +29,85 @@ final class GenotypeAnnotationStoreReadOnlyTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: sidecarPath),
                        "Read-only volume should not have a freshly-created sidecar")
 
-        // In-memory operations on a read-only store don't throw — they
-        // mutate the in-memory copy and skip persist().
-        try store.applyOverride(
+        let before = store.sidecar
+        XCTAssertThrowsError(try store.applyOverride(
             sample: "H1", locus: "MHC-A", slot: .h1,
             originalCall: "M2A", overrideCall: "A1_063",
             reasonTag: .crossContamination, rationale: ""
-        )
-        XCTAssertEqual(store.sidecar.callOverrides.count, 1)
+        )) { error in
+            XCTAssertEqual(error as? CallOverrideMutationError, .readOnly)
+        }
+        XCTAssertEqual(store.sidecar, before)
+        XCTAssertEqual(store.callOverrideMutationRevision, 0)
         XCTAssertFalse(FileManager.default.fileExists(atPath: sidecarPath),
                        "Read-only store should not have persisted to disk")
+    }
+
+    func testCallOverrideBatchRejectsReadOnlyBeforeObservableMutation() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString + ".lungfishgenotype")
+        try FileManager.default.createDirectory(
+            at: dir,
+            withIntermediateDirectories: true
+        )
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: NSNumber(value: 0o755)],
+                ofItemAtPath: dir.path
+            )
+            try? FileManager.default.removeItem(at: dir)
+        }
+        try Data("{}".utf8).write(
+            to: dir.appendingPathComponent(
+                ONTGenotypeResultBundleManifest.filename
+            )
+        )
+        _ = try GenotypeAnnotationStore(bundleURL: dir, author: "seed")
+        let annotationURL = dir.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(
+            for: annotationURL
+        )
+        let annotationBefore = try Data(contentsOf: annotationURL)
+        let provenanceBefore = try Data(contentsOf: provenanceURL)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: NSNumber(value: 0o555)],
+            ofItemAtPath: dir.path
+        )
+        let store = try GenotypeAnnotationStore(
+            bundleURL: dir,
+            author: "Read-only Analyst"
+        )
+        let memoryBefore = store.sidecar
+
+        XCTAssertThrowsError(try store.mutateCallOverrides(
+            [
+                .init(
+                    target: .init(
+                        sample: "Animal-1",
+                        locus: "MHC-A",
+                        slot: .h1
+                    ),
+                    baseline: "M1A",
+                    after: "M2A",
+                    reason: .misCall,
+                    rationale: "Reviewed reads"
+                ),
+            ],
+            author: "Read-only Analyst",
+            analysisIdentity: .init(
+                assayID: "MHC-exon2-miSeq",
+                analysisRevisionID: "revision-7",
+                definitionSetID: "definition-2"
+            )
+        )) { error in
+            XCTAssertEqual(error as? CallOverrideMutationError, .readOnly)
+        }
+        XCTAssertEqual(store.sidecar, memoryBefore)
+        XCTAssertEqual(store.callOverrideMutationRevision, 0)
+        XCTAssertEqual(try Data(contentsOf: annotationURL), annotationBefore)
+        XCTAssertEqual(try Data(contentsOf: provenanceURL), provenanceBefore)
     }
 
     func testWritableVolumeAllowsPersistAndSeeding() throws {

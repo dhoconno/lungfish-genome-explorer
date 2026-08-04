@@ -16057,7 +16057,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(controller.testingCurrentWorkbookHaplotypeCalls().map(\.locus), ["MHC-A"])
     }
 
-    func testCurrentWorkbookSnapshotIncludesManualHaplotypeAssignments() throws {
+    func testApplicableHaplotypedMiSeqWorkbookIgnoresManualAssignments() throws {
         let bundleURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeResultViewportTests-\(UUID().uuidString).lungfishgenotype", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: bundleURL) }
@@ -16104,16 +16104,28 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
         controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: [], haplotypeAnalysis: analysis))
 
+        XCTAssertEqual(
+            controller.testingCurrentWorkbookHaplotypeProjectionMode(),
+            .haplotyped
+        )
         XCTAssertEqual(controller.testingCurrentWorkbookHaplotypeCalls(), [
             GenotypeWorkbookHaplotypeCall(
                 sample: "LF2832",
                 locus: "MHC-A",
-                haplotype1: "Manual-M2B",
+                haplotype1: "M1A",
                 haplotype2: "-",
                 status: GenotypeHaplotypeCallStatus.called.rawValue,
-                notes: "curated in GUI"
+                notes: ""
             )
         ])
+        XCTAssertEqual(
+            try GenotypeAnnotationSidecar.decode(
+                Data(contentsOf: bundleURL.appendingPathComponent(
+                    GenotypeAnnotationSidecar.filename
+                ))
+            ).manualHaplotypeAssignments,
+            sidecar.manualHaplotypeAssignments
+        )
     }
 
     func testCurrentWorkbookSnapshotIncludesGenotypeOnlyManualAssignmentsForONTAndMiSeq()
@@ -21496,7 +21508,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
     }
 
-    func testManualHaplotypeOverrideAppearsInReviewEvidenceAndOutlineTape() throws {
+    func testCallOverridePreservesUnresolvedReviewStatusAndOutlineValue() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeResultViewportTests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -21560,8 +21572,8 @@ final class GenotypeResultViewportTests: XCTestCase {
         let evidence = try XCTUnwrap(controller.callEvidence(sample: "DW472", locus: "MHC-B"))
         XCTAssertEqual(evidence.h1Name, "M3B")
         XCTAssertEqual(evidence.h2Name, "M2B")
-        XCTAssertEqual(evidence.status, .called)
-        XCTAssertEqual(evidence.errorExplanation, "")
+        XCTAssertEqual(evidence.status, .noHaplotype)
+        XCTAssertFalse(evidence.errorExplanation.isEmpty)
         XCTAssertFalse(evidence.isHomozygous)
 
         let mhcBSlot = try XCTUnwrap(controller.testingOutlineSlots(sample: "DW472").first { $0.locus == "MHC-B" })
@@ -21763,6 +21775,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        try installCallOverrideManifest(in: bundleURL)
         let analysis = GenotypeHaplotypeAnalysis(
             assayID: "MHC-exon2-miSeq",
             definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
@@ -21814,6 +21827,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        try installCallOverrideManifest(in: bundleURL)
         let analysis = GenotypeHaplotypeAnalysis(
             assayID: "MHC-exon2-miSeq",
             definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
@@ -21868,6 +21882,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        try installCallOverrideManifest(in: bundleURL)
         let analysis = GenotypeHaplotypeAnalysis(
             assayID: "MHC-exon2-miSeq",
             definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
@@ -23075,6 +23090,14 @@ final class GenotypeResultViewportTests: XCTestCase {
                     ]
                 )
             ]
+        )
+    }
+
+    private func installCallOverrideManifest(in bundleURL: URL) throws {
+        try Data(#"{"analysis":"viewport-test-fixture"}"#.utf8).write(
+            to: bundleURL.appendingPathComponent(
+                ONTGenotypeResultBundleManifest.filename
+            )
         )
     }
 }
