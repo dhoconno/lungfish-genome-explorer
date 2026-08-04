@@ -544,6 +544,7 @@ public final class GenotypeResultViewController: NSViewController {
     private var legacyNonRowDetailBuildCount = 0
     private var currentSelectedSample: String?
     private var currentSelectedLocus: String?
+    private var currentSelectedSlot: HaplotypeSlot?
     private var currentSelectionState: GenotypeResultSelectionState?
     private var activeContentView: NSView?
     private var activeContentConstraints: [NSLayoutConstraint] = []
@@ -1756,6 +1757,10 @@ public final class GenotypeResultViewController: NSViewController {
                 && !isHaplotypedMiSeqPresentationOnlyChange
         ) || previousAncillary != state.showsAncillaryLoci
             || previousIncludedLoci != state.includedLoci {
+            if previousAncillary != state.showsAncillaryLoci
+                || previousIncludedLoci != state.includedLoci {
+                applyComparisonMatrixHaplotypeBandProjection()
+            }
             rebuildOutline()
             rebuildHaplotypeMatrix()
             rebuildCohortSummary()
@@ -2728,8 +2733,12 @@ public final class GenotypeResultViewController: NSViewController {
             self?.selectCellEvidence(animalId: animalId, locus: locus)
         }
         outlineView.onHaplotypeTargetActivated = {
-            [weak self] animalId, locus, _ in
-            self?.selectCellEvidence(animalId: animalId, locus: locus)
+            [weak self] animalId, locus, slot in
+            self?.selectCellEvidence(
+                animalId: animalId,
+                locus: locus,
+                slot: slot
+            )
         }
         quickFilterBar.onStateChanged = { [weak self] state in
             self?.applyQuickFilterState(state)
@@ -3209,7 +3218,11 @@ public final class GenotypeResultViewController: NSViewController {
     /// `locus` is nil the first error call (or first call) is chosen;
     /// otherwise the named locus call is used. Returns nil when the
     /// bundle has no analysis or the sample is unknown.
-    func callEvidence(sample sampleId: String, locus: String?) -> GenotypeCallEvidenceView.Evidence? {
+    func callEvidence(
+        sample sampleId: String,
+        locus: String?,
+        slot requestedSlot: HaplotypeSlot? = nil
+    ) -> GenotypeCallEvidenceView.Evidence? {
         guard let result, let analysis = activeHaplotypeAnalysis() else { return nil }
         guard let sampleAnalysis = activeHaplotypeSamplesByName[sampleId]
             ?? analysis.samples.first(where: { $0.sample == sampleId }) else {
@@ -3337,10 +3350,18 @@ public final class GenotypeResultViewController: NSViewController {
             for: sampleCalls,
             sampleAnalysis: sampleAnalysis
         )
+        let selectedSlot = requestedSlot
+            ?? (
+                currentSelectedSample == sampleId
+                    && currentSelectedLocus == locusCall.locus
+                    ? currentSelectedSlot
+                    : nil
+            )
+            ?? .h1
         return GenotypeCallEvidenceView.Evidence(
             sample: sampleId,
             locus: locusCall.locus,
-            slot: .h1,
+            slot: selectedSlot,
             callName: displayedCall,
             status: effectiveCall.status,
             observedGenotypeCount: locusCall.observedGenotypeCount,
@@ -6083,7 +6104,11 @@ public final class GenotypeResultViewController: NSViewController {
             return GenotypeManualHaplotypeLocus.allCases.map(\.rawValue)
         }
         guard let analysis = activeHaplotypeAnalysis() else { return [] }
-        return effectiveIncludedLoci(for: analysis)
+        let observed = result.map {
+            observedLociIndex
+                ?? GenotypeObservedLociIndex.build(from: $0)
+        }
+        return effectiveIncludedLoci(for: analysis, observed: observed)
             .filter { GenotypeWorkbookHaplotypeCall.isWritableCurrentWorkbookLocus($0) }
     }
 
@@ -6353,11 +6378,20 @@ public final class GenotypeResultViewController: NSViewController {
         invalidatedKeys: Set<GenotypeEffectiveHaplotypeKey>? = nil
     ) {
         if presentationPolicy?.appliesToHaplotypedMiSeq == true,
-           let effectiveHaplotypeProjection {
+           let effectiveHaplotypeProjection,
+           let analysis = activeHaplotypeAnalysis() {
+            let observed = result.map {
+                observedLociIndex
+                    ?? GenotypeObservedLociIndex.build(from: $0)
+            }
             comparisonMatrix.setHaplotypeBand(
                 mode: .effectiveMiSeqCalls,
                 snapshot: GenotypeHaplotypeCallBandSnapshot(
                     projection: effectiveHaplotypeProjection,
+                    orderedLoci: effectiveIncludedLoci(
+                        for: analysis,
+                        observed: observed
+                    ),
                     isEditable: !(annotationStore?.isReadOnly ?? true)
                 ),
                 invalidatingSamples: invalidatedKeys.map {
@@ -8079,6 +8113,7 @@ public final class GenotypeResultViewController: NSViewController {
         guard let row = outlineRowsBySample[animalId] else { return }
         currentSelectedSample = animalId
         currentSelectedLocus = nil
+        currentSelectedSlot = nil
         syncOutlineReviewSelection()
         let detailRows: [(String, String)] = [
             ("Animal", animalId),
@@ -8107,10 +8142,15 @@ public final class GenotypeResultViewController: NSViewController {
         // on every row tap is too aggressive.
     }
 
-    private func selectCellEvidence(animalId: String, locus: String) {
+    private func selectCellEvidence(
+        animalId: String,
+        locus: String,
+        slot: HaplotypeSlot = .h1
+    ) {
         guard let row = outlineRowsBySample[animalId] else { return }
         currentSelectedSample = animalId
         currentSelectedLocus = locus
+        currentSelectedSlot = slot
         syncOutlineReviewSelection()
         let detailRows: [(String, String)] = [
             ("Animal", animalId),
@@ -8160,6 +8200,7 @@ public final class GenotypeResultViewController: NSViewController {
         guard outlineRowsBySample[target.sample] != nil else { return }
         currentSelectedSample = target.sample
         currentSelectedLocus = target.locus
+        currentSelectedSlot = target.slot
         syncOutlineReviewSelection()
         publishSelectionState(.init(
             title: target.sample,
@@ -8616,6 +8657,7 @@ public final class GenotypeResultViewController: NSViewController {
         )
         invalidateGenotypeSearchIndex()
         refreshOutlineRows(changedKeys: changedKeys)
+        applyComparisonMatrixCohortFilter()
         let selectedKeyChanged = changedKeys.contains {
             $0.sample == currentSelectedSample
                 && $0.locus == currentSelectedLocus

@@ -128,6 +128,7 @@ enum CallOverrideMutationError:
         expected: String,
         actual: String
     )
+    case identityRequiredForClear(GenotypeEffectiveHaplotypeKey)
     case missingPriorSidecar
 
     public var errorDescription: String? {
@@ -146,6 +147,8 @@ enum CallOverrideMutationError:
             "Call override target \(target.sample), \(target.locus), \(target.slot.rawValue) appears more than once."
         case let .baselineMismatch(target, expected, actual):
             "Call override baseline changed for \(target.sample), \(target.locus), \(target.slot.rawValue): expected \(expected), found \(actual)."
+        case .identityRequiredForClear(let target):
+            "Restoring \(target.sample), \(target.locus), \(target.slot.rawValue) requires the active analysis identity."
         case .missingPriorSidecar:
             "Call overrides require an existing annotation sidecar before they can be saved."
         }
@@ -1789,17 +1792,23 @@ public final class GenotypeAnnotationStore {
                 && entry.locus == locus
                 && entry.slot == slot
         }
+        let target = GenotypeEffectiveHaplotypeKey(
+            sample: sample,
+            locus: locus,
+            slot: slot
+        )
+        guard !matches.contains(where: {
+            $0.element.analysisIdentity != nil
+        }) else {
+            throw CallOverrideMutationError.identityRequiredForClear(target)
+        }
         guard let existing = authoritativeCallOverride(matches) else {
             return
         }
         _ = try mutateCallOverrides(
             [
                 CallOverrideMutation(
-                    target: .init(
-                        sample: sample,
-                        locus: locus,
-                        slot: slot
-                    ),
+                    target: target,
                     baseline: existing.originalCall,
                     after: existing.originalCall,
                     reason: existing.reasonTag,

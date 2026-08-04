@@ -23803,6 +23803,133 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
     }
 
+    func testHaplotypedMiSeqIncludedLociStaySynchronizedAcrossCallsBandAndWorkbook()
+        throws {
+        let fixture = try makeSynchronizedMiSeqFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: fixture.result)
+
+        var state = GenotypeResultDisplayState()
+        state.summaryViewMode = .matrix
+        state.manualHaplotypeBandExpanded = true
+        controller.testingApplyDisplayState(state)
+        let matrix = controller.testingComparisonMatrix
+        XCTAssertEqual(matrix.testingHaplotypeBandLoci, ["MHC-A", "MHC-B"])
+
+        state.includedLoci = ["MHC-B"]
+        controller.testingApplyDisplayState(state)
+
+        XCTAssertEqual(
+            controller.testingOutlineSlots(sample: "Sample-A").map(\.locus),
+            ["MHC-B"]
+        )
+        XCTAssertEqual(matrix.testingHaplotypeBandLoci, ["MHC-B"])
+        XCTAssertEqual(
+            controller.testingCurrentWorkbookHaplotypeCalls().map(\.locus),
+            ["MHC-B", "MHC-B"]
+        )
+        XCTAssertEqual(
+            Set(controller.testingCurrentWorkbookHaplotypeCalls().map(\.locus)),
+            ["MHC-B"]
+        )
+    }
+
+    func testHaplotypedMiSeqOverrideReappliesSmartCohortAndQuickSearchToMatrix()
+        throws {
+        let fixture = try makeSynchronizedMiSeqFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: fixture.result)
+        controller.testingApplySmartCohort(.init(
+            name: "Reviewed D1",
+            description: "",
+            scope: "bundle",
+            isStarred: false,
+            predicate: .hasHaplotypeAt(
+                locus: "MHC-B",
+                slot: .h1,
+                names: ["D1-review"]
+            )
+        ))
+        controller.testingSetQuickFilterSearchText("D1-review")
+        XCTAssertTrue(controller.testingVisibleOutlineSamples.isEmpty)
+        controller.testingApplyDisplayState(
+            GenotypeResultDisplayState(summaryViewMode: .matrix)
+        )
+        XCTAssertTrue(controller.testingVisibleMatrixSamples.isEmpty)
+
+        let row = try XCTUnwrap(
+            controller.testingSampleDetailRows(sample: "Sample-B").first {
+                $0.locus == "MHC-B" && $0.slot == .h1
+            }
+        )
+        controller.testingResetSynchronizedMiSeqPerformanceCounters()
+        XCTAssertNil(
+            controller.testingSaveSampleDetailOverrideWithoutPresentingSheet(
+                sample: "Sample-B",
+                row: row,
+                target: "D1-review",
+                rationale: "Enter active shared filters"
+            )
+        )
+
+        XCTAssertEqual(controller.testingVisibleOutlineSamples, ["Sample-B"])
+        XCTAssertEqual(controller.testingVisibleMatrixSamples, ["Sample-B"])
+        XCTAssertEqual(
+            controller.testingSynchronizedMiSeqPerformanceSnapshot
+                .columnRebuildCount,
+            1,
+            "Matrix columns should rebuild when effective-call cohort membership changes."
+        )
+
+        controller.testingResetSynchronizedMiSeqPerformanceCounters()
+        XCTAssertNil(
+            controller.testingSaveSampleDetailOverrideWithoutPresentingSheet(
+                sample: "Sample-B",
+                row: row,
+                target: "D1-review",
+                rationale: "Metadata-only rationale correction"
+            )
+        )
+        XCTAssertEqual(controller.testingVisibleMatrixSamples, ["Sample-B"])
+        XCTAssertEqual(
+            controller.testingSynchronizedMiSeqPerformanceSnapshot
+                .columnRebuildCount,
+            0,
+            "Reapplying unchanged membership must not rebuild matrix columns."
+        )
+    }
+
+    func testHaplotypedMiSeqBandSelectionCarriesH2IntoCallEvidence() throws {
+        let fixture = try makeSynchronizedMiSeqFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: fixture.result)
+        var state = GenotypeResultDisplayState(summaryViewMode: .matrix)
+        state.manualHaplotypeBandExpanded = true
+        controller.testingApplyDisplayState(state)
+        let target = GenotypeHaplotypeBandTarget(
+            sample: "Sample-B",
+            locus: "MHC-B",
+            slot: .h2
+        )
+        let button = try XCTUnwrap(
+            controller.testingComparisonMatrix
+                .testingHaplotypeBandHitTarget(target)
+        )
+
+        XCTAssertTrue(button.accessibilityPerformPress())
+
+        XCTAssertEqual(
+            controller.callEvidence(sample: "Sample-B", locus: "MHC-B")?.slot,
+            .h2
+        )
+    }
+
     func testHaplotypedMiSeqNoOpPublishesNothing() throws {
         let fixture = try makeSynchronizedMiSeqFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }

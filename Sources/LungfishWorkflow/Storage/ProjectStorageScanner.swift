@@ -705,11 +705,15 @@ public struct ProjectStorageScanner {
                     "Append-only operation history still claims live work."
             )
         }
+        let lockState = category == .temporary
+            && marker.lockRelativePath == nil
+            ? "a per-run lock is not applicable to this temporary directory"
+            : "the lock is unlocked"
         return .removable(
             .conclusivelyOrphanedOwnedWork,
             reason:
-                "The creating process is conclusively dead, the lock is "
-                + "unlocked, and no live operation history remains."
+                "The creating process is conclusively dead, \(lockState), "
+                + "and no live operation history remains."
         )
     }
 

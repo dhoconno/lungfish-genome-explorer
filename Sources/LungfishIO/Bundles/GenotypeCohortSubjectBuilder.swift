@@ -29,11 +29,11 @@ public enum GenotypeCohortSubjectBuilder {
         let statusBySample = Dictionary(uniqueKeysWithValues:
             sidecar.sampleStatusFlags.map { ($0.sample, $0.value) }
         )
-        var overridesBySampleLocusSlot: [String: String] = [:]
-        for override in sidecar.callOverrides {
-            overridesBySampleLocusSlot[
-                overrideKey(sample: override.sample, locus: override.locus, slot: override.slot)
-            ] = override.overrideCall
+        let effectiveResolution = result.haplotypeAnalysis.map {
+            GenotypeEffectiveCallAuthority.resolve(
+                analysis: $0,
+                sidecar: sidecar
+            )
         }
 
         return sampleIds.map { sample in
@@ -47,25 +47,30 @@ public enum GenotypeCohortSubjectBuilder {
             let highlightBorders = (highlightsBySample[sample] ?? [])
                 .compactMap(\.borderColor)
             let effectiveCalls = (analysis?.calls ?? []).map { locusCall in
-                let h1 = overridesBySampleLocusSlot[
-                    overrideKey(sample: sample, locus: locusCall.locus, slot: .h1)
-                ] ?? locusCall.haplotype1
-                let h2 = overridesBySampleLocusSlot[
-                    overrideKey(sample: sample, locus: locusCall.locus, slot: .h2)
-                ] ?? locusCall.haplotype2
-                let hasOverride = h1 != locusCall.haplotype1 || h2 != locusCall.haplotype2
-                let isError = (locusCall.status != .called
-                    && locusCall.status != .notAssayed
-                    && locusCall.status != .specialCase
-                    && !hasOverride)
-                    || h1.hasPrefix("ERR:")
-                    || h2.hasPrefix("ERR:")
+                let resolved = effectiveResolution?.locusValue(
+                    sample: sample,
+                    locus: locusCall.locus
+                )
+                let h1 = resolved?.h1.effective ?? locusCall.haplotype1
+                let h2 = resolved?.h2.effective ?? locusCall.haplotype2
+                let h1Status = resolved?.h1.status ?? locusCall.status
+                let h2Status = resolved?.h2.status ?? locusCall.status
+                let h1IsError = isEffectiveCallError(
+                    name: h1,
+                    status: h1Status
+                )
+                let h2IsError = isEffectiveCallError(
+                    name: h2,
+                    status: h2Status
+                )
                 return (
                     locus: locusCall.locus,
                     h1: h1,
                     h2: h2,
-                    status: locusCall.status,
-                    isError: isError
+                    h1IsError: h1IsError,
+                    h2IsError: h2IsError,
+                    status: resolved?.status ?? locusCall.status,
+                    isError: h1IsError || h2IsError
                 )
             }
             let calls: [GenotypeCohortSubject.Call] = effectiveCalls.flatMap { locusCall in
@@ -77,7 +82,7 @@ public enum GenotypeCohortSubjectBuilder {
                         slot: .h1,
                         name: locusCall.h1,
                         isHomozygous: isHomozygous,
-                        isError: locusCall.isError,
+                        isError: locusCall.h1IsError,
                         isRecombinant: locusCall.h1.hasPrefix("rec") || locusCall.h2.hasPrefix("rec"),
                         readCount: 0
                     ),
@@ -86,7 +91,7 @@ public enum GenotypeCohortSubjectBuilder {
                         slot: .h2,
                         name: locusCall.h2,
                         isHomozygous: isHomozygous,
-                        isError: locusCall.isError,
+                        isError: locusCall.h2IsError,
                         isRecombinant: locusCall.h1.hasPrefix("rec") || locusCall.h2.hasPrefix("rec"),
                         readCount: 0
                     ),
@@ -151,8 +156,20 @@ public enum GenotypeCohortSubjectBuilder {
         }
     }
 
-    private static func overrideKey(sample: String, locus: String, slot: HaplotypeSlot) -> String {
-        "\(sample)\u{1F}\(locus)\u{1F}\(slot.rawValue)"
+    private static func isEffectiveCallError(
+        name: String,
+        status: GenotypeHaplotypeCallStatus
+    ) -> Bool {
+        if name == "?"
+            || name.hasPrefix("ERR:") {
+            return true
+        }
+        switch status {
+        case .noHaplotype, .tooManyHaplotypes, .tooManyGenotypes:
+            return true
+        case .called, .notAssayed, .specialCase:
+            return false
+        }
     }
 
     private static func fallbackQCStatus(from calls: [ONTGenotypeCall]) -> ONTGenotypeQCStatus {

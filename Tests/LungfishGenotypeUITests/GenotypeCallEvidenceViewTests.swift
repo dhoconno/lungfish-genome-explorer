@@ -108,6 +108,69 @@ final class GenotypeCallEvidenceViewTests: XCTestCase {
         XCTAssertGreaterThan(host.frame.width, 0)
     }
 
+    func testSelectedHaplotypeSlotDrivesVisibleAndAccessibleCardPresentation() {
+        var h2Evidence = GenotypeCallEvidenceView.Evidence(
+            sample: "H22C112",
+            locus: "MHC-A",
+            slot: .h2,
+            callName: "M1A / M2A",
+            status: .called,
+            observedGenotypeCount: 2,
+            observedGenotypes: [],
+            diagnosticAlleles: [],
+            locusReadTotal: 100,
+            neighborsBefore: [],
+            neighborsAfter: [],
+            h1Name: "M1A",
+            h2Name: "M2A"
+        )
+
+        XCTAssertEqual(
+            GenotypeCallEvidenceView.slotCardPresentation(
+                for: .h2,
+                evidence: h2Evidence
+            ),
+            .init(
+                isSelected: true,
+                badge: "Selected",
+                accessibilityLabel: "Selected H2 haplotype M2A"
+            )
+        )
+        XCTAssertEqual(
+            GenotypeCallEvidenceView.slotCardPresentation(
+                for: .h1,
+                evidence: h2Evidence
+            ),
+            .init(
+                isSelected: false,
+                badge: nil,
+                accessibilityLabel: "H1 haplotype M1A"
+            )
+        )
+
+        h2Evidence = .init(
+            sample: h2Evidence.sample,
+            locus: h2Evidence.locus,
+            slot: .h1,
+            callName: h2Evidence.callName,
+            status: h2Evidence.status,
+            observedGenotypeCount: h2Evidence.observedGenotypeCount,
+            observedGenotypes: h2Evidence.observedGenotypes,
+            diagnosticAlleles: h2Evidence.diagnosticAlleles,
+            locusReadTotal: h2Evidence.locusReadTotal,
+            neighborsBefore: h2Evidence.neighborsBefore,
+            neighborsAfter: h2Evidence.neighborsAfter,
+            h1Name: h2Evidence.h1Name,
+            h2Name: h2Evidence.h2Name
+        )
+        XCTAssertTrue(
+            GenotypeCallEvidenceView.slotCardPresentation(
+                for: .h1,
+                evidence: h2Evidence
+            ).isSelected
+        )
+    }
+
     func testNotAssayedEvidenceIsNotHomozygous() {
         let evidence = GenotypeCallEvidenceView.Evidence(
             sample: "DW474",

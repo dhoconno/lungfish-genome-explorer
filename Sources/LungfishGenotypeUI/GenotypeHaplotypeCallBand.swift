@@ -84,14 +84,16 @@ struct GenotypeHaplotypeCallBandSnapshot: Equatable, Sendable {
 
     init(
         projection: GenotypeEffectiveHaplotypeProjection,
+        orderedLoci: [String]? = nil,
         isEditable: Bool
     ) {
+        let orderedLoci = orderedLoci ?? projection.orderedLoci
         var calls: [GenotypeHaplotypeCallBandLocusCall] = []
         calls.reserveCapacity(
-            projection.orderedSamples.count * projection.orderedLoci.count
+            projection.orderedSamples.count * orderedLoci.count
         )
         for sample in projection.orderedSamples {
-            for locus in projection.orderedLoci {
+            for locus in orderedLoci {
                 guard let snapshot = projection.snapshot(
                     sample: sample,
                     locus: locus
@@ -114,7 +116,7 @@ struct GenotypeHaplotypeCallBandSnapshot: Equatable, Sendable {
                 )
             }
         }
-        self.init(orderedLoci: projection.orderedLoci, calls: calls)
+        self.init(orderedLoci: orderedLoci, calls: calls)
     }
 
     var disclosureTitle: String {

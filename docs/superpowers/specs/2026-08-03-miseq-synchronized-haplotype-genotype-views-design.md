@@ -1,6 +1,6 @@
 # miSeq Synchronized Haplotype and Genotype Views
 
-**Date:** 2026-08-03  
+**Date:** 2026-08-03
 **Status:** Approved for implementation and expert review
 
 ## Objective

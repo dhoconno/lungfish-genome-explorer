@@ -283,10 +283,12 @@ final class ProjectStorageScannerTests: XCTestCase {
             }
         )
 
-        XCTAssertEqual(
-            try XCTUnwrap(entries[".tmp/\(preview.lastPathComponent)"]).code,
-            .conclusivelyOrphanedOwnedWork
+        let temporary = try XCTUnwrap(
+            entries[".tmp/\(preview.lastPathComponent)"]
         )
+        XCTAssertEqual(temporary.code, .conclusivelyOrphanedOwnedWork)
+        XCTAssertTrue(temporary.reason.contains("lock is not applicable"))
+        XCTAssertFalse(temporary.reason.contains("lock is unlocked"))
         XCTAssertEqual(
             try XCTUnwrap(entries[staging.lastPathComponent]).code,
             .unsafeLock

@@ -381,6 +381,88 @@ final class GenotypeAnnotationStoreCallOverrideTests: XCTestCase {
         )
     }
 
+    func testIdentityLessClearWrapperRejectsIdentityBoundOverride() throws {
+        let bound = GenotypeAnnotationSidecar.CallOverride(
+            sample: "Animal-1",
+            locus: "MHC-A",
+            slot: .h1,
+            originalCall: "revision-6-baseline",
+            overrideCall: "revision-6-override",
+            reasonTag: .analystJudgment,
+            rationale: "Belongs to a specific analysis",
+            author: "Earlier Analyst",
+            timestamp: "2026-08-03T01:00:00Z",
+            analysisIdentity: .init(
+                assayID: "MHC-exon2-miSeq",
+                analysisRevisionID: "revision-6",
+                definitionSetID: "definition-2"
+            ),
+            operationID: "revision-6-operation"
+        )
+        let fixture = try makeStore(callOverrides: [bound])
+        defer { try? FileManager.default.removeItem(at: fixture.bundleURL) }
+        let annotationBefore = try Data(contentsOf: fixture.annotationURL)
+        let provenanceBefore = try Data(contentsOf: fixture.provenanceURL)
+
+        XCTAssertThrowsError(try fixture.store.clearOverride(
+            sample: bound.sample,
+            locus: bound.locus,
+            slot: bound.slot
+        ))
+
+        XCTAssertEqual(fixture.store.sidecar.callOverrides, [bound])
+        XCTAssertEqual(try Data(contentsOf: fixture.annotationURL), annotationBefore)
+        XCTAssertEqual(try Data(contentsOf: fixture.provenanceURL), provenanceBefore)
+        XCTAssertEqual(fixture.store.callOverrideMutationRevision, 0)
+    }
+
+    func testIdentityLessClearWrapperRejectsMixedLegacyAndIdentityBoundHistory()
+        throws {
+        let bound = GenotypeAnnotationSidecar.CallOverride(
+            sample: "Animal-1",
+            locus: "MHC-A",
+            slot: .h1,
+            originalCall: "revision-6-baseline",
+            overrideCall: "revision-6-override",
+            reasonTag: .analystJudgment,
+            rationale: "Identity-bound history",
+            author: "Earlier Analyst",
+            timestamp: "2026-08-03T01:00:00Z",
+            analysisIdentity: .init(
+                assayID: "MHC-exon2-miSeq",
+                analysisRevisionID: "revision-6",
+                definitionSetID: "definition-2"
+            ),
+            operationID: "revision-6-operation"
+        )
+        let legacy = GenotypeAnnotationSidecar.CallOverride(
+            sample: bound.sample,
+            locus: bound.locus,
+            slot: bound.slot,
+            originalCall: "legacy-baseline",
+            overrideCall: "legacy-override",
+            reasonTag: .misCall,
+            rationale: "Later legacy history",
+            author: "Legacy Analyst",
+            timestamp: "2026-08-03T02:00:00Z"
+        )
+        let fixture = try makeStore(callOverrides: [bound, legacy])
+        defer { try? FileManager.default.removeItem(at: fixture.bundleURL) }
+        let annotationBefore = try Data(contentsOf: fixture.annotationURL)
+        let provenanceBefore = try Data(contentsOf: fixture.provenanceURL)
+
+        XCTAssertThrowsError(try fixture.store.clearOverride(
+            sample: bound.sample,
+            locus: bound.locus,
+            slot: bound.slot
+        ))
+
+        XCTAssertEqual(fixture.store.sidecar.callOverrides, [bound, legacy])
+        XCTAssertEqual(try Data(contentsOf: fixture.annotationURL), annotationBefore)
+        XCTAssertEqual(try Data(contentsOf: fixture.provenanceURL), provenanceBefore)
+        XCTAssertEqual(fixture.store.callOverrideMutationRevision, 0)
+    }
+
     func testOpeningLegacySchemaDoesNotRewriteOrPromoteDurableBytes() throws {
         let bundleURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString + ".lungfishgenotype")

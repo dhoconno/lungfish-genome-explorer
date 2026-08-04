@@ -233,6 +233,12 @@ struct GenotypeCallEvidenceView: View {
         }
     }
 
+    struct SlotCardPresentation: Equatable {
+        let isSelected: Bool
+        let badge: String?
+        let accessibilityLabel: String
+    }
+
     struct HaplotypeOverrideRequest: Identifiable, Equatable {
         let slot: HaplotypeSlot
         let haplotypeName: String
@@ -569,6 +575,23 @@ struct GenotypeCallEvidenceView: View {
         return trimmed
     }
 
+    static func slotCardPresentation(
+        for slot: HaplotypeSlot,
+        evidence: Evidence
+    ) -> SlotCardPresentation {
+        let isSelected = slot == evidence.slot
+        let value = displayOverrideValue(
+            currentHaplotypeName(in: evidence, slot: slot)
+        )
+        return SlotCardPresentation(
+            isSelected: isSelected,
+            badge: isSelected ? "Selected" : nil,
+            accessibilityLabel:
+                "\(isSelected ? "Selected " : "")\(slot.displayName) "
+                + "haplotype \(value)"
+        )
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
@@ -645,6 +668,10 @@ struct GenotypeCallEvidenceView: View {
     private func slotCard(_ slot: HaplotypeSlot, evidence: Evidence) -> some View {
         let value = Self.currentHaplotypeName(in: evidence, slot: slot)
         let displayValue = Self.displayOverrideValue(value)
+        let presentation = Self.slotCardPresentation(
+            for: slot,
+            evidence: evidence
+        )
         let support = supportForSlot(slot, evidence: evidence)
         let alleles = support?.supportingAlleles ?? []
         let reads = alleles.reduce(0) { $0 + $1.reads }
@@ -659,6 +686,14 @@ struct GenotypeCallEvidenceView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .textSelection(.enabled)
+                if let badge = presentation.badge {
+                    Text(badge)
+                        .font(contentCaptionFont.weight(.semibold))
+                        .foregroundStyle(Color.accentColor)
+                        .accessibilityLabel(
+                            presentation.accessibilityLabel
+                        )
+                }
                 Spacer(minLength: 6)
                 slotOverrideMenu(slot, evidence: evidence)
             }
@@ -700,11 +735,20 @@ struct GenotypeCallEvidenceView: View {
         .padding(10)
         .background(
             RoundedRectangle(cornerRadius: 6)
-                .fill(Color(nsColor: .controlBackgroundColor))
+                .fill(
+                    presentation.isSelected
+                        ? Color.accentColor.opacity(0.08)
+                        : Color(nsColor: .controlBackgroundColor)
+                )
         )
         .overlay(
             RoundedRectangle(cornerRadius: 6)
-                .stroke(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1)
+                .stroke(
+                    presentation.isSelected
+                        ? Color.accentColor
+                        : Color(nsColor: .separatorColor).opacity(0.55),
+                    lineWidth: presentation.isSelected ? 2 : 1
+                )
         )
     }
 

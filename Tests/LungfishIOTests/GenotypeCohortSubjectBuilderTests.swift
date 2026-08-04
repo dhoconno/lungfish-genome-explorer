@@ -240,7 +240,7 @@ final class GenotypeCohortSubjectBuilderTests: XCTestCase {
             reasonTag: .misCall,
             rationale: "Promoted from Review inspector.",
             author: "u",
-            timestamp: "t"
+            timestamp: "2026-08-03T01:00:00Z"
         ))
 
         let subjects = GenotypeCohortSubjectBuilder.buildSubjects(
@@ -252,6 +252,86 @@ final class GenotypeCohortSubjectBuilderTests: XCTestCase {
         XCTAssertEqual(subject?.calls.map(\.name), ["M3B", "M2B"])
         XCTAssertFalse(subject?.isHomozygousAcrossAll ?? true)
         XCTAssertFalse(subject?.hasErrorAtAnyLocus ?? true)
+    }
+
+    func testEffectiveCallsUseIdentityTimestampTieAndPerSlotStatusAuthority() {
+        let identity = GenotypeAnnotationSidecar.CallOverrideAnalysisIdentity(
+            assayID: "MHC-exon2-miSeq",
+            analysisRevisionID: "revision-7",
+            definitionSetID: "definition-2"
+        )
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: identity.assayID,
+            definitionSetID: identity.definitionSetID,
+            definitionSetName: "MCM",
+            speciesName: "MCM",
+            generatedAt: "2026-08-03T00:00:00Z",
+            analysisRevisionID: identity.analysisRevisionID,
+            source: .deterministic,
+            samples: [
+                .init(sample: "DW472", calls: [
+                    .init(
+                        locus: "MHC-B", sourceLocus: "Mafa-B",
+                        haplotype1: "ERR: TMH", haplotype2: "ERR: TMH",
+                        status: .tooManyHaplotypes,
+                        matchedHaplotypes: [], observedGenotypeCount: 4,
+                        observedGenotypes: []
+                    ),
+                ]),
+            ]
+        )
+        func override(
+            _ value: String,
+            timestamp: String,
+            identity overrideIdentity:
+                GenotypeAnnotationSidecar.CallOverrideAnalysisIdentity?
+        ) -> GenotypeAnnotationSidecar.CallOverride {
+            .init(
+                sample: "DW472", locus: "MHC-B", slot: .h1,
+                originalCall: "ERR: TMH", overrideCall: value,
+                reasonTag: .analystJudgment, rationale: "test",
+                author: "Analyst", timestamp: timestamp,
+                analysisIdentity: overrideIdentity,
+                operationID: UUID().uuidString
+            )
+        }
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "")
+        sidecar.callOverrides = [
+            override(
+                "tie-first",
+                timestamp: "2026-08-03T01:00:00.500Z",
+                identity: identity
+            ),
+            override(
+                "tie-second",
+                timestamp: "2026-08-03T01:00:00.500Z",
+                identity: identity
+            ),
+            override(
+                "stale-newer",
+                timestamp: "2026-08-03T02:00:00Z",
+                identity: .init(
+                    assayID: identity.assayID,
+                    analysisRevisionID: "revision-6",
+                    definitionSetID: identity.definitionSetID
+                )
+            ),
+            override(
+                "malformed-active",
+                timestamp: "not-a-timestamp",
+                identity: identity
+            ),
+        ]
+
+        let subject = GenotypeCohortSubjectBuilder.buildSubjects(
+            result: makeResult(samples: [("DW472", .review)], analysis: analysis),
+            sidecar: sidecar
+        ).first
+
+        XCTAssertEqual(subject?.calls.map(\.name), ["tie-second", "ERR: TMH"])
+        XCTAssertEqual(subject?.calls.map(\.isError), [false, true])
+        XCTAssertTrue(subject?.hasErrorAtAnyLocus ?? false)
+        XCTAssertFalse(subject?.isHomozygousAcrossAll ?? true)
     }
 
     func testNotAssayedCallsAreNeutralForHomozygousCohortState() {

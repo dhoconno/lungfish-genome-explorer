@@ -68,139 +68,57 @@ struct GenotypeEffectiveHaplotypeProjection: Equatable, Sendable {
         analysis: GenotypeHaplotypeAnalysis,
         sidecar: GenotypeAnnotationSidecar
     ) {
-        identity = GenotypeEffectiveHaplotypeIdentity(
-            assayID: analysis.assayID,
-            analysisRevisionID: analysis.analysisRevisionID,
-            definitionSetID: analysis.definitionSetID
+        let resolution = GenotypeEffectiveCallAuthority.resolve(
+            analysis: analysis,
+            sidecar: sidecar
         )
+        identity = .init(
+            assayID: resolution.identity.assayID,
+            analysisRevisionID: resolution.identity.analysisRevisionID,
+            definitionSetID: resolution.identity.definitionSetID
+        )
+        orderedSamples = resolution.orderedSamples
+        orderedLoci = resolution.orderedLoci
 
-        var orderedSamples: [String] = []
-        orderedSamples.reserveCapacity(analysis.samples.count)
-        var seenSamples = Set<String>()
-        var orderedLoci: [String] = []
-        var seenLoci = Set<String>()
-        var baselineValues: [
+        var values: [
             GenotypeEffectiveHaplotypeKey: GenotypeEffectiveHaplotypeValue
         ] = [:]
-        var orderedLocusKeysBySample: [String: [LocusKey]] = [:]
-
-        for sample in analysis.samples {
-            if seenSamples.insert(sample.sample).inserted {
-                orderedSamples.append(sample.sample)
-            }
-            for call in sample.calls {
-                if seenLoci.insert(call.locus).inserted {
-                    orderedLoci.append(call.locus)
-                }
-                let locusKey = LocusKey(sample: sample.sample, locus: call.locus)
-                orderedLocusKeysBySample[sample.sample, default: []].append(locusKey)
-                baselineValues[
-                    GenotypeEffectiveHaplotypeKey(
-                        sample: sample.sample,
-                        locus: call.locus,
-                        slot: .h1
-                    )
-                ] = GenotypeEffectiveHaplotypeValue(
-                    baseline: call.haplotype1,
-                    effective: call.haplotype1,
-                    status: call.status,
-                    source: .pipeline
-                )
-                baselineValues[
-                    GenotypeEffectiveHaplotypeKey(
-                        sample: sample.sample,
-                        locus: call.locus,
-                        slot: .h2
-                    )
-                ] = GenotypeEffectiveHaplotypeValue(
-                    baseline: call.haplotype2,
-                    effective: call.haplotype2,
-                    status: call.status,
-                    source: .pipeline
-                )
-            }
-        }
-
-        let fractionalFormatter = ISO8601DateFormatter()
-        fractionalFormatter.formatOptions = [
-            .withInternetDateTime,
-            .withFractionalSeconds,
-        ]
-        let internetDateFormatter = ISO8601DateFormatter()
-        internetDateFormatter.formatOptions = [.withInternetDateTime]
-
-        var latestOverrides: [
-            GenotypeEffectiveHaplotypeKey: IndexedOverride
+        var authoritativeOverrides: [
+            GenotypeEffectiveHaplotypeKey:
+                GenotypeAnnotationSidecar.CallOverride
         ] = [:]
-        latestOverrides.reserveCapacity(sidecar.callOverrides.count)
-        for (index, override) in sidecar.callOverrides.enumerated() {
-            let key = GenotypeEffectiveHaplotypeKey(
-                sample: override.sample,
-                locus: override.locus,
-                slot: override.slot
-            )
-            guard baselineValues[key] != nil,
-                  !override.overrideCall.trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                  ).isEmpty,
-                  let date = fractionalFormatter.date(from: override.timestamp)
-                    ?? internetDateFormatter.date(from: override.timestamp) else {
-                continue
-            }
-            let candidate = IndexedOverride(
-                entry: override,
-                date: date,
-                sidecarIndex: index,
-                identityPriority: override.analysisIdentity
-                    == identity.sidecarIdentity
-                    ? 2
-                    : (override.analysisIdentity == nil ? 1 : 0)
-            )
-            if let current = latestOverrides[key] {
-                guard candidate.identityPriority
-                        > current.identityPriority
-                    || (
-                        candidate.identityPriority
-                            == current.identityPriority
-                            && (
-                                candidate.date > current.date
-                                    || (
-                                        candidate.date == current.date
-                                            && candidate.sidecarIndex
-                                                > current.sidecarIndex
-                                    )
-                            )
+        var orderedLocusKeysBySample: [String: [LocusKey]] = [:]
+        for sample in analysis.samples {
+            for call in sample.calls {
+                let locusKey = LocusKey(
+                    sample: sample.sample,
+                    locus: call.locus
+                )
+                orderedLocusKeysBySample[sample.sample, default: []]
+                    .append(locusKey)
+                for slot in HaplotypeSlot.allCases {
+                    guard let resolved = resolution.value(
+                        sample: sample.sample,
+                        locus: call.locus,
+                        slot: slot
                     ) else {
-                    continue
+                        continue
+                    }
+                    let key = GenotypeEffectiveHaplotypeKey(
+                        sample: sample.sample,
+                        locus: call.locus,
+                        slot: slot
+                    )
+                    values[key] = .init(
+                        baseline: resolved.baseline,
+                        effective: resolved.effective,
+                        status: resolved.status,
+                        source: Self.source(resolved.source)
+                    )
+                    authoritativeOverrides[key] =
+                        resolved.authoritativeOverride
                 }
             }
-            latestOverrides[key] = candidate
-        }
-
-        var values = baselineValues
-        for (key, indexedOverride) in latestOverrides {
-            guard let baseline = baselineValues[key] else { continue }
-            if let overrideIdentity =
-                    indexedOverride.entry.analysisIdentity,
-               overrideIdentity != identity.sidecarIdentity {
-                values[key] = GenotypeEffectiveHaplotypeValue(
-                    baseline: baseline.baseline,
-                    effective: baseline.effective,
-                    status: baseline.status,
-                    source: .staleOverride
-                )
-                continue
-            }
-            let effective = indexedOverride.entry.overrideCall
-            values[key] = GenotypeEffectiveHaplotypeValue(
-                baseline: baseline.baseline,
-                effective: effective,
-                status: Self.overrideStatus(
-                    effective: effective,
-                    baseline: baseline.status
-                ),
-                source: .analystOverride
-            )
         }
 
         var locusSnapshots: [
@@ -223,12 +141,18 @@ struct GenotypeEffectiveHaplotypeProjection: Equatable, Sendable {
                 guard let h1 = values[h1Key], let h2 = values[h2Key] else {
                     continue
                 }
+                guard let resolvedLocus = resolution.locusValue(
+                    sample: sample.sample,
+                    locus: call.locus
+                ) else {
+                    continue
+                }
                 locusSnapshots[locusKey] = GenotypeEffectiveHaplotypeLocusSnapshot(
                     sample: sample.sample,
                     locus: call.locus,
                     h1: h1,
                     h2: h2,
-                    status: Self.reduceLocusStatus(h1.status, h2.status)
+                    status: resolvedLocus.status
                 )
             }
         }
@@ -245,10 +169,8 @@ struct GenotypeEffectiveHaplotypeProjection: Equatable, Sendable {
             )
         }
 
-        self.orderedSamples = orderedSamples
-        self.orderedLoci = orderedLoci
         self.values = values
-        self.authoritativeOverrides = latestOverrides.mapValues(\.entry)
+        self.authoritativeOverrides = authoritativeOverrides
         self.locusSnapshots = locusSnapshots
         self.sampleSnapshots = sampleSnapshots
     }
@@ -303,62 +225,18 @@ struct GenotypeEffectiveHaplotypeProjection: Equatable, Sendable {
         locusSnapshots[LocusKey(sample: sample, locus: locus)]
     }
 
-    private static func overrideStatus(
-        effective: String,
-        baseline: GenotypeHaplotypeCallStatus
-    ) -> GenotypeHaplotypeCallStatus {
-        let trimmed = effective.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed != GenotypeHaplotypeOverrideTargets.unresolved,
-              !trimmed.hasPrefix("ERR:") else {
-            switch baseline {
-            case .noHaplotype, .tooManyHaplotypes, .tooManyGenotypes:
-                return baseline
-            case .called, .notAssayed, .specialCase:
-                return .noHaplotype
-            }
-        }
-        return .called
-    }
-
-    private static func reduceLocusStatus(
-        _ h1: GenotypeHaplotypeCallStatus,
-        _ h2: GenotypeHaplotypeCallStatus
-    ) -> GenotypeHaplotypeCallStatus {
-        if isUnresolvedStatus(h1) {
-            return h1
-        }
-        if isUnresolvedStatus(h2) {
-            return h2
-        }
-        if h1 == .notAssayed || h2 == .notAssayed {
-            return .notAssayed
-        }
-        if h1 == .specialCase || h2 == .specialCase {
-            return .specialCase
-        }
-        return .called
-    }
-
-    private static func isUnresolvedStatus(
-        _ status: GenotypeHaplotypeCallStatus
-    ) -> Bool {
-        switch status {
-        case .noHaplotype, .tooManyHaplotypes, .tooManyGenotypes:
-            return true
-        case .called, .notAssayed, .specialCase:
-            return false
+    private static func source(
+        _ source: GenotypeEffectiveCallAuthority.Source
+    ) -> GenotypeEffectiveHaplotypeValue.Source {
+        switch source {
+        case .pipeline: .pipeline
+        case .analystOverride: .analystOverride
+        case .staleOverride: .staleOverride
         }
     }
 
     private struct LocusKey: Hashable, Sendable {
         let sample: String
         let locus: String
-    }
-
-    private struct IndexedOverride: Sendable {
-        let entry: GenotypeAnnotationSidecar.CallOverride
-        let date: Date
-        let sidecarIndex: Int
-        let identityPriority: Int
     }
 }
