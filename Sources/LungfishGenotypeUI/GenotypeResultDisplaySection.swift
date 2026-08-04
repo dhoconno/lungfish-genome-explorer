@@ -54,6 +54,21 @@ public final class GenotypeResultDisplaySectionViewModel {
     public var mhcCandidateControlsAvailable = false
     public var mhcCandidateIntegrityWarnings: [String] = []
     public var mhcCandidatePersistenceWarning: String?
+    public private(set) var presentationPolicy:
+        GenotypeResultPresentationPolicy?
+    public var presentationChoices:
+        [GenotypeResultPresentationPolicy.Choice] {
+        presentationPolicy?.appliesToHaplotypedMiSeq == true
+            ? (presentationPolicy?.choices ?? [])
+            : []
+    }
+    public var presentationAccessibilityHelp: String {
+        presentationPolicy?.inspectorAccessibilityHelp
+            ?? "Choose a genotype result viewport."
+    }
+    var legacyViewportLenses: [GenotypeResultViewportLens] {
+        GenotypeResultViewportLens.allCases
+    }
     public private(set) var matrixReviewCapability = GenotypeMatrixReviewCapability.evaluate(
         selection: [],
         evidence: .init(),
@@ -200,6 +215,7 @@ public final class GenotypeResultDisplaySectionViewModel {
         isGenotypeOnlyResult: Bool = false
     ) {
         cancelPendingNumericFilterCommit()
+        presentationPolicy = nil
         self.isAvailable = isAvailable
         self.hasHaplotypingResult = hasHaplotypingResult
         self.isGenotypeOnlyResult = isGenotypeOnlyResult
@@ -230,6 +246,7 @@ public final class GenotypeResultDisplaySectionViewModel {
         totalRowCount = 0
         hiddenCellCount = 0
         hasHaplotypingResult = false
+        presentationPolicy = nil
         mhcCandidateControlsAvailable = false
         mhcCandidateIntegrityWarnings = []
         mhcCandidatePersistenceWarning = nil
@@ -246,6 +263,19 @@ public final class GenotypeResultDisplaySectionViewModel {
     }
 
     public func updateMHCCandidatePresentation(from result: ONTGenotypeResultBundleData) {
+        presentationPolicy = GenotypeResultPresentationPolicy(
+            workflowKind: result.manifest.workflowKind,
+            workflowMode: result.manifest.workflowMode,
+            manualHaplotypeEligibility:
+                GenotypeManualHaplotypeEligibility.evaluate(result),
+            haplotypeAnalysis: result.haplotypeAnalysis,
+            hasNativeGenotypeMatrixContent:
+                result.hasNativeGenotypeMatrixContent,
+            isReadOnly: !FileManager.default.isWritableFile(
+                atPath: result.bundleURL.path
+            )
+        )
+        setNormalizedDisplayState(displayState)
         let isFullLengthMHCResult = result.manifest.kind == "full-length-ont-mhc-genotype"
         let declaration = result.manifest.mhcCandidateArtifacts
         mhcCandidateControlsAvailable = isFullLengthMHCResult
@@ -326,7 +356,13 @@ public final class GenotypeResultDisplaySectionViewModel {
     }
 
     private func setNormalizedDisplayState(_ state: GenotypeResultDisplayState) {
-        displayState = state.normalized(forGenotypeOnlyResult: isGenotypeOnlyResult)
+        if let presentationPolicy {
+            displayState = state.normalized(using: presentationPolicy)
+        } else {
+            displayState = state.normalized(
+                forGenotypeOnlyResult: isGenotypeOnlyResult
+            )
+        }
     }
 
     func toggleHaplotypeGenotypeSummaryView() {
@@ -1173,7 +1209,8 @@ public struct GenotypeResultDisplaySection: View {
                         || viewModel.mhcCandidatePersistenceWarning != nil {
                         GenotypeCandidateEvidenceSection(viewModel: viewModel)
                     }
-                    if viewModel.hasHaplotypingResult {
+                    if viewModel.hasHaplotypingResult
+                        && viewModel.presentationChoices.isEmpty {
                         haplotypeGenotypeToggle
                     }
                     Divider()
@@ -1275,21 +1312,44 @@ public struct GenotypeResultDisplaySection: View {
 
     private var viewControls: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Viewport")
+            Text(
+                viewModel.presentationChoices.isEmpty
+                    ? "Viewport"
+                    : "View Presentation"
+            )
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Picker("Viewport", selection: Binding(
-                get: { viewModel.displayState.viewportLens },
-                set: { viewModel.setViewportLens($0) }
-            )) {
-                ForEach(GenotypeResultViewportLens.allCases, id: \.self) { lens in
-                    Label(lens.displayName, systemImage: lens.inspectorSystemImage)
+            if viewModel.presentationChoices.isEmpty {
+                Picker("Viewport", selection: Binding(
+                    get: { viewModel.displayState.viewportLens },
+                    set: { viewModel.setViewportLens($0) }
+                )) {
+                    ForEach(viewModel.legacyViewportLenses, id: \.self) { lens in
+                        Label(lens.displayName, systemImage: lens.inspectorSystemImage)
                         .tag(lens)
+                    }
                 }
+                .pickerStyle(.radioGroup)
+                .controlSize(.small)
+                .labelsHidden()
+            } else {
+                Picker("View Presentation", selection: Binding(
+                    get: { viewModel.displayState.summaryViewMode },
+                    set: { viewModel.setSummaryViewMode($0) }
+                )) {
+                    ForEach(viewModel.presentationChoices, id: \.self) {
+                        choice in
+                        Text(choice.displayName)
+                            .tag(choice.summaryViewMode)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+                .controlSize(.small)
+                .labelsHidden()
+                .accessibilityHint(
+                    viewModel.presentationAccessibilityHelp
+                )
             }
-            .pickerStyle(.radioGroup)
-            .controlSize(.small)
-            .labelsHidden()
         }
     }
 

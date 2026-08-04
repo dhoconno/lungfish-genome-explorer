@@ -279,6 +279,8 @@ public final class GenotypeResultViewController: NSViewController {
         target: nil,
         action: nil
     )
+    private let viewportControlStack = NSStackView()
+    private let presentationActionsButton = NSButton()
     private let contentHost = NSView()
     private var contentHostTopConstraint: NSLayoutConstraint!
 
@@ -468,6 +470,7 @@ public final class GenotypeResultViewController: NSViewController {
     /// surrounding project root in `configure(result:)`.
     private var haplotypeDefinitionStore = HaplotypeDefinitionStore(projectRoot: nil)
     private var cachedHaplotypeDefinitionContext: HaplotypeDefinitionContext?
+    private var presentationPolicy: GenotypeResultPresentationPolicy?
     private var selectedLens: Lens = .summary
     private var displayState = GenotypeResultDisplayState()
     private var currentSharedCall: ONTGenotypeSharedCall?
@@ -539,7 +542,23 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private var availableLenses: [Lens] {
-        isGenotypeOnlyResult ? [.summary, .audit] : Lens.allCases
+        if presentationPolicy?.appliesToHaplotypedMiSeq == true {
+            return [.summary]
+        }
+        return isGenotypeOnlyResult ? [.summary, .audit] : Lens.allCases
+    }
+
+    private var presentationChoices:
+        [GenotypeResultPresentationPolicy.Choice] {
+        presentationPolicy?.appliesToHaplotypedMiSeq == true
+            ? (presentationPolicy?.choices ?? [])
+            : []
+    }
+
+    private var viewportSelectionCount: Int {
+        presentationChoices.isEmpty
+            ? availableLenses.count
+            : presentationChoices.count
     }
 
     private var viewportHeaderHeight: CGFloat {
@@ -563,6 +582,8 @@ public final class GenotypeResultViewController: NSViewController {
         view = root
 
         configureLensControl()
+        configurePresentationActionsButton()
+        configureViewportControlStack()
         configureContentHost()
         configureSplitView()
         configureDetailPane()
@@ -874,7 +895,7 @@ public final class GenotypeResultViewController: NSViewController {
         guard !comparisonMatrixConfigured, let result else { return }
         comparisonMatrixConfigured = true
         comparisonMatrix.configure(
-            result: result,
+            result: comparisonMatrixPresentationResult(from: result),
             metadataStore: sampleMetadataStore,
             sidecar: annotationStore?.sidecar
         )
@@ -886,20 +907,133 @@ public final class GenotypeResultViewController: NSViewController {
         applyComparisonMatrixCohortFilter()
     }
 
+    /// The existing comparison matrix treats candidate artifacts as a
+    /// full-length-only feature by inspecting the legacy `kind` string. Typed
+    /// haplotyped miSeq results use the same candidate artifact schema, so
+    /// adapt only the matrix's presentation copy while preserving the typed
+    /// workflow authority and every scientific payload unchanged.
+    private func comparisonMatrixPresentationResult(
+        from result: ONTGenotypeResultBundleData
+    ) -> ONTGenotypeResultBundleData {
+        guard presentationPolicy?.appliesToHaplotypedMiSeq == true,
+              result.mhcCandidates != nil else {
+            return result
+        }
+        let source = result.manifest
+        let manifest = ONTGenotypeResultBundleManifest(
+            schemaVersion: source.schemaVersion,
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
+            workflowKind: source.workflowKind,
+            workflowMode: source.workflowMode,
+            outputName: source.outputName,
+            analysisName: source.analysisName,
+            primaryWorkbookPath: source.primaryWorkbookPath,
+            currentWorkbookPath: source.currentWorkbookPath,
+            workbookRevisions: source.workbookRevisions,
+            longSummaryCSVPath: source.longSummaryCSVPath,
+            sampleSummaryCSVPath: source.sampleSummaryCSVPath,
+            statsJSONPath: source.statsJSONPath,
+            provenancePath: source.provenancePath,
+            deduplicatedUnmatchedClustersFASTAPath:
+                source.deduplicatedUnmatchedClustersFASTAPath,
+            haplotypeAnalysisPath: source.haplotypeAnalysisPath,
+            haplotypeDefinitionSetID: source.haplotypeDefinitionSetID,
+            haplotypeAssayID: source.haplotypeAssayID,
+            presetID: source.presetID,
+            presetVersion: source.presetVersion,
+            createdAt: source.createdAt,
+            activeHaplotypeAnalysisRevisionID:
+                source.activeHaplotypeAnalysisRevisionID,
+            haplotypeAnalysisRevisions:
+                source.haplotypeAnalysisRevisions,
+            mhcCandidateArtifacts: source.mhcCandidateArtifacts,
+            mhcReferenceVisualizations: source.mhcReferenceVisualizations,
+            referenceRecordStore: source.referenceRecordStore,
+            alignmentArtifacts: source.alignmentArtifacts,
+            provisionalExon2Artifacts: source.provisionalExon2Artifacts,
+            reviewableRowCatalog: source.reviewableRowCatalog
+        )
+        return ONTGenotypeResultBundleData(
+            bundleURL: result.bundleURL,
+            manifest: manifest,
+            artifacts: result.artifacts,
+            stats: result.stats,
+            calls: result.calls,
+            samples: result.samples,
+            haplotypeAnalysis: result.haplotypeAnalysis,
+            mhcCandidates: result.mhcCandidates,
+            mhcUnnameableClusters: result.mhcUnnameableClusters,
+            mhcCandidateSequencesByStableClusterID:
+                result.mhcCandidateSequencesByStableClusterID,
+            mhcCandidateGenBankArtifactURLs:
+                result.mhcCandidateGenBankArtifactURLs,
+            mhcAlignmentArtifactURLs: result.mhcAlignmentArtifactURLs,
+            mhcReferenceVisualizations: result.mhcReferenceVisualizations,
+            integrityWarnings: result.integrityWarnings,
+            referenceMetadata: result.referenceMetadata,
+            provisionalExon2SequencesByGenotype:
+                result.provisionalExon2SequencesByGenotype,
+            provisionalExon2ArtifactURLs:
+                result.provisionalExon2ArtifactURLs,
+            reviewableRowCatalog: result.reviewableRowCatalog
+        )
+    }
+
     private func summaryMatrixUsesHaplotypeDefinitions() -> Bool {
         (result.map { $0.haplotypeAnalysis != nil && definitionSetForResult($0) != nil } ?? false)
             && !displayState.showsAncillaryLoci
     }
 
+    private func refreshPresentationPolicy() {
+        guard let result else {
+            presentationPolicy = nil
+            return
+        }
+        presentationPolicy = GenotypeResultPresentationPolicy(
+            workflowKind: result.manifest.workflowKind,
+            workflowMode: result.manifest.workflowMode,
+            manualHaplotypeEligibility: manualHaplotypeEligibility,
+            haplotypeAnalysis:
+                liveHaplotypeAnalysis ?? result.haplotypeAnalysis,
+            hasNativeGenotypeMatrixContent:
+                result.hasNativeGenotypeMatrixContent,
+            isReadOnly: annotationStore?.isReadOnly ?? true
+        )
+    }
+
+    private func normalizedDisplayState(
+        _ state: GenotypeResultDisplayState
+    ) -> GenotypeResultDisplayState {
+        if let presentationPolicy {
+            return state.normalized(using: presentationPolicy)
+        }
+        return state.normalized(
+            forGenotypeOnlyResult: isGenotypeOnlyResult
+        )
+    }
+
     private func defaultSummaryViewMode(for result: ONTGenotypeResultBundleData) -> GenotypeSummaryViewMode {
-        guard result.haplotypeAnalysis == nil else { return .outline }
-        return result.hasNativeGenotypeMatrixContent ? .matrix : .outline
+        let policy = presentationPolicy ?? GenotypeResultPresentationPolicy(
+            workflowKind: result.manifest.workflowKind,
+            workflowMode: result.manifest.workflowMode,
+            manualHaplotypeEligibility: manualHaplotypeEligibility,
+            haplotypeAnalysis: result.haplotypeAnalysis,
+            hasNativeGenotypeMatrixContent:
+                result.hasNativeGenotypeMatrixContent,
+            isReadOnly: annotationStore?.isReadOnly ?? true
+        )
+        return policy.defaultSummaryViewMode
     }
 
     private func initialSummaryViewMode(for result: ONTGenotypeResultBundleData) -> GenotypeSummaryViewMode {
         if let rawValue = annotationStore?.sidecar.settings.preferredSummaryViewMode,
            let mode = GenotypeSummaryViewMode(rawValue: rawValue) {
-            return mode
+            var state = GenotypeResultDisplayState(
+                viewportLens: .summary,
+                summaryViewMode: mode
+            )
+            state = normalizedDisplayState(state)
+            return state.summaryViewMode
         }
         return defaultSummaryViewMode(for: result)
     }
@@ -926,8 +1060,13 @@ public final class GenotypeResultViewController: NSViewController {
             quickFilterBar.clearSearch()
             return true
         }
-        // Review-only call shortcuts still require an active sample.
-        guard selectedLens == .review, let animalId = currentSelectedSample else {
+        // Review commands follow the selected call for synchronized miSeq
+        // presentations; legacy workflows retain their Review-lens gate.
+        let hasSelectedMiSeqCall =
+            presentationPolicy?.appliesToHaplotypedMiSeq == true
+                && currentSelectedLocus != nil
+        guard (selectedLens == .review || hasSelectedMiSeqCall),
+              let animalId = currentSelectedSample else {
             return super.performKeyEquivalent(with: event)
         }
         switch (event.charactersIgnoringModifiers, modifiers) {
@@ -1026,6 +1165,7 @@ public final class GenotypeResultViewController: NSViewController {
         candidateSettingsPersistenceGeneration &+= 1
         self.result = result
         manualHaplotypeEligibility = GenotypeManualHaplotypeEligibility.evaluate(result)
+        refreshPresentationPolicy()
         configureAvailableLensSegments()
         if case .eligible = manualHaplotypeEligibility {
             // A newly viewed eligible bundle is collapsed. Only an existing
@@ -1043,7 +1183,7 @@ public final class GenotypeResultViewController: NSViewController {
             activeSmartCohort = nil
             quickFilterBar.setSavedCohortName(nil)
         }
-        displayState = displayState.normalized(forGenotypeOnlyResult: isGenotypeOnlyResult)
+        displayState = normalizedDisplayState(displayState)
         applyViewportHeaderVisibility()
         liveHaplotypeAnalysis = nil
         cachedHaplotypeDefinitionContext = nil
@@ -1145,13 +1285,14 @@ public final class GenotypeResultViewController: NSViewController {
             seedBuiltInSmartCohorts: result.haplotypeAnalysis != nil
         )
         currentWorkbookIsReadOnly = annotationStore?.isReadOnly ?? false
+        refreshPresentationPolicy()
         rebuildMatrixAnnotationIndexes()
         publishMatrixReviewCapability(for: [])
         displayState.mhcCandidateDisplaySettings = validatedMHCCandidateDocument(from: result) == nil
             ? nil
             : (annotationStore?.sidecar.settings.mhcCandidateDisplay ?? .default)
         displayState.summaryViewMode = initialSummaryViewMode(for: result)
-        displayState = displayState.normalized(forGenotypeOnlyResult: isGenotypeOnlyResult)
+        displayState = normalizedDisplayState(displayState)
         if hasHaplotypingResult {
             if shouldEagerlyRecomputeHaplotypeAnalysis(for: result) {
                 recomputeLiveHaplotypeAnalysis(evaluator: runHaplotypeDropoutEvaluator())
@@ -1165,6 +1306,10 @@ public final class GenotypeResultViewController: NSViewController {
         } else {
             clearUnsupportedHaplotypePresentation()
         }
+        refreshPresentationPolicy()
+        displayState = normalizedDisplayState(displayState)
+        configureAvailableLensSegments()
+        applyViewportHeaderVisibility()
         if isGenotypeOnlyResult || isFullLengthMHCGenotypeViewport {
             showEmptySelection()
         }
@@ -1499,7 +1644,7 @@ public final class GenotypeResultViewController: NSViewController {
                 focusedManualHaplotypeCombo
             )
         }
-        let state = state.normalized(forGenotypeOnlyResult: isGenotypeOnlyResult)
+        let state = normalizedDisplayState(state)
         let previousDisplayState = displayState
         let candidateSearchProjectionChanged = candidateVisibilityChanged(
             from: previousDisplayState.mhcCandidateDisplaySettings,
@@ -1707,6 +1852,8 @@ public final class GenotypeResultViewController: NSViewController {
         nextViewMode: GenotypeSummaryViewMode
     ) {
         guard previousViewMode != nextViewMode,
+              presentationPolicy?.persistencePolicy != .preserveStoredPreference,
+              presentationPolicy?.persistencePolicy != .sessionOnly,
               let store = annotationStore,
               !store.isReadOnly else { return }
         let author = annotationAuthorProvider()
@@ -2427,16 +2574,69 @@ public final class GenotypeResultViewController: NSViewController {
         lensControl.setAccessibilityIdentifier("genotype-result-lens-control")
     }
 
+    private func configurePresentationActionsButton() {
+        presentationActionsButton.translatesAutoresizingMaskIntoConstraints = false
+        presentationActionsButton.title = "Actions"
+        presentationActionsButton.bezelStyle = .rounded
+        presentationActionsButton.controlSize = .small
+        presentationActionsButton.target = self
+        presentationActionsButton.action = #selector(showPresentationActions(_:))
+        presentationActionsButton.setAccessibilityIdentifier(
+            "genotype-result-actions-menu"
+        )
+        presentationActionsButton.setAccessibilityLabel(
+            "Haplotype analysis actions"
+        )
+        let menu = NSMenu(title: "Haplotype analysis actions")
+        menu.addItem(withTitle: "AI Discovery", action: #selector(runAIHaplotypingDiscovery), keyEquivalent: "")
+        menu.addItem(withTitle: "AI Refinement", action: #selector(runAIHaplotypingRefinement), keyEquivalent: "")
+        menu.addItem(withTitle: "Export Excel View…", action: #selector(exportExcelView(_:)), keyEquivalent: "")
+        menu.items.forEach { $0.target = self }
+        presentationActionsButton.menu = menu
+    }
+
+    private func configureViewportControlStack() {
+        viewportControlStack.translatesAutoresizingMaskIntoConstraints = false
+        viewportControlStack.orientation = .horizontal
+        viewportControlStack.alignment = .centerY
+        viewportControlStack.spacing = 8
+        viewportControlStack.addArrangedSubview(lensControl)
+        viewportControlStack.addArrangedSubview(presentationActionsButton)
+    }
+
+    @objc private func showPresentationActions(_ sender: NSButton) {
+        guard let menu = sender.menu else { return }
+        let point = NSPoint(x: 0, y: sender.bounds.minY - 4)
+        menu.popUp(positioning: nil, at: point, in: sender)
+    }
+
     private func configureAvailableLensSegments() {
         guard isViewLoaded else { return }
-        let lenses = availableLenses
-        lensControl.segmentCount = lenses.count
-        for (index, lens) in lenses.enumerated() {
-            lensControl.setLabel(lens.displayName, forSegment: index)
+        let choices = presentationChoices
+        if choices.isEmpty {
+            let lenses = availableLenses
+            lensControl.segmentCount = lenses.count
+            for (index, lens) in lenses.enumerated() {
+                lensControl.setLabel(lens.displayName, forSegment: index)
+            }
+        } else {
+            lensControl.segmentCount = choices.count
+            for (index, choice) in choices.enumerated() {
+                lensControl.setLabel(choice.displayName, forSegment: index)
+            }
         }
         lensControl.controlSize = isGenotypeOnlyResult ? .small : .regular
         lensControl.selectedSegment = segmentIndex(for: selectedLens)
-        lensControl.isHidden = isGenotypeOnlyResult || lenses.count <= 1
+        lensControl.isHidden = isGenotypeOnlyResult || viewportSelectionCount <= 1
+        presentationActionsButton.isHidden = choices.isEmpty
+        lensControl.setAccessibilityLabel(
+            choices.isEmpty ? "Genotype result viewport" : "View presentation"
+        )
+        lensControl.setAccessibilityHelp(
+            choices.isEmpty
+                ? "Choose a genotype result viewport."
+                : presentationPolicy?.viewportAccessibilityHelp
+        )
         lensControl.invalidateIntrinsicContentSize()
     }
 
@@ -2639,18 +2839,19 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func layout() {
-        view.addSubview(lensControl)
+        view.addSubview(viewportControlStack)
         view.addSubview(contentHost)
 
         contentHostTopConstraint = contentHost.topAnchor.constraint(
             equalTo: view.safeAreaLayoutGuide.topAnchor,
             constant: viewportHeaderHeight
         )
-        lensControl.isHidden = isGenotypeOnlyResult || availableLenses.count <= 1
+        lensControl.isHidden = isGenotypeOnlyResult || viewportSelectionCount <= 1
+        presentationActionsButton.isHidden = presentationChoices.isEmpty
 
         NSLayoutConstraint.activate([
-            lensControl.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-            lensControl.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+            viewportControlStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            viewportControlStack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
 
             contentHostTopConstraint,
             contentHost.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -2661,7 +2862,8 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func applyViewportHeaderVisibility() {
         guard isViewLoaded else { return }
-        lensControl.isHidden = isGenotypeOnlyResult || availableLenses.count <= 1
+        lensControl.isHidden = isGenotypeOnlyResult || viewportSelectionCount <= 1
+        presentationActionsButton.isHidden = presentationChoices.isEmpty
         contentHostTopConstraint.constant = viewportHeaderHeight
     }
 
@@ -2728,6 +2930,13 @@ public final class GenotypeResultViewController: NSViewController {
             [weak self] sample in
             self?.focusManualHaplotypeEditor(sample: sample)
         }
+        comparisonMatrix.onHaplotypeBandTargetSelected = {
+            [weak self] target in
+            self?.selectCellEvidence(
+                animalId: target.sample,
+                locus: target.locus
+            )
+        }
         comparisonMatrix.onManualHaplotypeBandExpansionChanged = {
             [weak self] expanded in
             guard let self else { return }
@@ -2741,6 +2950,19 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     @objc private func lensChanged(_ sender: NSSegmentedControl) {
+        if !presentationChoices.isEmpty {
+            guard sender.selectedSegment >= 0,
+                  sender.selectedSegment < presentationChoices.count else {
+                return
+            }
+            var state = displayState
+            state.viewportLens = .summary
+            state.summaryViewMode =
+                presentationChoices[sender.selectedSegment].summaryViewMode
+            applyDisplayState(state)
+            onDisplayStateChanged?(displayState)
+            return
+        }
         guard sender.selectedSegment >= 0,
               sender.selectedSegment < availableLenses.count else { return }
         let lens = availableLenses[sender.selectedSegment]
@@ -2768,12 +2990,20 @@ public final class GenotypeResultViewController: NSViewController {
             }
             return
         }
-        displayState = displayState.normalized(forGenotypeOnlyResult: isGenotypeOnlyResult)
-        let lens: Lens = availableLenses.contains(lens) ? lens : .summary
-        selectedLens = lens
-        displayState.viewportLens = lens
-        lensControl.selectedSegment = segmentIndex(for: lens)
-        switch lens {
+        displayState = normalizedDisplayState(displayState)
+        let resolvedLens: Lens
+        if presentationPolicy?.appliesToHaplotypedMiSeq == true {
+            var requestedState = displayState
+            requestedState.viewportLens = lens
+            displayState = normalizedDisplayState(requestedState)
+            resolvedLens = displayState.viewportLens
+        } else {
+            resolvedLens = availableLenses.contains(lens) ? lens : .summary
+        }
+        selectedLens = resolvedLens
+        displayState.viewportLens = resolvedLens
+        lensControl.selectedSegment = segmentIndex(for: resolvedLens)
+        switch resolvedLens {
         case .summary:
             installContentView(splitView)
             applySummaryViewModeVisibility()
@@ -3569,17 +3799,35 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func applySummaryViewModeVisibility() {
         let isMatrixMode = displayState.summaryViewMode == .matrix
-        let usesDefinitionMatrix = isMatrixMode && summaryMatrixUsesHaplotypeDefinitions()
+        let usesDefinitionMatrix = isMatrixMode
+            && presentationPolicy?.appliesToHaplotypedMiSeq != true
+            && summaryMatrixUsesHaplotypeDefinitions()
         let showsRawMatrix = isMatrixMode
             && !usesDefinitionMatrix
-            && (isGenotypeOnlyResult || !displayState.showsAncillaryLoci)
+            && (presentationPolicy?.appliesToHaplotypedMiSeq == true
+                || isGenotypeOnlyResult
+                || !displayState.showsAncillaryLoci)
         let showsOutline = !isMatrixMode || (!usesDefinitionMatrix && !showsRawMatrix)
         outlineView.isHidden = !showsOutline
         haplotypeMatrixView.isHidden = !usesDefinitionMatrix
         comparisonMatrix.isHidden = !showsRawMatrix
-        cohortSummaryPanel.isHidden = false
+        let showsSelectedCallEvidence =
+            presentationPolicy?.appliesToHaplotypedMiSeq == true
+                && !isMatrixMode
+                && currentSelectedSample != nil
+                && currentSelectedLocus != nil
+        cohortSummaryPanel.isHidden = showsSelectedCallEvidence
         detailScrollView.isHidden = true
         detailContainer.isHidden = false
+        if showsSelectedCallEvidence {
+            if callEvidenceHost == nil {
+                installCallEvidenceHost()
+            }
+            updateCallEvidence()
+            callEvidenceHost?.isHidden = callEvidence == nil
+        } else {
+            callEvidenceHost?.isHidden = true
+        }
 
         if isGenotypeOnlyResult && showsRawMatrix {
             cohortSummaryPanel.isHidden = true
@@ -3614,7 +3862,12 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func segmentIndex(for lens: Lens) -> Int {
-        availableLenses.firstIndex(of: lens) ?? 0
+        if !presentationChoices.isEmpty {
+            return presentationChoices.firstIndex {
+                $0.summaryViewMode == displayState.summaryViewMode
+            } ?? 0
+        }
+        return availableLenses.firstIndex(of: lens) ?? 0
     }
 
     private func installContentView(_ contentView: NSView) {
@@ -5281,6 +5534,8 @@ public final class GenotypeResultViewController: NSViewController {
         result = updatedResult
         manualHaplotypeEligibility =
             GenotypeManualHaplotypeEligibility.evaluate(updatedResult)
+        liveHaplotypeAnalysis = nil
+        refreshPresentationPolicy()
         hasHaplotypingResult = updatedResult.haplotypeAnalysis != nil
         if hasHaplotypingResult {
             provisionalExon2SequenceRecordsByGenotype = [:]
@@ -5298,9 +5553,6 @@ public final class GenotypeResultViewController: NSViewController {
             hasHaplotypingResult: hasHaplotypingResult
         )
         invalidateGenotypeSearchIndex()
-        configureAvailableLensSegments()
-        applyViewportHeaderVisibility()
-        liveHaplotypeAnalysis = nil
         comparisonMatrixConfigured = false
         rebuildResultIndexes(for: updatedResult)
         annotationStore = try? GenotypeAnnotationStore(
@@ -5308,6 +5560,10 @@ public final class GenotypeResultViewController: NSViewController {
             author: annotationAuthorProvider(),
             seedBuiltInSmartCohorts: updatedResult.haplotypeAnalysis != nil
         )
+        refreshPresentationPolicy()
+        displayState = normalizedDisplayState(displayState)
+        configureAvailableLensSegments()
+        applyViewportHeaderVisibility()
         rebuildMatrixAnnotationIndexes()
         publishMatrixReviewCapability(for: currentSelectionState?.matrixTargets ?? [])
         displayState.summaryViewMode = initialSummaryViewMode(for: updatedResult)
@@ -5321,11 +5577,13 @@ public final class GenotypeResultViewController: NSViewController {
         } else {
             activeSmartCohort = nil
             quickFilterBar.setSavedCohortName(nil)
-            displayState = displayState.normalized(forGenotypeOnlyResult: isGenotypeOnlyResult)
+            displayState = normalizedDisplayState(displayState)
             clearUnsupportedHaplotypePresentation()
         }
         rebuildArtifactLens()
-        if hasHaplotypingResult, selectedLens == .summary {
+        if presentationPolicy?.appliesToHaplotypedMiSeq == true {
+            showLens(.summary)
+        } else if hasHaplotypingResult, selectedLens == .summary {
             applySummaryViewModeVisibility()
         } else if !hasHaplotypingResult {
             showLens(.summary)
@@ -5650,12 +5908,16 @@ public final class GenotypeResultViewController: NSViewController {
         result = updatedResult
         manualHaplotypeEligibility =
             GenotypeManualHaplotypeEligibility.evaluate(updatedResult)
+        refreshPresentationPolicy()
+        displayState = normalizedDisplayState(displayState)
+        configureAvailableLensSegments()
+        applyViewportHeaderVisibility()
         rebuildResultIndexes(for: updatedResult)
         publishMatrixReviewCapability(for: currentSelectionState?.matrixTargets ?? [])
         rebuildActiveHaplotypeAnalysisIndexes()
         guard matrixWasConfigured else { return }
         comparisonMatrix.replaceResultPreservingPresentation(
-            updatedResult,
+            comparisonMatrixPresentationResult(from: updatedResult),
             metadataStore: sampleMetadataStore,
             sidecar: annotationStore?.sidecar
         )
@@ -7699,7 +7961,18 @@ public final class GenotypeResultViewController: NSViewController {
             highlightStyle: .default,
             animalId: animalId
         ))
-        if selectedLens != .review {
+        if presentationPolicy?.appliesToHaplotypedMiSeq == true {
+            var state = displayState
+            state.viewportLens = .summary
+            state.summaryViewMode = .outline
+            applyDisplayState(state)
+            if callEvidenceHost == nil {
+                installCallEvidenceHost()
+            }
+            applySummaryViewModeVisibility()
+            updateCallEvidence()
+            onDisplayStateChanged?(displayState)
+        } else if selectedLens != .review {
             showLens(.review, autoActivateReviewCohort: false)
             onDisplayStateChanged?(displayState)
         } else {
@@ -7817,7 +8090,8 @@ public final class GenotypeResultViewController: NSViewController {
             rebuildHaplotypeMatrix()
             rebuildCohortSummary()
             applyComparisonMatrixCohortFilter()
-            if selectedLens == .review {
+            if selectedLens == .review
+                || presentationPolicy?.appliesToHaplotypedMiSeq == true {
                 advanceToNextReviewSample(fallbackToAll: false, afterLocus: evidence.locus)
             } else {
                 updateCallEvidence()
@@ -8649,6 +8923,7 @@ public final class GenotypeResultViewController: NSViewController {
         let baseSnapshot: GenotypeViewportExportSnapshot
         if selectedLens == .summary,
            displayState.summaryViewMode == .matrix,
+           presentationPolicy?.appliesToHaplotypedMiSeq != true,
            definitionSetForResult(result) != nil,
            !displayState.showsAncillaryLoci {
             baseSnapshot = haplotypeMatrixView.exportSnapshot(

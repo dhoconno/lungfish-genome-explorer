@@ -5498,6 +5498,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         controller.configure(result: makeResult(
             samples: [],
             calls: [makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001_01", reads: 42)],
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
             haplotypeAnalysis: analysis
         ))
 
@@ -5539,9 +5540,18 @@ final class GenotypeResultViewportTests: XCTestCase {
     func testReconfigureFromGenotypeOnlyToHaplotypedRestoresLensHeader() {
         let controller = GenotypeResultViewController()
         _ = controller.view
-        controller.configure(result: makeResult(samples: [], calls: [
-            makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001_01", reads: 42),
-        ]))
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: [
+                makeCall(
+                    sample: "AnimalA",
+                    genotype: "01_Mafa_A1_001_01",
+                    reads: 42
+                ),
+            ],
+            kind: GenotypeResultWorkflowKind
+                .fullLengthONTMHCGenotype.rawValue
+        ))
         let analysis = GenotypeHaplotypeAnalysis(
             assayID: "MHC-exon2-miSeq",
             definitionSetID: "test-definitions",
@@ -5553,6 +5563,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         controller.configure(result: makeResult(
             samples: [],
             calls: [makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001_01", reads: 42)],
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
             haplotypeAnalysis: analysis
         ))
         controller.testingSelectLens(.review)
@@ -5889,6 +5900,7 @@ final class GenotypeResultViewportTests: XCTestCase {
                 genotype: "01_Mafa_A1_001_01",
                 reads: 42
             )],
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
             haplotypeAnalysis: analysis
         ))
 
@@ -9771,7 +9783,12 @@ final class GenotypeResultViewportTests: XCTestCase {
             ]
         )
 
-        controller.configure(result: makeResult(samples: [], calls: [], haplotypeAnalysis: analysis))
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: [],
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
+            haplotypeAnalysis: analysis
+        ))
         controller.testingSelectLens(.review)
 
         XCTAssertEqual(controller.testingVisibleLensIdentifier, "review")
@@ -10031,7 +10048,12 @@ final class GenotypeResultViewportTests: XCTestCase {
             ]
         )
 
-        controller.configure(result: makeResult(samples: [], calls: [], haplotypeAnalysis: analysis))
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: [],
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
+            haplotypeAnalysis: analysis
+        ))
         controller.testingApplyDisplayState(GenotypeResultDisplayState(viewportLens: .review))
 
         XCTAssertEqual(controller.testingVisibleLensIdentifier, "review")
@@ -10243,6 +10265,7 @@ final class GenotypeResultViewportTests: XCTestCase {
                 ),
             ],
             calls: lowCalls + okCalls,
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
             haplotypeAnalysis: analysis
         ))
 
@@ -10459,6 +10482,7 @@ final class GenotypeResultViewportTests: XCTestCase {
                 ),
             ],
             calls: lowCalls + okCalls,
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
             haplotypeAnalysis: analysis
         ))
 
@@ -13822,6 +13846,7 @@ final class GenotypeResultViewportTests: XCTestCase {
             bundleURL: bundleURL,
             samples: [],
             calls: [makeCall(sample: "AnimalA", genotype: genotype, reads: 17)],
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
             haplotypeAnalysis: analysis
         ))
         controller.testingShowMatrixTargetSelection([target])
@@ -14353,7 +14378,12 @@ final class GenotypeResultViewportTests: XCTestCase {
                 )
             ]
         )
-        controller.configure(result: makeResult(samples: [], calls: calls, haplotypeAnalysis: analysis))
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: calls,
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
+            haplotypeAnalysis: analysis
+        ))
         controller.testingApplyDisplayState(GenotypeResultDisplayState(summaryViewMode: .matrix, layout: .listTop))
 
         let snapshot = try XCTUnwrap(controller.testingCurrentExportSnapshot())
@@ -15113,7 +15143,12 @@ final class GenotypeResultViewportTests: XCTestCase {
                 )
             ]
         )
-        controller.configure(result: makeResult(samples: [], calls: calls, haplotypeAnalysis: analysis))
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: calls,
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
+            haplotypeAnalysis: analysis
+        ))
         controller.testingApplyDisplayState(GenotypeResultDisplayState(
             summaryViewMode: .matrix,
             layout: .listTop,
@@ -15270,7 +15305,12 @@ final class GenotypeResultViewportTests: XCTestCase {
                 )
             ]
         )
-        controller.configure(result: makeResult(samples: [], calls: calls, haplotypeAnalysis: analysis))
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: calls,
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
+            haplotypeAnalysis: analysis
+        ))
         controller.testingApplyDisplayState(GenotypeResultDisplayState(summaryViewMode: .matrix, layout: .listTop))
 
         controller.testingSetUnifiedSampleFilter("MHC-B")
@@ -15345,6 +15385,7 @@ final class GenotypeResultViewportTests: XCTestCase {
             bundleURL: bundleURL,
             samples: [],
             calls: calls,
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
             haplotypeAnalysis: analysis
         ))
         controller.testingApplyDisplayState(GenotypeResultDisplayState(summaryViewMode: .matrix, layout: .listTop))
@@ -15449,6 +15490,7 @@ final class GenotypeResultViewportTests: XCTestCase {
             bundleURL: bundleURL,
             samples: [],
             calls: calls,
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
             haplotypeAnalysis: analysis,
             referenceMetadata: referenceMetadata
         ))
@@ -15652,7 +15694,11 @@ final class GenotypeResultViewportTests: XCTestCase {
         let controller = GenotypeResultViewController()
         _ = controller.view
         let calls = [makeCall(sample: "DW472", genotype: "12_M9_B_001_01", reads: 150)]
-        controller.configure(result: makeResult(samples: [], calls: calls))
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: calls,
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue
+        ))
         XCTAssertEqual(controller.testingSummaryViewMode, .matrix)
 
         let analysis = GenotypeHaplotypeAnalysis(
@@ -15682,6 +15728,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         controller.applyAIHaplotypingCompleted(result: makeResult(
             samples: [],
             calls: calls,
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
             haplotypeAnalysis: analysis
         ))
 
@@ -16772,6 +16819,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         controller.configure(result: makeResult(
             samples: [],
             calls: calls,
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
             haplotypeAnalysis: analysis,
             haplotypeDefinitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"
         ))
@@ -21497,6 +21545,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         controller.configure(result: makeResult(
             samples: [],
             calls: [],
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
             haplotypeAnalysis: makeEmptyHaplotypeAnalysis()
         ))
         controller.testingResetProjectionPerformanceCounters()
@@ -21582,6 +21631,455 @@ final class GenotypeResultViewportTests: XCTestCase {
         let mhcBSlot = try XCTUnwrap(controller.testingOutlineSlots(sample: "DW472").first { $0.locus == "MHC-B" })
         XCTAssertEqual(mhcBSlot.h1.testingLabel, "M3B")
         XCTAssertEqual(mhcBSlot.h2.testingLabel, "M2B")
+    }
+
+    func testHaplotypedMiSeqUsesExactlyTwoPresentationSegmentsAndBuildsComparisonMatrixLazily()
+        throws
+    {
+        let known = makeCall(
+            sample: "AnimalA",
+            genotype: "01_Mafa_A1_KNOWN",
+            reads: 42
+        )
+        let candidate = makeCandidate(
+            id: "candidate-a",
+            name: "Mafa-A1*001:01_1nt_nov",
+            classification: .novel,
+            support: .singleton,
+            samples: ["AnimalA"]
+        )
+        let result = makeCandidateResult(
+            calls: [known],
+            candidates: [candidate],
+            observations: [
+                makeCandidateObservation(
+                    cluster: candidate.stableClusterID,
+                    sample: "AnimalA",
+                    reads: 7
+                ),
+            ],
+            kind: .miSeqAmpliconMHCGenotype,
+            haplotypeAnalysis: makeUsableHaplotypedMiSeqAnalysis(
+                sample: "AnimalA"
+            )
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: result)
+        let selector = try XCTUnwrap(
+            controller.view.firstDescendant(ofType: NSSegmentedControl.self)
+        )
+        let matrix = try XCTUnwrap(
+            controller.view.firstDescendant(
+                ofType: GenotypeComparisonMatrixView.self
+            )
+        )
+        let definitionMatrix = try XCTUnwrap(
+            controller.view.firstDescendant(
+                ofType: GenotypeHaplotypeDefinitionMatrixView.self
+            )
+        )
+
+        XCTAssertEqual(
+            (0 ..< selector.segmentCount).map {
+                selector.label(forSegment: $0) ?? ""
+            },
+            ["Haplotype Calls", "Genotype Matrix"]
+        )
+        XCTAssertEqual(selector.selectedSegment, 0)
+        XCTAssertEqual(controller.testingVisibleLensIdentifier, "summary")
+        XCTAssertEqual(controller.testingSummaryViewMode, .outline)
+        XCTAssertEqual(
+            matrix.testingProjectionPerformanceSnapshot.baseProjectionBuildCount,
+            0,
+            "Opening Haplotype Calls must not configure the genotype matrix."
+        )
+        XCTAssertTrue(matrix.isHidden)
+        XCTAssertTrue(definitionMatrix.isHidden)
+
+        selector.selectedSegment = 1
+        XCTAssertTrue(
+            selector.sendAction(selector.action, to: selector.target)
+        )
+
+        XCTAssertEqual(controller.testingVisibleLensIdentifier, "summary")
+        XCTAssertEqual(controller.testingSummaryViewMode, .matrix)
+        XCTAssertEqual(selector.selectedSegment, 1)
+        XCTAssertFalse(matrix.isHidden)
+        XCTAssertTrue(definitionMatrix.isHidden)
+        XCTAssertEqual(
+            matrix.testingProjectionPerformanceSnapshot.baseProjectionBuildCount,
+            1
+        )
+        let knownRow = try XCTUnwrap(
+            matrix.testingVisibleRows.first { $0.genotype == known.genotype }
+        )
+        XCTAssertEqual(
+            knownRow.support(for: "AnimalA")?.passedUniqueReads,
+            42
+        )
+        let candidateRow = try XCTUnwrap(
+            matrix.testingVisibleRows.first {
+                $0.stableClusterID == candidate.stableClusterID
+            }
+        )
+        XCTAssertEqual(
+            candidateRow.support(for: "AnimalA")?.passedUniqueReads,
+            7
+        )
+    }
+
+    func testHaplotypedMiSeqInspectorAndViewportShareSummaryModeWithoutFeedbackLoops()
+        throws
+    {
+        let result = makeResult(
+            samples: [],
+            calls: [],
+            haplotypeAnalysis: makeUsableHaplotypedMiSeqAnalysis()
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: result)
+        let selector = try XCTUnwrap(
+            controller.view.firstDescendant(ofType: NSSegmentedControl.self)
+        )
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        viewModel.update(
+            isAvailable: true,
+            state: controller.testingDisplayState,
+            hasHaplotypingResult: true,
+            isGenotypeOnlyResult: false
+        )
+        viewModel.updateMHCCandidatePresentation(from: result)
+        viewModel.updateDisplayState(.init(
+            viewportLens: .audit,
+            summaryViewMode: .matrix
+        ))
+        XCTAssertEqual(viewModel.displayState.viewportLens, .summary)
+        XCTAssertEqual(viewModel.displayState.summaryViewMode, .outline)
+        var viewportPublications = 0
+        var inspectorPublications = 0
+        controller.onDisplayStateChanged = { state in
+            viewportPublications += 1
+            viewModel.updateDisplayState(state)
+        }
+        viewModel.onDisplayStateChanged = { state in
+            inspectorPublications += 1
+            controller.applyDisplayState(state)
+        }
+
+        viewModel.setSummaryViewMode(.matrix)
+
+        XCTAssertEqual(inspectorPublications, 1)
+        XCTAssertEqual(viewportPublications, 0)
+        XCTAssertEqual(controller.testingSummaryViewMode, .matrix)
+        XCTAssertEqual(controller.testingVisibleLensIdentifier, "summary")
+        XCTAssertEqual(selector.selectedSegment, 1)
+
+        selector.selectedSegment = 0
+        XCTAssertTrue(
+            selector.sendAction(selector.action, to: selector.target)
+        )
+
+        XCTAssertEqual(viewportPublications, 1)
+        XCTAssertEqual(inspectorPublications, 1)
+        XCTAssertEqual(viewModel.displayState.summaryViewMode, .outline)
+        XCTAssertEqual(viewModel.displayState.viewportLens, .summary)
+    }
+
+    func testHaplotypedMiSeqRestoresLegacyPreferencePerBundleWithoutLeakage()
+        throws
+    {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "HaplotypedMiSeqPresentationBundles-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let firstURL = root.appendingPathComponent(
+            "first.lungfishgenotype",
+            isDirectory: true
+        )
+        let secondURL = root.appendingPathComponent(
+            "second.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: firstURL,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: secondURL,
+            withIntermediateDirectories: true
+        )
+        var firstSidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-08-04T00:00:00Z"
+        )
+        firstSidecar.settings.preferredSummaryViewMode =
+            GenotypeSummaryViewMode.matrix.rawValue
+        try ONTGenotypeResultBundleData.writeAnnotationSidecar(
+            firstSidecar,
+            forBundleAt: firstURL
+        )
+        let analysis = makeUsableHaplotypedMiSeqAnalysis()
+        let first = makeResult(
+            bundleURL: firstURL,
+            samples: [],
+            calls: [],
+            haplotypeAnalysis: analysis
+        )
+        let second = makeResult(
+            bundleURL: secondURL,
+            samples: [],
+            calls: [],
+            haplotypeAnalysis: analysis
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+
+        controller.configure(result: first)
+        XCTAssertEqual(controller.testingSummaryViewMode, .matrix)
+
+        controller.configure(result: second)
+        XCTAssertEqual(controller.testingSummaryViewMode, .outline)
+        var state = controller.testingDisplayState
+        state.summaryViewMode = .matrix
+        controller.applyDisplayState(state)
+        XCTAssertEqual(
+            try GenotypeAnnotationStore(
+                bundleURL: secondURL,
+                author: "test",
+                seedBuiltInSmartCohorts: true
+            ).sidecar.settings.preferredSummaryViewMode,
+            GenotypeSummaryViewMode.matrix.rawValue
+        )
+
+        controller.configure(result: first)
+        XCTAssertEqual(controller.testingSummaryViewMode, .matrix)
+        XCTAssertEqual(controller.testingVisibleLensIdentifier, "summary")
+    }
+
+    func testHaplotypedMiSeqNormalizesStaleLensAndDefinitionsIngressToCalls()
+        throws
+    {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: [],
+            haplotypeAnalysis: makeUsableHaplotypedMiSeqAnalysis()
+        ))
+
+        for lens in [GenotypeResultViewportLens.review, .audit] {
+            controller.applyDisplayState(.init(
+                viewportLens: lens,
+                summaryViewMode: .matrix
+            ))
+            XCTAssertEqual(controller.testingVisibleLensIdentifier, "summary")
+            XCTAssertEqual(controller.testingSummaryViewMode, .outline)
+        }
+
+        controller.applyDisplayState(.init(summaryViewMode: .matrix))
+        NotificationCenter.default.post(
+            name: .genotypeResultOpenHaplotypeDefinitions,
+            object: nil
+        )
+
+        XCTAssertEqual(controller.testingVisibleLensIdentifier, "summary")
+        XCTAssertEqual(controller.testingSummaryViewMode, .outline)
+        let selector = try XCTUnwrap(
+            controller.view.firstDescendant(ofType: NSSegmentedControl.self)
+        )
+        XCTAssertEqual(selector.selectedSegment, 0)
+    }
+
+    func testHaplotypedMiSeqAICompletionReplacesActiveLegacyAuditWithCalls()
+        throws
+    {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "HaplotypedMiSeqAIIngress-\(UUID().uuidString).lungfishgenotype",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let call = makeCall(
+            sample: "AnimalA",
+            genotype: "01_Mafa_A1_001_01",
+            reads: 42
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [call]
+        ))
+        controller.testingSelectLens(.audit)
+        XCTAssertEqual(controller.testingVisibleLensIdentifier, "audit")
+
+        controller.applyAIHaplotypingCompleted(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [call],
+            haplotypeAnalysis: makeUsableHaplotypedMiSeqAnalysis()
+        ))
+
+        XCTAssertEqual(controller.testingVisibleLensIdentifier, "summary")
+        XCTAssertEqual(controller.testingSummaryViewMode, .outline)
+        let selector = try XCTUnwrap(
+            controller.view.firstDescendant(ofType: NSSegmentedControl.self)
+        )
+        XCTAssertEqual(
+            (0 ..< selector.segmentCount).map {
+                selector.label(forSegment: $0) ?? ""
+            },
+            ["Haplotype Calls", "Genotype Matrix"]
+        )
+        XCTAssertEqual(selector.selectedSegment, 0)
+    }
+
+    func testHaplotypedMiSeqCallEvidenceAndReviewKeyboardCommandsStayInCalls()
+        throws
+    {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "HaplotypedMiSeqReviewIngress-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent(
+            "result.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [],
+            haplotypeAnalysis: makeUsableHaplotypedMiSeqAnalysis()
+        ))
+
+        controller.testingSelectCellEvidence(
+            animalId: "AnimalA",
+            locus: "MHC-A"
+        )
+
+        XCTAssertEqual(controller.testingVisibleLensIdentifier, "summary")
+        XCTAssertEqual(controller.testingSummaryViewMode, .outline)
+        XCTAssertFalse(controller.testingCallEvidencePaneHidden)
+        XCTAssertEqual(controller.testingCurrentCallEvidenceSample, "AnimalA")
+        XCTAssertFalse(controller.testingSampleDetailRows(sample: "AnimalA").isEmpty)
+        let flag = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command, .shift],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "F",
+            charactersIgnoringModifiers: "F",
+            isARepeat: false,
+            keyCode: 3
+        ))
+
+        XCTAssertTrue(controller.performKeyEquivalent(with: flag))
+        let sidecar = try GenotypeAnnotationStore(
+            bundleURL: bundleURL,
+            author: "test",
+            seedBuiltInSmartCohorts: true
+        ).sidecar
+        XCTAssertTrue(sidecar.sampleStatusFlags.contains {
+            $0.sample == "AnimalA" && $0.value == .needsReview
+        })
+        XCTAssertEqual(controller.testingVisibleLensIdentifier, "summary")
+    }
+
+    func testHaplotypedMiSeqRemovedLensCapabilitiesRemainReachable()
+        throws
+    {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: [],
+            haplotypeAnalysis: makeUsableHaplotypedMiSeqAnalysis()
+        ))
+        let actionsButton = try XCTUnwrap(
+            descendants(of: controller.view)
+                .compactMap { $0 as? NSButton }
+                .first {
+                    $0.accessibilityIdentifier()
+                        == "genotype-result-actions-menu"
+                }
+        )
+
+        XCTAssertEqual(
+            actionsButton.menu?.items.map(\.title),
+            ["AI Discovery", "AI Refinement", "Export Excel View…"]
+        )
+        let documentSourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent(
+                "Sources/LungfishGenotypeUI/GenotypeResultDocumentSection.swift"
+            )
+        let documentSource = try String(
+            contentsOf: documentSourceURL,
+            encoding: .utf8
+        )
+        for title in ["Audit Timeline", "Current Workbook", "Artifacts"] {
+            XCTAssertTrue(documentSource.contains(title), title)
+        }
+        let smartCohortSource = try String(
+            contentsOf: documentSourceURL
+                .deletingLastPathComponent()
+                .appendingPathComponent("GenotypeSmartCohortSection.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(smartCohortSource.contains("Needs Review"))
+        let inspectorSource = try String(
+            contentsOf: documentSourceURL
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent(
+                    "LungfishApp/Views/Inspector/InspectorViewController+PublicAPI.swift"
+                ),
+            encoding: .utf8
+        )
+        XCTAssertTrue(inspectorSource.contains(
+            "GenotypeResultArtifactRow(label: \"Provenance\""
+        ))
+        let evidenceSourceURL = documentSourceURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("GenotypeCallEvidenceView.swift")
+        let evidenceSource = try String(
+            contentsOf: evidenceSourceURL,
+            encoding: .utf8
+        )
+        for title in ["Override", "Confirm", "Skip", "next review sample"] {
+            XCTAssertTrue(evidenceSource.contains(title), title)
+        }
+        let displaySourceURL = documentSourceURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("GenotypeResultDisplaySection.swift")
+        let displaySource = try String(
+            contentsOf: displaySourceURL,
+            encoding: .utf8
+        )
+        XCTAssertTrue(displaySource.contains("viewModel.presentationChoices"))
+        XCTAssertFalse(
+            displaySource.contains(
+                "ForEach(GenotypeResultViewportLens.allCases"
+            )
+        )
     }
 
     func testHaplotypedMiSeqPreservesPerSlotStatusAndReviewEligibility() throws {
@@ -22854,6 +23352,31 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
     }
 
+    private func makeUsableHaplotypedMiSeqAnalysis(
+        sample: String = "AnimalA"
+    ) -> GenotypeHaplotypeAnalysis {
+        GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "test.haplotype-definitions",
+            definitionSetName: "Test haplotype definitions",
+            speciesName: "Test species",
+            samples: [
+                .init(sample: sample, calls: [
+                    .init(
+                        locus: "MHC-A",
+                        sourceLocus: "Mafa-A",
+                        haplotype1: "M1A",
+                        haplotype2: "M2A",
+                        status: .called,
+                        matchedHaplotypes: [],
+                        observedGenotypeCount: 2,
+                        observedGenotypes: ["A1", "A2"]
+                    ),
+                ]),
+            ]
+        )
+    }
+
     private func makeMHCReferenceVisualizationRecord(
         rawReferenceID: String,
         alleleName: String
@@ -23012,7 +23535,8 @@ final class GenotypeResultViewportTests: XCTestCase {
         mhcCandidateGenBankArtifactURLs: ONTMHCCandidateGenBankArtifactURLs = .empty,
         provisionalExon2SequencesByGenotype:
             [String: ONTGenotypeProvisionalExon2Sequence] = [:],
-        kind: GenotypeResultWorkflowKind = .fullLengthONTMHCGenotype
+        kind: GenotypeResultWorkflowKind = .fullLengthONTMHCGenotype,
+        haplotypeAnalysis: GenotypeHaplotypeAnalysis? = nil
     ) -> ONTGenotypeResultBundleData {
         let sampleIDs = Set(calls.map(\.sample) + observations.map(\.sampleID))
         let samples = sampleIDs.sorted().map { sample in
@@ -23041,6 +23565,7 @@ final class GenotypeResultViewportTests: XCTestCase {
             samples: samples,
             calls: calls,
             kind: kind.rawValue,
+            haplotypeAnalysis: haplotypeAnalysis,
             mhcCandidateArtifacts: ONTMHCCandidateArtifactManifest(
                 schemaVersion: candidateArtifactManifestSchemaVersion,
                 genotypingEvidence: ONTMHCBAMArtifactPair(
@@ -23077,7 +23602,7 @@ final class GenotypeResultViewportTests: XCTestCase {
             stats: base.stats,
             calls: calls,
             samples: samples,
-            haplotypeAnalysis: nil,
+            haplotypeAnalysis: haplotypeAnalysis,
             mhcCandidates: document,
             mhcUnnameableClusters: nil,
             mhcCandidateSequencesByStableClusterID: candidateSequences,
