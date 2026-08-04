@@ -3949,7 +3949,8 @@ public final class GenotypeResultViewController: NSViewController {
             detailContainer.isHidden = false
             callEvidenceHost?.isHidden = true
             if currentSelectionState?.matrixTargets.isEmpty ?? true {
-                showEmptySelection()
+                teardownSampleCurationWorkbench()
+                removeArrangedSubviews(from: detailStack)
             }
         }
 
