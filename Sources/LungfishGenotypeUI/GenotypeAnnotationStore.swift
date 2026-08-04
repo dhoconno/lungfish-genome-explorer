@@ -1529,6 +1529,10 @@ public final class GenotypeAnnotationStore {
                 GenotypeEffectiveHaplotypeKey:
                     GenotypeAnnotationSidecar.CallOverride
             ] = [:]
+            var targetsWithStoredRecords = Set<
+                GenotypeEffectiveHaplotypeKey
+            >()
+            let sidecarIdentity = analysisIdentity?.sidecarIdentity
             for mutation in mutations {
                 let matches = priorOverrides.enumerated().filter {
                     _, entry in
@@ -1536,7 +1540,13 @@ public final class GenotypeAnnotationStore {
                         && entry.locus == mutation.target.locus
                         && entry.slot == mutation.target.slot
                 }
-                if let authoritative = authoritativeCallOverride(matches) {
+                if !matches.isEmpty {
+                    targetsWithStoredRecords.insert(mutation.target)
+                }
+                if let authoritative = authoritativeCallOverride(
+                    matches,
+                    analysisIdentity: sidecarIdentity
+                ) {
                     guard authoritative.originalCall
                             == mutation.baseline else {
                         throw CallOverrideMutationError.baselineMismatch(
@@ -1552,6 +1562,7 @@ public final class GenotypeAnnotationStore {
                 let before = existingByTarget[mutation.target]
                 if mutation.after == mutation.baseline {
                     return before != nil
+                        || targetsWithStoredRecords.contains(mutation.target)
                 }
                 guard let before else { return true }
                 return before.overrideCall != mutation.after
@@ -1577,7 +1588,6 @@ public final class GenotypeAnnotationStore {
                     slot: entry.slot
                 ))
             }
-            let sidecarIdentity = analysisIdentity?.sidecarIdentity
             let replacementOverrides = changedMutations.compactMap {
                 mutation -> GenotypeAnnotationSidecar.CallOverride? in
                 guard mutation.after != mutation.baseline else {
@@ -1709,7 +1719,9 @@ public final class GenotypeAnnotationStore {
     }
 
     private func authoritativeCallOverride(
-        _ matches: [(offset: Int, element: GenotypeAnnotationSidecar.CallOverride)]
+        _ matches: [(offset: Int, element: GenotypeAnnotationSidecar.CallOverride)],
+        analysisIdentity:
+            GenotypeAnnotationSidecar.CallOverrideAnalysisIdentity? = nil
     ) -> GenotypeAnnotationSidecar.CallOverride? {
         let fractional = ISO8601DateFormatter()
         fractional.formatOptions = [
@@ -1720,20 +1732,44 @@ public final class GenotypeAnnotationStore {
         var selected: (
             entry: GenotypeAnnotationSidecar.CallOverride,
             date: Date,
-            index: Int
+            index: Int,
+            identityPriority: Int
         )?
         for match in matches {
+            let identityPriority: Int
+            if let analysisIdentity {
+                if match.element.analysisIdentity == analysisIdentity {
+                    identityPriority = 2
+                } else if match.element.analysisIdentity == nil {
+                    identityPriority = 1
+                } else {
+                    continue
+                }
+            } else {
+                identityPriority = 0
+            }
             guard let date = fractional.date(
                 from: match.element.timestamp
             ) ?? internet.date(from: match.element.timestamp) else {
                 continue
             }
             if let current = selected,
-               date < current.date
-                || (date == current.date && match.offset < current.index) {
+               identityPriority < current.identityPriority
+                || (
+                    identityPriority == current.identityPriority
+                        && (
+                            date < current.date
+                                || (
+                                    date == current.date
+                                        && match.offset < current.index
+                                )
+                        )
+                ) {
                 continue
             }
-            selected = (match.element, date, match.offset)
+            selected = (
+                match.element, date, match.offset, identityPriority
+            )
         }
         return selected?.entry
     }

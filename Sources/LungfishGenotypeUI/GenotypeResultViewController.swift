@@ -2878,7 +2878,7 @@ public final class GenotypeResultViewController: NSViewController {
             self?.applyOverrideFromInspector(haplotype: haplotypeName, slot: slot)
         }
         view.onOverridesRequested = { [weak self] requests in
-            self?.applyOverridesFromInspector(requests)
+            _ = self?.applyOverridesFromInspector(requests)
         }
         view.onConfirmRequested = { [weak self] in
             self?.confirmCurrentCallEvidence()
@@ -7711,40 +7711,58 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func applyOverrideFromInspector(haplotype: String, slot: HaplotypeSlot) {
-        applyOverridesFromInspector([.init(slot: slot, haplotypeName: haplotype)])
+        _ = applyOverridesFromInspector([
+            .init(slot: slot, haplotypeName: haplotype),
+        ])
     }
 
-    private func applyOverridesFromInspector(_ requests: [GenotypeCallEvidenceView.HaplotypeOverrideRequest]) {
-        guard let store = annotationStore else { return }
-        guard let evidence = callEvidence else { return }
+    @discardableResult
+    private func applyOverridesFromInspector(
+        _ requests: [GenotypeCallEvidenceView.HaplotypeOverrideRequest],
+        presentErrors: Bool = true
+    ) -> Error? {
+        guard let store = annotationStore else { return nil }
+        guard let evidence = callEvidence else { return nil }
         let author = annotationAuthorProvider()
         let requests = requests.filter { !$0.haplotypeName.isEmpty }
-        guard !requests.isEmpty else { return }
+        guard !requests.isEmpty else { return nil }
         let rawCall = rawLocusCall(sample: evidence.sample, locus: evidence.locus)
-        do {
-            for request in requests {
-                let originalCall = request.slot == .h1
-                    ? (rawCall?.haplotype1 ?? evidence.h1Name)
-                    : (rawCall?.haplotype2 ?? evidence.h2Name)
-                let displayOriginal = originalCall.isEmpty ? "-" : originalCall
-                try store.applyOverride(
+        let analysisIdentity = activeCallOverrideAnalysisIdentity()
+        let mutations = requests.map { request in
+            let originalCall = request.slot == .h1
+                ? (rawCall?.haplotype1 ?? evidence.h1Name)
+                : (rawCall?.haplotype2 ?? evidence.h2Name)
+            let displayOriginal = originalCall.isEmpty ? "-" : originalCall
+            return CallOverrideMutation(
+                target: .init(
                     sample: evidence.sample,
                     locus: evidence.locus,
-                    slot: request.slot,
-                    originalCall: originalCall,
-                    overrideCall: request.haplotypeName,
-                    reasonTag: .misCall,
-                    rationale: "Replaced \(evidence.locus) \(request.slot.displayName) \(displayOriginal) -> \(request.haplotypeName) from Review inspector candidate matrix.",
-                    author: author
-                )
-            }
+                    slot: request.slot
+                ),
+                baseline: originalCall,
+                after: request.haplotypeName,
+                reason: .misCall,
+                rationale: "Replaced \(evidence.locus) \(request.slot.displayName) \(displayOriginal) -> \(request.haplotypeName) from Review inspector candidate matrix."
+            )
+        }
+        do {
+            let result = try store.mutateCallOverrides(
+                mutations,
+                author: author,
+                analysisIdentity: analysisIdentity
+            )
+            guard result.didChange else { return nil }
             markCurrentWorkbookDirty(
                 requiresFullUpdate: true,
                 legacyStatus: "current.xlsx does not include workbook changes."
             )
             refreshAfterHaplotypeOverride()
+            return nil
         } catch {
-            presentSheetAlert(error: error)
+            if presentErrors {
+                presentSheetAlert(error: error)
+            }
+            return error
         }
     }
 
@@ -7754,6 +7772,17 @@ public final class GenotypeResultViewController: NSViewController {
             return nil
         }
         return sample.calls.first { $0.locus == locus }
+    }
+
+    private func activeCallOverrideAnalysisIdentity()
+        -> GenotypeEffectiveHaplotypeIdentity? {
+        activeHaplotypeAnalysis().map {
+            GenotypeEffectiveHaplotypeIdentity(
+                assayID: $0.assayID,
+                analysisRevisionID: $0.analysisRevisionID,
+                definitionSetID: $0.definitionSetID
+            )
+        }
     }
 
     private func isCallReviewResolved(sample sampleId: String, locus: String) -> Bool {
@@ -7981,27 +8010,28 @@ public final class GenotypeResultViewController: NSViewController {
                               draft: GenotypeOverrideSection.OverrideDraft) {
         guard let store = annotationStore else { return }
         let author = annotationAuthorProvider()
-        let originalCall = row.callName
         do {
-            try store.applyOverride(
-                sample: animalId,
-                locus: row.locus,
-                slot: row.slot,
-                originalCall: originalCall,
-                overrideCall: draft.target,
-                reasonTag: draft.reason,
+            let result = try mutateSampleDetailOverride(
+                store: store,
+                animalId: animalId,
+                row: row,
+                target: draft.target,
+                reason: draft.reason,
                 rationale: draft.rationale,
                 author: author
             )
+            if result.didChange {
+                markCurrentWorkbookDirty(
+                    requiresFullUpdate: true,
+                    legacyStatus:
+                        "current.xlsx does not include workbook changes."
+                )
+                refreshAfterHaplotypeOverride()
+            }
         } catch {
             presentSheetAlert(error: error)
             return
         }
-        markCurrentWorkbookDirty(
-            requiresFullUpdate: true,
-            legacyStatus: "current.xlsx does not include workbook changes."
-        )
-        refreshAfterHaplotypeOverride()
         // Re-present the sheet with fresh state so the analyst can keep working.
         dismissSampleDetailSheet()
         presentSampleDetailSheet(forAnimal: animalId)
@@ -8011,19 +8041,67 @@ public final class GenotypeResultViewController: NSViewController {
                                row: GenotypeSampleDetailSheet.CallRow) {
         guard let store = annotationStore else { return }
         let author = annotationAuthorProvider()
+        let existing = effectiveHaplotypeProjection?.authoritativeOverride(
+            sample: animalId,
+            locus: row.locus,
+            slot: row.slot
+        )
         do {
-            try store.clearOverride(sample: animalId, locus: row.locus, slot: row.slot, author: author)
+            let result = try mutateSampleDetailOverride(
+                store: store,
+                animalId: animalId,
+                row: row,
+                target: nil,
+                reason: existing?.reasonTag ?? .analystJudgment,
+                rationale: "Restore pipeline call",
+                author: author
+            )
+            if result.didChange {
+                markCurrentWorkbookDirty(
+                    requiresFullUpdate: true,
+                    legacyStatus:
+                        "current.xlsx does not include workbook changes."
+                )
+                refreshAfterHaplotypeOverride()
+            }
         } catch {
             presentSheetAlert(error: error)
             return
         }
-        markCurrentWorkbookDirty(
-            requiresFullUpdate: true,
-            legacyStatus: "current.xlsx does not include workbook changes."
-        )
-        refreshAfterHaplotypeOverride()
         dismissSampleDetailSheet()
         presentSampleDetailSheet(forAnimal: animalId)
+    }
+
+    private func mutateSampleDetailOverride(
+        store: GenotypeAnnotationStore,
+        animalId: String,
+        row: GenotypeSampleDetailSheet.CallRow,
+        target: String?,
+        reason: GenotypeAnnotationSidecar.OverrideReasonTag,
+        rationale: String,
+        author: String
+    ) throws -> CallOverrideMutationResult {
+        let rawCall = rawLocusCall(sample: animalId, locus: row.locus)
+        let baseline = row.slot == .h1
+            ? (rawCall?.haplotype1 ?? row.callName)
+            : (rawCall?.haplotype2 ?? row.callName)
+        return try store.mutateCallOverrides(
+            [
+                .init(
+                    target: .init(
+                        sample: animalId,
+                        locus: row.locus,
+                        slot: row.slot
+                    ),
+                    baseline: baseline,
+                    after: target ?? baseline,
+                    reason: reason,
+                    rationale: rationale
+                ),
+            ],
+            author: author,
+            analysisIdentity: activeCallOverrideAnalysisIdentity()
+        )
     }
 
     private func refreshAfterHaplotypeOverride() {
@@ -9417,6 +9495,12 @@ extension GenotypeResultViewController {
         applyOverridesFromInspector(requests)
     }
 
+    func testingApplyOverridesFromInspectorWithoutPresentingError(
+        _ requests: [GenotypeCallEvidenceView.HaplotypeOverrideRequest]
+    ) -> Error? {
+        applyOverridesFromInspector(requests, presentErrors: false)
+    }
+
     var testingCurrentSelectedSample: String? {
         currentSelectedSample
     }
@@ -10586,6 +10670,54 @@ extension GenotypeResultViewController {
         sample: String
     ) -> [GenotypeAnnotationSidecar.CallOverride] {
         sampleDetailPresentation(for: sample)?.overrides ?? []
+    }
+
+    func testingSaveSampleDetailOverrideWithoutPresentingSheet(
+        sample: String,
+        row: GenotypeSampleDetailSheet.CallRow,
+        target: String
+    ) -> Error? {
+        guard let store = annotationStore else { return nil }
+        do {
+            _ = try mutateSampleDetailOverride(
+                store: store,
+                animalId: sample,
+                row: row,
+                target: target,
+                reason: .misCall,
+                rationale: "Testing sample-detail Save",
+                author: annotationAuthorProvider()
+            )
+            return nil
+        } catch {
+            return error
+        }
+    }
+
+    func testingClearSampleDetailOverrideWithoutPresentingSheet(
+        sample: String,
+        row: GenotypeSampleDetailSheet.CallRow
+    ) -> Error? {
+        guard let store = annotationStore else { return nil }
+        let existing = effectiveHaplotypeProjection?.authoritativeOverride(
+            sample: sample,
+            locus: row.locus,
+            slot: row.slot
+        )
+        do {
+            _ = try mutateSampleDetailOverride(
+                store: store,
+                animalId: sample,
+                row: row,
+                target: nil,
+                reason: existing?.reasonTag ?? .analystJudgment,
+                rationale: "Restore pipeline call",
+                author: annotationAuthorProvider()
+            )
+            return nil
+        } catch {
+            return error
+        }
     }
 
     func testingUnresolvedReviewLoci(sample: String) -> [String] {

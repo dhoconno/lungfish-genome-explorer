@@ -150,13 +150,26 @@ struct GenotypeEffectiveHaplotypeProjection: Equatable, Sendable {
             let candidate = IndexedOverride(
                 entry: override,
                 date: date,
-                sidecarIndex: index
+                sidecarIndex: index,
+                identityPriority: override.analysisIdentity
+                    == identity.sidecarIdentity
+                    ? 2
+                    : (override.analysisIdentity == nil ? 1 : 0)
             )
             if let current = latestOverrides[key] {
-                guard candidate.date > current.date
+                guard candidate.identityPriority
+                        > current.identityPriority
                     || (
-                        candidate.date == current.date
-                            && candidate.sidecarIndex > current.sidecarIndex
+                        candidate.identityPriority
+                            == current.identityPriority
+                            && (
+                                candidate.date > current.date
+                                    || (
+                                        candidate.date == current.date
+                                            && candidate.sidecarIndex
+                                                > current.sidecarIndex
+                                    )
+                            )
                     ) else {
                     continue
                 }
@@ -346,5 +359,6 @@ struct GenotypeEffectiveHaplotypeProjection: Equatable, Sendable {
         let entry: GenotypeAnnotationSidecar.CallOverride
         let date: Date
         let sidecarIndex: Int
+        let identityPriority: Int
     }
 }

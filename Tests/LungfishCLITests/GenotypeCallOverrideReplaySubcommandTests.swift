@@ -96,6 +96,32 @@ final class GenotypeReplayCallOverridesSubcommandTests: XCTestCase {
                 ]),
             ])
         )
+        let sourceEnvelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: fixture.sourceProvenanceData
+        )
+        XCTAssertEqual(
+            envelope.options.explicit["replayFormat"],
+            sourceEnvelope.options.explicit["replayFormat"]
+        )
+        XCTAssertEqual(
+            envelope.options.explicit["replayPayloadSHA256"],
+            sourceEnvelope.options.explicit["replayPayloadSHA256"]
+        )
+        XCTAssertEqual(
+            envelope.options.explicit["replayPayloadBase64"],
+            sourceEnvelope.options.explicit["replayPayloadBase64"]
+        )
+        let embeddedPayload = try XCTUnwrap(
+            envelope.options.explicit["replayPayloadBase64"]?.stringValue
+        )
+        let embeddedPayloadData = try XCTUnwrap(
+            Data(base64Encoded: embeddedPayload)
+        )
+        XCTAssertEqual(
+            envelope.options.explicit["replayPayloadSHA256"]?.stringValue,
+            sha256(embeddedPayloadData)
+        )
         let output = try XCTUnwrap(envelope.output)
         XCTAssertEqual(output.path, fixture.sidecarURL.path)
         XCTAssertEqual(output.checksumSHA256, sha256(finalData))

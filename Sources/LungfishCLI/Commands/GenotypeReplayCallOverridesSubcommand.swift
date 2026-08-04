@@ -220,6 +220,13 @@ struct GenotypeReplayCallOverridesSubcommand: AsyncParsableCommand {
             let explicitOptions: [String: ParameterValue] = [
                 "provenance": .file(sourceProvenanceURL),
                 "bundle": .file(bundleURL),
+                "replayFormat": .string(
+                    GenotypeCallOverrideReplayPayload.format
+                ),
+                "replayPayloadBase64": .string(
+                    payloadData.base64EncodedString()
+                ),
+                "replayPayloadSHA256": .string(sha256Hex(payloadData)),
             ]
             let defaultOptions: [String: ParameterValue] = [
                 "outputProvenance": .file(outputProvenanceURL),

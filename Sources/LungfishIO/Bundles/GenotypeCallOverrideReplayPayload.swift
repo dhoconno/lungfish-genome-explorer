@@ -319,7 +319,6 @@ public struct GenotypeCallOverrideReplayPayload:
                 slot: mutation.slot
             )
             guard seen.insert(targetKey).inserted,
-                  mutation.before != mutation.after,
                   audit.sample == operation.sample,
                   audit.locus == mutation.locus,
                   audit.slot == mutation.slot,
@@ -339,7 +338,17 @@ public struct GenotypeCallOverrideReplayPayload:
                     "each changed target requires one matching structured audit."
                 )
             }
-            let before = authoritativeOverride(beforeByKey[targetKey] ?? [])
+            let beforeRecords = beforeByKey[targetKey] ?? []
+            let afterRecords = afterByKey[targetKey] ?? []
+            guard beforeRecords != afterRecords else {
+                throw ReplayError.invalidOperation(
+                    "each target mutation must change its stored override records."
+                )
+            }
+            let before = authoritativeOverride(
+                beforeRecords,
+                analysisIdentity: operation.analysisIdentity
+            )
             guard mutation.before
                     == (before?.overrideCall ?? mutation.baseline),
                   before?.originalCall == nil
@@ -349,14 +358,13 @@ public struct GenotypeCallOverrideReplayPayload:
                 )
             }
             if mutation.after == mutation.baseline {
-                guard afterByKey[targetKey, default: []].isEmpty,
+                guard afterRecords.isEmpty,
                       audit.action == "clearOverride" else {
                     throw ReplayError.invalidOperation(
                         "a restore must remove the override and record clearOverride."
                     )
                 }
             } else {
-                let afterRecords = afterByKey[targetKey, default: []]
                 guard afterRecords.count == 1,
                       let after = afterRecords.first,
                       after.originalCall == mutation.baseline,
@@ -391,7 +399,9 @@ public struct GenotypeCallOverrideReplayPayload:
     }
 
     private func authoritativeOverride(
-        _ overrides: [GenotypeAnnotationSidecar.CallOverride]
+        _ overrides: [GenotypeAnnotationSidecar.CallOverride],
+        analysisIdentity:
+            GenotypeAnnotationSidecar.CallOverrideAnalysisIdentity?
     ) -> GenotypeAnnotationSidecar.CallOverride? {
         let fractional = ISO8601DateFormatter()
         fractional.formatOptions = [
@@ -402,19 +412,41 @@ public struct GenotypeCallOverrideReplayPayload:
         var selected: (
             entry: GenotypeAnnotationSidecar.CallOverride,
             date: Date,
-            index: Int
+            index: Int,
+            identityPriority: Int
         )?
         for (index, entry) in overrides.enumerated() {
+            let identityPriority: Int
+            if let analysisIdentity {
+                if entry.analysisIdentity == analysisIdentity {
+                    identityPriority = 2
+                } else if entry.analysisIdentity == nil {
+                    identityPriority = 1
+                } else {
+                    continue
+                }
+            } else {
+                identityPriority = 0
+            }
             guard let date = fractional.date(from: entry.timestamp)
                     ?? internet.date(from: entry.timestamp) else {
                 continue
             }
             if let current = selected,
-               date < current.date
-                || (date == current.date && index < current.index) {
+               identityPriority < current.identityPriority
+                || (
+                    identityPriority == current.identityPriority
+                        && (
+                            date < current.date
+                                || (
+                                    date == current.date
+                                        && index < current.index
+                                )
+                        )
+                ) {
                 continue
             }
-            selected = (entry, date, index)
+            selected = (entry, date, index, identityPriority)
         }
         return selected?.entry
     }

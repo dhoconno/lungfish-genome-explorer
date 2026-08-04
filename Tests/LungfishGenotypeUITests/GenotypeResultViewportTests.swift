@@ -21855,6 +21855,16 @@ final class GenotypeResultViewportTests: XCTestCase {
         _ = controller.view
         controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: [], haplotypeAnalysis: analysis))
         controller.testingSelectCellEvidence(animalId: "DW472", locus: "MHC-DP")
+        var annotationNotifications = 0
+        var workbookActions: [GenotypeCurrentWorkbookUIRequest.Action] = []
+        controller.onAnnotationSidecarChanged = { _ in
+            annotationNotifications += 1
+        }
+        controller.onCurrentWorkbookSyncRequested = {
+            workbookActions.append($0.action)
+        }
+        let dirtyMarksBefore =
+            controller.testingManualHaplotypeWorkbookDirtyMarkCount
 
         controller.testingApplyOverridesFromInspector([
             .init(slot: .h1, haplotypeName: "M3DP"),
@@ -21870,10 +21880,306 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(h1Override.overrideCall, "M3DP")
         XCTAssertEqual(h2Override.originalCall, "M7DP")
         XCTAssertEqual(h2Override.overrideCall, "M5DP")
+        XCTAssertEqual(h1Override.operationID, h2Override.operationID)
+        XCTAssertNotNil(h1Override.operationID)
+        XCTAssertEqual(h1Override.timestamp, h2Override.timestamp)
+        let expectedIdentity =
+            GenotypeAnnotationSidecar.CallOverrideAnalysisIdentity(
+                assayID: analysis.assayID,
+                analysisRevisionID: analysis.analysisRevisionID,
+                definitionSetID: analysis.definitionSetID
+            )
+        XCTAssertEqual(h1Override.analysisIdentity, expectedIdentity)
+        XCTAssertEqual(h2Override.analysisIdentity, expectedIdentity)
+
+        let audits = sidecar.auditLog.filter {
+            $0.sample == "DW472" && $0.locus == "MHC-DP"
+                && ($0.action == "override" || $0.action == "clearOverride")
+        }
+        XCTAssertEqual(audits.count, 2)
+        XCTAssertEqual(audits.map(\.slot), [.h1, .h2])
+        XCTAssertEqual(Set(audits.map(\.timestamp)).count, 1)
+        XCTAssertEqual(
+            Set(audits.compactMap {
+                $0.callOverrideMutation?.operationID
+            }).count,
+            1
+        )
+        XCTAssertEqual(
+            audits.map { $0.callOverrideMutation?.analysisIdentity },
+            [expectedIdentity, expectedIdentity]
+        )
+        XCTAssertEqual(annotationNotifications, 1)
+        XCTAssertEqual(workbookActions, [.markDirty])
+        XCTAssertEqual(
+            controller.testingManualHaplotypeWorkbookDirtyMarkCount,
+            dirtyMarksBefore + 1
+        )
+
+        let annotationURL = bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        let provenance = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(
+                fromSidecar: ProvenanceRecorder.fileSidecarURL(
+                    for: annotationURL
+                )
+            )
+        )
+        XCTAssertEqual(
+            provenance.options.resolvedDefaults["changedTargetCount"],
+            .integer(2)
+        )
 
         let evidence = try XCTUnwrap(controller.callEvidence(sample: "DW472", locus: "MHC-DP"))
         XCTAssertEqual(evidence.h1Name, "M3DP")
         XCTAssertEqual(evidence.h2Name, "M5DP")
+    }
+
+    func testInspectorTwoSlotValidationFailurePublishesNothingAndDoesNotNotify() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "GenotypeResultBatchValidation-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent(
+            "example.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        try installCallOverrideManifest(in: bundleURL)
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID:
+                "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            definitionSetName: "Mauritian cynomolgus macaques",
+            speciesName: "Mauritian cynomolgus macaques",
+            samples: [
+                .init(sample: "DW472", calls: [
+                    .init(
+                        locus: "MHC-DP",
+                        sourceLocus: "Mafa-DP",
+                        haplotype1: "M4DP",
+                        haplotype2: "M7DP",
+                        status: .tooManyHaplotypes,
+                        matchedHaplotypes: [],
+                        observedGenotypeCount: 3,
+                        observedGenotypes: [
+                            "15_M3_DPA1_01", "15_M7_DPB1_01",
+                        ]
+                    ),
+                ]),
+            ]
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [],
+            haplotypeAnalysis: analysis
+        ))
+        controller.testingSelectCellEvidence(
+            animalId: "DW472",
+            locus: "MHC-DP"
+        )
+        let annotationURL = bundleURL.appendingPathComponent(
+            GenotypeAnnotationSidecar.filename
+        )
+        let provenanceURL = ProvenanceRecorder.fileSidecarURL(
+            for: annotationURL
+        )
+        let annotationBefore = try Data(contentsOf: annotationURL)
+        let provenanceBefore = try Data(contentsOf: provenanceURL)
+        let dirtyMarksBefore =
+            controller.testingManualHaplotypeWorkbookDirtyMarkCount
+        var annotationNotifications = 0
+        var workbookActions: [GenotypeCurrentWorkbookUIRequest.Action] = []
+        controller.onAnnotationSidecarChanged = { _ in
+            annotationNotifications += 1
+        }
+        controller.onCurrentWorkbookSyncRequested = {
+            workbookActions.append($0.action)
+        }
+
+        let error = controller
+            .testingApplyOverridesFromInspectorWithoutPresentingError([
+                .init(slot: .h1, haplotypeName: "M3DP"),
+                .init(slot: .h1, haplotypeName: "M5DP"),
+            ])
+
+        XCTAssertNotNil(error as? CallOverrideMutationError)
+        XCTAssertEqual(try Data(contentsOf: annotationURL), annotationBefore)
+        XCTAssertEqual(try Data(contentsOf: provenanceURL), provenanceBefore)
+        XCTAssertEqual(annotationNotifications, 0)
+        XCTAssertTrue(workbookActions.isEmpty)
+        XCTAssertEqual(
+            controller.testingManualHaplotypeWorkbookDirtyMarkCount,
+            dirtyMarksBefore
+        )
+        let evidence = try XCTUnwrap(
+            controller.callEvidence(sample: "DW472", locus: "MHC-DP")
+        )
+        XCTAssertEqual(evidence.h1Name, "M4DP")
+        XCTAssertEqual(evidence.h2Name, "M7DP")
+    }
+
+    func testSampleDetailSaveAfterAnalysisRevisionUsesActiveBaselineAndIdentity() throws {
+        let fixture = try makeStaleSampleDetailOverrideFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let row = try XCTUnwrap(
+            fixture.controller.testingSampleDetailRows(sample: "DW472")
+                .first { $0.locus == "MHC-DP" && $0.slot == .h1 }
+        )
+        XCTAssertEqual(row.callName, "M4DP")
+        XCTAssertEqual(row.source, .staleOverride)
+
+        let error = fixture.controller
+            .testingSaveSampleDetailOverrideWithoutPresentingSheet(
+                sample: "DW472",
+                row: row,
+                target: "M3DP"
+            )
+
+        XCTAssertNil(error)
+        let sidecar = try GenotypeAnnotationSidecar.decode(Data(
+            contentsOf: fixture.bundleURL.appendingPathComponent(
+                GenotypeAnnotationSidecar.filename
+            )
+        ))
+        let saved = try XCTUnwrap(sidecar.callOverrides.first)
+        XCTAssertEqual(sidecar.callOverrides.count, 1)
+        XCTAssertEqual(saved.originalCall, "M4DP")
+        XCTAssertEqual(saved.overrideCall, "M3DP")
+        XCTAssertEqual(
+            saved.analysisIdentity,
+            .init(
+                assayID: fixture.analysis.assayID,
+                analysisRevisionID: fixture.analysis.analysisRevisionID,
+                definitionSetID: fixture.analysis.definitionSetID
+            )
+        )
+        XCTAssertEqual(sidecar.auditLog.last?.before, "M4DP")
+        XCTAssertEqual(sidecar.auditLog.last?.after, "M3DP")
+    }
+
+    func testSampleDetailClearAfterAnalysisRevisionAuditsActiveBaseline() throws {
+        let fixture = try makeStaleSampleDetailOverrideFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let row = try XCTUnwrap(
+            fixture.controller.testingSampleDetailRows(sample: "DW472")
+                .first { $0.locus == "MHC-DP" && $0.slot == .h1 }
+        )
+
+        let error = fixture.controller
+            .testingClearSampleDetailOverrideWithoutPresentingSheet(
+                sample: "DW472",
+                row: row
+            )
+
+        XCTAssertNil(error)
+        let sidecar = try GenotypeAnnotationSidecar.decode(Data(
+            contentsOf: fixture.bundleURL.appendingPathComponent(
+                GenotypeAnnotationSidecar.filename
+            )
+        ))
+        XCTAssertTrue(sidecar.callOverrides.isEmpty)
+        XCTAssertEqual(sidecar.auditLog.last?.action, "clearOverride")
+        XCTAssertEqual(sidecar.auditLog.last?.before, "M4DP")
+        XCTAssertEqual(sidecar.auditLog.last?.after, "M4DP")
+        XCTAssertEqual(
+            sidecar.auditLog.last?.callOverrideMutation?.analysisIdentity,
+            .init(
+                assayID: fixture.analysis.assayID,
+                analysisRevisionID: fixture.analysis.analysisRevisionID,
+                definitionSetID: fixture.analysis.definitionSetID
+            )
+        )
+    }
+
+    private func makeStaleSampleDetailOverrideFixture() throws -> (
+        root: URL,
+        bundleURL: URL,
+        controller: GenotypeResultViewController,
+        analysis: GenotypeHaplotypeAnalysis
+    ) {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "GenotypeSampleDetailStaleOverride-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let bundleURL = root.appendingPathComponent(
+            "example.lungfishgenotype",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: bundleURL,
+            withIntermediateDirectories: true
+        )
+        try installCallOverrideManifest(in: bundleURL)
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-08-03T00:00:00Z"
+        )
+        sidecar.callOverrides = [
+            .init(
+                sample: "DW472",
+                locus: "MHC-DP",
+                slot: .h1,
+                originalCall: "revision-6-baseline",
+                overrideCall: "revision-6-override",
+                reasonTag: .analystJudgment,
+                rationale: "Belonged to revision 6",
+                author: "Earlier Analyst",
+                timestamp: "2026-08-03T00:30:00Z",
+                analysisIdentity: .init(
+                    assayID: "MHC-exon2-miSeq",
+                    analysisRevisionID: "revision-6",
+                    definitionSetID:
+                        "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"
+                ),
+                operationID: "revision-6-operation"
+            ),
+        ]
+        try ONTGenotypeResultBundleData.writeAnnotationSidecar(
+            sidecar,
+            forBundleAt: bundleURL
+        )
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID:
+                "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            definitionSetName: "Mauritian cynomolgus macaques",
+            speciesName: "Mauritian cynomolgus macaques",
+            samples: [
+                .init(sample: "DW472", calls: [
+                    .init(
+                        locus: "MHC-DP",
+                        sourceLocus: "Mafa-DP",
+                        haplotype1: "M4DP",
+                        haplotype2: "M7DP",
+                        status: .tooManyHaplotypes,
+                        matchedHaplotypes: [],
+                        observedGenotypeCount: 3,
+                        observedGenotypes: [
+                            "15_M3_DPA1_01", "15_M7_DPB1_01",
+                        ]
+                    ),
+                ]),
+            ]
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [],
+            haplotypeAnalysis: analysis
+        ))
+        return (root, bundleURL, controller, analysis)
     }
 
     func testQuestionMarkOverrideRemainsUnresolvedInEvidenceAndOutline() throws {

@@ -232,6 +232,104 @@ final class GenotypeEffectiveHaplotypeProjectionTests: XCTestCase {
         )
     }
 
+    func testAnalysisRevisionThenSaveAndRestoreUsesOnlyActiveIdentity() {
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-08-03T00:00:00Z"
+        )
+        let stale = GenotypeAnnotationSidecar.CallOverride(
+            sample: "Sample-1",
+            locus: "MHC-A",
+            slot: .h1,
+            originalCall: "revision-6-baseline",
+            overrideCall: "revision-6-override",
+            reasonTag: .analystJudgment,
+            rationale: "Belonged to revision 6",
+            author: "Earlier Analyst",
+            timestamp: "2026-08-03T02:00:00Z",
+            analysisIdentity: .init(
+                assayID: "MHC-exon2-miSeq",
+                analysisRevisionID: "revision-6",
+                definitionSetID: "definition-2"
+            ),
+            operationID: "revision-6-operation"
+        )
+        let active = GenotypeAnnotationSidecar.CallOverride(
+            sample: "Sample-1",
+            locus: "MHC-A",
+            slot: .h1,
+            originalCall: "M1A",
+            overrideCall: "revision-7-override",
+            reasonTag: .misCall,
+            rationale: "Saved against revision 7",
+            author: "Analyst",
+            timestamp: "2026-08-03T01:00:00Z",
+            analysisIdentity: .init(
+                assayID: "MHC-exon2-miSeq",
+                analysisRevisionID: "revision-7",
+                definitionSetID: "definition-2"
+            ),
+            operationID: "revision-7-operation"
+        )
+
+        sidecar.callOverrides = [stale]
+        let afterRevision = GenotypeEffectiveHaplotypeProjection(
+            analysis: makeAnalysis(),
+            sidecar: sidecar
+        )
+        XCTAssertEqual(
+            afterRevision.value(
+                sample: "Sample-1",
+                locus: "MHC-A",
+                slot: .h1
+            )?.source,
+            .staleOverride
+        )
+
+        sidecar.callOverrides = [active, stale]
+        let afterSave = GenotypeEffectiveHaplotypeProjection(
+            analysis: makeAnalysis(),
+            sidecar: sidecar
+        )
+        XCTAssertEqual(
+            afterSave.value(
+                sample: "Sample-1",
+                locus: "MHC-A",
+                slot: .h1
+            )?.effective,
+            "revision-7-override"
+        )
+        XCTAssertEqual(
+            afterSave.authoritativeOverride(
+                sample: "Sample-1",
+                locus: "MHC-A",
+                slot: .h1
+            )?.operationID,
+            "revision-7-operation"
+        )
+
+        sidecar.callOverrides = []
+        let afterRestore = GenotypeEffectiveHaplotypeProjection(
+            analysis: makeAnalysis(),
+            sidecar: sidecar
+        )
+        XCTAssertEqual(
+            afterRestore.value(
+                sample: "Sample-1",
+                locus: "MHC-A",
+                slot: .h1
+            )?.effective,
+            "M1A"
+        )
+        XCTAssertEqual(
+            afterRestore.value(
+                sample: "Sample-1",
+                locus: "MHC-A",
+                slot: .h1
+            )?.source,
+            .pipeline
+        )
+    }
+
     func testMalformedTimestampCannotCreateAnEffectiveOverride() {
         var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-08-03T00:00:00Z")
         sidecar.callOverrides = [

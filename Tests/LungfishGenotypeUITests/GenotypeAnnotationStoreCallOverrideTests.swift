@@ -138,6 +138,146 @@ final class GenotypeAnnotationStoreCallOverrideTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: fixture.provenanceURL), provenanceBefore)
     }
 
+    func testSavingAfterAnalysisRevisionReplacesStaleOverrideAgainstActiveBaseline() throws {
+        let fixture = try makeStore(callOverrides: [
+            staleOverride(
+                originalCall: "revision-6-baseline",
+                overrideCall: "revision-6-override"
+            ),
+        ])
+        defer { try? FileManager.default.removeItem(at: fixture.bundleURL) }
+        let auditCountBefore = fixture.store.sidecar.auditLog.count
+
+        let result = try fixture.store.mutateCallOverrides(
+            [
+                .init(
+                    target: .init(
+                        sample: "Animal-1",
+                        locus: "MHC-A",
+                        slot: .h1
+                    ),
+                    baseline: "M1A",
+                    after: "M2A",
+                    reason: .misCall,
+                    rationale: "Saved against revision 7"
+                ),
+            ],
+            author: "Analyst",
+            analysisIdentity: identity()
+        )
+
+        XCTAssertTrue(result.didChange)
+        let replacement = try XCTUnwrap(
+            fixture.store.sidecar.callOverrides.first
+        )
+        XCTAssertEqual(fixture.store.sidecar.callOverrides.count, 1)
+        XCTAssertEqual(replacement.originalCall, "M1A")
+        XCTAssertEqual(replacement.overrideCall, "M2A")
+        XCTAssertEqual(replacement.analysisIdentity, identity().sidecarIdentity)
+        let audit = try XCTUnwrap(
+            fixture.store.sidecar.auditLog.dropFirst(auditCountBefore).first
+        )
+        XCTAssertEqual(audit.before, "M1A")
+        XCTAssertEqual(audit.after, "M2A")
+    }
+
+    func testRestoringAfterAnalysisRevisionRemovesStaleOverrideAndAuditsActiveBaseline() throws {
+        let fixture = try makeStore(callOverrides: [
+            staleOverride(
+                originalCall: "revision-6-baseline",
+                overrideCall: "revision-6-override"
+            ),
+        ])
+        defer { try? FileManager.default.removeItem(at: fixture.bundleURL) }
+        let auditCountBefore = fixture.store.sidecar.auditLog.count
+
+        let result = try fixture.store.mutateCallOverrides(
+            [
+                .init(
+                    target: .init(
+                        sample: "Animal-1",
+                        locus: "MHC-A",
+                        slot: .h1
+                    ),
+                    baseline: "M1A",
+                    after: "M1A",
+                    reason: .analystJudgment,
+                    rationale: "Restore active pipeline call"
+                ),
+            ],
+            author: "Analyst",
+            analysisIdentity: identity()
+        )
+
+        XCTAssertTrue(result.didChange)
+        XCTAssertTrue(fixture.store.sidecar.callOverrides.isEmpty)
+        let audit = try XCTUnwrap(
+            fixture.store.sidecar.auditLog.dropFirst(auditCountBefore).first
+        )
+        XCTAssertEqual(audit.action, "clearOverride")
+        XCTAssertEqual(audit.before, "M1A")
+        XCTAssertEqual(audit.after, "M1A")
+        XCTAssertEqual(
+            audit.callOverrideMutation?.analysisIdentity,
+            identity().sidecarIdentity
+        )
+    }
+
+    func testActiveIdentityFallsBackToLatestValidLegacyOverride() throws {
+        let legacy = GenotypeAnnotationSidecar.CallOverride(
+            sample: "Animal-1",
+            locus: "MHC-A",
+            slot: .h1,
+            originalCall: "M1A",
+            overrideCall: "legacy-override",
+            reasonTag: .analystJudgment,
+            rationale: "Legacy record without identity",
+            author: "Earlier Analyst",
+            timestamp: "2026-08-03T00:20:00Z"
+        )
+        let malformedExact = GenotypeAnnotationSidecar.CallOverride(
+            sample: "Animal-1",
+            locus: "MHC-A",
+            slot: .h1,
+            originalCall: "not-the-active-baseline",
+            overrideCall: "malformed-exact",
+            reasonTag: .analystJudgment,
+            rationale: "Malformed record for active identity",
+            author: "Earlier Analyst",
+            timestamp: "not-a-timestamp",
+            analysisIdentity: identity().sidecarIdentity,
+            operationID: "malformed-active-operation"
+        )
+        let fixture = try makeStore(callOverrides: [
+            legacy, malformedExact,
+        ])
+        defer { try? FileManager.default.removeItem(at: fixture.bundleURL) }
+        let auditCountBefore = fixture.store.sidecar.auditLog.count
+
+        _ = try fixture.store.mutateCallOverrides(
+            [
+                .init(
+                    target: .init(
+                        sample: "Animal-1",
+                        locus: "MHC-A",
+                        slot: .h1
+                    ),
+                    baseline: "M1A",
+                    after: "M2A",
+                    reason: .misCall,
+                    rationale: "Replace valid legacy authority"
+                ),
+            ],
+            author: "Analyst",
+            analysisIdentity: identity()
+        )
+
+        let audit = try XCTUnwrap(
+            fixture.store.sidecar.auditLog.dropFirst(auditCountBefore).first
+        )
+        XCTAssertEqual(audit.before, "legacy-override")
+    }
+
     func testStaleRevisionLeavesMemoryAndDurableBytesUnchanged() throws {
         let fixture = try makeStore()
         defer { try? FileManager.default.removeItem(at: fixture.bundleURL) }
@@ -185,6 +325,31 @@ final class GenotypeAnnotationStoreCallOverrideTests: XCTestCase {
             XCTAssertEqual(try Data(contentsOf: fixture.annotationURL), annotationBefore)
             XCTAssertEqual(try Data(contentsOf: fixture.provenanceURL), provenanceBefore)
         }
+    }
+
+    func testSecondTargetValidationFailurePublishesNeitherTarget() throws {
+        let fixture = try makeStore()
+        defer { try? FileManager.default.removeItem(at: fixture.bundleURL) }
+        let annotationBefore = try Data(contentsOf: fixture.annotationURL)
+        let provenanceBefore = try Data(contentsOf: fixture.provenanceURL)
+        let memoryBefore = fixture.store.sidecar
+        let first = mutations()[0]
+
+        XCTAssertThrowsError(try fixture.store.mutateCallOverrides(
+            [first, first],
+            author: "Analyst",
+            analysisIdentity: identity()
+        )) { error in
+            XCTAssertEqual(
+                error as? CallOverrideMutationError,
+                .duplicateTarget(first.target)
+            )
+        }
+
+        XCTAssertEqual(fixture.store.sidecar, memoryBefore)
+        XCTAssertEqual(fixture.store.callOverrideMutationRevision, 0)
+        XCTAssertEqual(try Data(contentsOf: fixture.annotationURL), annotationBefore)
+        XCTAssertEqual(try Data(contentsOf: fixture.provenanceURL), provenanceBefore)
     }
 
     func testCompatibilityWrappersUseAtomicBatchPath() throws {
@@ -257,7 +422,8 @@ final class GenotypeAnnotationStoreCallOverrideTests: XCTestCase {
     }
 
     private func makeStore(
-        faultPoint: GenotypeAnnotationPublicationFaultPoint? = nil
+        faultPoint: GenotypeAnnotationPublicationFaultPoint? = nil,
+        callOverrides: [GenotypeAnnotationSidecar.CallOverride] = []
     ) throws -> Fixture {
         let bundleURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString + ".lungfishgenotype")
@@ -280,6 +446,13 @@ final class GenotypeAnnotationStoreCallOverrideTests: XCTestCase {
         let provenanceURL = ProvenanceRecorder.fileSidecarURL(
             for: annotationURL
         )
+        if !callOverrides.isEmpty {
+            var seeded = try GenotypeAnnotationSidecar.decode(
+                Data(contentsOf: annotationURL)
+            )
+            seeded.callOverrides = callOverrides
+            try seeded.encoded().write(to: annotationURL)
+        }
         let store = try GenotypeAnnotationStore(
             bundleURL: bundleURL,
             author: "Analyst",
@@ -328,6 +501,29 @@ final class GenotypeAnnotationStoreCallOverrideTests: XCTestCase {
             assayID: "MHC-exon2-miSeq",
             analysisRevisionID: "revision-7",
             definitionSetID: "definition-2"
+        )
+    }
+
+    private func staleOverride(
+        originalCall: String,
+        overrideCall: String
+    ) -> GenotypeAnnotationSidecar.CallOverride {
+        .init(
+            sample: "Animal-1",
+            locus: "MHC-A",
+            slot: .h1,
+            originalCall: originalCall,
+            overrideCall: overrideCall,
+            reasonTag: .analystJudgment,
+            rationale: "Belonged to revision 6",
+            author: "Earlier Analyst",
+            timestamp: "2026-08-03T00:30:00Z",
+            analysisIdentity: .init(
+                assayID: "MHC-exon2-miSeq",
+                analysisRevisionID: "revision-6",
+                definitionSetID: "definition-2"
+            ),
+            operationID: "revision-6-operation"
         )
     }
 }
