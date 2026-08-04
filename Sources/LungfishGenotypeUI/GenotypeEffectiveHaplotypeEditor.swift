@@ -229,157 +229,74 @@ struct GenotypeEffectiveHaplotypeEditor: View {
     @ObservedObject var model: GenotypeEffectiveHaplotypeEditorModel
     var typographyModel: ContentTypographyModel = .shared
 
-    private var headingFont: Font {
-        typographyModel.font(for: .emphasizedBody)
-    }
-    private var captionFont: Font { typographyModel.font(for: .caption) }
-    private var comboFieldFont: NSFont {
-        typographyModel.resolvedNSFont(for: .body)
-    }
-    private var typographyScale: CGFloat {
-        typographyModel.scaledPointSize(fromCanonicalPointSize: 100) / 100
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Haplotype Assignments").font(headingFont)
-                    Text(model.completenessSummary)
-                        .font(captionFont)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                if model.isDirty {
-                    Text("Unsaved")
-                        .font(captionFont)
-                        .foregroundStyle(.secondary)
-                }
-                Button("Save Assignments") { model.save() }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(!model.canSave)
-                    .accessibilityIdentifier("effective-haplotype-save")
-            }
-            Text("Edit the two haplotype calls for each included locus.")
-                .font(captionFont)
-                .foregroundStyle(.secondary)
-            if let message = model.readOnlyMessage {
-                Label(message, systemImage: "lock.fill")
-                    .font(captionFont)
-                    .foregroundStyle(.secondary)
-            }
-            ForEach(model.rows) { row in
-                ManualHaplotypeLocusLayout(
-                    typographyScale: typographyScale
-                ) {
-                    Text(row.locus).font(headingFont)
-                    slotEditor(row.h1)
-                    slotEditor(row.h2)
-                }
-                .accessibilityElement(children: .contain)
-                .accessibilityLabel("\(row.locus) haplotype assignments")
-                if row.id != model.rows.last?.id { Divider() }
-            }
-            if let error = model.persistenceErrorMessage {
-                VStack(alignment: .leading, spacing: 6) {
-                    Label(error, systemImage: "exclamationmark.triangle.fill")
-                        .font(captionFont)
-                        .foregroundStyle(.secondary)
-                    HStack {
-                        Button("Retry") { model.retry() }
-                        Button("Reload") { model.reload() }
-                    }
-                }
-            }
-        }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(nsColor: .controlBackgroundColor))
+        GenotypeHaplotypeAssignmentEditorCard(
+            sample: model.sample,
+            completenessSummary: model.completenessSummary,
+            instruction:
+                "Edit the two haplotype calls for each included locus.",
+            rows: sharedRows,
+            isDirty: model.isDirty,
+            canSave: model.canSave,
+            isReadOnly: model.isReadOnly,
+            readOnlyMessage: model.readOnlyMessage,
+            emptyStateMessage: nil,
+            warning: nil,
+            persistenceErrorMessage: model.persistenceErrorMessage,
+            accessibilityPrefix: "effective-haplotype",
+            typographyModel: typographyModel,
+            compareAndCopyIsEnabled: nil,
+            onSave: model.save,
+            onRetry: model.retry,
+            onReload: model.reload,
+            onChange: { address, label in
+                model.updateLabel(
+                    label,
+                    locus: address.locus,
+                    slot: address.slot
+                )
+            },
+            onClear: { address in
+                model.clear(
+                    locus: address.locus,
+                    slot: address.slot
+                )
+            },
+            onCompareAndCopy: nil
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
-        )
-        .padding(.vertical, 4)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .fixedSize(horizontal: false, vertical: true)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Haplotype assignments for \(model.sample)")
     }
 
-    private func slotEditor(
+    var testingSharedAssignmentCardIdentifier: String {
+        GenotypeHaplotypeAssignmentEditorCard.accessibilityIdentifier
+    }
+
+    private var sharedRows: [GenotypeHaplotypeAssignmentEditorRow] {
+        model.rows.map { row in
+            .init(
+                locusLabel: row.locus,
+                h1: sharedSlot(row.h1),
+                h2: sharedSlot(row.h2)
+            )
+        }
+    }
+
+    private func sharedSlot(
         _ slot: GenotypeEffectiveHaplotypeEditorModel.SlotPresentation
-    ) -> some View {
-        HStack(alignment: .center, spacing: 6) {
-            Text(slot.slot.displayName)
-                .font(captionFont)
-                .fixedSize(horizontal: true, vertical: false)
-                .accessibilityAddTraits(.isHeader)
-            Group {
-                if let index = slot.colorTokenIndex {
-                    Circle().fill(color(forTokenIndex: index))
-                } else {
-                    Color.clear
-                }
-            }
-            .frame(width: 9, height: 9)
-            .accessibilityHidden(true)
-            ManualHaplotypeComboBox(
-                text: slot.label,
-                suggestions: model.autocompleteSuggestions(
-                    matching: slot.label
-                ),
-                accessibilityLabel:
-                    "\(slot.locus) \(slot.slot.displayName) haplotype label",
-                accessibilityIdentifier: slot.accessibilityIdentifier,
-                accessibilityHelp: slot.validationDescription,
-                isEnabled: !model.isReadOnly,
-                font: comboFieldFont,
-                onChange: {
-                    model.updateLabel(
-                        $0,
-                        locus: slot.locus,
-                        slot: slot.slot
-                    )
-                }
-            )
-            .frame(
-                minWidth: 120,
-                idealWidth: 180,
-                maxWidth: .infinity,
-                minHeight: ceil(comboFieldFont.pointSize + 10)
-            )
-            if let validation = slot.validationDescription {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
-                    .help(validation)
-                    .accessibilityLabel(validation)
-            }
-            Button {
-                model.clear(locus: slot.locus, slot: slot.slot)
-            } label: {
-                Image(systemName: "xmark.circle")
-            }
-            .buttonStyle(.borderless)
-            .disabled(model.isReadOnly || slot.label.isEmpty)
-            .accessibilityLabel(
-                "Clear \(slot.locus) \(slot.slot.displayName) haplotype"
-            )
-        }
-        .help(
-            slot.validationDescription
-                ?? "\(slot.locus) \(slot.slot.displayName) haplotype label"
-        )
-    }
-
-    private func color(forTokenIndex index: Int) -> Color {
-        let palette = HaplotypeColorToken.canonicalPalette
-        let token = palette[max(0, min(palette.count - 1, index))]
-        return Color(
-            red: token.fillColor.red,
-            green: token.fillColor.green,
-            blue: token.fillColor.blue
+    ) -> GenotypeHaplotypeAssignmentEditorSlot {
+        let accessibilityLabel =
+            "\(slot.locus) \(slot.slot.displayName) haplotype label"
+        return .init(
+            address: .init(locus: slot.locus, slot: slot.slot),
+            label: slot.label,
+            suggestions: model.autocompleteSuggestions(
+                matching: slot.label
+            ),
+            colorTokenIndex: slot.colorTokenIndex,
+            validationDescription: slot.validationDescription,
+            accessibilityLabel: accessibilityLabel,
+            clearAccessibilityLabel:
+                "Clear \(slot.locus) \(slot.slot.displayName) haplotype",
+            accessibilityIdentifier: slot.accessibilityIdentifier
         )
     }
 }

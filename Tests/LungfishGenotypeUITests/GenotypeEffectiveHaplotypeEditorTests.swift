@@ -74,6 +74,15 @@ final class GenotypeEffectiveHaplotypeEditorTests: XCTestCase {
         XCTAssertFalse(model.canSave)
     }
 
+    func testEffectiveEditorUsesSharedAssignmentCard() {
+        let view = GenotypeEffectiveHaplotypeEditor(model: makeModel())
+
+        XCTAssertEqual(
+            view.testingSharedAssignmentCardIdentifier,
+            "shared-haplotype-assignment-card"
+        )
+    }
+
     private func makeModel(
         isReadOnly: Bool = false,
         onSave: (([GenotypeEffectiveHaplotypeEditorModel.Address: String]) throws
