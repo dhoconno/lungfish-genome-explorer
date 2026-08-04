@@ -191,6 +191,11 @@ public final class GenotypeResultViewController: NSViewController {
         let sample: String
     }
 
+    private struct EffectiveHaplotypeProjectionInput: Equatable {
+        let analysis: GenotypeHaplotypeAnalysis
+        let overrides: [GenotypeAnnotationSidecar.CallOverride]
+    }
+
     public var onSelectionStateChanged: ((GenotypeResultSelectionState?) -> Void)?
     public var onDisplaySummaryChanged: ((Int, Int, Int) -> Void)?
     public var onDisplayStateChanged: ((GenotypeResultDisplayState) -> Void)?
@@ -437,6 +442,12 @@ public final class GenotypeResultViewController: NSViewController {
     /// available or when the active project definition changes. `nil` falls
     /// back to the bundle's persisted analysis.
     private var liveHaplotypeAnalysis: GenotypeHaplotypeAnalysis?
+    /// One immutable effective-call read model for applicable haplotyped miSeq
+    /// results. Legacy and genotype-only workflows intentionally leave this
+    /// nil so their established manual-assignment behavior remains unchanged.
+    private var effectiveHaplotypeProjection: GenotypeEffectiveHaplotypeProjection?
+    private var effectiveHaplotypeProjectionInput: EffectiveHaplotypeProjectionInput?
+    private var effectiveHaplotypeProjectionGeneration: UInt64 = 0
     /// Per-project haplotype-definition store. Reads from / writes to
     /// `<projectRoot>/Haplotype Definitions/`. Populated from the bundle's
     /// surrounding project root in `configure(result:)`.
@@ -1218,6 +1229,7 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func rebuildActiveHaplotypeAnalysisIndexes() {
         invalidateGenotypeSearchIndex()
+        rebuildEffectiveHaplotypeProjectionIfNeeded()
         activeHaplotypeSamplesByName.removeAll()
         activeHaplotypeSampleNames.removeAll()
         diagnosticIdentifierSetsBySample.removeAll()
@@ -1240,6 +1252,7 @@ public final class GenotypeResultViewController: NSViewController {
 
     private func clearUnsupportedHaplotypePresentation() {
         liveHaplotypeAnalysis = nil
+        rebuildEffectiveHaplotypeProjectionIfNeeded()
         activeHaplotypeSamplesByName.removeAll()
         activeHaplotypeSampleNames.removeAll()
         diagnosticIdentifierSetsBySample.removeAll()
@@ -3459,6 +3472,13 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func displayedCallName(sample: String, locus: String, slot: HaplotypeSlot, fallback: String) -> String {
+        if let effectiveHaplotypeProjection {
+            return effectiveHaplotypeProjection.value(
+                sample: sample,
+                locus: locus,
+                slot: slot
+            )?.effective ?? fallback
+        }
         if let override = annotationStore?.sidecar.callOverrides.first(where: {
             $0.sample == sample && $0.locus == locus && $0.slot == slot
         }) {
@@ -3471,6 +3491,13 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func hasCallOverride(sample: String, locus: String, slot: HaplotypeSlot) -> Bool {
+        if let effectiveHaplotypeProjection {
+            return effectiveHaplotypeProjection.hasOverride(
+                sample: sample,
+                locus: locus,
+                slot: slot
+            )
+        }
         guard let overrides = annotationStore?.sidecar.callOverrides else { return false }
         return overrides.contains {
             $0.sample == sample && $0.locus == locus && $0.slot == slot
@@ -3482,7 +3509,8 @@ public final class GenotypeResultViewController: NSViewController {
         locus: String,
         slot: HaplotypeSlot
     ) -> ManualHaplotypeAssignment? {
-        annotationStore?.sidecar.manualHaplotypeAssignments.reversed().first {
+        guard effectiveHaplotypeProjection == nil else { return nil }
+        return annotationStore?.sidecar.manualHaplotypeAssignments.reversed().first {
             $0.sample == sample && $0.locus == locus && $0.slot == slot
         }
     }
@@ -5922,6 +5950,48 @@ public final class GenotypeResultViewController: NSViewController {
         return result?.haplotypeAnalysis
     }
 
+    private func rebuildEffectiveHaplotypeProjectionIfNeeded() {
+        guard let result,
+              let analysis = activeHaplotypeAnalysis(),
+              let sidecar = annotationStore?.sidecar else {
+            clearEffectiveHaplotypeProjectionIfNeeded()
+            return
+        }
+        let policy = GenotypeResultPresentationPolicy(
+            workflowKind: result.manifest.workflowKind,
+            workflowMode: result.manifest.workflowMode,
+            manualHaplotypeEligibility: manualHaplotypeEligibility,
+            haplotypeAnalysis: analysis,
+            hasNativeGenotypeMatrixContent: result.hasNativeGenotypeMatrixContent,
+            isReadOnly: annotationStore?.isReadOnly ?? true
+        )
+        guard policy.appliesToHaplotypedMiSeq else {
+            clearEffectiveHaplotypeProjectionIfNeeded()
+            return
+        }
+        let input = EffectiveHaplotypeProjectionInput(
+            analysis: analysis,
+            overrides: sidecar.callOverrides
+        )
+        guard input != effectiveHaplotypeProjectionInput else { return }
+        effectiveHaplotypeProjection = GenotypeEffectiveHaplotypeProjection(
+            analysis: analysis,
+            sidecar: sidecar
+        )
+        effectiveHaplotypeProjectionInput = input
+        effectiveHaplotypeProjectionGeneration &+= 1
+    }
+
+    private func clearEffectiveHaplotypeProjectionIfNeeded() {
+        guard effectiveHaplotypeProjection != nil
+            || effectiveHaplotypeProjectionInput != nil else {
+            return
+        }
+        effectiveHaplotypeProjection = nil
+        effectiveHaplotypeProjectionInput = nil
+        effectiveHaplotypeProjectionGeneration &+= 1
+    }
+
     private func resultWithActiveHaplotypeAnalysis(_ result: ONTGenotypeResultBundleData) -> ONTGenotypeResultBundleData {
         guard let active = activeHaplotypeAnalysis(),
               active != result.haplotypeAnalysis else {
@@ -7366,6 +7436,16 @@ public final class GenotypeResultViewController: NSViewController {
         sample sampleId: String,
         call: GenotypeHaplotypeLocusCall
     ) -> (h1: String, h2: String, status: GenotypeHaplotypeCallStatus) {
+        if let snapshot = effectiveHaplotypeProjection?.snapshot(
+            sample: sampleId,
+            locus: call.locus
+        ) {
+            return (
+                snapshot.h1.effective,
+                snapshot.h2.effective,
+                snapshot.status
+            )
+        }
         let h1 = displayedCallName(sample: sampleId, locus: call.locus, slot: .h1, fallback: call.haplotype1)
         let h2 = displayedCallName(sample: sampleId, locus: call.locus, slot: .h2, fallback: call.haplotype2)
         let hasOverride = hasCallOverride(sample: sampleId, locus: call.locus, slot: .h1)
@@ -7869,6 +7949,7 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func refreshAfterHaplotypeOverride() {
+        rebuildEffectiveHaplotypeProjectionIfNeeded()
         invalidateGenotypeSearchIndex()
         rebuildHaplotypeLens()
         rebuildOutline()
