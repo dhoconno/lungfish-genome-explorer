@@ -915,8 +915,9 @@ public final class GenotypeResultViewController: NSViewController {
     private func comparisonMatrixPresentationResult(
         from result: ONTGenotypeResultBundleData
     ) -> ONTGenotypeResultBundleData {
-        guard presentationPolicy?.appliesToHaplotypedMiSeq == true,
-              result.mhcCandidates != nil else {
+        guard result.manifest.kind
+                != GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
+              validatedMHCCandidateDocument(from: result) != nil else {
             return result
         }
         let source = result.manifest
@@ -1310,9 +1311,7 @@ public final class GenotypeResultViewController: NSViewController {
         displayState = normalizedDisplayState(displayState)
         configureAvailableLensSegments()
         applyViewportHeaderVisibility()
-        if isGenotypeOnlyResult || isFullLengthMHCGenotypeViewport {
-            showEmptySelection()
-        }
+        showEmptySelection()
         showLens(.summary)
     }
 
@@ -1375,7 +1374,11 @@ public final class GenotypeResultViewController: NSViewController {
     private func validatedMHCCandidateDocument(
         from result: ONTGenotypeResultBundleData
     ) -> ONTMHCCandidateAllelesDocument? {
-        guard result.manifest.kind == "full-length-ont-mhc-genotype",
+        let supportsCandidatePresentation =
+            result.manifest.kind
+                == GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue
+            || presentationPolicy?.appliesToHaplotypedMiSeq == true
+        guard supportsCandidatePresentation,
               let artifacts = result.manifest.mhcCandidateArtifacts,
               (1 ... 2).contains(artifacts.schemaVersion),
               artifacts.candidateJSON != nil,
@@ -4203,6 +4206,7 @@ public final class GenotypeResultViewController: NSViewController {
         currentSharedCall = nil
         currentCandidateRow = nil
         currentSelectedSample = nil
+        currentSelectedLocus = nil
         manualHaplotypeEditorModel = nil
         sampleComparisonModel = nil
         manualHaplotypeDraftRevisionCancellable = nil
@@ -7003,6 +7007,9 @@ public final class GenotypeResultViewController: NSViewController {
     }
 
     private func rebuildHaplotypeMatrix() {
+        guard presentationPolicy?.appliesToHaplotypedMiSeq != true else {
+            return
+        }
         guard hasHaplotypingResult else {
             haplotypeMatrixView.configure(rows: [], definitionName: nil)
             return
