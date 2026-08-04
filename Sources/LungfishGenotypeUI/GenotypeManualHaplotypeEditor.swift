@@ -1182,7 +1182,7 @@ func makeGenotypeManualHaplotypeEditorHostingView(
 }
 
 @MainActor
-private struct ManualHaplotypeComboBox: NSViewRepresentable {
+struct ManualHaplotypeComboBox: NSViewRepresentable {
     let text: String
     let suggestions: [String]
     let accessibilityLabel: String
