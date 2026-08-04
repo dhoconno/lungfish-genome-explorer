@@ -22,6 +22,13 @@ Inspector. Audit records and scientific provenance remain durable and
 inspectable through the bundle and Inspector; only the redundant viewport tab
 is removed.
 
+Removing those viewport destinations must not remove their useful commands or
+information. Call evidence, override editing, Confirm, Needs Review, Skip/Next,
+and status actions move into the Haplotype Calls selection detail and Inspector.
+Audit Timeline, current-workbook status/actions, artifacts, provenance, AI
+haplotyping, and export actions remain in their existing Inspector or toolbar
+locations. They are not duplicated as primary viewport presentations.
+
 ## Current State
 
 Haplotyped miSeq bundles currently have two different matrix concepts:
@@ -84,8 +91,15 @@ automated calls or overrides into the genotype-only manual-assignment format.
 The two-view presentation applies when all of the following are true:
 
 - the result workflow kind is `miSeqAmpliconMHCGenotype`;
-- the completed bundle contains a `GenotypeHaplotypeAnalysis`;
+- the workflow mode is haplotyped;
+- the completed bundle contains a usable `GenotypeHaplotypeAnalysis`; and
 - the result is not being treated as genotype-only.
+
+A usable analysis contains at least one uniquely keyed sample/locus call whose
+two slots can be resolved into the effective projection. Empty or structurally
+malformed analyses are not usable. Legacy bundles without the typed workflow
+kind or haplotyped mode do not opt into the new policy merely because an assay
+name resembles miSeq.
 
 Genotype-only miSeq results continue to open directly in the genotype matrix.
 Other workflow kinds retain their existing view rules.
@@ -106,6 +120,16 @@ If no saved preference exists, **Haplotype Calls** is selected. An explicit
 choice is saved in `GenotypeAnnotationSidecar.Settings` and restored when the
 same bundle is reopened. Existing `outline` preferences map to Haplotype Calls;
 existing `matrix` preferences map to the new full-length-style Genotype Matrix.
+For a read-only bundle, switching is session-only and does not present a save
+error. Stale Review/Audit/unknown state normalizes to Haplotype Calls. If the
+analysis is unusable, the controller selects Genotype Matrix without overwriting
+the saved preference, disables Haplotype Calls with accessible explanatory help,
+and shows a persistent explanation rather than an empty view.
+
+One result-scoped `GenotypeResultPresentationPolicy` supplies applicability,
+available choices, labels, default/fallback, normalization, and Inspector state.
+The viewport and Inspector must consume this one policy and one
+`summaryViewMode` value; they must not maintain independent selection state.
 
 ### Haplotype Calls
 
@@ -114,6 +138,13 @@ sorting, cohort filtering, selection, effective call status, and detail
 presentation. It no longer routes analysts through a separate Review lens.
 Selecting a sample or locus exposes the existing call evidence and override
 controls in the detail pane and Inspector.
+
+No selection shows Cohort Summary. A sample selection shows the sample summary
+and all effective calls. A locus/slot selection shows call evidence and the
+override editor. Needs Review remains an explicit Smart Cohort rather than
+being activated merely by entering this presentation. Confirm, flag,
+Skip/Next, and Edit Calls remain available for the appropriate selection and
+retain their keyboard commands outside text editing.
 
 ### Genotype Matrix
 
@@ -130,45 +161,85 @@ matrix capabilities as full-length MHC genotyping, including:
 - accessible text sizing and matrix keyboard/context-menu behavior;
 - the disclosable haplotype band aligned to sample columns.
 
+In this mode the band is titled **Haplotype Calls (N loci)**. Its ordered loci
+come from the same included-locus projection as Haplotype Calls. It uses a
+neutral presentation model containing sample, locus, H1/H2 value, per-slot
+status, source (pipeline or analyst override), editability, tooltip, and
+accessibility text. It never displays “Manual haplotypes” and never reads or
+writes `ManualHaplotypeAssignment`. Genotype-only results retain their existing
+manual-assignment band unchanged.
+
+A haplotype-band cell is a distinct target identified by sample, locus, and
+slot. Activating it opens the same call evidence and override editor as
+Haplotype Calls. A sample-column header retains existing matrix column
+selection semantics; it does not silently choose a locus or slot. Row,
+genotype-cell, and multi-target selections retain existing annotation and
+review behavior.
+
 The diagnostic-definition matrix is no longer a viewport destination. Its
 underlying definition data remains available to the haplotype evaluator and
 call evidence UI.
 
 ## Shared Effective Haplotype Projection
 
-Both views consume one controller-owned effective haplotype projection. For
+Both views consume one controller-owned, immutable effective haplotype
+projection. It is built in O(calls + overrides), indexed by sample/locus/slot,
+and carries the active analysis/revision/definition identity. For
 each sample, locus, and H1/H2 slot, the projection resolves:
 
 1. the pipeline-produced call from the active `GenotypeHaplotypeAnalysis`;
-2. the latest valid analyst override from `GenotypeAnnotationSidecar`;
-3. the resulting display status, including unresolved/error states;
+2. the latest structurally valid analyst override from
+   `GenotypeAnnotationSidecar` (latest parseable timestamp, with stable sidecar
+   order as the timestamp tie-breaker);
+3. the per-slot and reduced locus display status, including unresolved/error
+   states;
 4. whether the displayed value is automated or overridden.
 
 The projection is the only source used to build both the haplotype outline and
 the genotype matrix haplotype band. It is derived data and is not written as a
 second scientific artifact.
 
-`ManualHaplotypeAssignment` remains authoritative only for eligible
-genotype-only analyses. Haplotyped miSeq calls and corrections continue to use
-the established override records. This prevents two independently editable
-representations of the same call.
+For applicable haplotyped miSeq results, any legacy
+`ManualHaplotypeAssignment` records are ignored for effective display/editing
+but preserved byte-for-byte. Non-miSeq legacy behavior remains unchanged.
+Haplotyped miSeq calls and corrections use only call-override records. This
+prevents two independently editable representations of the same call.
+
+An override whose recorded base analysis identity differs from the active
+analysis is shown as stale and does not silently replace a new pipeline value.
+The locus status reducer must not turn the whole locus into `called` because
+only one ambiguous/error slot was overridden: each slot keeps its own status,
+and the locus remains unresolved while either required slot remains unresolved.
 
 ## Editing and Synchronization
 
 ### From Haplotype Calls
 
-Existing sample/locus override controls continue to call
-`GenotypeAnnotationStore.applyOverride` and `clearOverride`. After a successful
-mutation, the controller rebuilds the effective projection and refreshes both
-the visible Haplotype Calls presentation and the matrix haplotype band.
+Existing sample/locus override controls route through one controller method,
+`commitEffectiveHaplotypeMutation`, backed by one store-level atomic batch
+mutation. After a successful mutation, the controller rebuilds the effective
+projection and refreshes both the visible Haplotype Calls presentation and the
+matrix haplotype band.
 
 ### From Genotype Matrix
 
-Selecting a sample column or a haplotype-band value exposes the same effective
-haplotype editor in the detail pane. Saving or clearing from this presentation
-uses the same override store methods, author identity, reason/rationale
+Activating a haplotype-band value exposes the same effective haplotype editor
+in the detail pane. A single selected sample column may expose a Haplotype Calls
+section that requires an explicit locus and slot choice. Saving or clearing
+from this presentation
+uses the same controller/store transaction, author identity, reason/rationale
 requirements, and validation as Haplotype Calls. It does not call the
-genotype-only manual-assignment APIs.
+genotype-only manual-assignment APIs. The destructive action is labeled
+**Restore Pipeline Call** and identifies the value that will return.
+
+The transaction boundary is one user Save action. If one Save changes both H1
+and H2, the store validates all targets before writing, publishes the sidecar
+and provenance once, and writes one audit entry per changed slot under one
+operation ID and timestamp. Either every changed slot commits or none does.
+Clearing an absent override returns `didChange == false` and creates no audit,
+provenance, workbook, or Inspector notification. A clear records the active
+pipeline value being restored and a deterministic “Restore pipeline call”
+rationale so audit and display cannot disagree after a newer analysis.
 
 ### Mutation result
 
@@ -183,7 +254,17 @@ A successful edit must:
 - notify the Inspector of the new annotation state.
 
 A failed edit must leave both views on their prior shared projection and show a
-plain-language error. Read-only bundles display calls but disable mutation.
+plain-language error. It preserves the draft, selection, and focus. Read-only
+bundles display calls but disable mutation, and the store rejects direct or
+programmatic mutation with a typed read-only error before changing memory.
+Publication or stale-revision failure rolls the in-memory sidecar, audit,
+projection, workbook state, and durable bytes back to their exact prior state.
+
+Every call target in both presentations is reachable with Full Keyboard Access
+and VoiceOver. Space/Return and AXPress perform the same selection as a pointer
+click. Accessible names include sample, locus, haplotype 1/2, effective value,
+status, and pipeline/override source; color is never the only signal. Successful
+edits preserve focus and announce “Override saved” or “Pipeline call restored.”
 
 ## State and Compatibility
 
@@ -197,6 +278,12 @@ Existing override and audit schemas remain authoritative. The implementation
 may add neutral presentation models for the shared haplotype band, but it must
 not rewrite prior annotations merely because a bundle is opened.
 
+Quick sample search and Smart Cohort filtering are shared between
+presentations. Matrix allele/read/visibility filters and matrix scroll state are
+matrix-local and retained while away. Haplotype Calls sorting and scroll state
+are local to that presentation. Switching preserves the selected sample and
+locus when representable and never changes a call or review status.
+
 The implementation must preserve behavior for:
 
 - miSeq genotype-only analyses;
@@ -208,9 +295,18 @@ The implementation must preserve behavior for:
 
 Removing viewport tabs does not remove traceability. Every scientific workflow
 continues to write its existing provenance. Every analyst haplotype mutation
-continues to write annotation audit records and marks the workbook projection
-stale. The selector itself is a view preference and is not a scientific call
-mutation.
+writes annotation audit records and an override-specific reproducibility
+envelope, then marks the workbook projection stale. The selector itself is a
+view preference and is not a scientific call mutation.
+
+The atomic override transaction must record the app/workflow name and version,
+an exact durable replay command or equivalent replay payload, sample/locus/slot
+targets, baseline/before/after values, reason and rationale, author, active
+analysis/definition identity, resolved defaults, final input/output paths,
+prior and output checksums and sizes, runtime identity, exit status, wall time,
+and useful error detail. It must never identify a temporary staging path as the
+final scientific output. The call-override replay operation must be verifiable
+in tests in the same manner as matrix and manual-haplotype annotation replay.
 
 No new scientific-data creation or transformation is introduced by switching
 views. If implementation changes any export or workbook projection, its output
@@ -225,14 +321,21 @@ as required by Lungfish provenance policy.
 - The genotype matrix is configured lazily on first selection and then reused.
 - Switching views must not rerun haplotype analysis or reload the workbook.
 - Override refreshes update the shared projection and affected sample band
-  content without rebuilding unrelated genotype rows.
+  content without rebuilding unrelated genotype rows. If the matrix has not
+  yet been configured, the mutation does not configure it; first selection
+  receives the newest projection.
 - Matrix virtualization, column sizing, text-size preferences, and scroll
   position preservation remain active.
 - The selector uses plain labels and exposes an accessibility role, value, and
   help text describing the two presentations.
 - Empty or malformed haplotype analyses fall back safely to the genotype matrix
-  while retaining an explanatory detail message; they do not expose blank
-  Review or Audit tabs.
+  with a persistent accessible explanation; they do not expose blank Review or
+  Audit tabs or overwrite the saved preference.
+- On a retained-demultiplexing-size fixture, default Haplotype Calls opening
+  performs zero matrix configurations. Warm presentation switches must meet
+  p95 <= 16.7 ms and p99 <= 33.4 ms. One override may invalidate one sample's
+  band content but performs zero genotype base rebuilds, column rebuilds,
+  haplotype reruns, workbook reloads, or unrelated-row reloads.
 
 ## Verification Requirements
 
@@ -246,17 +349,39 @@ Automated tests must prove:
    `GenotypeHaplotypeDefinitionMatrixView`;
 5. raw genotype and candidate rows appear with expected read support;
 6. the matrix haplotype band contains automated effective calls;
-7. an override initiated from Haplotype Calls updates the matrix band;
-8. an override initiated from Genotype Matrix updates Haplotype Calls;
-9. clearing either override restores the pipeline call in both views;
-10. edits write one audited override path, mark the workbook stale, and do not
-    create manual-assignment duplicates;
+7. an override initiated from Haplotype Calls before lazy matrix construction
+   appears when the matrix first opens;
+8. an override initiated from Genotype Matrix while Haplotype Calls is hidden
+   updates Haplotype Calls, survives controller recreation, and leaves unrelated
+   samples/loci unchanged;
+9. clearing from either surface restores the active pipeline call in both views;
+10. a two-slot Save is atomic, creates one operation with one audit entry per
+    changed slot, one provenance publication, one workbook-dirty event, and one
+    Inspector notification, with no manual-assignment records;
 11. saved view preference restores for the same bundle;
-12. read-only bundles show synchronized values with disabled editing;
+12. read-only bundles show synchronized values with disabled editing and the
+    store rejects mutation without changing memory, sidecar bytes, provenance,
+    audit, workbook state, or notifications;
 13. genotype-only and non-miSeq viewport behavior remains unchanged;
-14. view switching and targeted override refresh meet existing matrix
-    performance budgets;
-15. the debug and release app bundles build and pass signature validation.
+14. duplicate/malformed/stale overrides resolve deterministically; legacy
+    manual assignments are ignored-but-preserved for applicable miSeq and keep
+    their existing behavior elsewhere;
+15. stale-revision, annotation-publication, and provenance-publication failures
+    leave both projections and every durable byte/count unchanged;
+16. successful save/restore marks current.xlsx stale once and the next workbook
+    publication agrees with both views; switching, preference persistence,
+    failure, read-only attempts, and no-op restore do not mark it stale;
+17. viewport and Inspector control one state without feedback loops across
+    same-bundle restore, different-bundle isolation, stale Review/Audit ingress,
+    legacy preferences, unusable analysis fallback, and read-only sessions;
+18. Haplotype Calls and band targets pass keyboard/AXPress, focus-retention,
+    text-size, high-contrast, and non-color status verification;
+19. view switching and targeted override refresh meet the numeric and counter
+    performance budgets above with the release performance gate enabled; and
+20. Debug and Release products build, the shipped Release app/DMG pass signing,
+    notarization, stapling, mounting, and launch checks, and the published
+    Sparkle entry's version/build/URL/length/EdDSA signature/notes match the
+    released bytes and clean-main commit.
 
 ## Release Requirements
 
