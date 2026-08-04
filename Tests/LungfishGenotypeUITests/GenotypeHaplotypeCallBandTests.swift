@@ -233,6 +233,9 @@ final class GenotypeHaplotypeCallBandTests: XCTestCase {
         XCTAssertEqual(selections, [selectedTarget])
 
         matrix.testingResetManualHaplotypeBandInvalidations()
+        matrix.testingResetProjectionPerformanceCounters()
+        let performanceBeforeValueUpdate =
+            matrix.testingProjectionPerformanceSnapshot
         let after = makeSnapshot(
             sampleOneH1: "A-override",
             sampleOneH1Source: .analystOverride
@@ -254,6 +257,65 @@ final class GenotypeHaplotypeCallBandTests: XCTestCase {
             )?.source,
             .analystOverride
         )
+        let performanceAfterValueUpdate =
+            matrix.testingProjectionPerformanceSnapshot
+        XCTAssertEqual(
+            performanceAfterValueUpdate.baseProjectionBuildCount,
+            performanceBeforeValueUpdate.baseProjectionBuildCount
+        )
+        XCTAssertEqual(
+            performanceAfterValueUpdate.derivedProjectionPassCount,
+            performanceBeforeValueUpdate.derivedProjectionPassCount
+        )
+        XCTAssertEqual(performanceAfterValueUpdate.columnRebuildCount, 0)
+        XCTAssertEqual(performanceAfterValueUpdate.pinnedFullReloadCount, 0)
+        XCTAssertEqual(performanceAfterValueUpdate.sampleFullReloadCount, 0)
+        XCTAssertEqual(matrix.testingPartialReloadCount, 0)
+    }
+
+    func testEffectiveLocusReorderRefreshesEveryHeaderAccessibilitySummary() throws {
+        let fixture = GenotypeManualHaplotypeTask10Fixture(sampleCount: 2)
+        let matrix = GenotypeComparisonMatrixView(
+            frame: NSRect(x: 0, y: 0, width: 760, height: 520)
+        )
+        matrix.configure(result: fixture.result(workflowMode: .haplotyped))
+        matrix.setHaplotypeBand(
+            mode: .effectiveMiSeqCalls,
+            snapshot: makeSnapshot()
+        )
+        matrix.testingSetManualHaplotypeBandDisclosureExpanded(true)
+        matrix.layoutSubtreeIfNeeded()
+
+        for sample in ["SAMPLE_000", "SAMPLE_001"] {
+            let before = matrix.testingColumnAccessibilityLabel(
+                sample: sample
+            ) ?? ""
+            XCTAssertLessThan(
+                try XCTUnwrap(before.range(of: "MHC-B H1")).lowerBound,
+                try XCTUnwrap(
+                    before.range(of: "Very-Long-MHC-A-Locus H1")
+                ).lowerBound
+            )
+        }
+
+        matrix.setHaplotypeBand(
+            mode: .effectiveMiSeqCalls,
+            snapshot: makeSnapshot(
+                orderedLoci: ["Very-Long-MHC-A-Locus", "MHC-B"]
+            )
+        )
+
+        for sample in ["SAMPLE_000", "SAMPLE_001"] {
+            let after = matrix.testingColumnAccessibilityLabel(
+                sample: sample
+            ) ?? ""
+            XCTAssertLessThan(
+                try XCTUnwrap(
+                    after.range(of: "Very-Long-MHC-A-Locus H1")
+                ).lowerBound,
+                try XCTUnwrap(after.range(of: "MHC-B H1")).lowerBound
+            )
+        }
     }
 
     func testEffectiveBandTypographyScalesWithoutChangingDynamicRowCount() {
@@ -280,10 +342,11 @@ final class GenotypeHaplotypeCallBandTests: XCTestCase {
 
     private func makeSnapshot(
         sampleOneH1: String = "A-pipeline",
-        sampleOneH1Source: GenotypeEffectiveHaplotypeValue.Source = .pipeline
+        sampleOneH1Source: GenotypeEffectiveHaplotypeValue.Source = .pipeline,
+        orderedLoci: [String] = ["MHC-B", "Very-Long-MHC-A-Locus"]
     ) -> GenotypeHaplotypeCallBandSnapshot {
         GenotypeHaplotypeCallBandSnapshot(
-            orderedLoci: ["MHC-B", "Very-Long-MHC-A-Locus"],
+            orderedLoci: orderedLoci,
             calls: [
                 .init(
                     sample: "SAMPLE_001",
@@ -328,6 +391,22 @@ final class GenotypeHaplotypeCallBandTests: XCTestCase {
                     ),
                     h2: .init(
                         value: "Other-B2",
+                        status: .called,
+                        source: .pipeline,
+                        isEditable: true
+                    )
+                ),
+                .init(
+                    sample: "SAMPLE_000",
+                    locus: "Very-Long-MHC-A-Locus",
+                    h1: .init(
+                        value: "Other-A1",
+                        status: .called,
+                        source: .pipeline,
+                        isEditable: true
+                    ),
+                    h2: .init(
+                        value: "Other-A2",
                         status: .called,
                         source: .pipeline,
                         isEditable: true

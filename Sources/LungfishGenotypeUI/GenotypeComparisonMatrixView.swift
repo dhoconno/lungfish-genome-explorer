@@ -524,6 +524,9 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         haplotypeBandMode = mode
         effectiveHaplotypeBandSnapshot = snapshot ?? .empty
 
+        let structureChanged = previousMode != mode
+            || previousSnapshot.orderedLoci
+                != effectiveHaplotypeBandSnapshot.orderedLoci
         let changedSamples: Set<String>
         if previousMode == .effectiveMiSeqCalls,
            mode == .effectiveMiSeqCalls {
@@ -535,10 +538,12 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
                 .union(previousSnapshot.sampleNames)
                 .union(effectiveHaplotypeBandSnapshot.sampleNames)
         }
+        let affectedSamples = structureChanged
+            ? Set(sampleNames)
+                .union(previousSnapshot.sampleNames)
+                .union(effectiveHaplotypeBandSnapshot.sampleNames)
+            : changedSamples
 
-        let structureChanged = previousMode != mode
-            || previousSnapshot.orderedLoci
-                != effectiveHaplotypeBandSnapshot.orderedLoci
         if structureChanged {
             applyManualHaplotypeBandPresentation()
         } else if mode == .effectiveMiSeqCalls {
@@ -557,14 +562,14 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         )
 #endif
         manualHaplotypeSampleBand.invalidate(samples: changedSamples)
-        updateManualHaplotypeHeaderAccessibility(samples: changedSamples)
+        updateManualHaplotypeHeaderAccessibility(samples: affectedSamples)
         if displayState.manualHaplotypeBandExpanded {
             refreshManualHaplotypeAutoFit(
-                samples: changedSamples,
+                samples: affectedSamples,
                 remeasure: true
             )
         } else {
-            for sample in changedSamples {
+            for sample in affectedSamples {
                 manualHaplotypeTransientMinimumWidths.removeValue(
                     forKey: sample
                 )
