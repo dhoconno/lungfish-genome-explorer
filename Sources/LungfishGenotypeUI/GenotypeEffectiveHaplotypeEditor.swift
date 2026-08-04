@@ -63,6 +63,7 @@ final class GenotypeEffectiveHaplotypeEditorModel: ObservableObject {
     @Published private var snapshot: Snapshot
     @Published private var draftValues: [Address: String]
     @Published private(set) var persistenceErrorMessage: String?
+    @Published private(set) var draftRevisionToken = UUID()
 
     private let onSave: ([Address: String]) throws -> Snapshot
     private let onReload: () throws -> Snapshot
@@ -127,7 +128,10 @@ final class GenotypeEffectiveHaplotypeEditorModel: ObservableObject {
     func updateLabel(_ label: String, locus: String, slot: HaplotypeSlot) {
         guard !isReadOnly, snapshot.orderedLoci.contains(locus) else { return }
         persistenceErrorMessage = nil
-        draftValues[Address(locus: locus, slot: slot)] = label
+        let address = Address(locus: locus, slot: slot)
+        guard draftValues[address] != label else { return }
+        draftValues[address] = label
+        draftRevisionToken = UUID()
     }
 
     func clear(locus: String, slot: HaplotypeSlot) {
@@ -143,15 +147,32 @@ final class GenotypeEffectiveHaplotypeEditorModel: ObservableObject {
     }
 
     func save() {
-        guard canSave else { return }
+        _ = saveAndReturnSuccess()
+    }
+
+    @discardableResult
+    func saveAndReturnSuccess() -> Bool {
+        guard canSave else { return false }
         do {
             apply(try onSave(changedValues))
             persistenceErrorMessage = nil
             onDidSave()
+            return true
         } catch {
             persistenceErrorMessage = error.localizedDescription
+            return false
         }
     }
+
+    func prepareSave() -> Bool {
+        canSave
+    }
+
+    func finalizePreparedSave() -> Bool {
+        saveAndReturnSuccess()
+    }
+
+    func cancelPreparedSave() {}
 
     func retry() {
         save()
@@ -199,6 +220,7 @@ final class GenotypeEffectiveHaplotypeEditorModel: ObservableObject {
     private func apply(_ snapshot: Snapshot) {
         self.snapshot = snapshot
         draftValues = snapshot.values
+        draftRevisionToken = UUID()
     }
 }
 

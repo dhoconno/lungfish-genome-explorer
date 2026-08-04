@@ -370,6 +370,8 @@ public final class GenotypeResultViewController: NSViewController {
     private var annotationStore: GenotypeAnnotationStore?
     private var manualHaplotypeEditorModel:
         GenotypeManualHaplotypeEditorModel?
+    private var effectiveHaplotypeEditorModel:
+        GenotypeEffectiveHaplotypeEditorModel?
     private var sampleComparisonModel:
         GenotypeSampleComparisonModel?
     private var manualHaplotypeDraftRevisionCancellable:
@@ -391,38 +393,50 @@ public final class GenotypeResultViewController: NSViewController {
         GenotypeManualHaplotypeDraftCoordinator(
             hasUnsavedChanges: { [weak self] in
                 self?.manualHaplotypeEditorModel?.draft.isDirty == true
+                    || self?.effectiveHaplotypeEditorModel?.isDirty == true
             },
             revisionToken: { [weak self] in
                 self?.manualHaplotypeEditorModel?.draftRevisionToken
+                    ?? self?.effectiveHaplotypeEditorModel?
+                        .draftRevisionToken
             },
             save: { [weak self] in
-                guard let model = self?.manualHaplotypeEditorModel else {
-                    return true
+                if let model = self?.manualHaplotypeEditorModel {
+                    model.save()
+                    return !model.draft.isDirty
                 }
-                model.save()
-                return !model.draft.isDirty
+                return self?.effectiveHaplotypeEditorModel?
+                    .saveAndReturnSuccess() ?? true
             },
             prepareSave: { [weak self] in
-                guard let model = self?.manualHaplotypeEditorModel else {
-                    return true
+                if let model = self?.manualHaplotypeEditorModel {
+                    return model.prepareSave()
                 }
-                return model.prepareSave()
+                return self?.effectiveHaplotypeEditorModel?
+                    .prepareSave() ?? true
             },
             finalizePreparedSave: { [weak self] in
-                guard let model = self?.manualHaplotypeEditorModel else {
-                    return true
+                if let model = self?.manualHaplotypeEditorModel {
+                    return model.finalizePreparedSave()
                 }
-                return model.finalizePreparedSave()
+                return self?.effectiveHaplotypeEditorModel?
+                    .finalizePreparedSave() ?? true
             },
             cancelPreparedSave: { [weak self] in
                 self?.manualHaplotypeEditorModel?.cancelPreparedSave()
+                self?.effectiveHaplotypeEditorModel?.cancelPreparedSave()
             },
             discard: { [weak self] in
-                guard let model = self?.manualHaplotypeEditorModel else {
+                if let model = self?.manualHaplotypeEditorModel {
+                    model.reload()
+                    return !model.draft.isDirty
+                }
+                guard let model =
+                    self?.effectiveHaplotypeEditorModel else {
                     return true
                 }
                 model.reload()
-                return !model.draft.isDirty
+                return !model.isDirty
             }
         )
     private var manualHaplotypeDraftDecisionProvider:
@@ -4305,6 +4319,7 @@ public final class GenotypeResultViewController: NSViewController {
         currentSelectedSample = nil
         currentSelectedLocus = nil
         manualHaplotypeEditorModel = nil
+        effectiveHaplotypeEditorModel = nil
         sampleComparisonModel = nil
         manualHaplotypeDraftRevisionCancellable = nil
         sampleCurationTrailingModel = nil
@@ -4556,6 +4571,7 @@ public final class GenotypeResultViewController: NSViewController {
             return order == .orderedSame ? $0 < $1 : order == .orderedAscending
         }
         manualHaplotypeEditorModel = nil
+        effectiveHaplotypeEditorModel = nil
         sampleComparisonModel = nil
         manualHaplotypeDraftRevisionCancellable = nil
         sampleCurationTrailingModel = nil
@@ -4713,9 +4729,9 @@ public final class GenotypeResultViewController: NSViewController {
         let comments = matrixCommentDetailRows(for: targets)
         stateRows += comments
 
-        guard let editor = makeManualHaplotypeEditorHost(
-            for: sample
-        ) else {
+        guard let editor =
+            makeEffectiveHaplotypeEditorHost(for: sample)
+                ?? makeManualHaplotypeEditorHost(for: sample) else {
             showLegacySingleSampleColumnSelection(
                 sample: sample,
                 sampleRows: sampleRows,
@@ -6629,6 +6645,216 @@ public final class GenotypeResultViewController: NSViewController {
         )
         manualHaplotypeEditorHostView = container
         return container
+    }
+
+    private func makeEffectiveHaplotypeEditorHost(
+        for sample: String
+    ) -> NSView? {
+        guard presentationPolicy?.appliesToHaplotypedMiSeq == true,
+              let result,
+              let store = annotationStore,
+              let snapshot = effectiveHaplotypeEditorSnapshot(
+                sample: sample
+              ) else {
+            return nil
+        }
+        let editorBundleURL = result.bundleURL.standardizedFileURL
+        let model = GenotypeEffectiveHaplotypeEditorModel(
+            snapshot: snapshot,
+            onSave: { [weak self] changes in
+                guard let self,
+                      self.result?.bundleURL.standardizedFileURL
+                        == editorBundleURL,
+                      let projection = self.effectiveHaplotypeProjection else {
+                    throw ManualHaplotypeEditorError.unavailable
+                }
+                let mutations = changes.compactMap { address, draft
+                    -> CallOverrideMutation? in
+                    guard let current = projection.value(
+                        sample: sample,
+                        locus: address.locus,
+                        slot: address.slot
+                    ) else {
+                        return nil
+                    }
+                    let trimmed = draft.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                    let target = trimmed.isEmpty
+                        ? current.baseline
+                        : trimmed
+                    guard target != current.effective else { return nil }
+                    let displayedBefore = current.effective.isEmpty
+                        ? "—"
+                        : current.effective
+                    let displayedAfter = target.isEmpty ? "—" : target
+                    return CallOverrideMutation(
+                        target: .init(
+                            sample: sample,
+                            locus: address.locus,
+                            slot: address.slot
+                        ),
+                        baseline: current.baseline,
+                        after: target,
+                        reason: .analystJudgment,
+                        rationale:
+                            "Manual haplotype editor replaced "
+                            + "\(address.locus) "
+                            + "\(address.slot.displayName) "
+                            + "\(displayedBefore) -> \(displayedAfter)."
+                    )
+                }
+                if !mutations.isEmpty {
+                    switch self.commitEffectiveHaplotypeMutation(
+                        mutations,
+                        analysisIdentity: projection.identity,
+                        presentErrors: false
+                    ) {
+                    case .changed, .unchanged:
+                        break
+                    case let .failure(error):
+                        throw error
+                    }
+                }
+                guard let refreshed =
+                    self.effectiveHaplotypeEditorSnapshot(sample: sample)
+                else {
+                    throw ManualHaplotypeEditorError.unavailable
+                }
+                return refreshed
+            },
+            onReload: { [weak self] in
+                guard let self,
+                      let currentResult = self.result else {
+                    throw ManualHaplotypeEditorError.unavailable
+                }
+                let reloadedStore = try GenotypeAnnotationStore(
+                    bundleURL: currentResult.bundleURL,
+                    author: self.annotationAuthorProvider(),
+                    seedBuiltInSmartCohorts: false
+                )
+                self.annotationStore = reloadedStore
+                self.currentWorkbookIsReadOnly = reloadedStore.isReadOnly
+                self.rebuildMatrixAnnotationIndexes()
+                self.comparisonMatrix.applyAnnotationSidecar(
+                    reloadedStore.sidecar,
+                    reload: false
+                )
+                self.rebuildEffectiveHaplotypeProjectionIfNeeded()
+                self.applyComparisonMatrixHaplotypeBandProjection()
+                guard let refreshed =
+                    self.effectiveHaplotypeEditorSnapshot(sample: sample)
+                else {
+                    throw ManualHaplotypeEditorError.unavailable
+                }
+                return refreshed
+            }
+        )
+        effectiveHaplotypeEditorModel = model
+
+        let comparison = GenotypeSampleComparisonModel(
+            targetSample: sample,
+            targetRows: comparisonMatrix.visibleSampleEvidenceRows(
+                sample: sample
+            ),
+            candidates: [],
+            orderedVisibleRowIDs: comparisonMatrix.visibleComparisonRowIDs,
+            rowsForSource: { _ in [] },
+            targetSlots: [:],
+            targetDraftRevision: UUID(),
+            isReadOnly: store.isReadOnly,
+            assignmentsForSource: { _ in nil },
+            stageSelectedAssignments: { _ in
+                .init(applied: [], skipped: [])
+            }
+        )
+        sampleComparisonModel = comparison
+        sampleCurationTrailingModel = GenotypeSampleCurationTrailingModel(
+            evidenceSnapshot: supportedAllelesSnapshot(
+                from: comparisonMatrix.visibleSampleAlleleDetails(
+                    sample: sample
+                )
+            ),
+            comparison: comparison
+        )
+
+        let container = makeGenotypeEffectiveHaplotypeEditorHostingView(
+            model: model,
+            typographyModel: manualHaplotypeEditorTypographyModel
+        )
+        container.identifier = Self.generatedContentHostingViewIdentifier
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.setAccessibilityIdentifier(
+            "effective-haplotype-detail-editor"
+        )
+        manualHaplotypeEditorHostView = container
+        return container
+    }
+
+    private func effectiveHaplotypeEditorSnapshot(
+        sample: String
+    ) -> GenotypeEffectiveHaplotypeEditorModel.Snapshot? {
+        guard let analysis = activeHaplotypeAnalysis(),
+              let projection = effectiveHaplotypeProjection else {
+            return nil
+        }
+        let observed = result.map {
+            observedLociIndex
+                ?? GenotypeObservedLociIndex.build(from: $0)
+        }
+        let loci = effectiveIncludedLoci(
+            for: analysis,
+            observed: observed
+        )
+        var values:
+            [GenotypeEffectiveHaplotypeEditorModel.Address: String] = [:]
+        for locus in loci {
+            for slot in HaplotypeSlot.allCases {
+                let address = GenotypeEffectiveHaplotypeEditorModel.Address(
+                    locus: locus,
+                    slot: slot
+                )
+                values[address] = editableEffectiveHaplotypeLabel(
+                    projection.value(
+                        sample: sample,
+                        locus: locus,
+                        slot: slot
+                    )
+                )
+            }
+        }
+        let suggestions = Set(
+            projection.values.values.compactMap {
+                editableEffectiveHaplotypeLabel($0)
+            }.filter { !$0.isEmpty }
+        ).sorted {
+            $0.localizedStandardCompare($1) == .orderedAscending
+        }
+        return .init(
+            sample: sample,
+            orderedLoci: loci,
+            values: values,
+            suggestions: suggestions,
+            isReadOnly: annotationStore?.isReadOnly ?? true
+        )
+    }
+
+    private func editableEffectiveHaplotypeLabel(
+        _ value: GenotypeEffectiveHaplotypeValue?
+    ) -> String {
+        guard let value,
+              value.status == .called || value.status == .specialCase else {
+            return ""
+        }
+        let label = value.effective.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        guard !label.isEmpty,
+              label != "-",
+              !label.hasPrefix("ERR:") else {
+            return ""
+        }
+        return label
     }
 
     private func refreshSelectedSampleCurationEvidence() {
@@ -9922,6 +10148,7 @@ public final class GenotypeResultViewController: NSViewController {
         sampleCurationWorkbench = nil
         sampleSupportedAllelesSnapshot = nil
         manualHaplotypeEditorModel = nil
+        effectiveHaplotypeEditorModel = nil
         sampleComparisonModel = nil
         manualHaplotypeDraftRevisionCancellable = nil
         sampleCurationTrailingModel = nil
@@ -11518,6 +11745,48 @@ extension GenotypeResultViewController {
 
     var testingManualHaplotypeEditorSample: String? {
         manualHaplotypeEditorModel?.draft.sample
+    }
+
+    var testingEffectiveHaplotypeEditorSample: String? {
+        effectiveHaplotypeEditorModel?.sample
+    }
+
+    var testingEffectiveHaplotypeEditorLoci: [String] {
+        effectiveHaplotypeEditorModel?.rows.map(\.locus) ?? []
+    }
+
+    func testingEffectiveHaplotypeEditorValue(
+        locus: String,
+        slot: HaplotypeSlot
+    ) -> String? {
+        let row = effectiveHaplotypeEditorModel?.rows.first {
+            $0.locus == locus
+        }
+        return slot == .h1 ? row?.h1.label : row?.h2.label
+    }
+
+    var testingEffectiveHaplotypeEditorIsDirty: Bool {
+        effectiveHaplotypeEditorModel?.isDirty == true
+    }
+
+    var testingEffectiveHaplotypeEditorPersistenceError: String? {
+        effectiveHaplotypeEditorModel?.persistenceErrorMessage
+    }
+
+    func testingUpdateEffectiveHaplotypeLabel(
+        _ label: String,
+        locus: String,
+        slot: HaplotypeSlot
+    ) {
+        effectiveHaplotypeEditorModel?.updateLabel(
+            label,
+            locus: locus,
+            slot: slot
+        )
+    }
+
+    func testingSaveEffectiveHaplotypeDraft() {
+        effectiveHaplotypeEditorModel?.save()
     }
 
     var testingLastManualHaplotypeFocusedFieldIdentifier: String? {
