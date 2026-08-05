@@ -93,7 +93,7 @@ struct FastqSavontClusterSubcommand: AsyncParsableCommand {
         }
         if result.summary.clusterCount == 0 {
             emitStandardError(
-                "warning: Savont produced no clusters after the single-strand fallback; "
+                "warning: Savont produced no clusters after running in single-strand mode; "
                     + "an empty FASTA was published.\n"
             )
         }

@@ -193,7 +193,7 @@ final class FastqSavontClusterCommandTests: XCTestCase {
         XCTAssertEqual(object["usedSingleStrandFallback"] as? Bool, false)
     }
 
-    func testSavontClusterWarnsWhenEmptyFASTAIsPublishedAfterSingleStrandFallback() async throws {
+    func testSavontClusterWarnsWhenEmptyFASTAIsPublishedInRequestedSingleStrandMode() async throws {
         let command = try FastqSavontClusterSubcommand.parse([
             "/tmp/low-snpmer.fastq",
             "--output", "/tmp/empty-clusters.fasta",
@@ -203,7 +203,7 @@ final class FastqSavontClusterCommandTests: XCTestCase {
             provenanceURL: URL(fileURLWithPath: "/tmp/.empty-clusters.fasta.lungfish-provenance.json"),
             summary: SavontClusterSummary(clusterCount: 0, totalSupportingReads: 0),
             usedSingleThreadFallback: false,
-            usedSingleStrandFallback: true
+            usedSingleStrandFallback: false
         )
         var standardOutput = Data()
         var standardError = ""
@@ -218,8 +218,7 @@ final class FastqSavontClusterCommandTests: XCTestCase {
             standardError,
             """
             Savont clustering started: /tmp/low-snpmer.fastq -> /tmp/empty-clusters.fasta
-            warning: Savont used the single-strand fallback.
-            warning: Savont produced no clusters after the single-strand fallback; an empty FASTA was published.
+            warning: Savont produced no clusters after running in single-strand mode; an empty FASTA was published.
             Savont clustering complete: 0 clusters, 0 supporting reads.
 
             """
