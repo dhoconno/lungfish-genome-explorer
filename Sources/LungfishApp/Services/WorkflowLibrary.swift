@@ -166,7 +166,7 @@ enum WorkflowLibraryCatalog {
         if toolID == .savont {
             return WorkflowLibraryItem(
                 toolID: toolID,
-                maturity: .specialized,
+                maturity: .core,
                 requiredPluginPackIDs: ["full-length-mhc-genotyping"]
             )
         }

@@ -36,20 +36,27 @@ final class WorkflowLibraryTests: XCTestCase {
         XCTAssertEqual(twelveS.requiredPluginPackIDs, ["lungfish-tools"])
     }
 
-    func testSavontIsSpecializedAndRequiresExistingSavontPackBeforeEnablement() async throws {
+    func testSavontIsCoreAndRetainsItsManagedRuntimeRequirement() throws {
         let savont = try XCTUnwrap(WorkflowLibraryCatalog.item(for: .savont))
-        XCTAssertEqual(savont.maturity, .specialized)
+        XCTAssertEqual(savont.maturity, .core)
         XCTAssertEqual(savont.requiredPluginPackIDs, ["full-length-mhc-genotyping"])
+        XCTAssertTrue(WorkflowLibraryEnablementStore(userDefaults: try makeDefaults()).isWorkflowEnabled(.savont))
+    }
 
-        let store = WorkflowLibraryEnablementStore(userDefaults: try makeDefaults())
-        let provider = StubWorkflowLibraryPluginStatusProvider(states: [
-            "full-length-mhc-genotyping": .needsInstall,
-        ])
+    func testStandaloneSavontRemainsVisibleWithExistingWorkflowPreferences() throws {
+        let defaults = try makeDefaults()
+        defaults.set(
+            [FASTQOperationToolID.ontGenotyping.rawValue],
+            forKey: "WorkflowLibrary.enabledWorkflowIDs"
+        )
+        let store = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let state = FASTQOperationDialogState(
+            initialCategory: .clustering,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/barcode12.lungfishfastq")],
+            workflowLibrary: store
+        )
 
-        let result = await store.enableWorkflow(savont, using: provider)
-
-        XCTAssertEqual(result, .blocked(missingPackIDs: ["full-length-mhc-genotyping"]))
-        XCTAssertFalse(store.isWorkflowEnabled(.savont))
+        XCTAssertEqual(state.visibleToolIDs, [.savont, .pbaa])
     }
 
     func testBuiltInCatalogIncludesFullLengthONTMHCGenotypingAsSpecializedWorkflow() throws {
