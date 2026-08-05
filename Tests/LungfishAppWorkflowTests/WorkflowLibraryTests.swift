@@ -16,6 +16,10 @@ final class WorkflowLibraryTests: XCTestCase {
 
         XCTAssertEqual(WorkflowLibraryCatalog.item(for: .minimap2)?.requiredPluginPackIDs, ["read-mapping"])
         XCTAssertEqual(WorkflowLibraryCatalog.item(for: .mafft)?.requiredPluginPackIDs, ["multiple-sequence-alignment"])
+        XCTAssertEqual(
+            WorkflowLibraryCatalog.item(for: .savont)?.requiredPluginPackIDs,
+            ["full-length-mhc-genotyping"]
+        )
 
         let coreItems = WorkflowLibraryCatalog.builtIn.filter { $0.maturity == .core }
         XCTAssertFalse(coreItems.isEmpty)
@@ -30,6 +34,22 @@ final class WorkflowLibraryTests: XCTestCase {
         XCTAssertEqual(twelveS.maturity, .specialized)
         XCTAssertEqual(twelveS.categoryID, .genotyping)
         XCTAssertEqual(twelveS.requiredPluginPackIDs, ["lungfish-tools"])
+    }
+
+    func testSavontIsSpecializedAndRequiresExistingSavontPackBeforeEnablement() async throws {
+        let savont = try XCTUnwrap(WorkflowLibraryCatalog.item(for: .savont))
+        XCTAssertEqual(savont.maturity, .specialized)
+        XCTAssertEqual(savont.requiredPluginPackIDs, ["full-length-mhc-genotyping"])
+
+        let store = WorkflowLibraryEnablementStore(userDefaults: try makeDefaults())
+        let provider = StubWorkflowLibraryPluginStatusProvider(states: [
+            "full-length-mhc-genotyping": .needsInstall,
+        ])
+
+        let result = await store.enableWorkflow(savont, using: provider)
+
+        XCTAssertEqual(result, .blocked(missingPackIDs: ["full-length-mhc-genotyping"]))
+        XCTAssertFalse(store.isWorkflowEnabled(.savont))
     }
 
     func testBuiltInCatalogIncludesFullLengthONTMHCGenotypingAsSpecializedWorkflow() throws {

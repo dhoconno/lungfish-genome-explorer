@@ -59,6 +59,20 @@ final class FASTQOperationsCatalogTests: XCTestCase {
         XCTAssertEqual(FASTQOperationCategoryID.clustering.requiredPackIDs, [])
     }
 
+    func testClusteringCatalogIncludesSavontBesidePBAAForFASTQOnly() {
+        XCTAssertEqual(
+            FASTQOperationDialogState.toolIDs(for: .clustering),
+            [.savont, .pbaa]
+        )
+        XCTAssertEqual(FASTQOperationToolID.savont.title, "Savont Clustering")
+        XCTAssertEqual(FASTQOperationToolID.savont.categoryID, .clustering)
+        XCTAssertEqual(FASTQOperationToolID.savont.requiredInputKinds, [.fastqDataset])
+        XCTAssertEqual(FASTQOperationToolID.savont.defaultOutputMode, .perInput)
+        XCTAssertFalse(FASTQOperationToolID.savont.supportsConfigurableOutput)
+        XCTAssertFalse(FASTQOperationToolID.savont.supportsFASTA)
+        XCTAssertTrue(FASTQOperationToolID.savont.requiresProvenance)
+    }
+
     func testClassificationCategoryRequiresMetagenomicsPack() async throws {
         let provider = StubPackStatusProvider(states: ["metagenomics": .needsInstall])
         let catalog = FASTQOperationsCatalog(statusProvider: provider)

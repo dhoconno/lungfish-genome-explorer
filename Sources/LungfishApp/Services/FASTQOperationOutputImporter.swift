@@ -398,8 +398,44 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
         case .pbaa:
             return outputURLs
 
+        case .savont:
+            try validateSavontOutputsHaveCanonicalProvenance(outputURLs)
+            return outputURLs
+
         default:
             return outputURLs
+        }
+    }
+
+    private func validateSavontOutputsHaveCanonicalProvenance(_ outputURLs: [URL]) throws {
+        for outputURL in outputURLs {
+            let standardizedOutputURL = outputURL.standardizedFileURL
+            let sidecarURL = ProvenanceRecorder.fileSidecarURL(for: standardizedOutputURL)
+            guard FileManager.default.fileExists(atPath: standardizedOutputURL.path),
+                  FileManager.default.fileExists(atPath: sidecarURL.path) else {
+                throw ProvenanceRehydrationError.missingSourceProvenance(
+                    "Savont output is missing its canonical provenance sidecar: \(standardizedOutputURL.path)"
+                )
+            }
+
+            let envelope: ProvenanceEnvelope
+            do {
+                envelope = try ProvenanceEnvelopeReader.decode(Data(contentsOf: sidecarURL))
+            } catch {
+                throw ProvenanceRehydrationError.missingSourceProvenance(
+                    "Savont output has invalid canonical provenance: \(sidecarURL.path)"
+                )
+            }
+
+            let recordedOutputPaths = ([envelope.output].compactMap { $0 }
+                + envelope.outputs
+                + envelope.steps.flatMap(\.outputs))
+                .map { URL(fileURLWithPath: $0.path).standardizedFileURL.path }
+            guard recordedOutputPaths.contains(standardizedOutputURL.path) else {
+                throw ProvenanceRehydrationError.missingSourceProvenance(
+                    "Savont provenance does not identify the final output: \(standardizedOutputURL.path)"
+                )
+            }
         }
     }
 

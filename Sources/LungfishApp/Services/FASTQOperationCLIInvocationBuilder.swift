@@ -138,6 +138,30 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             }
             return CLIInvocation(subcommand: "fastq", arguments: arguments)
 
+        case .savont(let request):
+            guard let inputURL = request.inputURLs.first else {
+                throw CocoaError(.fileNoSuchFile, userInfo: [
+                    NSLocalizedDescriptionKey: "Savont clustering requires one FASTQ input per CLI invocation."
+                ])
+            }
+            var arguments = [
+                "savont-cluster", inputURL.path,
+                "--output", outputTargetPath,
+                "--threads", String(request.threads),
+                "--quality-value-cutoff", String(request.qualityValueCutoff),
+                "--min-cluster-size", String(request.minimumClusterSize),
+            ]
+            if let minimumReadLength = request.minimumReadLength {
+                arguments += ["--min-read-length", String(minimumReadLength)]
+            }
+            if let maximumReadLength = request.maximumReadLength {
+                arguments += ["--max-read-length", String(maximumReadLength)]
+            }
+            if request.singleStrand {
+                arguments.append("--single-strand")
+            }
+            return CLIInvocation(subcommand: "fastq", arguments: arguments)
+
         case .ontGenotyping(let request):
             let outputDirectoryPath = outputTargetPath == "<derived>"
                 ? request.outputDirectory.path

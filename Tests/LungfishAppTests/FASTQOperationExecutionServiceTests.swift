@@ -206,6 +206,273 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(invocation.arguments[outputDirIndex + 1], "/tmp/run-scoped")
     }
 
+    func testSavontPlannerSplitsInputsIntoCollisionSafeFASTAPlans() throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecSavontPlans")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let existingOutput = tempDir.appendingPathComponent("sample-savont-clusters.fasta")
+        try ">existing\nACGT\n".write(to: existingOutput, atomically: true, encoding: .utf8)
+        let originalInputs = [
+            URL(fileURLWithPath: "/tmp/a/sample.fastq.gz"),
+            URL(fileURLWithPath: "/tmp/b/sample.lungfishfastq", isDirectory: true),
+        ]
+        let resolvedInputs = [
+            URL(fileURLWithPath: "/tmp/materialized/a.fastq"),
+            URL(fileURLWithPath: "/tmp/materialized/b.fastq"),
+        ]
+        let originalRequest = FASTQOperationLaunchRequest.savont(request: FASTQSavontClusteringRequest(
+            inputURLs: originalInputs,
+            outputDirectoryURL: tempDir,
+            singleInputOutputName: nil,
+            threads: 8,
+            qualityValueCutoff: 90,
+            minimumClusterSize: 3,
+            minimumReadLength: nil,
+            maximumReadLength: nil,
+            singleStrand: false
+        ))
+        let resolvedRequest = originalRequest.replacingInputURLs(with: resolvedInputs)
+
+        let plans = FASTQOperationPlanner().makeExecutionPlans(
+            originalRequest: originalRequest,
+            resolvedRequest: resolvedRequest,
+            baseOutputDirectory: tempDir
+        )
+
+        XCTAssertEqual(plans.count, 2)
+        XCTAssertEqual(plans.map(\.originalRequest.inputURLs), originalInputs.map { [$0] })
+        XCTAssertEqual(plans.map(\.resolvedRequest.inputURLs), resolvedInputs.map { [$0] })
+        XCTAssertEqual(plans.map(\.outputKind), [.fastqFile, .fastqFile])
+        XCTAssertEqual(plans.map(\.outputTarget.lastPathComponent), [
+            "sample-savont-clusters-2.fasta",
+            "sample-savont-clusters-3.fasta",
+        ])
+        XCTAssertTrue(plans.allSatisfy { $0.outputTarget.deletingLastPathComponent() == tempDir })
+    }
+
+    func testSavontInvocationUsesCuratedOptionsAndOmitsUnsetLengthBounds() throws {
+        let request = FASTQSavontClusteringRequest(
+            inputURLs: [URL(fileURLWithPath: "/tmp/reads.fastq.gz")],
+            outputDirectoryURL: URL(fileURLWithPath: "/tmp/out", isDirectory: true),
+            singleInputOutputName: "curated",
+            threads: 6,
+            qualityValueCutoff: 92,
+            minimumClusterSize: 5,
+            minimumReadLength: nil,
+            maximumReadLength: nil,
+            singleStrand: false
+        )
+
+        let invocation = try FASTQOperationCLIInvocationBuilder().buildInvocation(
+            for: .savont(request: request),
+            outputTargetPath: "/tmp/out/curated.fasta"
+        )
+
+        XCTAssertEqual(invocation.subcommand, "fastq")
+        XCTAssertEqual(invocation.arguments, [
+            "savont-cluster", "/tmp/reads.fastq.gz",
+            "--output", "/tmp/out/curated.fasta",
+            "--threads", "6",
+            "--quality-value-cutoff", "92",
+            "--min-cluster-size", "5",
+        ])
+        XCTAssertFalse(invocation.arguments.contains("--extra-args"))
+        XCTAssertFalse(invocation.arguments.contains("--min-read-length"))
+        XCTAssertFalse(invocation.arguments.contains("--max-read-length"))
+    }
+
+    func testSavontInvocationIncludesExplicitAdvancedOptions() throws {
+        let request = FASTQSavontClusteringRequest(
+            inputURLs: [URL(fileURLWithPath: "/tmp/reads.fastq")],
+            outputDirectoryURL: URL(fileURLWithPath: "/tmp/out", isDirectory: true),
+            singleInputOutputName: nil,
+            threads: 2,
+            qualityValueCutoff: 90,
+            minimumClusterSize: 3,
+            minimumReadLength: 400,
+            maximumReadLength: 2_000,
+            singleStrand: true
+        )
+
+        let arguments = try FASTQOperationCLIInvocationBuilder().buildInvocation(
+            for: .savont(request: request),
+            outputTargetPath: "/tmp/out/clusters.fasta"
+        ).arguments
+
+        XCTAssertTrue(arguments.contains("--min-read-length"))
+        XCTAssertTrue(arguments.contains("400"))
+        XCTAssertTrue(arguments.contains("--max-read-length"))
+        XCTAssertTrue(arguments.contains("2000"))
+        XCTAssertTrue(arguments.contains("--single-strand"))
+    }
+
+    func testSavontPlannerDiscoversFinalFASTAAtExactTarget() throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecSavontDiscover")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let output = tempDir.appendingPathComponent("reads-savont-clusters.fasta")
+        try ">cluster_ReadCount-3\nACGT\n".write(to: output, atomically: true, encoding: .utf8)
+        let request = FASTQOperationLaunchRequest.savont(request: FASTQSavontClusteringRequest(
+            inputURLs: [URL(fileURLWithPath: "/tmp/reads.fastq")],
+            outputDirectoryURL: tempDir,
+            singleInputOutputName: nil,
+            threads: 4,
+            qualityValueCutoff: 90,
+            minimumClusterSize: 3,
+            minimumReadLength: nil,
+            maximumReadLength: nil,
+            singleStrand: false
+        ))
+        let plan = FASTQOperationPlan(
+            originalRequest: request,
+            resolvedRequest: request,
+            outputTarget: output,
+            outputKind: .fastqFile
+        )
+
+        XCTAssertEqual(FASTQOperationPlanner().discoverOutputs(for: plan, in: tempDir), [output])
+    }
+
+    func testSavontExecutionRunsOneCLIInvocationAndImportsOneFASTAForEachInput() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecSavontFanout")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let inputs = [
+            tempDir.appendingPathComponent("barcode01.fastq"),
+            tempDir.appendingPathComponent("barcode02.fastq"),
+        ]
+        for input in inputs {
+            try "@read\nACGT\n+\nIIII\n".write(to: input, atomically: true, encoding: .utf8)
+        }
+        let request = FASTQOperationLaunchRequest.savont(request: FASTQSavontClusteringRequest(
+            inputURLs: inputs,
+            outputDirectoryURL: tempDir,
+            singleInputOutputName: nil,
+            threads: 4,
+            qualityValueCutoff: 90,
+            minimumClusterSize: 3,
+            minimumReadLength: nil,
+            maximumReadLength: nil,
+            singleStrand: false
+        ))
+        let runner = SpyCommandRunner { invocation, _ in
+            let outputIndex = try XCTUnwrap(invocation.arguments.firstIndex(of: "--output"))
+            let output = URL(fileURLWithPath: invocation.arguments[outputIndex + 1])
+            let input = URL(fileURLWithPath: invocation.arguments[1])
+            try ">cluster_ReadCount-3\nACGT\n".write(to: output, atomically: true, encoding: .utf8)
+            try writeSyntheticProvenance(
+                to: output.deletingLastPathComponent(),
+                name: "lungfish fastq savont-cluster",
+                toolName: "SavontClusteringPipeline",
+                toolVersion: SavontClusteringRunRequest.toolVersion,
+                command: ["lungfish-cli", "fastq"] + invocation.arguments,
+                inputURL: input,
+                outputURL: output,
+                format: .fasta,
+                sidecarURL: ProvenanceRecorder.fileSidecarURL(for: output)
+            )
+            return FASTQCLIExecutionResult(outputURLs: [])
+        }
+        let service = FASTQOperationExecutionService(
+            commandRunner: runner,
+            directImporter: BundleFASTQOperationImporter(destinationDirectory: tempDir)
+        )
+
+        let result = try await service.execute(request: request, workingDirectory: tempDir)
+
+        XCTAssertEqual(result.executedInvocations.count, 2)
+        XCTAssertEqual(result.executedInvocations.map { Array($0.arguments.prefix(2)) }, [
+            ["savont-cluster", inputs[0].path],
+            ["savont-cluster", inputs[1].path],
+        ])
+        XCTAssertEqual(result.importedURLs.map(\.lastPathComponent), [
+            "barcode01-savont-clusters.fasta",
+            "barcode02-savont-clusters.fasta",
+        ])
+        for output in result.importedURLs {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: output.path))
+            XCTAssertTrue(FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: output).path))
+        }
+    }
+
+    func testSavontImporterPreservesCanonicalSidecarAndRejectsMissingProvenance() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecSavontImport")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let input = tempDir.appendingPathComponent("reads.fastq")
+        let output = tempDir.appendingPathComponent("reads-savont-clusters.fasta")
+        try "@read\nACGT\n+\nIIII\n".write(to: input, atomically: true, encoding: .utf8)
+        try ">cluster_ReadCount-3\nACGT\n".write(to: output, atomically: true, encoding: .utf8)
+        let request = FASTQOperationLaunchRequest.savont(request: FASTQSavontClusteringRequest(
+            inputURLs: [input],
+            outputDirectoryURL: tempDir,
+            singleInputOutputName: nil,
+            threads: 4,
+            qualityValueCutoff: 90,
+            minimumClusterSize: 3,
+            minimumReadLength: nil,
+            maximumReadLength: nil,
+            singleStrand: false
+        ))
+        let sidecar = ProvenanceRecorder.fileSidecarURL(for: output)
+        try writeSyntheticProvenance(
+            to: tempDir,
+            name: "lungfish fastq savont-cluster",
+            toolName: "SavontClusteringPipeline",
+            toolVersion: SavontClusteringRunRequest.toolVersion,
+            command: ["lungfish-cli", "fastq", "savont-cluster", input.path, "--output", output.path],
+            inputURL: input,
+            outputURL: output,
+            format: .fasta,
+            sidecarURL: sidecar
+        )
+        let sidecarBeforeImport = try Data(contentsOf: sidecar)
+        let importer = BundleFASTQOperationImporter(destinationDirectory: tempDir)
+
+        let imported = try await importer.importOutputs(
+            at: [output],
+            forResolvedRequest: request,
+            originalRequest: request,
+            outputDirectory: tempDir
+        )
+
+        XCTAssertEqual(imported, [output])
+        XCTAssertEqual(try Data(contentsOf: sidecar), sidecarBeforeImport)
+
+        try FileManager.default.removeItem(at: sidecar)
+        do {
+            _ = try await importer.importOutputs(
+                at: [output],
+                forResolvedRequest: request,
+                originalRequest: request,
+                outputDirectory: tempDir
+            )
+            XCTFail("Expected missing Savont provenance to block import")
+        } catch ProvenanceRehydrationError.missingSourceProvenance {
+            // Expected.
+        }
+    }
+
+    func testSavontManifestMetadataIncludesResolvedScientificOptions() {
+        let request = FASTQOperationLaunchRequest.savont(request: FASTQSavontClusteringRequest(
+            inputURLs: [URL(fileURLWithPath: "/tmp/reads.fastq")],
+            outputDirectoryURL: URL(fileURLWithPath: "/tmp/out", isDirectory: true),
+            singleInputOutputName: "curated",
+            threads: 4,
+            qualityValueCutoff: 93,
+            minimumClusterSize: 7,
+            minimumReadLength: 500,
+            maximumReadLength: nil,
+            singleStrand: true
+        ))
+
+        XCTAssertEqual(request.batchManifestLabel, "Savont Clustering")
+        XCTAssertEqual(request.batchManifestOperationKind, "savontClustering")
+        XCTAssertEqual(request.batchManifestParameters["outputName"], "curated")
+        XCTAssertEqual(request.batchManifestParameters["qualityValueCutoff"], "93")
+        XCTAssertEqual(request.batchManifestParameters["minimumClusterSize"], "7")
+        XCTAssertEqual(request.batchManifestParameters["minimumReadLength"], "500")
+        XCTAssertNil(request.batchManifestParameters["maximumReadLength"])
+        XCTAssertEqual(request.batchManifestParameters["singleStrand"], "true")
+    }
+
     func testReferencePrimerRemovalInvocationUsesCutadaptLinkedPairs() throws {
         let request = FASTQOperationLaunchRequest.derivative(
             request: .primerRemoval(configuration: FASTQPrimerTrimConfiguration(

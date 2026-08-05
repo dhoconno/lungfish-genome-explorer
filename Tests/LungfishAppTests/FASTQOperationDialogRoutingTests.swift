@@ -373,6 +373,105 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertEqual(request.extraArguments, ["--min-cluster-read-count", "2"])
     }
 
+    func testSavontDefaultsAndRetainsEverySelectedInput() throws {
+        let inputs = [
+            URL(fileURLWithPath: "/tmp/barcode01.fastq.gz"),
+            URL(fileURLWithPath: "/tmp/barcode02.lungfishfastq", isDirectory: true),
+        ]
+        let state = FASTQOperationDialogState(
+            initialCategory: .clustering,
+            selectedInputURLs: inputs,
+            projectURL: URL(fileURLWithPath: "/tmp/project", isDirectory: true),
+            workflowLibrary: AllEnabledFASTQWorkflowLibrary()
+        )
+
+        state.selectTool(.savont)
+
+        XCTAssertEqual(state.savontQualityValueCutoff, 90)
+        XCTAssertEqual(state.savontMinimumClusterSize, 3)
+        XCTAssertNil(state.savontMinimumReadLength)
+        XCTAssertNil(state.savontMaximumReadLength)
+        XCTAssertFalse(state.savontSingleStrand)
+        XCTAssertNil(state.savontSingleInputOutputName)
+        XCTAssertEqual(state.outputMode, .perInput)
+        XCTAssertFalse(state.showsOutputStrategyPicker)
+        XCTAssertTrue(state.isRunEnabled)
+
+        state.prepareForRun()
+
+        guard case .savont(let request)? = state.pendingLaunchRequest else {
+            return XCTFail("Expected Savont launch request")
+        }
+        XCTAssertEqual(request.inputURLs, inputs)
+        XCTAssertEqual(request.outputDirectoryURL, URL(fileURLWithPath: "/tmp/project/Analyses", isDirectory: true))
+        XCTAssertNil(request.singleInputOutputName)
+        XCTAssertEqual(request.threads, max(1, ProcessInfo.processInfo.activeProcessorCount))
+        XCTAssertEqual(request.qualityValueCutoff, 90)
+        XCTAssertEqual(request.minimumClusterSize, 3)
+        XCTAssertNil(request.minimumReadLength)
+        XCTAssertNil(request.maximumReadLength)
+        XCTAssertFalse(request.singleStrand)
+    }
+
+    func testSavontSingleInputUsesEditableOutputNameAndAdvancedOptions() throws {
+        let input = URL(fileURLWithPath: "/tmp/barcode12.fastq.gz")
+        let state = FASTQOperationDialogState(
+            initialCategory: .clustering,
+            selectedInputURLs: [input],
+            projectURL: URL(fileURLWithPath: "/tmp/project", isDirectory: true),
+            workflowLibrary: AllEnabledFASTQWorkflowLibrary()
+        )
+
+        state.selectTool(.savont)
+        XCTAssertEqual(state.savontSingleInputOutputName, "barcode12-savont-clusters")
+
+        state.savontSingleInputOutputName = "curated-clusters"
+        state.savontThreads = 6
+        state.savontQualityValueCutoff = 95
+        state.savontMinimumClusterSize = 4
+        state.savontMinimumReadLength = 400
+        state.savontMaximumReadLength = 2_000
+        state.savontSingleStrand = true
+        state.prepareForRun()
+
+        guard case .savont(let request)? = state.pendingLaunchRequest else {
+            return XCTFail("Expected Savont launch request")
+        }
+        XCTAssertEqual(request.singleInputOutputName, "curated-clusters")
+        XCTAssertEqual(request.threads, 6)
+        XCTAssertEqual(request.qualityValueCutoff, 95)
+        XCTAssertEqual(request.minimumClusterSize, 4)
+        XCTAssertEqual(request.minimumReadLength, 400)
+        XCTAssertEqual(request.maximumReadLength, 2_000)
+        XCTAssertTrue(request.singleStrand)
+    }
+
+    func testSavontRejectsInvalidBoundsAndNonFASTQInputs() {
+        let state = FASTQOperationDialogState(
+            initialCategory: .clustering,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/barcode12.fastq")],
+            workflowLibrary: AllEnabledFASTQWorkflowLibrary()
+        )
+        state.selectTool(.savont)
+
+        state.savontMinimumReadLength = 2_000
+        state.savontMaximumReadLength = 400
+        XCTAssertFalse(state.isRunEnabled)
+        XCTAssertTrue(state.readinessText.contains("Minimum read length"))
+
+        state.savontMinimumReadLength = nil
+        state.savontMaximumReadLength = nil
+        state.savontThreads = 0
+        XCTAssertFalse(state.isRunEnabled)
+
+        let fastaState = FASTQOperationDialogState(
+            initialCategory: .clustering,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/reads.fasta")],
+            workflowLibrary: AllEnabledFASTQWorkflowLibrary()
+        )
+        XCTAssertFalse(fastaState.visibleToolIDs.contains(.savont))
+    }
+
     func testReverseComplementBuildsGenericOperationLaunchRequest() {
         let inputURL = URL(fileURLWithPath: "/tmp/sample.lungfishfastq")
         let state = FASTQOperationDialogState(
@@ -1982,5 +2081,12 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         try Data(fastqContents.utf8).write(to: bundleURL.appendingPathComponent(fastqName))
         return bundleURL
+    }
+}
+
+@MainActor
+private final class AllEnabledFASTQWorkflowLibrary: WorkflowLibraryEnabling {
+    func isWorkflowEnabled(_ toolID: FASTQOperationToolID) -> Bool {
+        true
     }
 }

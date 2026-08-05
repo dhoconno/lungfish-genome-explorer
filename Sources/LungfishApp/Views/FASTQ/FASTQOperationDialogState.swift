@@ -139,6 +139,13 @@ final class FASTQOperationDialogState {
     var pbaaThreads: Int
     var pbaaSeed: Int
     var pbaaExtraArguments: String
+    var savontSingleInputOutputName: String?
+    var savontThreads: Int
+    var savontQualityValueCutoff: Int
+    var savontMinimumClusterSize: Int
+    var savontMinimumReadLength: Int?
+    var savontMaximumReadLength: Int?
+    var savontSingleStrand: Bool
     var ontGenotypingOutputName: String
     var ontGenotypingAnalysisName: String
     var ontGenotypingThreads: Int
@@ -254,6 +261,15 @@ final class FASTQOperationDialogState {
         self.pbaaThreads = max(1, ProcessInfo.processInfo.activeProcessorCount)
         self.pbaaSeed = 1984
         self.pbaaExtraArguments = ""
+        self.savontSingleInputOutputName = selectedInputURLs.count == 1
+            ? selectedInputURLs.first.map(FASTQSavontClusteringRequest.defaultOutputBaseName(for:))
+            : nil
+        self.savontThreads = max(1, ProcessInfo.processInfo.activeProcessorCount)
+        self.savontQualityValueCutoff = 90
+        self.savontMinimumClusterSize = 3
+        self.savontMinimumReadLength = nil
+        self.savontMaximumReadLength = nil
+        self.savontSingleStrand = false
         self.ontGenotypingOutputName = Self.defaultONTGenotypingOutputName(for: selectedInputURLs)
         self.ontGenotypingAnalysisName = Self.defaultONTGenotypingAnalysisName(for: selectedInputURLs)
         self.ontGenotypingThreads = max(1, ProcessInfo.processInfo.activeProcessorCount)
@@ -589,6 +605,22 @@ final class FASTQOperationDialogState {
                 extraArgumentsText: pbaaExtraArguments
             ) else { return nil }
             return .pbaa(request: request)
+
+        case .savont:
+            guard !selectedInputURLs.isEmpty, let outputDirectoryURL else { return nil }
+            return .savont(request: FASTQSavontClusteringRequest(
+                inputURLs: selectedInputURLs,
+                outputDirectoryURL: outputDirectoryURL,
+                singleInputOutputName: selectedInputURLs.count == 1
+                    ? trimmedNonEmpty(savontSingleInputOutputName ?? "")
+                    : nil,
+                threads: savontThreads,
+                qualityValueCutoff: savontQualityValueCutoff,
+                minimumClusterSize: savontMinimumClusterSize,
+                minimumReadLength: savontMinimumReadLength,
+                maximumReadLength: savontMaximumReadLength,
+                singleStrand: savontSingleStrand
+            ))
 
         case .correctSequencingErrors:
             return .derivative(
@@ -1029,6 +1061,8 @@ final class FASTQOperationDialogState {
             return "Keep reads matching a target sequence."
         case .pbaa:
             return "Cluster PacBio HiFi amplicon reads and emit passed consensus sequences as a reference bundle."
+        case .savont:
+            return "Cluster each FASTQ dataset independently with Savont and emit counted consensus sequences as FASTA."
         case .ontGenotyping:
             return "Genotype one ONT barcode FASTQ by exact full-amplicon mapping, retained-read barcode demultiplexing, and Excel reporting."
         case .mafft:
@@ -1102,7 +1136,7 @@ final class FASTQOperationDialogState {
         case .assembly:
             return [.spades, .megahit, .skesa, .flye, .hifiasm]
         case .clustering:
-            return [.pbaa]
+            return [.savont, .pbaa]
         case .classification:
             return [.kraken2, .esViritu, .taxTriage]
         case .genotyping:
@@ -1223,6 +1257,36 @@ final class FASTQOperationDialogState {
             } catch {
                 return "Advanced options are not valid: \(error.localizedDescription)"
             }
+
+        case .savont:
+            guard selectedInputURLs.allSatisfy(Self.isSavontFASTQInput) else {
+                return "Savont requires .fastq, .fastq.gz, or .lungfishfastq inputs."
+            }
+            if selectedInputURLs.count == 1,
+               trimmedNonEmpty(savontSingleInputOutputName ?? "") == nil {
+                return "Enter an output name."
+            }
+            if savontThreads <= 0 {
+                return "Enter a positive thread count."
+            }
+            if !(0...100).contains(savontQualityValueCutoff) {
+                return "Quality-value cutoff must be between 0 and 100."
+            }
+            if savontMinimumClusterSize <= 0 {
+                return "Enter a positive minimum cluster size."
+            }
+            if let savontMinimumReadLength, savontMinimumReadLength <= 0 {
+                return "Minimum read length must be positive when set."
+            }
+            if let savontMaximumReadLength, savontMaximumReadLength <= 0 {
+                return "Maximum read length must be positive when set."
+            }
+            if let savontMinimumReadLength,
+               let savontMaximumReadLength,
+               savontMinimumReadLength > savontMaximumReadLength {
+                return "Minimum read length cannot exceed maximum read length."
+            }
+            return nil
 
         case .ontGenotyping:
             if selectedInputURLs.isEmpty {
@@ -1656,6 +1720,13 @@ final class FASTQOperationDialogState {
             || lowercased.hasSuffix(".fna")
             || lowercased.hasSuffix(".fas")
     }
+
+    private static func isSavontFASTQInput(_ url: URL) -> Bool {
+        let name = url.lastPathComponent.lowercased()
+        return name.hasSuffix(".fastq")
+            || name.hasSuffix(".fastq.gz")
+            || name.hasSuffix(".lungfishfastq")
+    }
 }
 
 enum FASTQOperationToolID: String, CaseIterable, Sendable {
@@ -1683,6 +1754,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
     case extractReadsByID
     case extractReadsByMotif
     case selectReadsBySequence
+    case savont
     case pbaa
     case ontGenotyping
     case mafft
@@ -1726,6 +1798,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .extractReadsByID: return "Extract Reads by ID"
         case .extractReadsByMotif: return "Extract Reads by Motif"
         case .selectReadsBySequence: return "Select Reads by Sequence"
+        case .savont: return "Savont Clustering"
         case .pbaa: return "pbAA Amplicon Clustering"
         case .ontGenotyping: return "miSeq amplicon MHC genotyping"
         case .mafft: return "MAFFT"
@@ -1771,6 +1844,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .extractReadsByID: return "Select reads matching identifiers."
         case .extractReadsByMotif: return "Select reads containing a motif."
         case .selectReadsBySequence: return "Select reads matching a sequence."
+        case .savont: return "Cluster FASTQ reads into counted consensus sequences with Savont."
         case .pbaa: return "Cluster PacBio HiFi amplicon reads and emit passed consensus sequences as a reference bundle."
         case .ontGenotyping: return "Run exact+indel miSeq amplicon MHC genotyping for ONT barcode-demux or prepared Illumina sample bundles and write one Excel genotype report."
         case .mafft: return "Align nucleotide or protein FASTA records into a native MSA bundle."
@@ -1806,7 +1880,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
             return .searchSubsetting
         case .mafft:
             return .alignment
-        case .pbaa:
+        case .savont, .pbaa:
             return .clustering
         case .minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon:
             return .mapping
@@ -1841,6 +1915,8 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
             return [.fastqDataset, .referenceSequence]
         case .ontGenotyping:
             return [.fastqDataset, .referenceSequence, .barcodeDefinition]
+        case .savont:
+            return [.fastqDataset]
         case .pbaa:
             return [.fastqDataset, .referenceSequence]
         }
@@ -1848,7 +1924,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
 
     var defaultOutputMode: FASTQOperationOutputMode {
         if self == .mafft { return .fixedBatch }
-        if self == .pbaa { return .perInput }
+        if self == .savont || self == .pbaa { return .perInput }
         if self == .ontFluidigmSampleSplit { return .fixedBatch }
         if self == .ontGenotyping { return .fixedBatch }
         return categoryID == .classification ? .fixedBatch : .perInput
@@ -1876,7 +1952,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
 
     var supportsConfigurableOutput: Bool {
         if self == .mafft { return false }
-        if self == .pbaa { return false }
+        if self == .savont || self == .pbaa { return false }
         if self == .ontFluidigmSampleSplit { return false }
         if self == .ontGenotyping { return false }
         return categoryID != .classification && self != .removeRibosomalRNA
@@ -1945,7 +2021,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
              .bwaMem2, .bowtie2, .bbmap, .spades, .megahit, .skesa,
              .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
             return true
-        case .refreshQCSummary, .ontFluidigmSampleSplit, .fastpTrim, .qualityTrim, .pbaa, .ontGenotyping, .mergeOverlappingPairs,
+        case .refreshQCSummary, .ontFluidigmSampleSplit, .fastpTrim, .qualityTrim, .savont, .pbaa, .ontGenotyping, .mergeOverlappingPairs,
              .repairPairedEndFiles, .correctSequencingErrors, .viralRecon:
             return false
         }
@@ -2040,6 +2116,7 @@ enum FASTQOperationLaunchRequest: Sendable, Equatable {
     case map(inputURLs: [URL], referenceURL: URL, outputMode: FASTQOperationOutputMode)
     case assemble(request: AssemblyRunRequest, outputMode: FASTQOperationOutputMode)
     case classify(tool: FASTQOperationToolID, inputURLs: [URL], databaseName: String, extraArguments: [String] = [])
+    case savont(request: FASTQSavontClusteringRequest)
     case pbaa(request: PBAAClusteringRunRequest)
     case ontGenotyping(request: ONTBarcodeDemuxGenotypingRunRequest)
 }

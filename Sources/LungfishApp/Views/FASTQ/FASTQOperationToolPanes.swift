@@ -434,6 +434,20 @@ private struct FASTQOperationPrimarySettingsSection: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
+            case .savont:
+                if state.selectedInputURLs.count == 1 {
+                    labeledTextField(
+                        "Output Name",
+                        text: Self.optionalStringBinding(state, \.savontSingleInputOutputName),
+                        help: LungfishHelpContent.fastqOutputName
+                    )
+                }
+                HStack(spacing: 12) {
+                    labeledCompactTextField("Threads", text: Self.intBinding(state, \.savontThreads), help: LungfishHelpContent.fastqThreads)
+                    labeledCompactTextField("Quality Cutoff", text: Self.intBinding(state, \.savontQualityValueCutoff), help: LungfishHelpContent.fastqQualityThreshold)
+                    labeledCompactTextField("Min Cluster", text: Self.intBinding(state, \.savontMinimumClusterSize), help: LungfishHelpContent.fastqMinReads)
+                }
+
             case .ontGenotyping:
                 workflowFormGroup("Report") {
                     labeledTextField("Report Name", text: $state.ontGenotypingOutputName, help: LungfishHelpContent.fastqReportName)
@@ -640,6 +654,16 @@ private struct FASTQOperationPrimarySettingsSection: View {
         )
     }
 
+    private static func optionalStringBinding(_ state: FASTQOperationDialogState, _ keyPath: WritableKeyPath<FASTQOperationDialogState, String?>) -> Binding<String> {
+        Binding(
+            get: { state[keyPath: keyPath] ?? "" },
+            set: { newValue in
+                var mutableState = state
+                mutableState[keyPath: keyPath] = newValue
+            }
+        )
+    }
+
     private static func optionalDoubleBinding(_ state: FASTQOperationDialogState, _ keyPath: WritableKeyPath<FASTQOperationDialogState, Double?>) -> Binding<String> {
         Binding(
             get: { state[keyPath: keyPath].map { String($0) } ?? "" },
@@ -722,6 +746,15 @@ private struct FASTQOperationAdvancedSettingsSection: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lungfishHelp(LungfishHelpContent.fastqAdvancedArguments)
+                    }
+                    .padding(.top, 4)
+                }
+            case .savont:
+                DisclosureGroup("Advanced Options") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        labeledCompactTextField("Min Read Length", text: Self.optionalIntBinding(state, \.savontMinimumReadLength), help: LungfishHelpContent.fastqMinLength)
+                        labeledCompactTextField("Max Read Length", text: Self.optionalIntBinding(state, \.savontMaximumReadLength), help: LungfishHelpContent.fastqMaxLength)
+                        Toggle("Single-strand mode", isOn: $state.savontSingleStrand)
                     }
                     .padding(.top, 4)
                 }
@@ -823,6 +856,7 @@ private struct FASTQOperationAdvancedSettingsSection: View {
             }
         )
     }
+
 }
 
 private extension FASTQOperationOutputMode {
