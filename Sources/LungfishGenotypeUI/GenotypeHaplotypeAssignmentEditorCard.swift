@@ -17,6 +17,35 @@ struct GenotypeHaplotypeAssignmentEditorSlot: Identifiable, Sendable {
     let accessibilityLabel: String
     let clearAccessibilityLabel: String
     let accessibilityIdentifier: String
+    let canRestoreWorkflowCall: Bool
+    let restoreAccessibilityLabel: String?
+    let restoreHelp: String?
+
+    init(
+        address: GenotypeHaplotypeAssignmentEditorAddress,
+        label: String,
+        suggestions: [String],
+        colorTokenIndex: Int?,
+        validationDescription: String?,
+        accessibilityLabel: String,
+        clearAccessibilityLabel: String,
+        accessibilityIdentifier: String,
+        canRestoreWorkflowCall: Bool = false,
+        restoreAccessibilityLabel: String? = nil,
+        restoreHelp: String? = nil
+    ) {
+        self.address = address
+        self.label = label
+        self.suggestions = suggestions
+        self.colorTokenIndex = colorTokenIndex
+        self.validationDescription = validationDescription
+        self.accessibilityLabel = accessibilityLabel
+        self.clearAccessibilityLabel = clearAccessibilityLabel
+        self.accessibilityIdentifier = accessibilityIdentifier
+        self.canRestoreWorkflowCall = canRestoreWorkflowCall
+        self.restoreAccessibilityLabel = restoreAccessibilityLabel
+        self.restoreHelp = restoreHelp
+    }
 
     var id: GenotypeHaplotypeAssignmentEditorAddress { address }
 }
@@ -59,6 +88,7 @@ struct GenotypeHaplotypeAssignmentEditorCard: View {
     let onReload: () -> Void
     let onChange: (GenotypeHaplotypeAssignmentEditorAddress, String) -> Void
     let onClear: (GenotypeHaplotypeAssignmentEditorAddress) -> Void
+    let onRestore: ((GenotypeHaplotypeAssignmentEditorAddress) -> Void)?
     let onCompareAndCopy: (() -> Void)?
 
     private var headingFont: Font {
@@ -255,6 +285,22 @@ struct GenotypeHaplotypeAssignmentEditorCard: View {
                     .accessibilityIdentifier(
                         "\(slot.accessibilityIdentifier)-validation"
                     )
+            }
+
+            if slot.canRestoreWorkflowCall,
+               let onRestore,
+               let restoreAccessibilityLabel =
+                   slot.restoreAccessibilityLabel {
+                Button { onRestore(slot.address) } label: {
+                    Image(systemName: "arrow.uturn.backward.circle")
+                }
+                .buttonStyle(.borderless)
+                .disabled(isReadOnly)
+                .help(slot.restoreHelp ?? restoreAccessibilityLabel)
+                .accessibilityLabel(restoreAccessibilityLabel)
+                .accessibilityIdentifier(
+                    "\(slot.accessibilityIdentifier)-restore"
+                )
             }
 
             Button { onClear(slot.address) } label: {

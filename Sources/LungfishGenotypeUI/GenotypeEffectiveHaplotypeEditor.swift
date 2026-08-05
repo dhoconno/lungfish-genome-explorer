@@ -16,6 +16,8 @@ final class GenotypeEffectiveHaplotypeEditorModel: ObservableObject {
         let sample: String
         let orderedLoci: [String]
         let values: [Address: String]
+        let workflowBaselines: [Address: String]
+        let authoritativeOverrideAddresses: Set<Address>
         let suggestions: [String]
         let isReadOnly: Bool
 
@@ -23,6 +25,8 @@ final class GenotypeEffectiveHaplotypeEditorModel: ObservableObject {
             sample: String,
             orderedLoci: [String],
             values: [Address: String],
+            workflowBaselines: [Address: String] = [:],
+            authoritativeOverrideAddresses: Set<Address> = [],
             suggestions: [String],
             isReadOnly: Bool
         ) {
@@ -32,6 +36,11 @@ final class GenotypeEffectiveHaplotypeEditorModel: ObservableObject {
                 !$0.isEmpty && seenLoci.insert($0).inserted
             }
             self.values = values
+            self.workflowBaselines = workflowBaselines.isEmpty
+                ? values
+                : workflowBaselines
+            self.authoritativeOverrideAddresses =
+                authoritativeOverrideAddresses
             var seenSuggestions = Set<String>()
             self.suggestions = suggestions.filter {
                 !$0.isEmpty && seenSuggestions.insert($0).inserted
@@ -46,6 +55,8 @@ final class GenotypeEffectiveHaplotypeEditorModel: ObservableObject {
         let label: String
         let colorTokenIndex: Int?
         let validationDescription: String?
+        let workflowBaseline: String?
+        let canRestoreWorkflowCall: Bool
 
         var accessibilityIdentifier: String {
             "effective-haplotype-\(locus)-\(slot.rawValue)"
@@ -88,8 +99,10 @@ final class GenotypeEffectiveHaplotypeEditorModel: ObservableObject {
     var assignedSlotCount: Int {
         snapshot.orderedLoci.reduce(into: 0) { count, locus in
             for slot in HaplotypeSlot.allCases {
-                if !(draftValues[Address(locus: locus, slot: slot)] ?? "")
-                    .isEmpty {
+                let value = draftValues[
+                    Address(locus: locus, slot: slot)
+                ] ?? ""
+                if !value.isEmpty, value != "-" {
                     count += 1
                 }
             }
@@ -135,7 +148,19 @@ final class GenotypeEffectiveHaplotypeEditorModel: ObservableObject {
     }
 
     func clear(locus: String, slot: HaplotypeSlot) {
-        updateLabel("", locus: locus, slot: slot)
+        markNotCalled(locus: locus, slot: slot)
+    }
+
+    func markNotCalled(locus: String, slot: HaplotypeSlot) {
+        updateLabel("-", locus: locus, slot: slot)
+    }
+
+    func restoreWorkflowCall(locus: String, slot: HaplotypeSlot) {
+        let address = Address(locus: locus, slot: slot)
+        guard let baseline = snapshot.workflowBaselines[address] else {
+            return
+        }
+        updateLabel(baseline, locus: locus, slot: slot)
     }
 
     func autocompleteSuggestions(matching query: String) -> [String] {
@@ -189,7 +214,7 @@ final class GenotypeEffectiveHaplotypeEditorModel: ObservableObject {
 
     private var validationIssues: [Address: String] {
         Dictionary(uniqueKeysWithValues: draftValues.compactMap { address, value in
-            guard !value.isEmpty else { return nil }
+            guard !value.isEmpty, value != "-" else { return nil }
             do {
                 _ = try GenotypeManualHaplotypeAssignmentInputValidator
                     .validatedLabel(value)
@@ -205,7 +230,13 @@ final class GenotypeEffectiveHaplotypeEditorModel: ObservableObject {
         slot: HaplotypeSlot
     ) -> SlotPresentation {
         let address = Address(locus: locus, slot: slot)
-        let label = draftValues[address] ?? ""
+        let persistedLabel = draftValues[address] ?? ""
+        let label = persistedLabel == "-" ? "" : persistedLabel
+        let baseline = snapshot.workflowBaselines[address]
+        let canRestore = baseline.map {
+            persistedLabel != $0
+                || snapshot.authoritativeOverrideAddresses.contains(address)
+        } ?? false
         return .init(
             locus: locus,
             slot: slot,
@@ -213,7 +244,9 @@ final class GenotypeEffectiveHaplotypeEditorModel: ObservableObject {
             colorTokenIndex: label.isEmpty
                 ? nil
                 : HaplotypeColorToken.assigned(forName: label).canonicalIndex,
-            validationDescription: validationIssues[address]
+            validationDescription: validationIssues[address],
+            workflowBaseline: baseline,
+            canRestoreWorkflowCall: canRestore
         )
     }
 
@@ -262,6 +295,12 @@ struct GenotypeEffectiveHaplotypeEditor: View {
                     slot: address.slot
                 )
             },
+            onRestore: { address in
+                model.restoreWorkflowCall(
+                    locus: address.locus,
+                    slot: address.slot
+                )
+            },
             onCompareAndCopy: nil
         )
     }
@@ -295,8 +334,14 @@ struct GenotypeEffectiveHaplotypeEditor: View {
             validationDescription: slot.validationDescription,
             accessibilityLabel: accessibilityLabel,
             clearAccessibilityLabel:
-                "Clear \(slot.locus) \(slot.slot.displayName) haplotype",
-            accessibilityIdentifier: slot.accessibilityIdentifier
+                "Mark \(slot.locus) \(slot.slot.displayName) not called",
+            accessibilityIdentifier: slot.accessibilityIdentifier,
+            canRestoreWorkflowCall: slot.canRestoreWorkflowCall,
+            restoreAccessibilityLabel:
+                "Restore \(slot.locus) \(slot.slot.displayName) workflow call",
+            restoreHelp: slot.workflowBaseline.map {
+                "Restore workflow call: \($0.isEmpty ? "not called" : $0)"
+            }
         )
     }
 }

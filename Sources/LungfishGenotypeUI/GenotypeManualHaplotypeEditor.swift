@@ -901,6 +901,7 @@ struct GenotypeManualHaplotypeEditor: View {
                 ) else { return }
                 model.clear(locus: locus, slot: address.slot)
             },
+            onRestore: nil,
             onCompareAndCopy: onCompareAndCopy
         )
     }

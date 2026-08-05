@@ -6816,19 +6816,33 @@ public final class GenotypeResultViewController: NSViewController {
         )
         var values:
             [GenotypeEffectiveHaplotypeEditorModel.Address: String] = [:]
+        var workflowBaselines:
+            [GenotypeEffectiveHaplotypeEditorModel.Address: String] = [:]
+        var authoritativeOverrideAddresses = Set<
+            GenotypeEffectiveHaplotypeEditorModel.Address
+        >()
         for locus in loci {
             for slot in HaplotypeSlot.allCases {
                 let address = GenotypeEffectiveHaplotypeEditorModel.Address(
                     locus: locus,
                     slot: slot
                 )
-                values[address] = editableEffectiveHaplotypeLabel(
-                    projection.value(
-                        sample: sample,
-                        locus: locus,
-                        slot: slot
-                    )
+                let value = projection.value(
+                    sample: sample,
+                    locus: locus,
+                    slot: slot
                 )
+                values[address] = editableEffectiveHaplotypeLabel(value)
+                workflowBaselines[address] = editableHaplotypeLabel(
+                    value?.baseline
+                )
+                if projection.authoritativeOverride(
+                    sample: sample,
+                    locus: locus,
+                    slot: slot
+                ) != nil {
+                    authoritativeOverrideAddresses.insert(address)
+                }
             }
         }
         let suggestions = Set(
@@ -6842,6 +6856,8 @@ public final class GenotypeResultViewController: NSViewController {
             sample: sample,
             orderedLoci: loci,
             values: values,
+            workflowBaselines: workflowBaselines,
+            authoritativeOverrideAddresses: authoritativeOverrideAddresses,
             suggestions: suggestions,
             isReadOnly: annotationStore?.isReadOnly ?? true
         )
@@ -6854,7 +6870,11 @@ public final class GenotypeResultViewController: NSViewController {
               value.status == .called || value.status == .specialCase else {
             return ""
         }
-        let label = value.effective.trimmingCharacters(
+        return editableHaplotypeLabel(value.effective)
+    }
+
+    private func editableHaplotypeLabel(_ rawValue: String?) -> String {
+        let label = (rawValue ?? "").trimmingCharacters(
             in: .whitespacesAndNewlines
         )
         guard !label.isEmpty,
@@ -11791,6 +11811,40 @@ extension GenotypeResultViewController {
             locus: locus,
             slot: slot
         )
+    }
+
+    func testingMarkEffectiveHaplotypeNotCalled(
+        locus: String,
+        slot: HaplotypeSlot
+    ) {
+        effectiveHaplotypeEditorModel?.markNotCalled(
+            locus: locus,
+            slot: slot
+        )
+    }
+
+    func testingRestoreEffectiveWorkflowHaplotype(
+        locus: String,
+        slot: HaplotypeSlot
+    ) {
+        effectiveHaplotypeEditorModel?.restoreWorkflowCall(
+            locus: locus,
+            slot: slot
+        )
+    }
+
+    func testingCanRestoreEffectiveWorkflowHaplotype(
+        locus: String,
+        slot: HaplotypeSlot
+    ) -> Bool {
+        guard let row = effectiveHaplotypeEditorModel?.rows.first(where: {
+            $0.locus == locus
+        }) else {
+            return false
+        }
+        return slot == .h1
+            ? row.h1.canRestoreWorkflowCall
+            : row.h2.canRestoreWorkflowCall
     }
 
     func testingSaveEffectiveHaplotypeDraft() {

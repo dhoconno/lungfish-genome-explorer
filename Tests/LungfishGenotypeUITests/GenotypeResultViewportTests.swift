@@ -23599,6 +23599,118 @@ final class GenotypeResultViewportTests: XCTestCase {
         )
     }
 
+    func testHaplotypedMiSeqExplicitNotCalledAndRestoreAffectOnlyOneSlot()
+        throws
+    {
+        let fixture = try makeSynchronizedMiSeqFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: fixture.result)
+        var inspectorNotifications = 0
+        var workbookActions: [GenotypeCurrentWorkbookUIRequest.Action] = []
+        controller.onAnnotationSidecarChanged = { _ in
+            inspectorNotifications += 1
+        }
+        controller.onCurrentWorkbookSyncRequested = {
+            workbookActions.append($0.action)
+        }
+        controller.testingShowMatrixTargetSelection([
+            .column(sample: "Sample-A"),
+        ])
+
+        controller.testingMarkEffectiveHaplotypeNotCalled(
+            locus: "MHC-A",
+            slot: .h1
+        )
+
+        XCTAssertEqual(
+            controller.testingEffectiveHaplotypeEditorValue(
+                locus: "MHC-A",
+                slot: .h1
+            ),
+            ""
+        )
+        XCTAssertEqual(
+            controller.testingEffectiveHaplotypeEditorValue(
+                locus: "MHC-A",
+                slot: .h2
+            ),
+            "A2"
+        )
+        XCTAssertTrue(
+            controller.testingCanRestoreEffectiveWorkflowHaplotype(
+                locus: "MHC-A",
+                slot: .h1
+            )
+        )
+        controller.testingSaveEffectiveHaplotypeDraft()
+
+        XCTAssertEqual(inspectorNotifications, 1)
+        XCTAssertEqual(workbookActions, [.markDirty])
+        XCTAssertEqual(
+            controller.testingComparisonMatrix.testingHaplotypeBandRenderedValue(
+                sample: "Sample-A",
+                locus: "MHC-A"
+            ),
+            "— • A2"
+        )
+        var sidecar = try GenotypeAnnotationSidecar.decode(
+            Data(contentsOf: fixture.bundleURL.appendingPathComponent(
+                GenotypeAnnotationSidecar.filename
+            ))
+        )
+        XCTAssertEqual(sidecar.callOverrides.count, 1)
+        XCTAssertEqual(sidecar.callOverrides[0].slot, .h1)
+        XCTAssertEqual(sidecar.callOverrides[0].overrideCall, "-")
+        XCTAssertEqual(
+            sidecar.auditLog.filter { $0.action == "override" }.count,
+            1
+        )
+
+        controller.testingRestoreEffectiveWorkflowHaplotype(
+            locus: "MHC-A",
+            slot: .h1
+        )
+        controller.testingSaveEffectiveHaplotypeDraft()
+
+        XCTAssertEqual(
+            controller.testingEffectiveHaplotypeEditorValue(
+                locus: "MHC-A",
+                slot: .h1
+            ),
+            "A1"
+        )
+        XCTAssertEqual(
+            controller.testingEffectiveHaplotypeEditorValue(
+                locus: "MHC-A",
+                slot: .h2
+            ),
+            "A2"
+        )
+        XCTAssertEqual(
+            controller.testingComparisonMatrix.testingHaplotypeBandRenderedValue(
+                sample: "Sample-A",
+                locus: "MHC-A"
+            ),
+            "A1 • A2"
+        )
+        XCTAssertEqual(inspectorNotifications, 2)
+        XCTAssertEqual(workbookActions, [.markDirty, .markDirty])
+        sidecar = try GenotypeAnnotationSidecar.decode(
+            Data(contentsOf: fixture.bundleURL.appendingPathComponent(
+                GenotypeAnnotationSidecar.filename
+            ))
+        )
+        XCTAssertTrue(sidecar.callOverrides.isEmpty)
+        XCTAssertEqual(
+            sidecar.auditLog.filter {
+                $0.action == "override" || $0.action == "clearOverride"
+            }.count,
+            2
+        )
+    }
+
     func testHaplotypedMiSeqEditorDraftUsesExistingNavigationSaveGuard()
         async throws
     {

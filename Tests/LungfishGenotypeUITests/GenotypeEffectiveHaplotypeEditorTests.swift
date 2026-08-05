@@ -20,8 +20,54 @@ final class GenotypeEffectiveHaplotypeEditorTests: XCTestCase {
         XCTAssertTrue(model.canSave)
         XCTAssertEqual(model.changedValues, [
             .init(locus: "MHC-A", slot: .h1): "M3A",
-            .init(locus: "MHC-A", slot: .h2): "",
+            .init(locus: "MHC-A", slot: .h2): "-",
         ])
+        XCTAssertEqual(model.rows[0].h2.label, "")
+    }
+
+    func testClearingOneSlotStagesExplicitNotCalledOnlyForThatSlot() {
+        let model = makeModel()
+
+        model.clear(locus: "MHC-A", slot: .h1)
+
+        XCTAssertEqual(model.changedValues, [
+            .init(locus: "MHC-A", slot: .h1): "-",
+        ])
+        XCTAssertEqual(model.rows[0].h1.label, "")
+        XCTAssertEqual(model.rows[0].h2.label, "M4A")
+    }
+
+    func testRestoreStagesWorkflowCallWithoutTouchingPartnerSlot() {
+        let h1 = GenotypeEffectiveHaplotypeEditorModel.Address(
+            locus: "MHC-A",
+            slot: .h1
+        )
+        let h2 = GenotypeEffectiveHaplotypeEditorModel.Address(
+            locus: "MHC-A",
+            slot: .h2
+        )
+        let model = GenotypeEffectiveHaplotypeEditorModel(
+            snapshot: .init(
+                sample: "S1",
+                orderedLoci: ["MHC-A"],
+                values: [h1: "AnalystA", h2: "M4A"],
+                workflowBaselines: [h1: "M2A", h2: "M4A"],
+                authoritativeOverrideAddresses: [h1],
+                suggestions: ["M2A", "M4A", "AnalystA"],
+                isReadOnly: false
+            ),
+            onSave: { _ in throw CocoaError(.fileWriteUnknown) },
+            onReload: { throw CocoaError(.fileReadUnknown) }
+        )
+
+        XCTAssertTrue(model.rows[0].h1.canRestoreWorkflowCall)
+        XCTAssertFalse(model.rows[0].h2.canRestoreWorkflowCall)
+
+        model.restoreWorkflowCall(locus: "MHC-A", slot: .h1)
+
+        XCTAssertEqual(model.changedValues, [h1: "M2A"])
+        XCTAssertEqual(model.rows[0].h1.label, "M2A")
+        XCTAssertEqual(model.rows[0].h2.label, "M4A")
     }
 
     func testValidationAndReadOnlyStatePreventSaving() {
@@ -81,6 +127,25 @@ final class GenotypeEffectiveHaplotypeEditorTests: XCTestCase {
             view.testingSharedAssignmentCardIdentifier,
             "shared-haplotype-assignment-card"
         )
+    }
+
+    func testSharedAssignmentSlotCarriesOptionalWorkflowRestoreMetadata() {
+        let slot = GenotypeHaplotypeAssignmentEditorSlot(
+            address: .init(locus: "MHC-A", slot: .h1),
+            label: "M2A",
+            suggestions: [],
+            colorTokenIndex: nil,
+            validationDescription: nil,
+            accessibilityLabel: "MHC-A H1 haplotype label",
+            clearAccessibilityLabel: "Mark MHC-A H1 not called",
+            accessibilityIdentifier: "effective-haplotype-MHC-A-h1"
+        )
+        let fieldNames = Set(
+            Mirror(reflecting: slot).children.compactMap(\.label)
+        )
+
+        XCTAssertTrue(fieldNames.contains("restoreAccessibilityLabel"))
+        XCTAssertTrue(fieldNames.contains("restoreHelp"))
     }
 
     private func makeModel(
