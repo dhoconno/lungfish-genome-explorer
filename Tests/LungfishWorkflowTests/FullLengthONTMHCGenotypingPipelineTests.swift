@@ -1212,6 +1212,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(value(after: "--bundle", in: step.argv), bundle.path)
         XCTAssertEqual(value(after: "--manifest", in: step.argv), manifestURL.path)
         XCTAssertEqual(values(after: "--payload", in: step.argv), [firstFASTQ.path, secondFASTQ.path])
+        XCTAssertEqual(step.durableReplayArgv, step.argv)
         XCTAssertTrue(try XCTUnwrap(value(after: "--output", in: step.argv)).hasSuffix("/workflow/DL46/00-input.fastq"))
         XCTAssertEqual(step.resolvedOptions["payloadCount"], .integer(2))
         XCTAssertEqual(step.exitStatus, 0)
@@ -1317,6 +1318,86 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         let payloadDescriptor = try XCTUnwrap(result.step.inputs.first { $0.path == payload.path })
         XCTAssertEqual(payloadDescriptor.sourceProvenancePath, payloadProvenance.path)
         for provenanceURL in [rootProvenance, payloadProvenance] {
+            let descriptor = try XCTUnwrap(result.step.inputs.first { $0.path == provenanceURL.path })
+            XCTAssertNotNil(descriptor.checksumSHA256)
+            XCTAssertNotNil(descriptor.fileSize)
+            XCTAssertEqual(descriptor.format, .json)
+        }
+    }
+
+    func testBundleFASTQMaterializationAcceptsProjectLevelImportProvenance() throws {
+        let project = FileManager.default.temporaryDirectory
+            .appendingPathComponent("project-\(UUID().uuidString).lungfish", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: project) }
+        let bundle = project.appendingPathComponent("barcode12.lungfishfastq", isDirectory: true)
+        let payload = bundle.appendingPathComponent("reads.fastq")
+        let metadata = bundle.appendingPathComponent("reads.fastq.lungfish-meta.json")
+        let output = project.appendingPathComponent("materialized.fastq")
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        try "@read\nACGT\n+\nIIII\n".write(to: payload, atomically: true, encoding: .utf8)
+        try "{}\n".write(to: metadata, atomically: true, encoding: .utf8)
+        try FASTQSourceFileManifest(files: [
+            .init(filename: "reads.fastq", originalPath: payload.path, sizeBytes: 20, isSymlink: false),
+        ]).save(to: bundle)
+
+        // A later QC refresh owns the bundle's current provenance but does not produce the
+        // scientific payload. The original import that produced the bundle remains at the
+        // project root, matching the layout used by project-level ONT imports.
+        let qcEnvelope = try ProvenanceRunBuilder(
+            workflowName: "lungfish fastq refresh-qc-summary import",
+            workflowVersion: "test",
+            toolName: "lungfish-cli",
+            toolVersion: "test"
+        )
+        .argv(["lungfish-cli", "fastq", "refresh-qc-summary", bundle.path])
+        .runtime(ProvenanceRuntimeIdentity())
+        .input(payload, format: .fastq, role: .input)
+        .output(metadata, format: .json, role: .output)
+        .complete(
+            exitStatus: 0,
+            startedAt: Date(timeIntervalSince1970: 1),
+            endedAt: Date(timeIntervalSince1970: 2)
+        )
+        let bundleProvenance = bundle.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        try ProvenanceJSON.encoder.encode(qcEnvelope).write(to: bundleProvenance, options: .atomic)
+
+        let importedBundleDescriptor = ProvenanceFileDescriptor(
+            path: bundle.path,
+            format: .unknown,
+            role: .output,
+            sourceProvenancePath: bundleProvenance.path
+        )
+        let importEnvelope = ProvenanceEnvelope(
+            workflowName: "lungfish fastq import-ont",
+            workflowVersion: "test",
+            toolName: "lungfish-cli",
+            toolVersion: "test",
+            argv: ["lungfish-cli", "fastq", "import-ont", "--project", project.path],
+            runtimeIdentity: ProvenanceRuntimeIdentity(),
+            files: [importedBundleDescriptor],
+            output: importedBundleDescriptor,
+            outputs: [importedBundleDescriptor],
+            wallTimeSeconds: 1,
+            exitStatus: 0,
+            stderr: nil
+        )
+        let projectProvenance = project.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        try ProvenanceJSON.encoder.encode(importEnvelope).write(to: projectProvenance, options: .atomic)
+
+        XCTAssertEqual(
+            ProvenanceRecorder.findProvenanceEnvelope(for: payload)?.sidecarURL,
+            projectProvenance
+        )
+
+        let result = try FullLengthONTMHCFASTQMaterializer.materializePlainFASTQ(
+            inputURL: bundle,
+            outputURL: output
+        )
+
+        XCTAssertEqual(try String(contentsOf: output, encoding: .utf8), "@read\nACGT\n+\nIIII\n")
+        let payloadDescriptor = try XCTUnwrap(result.step.inputs.first { $0.path == payload.path })
+        XCTAssertEqual(payloadDescriptor.sourceProvenancePath, projectProvenance.path)
+        for provenanceURL in [bundleProvenance, projectProvenance] {
             let descriptor = try XCTUnwrap(result.step.inputs.first { $0.path == provenanceURL.path })
             XCTAssertNotNil(descriptor.checksumSHA256)
             XCTAssertNotNil(descriptor.fileSize)

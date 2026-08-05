@@ -16,6 +16,10 @@ final class WorkflowLibraryTests: XCTestCase {
 
         XCTAssertEqual(WorkflowLibraryCatalog.item(for: .minimap2)?.requiredPluginPackIDs, ["read-mapping"])
         XCTAssertEqual(WorkflowLibraryCatalog.item(for: .mafft)?.requiredPluginPackIDs, ["multiple-sequence-alignment"])
+        XCTAssertEqual(
+            WorkflowLibraryCatalog.item(for: .savont)?.requiredPluginPackIDs,
+            ["full-length-mhc-genotyping"]
+        )
 
         let coreItems = WorkflowLibraryCatalog.builtIn.filter { $0.maturity == .core }
         XCTAssertFalse(coreItems.isEmpty)
@@ -30,6 +34,29 @@ final class WorkflowLibraryTests: XCTestCase {
         XCTAssertEqual(twelveS.maturity, .specialized)
         XCTAssertEqual(twelveS.categoryID, .genotyping)
         XCTAssertEqual(twelveS.requiredPluginPackIDs, ["lungfish-tools"])
+    }
+
+    func testSavontIsCoreAndRetainsItsManagedRuntimeRequirement() throws {
+        let savont = try XCTUnwrap(WorkflowLibraryCatalog.item(for: .savont))
+        XCTAssertEqual(savont.maturity, .core)
+        XCTAssertEqual(savont.requiredPluginPackIDs, ["full-length-mhc-genotyping"])
+        XCTAssertTrue(WorkflowLibraryEnablementStore(userDefaults: try makeDefaults()).isWorkflowEnabled(.savont))
+    }
+
+    func testStandaloneSavontRemainsVisibleWithExistingWorkflowPreferences() throws {
+        let defaults = try makeDefaults()
+        defaults.set(
+            [FASTQOperationToolID.ontGenotyping.rawValue],
+            forKey: "WorkflowLibrary.enabledWorkflowIDs"
+        )
+        let store = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let state = FASTQOperationDialogState(
+            initialCategory: .clustering,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/barcode12.lungfishfastq")],
+            workflowLibrary: store
+        )
+
+        XCTAssertEqual(state.visibleToolIDs, [.savont, .pbaa])
     }
 
     func testBuiltInCatalogIncludesFullLengthONTMHCGenotypingAsSpecializedWorkflow() throws {

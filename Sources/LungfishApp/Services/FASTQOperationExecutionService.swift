@@ -121,6 +121,34 @@ protocol FASTQOperationDirectImporting: Sendable {
     ) async throws -> [URL]
 }
 
+protocol FASTQOperationSavontRollbackRemoving: Sendable {
+    func removeItem(at url: URL) throws
+}
+
+struct FileManagerFASTQOperationSavontRollbackRemover: FASTQOperationSavontRollbackRemoving {
+    func removeItem(at url: URL) throws {
+        try FileManager.default.removeItem(at: url)
+    }
+}
+
+struct FASTQOperationRollbackRemovalFailure: Sendable, Equatable {
+    let path: URL
+    let message: String
+}
+
+struct FASTQOperationRollbackCleanupError: Error, LocalizedError {
+    let originalError: any Error
+    let retainedPaths: [URL]
+    let removalFailures: [FASTQOperationRollbackRemovalFailure]
+
+    var errorDescription: String? {
+        let retained = retainedPaths.map(\.path).joined(separator: ", ")
+        let failures = removalFailures.map { "\($0.path.path): \($0.message)" }.joined(separator: "; ")
+        return "Savont rollback cleanup failed after \(originalError.localizedDescription). "
+            + "Retained paths: \(retained). Removal failures: \(failures)"
+    }
+}
+
 protocol ReferenceBundleWrapping: Sendable {
     func importReferenceBundle(
         sourceURL: URL,
@@ -151,6 +179,7 @@ enum FASTQOperationExecutionError: Error, LocalizedError {
     case unsupportedDemultiplex(String)
     case unsupportedOrient(String)
     case unsupportedAssembly(String)
+    case invalidSavontOutputName(String)
 
     var errorDescription: String? {
         switch self {
@@ -164,6 +193,8 @@ enum FASTQOperationExecutionError: Error, LocalizedError {
             return "FASTQ orient request is not supported by the CLI builder: \(reason)"
         case .unsupportedAssembly(let reason):
             return "FASTQ assembly request is not supported by the CLI builder: \(reason)"
+        case .invalidSavontOutputName(let reason):
+            return "Savont output name is invalid: \(reason)"
         }
     }
 }
@@ -175,6 +206,7 @@ struct FASTQOperationExecutionService {
     private let planner: FASTQOperationPlanner
     private let invocationBuilder: FASTQOperationCLIInvocationBuilder
     private let stagingCleanup: FASTQOperationStagingCleanup
+    private let savontRollbackRemover: any FASTQOperationSavontRollbackRemoving
 
     init(
         inputResolver: any FASTQOperationInputResolving = FASTQSourceResolverAdapter(),
@@ -182,7 +214,9 @@ struct FASTQOperationExecutionService {
         directImporter: any FASTQOperationDirectImporting = IdentityFASTQOperationImporter(),
         planner: FASTQOperationPlanner = FASTQOperationPlanner(),
         invocationBuilder: FASTQOperationCLIInvocationBuilder = FASTQOperationCLIInvocationBuilder(),
-        stagingCleanup: FASTQOperationStagingCleanup = FASTQOperationStagingCleanup()
+        stagingCleanup: FASTQOperationStagingCleanup = FASTQOperationStagingCleanup(),
+        savontRollbackRemover: any FASTQOperationSavontRollbackRemoving =
+            FileManagerFASTQOperationSavontRollbackRemover()
     ) {
         self.inputResolver = inputResolver
         self.commandRunner = commandRunner
@@ -190,6 +224,7 @@ struct FASTQOperationExecutionService {
         self.planner = planner
         self.invocationBuilder = invocationBuilder
         self.stagingCleanup = stagingCleanup
+        self.savontRollbackRemover = savontRollbackRemover
     }
 
     func execute(
@@ -201,6 +236,7 @@ struct FASTQOperationExecutionService {
 
         let fileManager = FileManager.default
         var failureCleanupCandidates: [URL] = []
+        var freshSavontRollbackCandidates: [URL] = []
         func trackFreshCleanupCandidate(_ url: URL) {
             let standardizedURL = url.standardizedFileURL
             if !fileManager.fileExists(atPath: standardizedURL.path) {
@@ -247,6 +283,12 @@ struct FASTQOperationExecutionService {
                 resolvedRequest: resolvedRequest,
                 baseOutputDirectory: outputDirectory
             )
+            if case .savont = resolvedRequest {
+                freshSavontRollbackCandidates = executionPlans.flatMap { plan in
+                    let output = plan.outputTarget.standardizedFileURL
+                    return [output, ProvenanceRecorder.fileSidecarURL(for: output)]
+                }.filter { !fileManager.fileExists(atPath: $0.path) }
+            }
 
             var invocations: [CLIInvocation] = []
             var outputURLs: [URL] = []
@@ -275,14 +317,25 @@ struct FASTQOperationExecutionService {
                     outputDirectory: executionDirectory,
                     progress: progress
                 )
-                if result.outputURLs.isEmpty {
+                if case .savont = executionPlan.resolvedRequest {
+                    // Savont publishes one FASTA at the exact path reserved by this plan. The
+                    // generic CLI runner also discovers pre-existing FASTQ bundles in the shared
+                    // Analyses directory; those are unrelated inputs or older results and must
+                    // never be attributed to this clustering run.
+                    outputURLs.append(contentsOf: planner.discoverOutputs(
+                        for: executionPlan,
+                        in: executionDirectory
+                    ))
+                } else if result.outputURLs.isEmpty {
                     outputURLs.append(contentsOf: planner.discoverOutputs(for: executionPlan, in: executionDirectory))
                 } else {
                     outputURLs.append(contentsOf: result.outputURLs)
                 }
             }
 
-            if outputURLs.isEmpty {
+            if outputURLs.isEmpty, case .savont = resolvedRequest {
+                // Do not replace a missing planned FASTA with unrelated bundles found beside it.
+            } else if outputURLs.isEmpty {
                 outputURLs = FASTQOperationPlanner.discoverFASTQBundles(in: outputDirectory)
             }
 
@@ -331,8 +384,31 @@ struct FASTQOperationExecutionService {
                 )
             }
         } catch {
+            let originalError = error
+            var rollbackRemovalFailures: [FASTQOperationRollbackRemovalFailure] = []
+            for candidate in freshSavontRollbackCandidates
+                where fileManager.fileExists(atPath: candidate.path) {
+                do {
+                    try savontRollbackRemover.removeItem(at: candidate)
+                } catch {
+                    rollbackRemovalFailures.append(FASTQOperationRollbackRemovalFailure(
+                        path: candidate,
+                        message: error.localizedDescription
+                    ))
+                }
+            }
             stagingCleanup.cleanupFailedRun(candidates: failureCleanupCandidates)
-            throw error
+            let retainedPaths = freshSavontRollbackCandidates.filter {
+                fileManager.fileExists(atPath: $0.path)
+            }
+            if !rollbackRemovalFailures.isEmpty || !retainedPaths.isEmpty {
+                throw FASTQOperationRollbackCleanupError(
+                    originalError: originalError,
+                    retainedPaths: retainedPaths,
+                    removalFailures: rollbackRemovalFailures
+                )
+            }
+            throw originalError
         }
     }
 
@@ -343,6 +419,17 @@ struct FASTQOperationExecutionService {
     private func validatePreResolutionTopologyIfNeeded(
         for request: FASTQOperationLaunchRequest
     ) throws {
+        if case .savont(let savontRequest) = request,
+           savontRequest.inputURLs.count == 1,
+           let outputName = savontRequest.singleInputOutputName,
+           FASTQSavontClusteringRequest.safeSingleInputOutputName(
+                outputName,
+                outputDirectoryURL: savontRequest.outputDirectoryURL
+           ) == nil {
+            throw FASTQOperationExecutionError.invalidSavontOutputName(
+                "use a leaf file name without folders, traversal, or an absolute path."
+            )
+        }
         guard case .assemble(let assemblyRequest, _) = request else { return }
 
         if assemblyRequest.pairedEnd && assemblyRequest.inputURLs.count != 2 {

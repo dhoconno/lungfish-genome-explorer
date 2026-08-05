@@ -4,7 +4,7 @@
 
 import Foundation
 
-enum ProvenanceStderr {
+public enum ProvenanceStderr {
     static let maxLength = 10_240
     static let truncationMarker = "\n... [truncated]"
 
@@ -18,7 +18,7 @@ enum ProvenanceStderr {
         return String(stderr.prefix(maxLength)) + truncationMarker
     }
 
-    static func normalized(_ stderr: String?) -> String? {
+    public static func normalized(_ stderr: String?) -> String? {
         guard let stderr = truncated(stderr) else {
             return nil
         }

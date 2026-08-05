@@ -60,6 +60,20 @@ final class FASTQOperationToolPanesSourceTests: XCTestCase {
         }
     }
 
+    func testSavontPaneExposesCuratedPrimaryAndAdvancedControlsWithoutRawArguments() throws {
+        let source = try String(contentsOf: toolPanesSourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("case .savont:"))
+        XCTAssertTrue(source.contains("\\.savontSingleInputOutputName"))
+        XCTAssertTrue(source.contains("\\.savontThreads"))
+        XCTAssertTrue(source.contains("\\.savontQualityValueCutoff"))
+        XCTAssertTrue(source.contains("\\.savontMinimumClusterSize"))
+        XCTAssertTrue(source.contains("\\.savontMinimumReadLength"))
+        XCTAssertTrue(source.contains("\\.savontMaximumReadLength"))
+        XCTAssertTrue(source.contains("$state.savontSingleStrand"))
+        XCTAssertFalse(source.contains("savontExtraArguments"))
+    }
+
     func testFASTQImportSheetUsesSpecificHelpInventory() throws {
         let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         let source = try String(

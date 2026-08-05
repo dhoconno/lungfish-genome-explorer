@@ -29,6 +29,10 @@ struct FASTQOperationPlanner: Sendable {
             return workingDirectory
         }
 
+        if case .savont = request {
+            return workingDirectory
+        }
+
         if case .pbaa = request {
             return workingDirectory.appendingPathComponent(
                 "cli-output-pbaa-\(UUID().uuidString)",
@@ -56,7 +60,7 @@ func outputMode(for request: FASTQOperationLaunchRequest) -> FASTQOperationOutpu
         return outputMode
     case .classify:
         return .fixedBatch
-    case .pbaa:
+    case .savont, .pbaa:
         return .perInput
     case .ontGenotyping:
         return .fixedBatch
@@ -82,11 +86,21 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
         resolvedRequest: FASTQOperationLaunchRequest,
         baseOutputDirectory: URL
     ) -> [FASTQOperationPlan] {
+        if case .savont(let request) = originalRequest,
+           request.inputURLs.count == 1,
+           let outputName = request.singleInputOutputName,
+           FASTQSavontClusteringRequest.safeSingleInputOutputName(
+                outputName,
+                outputDirectoryURL: request.outputDirectoryURL
+           ) == nil {
+            return []
+        }
         let requestPairs = splitExecutionRequestsIfNeeded(
             originalRequest: originalRequest,
             resolvedRequest: resolvedRequest
         )
 
+        var reservedOutputPaths = Set<String>()
         return requestPairs.map { pair in
             let outputKind = executionOutputKind(for: pair.original)
             let parentDirectory = outputParentDirectory(
@@ -100,9 +114,15 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
             case .directory:
                 outputTarget = parentDirectory
             case .fastqFile:
-                outputTarget = parentDirectory.appendingPathComponent(
+                let requestedTarget = parentDirectory.appendingPathComponent(
                     defaultFASTQOutputFilename(for: pair.original)
                 )
+                outputTarget = isSavontRequest(pair.original)
+                    ? collisionSafeOutputURL(
+                        requestedTarget,
+                        reservedOutputPaths: &reservedOutputPaths
+                    )
+                    : requestedTarget
             case .jsonReport:
                 outputTarget = parentDirectory.appendingPathComponent("qc-summary.json")
             }
@@ -334,6 +354,40 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
                 )
             }
 
+        case (
+            .savont(let originalSavontRequest),
+            .savont(let resolvedSavontRequest)
+        )
+            where originalSavontRequest.inputURLs.count > 1 &&
+                  originalSavontRequest.inputURLs.count == resolvedSavontRequest.inputURLs.count:
+            return zip(originalSavontRequest.inputURLs, resolvedSavontRequest.inputURLs).map {
+                originalInputURL, resolvedInputURL in
+                (
+                    .savont(request: FASTQSavontClusteringRequest(
+                        inputURLs: [originalInputURL],
+                        outputDirectoryURL: originalSavontRequest.outputDirectoryURL,
+                        singleInputOutputName: nil,
+                        threads: originalSavontRequest.threads,
+                        qualityValueCutoff: originalSavontRequest.qualityValueCutoff,
+                        minimumClusterSize: originalSavontRequest.minimumClusterSize,
+                        minimumReadLength: originalSavontRequest.minimumReadLength,
+                        maximumReadLength: originalSavontRequest.maximumReadLength,
+                        singleStrand: originalSavontRequest.singleStrand
+                    )),
+                    .savont(request: FASTQSavontClusteringRequest(
+                        inputURLs: [resolvedInputURL],
+                        outputDirectoryURL: resolvedSavontRequest.outputDirectoryURL,
+                        singleInputOutputName: nil,
+                        threads: resolvedSavontRequest.threads,
+                        qualityValueCutoff: resolvedSavontRequest.qualityValueCutoff,
+                        minimumClusterSize: resolvedSavontRequest.minimumClusterSize,
+                        minimumReadLength: resolvedSavontRequest.minimumReadLength,
+                        maximumReadLength: resolvedSavontRequest.maximumReadLength,
+                        singleStrand: resolvedSavontRequest.singleStrand
+                    ))
+                )
+            }
+
         default:
             return [(originalRequest, resolvedRequest)]
         }
@@ -345,6 +399,8 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
             return .jsonReport
         case .derivative(let derivativeRequest, _, _):
             return derivativeRequest.usesDirectoryOutput ? .directory : .fastqFile
+        case .savont:
+            return .fastqFile
         case .ontFluidigmSampleSplit, .ontPacBioBarcodeDemux, .map, .assemble, .classify, .pbaa, .ontGenotyping:
             return .directory
         }
@@ -355,6 +411,9 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
         baseOutputDirectory: URL,
         totalRequestCount: Int
     ) -> URL {
+        if isSavontRequest(request) {
+            return baseOutputDirectory
+        }
         guard totalRequestCount > 1 else {
             return baseOutputDirectory
         }
@@ -372,9 +431,53 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
                 return "\(derivativeRequest.operationKindString).fasta"
             }
             return "\(derivativeRequest.operationKindString).fastq"
+        case .savont(let savontRequest):
+            let baseName = FASTQSavontClusteringRequest.safeSingleInputOutputName(
+                savontRequest.singleInputOutputName,
+                outputDirectoryURL: savontRequest.outputDirectoryURL
+            )
+                ?? savontRequest.inputURLs.first.map(FASTQSavontClusteringRequest.defaultOutputBaseName(for:))
+                ?? "savont-clusters"
+            return baseName.lowercased().hasSuffix(".fasta")
+                ? baseName
+                : "\(baseName).fasta"
         default:
             return "output.fastq"
         }
+    }
+
+    private func isSavontRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
+        if case .savont = request { return true }
+        return false
+    }
+
+    private func collisionSafeOutputURL(
+        _ requestedURL: URL,
+        reservedOutputPaths: inout Set<String>
+    ) -> URL {
+        let fileManager = FileManager.default
+        let parent = requestedURL.deletingLastPathComponent()
+        let pathExtension = requestedURL.pathExtension
+        let baseName = requestedURL.deletingPathExtension().lastPathComponent
+        var candidate = requestedURL
+        var counter = 2
+        while fileManager.fileExists(atPath: candidate.path)
+            || fileManager.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: candidate).path)
+            || reservedOutputPaths.contains(caseFoldedReservationKey(for: candidate)) {
+            let filename = pathExtension.isEmpty
+                ? "\(baseName)-\(counter)"
+                : "\(baseName)-\(counter).\(pathExtension)"
+            candidate = parent.appendingPathComponent(filename)
+            counter += 1
+        }
+        reservedOutputPaths.insert(caseFoldedReservationKey(for: candidate))
+        return candidate
+    }
+
+    private func caseFoldedReservationKey(for url: URL) -> String {
+        url.standardizedFileURL.path
+            .precomposedStringWithCanonicalMapping
+            .lowercased()
     }
 
     private func groupedEnvelope(_ envelope: ProvenanceEnvelope, matches outputPayloadURLs: [URL]) -> Bool {
@@ -536,6 +639,8 @@ extension FASTQOperationLaunchRequest {
             return request.inputURLs
         case .classify(_, let inputURLs, _, _):
             return inputURLs
+        case .savont(let request):
+            return request.inputURLs
         case .pbaa(let request):
             return [request.inputFASTQURL]
         case .ontGenotyping(let request):
@@ -611,6 +716,18 @@ extension FASTQOperationLaunchRequest {
             return .assemble(request: request.replacingInputURLs(with: inputURLs), outputMode: outputMode)
         case .classify(let tool, _, let databaseName, let extraArguments):
             return .classify(tool: tool, inputURLs: inputURLs, databaseName: databaseName, extraArguments: extraArguments)
+        case .savont(let request):
+            return .savont(request: FASTQSavontClusteringRequest(
+                inputURLs: inputURLs,
+                outputDirectoryURL: request.outputDirectoryURL,
+                singleInputOutputName: request.singleInputOutputName,
+                threads: request.threads,
+                qualityValueCutoff: request.qualityValueCutoff,
+                minimumClusterSize: request.minimumClusterSize,
+                minimumReadLength: request.minimumReadLength,
+                maximumReadLength: request.maximumReadLength,
+                singleStrand: request.singleStrand
+            ))
         case .pbaa(let request):
             guard let inputURL = inputURLs.first,
                   let updatedRequest = try? PBAAClusteringRunRequest(
@@ -674,6 +791,8 @@ extension FASTQOperationLaunchRequest {
             return request.tool.displayName
         case .classify(let tool, _, _, _):
             return tool.title
+        case .savont:
+            return "Savont Clustering"
         case .pbaa:
             return "pbAA Amplicon Clustering"
         case .ontGenotyping:
@@ -697,6 +816,8 @@ extension FASTQOperationLaunchRequest {
             return "assembly"
         case .classify:
             return "classification"
+        case .savont:
+            return "savontClustering"
         case .pbaa:
             return "pbaaClustering"
         case .ontGenotyping:
@@ -746,6 +867,23 @@ extension FASTQOperationLaunchRequest {
             var params = ["database": databaseName]
             if !extraArguments.isEmpty {
                 params["extraArgs"] = AdvancedCommandLineOptions.join(extraArguments)
+            }
+            return params
+        case .savont(let request):
+            var params = [
+                "threads": String(request.threads),
+                "qualityValueCutoff": String(request.qualityValueCutoff),
+                "minimumClusterSize": String(request.minimumClusterSize),
+                "singleStrand": String(request.singleStrand),
+            ]
+            if let requestOutputName = request.singleInputOutputName {
+                params["outputName"] = requestOutputName
+            }
+            if let minimumReadLength = request.minimumReadLength {
+                params["minimumReadLength"] = String(minimumReadLength)
+            }
+            if let maximumReadLength = request.maximumReadLength {
+                params["maximumReadLength"] = String(maximumReadLength)
             }
             return params
         case .pbaa(let request):
@@ -831,6 +969,8 @@ extension FASTQOperationLaunchRequest {
             return "assembly-\(request.tool.rawValue)"
         case .classify(let tool, _, _, _):
             return tool.title.lowercased()
+        case .savont:
+            return "savont-clusters"
         case .pbaa:
             return "pbaa"
         case .ontGenotyping(let request):
@@ -840,7 +980,7 @@ extension FASTQOperationLaunchRequest {
 
     var requiresSingleResolvedFASTQPerInput: Bool {
         switch self {
-        case .refreshQCSummary, .derivative, .pbaa:
+        case .refreshQCSummary, .derivative, .savont, .pbaa:
             return true
         case .ontFluidigmSampleSplit, .ontPacBioBarcodeDemux, .map, .assemble, .classify, .ontGenotyping:
             return false
@@ -868,6 +1008,9 @@ extension FASTQOperationLaunchRequest {
     }
 
     var resolvesInputsBeforeCLI: Bool {
+        if case .savont = self {
+            return false
+        }
         if case .assemble = self {
             return false
         }
@@ -893,7 +1036,7 @@ extension FASTQOperationLaunchRequest {
             default:
                 return false
             }
-        case .ontFluidigmSampleSplit, .ontPacBioBarcodeDemux, .map, .assemble, .pbaa, .ontGenotyping:
+        case .ontFluidigmSampleSplit, .ontPacBioBarcodeDemux, .map, .assemble, .savont, .pbaa, .ontGenotyping:
             return false
         }
     }

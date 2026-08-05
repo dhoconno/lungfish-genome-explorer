@@ -57,22 +57,21 @@ enum FullLengthONTMHCSavontRunSupport {
         attemptedSingleStrand: Bool,
         stderr: String
     ) -> FullLengthONTMHCSavontRetryDecision {
-        if isLowBidirectionalSNPmerFailure(exitCode: exitCode, stderr: stderr) {
-            return attemptedSingleStrand ? .emptyClusters : .singleStrand
-        }
-        let retryableCrashStatuses: Set<Int32> = [
-            -11,
-            11,
-            134,
-            136,
-            137,
-            138,
-            139,
-        ]
-        if attemptedThreads > 1 && retryableCrashStatuses.contains(exitCode) {
+        switch SavontRetryPolicy.decision(
+            exitCode: exitCode,
+            attemptedThreads: attemptedThreads,
+            attemptedSingleStrand: attemptedSingleStrand,
+            stderr: stderr
+        ) {
+        case .none:
+            return .none
+        case .singleThread:
             return .singleThread
+        case .singleStrand:
+            return .singleStrand
+        case .emptyClusters:
+            return .emptyClusters
         }
-        return .none
     }
 
     static func materializeCompletedRawOutput(from scratchRawOutputDirectory: URL, to finalRawOutputDirectory: URL) throws {
@@ -126,13 +125,11 @@ enum FullLengthONTMHCSavontRunSupport {
         attemptedSingleStrand: Bool,
         stderr: String
     ) -> Bool {
-        attemptedSingleStrand && isLowBidirectionalSNPmerFailure(exitCode: exitCode, stderr: stderr)
-    }
-
-    private static func isLowBidirectionalSNPmerFailure(exitCode: Int32, stderr: String) -> Bool {
-        guard exitCode != 0 else { return false }
-        let normalized = stderr.lowercased()
-        return normalized.contains("less than 0.1% of snpmers")
-            && normalized.contains("--single-strand")
+        SavontRetryPolicy.decision(
+            exitCode: exitCode,
+            attemptedThreads: 1,
+            attemptedSingleStrand: attemptedSingleStrand,
+            stderr: stderr
+        ) == .emptyClusters
     }
 }

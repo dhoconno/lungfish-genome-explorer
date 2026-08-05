@@ -1,0 +1,4 @@
+interface:
+  display_name: "Release Lungfish"
+  short_description: "Build and publish verified Lungfish releases"
+  default_prompt: "Use $releasing-lungfish to prepare, publish, and verify the next Lungfish release."

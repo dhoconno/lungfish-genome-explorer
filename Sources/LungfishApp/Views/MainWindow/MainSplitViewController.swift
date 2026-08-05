@@ -24,6 +24,43 @@ internal func mainSplitPerformOnMainRunLoop(_ block: @escaping @MainActor @Senda
 }
 
 extension FASTQOperationLaunchRequest {
+    func independentSavontLaunchRequests(
+        outputDirectory: URL,
+        planner: FASTQOperationPlanner = FASTQOperationPlanner()
+    ) -> [FASTQOperationLaunchRequest] {
+        guard case .savont(let batchRequest) = self,
+              batchRequest.inputURLs.count > 1 else {
+            return [self]
+        }
+
+        return planner.makeExecutionPlans(
+            originalRequest: self,
+            resolvedRequest: self,
+            baseOutputDirectory: outputDirectory
+        ).compactMap { plan in
+            guard case .savont(let singleRequest) = plan.originalRequest else { return nil }
+            return .savont(request: FASTQSavontClusteringRequest(
+                inputURLs: singleRequest.inputURLs,
+                outputDirectoryURL: outputDirectory,
+                singleInputOutputName: plan.outputTarget.lastPathComponent,
+                threads: singleRequest.threads,
+                qualityValueCutoff: singleRequest.qualityValueCutoff,
+                minimumClusterSize: singleRequest.minimumClusterSize,
+                minimumReadLength: singleRequest.minimumReadLength,
+                maximumReadLength: singleRequest.maximumReadLength,
+                singleStrand: singleRequest.singleStrand
+            ))
+        }
+    }
+
+    var independentOperationInputDisplayName: String? {
+        guard case .savont(let request) = self,
+              request.inputURLs.count == 1 else {
+            return nil
+        }
+        return request.inputURLs[0].lastPathComponent
+    }
+
     var primaryInputURL: URL? {
         switch self {
         case .refreshQCSummary(let inputURLs):
@@ -39,6 +76,8 @@ extension FASTQOperationLaunchRequest {
             return request.inputURLs.first
         case .classify(_, let inputURLs, _, _):
             return inputURLs.first
+        case .savont(let request):
+            return request.inputURLs.first
         case .pbaa(let request):
             return request.inputFASTQURL
         case .ontGenotyping(let request):
@@ -60,7 +99,7 @@ extension FASTQOperationLaunchRequest {
             return outputMode
         case .classify:
             return .fixedBatch
-        case .pbaa:
+        case .savont, .pbaa:
             return .perInput
         case .ontGenotyping:
             return .fixedBatch
@@ -96,6 +135,8 @@ extension FASTQOperationLaunchRequest {
             return request.tool.displayName
         case .classify(let tool, _, _, _):
             return tool.title
+        case .savont:
+            return "Savont Clustering"
         case .pbaa:
             return "pbAA Amplicon Clustering"
         case .ontGenotyping:

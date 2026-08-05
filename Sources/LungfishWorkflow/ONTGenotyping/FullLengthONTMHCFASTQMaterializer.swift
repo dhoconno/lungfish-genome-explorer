@@ -48,6 +48,8 @@ enum FullLengthONTMHCFASTQMaterializer {
         inputURL: URL,
         outputURL: URL,
         logicalOutputURL: URL? = nil,
+        internalCommandName: String = "materialize-full-length-mhc-fastq",
+        recordsDurableReplayArgv: Bool = true,
         beforePayloadRead: ((URL) throws -> Void)? = nil,
         afterFirstSourceChunkRead: ((URL) throws -> Void)? = nil
     ) throws -> FullLengthONTMHCFASTQMaterializationResult {
@@ -56,7 +58,7 @@ enum FullLengthONTMHCFASTQMaterializer {
         let input = try validatedInput(for: inputURL)
         let logicalOutputURL = (logicalOutputURL ?? outputURL).standardizedFileURL
         var argv = [
-            "lungfish-internal", "materialize-full-length-mhc-fastq",
+            "lungfish-internal", internalCommandName,
         ]
         if let bundleURL = input.bundleURL {
             argv += ["--bundle", bundleURL.path]
@@ -125,6 +127,10 @@ enum FullLengthONTMHCFASTQMaterializer {
             }
             try output.synchronize()
             try Task.checkCancellation()
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o400],
+                ofItemAtPath: outputURL.path
+            )
             let outputFingerprint = try fingerprintRegularFile(
                 outputURL,
                 trustedRootURL: outputURL.deletingLastPathComponent(),
@@ -144,10 +150,10 @@ enum FullLengthONTMHCFASTQMaterializer {
             return FullLengthONTMHCFASTQMaterializationResult(
                 outputURL: outputURL.standardizedFileURL,
                 step: ProvenanceStep(
-                    toolName: "lungfish-internal materialize-full-length-mhc-fastq",
+                    toolName: "lungfish-internal \(internalCommandName)",
                     toolVersion: WorkflowRun.currentAppVersion,
                     argv: argv,
-                    durableReplayArgv: argv,
+                    durableReplayArgv: recordsDurableReplayArgv ? argv : nil,
                     reproducibleCommand: argv.map(shellEscape).joined(separator: " "),
                     resolvedOptions: [
                         "inputKind": .string(input.bundleURL == nil ? "plain-fastq" : "lungfishfastq-bundle"),
@@ -242,7 +248,10 @@ enum FullLengthONTMHCFASTQMaterializer {
             for provenanceURL in provenanceURLs where seenProvenance.insert(provenanceURL.path).inserted {
                 let fingerprint = try fingerprintRegularFile(
                     provenanceURL,
-                    trustedRootURL: standardized,
+                    trustedRootURL: provenanceTrustedRoot(
+                        for: provenanceURL,
+                        bundleURL: standardized
+                    ),
                     role: "FASTQ upstream provenance"
                 )
                 metadataDescriptors.append(ProvenanceFileDescriptor(
@@ -299,6 +308,38 @@ enum FullLengthONTMHCFASTQMaterializer {
 
     private static func sourceProvenanceURL(for url: URL) -> URL? {
         ProvenanceRecorder.findProvenanceEnvelope(for: url)?.sidecarURL.standardizedFileURL
+    }
+
+    /// Scientific payloads and manifests must remain inside the selected FASTQ bundle. An ONT
+    /// project import can, however, record the bundle-producing provenance in the enclosing
+    /// `.lungfish` project. `findProvenanceEnvelope` has already verified that the ancestor
+    /// envelope produced the selected payload or bundle; this helper permits only that canonical
+    /// project-root sidecar and keeps all other external provenance paths on the bundle boundary,
+    /// where the no-follow file opener rejects them.
+    private static func provenanceTrustedRoot(
+        for provenanceURL: URL,
+        bundleURL: URL
+    ) -> URL {
+        let provenance = provenanceURL.standardizedFileURL
+        let bundle = bundleURL.standardizedFileURL
+        if isStrictDescendant(provenance, of: bundle) {
+            return bundle
+        }
+
+        let project = provenance.deletingLastPathComponent().standardizedFileURL
+        guard provenance.lastPathComponent == ProvenanceWriter.provenanceFilename,
+              project.pathExtension.lowercased() == "lungfish",
+              isStrictDescendant(bundle, of: project) else {
+            return bundle
+        }
+        return project
+    }
+
+    private static func isStrictDescendant(_ candidateURL: URL, of rootURL: URL) -> Bool {
+        let candidateComponents = candidateURL.standardizedFileURL.pathComponents
+        let rootComponents = rootURL.standardizedFileURL.pathComponents
+        return candidateComponents.count > rootComponents.count
+            && Array(candidateComponents.prefix(rootComponents.count)) == rootComponents
     }
 
     private static func snapshotPayload(

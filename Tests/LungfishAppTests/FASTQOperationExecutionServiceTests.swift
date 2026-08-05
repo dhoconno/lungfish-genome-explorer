@@ -206,6 +206,992 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(invocation.arguments[outputDirIndex + 1], "/tmp/run-scoped")
     }
 
+    func testSavontPlannerSplitsInputsIntoCollisionSafeFASTAPlans() throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecSavontPlans")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let existingOutput = tempDir.appendingPathComponent("sample-savont-clusters.fasta")
+        try ">existing\nACGT\n".write(to: existingOutput, atomically: true, encoding: .utf8)
+        let originalInputs = [
+            URL(fileURLWithPath: "/tmp/a/sample.fastq.gz"),
+            URL(fileURLWithPath: "/tmp/b/sample.lungfishfastq", isDirectory: true),
+        ]
+        let resolvedInputs = [
+            URL(fileURLWithPath: "/tmp/materialized/a.fastq"),
+            URL(fileURLWithPath: "/tmp/materialized/b.fastq"),
+        ]
+        let originalRequest = FASTQOperationLaunchRequest.savont(request: FASTQSavontClusteringRequest(
+            inputURLs: originalInputs,
+            outputDirectoryURL: tempDir,
+            singleInputOutputName: nil,
+            threads: 8,
+            qualityValueCutoff: 90,
+            minimumClusterSize: 3,
+            minimumReadLength: nil,
+            maximumReadLength: nil,
+            singleStrand: false
+        ))
+        let resolvedRequest = originalRequest.replacingInputURLs(with: resolvedInputs)
+
+        let plans = FASTQOperationPlanner().makeExecutionPlans(
+            originalRequest: originalRequest,
+            resolvedRequest: resolvedRequest,
+            baseOutputDirectory: tempDir
+        )
+
+        XCTAssertEqual(plans.count, 2)
+        XCTAssertEqual(plans.map(\.originalRequest.inputURLs), originalInputs.map { [$0] })
+        XCTAssertEqual(plans.map(\.resolvedRequest.inputURLs), resolvedInputs.map { [$0] })
+        XCTAssertEqual(plans.map(\.outputKind), [.fastqFile, .fastqFile])
+        XCTAssertEqual(plans.map(\.outputTarget.lastPathComponent), [
+            "sample-savont-clusters-2.fasta",
+            "sample-savont-clusters-3.fasta",
+        ])
+        XCTAssertTrue(plans.allSatisfy { $0.outputTarget.deletingLastPathComponent() == tempDir })
+    }
+
+    func testSavontPlannerReservesCaseInsensitiveOutputPathsAcrossBatch() throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecSavontCaseCollision")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let inputs = [
+            URL(fileURLWithPath: "/tmp/a/Sample.fastq"),
+            URL(fileURLWithPath: "/tmp/b/sample.fastq"),
+        ]
+        let request = FASTQOperationLaunchRequest.savont(request: FASTQSavontClusteringRequest(
+            inputURLs: inputs,
+            outputDirectoryURL: tempDir,
+            singleInputOutputName: nil,
+            threads: 8,
+            qualityValueCutoff: 90,
+            minimumClusterSize: 3,
+            minimumReadLength: nil,
+            maximumReadLength: nil,
+            singleStrand: false
+        ))
+
+        let plans = FASTQOperationPlanner().makeExecutionPlans(
+            originalRequest: request,
+            resolvedRequest: request,
+            baseOutputDirectory: tempDir
+        )
+
+        XCTAssertEqual(plans.map(\.outputTarget.lastPathComponent), [
+            "Sample-savont-clusters.fasta",
+            "sample-savont-clusters-2.fasta",
+        ])
+        XCTAssertEqual(Set(plans.map { $0.outputTarget.path.lowercased() }).count, 2)
+    }
+
+    func testSavontPlannerKeepsUnsafeCustomOutputNamesInsideOutputDirectory() throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecSavontUnsafeName")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        for unsafeName in ["../outside.fasta", "nested/name", "/tmp/absolute.fasta"] {
+            let request = FASTQOperationLaunchRequest.savont(request: FASTQSavontClusteringRequest(
+                inputURLs: [URL(fileURLWithPath: "/tmp/reads.fastq")],
+                outputDirectoryURL: tempDir,
+                singleInputOutputName: unsafeName,
+                threads: 4,
+                qualityValueCutoff: 90,
+                minimumClusterSize: 3,
+                minimumReadLength: nil,
+                maximumReadLength: nil,
+                singleStrand: false
+            ))
+
+            let plans = FASTQOperationPlanner().makeExecutionPlans(
+                originalRequest: request,
+                resolvedRequest: request,
+                baseOutputDirectory: tempDir
+            )
+
+            XCTAssertTrue(plans.isEmpty)
+        }
+    }
+
+    func testSavontExecutionRejectsUnsafeCustomOutputNameBeforeLaunchingCLI() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecSavontRejectUnsafeName")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let input = tempDir.appendingPathComponent("reads.fastq")
+        try "@read\nACGT\n+\nIIII\n".write(to: input, atomically: true, encoding: .utf8)
+        let request = FASTQOperationLaunchRequest.savont(request: FASTQSavontClusteringRequest(
+            inputURLs: [input],
+            outputDirectoryURL: tempDir,
+            singleInputOutputName: "../outside.fasta",
+            threads: 4,
+            qualityValueCutoff: 90,
+            minimumClusterSize: 3,
+            minimumReadLength: nil,
+            maximumReadLength: nil,
+            singleStrand: false
+        ))
+        let runner = SpyCommandRunner()
+        let service = FASTQOperationExecutionService(
+            commandRunner: runner,
+            directImporter: SpyDirectImporter()
+        )
+
+        do {
+            _ = try await service.execute(request: request, workingDirectory: tempDir)
+            XCTFail("Expected unsafe Savont output name to be rejected")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("Savont output name"))
+        }
+
+        XCTAssertTrue(runner.invocations.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: tempDir.deletingLastPathComponent().appendingPathComponent("outside.fasta").path
+        ))
+    }
+
+    func testSavontPlannerPreservesSafeCustomFastaExtensionAndAddsDefaultExtension() throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecSavontSafeName")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        for (name, expectedFilename) in [
+            ("curated", "curated.fasta"),
+            ("curated.fasta", "curated.fasta"),
+        ] {
+            let request = FASTQOperationLaunchRequest.savont(request: FASTQSavontClusteringRequest(
+                inputURLs: [URL(fileURLWithPath: "/tmp/reads.fastq")],
+                outputDirectoryURL: tempDir,
+                singleInputOutputName: name,
+                threads: 4,
+                qualityValueCutoff: 90,
+                minimumClusterSize: 3,
+                minimumReadLength: nil,
+                maximumReadLength: nil,
+                singleStrand: false
+            ))
+
+            let plan = try XCTUnwrap(FASTQOperationPlanner().makeExecutionPlans(
+                originalRequest: request,
+                resolvedRequest: request,
+                baseOutputDirectory: tempDir
+            ).first)
+            XCTAssertEqual(plan.outputTarget.lastPathComponent, expectedFilename)
+        }
+    }
+
+    func testSavontPlannerAvoidsTargetWithPreexistingCanonicalSidecar() throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecSavontSidecarCollision")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let requestedOutput = tempDir.appendingPathComponent("reads-savont-clusters.fasta")
+        try Data("preexisting provenance\n".utf8).write(
+            to: ProvenanceRecorder.fileSidecarURL(for: requestedOutput)
+        )
+        let request = FASTQOperationLaunchRequest.savont(request: FASTQSavontClusteringRequest(
+            inputURLs: [URL(fileURLWithPath: "/tmp/reads.fastq")],
+            outputDirectoryURL: tempDir,
+            singleInputOutputName: nil,
+            threads: 4,
+            qualityValueCutoff: 90,
+            minimumClusterSize: 3,
+            minimumReadLength: nil,
+            maximumReadLength: nil,
+            singleStrand: false
+        ))
+
+        let plan = try XCTUnwrap(FASTQOperationPlanner().makeExecutionPlans(
+            originalRequest: request,
+            resolvedRequest: request,
+            baseOutputDirectory: tempDir
+        ).first)
+
+        XCTAssertEqual(plan.outputTarget.lastPathComponent, "reads-savont-clusters-2.fasta")
+    }
+
+    func testSavontInvocationUsesCuratedOptionsAndOmitsUnsetLengthBounds() throws {
+        let request = FASTQSavontClusteringRequest(
+            inputURLs: [URL(fileURLWithPath: "/tmp/reads.fastq.gz")],
+            outputDirectoryURL: URL(fileURLWithPath: "/tmp/out", isDirectory: true),
+            singleInputOutputName: "curated",
+            threads: 6,
+            qualityValueCutoff: 92,
+            minimumClusterSize: 5,
+            minimumReadLength: nil,
+            maximumReadLength: nil,
+            singleStrand: false
+        )
+
+        let invocation = try FASTQOperationCLIInvocationBuilder().buildInvocation(
+            for: .savont(request: request),
+            outputTargetPath: "/tmp/out/curated.fasta"
+        )
+
+        XCTAssertEqual(invocation.subcommand, "fastq")
+        XCTAssertEqual(invocation.arguments, [
+            "savont-cluster", "/tmp/reads.fastq.gz",
+            "--output", "/tmp/out/curated.fasta",
+            "--threads", "6",
+            "--quality-value-cutoff", "92",
+            "--min-cluster-size", "5",
+        ])
+        XCTAssertFalse(invocation.arguments.contains("--extra-args"))
+        XCTAssertFalse(invocation.arguments.contains("--min-read-length"))
+        XCTAssertFalse(invocation.arguments.contains("--max-read-length"))
+    }
+
+    func testSavontInvocationIncludesExplicitAdvancedOptions() throws {
+        let request = FASTQSavontClusteringRequest(
+            inputURLs: [URL(fileURLWithPath: "/tmp/reads.fastq")],
+            outputDirectoryURL: URL(fileURLWithPath: "/tmp/out", isDirectory: true),
+            singleInputOutputName: nil,
+            threads: 2,
+            qualityValueCutoff: 90,
+            minimumClusterSize: 3,
+            minimumReadLength: 400,
+            maximumReadLength: 2_000,
+            singleStrand: true
+        )
+
+        let arguments = try FASTQOperationCLIInvocationBuilder().buildInvocation(
+            for: .savont(request: request),
+            outputTargetPath: "/tmp/out/clusters.fasta"
+        ).arguments
+
+        XCTAssertTrue(arguments.contains("--min-read-length"))
+        XCTAssertTrue(arguments.contains("400"))
+        XCTAssertTrue(arguments.contains("--max-read-length"))
+        XCTAssertTrue(arguments.contains("2000"))
+        XCTAssertTrue(arguments.contains("--single-strand"))
+    }
+
+    func testSavontPlannerDiscoversFinalFASTAAtExactTarget() throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecSavontDiscover")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let output = tempDir.appendingPathComponent("reads-savont-clusters.fasta")
+        try ">cluster_ReadCount-3\nACGT\n".write(to: output, atomically: true, encoding: .utf8)
+        let request = FASTQOperationLaunchRequest.savont(request: FASTQSavontClusteringRequest(
+            inputURLs: [URL(fileURLWithPath: "/tmp/reads.fastq")],
+            outputDirectoryURL: tempDir,
+            singleInputOutputName: nil,
+            threads: 4,
+            qualityValueCutoff: 90,
+            minimumClusterSize: 3,
+            minimumReadLength: nil,
+            maximumReadLength: nil,
+            singleStrand: false
+        ))
+        let plan = FASTQOperationPlan(
+            originalRequest: request,
+            resolvedRequest: request,
+            outputTarget: output,
+            outputKind: .fastqFile
+        )
+
+        XCTAssertEqual(FASTQOperationPlanner().discoverOutputs(for: plan, in: tempDir), [output])
+    }
+
+    func testSavontExecutionRunsOneCLIInvocationAndImportsOneFASTAForEachInput() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecSavontFanout")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let inputs = [
+            tempDir.appendingPathComponent("barcode01.fastq"),
+            tempDir.appendingPathComponent("barcode02.fastq"),
+        ]
+        for input in inputs {
+            try "@read\nACGT\n+\nIIII\n".write(to: input, atomically: true, encoding: .utf8)
+        }
+        let request = FASTQOperationLaunchRequest.savont(request: FASTQSavontClusteringRequest(
+            inputURLs: inputs,
+            outputDirectoryURL: tempDir,
+            singleInputOutputName: nil,
+            threads: 4,
+            qualityValueCutoff: 90,
+            minimumClusterSize: 3,
+            minimumReadLength: nil,
+            maximumReadLength: nil,
+            singleStrand: false
+        ))
+        let service = FASTQOperationExecutionService(
+            commandRunner: PipelineBackedSavontCommandRunner(),
+            directImporter: BundleFASTQOperationImporter(destinationDirectory: tempDir)
+        )
+
+        let result = try await service.execute(request: request, workingDirectory: tempDir)
+
+        XCTAssertEqual(result.executedInvocations.count, 2)
+        XCTAssertEqual(result.executedInvocations.map { Array($0.arguments.prefix(2)) }, [
+            ["savont-cluster", inputs[0].path],
+            ["savont-cluster", inputs[1].path],
+        ])
+        XCTAssertEqual(result.importedURLs.map(\.lastPathComponent), [
+            "barcode01-savont-clusters.fasta",
+            "barcode02-savont-clusters.fasta",
+        ])
+        for output in result.importedURLs {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: output.path))
+            XCTAssertTrue(FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: output).path))
+        }
+    }
+
+    func testSavontExecutionIgnoresUnrelatedBundlesInSharedAnalysesDirectory() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecSavontSharedAnalyses")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let input = tempDir.appendingPathComponent("barcode12.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: input, withIntermediateDirectories: true)
+        try "@read\nACGT\n+\nIIII\n".write(
+            to: input.appendingPathComponent("reads.fastq"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let unrelatedBundles = [
+            tempDir.appendingPathComponent("older-subsample-1.lungfishfastq", isDirectory: true),
+            tempDir.appendingPathComponent("older-subsample-2.lungfishfastq", isDirectory: true),
+        ]
+        for bundle in unrelatedBundles {
+            try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        }
+        let request = FASTQOperationLaunchRequest.savont(request: FASTQSavontClusteringRequest(
+            inputURLs: [input],
+            outputDirectoryURL: tempDir,
+            singleInputOutputName: nil,
+            threads: 4,
+            qualityValueCutoff: 90,
+            minimumClusterSize: 3,
+            minimumReadLength: nil,
+            maximumReadLength: nil,
+            singleStrand: false
+        ))
+        let service = FASTQOperationExecutionService(
+            commandRunner: ContaminatedSavontDiscoveryCommandRunner(unrelatedOutputs: unrelatedBundles),
+            directImporter: BundleFASTQOperationImporter(destinationDirectory: tempDir)
+        )
+
+        let result = try await service.execute(request: request, workingDirectory: tempDir)
+
+        XCTAssertEqual(result.importedURLs.map(\.lastPathComponent), ["barcode12-savont-clusters.fasta"])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.importedURLs[0].path))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: ProvenanceRecorder.fileSidecarURL(for: result.importedURLs[0]).path
+        ))
+    }
+
+    func testSavontIndependentLaunchRequestsCreateOneReservedRequestPerInput() throws {
+        let fixture = try makeSavontFanoutExecutionFixture(prefix: "FASTQExecSavontIndependentPlans")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        let requests = fixture.request.independentSavontLaunchRequests(
+            outputDirectory: fixture.directory
+        )
+
+        XCTAssertEqual(requests.count, fixture.inputs.count)
+        XCTAssertEqual(requests.map(\.inputURLs), fixture.inputs.map { [$0] })
+        XCTAssertEqual(requests.compactMap { request -> String? in
+            guard case .savont(let savontRequest) = request else { return nil }
+            return savontRequest.singleInputOutputName
+        }, [
+            "barcode01-savont-clusters.fasta",
+            "barcode02-savont-clusters.fasta",
+        ])
+    }
+
+    func testSavontIndependentLaunchFailurePreservesEarlierSuccessfulOutput() async throws {
+        let fixture = try makeSavontFanoutExecutionFixture(prefix: "FASTQExecSavontIndependentFailure")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let requests = fixture.request.independentSavontLaunchRequests(
+            outputDirectory: fixture.directory
+        )
+        let service = FASTQOperationExecutionService(
+            commandRunner: FailSecondSavontCommandRunner(),
+            directImporter: BundleFASTQOperationImporter(destinationDirectory: fixture.directory)
+        )
+
+        let firstResult = try await service.execute(
+            request: try XCTUnwrap(requests.first),
+            workingDirectory: fixture.directory
+        )
+        let firstOutput = try XCTUnwrap(firstResult.importedURLs.first)
+
+        do {
+            _ = try await service.execute(
+                request: try XCTUnwrap(requests.last),
+                workingDirectory: fixture.directory
+            )
+            XCTFail("Expected the later independent Savont launch to fail")
+        } catch SavontRollbackTestError.expectedFailure {
+            // Expected.
+        }
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: firstOutput.path))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: ProvenanceRecorder.fileSidecarURL(for: firstOutput).path
+        ))
+    }
+
+    func testSavontExecutionRollsBackFirstOutputWhenSecondInvocationFails() async throws {
+        let fixture = try makeSavontFanoutExecutionFixture(prefix: "FASTQExecSavontSecondFailure")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let expectedOutputs = fixture.inputs.map {
+            fixture.directory.appendingPathComponent(FASTQSavontClusteringRequest.defaultOutputBaseName(for: $0))
+                .appendingPathExtension("fasta")
+        }
+        let service = FASTQOperationExecutionService(
+            commandRunner: FailSecondSavontCommandRunner(),
+            directImporter: BundleFASTQOperationImporter(destinationDirectory: fixture.directory)
+        )
+
+        do {
+            _ = try await service.execute(request: fixture.request, workingDirectory: fixture.directory)
+            XCTFail("Expected the second Savont invocation to fail")
+        } catch SavontRollbackTestError.expectedFailure {
+            // Expected.
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        for output in expectedOutputs {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: output).path))
+        }
+    }
+
+    func testSavontExecutionReportsRollbackCleanupFailureWithoutMaskingOriginalError() async throws {
+        let fixture = try makeSavontFanoutExecutionFixture(prefix: "FASTQExecSavontCleanupFailure")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let retainedOutput = fixture.directory
+            .appendingPathComponent(FASTQSavontClusteringRequest.defaultOutputBaseName(for: fixture.inputs[0]))
+            .appendingPathExtension("fasta")
+            .standardizedFileURL
+        let service = FASTQOperationExecutionService(
+            commandRunner: FailSecondSavontCommandRunner(),
+            directImporter: BundleFASTQOperationImporter(destinationDirectory: fixture.directory),
+            savontRollbackRemover: FailingSavontRollbackRemover(blockedURL: retainedOutput)
+        )
+
+        do {
+            _ = try await service.execute(request: fixture.request, workingDirectory: fixture.directory)
+            XCTFail("Expected Savont rollback cleanup to fail")
+        } catch let cleanupError as FASTQOperationRollbackCleanupError {
+            XCTAssertNotNil(cleanupError.originalError as? SavontRollbackTestError)
+            XCTAssertEqual(cleanupError.retainedPaths, [retainedOutput])
+            XCTAssertEqual(cleanupError.removalFailures.map(\.path), [retainedOutput])
+            XCTAssertTrue(cleanupError.removalFailures[0].message.contains("injected cleanup failure"))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: retainedOutput.path))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: ProvenanceRecorder.fileSidecarURL(for: retainedOutput).path
+        ))
+    }
+
+    func testSavontExecutionRollsBackAllOutputsWhenImporterRejectsPublishedProvenance() async throws {
+        let fixture = try makeSavontFanoutExecutionFixture(prefix: "FASTQExecSavontImportRollback")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let expectedOutputs = fixture.inputs.map {
+            fixture.directory.appendingPathComponent(FASTQSavontClusteringRequest.defaultOutputBaseName(for: $0))
+                .appendingPathExtension("fasta")
+        }
+        let service = FASTQOperationExecutionService(
+            commandRunner: InvalidSecondProvenanceSavontCommandRunner(),
+            directImporter: BundleFASTQOperationImporter(destinationDirectory: fixture.directory)
+        )
+
+        do {
+            _ = try await service.execute(request: fixture.request, workingDirectory: fixture.directory)
+            XCTFail("Expected Savont provenance import to fail")
+        } catch ProvenanceRehydrationError.missingSourceProvenance {
+            // Expected.
+        }
+
+        for output in expectedOutputs {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: output).path))
+        }
+    }
+
+    func testSavontExecutionFailurePreservesPreexistingOutputAndSidecar() async throws {
+        let fixture = try makeSavontFanoutExecutionFixture(
+            prefix: "FASTQExecSavontPreserveExisting",
+            inputNames: ["sample.fastq", "other.fastq"]
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let preexistingOutput = fixture.directory.appendingPathComponent("sample-savont-clusters.fasta")
+        let preexistingSidecar = ProvenanceRecorder.fileSidecarURL(for: preexistingOutput)
+        let outputBytes = Data(">preexisting\nTGCA\n".utf8)
+        let sidecarBytes = Data("preexisting provenance\n".utf8)
+        try outputBytes.write(to: preexistingOutput)
+        try sidecarBytes.write(to: preexistingSidecar)
+        let freshFirstOutput = fixture.directory.appendingPathComponent("sample-savont-clusters-2.fasta")
+        let service = FASTQOperationExecutionService(
+            commandRunner: FailSecondSavontCommandRunner(),
+            directImporter: BundleFASTQOperationImporter(destinationDirectory: fixture.directory)
+        )
+
+        do {
+            _ = try await service.execute(request: fixture.request, workingDirectory: fixture.directory)
+            XCTFail("Expected the second Savont invocation to fail")
+        } catch SavontRollbackTestError.expectedFailure {
+            // Expected.
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        XCTAssertEqual(try Data(contentsOf: preexistingOutput), outputBytes)
+        XCTAssertEqual(try Data(contentsOf: preexistingSidecar), sidecarBytes)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: freshFirstOutput.path))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: ProvenanceRecorder.fileSidecarURL(for: freshFirstOutput).path
+        ))
+    }
+
+    func testSavontImporterPreservesValidCanonicalSidecar() async throws {
+        let fixture = try await makePipelineSavontImportFixture(prefix: "FASTQExecSavontImport")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let sidecar = ProvenanceRecorder.fileSidecarURL(for: fixture.output)
+        let sidecarBeforeImport = try Data(contentsOf: sidecar)
+        let importer = BundleFASTQOperationImporter(destinationDirectory: fixture.directory)
+
+        let imported = try await importer.importOutputs(
+            at: [fixture.output],
+            forResolvedRequest: fixture.request,
+            originalRequest: fixture.request,
+            outputDirectory: fixture.directory
+        )
+
+        XCTAssertEqual(imported, [fixture.output])
+        XCTAssertEqual(try Data(contentsOf: sidecar), sidecarBeforeImport)
+    }
+
+    func testSavontImporterAcceptsCanonicalTruncatedTopLevelStderr() async throws {
+        let processStderr = String(repeating: "Savont progress update\n", count: 800)
+        let fixture = try await makePipelineSavontImportFixture(
+            prefix: "FASTQExecSavontTruncatedStderr",
+            processStderr: processStderr
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let sidecar = ProvenanceRecorder.fileSidecarURL(for: fixture.output)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(fromSidecar: sidecar))
+        let attemptStderr = try XCTUnwrap(
+            envelope.steps.first(where: { $0.toolName == "savont" })?.stderr
+        )
+        let summaryStderr = try XCTUnwrap(envelope.stderr)
+        XCTAssertEqual(attemptStderr, processStderr)
+        XCTAssertLessThan(summaryStderr.count, attemptStderr.count)
+        XCTAssertTrue(summaryStderr.hasSuffix("... [truncated]"))
+
+        let importer = BundleFASTQOperationImporter(destinationDirectory: fixture.directory)
+        let imported = try await importer.importOutputs(
+            at: [fixture.output],
+            forResolvedRequest: fixture.request,
+            originalRequest: fixture.request,
+            outputDirectory: fixture.directory
+        )
+
+        XCTAssertEqual(imported, [fixture.output])
+    }
+
+    func testSavontImporterRejectsMismatchedDurableThreads() async throws {
+        try await assertMutatedPipelineSavontImportRejected(prefix: "FASTQExecSavontThreads") { envelope, _ in
+            copiedSavontEnvelope(envelope, durableReplayArgv: replacingArgument(
+                "--threads",
+                with: "9",
+                in: envelope.durableReplayArgv ?? []
+            ))
+        }
+    }
+
+    func testSavontImporterRejectsMismatchedDurableQualityValueCutoff() async throws {
+        try await assertMutatedPipelineSavontImportRejected(prefix: "FASTQExecSavontQV") { envelope, _ in
+            copiedSavontEnvelope(envelope, durableReplayArgv: replacingArgument(
+                "--quality-value-cutoff",
+                with: "92",
+                in: envelope.durableReplayArgv ?? []
+            ))
+        }
+    }
+
+    func testSavontImporterRejectsMismatchedDurableLengthBounds() async throws {
+        try await assertMutatedPipelineSavontImportRejected(prefix: "FASTQExecSavontBounds") { envelope, _ in
+            copiedSavontEnvelope(envelope, durableReplayArgv: replacingArgument(
+                "--min-read-length",
+                with: "4",
+                in: envelope.durableReplayArgv ?? []
+            ))
+        }
+    }
+
+    func testSavontImporterRejectsMismatchedDurableInput() async throws {
+        try await assertMutatedPipelineSavontImportRejected(prefix: "FASTQExecSavontDurableInput") { envelope, _ in
+            var durableReplayArgv = envelope.durableReplayArgv ?? []
+            if let subcommandIndex = durableReplayArgv.firstIndex(of: "savont-cluster"),
+               durableReplayArgv.indices.contains(subcommandIndex + 1) {
+                durableReplayArgv[subcommandIndex + 1] = "/tmp/unrelated.fastq"
+            }
+            return copiedSavontEnvelope(envelope, durableReplayArgv: durableReplayArgv)
+        }
+    }
+
+    func testSavontImporterRejectsMismatchedRuntimeIdentity() async throws {
+        try await assertMutatedPipelineSavontImportRejected(prefix: "FASTQExecSavontRuntime") { envelope, _ in
+            copiedSavontEnvelope(
+                envelope,
+                runtimeIdentity: ProvenanceRuntimeIdentity(
+                    executablePath: "/managed/micromamba",
+                    condaEnvironment: "unrelated",
+                    condaPrefix: "/managed/conda/envs/unrelated"
+                )
+            )
+        }
+    }
+
+    func testSavontImporterRejectsMismatchedToolVersion() async throws {
+        try await assertMutatedPipelineSavontImportRejected(prefix: "FASTQExecSavontToolVersion") { envelope, _ in
+            copiedSavontEnvelope(envelope, toolVersion: "99.0.0")
+        }
+    }
+
+    func testSavontImporterRejectsMismatchedWorkflowVersion() async throws {
+        try await assertMutatedPipelineSavontImportRejected(prefix: "FASTQExecSavontWorkflowVersion") { envelope, _ in
+            copiedSavontEnvelope(envelope, workflowVersion: "99.0.0")
+        }
+    }
+
+    func testSavontImporterRejectsMismatchedTopLevelArgv() async throws {
+        try await assertMutatedPipelineSavontImportRejected(prefix: "FASTQExecSavontTopArgv") { envelope, _ in
+            copiedSavontEnvelope(
+                envelope,
+                argv: replacingArgument("--threads", with: "9", in: envelope.argv)
+            )
+        }
+    }
+
+    func testSavontImporterRejectsMismatchedReproducibleCommand() async throws {
+        try await assertMutatedPipelineSavontImportRejected(prefix: "FASTQExecSavontCommand") { envelope, _ in
+            copiedSavontEnvelope(envelope, reproducibleCommand: "lungfish-cli fastq unrelated")
+        }
+    }
+
+    func testSavontImporterRejectsMismatchedAttemptArgv() async throws {
+        try await assertMutatedPipelineSavontImportRejected(prefix: "FASTQExecSavontAttemptArgv") { envelope, _ in
+            copiedSavontEnvelope(envelope, steps: replacingFirstSavontStep(in: envelope) { step in
+                copiedSavontStep(step, argv: replacingArgument("-t", with: "9", in: step.argv))
+            })
+        }
+    }
+
+    func testSavontImporterRejectsAttemptArgvWithUnmanagedPrefix() async throws {
+        try await assertMutatedPipelineSavontImportRejected(prefix: "FASTQExecSavontAttemptPrefix") { envelope, _ in
+            copiedSavontEnvelope(envelope, steps: replacingFirstSavontStep(in: envelope) { step in
+                guard let asvIndex = step.argv.lastIndex(of: "asv") else { return step }
+                let argv = ["/bin/echo", "unmanaged", "savont"] + Array(step.argv[asvIndex...])
+                return copiedSavontStep(
+                    step,
+                    argv: argv,
+                    reproducibleCommand: argv.map(shellEscape).joined(separator: " ")
+                )
+            })
+        }
+    }
+
+    func testSavontImporterRejectsMismatchedAttemptScientificOptions() async throws {
+        try await assertMutatedPipelineSavontImportRejected(prefix: "FASTQExecSavontAttemptOptions") { envelope, _ in
+            copiedSavontEnvelope(envelope, steps: replacingFirstSavontStep(in: envelope) { step in
+                var options = step.resolvedOptions
+                options["qualityValueCutoff"] = .integer(92)
+                return copiedSavontStep(step, resolvedOptions: options)
+            })
+        }
+    }
+
+    func testSavontImporterRejectsMismatchedAttemptRuntime() async throws {
+        try await assertMutatedPipelineSavontImportRejected(prefix: "FASTQExecSavontAttemptRuntime") { envelope, _ in
+            copiedSavontEnvelope(envelope, steps: replacingFirstSavontStep(in: envelope) { step in
+                copiedSavontStep(
+                    step,
+                    runtimeIdentity: ProvenanceRuntimeIdentity(
+                        executablePath: "/managed/micromamba",
+                        condaEnvironment: "unrelated",
+                        condaPrefix: "/managed/conda/envs/unrelated"
+                    )
+                )
+            })
+        }
+    }
+
+    func testSavontImporterRejectsAttemptRuntimeWithUnmanagedCondaPrefix() async throws {
+        try await assertMutatedPipelineSavontImportRejected(prefix: "FASTQExecSavontAttemptCondaPrefix") {
+            envelope, _ in
+            copiedSavontEnvelope(envelope, steps: replacingFirstSavontStep(in: envelope) { step in
+                guard let runtime = step.runtimeIdentity else { return step }
+                return copiedSavontStep(
+                    step,
+                    runtimeIdentity: ProvenanceRuntimeIdentity(
+                        appVersion: runtime.appVersion,
+                        executablePath: runtime.executablePath,
+                        processIdentifier: runtime.processIdentifier,
+                        operatingSystemVersion: runtime.operatingSystemVersion,
+                        architecture: runtime.architecture,
+                        gitRevision: runtime.gitRevision,
+                        user: runtime.user,
+                        condaEnvironment: SavontClusteringRunRequest.condaEnvironment,
+                        condaPrefix: "/managed/conda/envs/unrelated"
+                    )
+                )
+            })
+        }
+    }
+
+    func testSavontImporterRejectsInternallyConsistentUnmanagedAttemptRuntime() async throws {
+        try await assertMutatedPipelineSavontImportRejected(prefix: "FASTQExecSavontUnmanagedRuntimeRoot") {
+            envelope, _ in
+            copiedSavontEnvelope(envelope, steps: replacingFirstSavontStep(in: envelope) { step in
+                guard let runtime = step.runtimeIdentity else { return step }
+                let argv = ["/bin/echo"] + step.argv.dropFirst()
+                return copiedSavontStep(
+                    step,
+                    argv: argv,
+                    reproducibleCommand: argv.map(shellEscape).joined(separator: " "),
+                    runtimeIdentity: ProvenanceRuntimeIdentity(
+                        appVersion: runtime.appVersion,
+                        executablePath: "/bin/echo",
+                        processIdentifier: runtime.processIdentifier,
+                        operatingSystemVersion: runtime.operatingSystemVersion,
+                        architecture: runtime.architecture,
+                        gitRevision: runtime.gitRevision,
+                        user: runtime.user,
+                        condaEnvironment: SavontClusteringRunRequest.condaEnvironment,
+                        condaPrefix: "/tmp/envs/savont"
+                    )
+                )
+            })
+        }
+    }
+
+    func testSavontImporterRejectsMismatchedAttemptInput() async throws {
+        try await assertMutatedPipelineSavontImportRejected(prefix: "FASTQExecSavontAttemptInput") { envelope, _ in
+            copiedSavontEnvelope(envelope, steps: replacingFirstSavontStep(in: envelope) { step in
+                copiedSavontStep(step, inputs: [])
+            })
+        }
+    }
+
+    func testSavontImporterRejectsAttemptOutputStatusInconsistency() async throws {
+        try await assertMutatedPipelineSavontImportRejected(prefix: "FASTQExecSavontAttemptStatus") { envelope, _ in
+            copiedSavontEnvelope(envelope, steps: replacingFirstSavontStep(in: envelope) { step in
+                copiedSavontStep(step, exitStatus: 1)
+            })
+        }
+    }
+
+    func testSavontImporterAcceptsDocumentedRepeatedLowSNPmerEmptyFallback() async throws {
+        let fixture = try await makeEmptyFallbackSavontImportFixture(prefix: "FASTQExecSavontEmptyFallback")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let importer = BundleFASTQOperationImporter(destinationDirectory: fixture.directory)
+
+        let imported = try await importer.importOutputs(
+            at: [fixture.output],
+            forResolvedRequest: fixture.request,
+            originalRequest: fixture.request,
+            outputDirectory: fixture.directory
+        )
+
+        XCTAssertEqual(imported, [fixture.output])
+        XCTAssertEqual(try Data(contentsOf: fixture.output), Data())
+    }
+
+    func testSavontImporterRejectsInvalidEmptyFallbackFailurePattern() async throws {
+        let fixture = try await makeEmptyFallbackSavontImportFixture(prefix: "FASTQExecSavontBadFallback")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let sidecar = ProvenanceRecorder.fileSidecarURL(for: fixture.output)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(fromSidecar: sidecar))
+        var steps = envelope.steps
+        let lastAttemptIndex = try XCTUnwrap(steps.lastIndex { $0.toolName == "savont" })
+        steps[lastAttemptIndex] = copiedSavontStep(steps[lastAttemptIndex], stderr: "unrelated failure")
+        try ProvenanceWriter(signingProvider: nil).write(
+            copiedSavontEnvelope(envelope, steps: steps),
+            toSidecar: sidecar
+        )
+
+        await assertSavontImportRejected(fixture)
+    }
+
+    func testSavontImporterRejectsMismatchedScientificOptions() async throws {
+        try await assertMutatedPipelineSavontImportRejected(prefix: "FASTQExecSavontOptions") { envelope, _ in
+            var explicit = envelope.options.explicit
+            explicit["minimumClusterSize"] = .integer(99)
+            return copiedSavontEnvelope(
+                envelope,
+                options: ProvenanceOptions(
+                    explicit: explicit,
+                    defaults: envelope.options.defaults,
+                    resolvedDefaults: envelope.options.resolvedDefaults
+                )
+            )
+        }
+    }
+
+    func testSavontImporterRejectsMissingDurableInputDescriptor() async throws {
+        try await assertMutatedPipelineSavontImportRejected(prefix: "FASTQExecSavontInput") { envelope, fixture in
+            copiedSavontEnvelope(
+                envelope,
+                files: envelope.files.filter {
+                    URL(fileURLWithPath: $0.path).standardizedFileURL != fixture.input.standardizedFileURL
+                }
+            )
+        }
+    }
+
+    func testSavontImporterRejectsMissingCanonicalSidecar() async throws {
+        let fixture = try makeSavontImportFixture(prefix: "FASTQExecSavontMissingProvenance")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let importer = BundleFASTQOperationImporter(destinationDirectory: fixture.directory)
+
+        do {
+            _ = try await importer.importOutputs(
+                at: [fixture.output],
+                forResolvedRequest: fixture.request,
+                originalRequest: fixture.request,
+                outputDirectory: fixture.directory
+            )
+            XCTFail("Expected missing Savont provenance to block import")
+        } catch ProvenanceRehydrationError.missingSourceProvenance {
+            // Expected.
+        }
+    }
+
+    func testSavontImporterRejectsStaleOutputChecksum() async throws {
+        let fixture = try await makePipelineSavontImportFixture(prefix: "FASTQExecSavontStaleProvenance")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        try ">cluster_ReadCount-3\nTGCA\n".write(
+            to: fixture.output,
+            atomically: true,
+            encoding: .utf8
+        )
+
+        await assertSavontImportRejected(fixture)
+    }
+
+    func testSavontImporterRejectsStaleOutputSize() async throws {
+        let fixture = try await makePipelineSavontImportFixture(prefix: "FASTQExecSavontStaleSize")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let sidecar = ProvenanceRecorder.fileSidecarURL(for: fixture.output)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(fromSidecar: sidecar))
+        let actualDescriptor = try XCTUnwrap(envelope.output)
+        let staleDescriptor = ProvenanceFileDescriptor(
+            path: actualDescriptor.path,
+            checksumSHA256: actualDescriptor.checksumSHA256,
+            fileSize: try ProvenanceFileHasher.fileSize(of: fixture.output) + 1,
+            format: .fasta,
+            role: .output
+        )
+        try ProvenanceWriter(signingProvider: nil).write(
+            copiedSavontEnvelope(
+                envelope,
+                output: staleDescriptor,
+                outputs: envelope.outputs.map { descriptor in
+                    descriptor.path == actualDescriptor.path ? staleDescriptor : descriptor
+                }
+            ),
+            toSidecar: sidecar
+        )
+
+        await assertSavontImportRejected(fixture)
+    }
+
+    func testSavontImporterRejectsUnrelatedSuccessfulProvenanceNamingSameOutput() async throws {
+        let fixture = try makeSavontImportFixture(prefix: "FASTQExecSavontUnrelatedProvenance")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let command = ["lungfish-cli", "fastq", "qc-summary", fixture.input.path, "--output", fixture.output.path]
+        try writeSyntheticProvenance(
+            to: fixture.directory,
+            name: "lungfish fastq qc-summary",
+            toolName: "lungfish fastq qc-summary",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: command,
+            durableReplayArgv: command,
+            inputURL: fixture.input,
+            outputURL: fixture.output,
+            format: .fasta,
+            sidecarURL: ProvenanceRecorder.fileSidecarURL(for: fixture.output)
+        )
+
+        await assertSavontImportRejected(fixture)
+    }
+
+    func testSavontImporterRejectsIncompleteOutputIntegrityDescriptor() async throws {
+        let fixture = try makeSavontImportFixture(prefix: "FASTQExecSavontIncompleteProvenance")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let command = fixture.savontCommand
+        let descriptor = ProvenanceFileDescriptor(
+            path: fixture.output.path,
+            format: .fasta,
+            role: .output
+        )
+        let envelope = ProvenanceEnvelope(
+            workflowName: "lungfish fastq savont-cluster",
+            workflowVersion: SavontClusteringRunRequest.workflowVersion,
+            toolName: "savont",
+            toolVersion: SavontClusteringRunRequest.toolVersion,
+            argv: command,
+            durableReplayArgv: command,
+            runtimeIdentity: ProvenanceRuntimeIdentity.fixture(),
+            output: descriptor,
+            outputs: [descriptor],
+            exitStatus: 0
+        )
+        try ProvenanceWriter(signingProvider: nil).write(
+            envelope,
+            toSidecar: ProvenanceRecorder.fileSidecarURL(for: fixture.output)
+        )
+
+        await assertSavontImportRejected(fixture)
+    }
+
+    func testSavontImporterRejectsFailedSavontEnvelope() async throws {
+        let fixture = try makeSavontImportFixture(prefix: "FASTQExecSavontFailedProvenance")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let descriptor = try ProvenanceFileDescriptor.file(
+            url: fixture.output,
+            format: .fasta,
+            role: .output
+        )
+        let envelope = ProvenanceEnvelope(
+            workflowName: "lungfish fastq savont-cluster",
+            workflowVersion: SavontClusteringRunRequest.workflowVersion,
+            toolName: "savont",
+            toolVersion: SavontClusteringRunRequest.toolVersion,
+            argv: fixture.savontCommand,
+            durableReplayArgv: fixture.savontCommand,
+            runtimeIdentity: ProvenanceRuntimeIdentity.fixture(),
+            output: descriptor,
+            outputs: [descriptor],
+            exitStatus: 1
+        )
+        try ProvenanceWriter(signingProvider: nil).write(
+            envelope,
+            toSidecar: ProvenanceRecorder.fileSidecarURL(for: fixture.output)
+        )
+
+        await assertSavontImportRejected(fixture)
+    }
+
+    func testSavontManifestMetadataIncludesResolvedScientificOptions() {
+        let request = FASTQOperationLaunchRequest.savont(request: FASTQSavontClusteringRequest(
+            inputURLs: [URL(fileURLWithPath: "/tmp/reads.fastq")],
+            outputDirectoryURL: URL(fileURLWithPath: "/tmp/out", isDirectory: true),
+            singleInputOutputName: "curated",
+            threads: 4,
+            qualityValueCutoff: 93,
+            minimumClusterSize: 7,
+            minimumReadLength: 500,
+            maximumReadLength: nil,
+            singleStrand: true
+        ))
+
+        XCTAssertEqual(request.batchManifestLabel, "Savont Clustering")
+        XCTAssertEqual(request.batchManifestOperationKind, "savontClustering")
+        XCTAssertEqual(request.batchManifestParameters["outputName"], "curated")
+        XCTAssertEqual(request.batchManifestParameters["qualityValueCutoff"], "93")
+        XCTAssertEqual(request.batchManifestParameters["minimumClusterSize"], "7")
+        XCTAssertEqual(request.batchManifestParameters["minimumReadLength"], "500")
+        XCTAssertNil(request.batchManifestParameters["maximumReadLength"])
+        XCTAssertEqual(request.batchManifestParameters["singleStrand"], "true")
+    }
+
     func testReferencePrimerRemovalInvocationUsesCutadaptLinkedPairs() throws {
         let request = FASTQOperationLaunchRequest.derivative(
             request: .primerRemoval(configuration: FASTQPrimerTrimConfiguration(
@@ -3319,6 +4305,488 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         )
 
         XCTAssertEqual(runner.invocations.count, 1)
+    }
+}
+
+private struct SavontImportFixture {
+    let directory: URL
+    let input: URL
+    let output: URL
+    let request: FASTQOperationLaunchRequest
+
+    var savontCommand: [String] {
+        ["lungfish-cli", "fastq", "savont-cluster", input.path, "--output", output.path]
+    }
+}
+
+private struct SuccessfulSavontFixtureProcessRunner: SavontProcessRunning {
+    private static let runtime = ProvenanceRuntimeIdentity(
+        appVersion: "test-app",
+        executablePath: "/managed/conda/bin/micromamba",
+        processIdentifier: 123,
+        operatingSystemVersion: "test-os",
+        architecture: "arm64",
+        gitRevision: "fixture",
+        user: "tester",
+        condaEnvironment: SavontClusteringRunRequest.condaEnvironment,
+        condaPrefix: "/managed/conda/envs/savont"
+    )
+
+    let stderr: String
+
+    init(stderr: String = "") {
+        self.stderr = stderr
+    }
+
+    func run(arguments: [String], workingDirectory: URL) async throws -> SavontProcessResult {
+        try ">cluster_depth_5\nACGT\n".write(
+            to: workingDirectory.appendingPathComponent("final_asvs.fasta"),
+            atomically: true,
+            encoding: .utf8
+        )
+        return SavontProcessResult(
+            exitCode: 0,
+            stdout: "ok",
+            stderr: stderr,
+            argv: ["/managed/conda/bin/micromamba", "run", "-n", "savont", "savont"] + arguments,
+            runtimeIdentity: Self.runtime,
+            startedAt: Date(timeIntervalSince1970: 10),
+            completedAt: Date(timeIntervalSince1970: 11)
+        )
+    }
+}
+
+private struct EmptyFallbackSavontFixtureProcessRunner: SavontProcessRunning {
+    func run(arguments: [String], workingDirectory: URL) async throws -> SavontProcessResult {
+        _ = workingDirectory
+        return SavontProcessResult(
+            exitCode: 1,
+            stdout: "",
+            stderr: "Less than 0.1% of SNPmers were bidirectional; retry with --single-strand",
+            argv: ["/managed/conda/bin/micromamba", "run", "-n", "savont", "savont"] + arguments,
+            runtimeIdentity: ProvenanceRuntimeIdentity(
+                appVersion: "test-app",
+                executablePath: "/managed/conda/bin/micromamba",
+                processIdentifier: 123,
+                operatingSystemVersion: "test-os",
+                architecture: "arm64",
+                gitRevision: "fixture",
+                user: "tester",
+                condaEnvironment: SavontClusteringRunRequest.condaEnvironment,
+                condaPrefix: "/managed/conda/envs/savont"
+            ),
+            startedAt: Date(timeIntervalSince1970: 10),
+            completedAt: Date(timeIntervalSince1970: 11)
+        )
+    }
+}
+
+private struct PipelineBackedSavontCommandRunner: FASTQOperationCommandRunning {
+    func run(
+        invocation: CLIInvocation,
+        outputDirectory: URL,
+        progress: @escaping FASTQOperationProgressHandler
+    ) async throws -> FASTQCLIExecutionResult {
+        XCTAssertEqual(invocation.subcommand, "fastq")
+        XCTAssertEqual(invocation.arguments.first, "savont-cluster")
+
+        func value(after option: String) throws -> String {
+            let optionIndex = try XCTUnwrap(invocation.arguments.firstIndex(of: option))
+            return try XCTUnwrap(invocation.arguments[safe: optionIndex + 1])
+        }
+
+        let inputURL = URL(fileURLWithPath: try XCTUnwrap(invocation.arguments[safe: 1]))
+        let outputURL = URL(fileURLWithPath: try value(after: "--output"))
+        let request = try SavontClusteringRunRequest(
+            inputFASTQURL: inputURL,
+            outputFASTAURL: outputURL,
+            threads: try XCTUnwrap(Int(value(after: "--threads"))),
+            qualityValueCutoff: try XCTUnwrap(Int(value(after: "--quality-value-cutoff"))),
+            minimumClusterSize: try XCTUnwrap(Int(value(after: "--min-cluster-size"))),
+            minimumReadLength: try invocation.arguments.contains("--min-read-length")
+                ? XCTUnwrap(Int(value(after: "--min-read-length")))
+                : nil,
+            maximumReadLength: try invocation.arguments.contains("--max-read-length")
+                ? XCTUnwrap(Int(value(after: "--max-read-length")))
+                : nil,
+            singleStrand: invocation.arguments.contains("--single-strand")
+        )
+        _ = try await SavontClusteringPipeline(
+            processRunner: SuccessfulSavontFixtureProcessRunner(),
+            scratchRootURL: outputDirectory.appendingPathComponent("savont-test-scratch", isDirectory: true)
+        ).run(request)
+        progress(1, "done")
+        return FASTQCLIExecutionResult(outputURLs: [])
+    }
+}
+
+private struct ContaminatedSavontDiscoveryCommandRunner: FASTQOperationCommandRunning {
+    let unrelatedOutputs: [URL]
+
+    func run(
+        invocation: CLIInvocation,
+        outputDirectory: URL,
+        progress: @escaping FASTQOperationProgressHandler
+    ) async throws -> FASTQCLIExecutionResult {
+        _ = try await PipelineBackedSavontCommandRunner().run(
+            invocation: invocation,
+            outputDirectory: outputDirectory,
+            progress: progress
+        )
+        return FASTQCLIExecutionResult(outputURLs: unrelatedOutputs)
+    }
+}
+
+private enum SavontRollbackTestError: Error, LocalizedError {
+    case expectedFailure
+    case injectedCleanupFailure
+
+    var errorDescription: String? {
+        switch self {
+        case .expectedFailure:
+            return "expected Savont execution failure"
+        case .injectedCleanupFailure:
+            return "injected cleanup failure"
+        }
+    }
+}
+
+private struct FailingSavontRollbackRemover: FASTQOperationSavontRollbackRemoving {
+    let blockedURL: URL
+
+    func removeItem(at url: URL) throws {
+        if url.standardizedFileURL == blockedURL.standardizedFileURL {
+            throw SavontRollbackTestError.injectedCleanupFailure
+        }
+        try FileManager.default.removeItem(at: url)
+    }
+}
+
+private final class FailSecondSavontCommandRunner: @unchecked Sendable, FASTQOperationCommandRunning {
+    private var callCount = 0
+
+    func run(
+        invocation: CLIInvocation,
+        outputDirectory: URL,
+        progress: @escaping FASTQOperationProgressHandler
+    ) async throws -> FASTQCLIExecutionResult {
+        callCount += 1
+        if callCount == 2 {
+            throw SavontRollbackTestError.expectedFailure
+        }
+        return try await PipelineBackedSavontCommandRunner().run(
+            invocation: invocation,
+            outputDirectory: outputDirectory,
+            progress: progress
+        )
+    }
+}
+
+private final class InvalidSecondProvenanceSavontCommandRunner: @unchecked Sendable, FASTQOperationCommandRunning {
+    private var callCount = 0
+
+    func run(
+        invocation: CLIInvocation,
+        outputDirectory: URL,
+        progress: @escaping FASTQOperationProgressHandler
+    ) async throws -> FASTQCLIExecutionResult {
+        callCount += 1
+        let result = try await PipelineBackedSavontCommandRunner().run(
+            invocation: invocation,
+            outputDirectory: outputDirectory,
+            progress: progress
+        )
+        if callCount == 2,
+           let outputIndex = invocation.arguments.firstIndex(of: "--output"),
+           invocation.arguments.indices.contains(outputIndex + 1) {
+            let output = URL(fileURLWithPath: invocation.arguments[outputIndex + 1])
+            try FileManager.default.removeItem(at: ProvenanceRecorder.fileSidecarURL(for: output))
+        }
+        return result
+    }
+}
+
+private struct SavontFanoutExecutionFixture {
+    let directory: URL
+    let inputs: [URL]
+    let request: FASTQOperationLaunchRequest
+}
+
+private func makeSavontFanoutExecutionFixture(
+    prefix: String,
+    inputNames: [String] = ["barcode01.fastq", "barcode02.fastq"]
+) throws -> SavontFanoutExecutionFixture {
+    let directory = try FASTQOperationTestHelper.makeTempDir(prefix: prefix)
+    let inputs = inputNames.map(directory.appendingPathComponent)
+    for input in inputs {
+        try "@read\nACGT\n+\nIIII\n".write(to: input, atomically: true, encoding: .utf8)
+    }
+    return SavontFanoutExecutionFixture(
+        directory: directory,
+        inputs: inputs,
+        request: .savont(request: FASTQSavontClusteringRequest(
+            inputURLs: inputs,
+            outputDirectoryURL: directory,
+            singleInputOutputName: nil,
+            threads: 4,
+            qualityValueCutoff: 90,
+            minimumClusterSize: 3,
+            minimumReadLength: nil,
+            maximumReadLength: nil,
+            singleStrand: false
+        ))
+    )
+}
+
+private func makePipelineSavontImportFixture(
+    prefix: String,
+    processStderr: String = ""
+) async throws -> SavontImportFixture {
+    let directory = try FASTQOperationTestHelper.makeTempDir(prefix: prefix)
+    let input = directory.appendingPathComponent("reads.fastq")
+    let output = directory.appendingPathComponent("reads-savont-clusters.fasta")
+    try "@read\nACGT\n+\nIIII\n".write(to: input, atomically: true, encoding: .utf8)
+    let appRequest = FASTQOperationLaunchRequest.savont(request: FASTQSavontClusteringRequest(
+        inputURLs: [input],
+        outputDirectoryURL: directory,
+        singleInputOutputName: nil,
+        threads: 4,
+        qualityValueCutoff: 91,
+        minimumClusterSize: 4,
+        minimumReadLength: 3,
+        maximumReadLength: 10,
+        singleStrand: true
+    ))
+    let workflowRequest = try SavontClusteringRunRequest(
+        inputFASTQURL: input,
+        outputFASTAURL: output,
+        threads: 4,
+        qualityValueCutoff: 91,
+        minimumClusterSize: 4,
+        minimumReadLength: 3,
+        maximumReadLength: 10,
+        singleStrand: true
+    )
+    _ = try await SavontClusteringPipeline(
+        processRunner: SuccessfulSavontFixtureProcessRunner(stderr: processStderr),
+        scratchRootURL: directory.appendingPathComponent("scratch", isDirectory: true)
+    ).run(workflowRequest)
+    return SavontImportFixture(
+        directory: directory,
+        input: input,
+        output: output,
+        request: appRequest
+    )
+}
+
+private func makeEmptyFallbackSavontImportFixture(prefix: String) async throws -> SavontImportFixture {
+    let directory = try FASTQOperationTestHelper.makeTempDir(prefix: prefix)
+    let input = directory.appendingPathComponent("reads.fastq")
+    let output = directory.appendingPathComponent("reads-savont-clusters.fasta")
+    try "@read\nACGT\n+\nIIII\n".write(to: input, atomically: true, encoding: .utf8)
+    let appRequest = FASTQOperationLaunchRequest.savont(request: FASTQSavontClusteringRequest(
+        inputURLs: [input],
+        outputDirectoryURL: directory,
+        singleInputOutputName: nil,
+        threads: 4,
+        qualityValueCutoff: 91,
+        minimumClusterSize: 4,
+        minimumReadLength: 3,
+        maximumReadLength: 10,
+        singleStrand: false
+    ))
+    let workflowRequest = try SavontClusteringRunRequest(
+        inputFASTQURL: input,
+        outputFASTAURL: output,
+        threads: 4,
+        qualityValueCutoff: 91,
+        minimumClusterSize: 4,
+        minimumReadLength: 3,
+        maximumReadLength: 10,
+        singleStrand: false
+    )
+    _ = try await SavontClusteringPipeline(
+        processRunner: EmptyFallbackSavontFixtureProcessRunner(),
+        scratchRootURL: directory.appendingPathComponent("scratch", isDirectory: true)
+    ).run(workflowRequest)
+    return SavontImportFixture(
+        directory: directory,
+        input: input,
+        output: output,
+        request: appRequest
+    )
+}
+
+private func assertMutatedPipelineSavontImportRejected(
+    prefix: String,
+    mutation: (ProvenanceEnvelope, SavontImportFixture) -> ProvenanceEnvelope
+) async throws {
+    let fixture = try await makePipelineSavontImportFixture(prefix: prefix)
+    defer { try? FileManager.default.removeItem(at: fixture.directory) }
+    let sidecar = ProvenanceRecorder.fileSidecarURL(for: fixture.output)
+    let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(fromSidecar: sidecar))
+    try ProvenanceWriter(signingProvider: nil).write(mutation(envelope, fixture), toSidecar: sidecar)
+    await assertSavontImportRejected(fixture)
+}
+
+private func replacingArgument(_ option: String, with value: String, in argv: [String]) -> [String] {
+    var updated = argv
+    guard let index = updated.firstIndex(of: option), updated.indices.contains(index + 1) else {
+        return updated
+    }
+    updated[index + 1] = value
+    return updated
+}
+
+private func replacingFirstSavontStep(
+    in envelope: ProvenanceEnvelope,
+    mutation: (ProvenanceStep) -> ProvenanceStep
+) -> [ProvenanceStep] {
+    var steps = envelope.steps
+    guard let index = steps.firstIndex(where: { $0.toolName == "savont" }) else {
+        return steps
+    }
+    steps[index] = mutation(steps[index])
+    return steps
+}
+
+private func copiedSavontStep(
+    _ step: ProvenanceStep,
+    argv: [String]? = nil,
+    reproducibleCommand: String? = nil,
+    resolvedOptions: [String: ParameterValue]? = nil,
+    runtimeIdentity: ProvenanceRuntimeIdentity? = nil,
+    inputs: [ProvenanceFileDescriptor]? = nil,
+    outputs: [ProvenanceFileDescriptor]? = nil,
+    exitStatus: Int? = nil,
+    stderr: String? = nil
+) -> ProvenanceStep {
+    ProvenanceStep(
+        id: step.id,
+        toolName: step.toolName,
+        toolVersion: step.toolVersion,
+        githubReleaseVersion: step.githubReleaseVersion,
+        argv: argv ?? step.argv,
+        durableReplayArgv: step.durableReplayArgv,
+        reproducibleCommand: reproducibleCommand ?? step.reproducibleCommand,
+        resolvedOptions: resolvedOptions ?? step.resolvedOptions,
+        runtimeIdentity: runtimeIdentity ?? step.runtimeIdentity,
+        inputs: inputs ?? step.inputs,
+        outputs: outputs ?? step.outputs,
+        exitStatus: exitStatus ?? step.exitStatus,
+        wallTimeSeconds: step.wallTimeSeconds,
+        peakMemoryBytes: step.peakMemoryBytes,
+        stderr: stderr ?? step.stderr,
+        dependsOn: step.dependsOn,
+        startedAt: step.startedAt,
+        completedAt: step.completedAt
+    )
+}
+
+private func copiedSavontEnvelope(
+    _ envelope: ProvenanceEnvelope,
+    workflowVersion: String? = nil,
+    toolVersion: String? = nil,
+    argv: [String]? = nil,
+    durableReplayArgv: [String]? = nil,
+    reproducibleCommand: String? = nil,
+    options: ProvenanceOptions? = nil,
+    runtimeIdentity: ProvenanceRuntimeIdentity? = nil,
+    files: [ProvenanceFileDescriptor]? = nil,
+    output: ProvenanceFileDescriptor? = nil,
+    outputs: [ProvenanceFileDescriptor]? = nil,
+    steps: [ProvenanceStep]? = nil
+) -> ProvenanceEnvelope {
+    let selectedToolVersion = toolVersion ?? envelope.toolVersion
+    return ProvenanceEnvelope(
+        schemaVersion: envelope.schemaVersion,
+        id: envelope.id,
+        createdAt: envelope.createdAt,
+        workflowName: envelope.workflowName,
+        workflowVersion: workflowVersion ?? envelope.workflowVersion,
+        toolName: envelope.toolName,
+        toolVersion: selectedToolVersion,
+        githubReleaseVersion: envelope.githubReleaseVersion,
+        tool: ProvenanceToolIdentity(
+            name: envelope.tool.name,
+            version: selectedToolVersion,
+            kind: envelope.tool.kind
+        ),
+        argv: argv ?? envelope.argv,
+        durableReplayArgv: durableReplayArgv ?? envelope.durableReplayArgv,
+        reproducibleCommand: reproducibleCommand ?? envelope.reproducibleCommand,
+        options: options ?? envelope.options,
+        runtimeIdentity: runtimeIdentity ?? envelope.runtimeIdentity,
+        files: files ?? envelope.files,
+        output: output ?? envelope.output,
+        outputs: outputs ?? envelope.outputs,
+        steps: steps ?? envelope.steps,
+        wallTimeSeconds: envelope.wallTimeSeconds,
+        exitStatus: envelope.exitStatus,
+        stderr: envelope.stderr,
+        signatures: envelope.signatures,
+        legacyWorkflowRun: envelope.legacyRun
+    )
+}
+
+private func makeSavontImportFixture(prefix: String) throws -> SavontImportFixture {
+    let directory = try FASTQOperationTestHelper.makeTempDir(prefix: prefix)
+    let input = directory.appendingPathComponent("reads.fastq")
+    let output = directory.appendingPathComponent("reads-savont-clusters.fasta")
+    try "@read\nACGT\n+\nIIII\n".write(to: input, atomically: true, encoding: .utf8)
+    try ">cluster_ReadCount-3\nACGT\n".write(to: output, atomically: true, encoding: .utf8)
+    let request = FASTQOperationLaunchRequest.savont(request: FASTQSavontClusteringRequest(
+        inputURLs: [input],
+        outputDirectoryURL: directory,
+        singleInputOutputName: nil,
+        threads: 4,
+        qualityValueCutoff: 90,
+        minimumClusterSize: 3,
+        minimumReadLength: nil,
+        maximumReadLength: nil,
+        singleStrand: false
+    ))
+    return SavontImportFixture(
+        directory: directory,
+        input: input,
+        output: output,
+        request: request
+    )
+}
+
+private func writeValidSavontProvenance(for fixture: SavontImportFixture) throws {
+    try writeSyntheticProvenance(
+        to: fixture.directory,
+        name: "lungfish fastq savont-cluster",
+        toolName: "savont",
+        toolVersion: SavontClusteringRunRequest.toolVersion,
+        command: fixture.savontCommand,
+        durableReplayArgv: fixture.savontCommand,
+        inputURL: fixture.input,
+        outputURL: fixture.output,
+        format: .fasta,
+        sidecarURL: ProvenanceRecorder.fileSidecarURL(for: fixture.output)
+    )
+}
+
+private func assertSavontImportRejected(
+    _ fixture: SavontImportFixture,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) async {
+    let importer = BundleFASTQOperationImporter(destinationDirectory: fixture.directory)
+    do {
+        _ = try await importer.importOutputs(
+            at: [fixture.output],
+            forResolvedRequest: fixture.request,
+            originalRequest: fixture.request,
+            outputDirectory: fixture.directory
+        )
+        XCTFail("Expected Savont provenance validation to reject import", file: file, line: line)
+    } catch ProvenanceRehydrationError.missingSourceProvenance {
+        // Expected.
+    } catch {
+        XCTFail("Expected missingSourceProvenance, got \(error)", file: file, line: line)
     }
 }
 

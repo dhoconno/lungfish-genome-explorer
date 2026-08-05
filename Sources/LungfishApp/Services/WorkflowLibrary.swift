@@ -163,6 +163,13 @@ enum WorkflowLibraryCatalog {
     )
 
     static let builtIn: [WorkflowLibraryItem] = FASTQOperationToolID.allCases.map { toolID in
+        if toolID == .savont {
+            return WorkflowLibraryItem(
+                toolID: toolID,
+                maturity: .core,
+                requiredPluginPackIDs: ["full-length-mhc-genotyping"]
+            )
+        }
         if toolID == .ontGenotyping {
             return WorkflowLibraryItem(
                 toolID: toolID,

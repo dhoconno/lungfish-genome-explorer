@@ -398,9 +398,477 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
         case .pbaa:
             return outputURLs
 
+        case .savont:
+            try validateSavontOutputsHaveCanonicalProvenance(
+                outputURLs,
+                resolvedRequest: request
+            )
+            return outputURLs
+
         default:
             return outputURLs
         }
+    }
+
+    private func validateSavontOutputsHaveCanonicalProvenance(
+        _ outputURLs: [URL],
+        resolvedRequest: FASTQOperationLaunchRequest
+    ) throws {
+        guard case .savont(let batchRequest) = resolvedRequest,
+              !batchRequest.inputURLs.isEmpty,
+              batchRequest.inputURLs.count == outputURLs.count else {
+            throw ProvenanceRehydrationError.missingSourceProvenance(
+                "Savont output provenance could not be matched to a resolved input."
+            )
+        }
+
+        var expectedByOutputPath: [String: (
+            request: FASTQSavontClusteringRequest,
+            inputURL: URL,
+            argv: [String]
+        )] = [:]
+        for (outputURL, inputURL) in zip(outputURLs, batchRequest.inputURLs) {
+            let standardizedOutputURL = outputURL.standardizedFileURL
+            let singleInputRequest = resolvedRequest.replacingInputURLs(with: [inputURL])
+            guard case .savont(let request) = singleInputRequest,
+                  let invocation = try? FASTQOperationCLIInvocationBuilder().buildInvocation(
+                    for: singleInputRequest,
+                    outputTargetPath: standardizedOutputURL.path
+                  ),
+                  expectedByOutputPath[standardizedOutputURL.path] == nil else {
+                throw ProvenanceRehydrationError.missingSourceProvenance(
+                    "Savont output provenance could not be matched to a unique resolved CLI request."
+                )
+            }
+            expectedByOutputPath[standardizedOutputURL.path] = (
+                request,
+                inputURL.standardizedFileURL,
+                [CLICommandIdentity.executableName, invocation.subcommand] + invocation.arguments
+            )
+        }
+
+        for outputURL in outputURLs {
+            let standardizedOutputURL = outputURL.standardizedFileURL
+            let sidecarURL = ProvenanceRecorder.fileSidecarURL(for: standardizedOutputURL)
+            let resourceValues = try? standardizedOutputURL.resourceValues(forKeys: [.isRegularFileKey])
+            guard resourceValues?.isRegularFile == true,
+                  FileManager.default.fileExists(atPath: sidecarURL.path) else {
+                throw ProvenanceRehydrationError.missingSourceProvenance(
+                    "Savont output is missing its canonical provenance sidecar: \(standardizedOutputURL.path)"
+                )
+            }
+
+            let envelope: ProvenanceEnvelope
+            do {
+                envelope = try ProvenanceEnvelopeReader.decodeCanonical(Data(contentsOf: sidecarURL))
+            } catch {
+                throw ProvenanceRehydrationError.missingSourceProvenance(
+                    "Savont output has invalid canonical provenance: \(sidecarURL.path)"
+                )
+            }
+
+            guard let expected = expectedByOutputPath[standardizedOutputURL.path] else {
+                throw ProvenanceRehydrationError.missingSourceProvenance(
+                    "Savont provenance could not be matched to its resolved CLI request."
+                )
+            }
+
+            guard envelope.workflowName == "lungfish fastq savont-cluster",
+                  envelope.workflowVersion == SavontClusteringRunRequest.workflowVersion,
+                  envelope.toolName == "savont",
+                  envelope.toolVersion == SavontClusteringRunRequest.toolVersion,
+                  envelope.tool.name == "savont",
+                  envelope.tool.version == SavontClusteringRunRequest.toolVersion,
+                  envelope.exitStatus == 0,
+                  envelope.argv == expected.argv,
+                  envelope.durableReplayArgv == expected.argv,
+                  envelope.reproducibleCommand == expected.argv.map(shellEscape).joined(separator: " "),
+                  let wallTimeSeconds = envelope.wallTimeSeconds,
+                  wallTimeSeconds >= 0,
+                  envelope.runtimeIdentity.condaEnvironment == SavontClusteringRunRequest.condaEnvironment,
+                  isNonEmpty(envelope.runtimeIdentity.condaPrefix),
+                  isNonEmpty(envelope.runtimeIdentity.executablePath),
+                  savontOptionsMatch(
+                    envelope.options,
+                    request: expected.request,
+                    inputURL: expected.inputURL,
+                    outputURL: standardizedOutputURL
+                  ),
+                  savontInputLineageIsComplete(
+                    envelope,
+                    request: expected.request,
+                    durableInputURL: expected.inputURL
+                  ),
+                  let descriptor = envelope.output,
+                  descriptor.role == .output,
+                  descriptor.format == .fasta,
+                  URL(fileURLWithPath: descriptor.path).standardizedFileURL == standardizedOutputURL,
+                  envelope.outputs.contains(descriptor),
+                  let expectedChecksum = descriptor.checksumSHA256,
+                  let expectedFileSize = descriptor.fileSize else {
+                throw ProvenanceRehydrationError.missingSourceProvenance(
+                    "Savont provenance does not describe a successful canonical clustering output: \(standardizedOutputURL.path)"
+                )
+            }
+
+            do {
+                let actualChecksum = try ProvenanceFileHasher.sha256(of: standardizedOutputURL)
+                let actualFileSize = try ProvenanceFileHasher.fileSize(of: standardizedOutputURL)
+                guard expectedChecksum.lowercased() == actualChecksum,
+                      expectedFileSize == actualFileSize else {
+                    throw ProvenanceRehydrationError.missingSourceProvenance(
+                        "Savont output does not match its canonical provenance integrity record: \(standardizedOutputURL.path)"
+                    )
+                }
+            } catch let error as ProvenanceRehydrationError {
+                throw error
+            } catch {
+                throw ProvenanceRehydrationError.missingSourceProvenance(
+                    "Savont output integrity could not be verified: \(standardizedOutputURL.path)"
+                )
+            }
+        }
+    }
+
+    private func savontOptionsMatch(
+        _ options: ProvenanceOptions,
+        request: FASTQSavontClusteringRequest,
+        inputURL: URL,
+        outputURL: URL
+    ) -> Bool {
+        let requestValues: [String: ParameterValue] = [
+            "inputFASTQ": .file(inputURL),
+            "outputFASTA": .file(outputURL),
+            "threads": .integer(request.threads),
+            "qualityValueCutoff": .integer(request.qualityValueCutoff),
+            "minimumClusterSize": .integer(request.minimumClusterSize),
+            "minimumReadLength": request.minimumReadLength.map(ParameterValue.integer) ?? .null,
+            "maximumReadLength": request.maximumReadLength.map(ParameterValue.integer) ?? .null,
+            "singleStrand": .boolean(request.singleStrand),
+        ]
+        guard requestValues.allSatisfy({ options.explicit[$0.key] == $0.value }),
+              requestValues.allSatisfy({ options.resolvedDefaults[$0.key] == $0.value }) else {
+            return false
+        }
+
+        let expectedDefaults: [String: ParameterValue] = [
+            "threads": .integer(max(1, ProcessInfo.processInfo.activeProcessorCount)),
+            "qualityValueCutoff": .integer(90),
+            "minimumClusterSize": .integer(3),
+            "minimumReadLength": .null,
+            "maximumReadLength": .null,
+            "singleStrand": .boolean(false),
+            "condaEnvironment": .string(SavontClusteringRunRequest.condaEnvironment),
+            "timeoutSeconds": .integer(Int(ManagedSavontProcessRunner.timeoutSeconds)),
+        ]
+        guard expectedDefaults.allSatisfy({ options.defaults[$0.key] == $0.value }),
+              options.resolvedDefaults["condaEnvironment"]
+                == .string(SavontClusteringRunRequest.condaEnvironment),
+              options.resolvedDefaults["timeoutSeconds"]
+                == .integer(Int(ManagedSavontProcessRunner.timeoutSeconds)),
+              isNonNegativeInteger(options.resolvedDefaults["clusterCount"]),
+              isNonNegativeInteger(options.resolvedDefaults["totalSupportingReads"]),
+              options.resolvedDefaults["usedSingleThreadFallback"]?.booleanValue != nil,
+              options.resolvedDefaults["usedSingleStrandFallback"]?.booleanValue != nil,
+              options.resolvedDefaults["emptyClusterFallback"]?.booleanValue != nil,
+              let explicitResolvedInput = options.explicit["resolvedInputFASTQ"]?.fileValue,
+              let resolvedInput = options.resolvedDefaults["resolvedInputFASTQ"]?.fileValue,
+              isNonEmpty(resolvedInput.path),
+              explicitResolvedInput.standardizedFileURL == resolvedInput.standardizedFileURL else {
+            return false
+        }
+        return true
+    }
+
+    private func savontInputLineageIsComplete(
+        _ envelope: ProvenanceEnvelope,
+        request: FASTQSavontClusteringRequest,
+        durableInputURL: URL
+    ) -> Bool {
+        let durablePath = durableInputURL.standardizedFileURL.path
+        guard let resolvedInputURL = envelope.options.resolvedDefaults["resolvedInputFASTQ"]?.fileValue else {
+            return false
+        }
+        let resolvedInputPath = resolvedInputURL.standardizedFileURL.path
+        let materializationSteps = envelope.steps.filter {
+            $0.toolName == "lungfish-internal materialize-savont-clustering-fastq"
+        }
+        let attemptSteps = envelope.steps.filter { $0.toolName == "savont" }
+        guard materializationSteps.count == 1,
+              !attemptSteps.isEmpty,
+              envelope.steps.count == materializationSteps.count + attemptSteps.count,
+              envelope.files.contains(where: {
+                $0.role == .input
+                    && standardizedPath($0.path) == durablePath
+                    && descriptorIsComplete($0)
+              }),
+              let materialization = materializationSteps.first,
+              materialization.exitStatus == 0,
+              materialization.wallTimeSeconds.map({ $0 >= 0 }) == true,
+              !materialization.outputs.isEmpty,
+              materialization.outputs.allSatisfy(descriptorIsComplete),
+              materialization.outputs.contains(where: {
+                standardizedPath($0.path) == resolvedInputPath
+              }) else {
+            return false
+        }
+
+        if !FASTQBundle.isBundleURL(durableInputURL) {
+            guard materialization.inputs.contains(where: {
+                standardizedPath($0.path) == durablePath && descriptorIsComplete($0)
+            }) else {
+                return false
+            }
+        } else if materialization.inputs.isEmpty || !materialization.inputs.allSatisfy(descriptorIsComplete) {
+            return false
+        }
+
+        return savontAttemptHistoryIsValid(
+            attemptSteps,
+            envelope: envelope,
+            request: request,
+            materialization: materialization,
+            resolvedInputPath: resolvedInputPath
+        )
+    }
+
+    private func savontAttemptHistoryIsValid(
+        _ attempts: [ProvenanceStep],
+        envelope: ProvenanceEnvelope,
+        request: FASTQSavontClusteringRequest,
+        materialization: ProvenanceStep,
+        resolvedInputPath: String
+    ) -> Bool {
+        struct AttemptState {
+            let status: Int32
+            let stderr: String
+            let threads: Int
+            let singleStrand: Bool
+        }
+
+        guard let materializedOutput = materialization.outputs.first(where: {
+            standardizedPath($0.path) == resolvedInputPath
+        }) else {
+            return false
+        }
+
+        var states: [AttemptState] = []
+        states.reserveCapacity(attempts.count)
+        for step in attempts {
+            guard step.toolVersion == SavontClusteringRunRequest.toolVersion,
+                  step.durableReplayArgv == nil,
+                  let statusValue = step.exitStatus,
+                  let status = Int32(exactly: statusValue),
+                  step.wallTimeSeconds.map({ $0 >= 0 }) == true,
+                  let runtime = step.runtimeIdentity,
+                  savontRuntimeIdentityIsManaged(runtime),
+                  let inputURL = step.resolvedOptions["inputFASTQ"]?.fileValue,
+                  inputURL.standardizedFileURL.path == resolvedInputPath,
+                  let outputDirectory = step.resolvedOptions["outputDirectory"]?.fileValue,
+                  let threads = step.resolvedOptions["threads"]?.integerValue,
+                  threads > 0,
+                  let singleStrand = step.resolvedOptions["singleStrand"]?.booleanValue,
+                  step.resolvedOptions["qualityValueCutoff"] == .integer(request.qualityValueCutoff),
+                  step.resolvedOptions["minimumClusterSize"] == .integer(request.minimumClusterSize),
+                  step.resolvedOptions["minimumReadLength"]
+                    == (request.minimumReadLength.map(ParameterValue.integer) ?? .null),
+                  step.resolvedOptions["maximumReadLength"]
+                    == (request.maximumReadLength.map(ParameterValue.integer) ?? .null),
+                  step.resolvedOptions["condaEnvironment"]
+                    == .string(SavontClusteringRunRequest.condaEnvironment),
+                  step.resolvedOptions["timeoutSeconds"]
+                    == .integer(Int(ManagedSavontProcessRunner.timeoutSeconds)),
+                  step.inputs.count == 1,
+                  let input = step.inputs.first,
+                  input.role == .input,
+                  input.format == .fastq,
+                  descriptorIsComplete(input),
+                  standardizedPath(input.path) == resolvedInputPath,
+                  input.checksumSHA256 == materializedOutput.checksumSHA256,
+                  input.fileSize == materializedOutput.fileSize else {
+                return false
+            }
+
+            let expectedArguments: [String]
+            do {
+                let attemptRequest = try SavontClusteringRunRequest(
+                    inputFASTQURL: inputURL,
+                    outputFASTAURL: URL(fileURLWithPath: envelope.output?.path ?? ""),
+                    threads: request.threads,
+                    qualityValueCutoff: request.qualityValueCutoff,
+                    minimumClusterSize: request.minimumClusterSize,
+                    minimumReadLength: request.minimumReadLength,
+                    maximumReadLength: request.maximumReadLength,
+                    singleStrand: request.singleStrand
+                )
+                expectedArguments = try attemptRequest.arguments(
+                    outputDirectory: outputDirectory,
+                    threads: threads,
+                    singleStrand: singleStrand
+                )
+            } catch {
+                return false
+            }
+
+            let expectedArgv = [
+                runtime.executablePath,
+                "run",
+                "-n",
+                SavontClusteringRunRequest.condaEnvironment,
+                "savont",
+            ] + expectedArguments
+            guard step.argv == expectedArgv,
+                  step.reproducibleCommand == step.argv.map(shellEscape).joined(separator: " ") else {
+                return false
+            }
+
+            if status == 0 {
+                let expectedRawOutput = outputDirectory.standardizedFileURL
+                    .appendingPathComponent("final_asvs.fasta")
+                    .standardizedFileURL.path
+                guard step.outputs.count == 1,
+                      let output = step.outputs.first,
+                      output.role == .output,
+                      output.format == .fasta,
+                      descriptorIsComplete(output),
+                      standardizedPath(output.path) == expectedRawOutput else {
+                    return false
+                }
+            } else if !step.outputs.isEmpty {
+                return false
+            }
+
+            states.append(AttemptState(
+                status: status,
+                stderr: step.stderr ?? "",
+                threads: threads,
+                singleStrand: singleStrand
+            ))
+        }
+
+        guard states.first?.threads == request.threads,
+              states.first?.singleStrand == request.singleStrand,
+              let recordedSingleThreadFallback = envelope.options.resolvedDefaults[
+                "usedSingleThreadFallback"
+              ]?.booleanValue,
+              let recordedSingleStrandFallback = envelope.options.resolvedDefaults[
+                "usedSingleStrandFallback"
+              ]?.booleanValue,
+              let recordedEmptyFallback = envelope.options.resolvedDefaults[
+                "emptyClusterFallback"
+              ]?.booleanValue else {
+            return false
+        }
+
+        var usedSingleThreadFallback = false
+        var usedSingleStrandFallback = false
+        var usedEmptyFallback = false
+        for index in states.indices {
+            let state = states[index]
+            if state.status == 0 {
+                guard index == states.index(before: states.endIndex) else { return false }
+                continue
+            }
+
+            let decision = SavontRetryPolicy.decision(
+                exitCode: state.status,
+                attemptedThreads: state.threads,
+                attemptedSingleStrand: state.singleStrand,
+                stderr: state.stderr
+            )
+            if index == states.index(before: states.endIndex) {
+                guard decision == .emptyClusters, state.singleStrand else { return false }
+                usedEmptyFallback = true
+                continue
+            }
+
+            let next = states[states.index(after: index)]
+            switch decision {
+            case .singleThread:
+                guard next.threads == 1,
+                      next.singleStrand == state.singleStrand else { return false }
+                usedSingleThreadFallback = true
+            case .singleStrand:
+                guard next.threads == state.threads,
+                      next.singleStrand else { return false }
+                usedSingleStrandFallback = true
+            case .emptyClusters, .none:
+                return false
+            }
+        }
+
+        let combinedStderr = attempts.compactMap(\.stderr).joined(separator: "\n")
+        let expectedTopLevelStderr = ProvenanceStderr.normalized(
+            combinedStderr.isEmpty ? nil : combinedStderr
+        )
+        guard recordedSingleThreadFallback == usedSingleThreadFallback,
+              recordedSingleStrandFallback == usedSingleStrandFallback,
+              recordedEmptyFallback == usedEmptyFallback,
+              envelope.stderr == expectedTopLevelStderr,
+              let clusterCount = envelope.options.resolvedDefaults["clusterCount"]?.integerValue,
+              let totalSupportingReads = envelope.options.resolvedDefaults[
+                "totalSupportingReads"
+              ]?.integerValue else {
+            return false
+        }
+
+        if usedEmptyFallback {
+            return clusterCount == 0
+                && totalSupportingReads == 0
+                && envelope.output?.fileSize == 0
+        }
+        return states.last?.status == 0 && clusterCount > 0 && totalSupportingReads >= 0
+    }
+
+    private func descriptorIsComplete(_ descriptor: ProvenanceFileDescriptor) -> Bool {
+        guard let checksum = descriptor.checksumSHA256,
+              checksum.count == 64,
+              checksum.unicodeScalars.allSatisfy({
+                  CharacterSet(charactersIn: "0123456789abcdefABCDEF").contains($0)
+              }),
+              descriptor.fileSize != nil,
+              descriptor.format != nil else {
+            return false
+        }
+        return !descriptor.path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func savontRuntimeIdentityIsManaged(_ runtime: ProvenanceRuntimeIdentity) -> Bool {
+        guard runtime.condaEnvironment == SavontClusteringRunRequest.condaEnvironment,
+              isNonEmpty(runtime.executablePath),
+              NSString(string: runtime.executablePath).isAbsolutePath,
+              let condaPrefix = runtime.condaPrefix,
+              NSString(string: condaPrefix).isAbsolutePath else {
+            return false
+        }
+
+        let executableURL = URL(fileURLWithPath: runtime.executablePath).standardizedFileURL
+        let managedRootURL = executableURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let expectedExecutableURL = managedRootURL
+            .appendingPathComponent("bin", isDirectory: true)
+            .appendingPathComponent("micromamba")
+            .standardizedFileURL
+        let expectedEnvironmentURL = managedRootURL
+            .appendingPathComponent("envs", isDirectory: true)
+            .appendingPathComponent(SavontClusteringRunRequest.condaEnvironment, isDirectory: true)
+            .standardizedFileURL
+        return executableURL.path == expectedExecutableURL.path
+            && URL(fileURLWithPath: condaPrefix).standardizedFileURL.path == expectedEnvironmentURL.path
+    }
+
+    private func standardizedPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.path
+    }
+
+    private func isNonEmpty(_ value: String?) -> Bool {
+        value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
+
+    private func isNonNegativeInteger(_ value: ParameterValue?) -> Bool {
+        guard let integer = value?.integerValue else { return false }
+        return integer >= 0
     }
 
     private func rehydrateONTFluidigmSampleBundles(
