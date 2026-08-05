@@ -177,7 +177,11 @@ public enum ScientificProvenancePolicy {
 
     public static let cliCommandPathPolicies: [String: ProvenancePolicyEntry] = [
         "debug fastq-ingest": dataWriting("cli.debug.fastq-ingest", writer: "FASTQIngestSubcommand"),
-        "fastq pbaa-cluster": dataWriting("cli.fastq.pbaa-cluster", writer: "PBAAClusteringPipeline")
+        "fastq pbaa-cluster": dataWriting("cli.fastq.pbaa-cluster", writer: "PBAAClusteringPipeline"),
+        "fastq savont-cluster": dataWriting(
+            "cli.fastq.savont-cluster",
+            writer: "SavontClusteringPipeline"
+        )
     ]
 
     public static let nativeToolPolicies: [String: ProvenancePolicyEntry] = [

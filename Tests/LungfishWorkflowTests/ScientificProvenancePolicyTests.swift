@@ -122,6 +122,7 @@ struct ScientificProvenancePolicyTests {
     @Test("nested scientific CLI commands can be audited by full command path")
     func nestedScientificCLICommandsCanBeAuditedByFullCommandPath() throws {
         let pbaa = try #require(ScientificProvenancePolicy.cliCommand(path: ["fastq", "pbaa-cluster"]))
+        let savont = try #require(ScientificProvenancePolicy.cliCommand(path: ["fastq", "savont-cluster"]))
         let debugFastqIngest = try #require(ScientificProvenancePolicy.cliCommand(path: ["debug", "fastq-ingest"]))
 
         #expect(pbaa.id == "cli.fastq.pbaa-cluster")
@@ -130,6 +131,13 @@ struct ScientificProvenancePolicyTests {
         #expect(pbaa.requiresProvenance)
         #expect(pbaa.outputPathExpectation == .finalStoredPayload)
         #expect(pbaa.writer == "PBAAClusteringPipeline")
+
+        #expect(savont.id == "cli.fastq.savont-cluster")
+        #expect(savont.workflowKind == .dataWriting)
+        #expect(savont.createsOrModifiesScientificData)
+        #expect(savont.requiresProvenance)
+        #expect(savont.outputPathExpectation == .finalStoredPayload)
+        #expect(savont.writer == "SavontClusteringPipeline")
 
         #expect(debugFastqIngest.id == "cli.debug.fastq-ingest")
         #expect(debugFastqIngest.workflowKind == .dataWriting)
