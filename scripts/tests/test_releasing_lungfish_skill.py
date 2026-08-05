@@ -24,8 +24,11 @@ class ReleasingLungfishSkillTests(unittest.TestCase):
     def make_fixture(self, root: Path):
         required = {
             "scripts/release/build-notarized-dmg.sh": """#!/bin/sh
-# --github-release-tag --sparkle-generate-appcast --sparkle-publish-release
-# --sparkle-bridge-publish-release --prune-prereleases --defer-remote-publish
+if [ "$1" = "--help" ]; then
+  echo '--github-release-tag --sparkle-generate-appcast --sparkle-publish-release'
+  echo '--sparkle-bridge-publish-release --sparkle-bridge-appcast-filename'
+  echo '--prune-prereleases --prune-prereleases-keep --defer-remote-publish'
+fi
 """,
             "docs/release/sparkle-updates.md": "Sparkle release instructions\n",
             ".codex/agents/release-agent.md": "Release agent instructions\n",
@@ -101,6 +104,34 @@ class ReleasingLungfishSkillTests(unittest.TestCase):
             )
             self.assertNotEqual(result.returncode, 0)
             self.assertTrue((destination / "keep.txt").exists())
+
+    def test_installer_can_replace_an_explicitly_managed_skill_link(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            skills_root = root / "skills"
+            old_skill = root / "old-checkout/.codex/skills/releasing-lungfish"
+            old_skill.mkdir(parents=True)
+            (old_skill / "SKILL.md").write_text(
+                "---\nname: releasing-lungfish\n---\n"
+            )
+            skills_root.mkdir()
+            destination = skills_root / "releasing-lungfish"
+            destination.symlink_to(old_skill)
+
+            result = subprocess.run(
+                [
+                    str(INSTALLER),
+                    "--skills-root",
+                    str(skills_root),
+                    "--replace-managed-link",
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(destination.resolve(), SKILL_ROOT.resolve())
 
 
 if __name__ == "__main__":

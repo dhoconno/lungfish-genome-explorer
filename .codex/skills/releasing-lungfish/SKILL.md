@@ -11,13 +11,13 @@ Produce a reproducible release from current `main`. Treat a missing provenance, 
 
 Before acting, read all of:
 
-- `scripts/release/build-notarized-dmg.sh --help`
+- `bash scripts/release/build-notarized-dmg.sh --help`
 - `docs/release/sparkle-updates.md`
 - `.codex/agents/release-agent.md`
 - `SKILLS.md`
 - relevant files under `scripts/tests/`
 
-Run `scripts/validate.py` from this skill. If repository interfaces drifted, update the skill or stop; never guess obsolete flags.
+Run `<skill-root>/scripts/validate.py --repo-root "$PWD"`. If repository interfaces drifted, update the skill or stop; never guess obsolete flags.
 
 ## Choose Reasoning Strength
 
@@ -36,11 +36,11 @@ Run `scripts/validate.py` from this skill. If repository interfaces drifted, upd
    - never change channel, downgrade, or infer a major/minor bump silently.
    Recheck the remote immediately before tagging. Recompute after a concurrent collision; never overwrite a tag or release.
 4. Compare the previous versioned tag to `HEAD`. Harmonize every visible app/CLI/version declaration. Write `docs/release-notes/v<version>.md` as a detailed narrative of user-visible changes, stability work, and release maintenance. Verify every claim against commits and changed files.
-5. Run the current focused release tests, full relevant tests, `git diff --check`, and old-version scans. Commit release prep, push `main`, create an annotated version tag, and prove tag/commit identity.
-6. Resolve signing, notarization, and Sparkle values only from local release-machine configuration. Never print or commit private keys, Apple credentials, Keychain secrets, or tokens.
-7. Invoke the repository release script with the versioned GitHub prerelease, `sparkle-beta`, the `sparkle-alpha` bridge, and the documented retention policy. Never substitute an unsigned artifact.
+5. Run the current focused release tests, full relevant tests, `git diff --check`, and old-version scans. Before tagging, preflight `gh auth`, Developer ID identity and Team ID agreement, the notarytool Keychain profile, the Sparkle `generate_appcast` executable and signing-key access. Parse the live `sparkle-beta` appcast and require the planned `CFBundleVersion` (`LUNGFISH_BUILD_NUMBER` or `git rev-list --count HEAD`) to exceed its `sparkle:version`.
+6. Commit release prep and push `main`. Immediately before tagging and again before publication, require both `git ls-remote --tags origin v<version>` and `gh release view v<version>` to show no collision. Then create/push the annotated tag and prove tag/commit identity. Existing versioned releases may only be edited when explicitly recovering that same known partial release.
+7. Resolve signing, notarization, and Sparkle values only from local release-machine configuration. Never print or commit private keys, Apple credentials, Keychain secrets, or tokens. Invoke the repository release script with the versioned GitHub prerelease, `sparkle-beta`, the `sparkle-alpha` bridge, and the documented retention policy. Never substitute an unsigned artifact.
 8. Independently verify the GitHub release, narrative notes, DMG checksum, code signature, notarization and stapling, embedded app/CLI versions, Sparkle enclosure/signature/version, legacy bridge, and updater visibility.
-9. Only after verification, remove clean worktrees whose branches are fully merged, delete those merged local branches, and prune worktree metadata. Preserve unresolved, dirty, or unrelated active work and report it plainly.
+9. Before deleting the worktree that supplied this skill, run the merged primary checkout's installer with `--replace-managed-link` and prove `~/.codex/skills/releasing-lungfish` resolves inside the primary checkout. Only after verification, remove clean worktrees whose branches are fully merged, delete those merged local branches, and prune worktree metadata. Preserve unresolved, dirty, or unrelated active work and report it plainly.
 
 ## Evidence Report
 

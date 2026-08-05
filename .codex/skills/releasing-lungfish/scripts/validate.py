@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import re
+import subprocess
 import sys
 
 
@@ -23,7 +24,9 @@ REQUIRED_FLAGS = (
     "--sparkle-generate-appcast",
     "--sparkle-publish-release",
     "--sparkle-bridge-publish-release",
+    "--sparkle-bridge-appcast-filename",
     "--prune-prereleases",
+    "--prune-prereleases-keep",
     "--defer-remote-publish",
 )
 
@@ -54,7 +57,18 @@ def main() -> int:
 
     release_script = repo_root / REQUIRED_FILES[0]
     if release_script.is_file():
-        script_text = release_script.read_text(errors="replace")
+        result = subprocess.run(
+            ["bash", str(release_script), "--help"],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            errors.append(
+                "Release script help failed: "
+                + (result.stderr.strip() or f"exit {result.returncode}")
+            )
+        script_text = result.stdout + result.stderr
         for flag in REQUIRED_FLAGS:
             if flag not in script_text:
                 errors.append(f"Release script no longer exposes required flag: {flag}")
