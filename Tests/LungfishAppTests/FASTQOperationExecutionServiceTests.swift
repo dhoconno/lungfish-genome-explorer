@@ -526,6 +526,48 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         }
     }
 
+    func testSavontExecutionIgnoresUnrelatedBundlesInSharedAnalysesDirectory() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecSavontSharedAnalyses")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let input = tempDir.appendingPathComponent("barcode12.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: input, withIntermediateDirectories: true)
+        try "@read\nACGT\n+\nIIII\n".write(
+            to: input.appendingPathComponent("reads.fastq"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let unrelatedBundles = [
+            tempDir.appendingPathComponent("older-subsample-1.lungfishfastq", isDirectory: true),
+            tempDir.appendingPathComponent("older-subsample-2.lungfishfastq", isDirectory: true),
+        ]
+        for bundle in unrelatedBundles {
+            try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        }
+        let request = FASTQOperationLaunchRequest.savont(request: FASTQSavontClusteringRequest(
+            inputURLs: [input],
+            outputDirectoryURL: tempDir,
+            singleInputOutputName: nil,
+            threads: 4,
+            qualityValueCutoff: 90,
+            minimumClusterSize: 3,
+            minimumReadLength: nil,
+            maximumReadLength: nil,
+            singleStrand: false
+        ))
+        let service = FASTQOperationExecutionService(
+            commandRunner: ContaminatedSavontDiscoveryCommandRunner(unrelatedOutputs: unrelatedBundles),
+            directImporter: BundleFASTQOperationImporter(destinationDirectory: tempDir)
+        )
+
+        let result = try await service.execute(request: request, workingDirectory: tempDir)
+
+        XCTAssertEqual(result.importedURLs.map(\.lastPathComponent), ["barcode12-savont-clusters.fasta"])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.importedURLs[0].path))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: ProvenanceRecorder.fileSidecarURL(for: result.importedURLs[0]).path
+        ))
+    }
+
     func testSavontIndependentLaunchRequestsCreateOneReservedRequestPerInput() throws {
         let fixture = try makeSavontFanoutExecutionFixture(prefix: "FASTQExecSavontIndependentPlans")
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
@@ -4341,6 +4383,23 @@ private struct PipelineBackedSavontCommandRunner: FASTQOperationCommandRunning {
         ).run(request)
         progress(1, "done")
         return FASTQCLIExecutionResult(outputURLs: [])
+    }
+}
+
+private struct ContaminatedSavontDiscoveryCommandRunner: FASTQOperationCommandRunning {
+    let unrelatedOutputs: [URL]
+
+    func run(
+        invocation: CLIInvocation,
+        outputDirectory: URL,
+        progress: @escaping FASTQOperationProgressHandler
+    ) async throws -> FASTQCLIExecutionResult {
+        _ = try await PipelineBackedSavontCommandRunner().run(
+            invocation: invocation,
+            outputDirectory: outputDirectory,
+            progress: progress
+        )
+        return FASTQCLIExecutionResult(outputURLs: unrelatedOutputs)
     }
 }
 

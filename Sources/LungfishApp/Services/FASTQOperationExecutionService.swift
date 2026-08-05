@@ -317,14 +317,25 @@ struct FASTQOperationExecutionService {
                     outputDirectory: executionDirectory,
                     progress: progress
                 )
-                if result.outputURLs.isEmpty {
+                if case .savont = executionPlan.resolvedRequest {
+                    // Savont publishes one FASTA at the exact path reserved by this plan. The
+                    // generic CLI runner also discovers pre-existing FASTQ bundles in the shared
+                    // Analyses directory; those are unrelated inputs or older results and must
+                    // never be attributed to this clustering run.
+                    outputURLs.append(contentsOf: planner.discoverOutputs(
+                        for: executionPlan,
+                        in: executionDirectory
+                    ))
+                } else if result.outputURLs.isEmpty {
                     outputURLs.append(contentsOf: planner.discoverOutputs(for: executionPlan, in: executionDirectory))
                 } else {
                     outputURLs.append(contentsOf: result.outputURLs)
                 }
             }
 
-            if outputURLs.isEmpty {
+            if outputURLs.isEmpty, case .savont = resolvedRequest {
+                // Do not replace a missing planned FASTA with unrelated bundles found beside it.
+            } else if outputURLs.isEmpty {
                 outputURLs = FASTQOperationPlanner.discoverFASTQBundles(in: outputDirectory)
             }
 
