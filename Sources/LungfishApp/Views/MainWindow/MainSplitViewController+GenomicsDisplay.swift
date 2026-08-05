@@ -975,6 +975,26 @@ extension MainSplitViewController {
             return
         }
 
+        if case .savont(let batchRequest) = request,
+           batchRequest.inputURLs.count > 1 {
+            let independentRequests = request.independentSavontLaunchRequests(
+                outputDirectory: destinationRoot
+            )
+            guard independentRequests.count == batchRequest.inputURLs.count else {
+                mainSplitLogger.error(
+                    "runFASTQOperationLaunchRequest: Failed to prepare independent Savont operations"
+                )
+                return
+            }
+            for independentRequest in independentRequests {
+                runFASTQOperationLaunchRequestValidated(
+                    independentRequest,
+                    preferredOutputDirectory: destinationRoot
+                )
+            }
+            return
+        }
+
         let workingDirectory: URL
         if case .assemble(let assemblyRequest, _) = request,
            let currentProjectURL {
@@ -1007,7 +1027,11 @@ extension MainSplitViewController {
             )
         }()
 
-        let opTitle = "FASTQ: \(request.operationDisplayTitle)"
+        let inputDisplayName = request.independentOperationInputDisplayName
+        let attributedDisplayTitle = inputDisplayName.map {
+            "\(request.operationDisplayTitle) — \($0)"
+        } ?? request.operationDisplayTitle
+        let opTitle = "FASTQ: \(attributedDisplayTitle)"
         let startTime = Date()
         let opID: UUID = OperationCenter.shared.start(
             title: opTitle,
@@ -1016,7 +1040,7 @@ extension MainSplitViewController {
             cliCommand: cliCommand,
             routeContext: operationRouteContext
         )
-        OperationCenter.shared.log(id: opID, level: .info, message: "Starting \(request.operationDisplayTitle)")
+        OperationCenter.shared.log(id: opID, level: .info, message: "Starting \(attributedDisplayTitle)")
 
         viewerController.updateFASTQOperationStatus("Running FASTQ/FASTA operation...")
 
@@ -1037,7 +1061,19 @@ extension MainSplitViewController {
                 } else {
                     result = try await executionService.execute(
                         request: request,
-                        workingDirectory: workingDirectory
+                        workingDirectory: workingDirectory,
+                        progress: { [weak self] fraction, message in
+                            DispatchQueue.main.async {
+                                MainActor.assumeIsolated {
+                                    self?.viewerController.updateFASTQOperationStatus(message)
+                                    _ = OperationCenter.shared.updateWithLog(
+                                        id: opID,
+                                        progress: fraction,
+                                        detail: message
+                                    )
+                                }
+                            }
+                        }
                     )
                 }
                 let elapsed = Date().timeIntervalSince(startTime)
@@ -1051,10 +1087,19 @@ extension MainSplitViewController {
                             level: .info,
                             message: "Completed in \(String(format: "%.1f", elapsed))s"
                         )
-                        _ = OperationCenter.shared.complete(
-                            id: opID,
-                            detail: "Done in \(String(format: "%.1f", elapsed))s"
-                        )
+                        let completionDetail = "Done in \(String(format: "%.1f", elapsed))s"
+                        if case .savont = result.resolvedRequest {
+                            _ = OperationCenter.shared.complete(
+                                id: opID,
+                                detail: completionDetail,
+                                outputURLs: result.importedURLs
+                            )
+                        } else {
+                            _ = OperationCenter.shared.complete(
+                                id: opID,
+                                detail: completionDetail
+                            )
+                        }
                         if let completionTarget {
                             self.recordUITestEvent(
                                 "fastq.operation.completed target=\(completionTarget.lastPathComponent)"

@@ -526,6 +526,58 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         }
     }
 
+    func testSavontIndependentLaunchRequestsCreateOneReservedRequestPerInput() throws {
+        let fixture = try makeSavontFanoutExecutionFixture(prefix: "FASTQExecSavontIndependentPlans")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        let requests = fixture.request.independentSavontLaunchRequests(
+            outputDirectory: fixture.directory
+        )
+
+        XCTAssertEqual(requests.count, fixture.inputs.count)
+        XCTAssertEqual(requests.map(\.inputURLs), fixture.inputs.map { [$0] })
+        XCTAssertEqual(requests.compactMap { request -> String? in
+            guard case .savont(let savontRequest) = request else { return nil }
+            return savontRequest.singleInputOutputName
+        }, [
+            "barcode01-savont-clusters.fasta",
+            "barcode02-savont-clusters.fasta",
+        ])
+    }
+
+    func testSavontIndependentLaunchFailurePreservesEarlierSuccessfulOutput() async throws {
+        let fixture = try makeSavontFanoutExecutionFixture(prefix: "FASTQExecSavontIndependentFailure")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let requests = fixture.request.independentSavontLaunchRequests(
+            outputDirectory: fixture.directory
+        )
+        let service = FASTQOperationExecutionService(
+            commandRunner: FailSecondSavontCommandRunner(),
+            directImporter: BundleFASTQOperationImporter(destinationDirectory: fixture.directory)
+        )
+
+        let firstResult = try await service.execute(
+            request: try XCTUnwrap(requests.first),
+            workingDirectory: fixture.directory
+        )
+        let firstOutput = try XCTUnwrap(firstResult.importedURLs.first)
+
+        do {
+            _ = try await service.execute(
+                request: try XCTUnwrap(requests.last),
+                workingDirectory: fixture.directory
+            )
+            XCTFail("Expected the later independent Savont launch to fail")
+        } catch SavontRollbackTestError.expectedFailure {
+            // Expected.
+        }
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: firstOutput.path))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: ProvenanceRecorder.fileSidecarURL(for: firstOutput).path
+        ))
+    }
+
     func testSavontExecutionRollsBackFirstOutputWhenSecondInvocationFails() async throws {
         let fixture = try makeSavontFanoutExecutionFixture(prefix: "FASTQExecSavontSecondFailure")
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
