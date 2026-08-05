@@ -10,6 +10,7 @@
 !agents/**
 !.codex/agents/*.md
 !.codex/environments/environment.toml
+!.codex/skills/releasing-lungfish/**
 !LICENSE
 !Lungfish-Info.plist
 !Lungfish.xcodeproj/**
