@@ -197,6 +197,7 @@ final class FastqSavontClusterCommandTests: XCTestCase {
         let command = try FastqSavontClusterSubcommand.parse([
             "/tmp/low-snpmer.fastq",
             "--output", "/tmp/empty-clusters.fasta",
+            "--single-strand",
         ])
         let result = SavontClusteringResult(
             outputFASTAURL: URL(fileURLWithPath: "/tmp/empty-clusters.fasta"),
@@ -205,15 +206,20 @@ final class FastqSavontClusterCommandTests: XCTestCase {
             usedSingleThreadFallback: false,
             usedSingleStrandFallback: false
         )
+        var receivedRequest: SavontClusteringRunRequest?
         var standardOutput = Data()
         var standardError = ""
 
         try await command.executeForTesting(
-            runtime: FastqSavontClusterSubcommand.Runtime { _ in result },
+            runtime: FastqSavontClusterSubcommand.Runtime { request in
+                receivedRequest = request
+                return result
+            },
             emitStandardOutput: { standardOutput.append($0) },
             emitStandardError: { standardError += $0 }
         )
 
+        XCTAssertEqual(receivedRequest?.singleStrand, true)
         XCTAssertEqual(
             standardError,
             """
