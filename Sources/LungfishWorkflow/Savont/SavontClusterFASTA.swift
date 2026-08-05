@@ -159,7 +159,8 @@ public enum SavontClusterFASTA {
             let count = try parseCount(
                 in: identifier,
                 marker: "ReadCount-",
-                requiresLeadingUnderscore: true
+                requiresLeadingUnderscore: true,
+                requiresEndOfIdentifier: true
             )
             return (identifier, count)
         }
@@ -182,15 +183,17 @@ public enum SavontClusterFASTA {
     private static func parseCount(
         in identifier: String,
         marker: String,
-        requiresLeadingUnderscore: Bool
+        requiresLeadingUnderscore: Bool,
+        requiresEndOfIdentifier: Bool = false
     ) throws -> Int {
         guard let markerRange = identifier.range(of: marker) else {
             throw SavontClusterFASTAError.malformedSupportingReadCount(identifier)
         }
-        if requiresLeadingUnderscore,
-           markerRange.lowerBound != identifier.startIndex,
-           identifier[identifier.index(before: markerRange.lowerBound)] != "_" {
-            throw SavontClusterFASTAError.malformedSupportingReadCount(identifier)
+        if requiresLeadingUnderscore {
+            guard markerRange.lowerBound != identifier.startIndex,
+                  identifier[identifier.index(before: markerRange.lowerBound)] == "_" else {
+                throw SavontClusterFASTAError.malformedSupportingReadCount(identifier)
+            }
         }
 
         let suffix = identifier[markerRange.upperBound...]
@@ -198,7 +201,12 @@ public enum SavontClusterFASTA {
         guard !digits.isEmpty else {
             throw SavontClusterFASTAError.malformedSupportingReadCount(identifier)
         }
-        if digits.endIndex != suffix.endIndex, suffix[digits.endIndex] != "_" {
+        if requiresEndOfIdentifier, digits.endIndex != suffix.endIndex {
+            throw SavontClusterFASTAError.malformedSupportingReadCount(identifier)
+        }
+        if !requiresEndOfIdentifier,
+           digits.endIndex != suffix.endIndex,
+           suffix[digits.endIndex] != "_" {
             throw SavontClusterFASTAError.malformedSupportingReadCount(identifier)
         }
         guard let count = Int(digits) else {

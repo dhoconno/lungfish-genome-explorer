@@ -133,11 +133,15 @@ public struct SavontClusteringRunRequest: Sendable, Codable, Equatable {
         outputDirectory: URL,
         threads: Int? = nil,
         singleStrand: Bool? = nil
-    ) -> [String] {
+    ) throws -> [String] {
+        let effectiveThreads = threads ?? self.threads
+        guard effectiveThreads > 0 else {
+            throw SavontClusteringRunRequestError.invalidThreads(effectiveThreads)
+        }
         var arguments = [
             "asv", inputFASTQURL.path,
             "-o", outputDirectory.standardizedFileURL.path,
-            "-t", String(threads ?? self.threads),
+            "-t", String(effectiveThreads),
             "--quality-value-cutoff", String(qualityValueCutoff),
             "--min-cluster-size", String(minimumClusterSize),
         ]

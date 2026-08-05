@@ -124,6 +124,8 @@ final class SavontClusterFASTATests: XCTestCase {
             ">cluster_ReadCount--1\nACGT\n",
             ">cluster_ReadCount-2_ReadCount-3\nACGT\n",
             ">notAFieldReadCount-2\nACGT\n",
+            ">ReadCount-2\nACGT\n",
+            ">cluster_ReadCount-2_suffix\nACGT\n",
             ">cluster_depth_2suffix\nACGT\n",
         ]
 

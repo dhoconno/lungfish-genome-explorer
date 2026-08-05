@@ -54,7 +54,7 @@ final class SavontClusteringRunRequestTests: XCTestCase {
             threads: 6
         )
 
-        XCTAssertEqual(request.arguments(outputDirectory: URL(fileURLWithPath: "/tmp/run")), [
+        XCTAssertEqual(try request.arguments(outputDirectory: URL(fileURLWithPath: "/tmp/run")), [
             "asv", "/tmp/barcode12.fastq.gz",
             "-o", "/tmp/run",
             "-t", "6",
@@ -76,7 +76,7 @@ final class SavontClusteringRunRequestTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            request.arguments(
+            try request.arguments(
                 outputDirectory: URL(fileURLWithPath: "/tmp/attempt"),
                 threads: 1,
                 singleStrand: true
@@ -92,6 +92,21 @@ final class SavontClusteringRunRequestTests: XCTestCase {
                 "--single-strand",
             ]
         )
+    }
+
+    func testArgumentsRejectNonpositiveAttemptThreadOverrides() throws {
+        let request = try SavontClusteringRunRequest(
+            inputFASTQURL: URL(fileURLWithPath: "/tmp/reads.fastq"),
+            outputFASTAURL: URL(fileURLWithPath: "/tmp/clusters.fasta"),
+            threads: 8
+        )
+
+        for threads in [0, -1] {
+            XCTAssertThrowsError(try request.arguments(
+                outputDirectory: URL(fileURLWithPath: "/tmp/attempt"),
+                threads: threads
+            ))
+        }
     }
 
     func testRejectsInvalidNumericValuesAndLengthRanges() {
