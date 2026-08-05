@@ -1516,7 +1516,7 @@ public class ViewerViewController: NSViewController {
     }
 
     private static func fastaRecord(for sequence: LungfishCore.Sequence) -> String {
-        ">\(sequence.name)\n\(sequence.asString())\n"
+        FASTASelectionDetailFormatter.record(for: sequence)
     }
 
     private static func fastaExportName(for sequences: [LungfishCore.Sequence]) -> String {

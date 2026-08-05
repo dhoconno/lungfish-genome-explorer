@@ -15,8 +15,8 @@ private let logger = Logger(subsystem: LogSubsystem.app, category: "FASTACollect
 ///
 /// Replaces the genome browser content area when a FASTA file contains multiple
 /// sequences. Displays a summary card bar at the top, a sortable table of
-/// sequences in the middle, and a detail panel at the bottom showing feature
-/// breakdowns and an "Open in Browser" action.
+/// sequences in the middle, and a resizable detail pane showing the complete
+/// FASTA records selected in the table.
 ///
 /// When displaying sequences from multiple source documents (via multi-selection
 /// in the sidebar), a "Source" column appears showing which file each sequence
@@ -26,7 +26,7 @@ private let logger = Logger(subsystem: LogSubsystem.app, category: "FASTACollect
 /// ``VCFDatasetViewController``.
 @MainActor
 public final class FASTACollectionViewController: NSViewController,
-    NSTableViewDataSource, NSTableViewDelegate {
+    NSTableViewDataSource, NSTableViewDelegate, NSSplitViewDelegate {
 
     // MARK: - Data
 
@@ -81,14 +81,14 @@ public final class FASTACollectionViewController: NSViewController,
     private let summaryBar = FASTACollectionSummaryBar()
     private let searchField = NSSearchField()
     private let countLabel = NSTextField(labelWithString: "")
+    private let collectionSplitView = NSSplitView()
+    private let tableContainer = NSView()
     private let scrollView = NSScrollView()
     private let tableView = NSTableView()
     private let emptyStateLabel = NSTextField(labelWithString: "")
-    private let detailPanel = NSView()
-    private let detailNameLabel = NSTextField(labelWithString: "")
-    private let detailDescLabel = NSTextField(labelWithString: "")
-    private let detailFeaturesLabel = NSTextField(labelWithString: "")
-    private let openButton = NSButton(title: "Open in Browser", target: nil, action: nil)
+    private let selectionDetailView = FASTASelectionDetailView()
+    private var lastExpandedDetailHeight: CGFloat = 180
+    private var isAdjustingDetailSplit = false
     private var scalarPasteboard: PasteboardWriting = DefaultPasteboard()
     private var contextMenu = NSMenu()
 
@@ -100,8 +100,8 @@ public final class FASTACollectionViewController: NSViewController,
 
         setupSummaryBar()
         setupSearchBar()
+        setupCollectionSplitView()
         setupTableView()
-        setupDetailPanel()
         setupEmptyState()
         layoutSubviews()
     }
@@ -194,7 +194,9 @@ public final class FASTACollectionViewController: NSViewController,
         let isEmpty = sequences.isEmpty
         emptyStateLabel.isHidden = !isEmpty
         scrollView.isHidden = isEmpty
-        detailPanel.isHidden = true
+        tableView.deselectAll(nil)
+        selectionDetailView.setSequences([])
+        collapseSelectionDetail()
         refreshContextMenu()
 
         tableView.reloadData()
@@ -251,6 +253,7 @@ public final class FASTACollectionViewController: NSViewController,
     }
 
     private func applyFilter() {
+        let selectedIDs = Set(selectedSequences().map(\.id))
         if filterText.isEmpty {
             displayedSequences = sequences
         } else {
@@ -263,7 +266,9 @@ public final class FASTACollectionViewController: NSViewController,
         }
         applySortOrder()
         tableView.reloadData()
+        restoreSelection(for: selectedIDs)
         updateCountLabel()
+        updateSelectionDetail()
     }
 
     private func updateCountLabel() {
@@ -279,6 +284,28 @@ public final class FASTACollectionViewController: NSViewController,
         }
     }
 
+    // MARK: - Setup: Collection Split View
+
+    private func setupCollectionSplitView() {
+        collectionSplitView.translatesAutoresizingMaskIntoConstraints = false
+        collectionSplitView.isVertical = false
+        collectionSplitView.dividerStyle = .thin
+        collectionSplitView.delegate = self
+        collectionSplitView.setAccessibilityIdentifier("fasta-collection-split-view")
+        collectionSplitView.setAccessibilityLabel("FASTA sequence table and selected records")
+
+        tableContainer.setAccessibilityElement(true)
+        tableContainer.setAccessibilityIdentifier("fasta-collection-table-pane")
+        tableContainer.setAccessibilityLabel("FASTA sequence table")
+
+        collectionSplitView.addSubview(tableContainer)
+        collectionSplitView.addSubview(selectionDetailView)
+        collectionSplitView.setHoldingPriority(.defaultLow, forSubviewAt: 0)
+        collectionSplitView.setHoldingPriority(.defaultHigh, forSubviewAt: 1)
+        selectionDetailView.isHidden = true
+        view.addSubview(collectionSplitView)
+    }
+
     // MARK: - Setup: Table View
 
     private func setupTableView() {
@@ -288,7 +315,6 @@ public final class FASTACollectionViewController: NSViewController,
             ("description", "Description", 220, .left),
             ("annotations", "Annotations", 90, .right),
             ("gc", "GC%", 70, .right),
-            ("minimap", "Mini Map", 140, .left),
         ]
 
         for col in columns {
@@ -297,10 +323,7 @@ public final class FASTACollectionViewController: NSViewController,
             column.width = col.width
             column.minWidth = 40
 
-            // All columns except minimap are sortable
-            if col.id != "minimap" {
-                column.sortDescriptorPrototype = NSSortDescriptor(key: col.id, ascending: true)
-            }
+            column.sortDescriptorPrototype = NSSortDescriptor(key: col.id, ascending: true)
 
             tableView.addTableColumn(column)
         }
@@ -320,7 +343,7 @@ public final class FASTACollectionViewController: NSViewController,
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(scrollView)
+        tableContainer.addSubview(scrollView)
     }
 
     /// Inserts the "Source" column after "Name" when showing multi-document sequences.
@@ -351,70 +374,6 @@ public final class FASTACollectionViewController: NSViewController,
         }
     }
 
-    // MARK: - Setup: Detail Panel
-
-    private func setupDetailPanel() {
-        detailPanel.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(detailPanel)
-
-        // Top separator
-        let separator = NSBox()
-        separator.boxType = .separator
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        detailPanel.addSubview(separator)
-
-        // Name label
-        detailNameLabel.font = .systemFont(ofSize: 13, weight: .semibold)
-        detailNameLabel.textColor = .labelColor
-        detailNameLabel.lineBreakMode = .byTruncatingTail
-        detailNameLabel.translatesAutoresizingMaskIntoConstraints = false
-        detailPanel.addSubview(detailNameLabel)
-
-        // Description label
-        detailDescLabel.font = .systemFont(ofSize: 11, weight: .regular)
-        detailDescLabel.textColor = .secondaryLabelColor
-        detailDescLabel.lineBreakMode = .byTruncatingTail
-        detailDescLabel.translatesAutoresizingMaskIntoConstraints = false
-        detailPanel.addSubview(detailDescLabel)
-
-        // Feature breakdown label
-        detailFeaturesLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
-        detailFeaturesLabel.textColor = .secondaryLabelColor
-        detailFeaturesLabel.lineBreakMode = .byTruncatingTail
-        detailFeaturesLabel.translatesAutoresizingMaskIntoConstraints = false
-        detailPanel.addSubview(detailFeaturesLabel)
-
-        // Open button
-        openButton.bezelStyle = .rounded
-        openButton.target = self
-        openButton.action = #selector(openInBrowserTapped)
-        openButton.translatesAutoresizingMaskIntoConstraints = false
-        detailPanel.addSubview(openButton)
-
-        NSLayoutConstraint.activate([
-            separator.topAnchor.constraint(equalTo: detailPanel.topAnchor),
-            separator.leadingAnchor.constraint(equalTo: detailPanel.leadingAnchor),
-            separator.trailingAnchor.constraint(equalTo: detailPanel.trailingAnchor),
-
-            detailNameLabel.topAnchor.constraint(equalTo: detailPanel.topAnchor, constant: 8),
-            detailNameLabel.leadingAnchor.constraint(equalTo: detailPanel.leadingAnchor, constant: 12),
-            detailNameLabel.trailingAnchor.constraint(lessThanOrEqualTo: openButton.leadingAnchor, constant: -12),
-
-            detailDescLabel.topAnchor.constraint(equalTo: detailNameLabel.bottomAnchor, constant: 2),
-            detailDescLabel.leadingAnchor.constraint(equalTo: detailPanel.leadingAnchor, constant: 12),
-            detailDescLabel.trailingAnchor.constraint(lessThanOrEqualTo: openButton.leadingAnchor, constant: -12),
-
-            detailFeaturesLabel.topAnchor.constraint(equalTo: detailDescLabel.bottomAnchor, constant: 2),
-            detailFeaturesLabel.leadingAnchor.constraint(equalTo: detailPanel.leadingAnchor, constant: 12),
-            detailFeaturesLabel.trailingAnchor.constraint(lessThanOrEqualTo: openButton.leadingAnchor, constant: -12),
-
-            openButton.trailingAnchor.constraint(equalTo: detailPanel.trailingAnchor, constant: -12),
-            openButton.centerYAnchor.constraint(equalTo: detailPanel.centerYAnchor),
-        ])
-
-        detailPanel.isHidden = true
-    }
-
     // MARK: - Setup: Empty State
 
     private func setupEmptyState() {
@@ -424,11 +383,11 @@ public final class FASTACollectionViewController: NSViewController,
         emptyStateLabel.alignment = .center
         emptyStateLabel.translatesAutoresizingMaskIntoConstraints = false
         emptyStateLabel.isHidden = true
-        view.addSubview(emptyStateLabel)
+        tableContainer.addSubview(emptyStateLabel)
 
         NSLayoutConstraint.activate([
-            emptyStateLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            emptyStateLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            emptyStateLabel.centerXAnchor.constraint(equalTo: tableContainer.centerXAnchor),
+            emptyStateLabel.centerYAnchor.constraint(equalTo: tableContainer.centerYAnchor),
         ])
     }
 
@@ -458,29 +417,19 @@ public final class FASTACollectionViewController: NSViewController,
             searchBarView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             searchBarView.heightAnchor.constraint(equalToConstant: 30),
 
-            // Detail panel (bottom, fixed height)
-            detailPanel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            detailPanel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            detailPanel.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            detailPanel.heightAnchor.constraint(equalToConstant: 80),
+            collectionSplitView.topAnchor.constraint(equalTo: searchBarView.bottomAnchor),
+            collectionSplitView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            collectionSplitView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            collectionSplitView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
-            // Table (middle, fills remaining space between search bar and detail)
-            scrollView.topAnchor.constraint(equalTo: searchBarView.bottomAnchor),
-            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: detailPanel.topAnchor),
+            scrollView.topAnchor.constraint(equalTo: tableContainer.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: tableContainer.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: tableContainer.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: tableContainer.bottomAnchor),
         ])
     }
 
     // MARK: - Actions
-
-    @objc private func openInBrowserTapped() {
-        let selectedRow = tableView.selectedRow
-        guard selectedRow >= 0, selectedRow < displayedSequences.count else { return }
-        let seq = displayedSequences[selectedRow]
-        let annotations = annotationsBySequence[seq.name] ?? []
-        onOpenSequence?(seq, annotations)
-    }
 
     @objc private func tableDoubleClicked(_ sender: Any?) {
         let clickedRow = tableView.clickedRow
@@ -531,16 +480,21 @@ public final class FASTACollectionViewController: NSViewController,
         }
     }
 
-    private func copySelectedSequencesAsFASTA() {
-        let fastaText = selectedSequences()
-            .map(Self.fastaRecord(for:))
-            .joined(separator: "")
-        guard !fastaText.isEmpty else { return }
-        scalarPasteboard.setString(fastaText)
+    private func restoreSelection(for sequenceIDs: Set<UUID>) {
+        let indexes = IndexSet(
+            displayedSequences.indices.filter { sequenceIDs.contains(displayedSequences[$0].id) }
+        )
+        if indexes.isEmpty {
+            tableView.deselectAll(nil)
+        } else {
+            tableView.selectRowIndexes(indexes, byExtendingSelection: false)
+        }
     }
 
-    private static func fastaRecord(for sequence: LungfishCore.Sequence) -> String {
-        ">\(sequence.name)\n\(sequence.asString())\n"
+    private func copySelectedSequencesAsFASTA() {
+        let fastaText = FASTASelectionDetailFormatter.text(for: selectedSequences())
+        guard !fastaText.isEmpty else { return }
+        scalarPasteboard.setString(fastaText)
     }
 
     // MARK: - Sorting
@@ -636,42 +590,88 @@ public final class FASTACollectionViewController: NSViewController,
         return Double(gcCount) / Double(totalCount) * 100.0
     }
 
-    // MARK: - Detail Panel Update
+    // MARK: - Selection Detail
 
-    private func updateDetailPanel() {
-        let selectedRow = tableView.selectedRow
-        guard selectedRow >= 0, selectedRow < displayedSequences.count else {
-            detailPanel.isHidden = true
+    private func updateSelectionDetail() {
+        let selection = selectedSequences()
+        selectionDetailView.setSequences(selection)
+        if selection.isEmpty {
+            collapseSelectionDetail()
+        } else {
+            revealSelectionDetail()
+        }
+    }
+
+    private func collapseSelectionDetail() {
+        if !selectionDetailView.isHidden, selectionDetailView.frame.height > 1 {
+            lastExpandedDetailHeight = selectionDetailView.frame.height
+        }
+        guard collectionSplitView.bounds.height > 0 else {
+            selectionDetailView.isHidden = true
             return
         }
+        isAdjustingDetailSplit = true
+        collectionSplitView.setPosition(
+            collectionSplitView.bounds.height,
+            ofDividerAt: 0
+        )
+        collectionSplitView.adjustSubviews()
+        selectionDetailView.isHidden = true
+        isAdjustingDetailSplit = false
+    }
 
-        let seq = displayedSequences[selectedRow]
-        let annotations = annotationsBySequence[seq.name] ?? []
+    private func revealSelectionDetail() {
+        selectionDetailView.isHidden = false
+        setDetailHeight(lastExpandedDetailHeight)
+    }
 
-        // Show source file in the detail panel name when in multi-source mode
-        if let source = sourceNames[seq.id] {
-            detailNameLabel.stringValue = "\(seq.name)  \u{2014}  \(source)"
-        } else {
-            detailNameLabel.stringValue = seq.name
-        }
-        detailDescLabel.stringValue = seq.description ?? "No description"
+    private func setDetailHeight(_ requestedHeight: CGFloat) {
+        let totalHeight = collectionSplitView.bounds.height
+        guard totalHeight > collectionSplitView.dividerThickness else { return }
+        let minimumHeight = min(120, max(1, totalHeight / 2))
+        let minimumTableHeight = min(120, max(1, totalHeight / 2))
+        let maximumHeight = max(
+            minimumHeight,
+            totalHeight - minimumTableHeight - collectionSplitView.dividerThickness
+        )
+        let resolvedHeight = min(max(requestedHeight, minimumHeight), maximumHeight)
+        lastExpandedDetailHeight = resolvedHeight
+        let dividerPosition = max(
+            0,
+            totalHeight - resolvedHeight - collectionSplitView.dividerThickness
+        )
+        isAdjustingDetailSplit = true
+        collectionSplitView.setPosition(dividerPosition, ofDividerAt: 0)
+        collectionSplitView.adjustSubviews()
+        isAdjustingDetailSplit = false
+    }
 
-        if annotations.isEmpty {
-            detailFeaturesLabel.stringValue = "No annotations"
-        } else {
-            // Build feature type breakdown
-            var typeCounts: [String: Int] = [:]
-            for ann in annotations {
-                typeCounts[ann.type.rawValue, default: 0] += 1
-            }
-            let breakdown = typeCounts
-                .sorted { $0.value > $1.value }
-                .map { "\($0.value) \($0.key)" }
-                .joined(separator: ", ")
-            detailFeaturesLabel.stringValue = breakdown
-        }
+    public func splitViewDidResizeSubviews(_ notification: Notification) {
+        guard !isAdjustingDetailSplit,
+              !selectionDetailView.isHidden,
+              selectionDetailView.frame.height > 1 else { return }
+        lastExpandedDetailHeight = selectionDetailView.frame.height
+    }
 
-        detailPanel.isHidden = false
+    public func splitView(
+        _ splitView: NSSplitView,
+        constrainMinCoordinate proposedMinimumPosition: CGFloat,
+        ofSubviewAt dividerIndex: Int
+    ) -> CGFloat {
+        min(120, max(0, splitView.bounds.height / 2))
+    }
+
+    public func splitView(
+        _ splitView: NSSplitView,
+        constrainMaxCoordinate proposedMaximumPosition: CGFloat,
+        ofSubviewAt dividerIndex: Int
+    ) -> CGFloat {
+        guard !selectionDetailView.isHidden else { return splitView.bounds.height }
+        let minimumDetailHeight = min(120, max(0, splitView.bounds.height / 2))
+        return max(
+            0,
+            splitView.bounds.height - minimumDetailHeight - splitView.dividerThickness
+        )
     }
 
     // MARK: - NSTableViewDataSource
@@ -686,10 +686,13 @@ public final class FASTACollectionViewController: NSViewController,
     ) {
         guard let descriptor = tableView.sortDescriptors.first,
               let key = descriptor.key else { return }
+        let selectedIDs = Set(selectedSequences().map(\.id))
         sortKey = key
         sortAscending = descriptor.ascending
         applySortOrder()
         tableView.reloadData()
+        restoreSelection(for: selectedIDs)
+        updateSelectionDetail()
     }
 
     // MARK: - NSTableViewDelegate
@@ -703,11 +706,6 @@ public final class FASTACollectionViewController: NSViewController,
               let identifier = tableColumn?.identifier else { return nil }
 
         let seq = displayedSequences[row]
-
-        // Mini Map column uses a custom view
-        if identifier.rawValue == "minimap" {
-            return miniMapCell(for: seq, in: tableView, identifier: identifier)
-        }
 
         // Text-based columns
         let cell = reuseOrCreateTextCell(identifier: identifier, in: tableView)
@@ -754,7 +752,7 @@ public final class FASTACollectionViewController: NSViewController,
     }
 
     public func tableViewSelectionDidChange(_ notification: Notification) {
-        updateDetailPanel()
+        updateSelectionDetail()
         refreshContextMenu()
     }
 
@@ -786,38 +784,57 @@ public final class FASTACollectionViewController: NSViewController,
         return cell
     }
 
-    /// Returns a reusable or newly created ``FASTAAnnotationMapCell`` for the
-    /// mini-map column.
-    private func miniMapCell(
-        for seq: LungfishCore.Sequence,
-        in tableView: NSTableView,
-        identifier: NSUserInterfaceItemIdentifier
-    ) -> NSView {
-        let mapCell: FASTAAnnotationMapCell
-        if let existing = tableView.makeView(
-            withIdentifier: identifier, owner: nil
-        ) as? FASTAAnnotationMapCell {
-            mapCell = existing
-        } else {
-            mapCell = FASTAAnnotationMapCell()
-            mapCell.identifier = identifier
-        }
-
-        let annotations = annotationsBySequence[seq.name] ?? []
-        mapCell.configure(sequenceLength: seq.length, annotations: annotations)
-        return mapCell
-    }
 }
 
 #if DEBUG
 extension FASTACollectionViewController {
+    var testColumnIdentifiers: [String] {
+        tableView.tableColumns.map(\.identifier.rawValue)
+    }
+
+    var testDetailText: String {
+        selectionDetailView.text
+    }
+
+    var testDetailIsCollapsed: Bool {
+        selectionDetailView.isHidden
+    }
+
+    var testDetailHeight: CGFloat {
+        selectionDetailView.frame.height
+    }
+
     var testContextMenuTitles: [String] {
         contextMenu.items.map(\.title)
     }
 
     func testSelectRows(_ rows: [Int]) {
-        tableView.selectRowIndexes(IndexSet(rows), byExtendingSelection: false)
+        if rows.isEmpty {
+            tableView.deselectAll(nil)
+        } else {
+            tableView.selectRowIndexes(IndexSet(rows), byExtendingSelection: false)
+        }
         tableViewSelectionDidChange(Notification(name: NSTableView.selectionDidChangeNotification))
+    }
+
+    func testSetDetailHeight(_ height: CGFloat) {
+        selectionDetailView.isHidden = false
+        setDetailHeight(height)
+    }
+
+    func testFilter(_ text: String) {
+        searchField.stringValue = text
+        searchFieldChanged(searchField)
+    }
+
+    func testSort(column: String, ascending: Bool) {
+        let selectedIDs = Set(selectedSequences().map(\.id))
+        sortKey = column
+        sortAscending = ascending
+        applySortOrder()
+        tableView.reloadData()
+        restoreSelection(for: selectedIDs)
+        updateSelectionDetail()
     }
 
     func testInvokeContextMenuItem(titled title: String) {

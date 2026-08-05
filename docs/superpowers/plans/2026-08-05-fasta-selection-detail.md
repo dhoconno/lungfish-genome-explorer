@@ -119,6 +119,7 @@ git commit -m "feat: format selected FASTA records"
 **Files:**
 - Create: `Sources/LungfishApp/Views/Viewer/FASTASelectionDetailView.swift`
 - Modify: `Sources/LungfishApp/Views/Viewer/FASTACollectionViewController.swift`
+- Modify: `Sources/LungfishApp/Views/Viewer/ViewerViewController.swift`
 - Modify: `Tests/LungfishAppTests/FASTACollectionViewControllerTests.swift`
 
 **Interfaces:**
