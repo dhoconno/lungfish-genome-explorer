@@ -1246,10 +1246,10 @@ final class FastqCommandTests: XCTestCase {
         XCTAssertEqual(FastqCommand.configuration.commandName, "fastq")
     }
 
-    /// Verifies that FastqCommand has all 42 subcommands registered.
+    /// Verifies that FastqCommand has all 43 subcommands registered.
     func testFastqSubcommandCount() {
         let subcommands = FastqCommand.configuration.subcommands
-        XCTAssertEqual(subcommands.count, 42, "FastqCommand should have 42 subcommands")
+        XCTAssertEqual(subcommands.count, 43, "FastqCommand should have 43 subcommands")
     }
 
     /// Verifies that all expected subcommand names are registered.
@@ -1260,7 +1260,7 @@ final class FastqCommandTests: XCTestCase {
             "contaminant-filter", "primer-remove", "error-correct",
             "merge", "repair", "deinterleave", "interleave", "deduplicate",
             "demultiplex", "ont-fluidigm-samples", "ont-pacbio-barcode-demux", "scout", "import-ont", "materialize", "qc-summary",
-            "pbaa-cluster", "full-length-ont-mhc-genotype", "genotype", "genotype-cohort", "update-current-workbook", "ont-genotype", "ont-barcode-genotype", "search-text", "search-motif", "orient", "scrub-human",
+            "pbaa-cluster", "savont-cluster", "full-length-ont-mhc-genotype", "genotype", "genotype-cohort", "update-current-workbook", "ont-genotype", "ont-barcode-genotype", "search-text", "search-motif", "orient", "scrub-human",
             "sequence-filter", "deacon-ribo", "reverse-complement", "translate",
             "mhc-reference-bundle", "12s-reference-metadata", "12s-reference-bundle",
             "12s-match", "12s-export", "12s-export-unresolved",
