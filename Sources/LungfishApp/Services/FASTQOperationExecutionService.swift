@@ -151,6 +151,7 @@ enum FASTQOperationExecutionError: Error, LocalizedError {
     case unsupportedDemultiplex(String)
     case unsupportedOrient(String)
     case unsupportedAssembly(String)
+    case invalidSavontOutputName(String)
 
     var errorDescription: String? {
         switch self {
@@ -164,6 +165,8 @@ enum FASTQOperationExecutionError: Error, LocalizedError {
             return "FASTQ orient request is not supported by the CLI builder: \(reason)"
         case .unsupportedAssembly(let reason):
             return "FASTQ assembly request is not supported by the CLI builder: \(reason)"
+        case .invalidSavontOutputName(let reason):
+            return "Savont output name is invalid: \(reason)"
         }
     }
 }
@@ -201,6 +204,7 @@ struct FASTQOperationExecutionService {
 
         let fileManager = FileManager.default
         var failureCleanupCandidates: [URL] = []
+        var freshSavontRollbackCandidates: [URL] = []
         func trackFreshCleanupCandidate(_ url: URL) {
             let standardizedURL = url.standardizedFileURL
             if !fileManager.fileExists(atPath: standardizedURL.path) {
@@ -247,6 +251,12 @@ struct FASTQOperationExecutionService {
                 resolvedRequest: resolvedRequest,
                 baseOutputDirectory: outputDirectory
             )
+            if case .savont = resolvedRequest {
+                freshSavontRollbackCandidates = executionPlans.flatMap { plan in
+                    let output = plan.outputTarget.standardizedFileURL
+                    return [output, ProvenanceRecorder.fileSidecarURL(for: output)]
+                }.filter { !fileManager.fileExists(atPath: $0.path) }
+            }
 
             var invocations: [CLIInvocation] = []
             var outputURLs: [URL] = []
@@ -331,6 +341,10 @@ struct FASTQOperationExecutionService {
                 )
             }
         } catch {
+            for candidate in freshSavontRollbackCandidates
+                where fileManager.fileExists(atPath: candidate.path) {
+                try? fileManager.removeItem(at: candidate)
+            }
             stagingCleanup.cleanupFailedRun(candidates: failureCleanupCandidates)
             throw error
         }
@@ -343,6 +357,17 @@ struct FASTQOperationExecutionService {
     private func validatePreResolutionTopologyIfNeeded(
         for request: FASTQOperationLaunchRequest
     ) throws {
+        if case .savont(let savontRequest) = request,
+           savontRequest.inputURLs.count == 1,
+           let outputName = savontRequest.singleInputOutputName,
+           FASTQSavontClusteringRequest.safeSingleInputOutputName(
+                outputName,
+                outputDirectoryURL: savontRequest.outputDirectoryURL
+           ) == nil {
+            throw FASTQOperationExecutionError.invalidSavontOutputName(
+                "use a leaf file name without folders, traversal, or an absolute path."
+            )
+        }
         guard case .assemble(let assemblyRequest, _) = request else { return }
 
         if assemblyRequest.pairedEnd && assemblyRequest.inputURLs.count != 2 {

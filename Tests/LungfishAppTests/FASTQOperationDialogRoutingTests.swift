@@ -446,6 +446,49 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertTrue(request.singleStrand)
     }
 
+    func testSavontRejectsUnsafeSingleInputOutputNames() {
+        for unsafeName in [
+            "../outside.fasta",
+            "nested/name",
+            "/tmp/absolute.fasta",
+            ".",
+            "..",
+            "   ",
+        ] {
+            let state = FASTQOperationDialogState(
+                initialCategory: .clustering,
+                selectedInputURLs: [URL(fileURLWithPath: "/tmp/barcode12.fastq")],
+                projectURL: URL(fileURLWithPath: "/tmp/project", isDirectory: true),
+                workflowLibrary: AllEnabledFASTQWorkflowLibrary()
+            )
+            state.selectTool(.savont)
+            state.savontSingleInputOutputName = unsafeName
+
+            XCTAssertFalse(state.isRunEnabled, "Expected Savont to reject \(unsafeName.debugDescription)")
+            state.prepareForRun()
+            XCTAssertNil(state.pendingLaunchRequest)
+        }
+    }
+
+    func testSavontAcceptsSafeLeafOutputNameWithFastaExtension() {
+        let state = FASTQOperationDialogState(
+            initialCategory: .clustering,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/barcode12.fastq")],
+            projectURL: URL(fileURLWithPath: "/tmp/project", isDirectory: true),
+            workflowLibrary: AllEnabledFASTQWorkflowLibrary()
+        )
+        state.selectTool(.savont)
+        state.savontSingleInputOutputName = "curated.fasta"
+
+        XCTAssertTrue(state.isRunEnabled)
+        state.prepareForRun()
+
+        guard case .savont(let request)? = state.pendingLaunchRequest else {
+            return XCTFail("Expected Savont launch request")
+        }
+        XCTAssertEqual(request.singleInputOutputName, "curated.fasta")
+    }
+
     func testSavontRejectsInvalidBoundsAndNonFASTQInputs() {
         let state = FASTQOperationDialogState(
             initialCategory: .clustering,

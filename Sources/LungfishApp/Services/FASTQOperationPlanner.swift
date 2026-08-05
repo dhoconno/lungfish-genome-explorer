@@ -86,6 +86,15 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
         resolvedRequest: FASTQOperationLaunchRequest,
         baseOutputDirectory: URL
     ) -> [FASTQOperationPlan] {
+        if case .savont(let request) = originalRequest,
+           request.inputURLs.count == 1,
+           let outputName = request.singleInputOutputName,
+           FASTQSavontClusteringRequest.safeSingleInputOutputName(
+                outputName,
+                outputDirectoryURL: request.outputDirectoryURL
+           ) == nil {
+            return []
+        }
         let requestPairs = splitExecutionRequestsIfNeeded(
             originalRequest: originalRequest,
             resolvedRequest: resolvedRequest
@@ -423,7 +432,10 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
             }
             return "\(derivativeRequest.operationKindString).fastq"
         case .savont(let savontRequest):
-            let baseName = savontRequest.singleInputOutputName
+            let baseName = FASTQSavontClusteringRequest.safeSingleInputOutputName(
+                savontRequest.singleInputOutputName,
+                outputDirectoryURL: savontRequest.outputDirectoryURL
+            )
                 ?? savontRequest.inputURLs.first.map(FASTQSavontClusteringRequest.defaultOutputBaseName(for:))
                 ?? "savont-clusters"
             return baseName.lowercased().hasSuffix(".fasta")
@@ -450,6 +462,7 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
         var candidate = requestedURL
         var counter = 2
         while fileManager.fileExists(atPath: candidate.path)
+            || fileManager.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: candidate).path)
             || reservedOutputPaths.contains(caseFoldedReservationKey(for: candidate)) {
             let filename = pathExtension.isEmpty
                 ? "\(baseName)-\(counter)"

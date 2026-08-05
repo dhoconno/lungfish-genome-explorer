@@ -608,12 +608,20 @@ final class FASTQOperationDialogState {
 
         case .savont:
             guard !selectedInputURLs.isEmpty, let outputDirectoryURL else { return nil }
+            let singleInputOutputName: String?
+            if selectedInputURLs.count == 1 {
+                guard let safeName = FASTQSavontClusteringRequest.safeSingleInputOutputName(
+                    savontSingleInputOutputName,
+                    outputDirectoryURL: outputDirectoryURL
+                ) else { return nil }
+                singleInputOutputName = safeName
+            } else {
+                singleInputOutputName = nil
+            }
             return .savont(request: FASTQSavontClusteringRequest(
                 inputURLs: selectedInputURLs,
                 outputDirectoryURL: outputDirectoryURL,
-                singleInputOutputName: selectedInputURLs.count == 1
-                    ? trimmedNonEmpty(savontSingleInputOutputName ?? "")
-                    : nil,
+                singleInputOutputName: singleInputOutputName,
                 threads: savontThreads,
                 qualityValueCutoff: savontQualityValueCutoff,
                 minimumClusterSize: savontMinimumClusterSize,
@@ -1262,9 +1270,14 @@ final class FASTQOperationDialogState {
             guard selectedInputURLs.allSatisfy(Self.isSavontFASTQInput) else {
                 return "Savont requires .fastq, .fastq.gz, or .lungfishfastq inputs."
             }
-            if selectedInputURLs.count == 1,
-               trimmedNonEmpty(savontSingleInputOutputName ?? "") == nil {
-                return "Enter an output name."
+            if selectedInputURLs.count == 1 {
+                guard let outputDirectoryURL,
+                      FASTQSavontClusteringRequest.safeSingleInputOutputName(
+                        savontSingleInputOutputName,
+                        outputDirectoryURL: outputDirectoryURL
+                      ) != nil else {
+                    return "Enter an output name containing only a file name, without folders or traversal."
+                }
             }
             if savontThreads <= 0 {
                 return "Enter a positive thread count."
