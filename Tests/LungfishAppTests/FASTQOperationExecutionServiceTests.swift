@@ -813,6 +813,32 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         }
     }
 
+    func testSavontImporterRejectsInternallyConsistentUnmanagedAttemptRuntime() async throws {
+        try await assertMutatedPipelineSavontImportRejected(prefix: "FASTQExecSavontUnmanagedRuntimeRoot") {
+            envelope, _ in
+            copiedSavontEnvelope(envelope, steps: replacingFirstSavontStep(in: envelope) { step in
+                guard let runtime = step.runtimeIdentity else { return step }
+                let argv = ["/bin/echo"] + step.argv.dropFirst()
+                return copiedSavontStep(
+                    step,
+                    argv: argv,
+                    reproducibleCommand: argv.map(shellEscape).joined(separator: " "),
+                    runtimeIdentity: ProvenanceRuntimeIdentity(
+                        appVersion: runtime.appVersion,
+                        executablePath: "/bin/echo",
+                        processIdentifier: runtime.processIdentifier,
+                        operatingSystemVersion: runtime.operatingSystemVersion,
+                        architecture: runtime.architecture,
+                        gitRevision: runtime.gitRevision,
+                        user: runtime.user,
+                        condaEnvironment: SavontClusteringRunRequest.condaEnvironment,
+                        condaPrefix: "/tmp/envs/savont"
+                    )
+                )
+            })
+        }
+    }
+
     func testSavontImporterRejectsMismatchedAttemptInput() async throws {
         try await assertMutatedPipelineSavontImportRejected(prefix: "FASTQExecSavontAttemptInput") { envelope, _ in
             copiedSavontEnvelope(envelope, steps: replacingFirstSavontStep(in: envelope) { step in
@@ -4174,7 +4200,7 @@ private struct SavontImportFixture {
 private struct SuccessfulSavontFixtureProcessRunner: SavontProcessRunning {
     private static let runtime = ProvenanceRuntimeIdentity(
         appVersion: "test-app",
-        executablePath: "/managed/micromamba",
+        executablePath: "/managed/conda/bin/micromamba",
         processIdentifier: 123,
         operatingSystemVersion: "test-os",
         architecture: "arm64",
@@ -4194,7 +4220,7 @@ private struct SuccessfulSavontFixtureProcessRunner: SavontProcessRunning {
             exitCode: 0,
             stdout: "ok",
             stderr: "",
-            argv: ["/managed/micromamba", "run", "-n", "savont", "savont"] + arguments,
+            argv: ["/managed/conda/bin/micromamba", "run", "-n", "savont", "savont"] + arguments,
             runtimeIdentity: Self.runtime,
             startedAt: Date(timeIntervalSince1970: 10),
             completedAt: Date(timeIntervalSince1970: 11)
@@ -4209,10 +4235,10 @@ private struct EmptyFallbackSavontFixtureProcessRunner: SavontProcessRunning {
             exitCode: 1,
             stdout: "",
             stderr: "Less than 0.1% of SNPmers were bidirectional; retry with --single-strand",
-            argv: ["/managed/micromamba", "run", "-n", "savont", "savont"] + arguments,
+            argv: ["/managed/conda/bin/micromamba", "run", "-n", "savont", "savont"] + arguments,
             runtimeIdentity: ProvenanceRuntimeIdentity(
                 appVersion: "test-app",
-                executablePath: "/managed/micromamba",
+                executablePath: "/managed/conda/bin/micromamba",
                 processIdentifier: 123,
                 operatingSystemVersion: "test-os",
                 architecture: "arm64",

@@ -661,11 +661,7 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
                   let status = Int32(exactly: statusValue),
                   step.wallTimeSeconds.map({ $0 >= 0 }) == true,
                   let runtime = step.runtimeIdentity,
-                  runtime.condaEnvironment == SavontClusteringRunRequest.condaEnvironment,
-                  isNonEmpty(runtime.executablePath),
-                  NSString(string: runtime.executablePath).isAbsolutePath,
-                  let condaPrefix = runtime.condaPrefix,
-                  condaPrefix.hasSuffix("/envs/\(SavontClusteringRunRequest.condaEnvironment)"),
+                  savontRuntimeIdentityIsManaged(runtime),
                   let inputURL = step.resolvedOptions["inputFASTQ"]?.fileValue,
                   inputURL.standardizedFileURL.path == resolvedInputPath,
                   let outputDirectory = step.resolvedOptions["outputDirectory"]?.fileValue,
@@ -833,6 +829,31 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
             return false
         }
         return !descriptor.path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func savontRuntimeIdentityIsManaged(_ runtime: ProvenanceRuntimeIdentity) -> Bool {
+        guard runtime.condaEnvironment == SavontClusteringRunRequest.condaEnvironment,
+              isNonEmpty(runtime.executablePath),
+              NSString(string: runtime.executablePath).isAbsolutePath,
+              let condaPrefix = runtime.condaPrefix,
+              NSString(string: condaPrefix).isAbsolutePath else {
+            return false
+        }
+
+        let executableURL = URL(fileURLWithPath: runtime.executablePath).standardizedFileURL
+        let managedRootURL = executableURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let expectedExecutableURL = managedRootURL
+            .appendingPathComponent("bin", isDirectory: true)
+            .appendingPathComponent("micromamba")
+            .standardizedFileURL
+        let expectedEnvironmentURL = managedRootURL
+            .appendingPathComponent("envs", isDirectory: true)
+            .appendingPathComponent(SavontClusteringRunRequest.condaEnvironment, isDirectory: true)
+            .standardizedFileURL
+        return executableURL.path == expectedExecutableURL.path
+            && URL(fileURLWithPath: condaPrefix).standardizedFileURL.path == expectedEnvironmentURL.path
     }
 
     private func standardizedPath(_ path: String) -> String {
