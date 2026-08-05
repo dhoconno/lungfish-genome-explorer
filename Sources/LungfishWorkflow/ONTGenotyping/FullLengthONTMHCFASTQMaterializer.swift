@@ -48,6 +48,7 @@ enum FullLengthONTMHCFASTQMaterializer {
         inputURL: URL,
         outputURL: URL,
         logicalOutputURL: URL? = nil,
+        internalCommandName: String = "materialize-full-length-mhc-fastq",
         beforePayloadRead: ((URL) throws -> Void)? = nil,
         afterFirstSourceChunkRead: ((URL) throws -> Void)? = nil
     ) throws -> FullLengthONTMHCFASTQMaterializationResult {
@@ -56,7 +57,7 @@ enum FullLengthONTMHCFASTQMaterializer {
         let input = try validatedInput(for: inputURL)
         let logicalOutputURL = (logicalOutputURL ?? outputURL).standardizedFileURL
         var argv = [
-            "lungfish-internal", "materialize-full-length-mhc-fastq",
+            "lungfish-internal", internalCommandName,
         ]
         if let bundleURL = input.bundleURL {
             argv += ["--bundle", bundleURL.path]
@@ -125,6 +126,10 @@ enum FullLengthONTMHCFASTQMaterializer {
             }
             try output.synchronize()
             try Task.checkCancellation()
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o400],
+                ofItemAtPath: outputURL.path
+            )
             let outputFingerprint = try fingerprintRegularFile(
                 outputURL,
                 trustedRootURL: outputURL.deletingLastPathComponent(),
@@ -144,7 +149,7 @@ enum FullLengthONTMHCFASTQMaterializer {
             return FullLengthONTMHCFASTQMaterializationResult(
                 outputURL: outputURL.standardizedFileURL,
                 step: ProvenanceStep(
-                    toolName: "lungfish-internal materialize-full-length-mhc-fastq",
+                    toolName: "lungfish-internal \(internalCommandName)",
                     toolVersion: WorkflowRun.currentAppVersion,
                     argv: argv,
                     durableReplayArgv: argv,

@@ -1,4 +1,5 @@
 import Foundation
+import LungfishIO
 import XCTest
 @testable import LungfishWorkflow
 
@@ -13,7 +14,7 @@ final class SavontClusteringPipelineTests: XCTestCase {
                     exitCode: 0,
                     stdout: "clustered\n",
                     stderr: "diagnostic\n",
-                    argv: ["/managed/savont", "asv", fixture.input.path],
+                    argv: ["/managed/savont"],
                     runtimeIdentity: runtime,
                     startedAt: Date(timeIntervalSince1970: 100),
                     completedAt: Date(timeIntervalSince1970: 102)
@@ -77,14 +78,20 @@ final class SavontClusteringPipelineTests: XCTestCase {
         XCTAssertEqual(finalOutput.fileSize, 68)
         XCTAssertNotNil(finalOutput.originPath)
 
-        XCTAssertEqual(envelope.steps.count, 1)
-        let step = try XCTUnwrap(envelope.steps.first)
-        XCTAssertEqual(step.argv, ["/managed/savont", "asv", fixture.input.path])
+        XCTAssertEqual(envelope.steps.count, 2)
+        let materialization = envelope.steps[0]
+        let step = envelope.steps[1]
+        XCTAssertEqual(materialization.toolName, "lungfish-internal materialize-savont-clustering-fastq")
+        XCTAssertEqual(step.toolName, "savont")
+        XCTAssertEqual(Array(step.argv.prefix(2)), ["/managed/savont", "asv"])
+        XCTAssertEqual(step.argv[2], step.inputs.first?.path)
+        XCTAssertNotEqual(step.argv[2], fixture.input.path)
         XCTAssertEqual(step.exitStatus, 0)
         XCTAssertEqual(step.stderr, "diagnostic\n")
         XCTAssertEqual(step.wallTimeSeconds, 2)
         XCTAssertEqual(step.runtimeIdentity, runtime)
-        XCTAssertEqual(step.inputs.map(\.path), [fixture.input.path])
+        XCTAssertEqual(materialization.inputs.map(\.path), [fixture.input.path])
+        XCTAssertEqual(step.inputs.map(\.path), materialization.outputs.map(\.path))
         XCTAssertNotNil(step.inputs.first?.checksumSHA256)
         XCTAssertEqual(step.outputs.count, 1)
         XCTAssertEqual(step.outputs.first?.fileSize, 57)
@@ -92,7 +99,7 @@ final class SavontClusteringPipelineTests: XCTestCase {
         XCTAssertTrue(try fixture.temporaryArtifacts().isEmpty)
     }
 
-    func testBundleInputUsesDurableBundleAtTopLevelAndResolvedPayloadForAttempt() async throws {
+    func testBundleInputUsesDurableBundleAtTopLevelAndMaterializedPayloadForAttempt() async throws {
         let fixture = try Fixture(bundleInput: true)
         defer { fixture.remove() }
         let runner = FakeSavontProcessRunner(actions: [
@@ -114,31 +121,34 @@ final class SavontClusteringPipelineTests: XCTestCase {
         let durable = try XCTUnwrap(envelope.files.first { $0.path == fixture.input.path })
         XCTAssertNotNil(durable.checksumSHA256)
         XCTAssertNotNil(durable.fileSize)
-        let resolved = try XCTUnwrap(envelope.steps.first?.inputs.first)
-        XCTAssertEqual(
-            URL(fileURLWithPath: resolved.path).resolvingSymlinksInPath(),
-            fixture.payload.resolvingSymlinksInPath()
-        )
-        XCTAssertNotNil(resolved.checksumSHA256)
+        let materialization = try XCTUnwrap(envelope.steps.first)
+        let attempt = try XCTUnwrap(envelope.steps.last)
+        XCTAssertEqual(materialization.toolName, "lungfish-internal materialize-savont-clustering-fastq")
+        XCTAssertEqual(attempt.toolName, "savont")
+        let resolved = try XCTUnwrap(attempt.inputs.first)
+        let materializedOutput = try XCTUnwrap(materialization.outputs.first)
+        XCTAssertEqual(resolved.path, materializedOutput.path)
+        XCTAssertEqual(resolved.checksumSHA256, materializedOutput.checksumSHA256)
+        XCTAssertEqual(resolved.fileSize, materializedOutput.fileSize)
         let invocations = await runner.invocations()
         let invocation = try XCTUnwrap(invocations.first)
-        XCTAssertEqual(
-            URL(fileURLWithPath: invocation.arguments[1]).resolvingSymlinksInPath(),
-            fixture.payload.resolvingSymlinksInPath()
-        )
+        XCTAssertEqual(invocation.arguments[1], resolved.path)
+        XCTAssertNotEqual(invocation.arguments[1], fixture.payload.path)
         XCTAssertTrue(try fixture.temporaryArtifacts().isEmpty)
     }
 
-    func testPlainFASTQProvenanceUsesPreRunConsumedSnapshotWhenInputMutatesDuringRun() async throws {
+    func testPlainFASTQIsMaterializedBeforeRunnerCanMutateSource() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
+        let originalFASTQ = try String(contentsOf: fixture.input, encoding: .utf8)
         let consumedChecksum = try ProvenanceFileHasher.sha256(of: fixture.input)
         let consumedSize = try ProvenanceFileHasher.fileSize(of: fixture.input)
         let replacementFASTQ = "@replacement\nTTTTTT\n+\nIIIIII\n"
         let runner = FakeSavontProcessRunner(actions: [
-            .mutateInput(
+            .mutateSourceAndInspectInput(
                 fixture.input,
                 replacement: replacementFASTQ,
+                expectedInput: originalFASTQ,
                 fasta: ">c_depth_3\nACGT\n"
             ),
         ])
@@ -164,11 +174,79 @@ final class SavontClusteringPipelineTests: XCTestCase {
         let topLevelInput = try XCTUnwrap(
             envelope.files.first { $0.path == fixture.input.path && $0.role == .input }
         )
-        let attemptInput = try XCTUnwrap(envelope.steps.first?.inputs.first)
+        XCTAssertEqual(envelope.steps.map(\.toolName), [
+            "lungfish-internal materialize-savont-clustering-fastq",
+            "savont",
+        ])
+        let materialization = envelope.steps[0]
+        let attemptInput = try XCTUnwrap(envelope.steps[1].inputs.first)
         XCTAssertEqual(topLevelInput.checksumSHA256, consumedChecksum)
         XCTAssertEqual(topLevelInput.fileSize, consumedSize)
         XCTAssertEqual(attemptInput.checksumSHA256, consumedChecksum)
         XCTAssertEqual(attemptInput.fileSize, consumedSize)
+        XCTAssertEqual(attemptInput.path, materialization.outputs.first?.path)
+        XCTAssertEqual(attemptInput.checksumSHA256, materialization.outputs.first?.checksumSHA256)
+        XCTAssertEqual(attemptInput.fileSize, materialization.outputs.first?.fileSize)
+        XCTAssertNotEqual(attemptInput.path, fixture.input.path)
+    }
+
+    func testBundleMaterializationConcatenatesEveryPayloadBeforeClustering() async throws {
+        let fixture = try Fixture(bundleInput: true)
+        defer { fixture.remove() }
+        let firstFASTQ = try String(contentsOf: fixture.payload, encoding: .utf8)
+        let secondPayload = fixture.input.appendingPathComponent("part-2.fastq")
+        let secondFASTQ = "@r2\nTGCA\n+\nJJJJ\n"
+        try secondFASTQ.write(to: secondPayload, atomically: true, encoding: .utf8)
+        let firstEntry = FASTQSourceFileManifest.SourceFileEntry(
+            filename: fixture.payload.lastPathComponent,
+            originalPath: fixture.payload.path,
+            sizeBytes: Int64(Data(firstFASTQ.utf8).count),
+            isSymlink: false
+        )
+        let secondEntry = FASTQSourceFileManifest.SourceFileEntry(
+            filename: secondPayload.lastPathComponent,
+            originalPath: secondPayload.path,
+            sizeBytes: Int64(Data(secondFASTQ.utf8).count),
+            isSymlink: false
+        )
+        try FASTQSourceFileManifest(files: [firstEntry, secondEntry]).save(to: fixture.input)
+        let runner = FakeSavontProcessRunner(actions: [
+            .inspectInput(
+                expectedInput: firstFASTQ + secondFASTQ,
+                fasta: ">first_depth_3\nACGT\n>second_depth_4\nTGCA\n"
+            ),
+        ])
+        let request = try SavontClusteringRunRequest(
+            inputFASTQURL: fixture.input,
+            outputFASTAURL: fixture.output,
+            threads: 2
+        )
+
+        let result = try await SavontClusteringPipeline(
+            processRunner: runner,
+            scratchRootURL: fixture.root
+        ).run(request)
+        let envelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: result.provenanceURL)
+        )
+
+        XCTAssertEqual(result.summary.clusterCount, 2)
+        XCTAssertEqual(envelope.steps.map(\.toolName), [
+            "lungfish-internal materialize-savont-clustering-fastq",
+            "savont",
+        ])
+        let materialization = envelope.steps[0]
+        XCTAssertEqual(materialization.resolvedOptions["payloadCount"], .integer(2))
+        XCTAssertEqual(
+            Set(materialization.inputs.map(\.path)).intersection([fixture.payload.path, secondPayload.path]),
+            Set([fixture.payload.path, secondPayload.path])
+        )
+        XCTAssertEqual(envelope.steps[1].inputs.first?.path, materialization.outputs.first?.path)
+        XCTAssertEqual(
+            envelope.steps[1].inputs.first?.checksumSHA256,
+            materialization.outputs.first?.checksumSHA256
+        )
+        XCTAssertTrue(try fixture.temporaryArtifacts().isEmpty)
     }
 
     func testCrashRetriesWithOneThreadAndRecordsBothAttempts() async throws {
@@ -195,10 +273,13 @@ final class SavontClusteringPipelineTests: XCTestCase {
         XCTAssertEqual(invocations.count, 2)
         XCTAssertEqual(argument(after: "-t", in: invocations[0].arguments), "8")
         XCTAssertEqual(argument(after: "-t", in: invocations[1].arguments), "1")
+        XCTAssertEqual(invocations[0].arguments[1], invocations[1].arguments[1])
+        XCTAssertNotEqual(invocations[0].arguments[1], fixture.input.path)
         XCTAssertNotEqual(invocations[0].workingDirectory, invocations[1].workingDirectory)
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: result.provenanceURL))
-        XCTAssertEqual(envelope.steps.map(\.exitStatus), [139, 0])
-        XCTAssertEqual(envelope.steps.count, invocations.count)
+        let attemptSteps = envelope.steps.filter { $0.toolName == "savont" }
+        XCTAssertEqual(attemptSteps.map(\.exitStatus), [139, 0])
+        XCTAssertEqual(attemptSteps.count, invocations.count)
         XCTAssertTrue(try fixture.temporaryArtifacts().isEmpty)
     }
 
@@ -227,8 +308,9 @@ final class SavontClusteringPipelineTests: XCTestCase {
         XCTAssertFalse(invocations[0].arguments.contains("--single-strand"))
         XCTAssertTrue(invocations[1].arguments.contains("--single-strand"))
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: result.provenanceURL))
-        XCTAssertEqual(envelope.steps.count, 2)
-        XCTAssertEqual(envelope.steps.map(\.exitStatus), [1, 0])
+        let attemptSteps = envelope.steps.filter { $0.toolName == "savont" }
+        XCTAssertEqual(attemptSteps.count, 2)
+        XCTAssertEqual(attemptSteps.map(\.exitStatus), [1, 0])
         XCTAssertTrue(try fixture.temporaryArtifacts().isEmpty)
     }
 
@@ -255,8 +337,9 @@ final class SavontClusteringPipelineTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: fixture.output), Data())
         XCTAssertTrue(result.usedSingleStrandFallback)
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: result.provenanceURL))
-        XCTAssertEqual(envelope.steps.count, 2)
-        XCTAssertEqual(envelope.steps.map(\.exitStatus), [1, 1])
+        let attemptSteps = envelope.steps.filter { $0.toolName == "savont" }
+        XCTAssertEqual(attemptSteps.count, 2)
+        XCTAssertEqual(attemptSteps.map(\.exitStatus), [1, 1])
         XCTAssertEqual(envelope.exitStatus, 0)
         XCTAssertEqual(envelope.options.resolvedDefaults["emptyClusterFallback"], .boolean(true))
         XCTAssertTrue(try fixture.temporaryArtifacts().isEmpty)
@@ -378,18 +461,90 @@ final class SavontClusteringPipelineTests: XCTestCase {
         try oldSidecar.write(to: sidecar)
         let runner = FakeSavontProcessRunner(actions: [.success(fasta: ">new_depth_8\nCCCC\n")])
         let request = try SavontClusteringRunRequest(inputFASTQURL: fixture.input, outputFASTAURL: fixture.output)
+        let injector = SynchronousInjectionRecorder()
 
-        await XCTAssertThrowsErrorAsync {
-            try await SavontClusteringPipeline(
+        do {
+            _ = try await SavontClusteringPipeline(
                 processRunner: runner,
                 scratchRootURL: fixture.root,
-                publicationFailureInjector: { throw TestFailure.injected }
+                publicationFailureInjector: { try injector.fail() }
             ).run(request)
+            XCTFail("Expected injected pre-commit publication failure")
+        } catch TestFailure.injected {
+            // Expected exact failure after the new output is installed but before the sidecar commit.
+        } catch {
+            XCTFail("Expected TestFailure.injected, got \(error)")
         }
 
+        XCTAssertEqual(injector.invocationCount, 1)
         XCTAssertEqual(try Data(contentsOf: fixture.output), oldOutput)
         XCTAssertEqual(try Data(contentsOf: sidecar), oldSidecar)
         XCTAssertTrue(try fixture.temporaryArtifacts().isEmpty)
+    }
+
+    func testCommittedPairReportsBackupCleanupPendingWithoutRollback() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let oldOutput = Data(">old_ReadCount-1\nAAAA\n".utf8)
+        let oldSidecar = Data("old provenance".utf8)
+        try oldOutput.write(to: fixture.output)
+        let sidecar = ProvenanceRecorder.fileSidecarURL(for: fixture.output)
+        try oldSidecar.write(to: sidecar)
+        let runner = FakeSavontProcessRunner(actions: [.success(fasta: ">new_depth_8\nCCCC\n")])
+        let request = try SavontClusteringRunRequest(inputFASTQURL: fixture.input, outputFASTAURL: fixture.output)
+        let cleanupInjector = SynchronousInjectionRecorder()
+
+        let result = try await SavontClusteringPipeline(
+            processRunner: runner,
+            scratchRootURL: fixture.root,
+            publicationFailureInjector: {},
+            publicationBackupCleanupInjector: { url in
+                try cleanupInjector.fail(url)
+            }
+        ).run(request)
+
+        XCTAssertEqual(cleanupInjector.invocationCount, 2)
+        XCTAssertEqual(result.publicationCleanupPendingURLs, cleanupInjector.invokedURLs)
+        XCTAssertEqual(result.publicationCleanupPendingURLs.count, 2)
+        XCTAssertEqual(
+            try String(contentsOf: fixture.output, encoding: .utf8),
+            ">new_depth_8_ReadCount-8\nCCCC\n"
+        )
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecar))
+        XCTAssertEqual(envelope.options.resolvedDefaults["publicationBackupCleanupRequired"], .boolean(true))
+        XCTAssertEqual(envelope.options.resolvedDefaults["publicationBackupCleanupCandidateCount"], .integer(2))
+        XCTAssertEqual(
+            envelope.options.resolvedDefaults["publicationBackupCleanupStatus"],
+            .string("evaluated-after-commit")
+        )
+        for backupURL in result.publicationCleanupPendingURLs {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: backupURL.path))
+        }
+        let retainedBytes = try Set(result.publicationCleanupPendingURLs.map { try Data(contentsOf: $0) })
+        XCTAssertEqual(retainedBytes, Set([oldOutput, oldSidecar]))
+    }
+
+    func testResultCodableRoundTripPreservesCleanupPendingURLsAndDecodesLegacyResults() throws {
+        let result = SavontClusteringResult(
+            outputFASTAURL: URL(fileURLWithPath: "/output/clusters.fasta"),
+            provenanceURL: URL(fileURLWithPath: "/output/clusters.fasta.provenance.json"),
+            summary: SavontClusterSummary(clusterCount: 2, totalSupportingReads: 9),
+            usedSingleThreadFallback: true,
+            usedSingleStrandFallback: false,
+            publicationCleanupPendingURLs: [URL(fileURLWithPath: "/output/.clusters.backup")]
+        )
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+
+        XCTAssertEqual(try decoder.decode(SavontClusteringResult.self, from: encoder.encode(result)), result)
+
+        var legacyObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: encoder.encode(result)) as? [String: Any]
+        )
+        legacyObject.removeValue(forKey: "publicationCleanupPendingURLs")
+        let legacyData = try JSONSerialization.data(withJSONObject: legacyObject)
+        let legacyResult = try decoder.decode(SavontClusteringResult.self, from: legacyData)
+        XCTAssertEqual(legacyResult.publicationCleanupPendingURLs, [])
     }
 
     private func argument(after flag: String, in arguments: [String]) -> String? {
@@ -400,6 +555,27 @@ final class SavontClusteringPipelineTests: XCTestCase {
 
 private enum TestFailure: Error {
     case injected
+    case missingInputArgument
+    case unexpectedMaterializedInput
+    case materializedInputIsWritable(Int)
+}
+
+private final class SynchronousInjectionRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var urls: [URL] = []
+
+    var invocationCount: Int {
+        lock.withLock { urls.count }
+    }
+
+    var invokedURLs: [URL] {
+        lock.withLock { urls }
+    }
+
+    func fail(_ url: URL = URL(fileURLWithPath: "/pre-commit")) throws {
+        lock.withLock { urls.append(url) }
+        throw TestFailure.injected
+    }
 }
 
 private struct SavontInvocation: Sendable {
@@ -410,7 +586,8 @@ private struct SavontInvocation: Sendable {
 private actor FakeSavontProcessRunner: SavontProcessRunning {
     enum Action: Sendable {
         case result(SavontProcessResult, fasta: String?)
-        case mutateInput(URL, replacement: String, fasta: String)
+        case inspectInput(expectedInput: String, fasta: String)
+        case mutateSourceAndInspectInput(URL, replacement: String, expectedInput: String, fasta: String)
         case waitForCancellation
 
         static func success(fasta: String?) -> Action {
@@ -464,38 +641,66 @@ private actor FakeSavontProcessRunner: SavontProcessRunning {
                     encoding: .utf8
                 )
             }
-            if result.argv.isEmpty {
+            if result.argv.isEmpty || result.argv == ["/managed/savont"] {
+                let executableArgv = result.argv.isEmpty ? ["savont"] : result.argv
                 result = SavontProcessResult(
                     exitCode: result.exitCode,
                     stdout: result.stdout,
                     stderr: result.stderr,
-                    argv: ["savont"] + arguments,
+                    argv: executableArgv + arguments,
                     runtimeIdentity: result.runtimeIdentity,
                     startedAt: result.startedAt,
                     completedAt: result.completedAt
                 )
             }
             return result
-        case .mutateInput(let inputURL, let replacement, let fasta):
+        case .inspectInput(let expectedInput, let fasta):
+            try inspectInput(arguments: arguments, expected: expectedInput)
+            return try successfulResult(arguments: arguments, workingDirectory: workingDirectory, fasta: fasta)
+        case .mutateSourceAndInspectInput(let inputURL, let replacement, let expectedInput, let fasta):
             try replacement.write(to: inputURL, atomically: true, encoding: .utf8)
-            try fasta.write(
-                to: workingDirectory.appendingPathComponent("final_asvs.fasta"),
-                atomically: true,
-                encoding: .utf8
-            )
-            return SavontProcessResult(
-                exitCode: 0,
-                stdout: "ok",
-                stderr: "",
-                argv: ["savont"] + arguments,
-                runtimeIdentity: Fixture.fixedRuntimeIdentity,
-                startedAt: Date(timeIntervalSince1970: 10),
-                completedAt: Date(timeIntervalSince1970: 11)
-            )
+            try inspectInput(arguments: arguments, expected: expectedInput)
+            return try successfulResult(arguments: arguments, workingDirectory: workingDirectory, fasta: fasta)
         case .waitForCancellation:
             try await Task.sleep(for: .seconds(60))
             throw TestFailure.injected
         }
+    }
+
+    private func inspectInput(arguments: [String], expected: String) throws {
+        guard arguments.first == "asv", arguments.indices.contains(1) else {
+            throw TestFailure.missingInputArgument
+        }
+        let inputURL = URL(fileURLWithPath: arguments[1])
+        guard try String(contentsOf: inputURL, encoding: .utf8) == expected else {
+            throw TestFailure.unexpectedMaterializedInput
+        }
+        let attributes = try FileManager.default.attributesOfItem(atPath: inputURL.path)
+        let permissions = (attributes[.posixPermissions] as? NSNumber)?.intValue ?? -1
+        guard permissions == 0o400 else {
+            throw TestFailure.materializedInputIsWritable(permissions)
+        }
+    }
+
+    private func successfulResult(
+        arguments: [String],
+        workingDirectory: URL,
+        fasta: String
+    ) throws -> SavontProcessResult {
+        try fasta.write(
+            to: workingDirectory.appendingPathComponent("final_asvs.fasta"),
+            atomically: true,
+            encoding: .utf8
+        )
+        return SavontProcessResult(
+            exitCode: 0,
+            stdout: "ok",
+            stderr: "",
+            argv: ["savont"] + arguments,
+            runtimeIdentity: Fixture.fixedRuntimeIdentity,
+            startedAt: Date(timeIntervalSince1970: 10),
+            completedAt: Date(timeIntervalSince1970: 11)
+        )
     }
 
     func invocations() -> [SavontInvocation] {
@@ -551,6 +756,7 @@ private struct Fixture {
         ).filter { url in
             let name = url.lastPathComponent
             return name.contains("savont-attempt")
+                || name.contains("savont-run")
                 || name.contains("savont-publish")
                 || name.hasSuffix(".backup")
                 || name.hasSuffix(".tmp")
