@@ -200,9 +200,22 @@ Before deploying the skill:
     branches are removed, stale worktree metadata is pruned, and `main` is clean
     and synchronized with `origin/main`.
 
-## First use
+## Version-selection rule
 
-After the skill passes validation and is installed, use it to integrate the
-approved standalone Savont clustering and shared FASTA viewport changes, prepare
-the next unused beta release after `v0.5.0-beta20`, write its narrative release
-notes, and publish the notarized DMG and Sparkle feeds.
+Determine the next version anew for every invocation. Inspect versioned GitHub
+releases and Git tags, excluding mutable feed containers such as `sparkle-beta`
+and `sparkle-alpha`. Reconcile any disagreement before editing version files.
+
+If the user supplies a version, verify that its tag, GitHub release, release-note
+path, DMG name, and Sparkle build number will not collide with an existing
+release. Otherwise increment the most recent version in the active channel:
+
+- increment the final prerelease counter for an alpha or beta series;
+- increment the patch component after a stable release unless the user explicitly
+  requests a minor or major release;
+- do not silently change release channels or decrease semantic version order.
+
+Verify the proposed version remotely a second time immediately before creating
+the release tag. A conflicting, ambiguous, or concurrently published version
+causes the skill to recompute the next version and repeat version preparation
+rather than overwrite an existing release.
