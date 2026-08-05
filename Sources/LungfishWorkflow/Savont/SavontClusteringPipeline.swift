@@ -86,7 +86,7 @@ public struct SavontClusteringResult: Sendable, Codable, Equatable {
     public let summary: SavontClusterSummary
     public let usedSingleThreadFallback: Bool
     public let usedSingleStrandFallback: Bool
-    public let publicationCleanupPendingURLs: [URL]
+    public let cleanupPendingURLs: [URL]
 
     private enum CodingKeys: String, CodingKey {
         case outputFASTAURL
@@ -94,6 +94,7 @@ public struct SavontClusteringResult: Sendable, Codable, Equatable {
         case summary
         case usedSingleThreadFallback
         case usedSingleStrandFallback
+        case cleanupPendingURLs
         case publicationCleanupPendingURLs
     }
 
@@ -103,14 +104,14 @@ public struct SavontClusteringResult: Sendable, Codable, Equatable {
         summary: SavontClusterSummary,
         usedSingleThreadFallback: Bool,
         usedSingleStrandFallback: Bool,
-        publicationCleanupPendingURLs: [URL] = []
+        cleanupPendingURLs: [URL] = []
     ) {
         self.outputFASTAURL = outputFASTAURL
         self.provenanceURL = provenanceURL
         self.summary = summary
         self.usedSingleThreadFallback = usedSingleThreadFallback
         self.usedSingleStrandFallback = usedSingleStrandFallback
-        self.publicationCleanupPendingURLs = publicationCleanupPendingURLs
+        self.cleanupPendingURLs = cleanupPendingURLs
     }
 
     public init(from decoder: Decoder) throws {
@@ -121,11 +122,24 @@ public struct SavontClusteringResult: Sendable, Codable, Equatable {
             summary: try container.decode(SavontClusterSummary.self, forKey: .summary),
             usedSingleThreadFallback: try container.decode(Bool.self, forKey: .usedSingleThreadFallback),
             usedSingleStrandFallback: try container.decode(Bool.self, forKey: .usedSingleStrandFallback),
-            publicationCleanupPendingURLs: try container.decodeIfPresent(
+            cleanupPendingURLs: try container.decodeIfPresent(
+                [URL].self,
+                forKey: .cleanupPendingURLs
+            ) ?? container.decodeIfPresent(
                 [URL].self,
                 forKey: .publicationCleanupPendingURLs
             ) ?? []
         )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(outputFASTAURL, forKey: .outputFASTAURL)
+        try container.encode(provenanceURL, forKey: .provenanceURL)
+        try container.encode(summary, forKey: .summary)
+        try container.encode(usedSingleThreadFallback, forKey: .usedSingleThreadFallback)
+        try container.encode(usedSingleStrandFallback, forKey: .usedSingleStrandFallback)
+        try container.encode(cleanupPendingURLs, forKey: .cleanupPendingURLs)
     }
 }
 
@@ -134,8 +148,10 @@ public enum SavontClusteringError: Error, LocalizedError, Sendable, Equatable {
     case processFailed(status: Int32, stderr: String)
     case missingFinalASVs(URL)
     case emptyFinalASVs(URL)
+    case inputMaterializationFailed(URL, reason: String)
     case outputDestinationIsDirectory(URL)
     case publicationRollbackFailed(originalError: String, rollbackErrors: [String])
+    case cleanupFailed(originalError: String, retainedURLs: [URL], cleanupErrors: [String])
 
     public var errorDescription: String? {
         switch self {
@@ -147,10 +163,14 @@ public enum SavontClusteringError: Error, LocalizedError, Sendable, Equatable {
             "Savont completed without producing final_asvs.fasta at \(url.path)."
         case .emptyFinalASVs(let url):
             "Savont completed with an empty final_asvs.fasta at \(url.path)."
+        case .inputMaterializationFailed(let url, let reason):
+            "Savont could not materialize input FASTQ \(url.path): \(reason)"
         case .outputDestinationIsDirectory(let url):
             "Savont output destination is an existing directory: \(url.path)"
         case .publicationRollbackFailed(let originalError, let rollbackErrors):
             "Savont publication failed (\(originalError)) and rollback was incomplete: \(rollbackErrors.joined(separator: "; "))"
+        case .cleanupFailed(let originalError, let retainedURLs, let cleanupErrors):
+            "Savont failed (\(originalError)) and cleanup retained \(retainedURLs.map(\.path).joined(separator: ", ")): \(cleanupErrors.joined(separator: "; "))"
         }
     }
 }
@@ -160,6 +180,7 @@ public struct SavontClusteringPipeline: Sendable {
     private let scratchRootURL: URL
     private let publicationFailureInjector: (@Sendable () throws -> Void)?
     private let publicationBackupCleanupInjector: (@Sendable (URL) throws -> Void)?
+    private let ownedCleanupInjector: (@Sendable (URL) throws -> Void)?
 
     public init(
         processRunner: any SavontProcessRunning = ManagedSavontProcessRunner(),
@@ -169,18 +190,21 @@ public struct SavontClusteringPipeline: Sendable {
         self.scratchRootURL = scratchRootURL.standardizedFileURL
         publicationFailureInjector = nil
         publicationBackupCleanupInjector = nil
+        ownedCleanupInjector = nil
     }
 
     init(
         processRunner: any SavontProcessRunning,
         scratchRootURL: URL,
         publicationFailureInjector: @escaping @Sendable () throws -> Void,
-        publicationBackupCleanupInjector: (@Sendable (URL) throws -> Void)? = nil
+        publicationBackupCleanupInjector: (@Sendable (URL) throws -> Void)? = nil,
+        ownedCleanupInjector: (@Sendable (URL) throws -> Void)? = nil
     ) {
         self.processRunner = processRunner
         self.scratchRootURL = scratchRootURL.standardizedFileURL
         self.publicationFailureInjector = publicationFailureInjector
         self.publicationBackupCleanupInjector = publicationBackupCleanupInjector
+        self.ownedCleanupInjector = ownedCleanupInjector
     }
 
     public func run(_ request: SavontClusteringRunRequest) async throws -> SavontClusteringResult {
@@ -212,252 +236,286 @@ public struct SavontClusteringPipeline: Sendable {
             isDirectory: true
         )
         try fileManager.createDirectory(at: runScratchURL, withIntermediateDirectories: false)
-        defer {
-            Self.removeIfPresent(stagedOutputURL, fileManager: fileManager)
-            Self.removeIfPresent(stagedSidecarURL, fileManager: fileManager)
-            Self.removeIfPresent(runScratchURL, fileManager: fileManager)
-        }
+        let ownedCleanupURLs = [stagedOutputURL, stagedSidecarURL, runScratchURL]
 
-        let workflowStartedAt = Date()
-        let isBundleInput = FASTQBundle.isBundleURL(originalInputURL)
-        let originalBundleDescriptor = isBundleInput
-            ? ProvenanceFileDescriptor(
-                fileRecord: ProvenanceRecorder.fileOrDirectoryRecord(
-                    url: originalInputURL,
-                    format: .unknown,
-                    role: .input
-                ),
-                sourceProvenancePath: ProvenanceRecorder.findProvenanceEnvelope(
-                    for: originalInputURL
-                )?.sidecarURL.path
-            )
-            : nil
-        let materialization = try FullLengthONTMHCFASTQMaterializer.materializePlainFASTQ(
-            inputURL: originalInputURL,
-            outputURL: runScratchURL.appendingPathComponent("input.fastq"),
-            internalCommandName: "materialize-savont-clustering-fastq"
-        )
-        let materializedInputURL = materialization.outputURL
-        guard let materializedOutputDescriptor = materialization.step.outputs.first else {
-            throw SavontClusteringError.invalidInputFASTQ(originalInputURL)
-        }
-        let materializedInputDescriptor = ProvenanceFileDescriptor(
-            path: materializedOutputDescriptor.path,
-            checksumSHA256: materializedOutputDescriptor.checksumSHA256,
-            fileSize: materializedOutputDescriptor.fileSize,
-            format: .fastq,
-            role: .input,
-            originPath: originalInputURL.path
-        )
-        let consumedPlainInputDescriptor = materialization.step.inputs.first {
-            $0.path == originalInputURL.path && $0.format == .fastq
-        }
-
-        var attemptedThreads = request.threads
-        var attemptedSingleStrand = request.singleStrand
-        var usedSingleThreadFallback = false
-        var usedSingleStrandFallback = false
-        var usedEmptyClusterFallback = false
-        var attemptSteps: [ProvenanceStep] = []
-        var finalRuntimeIdentity: ProvenanceRuntimeIdentity?
-        var summary: SavontClusterSummary?
-
-        attemptLoop: while true {
-            try Task.checkCancellation()
-            let scratchURL = scratchRootURL.appendingPathComponent(
-                ".savont-attempt-\(UUID().uuidString)",
-                isDirectory: true
-            )
-            try fileManager.createDirectory(at: scratchURL, withIntermediateDirectories: false)
+        do {
+            let workflowStartedAt = Date()
+            let isBundleInput = FASTQBundle.isBundleURL(originalInputURL)
+            let originalBundleDescriptor = isBundleInput
+                ? ProvenanceFileDescriptor(
+                    fileRecord: ProvenanceRecorder.fileOrDirectoryRecord(
+                        url: originalInputURL,
+                        format: .unknown,
+                        role: .input
+                    ),
+                    sourceProvenancePath: ProvenanceRecorder.findProvenanceEnvelope(
+                        for: originalInputURL
+                    )?.sidecarURL.path
+                )
+                : nil
+            let materialization: FullLengthONTMHCFASTQMaterializationResult
             do {
-                defer { Self.removeIfPresent(scratchURL, fileManager: fileManager) }
-                let executionRequest = try SavontClusteringRunRequest(
-                    inputFASTQURL: materializedInputURL,
-                    outputFASTAURL: outputURL,
-                    threads: request.threads,
-                    qualityValueCutoff: request.qualityValueCutoff,
-                    minimumClusterSize: request.minimumClusterSize,
-                    minimumReadLength: request.minimumReadLength,
-                    maximumReadLength: request.maximumReadLength,
-                    singleStrand: request.singleStrand
+                materialization = try FullLengthONTMHCFASTQMaterializer.materializePlainFASTQ(
+                    inputURL: originalInputURL,
+                    outputURL: runScratchURL.appendingPathComponent("input.fastq"),
+                    internalCommandName: "materialize-savont-clustering-fastq",
+                    recordsDurableReplayArgv: false
                 )
-                let arguments = try executionRequest.arguments(
-                    outputDirectory: scratchURL,
-                    threads: attemptedThreads,
-                    singleStrand: attemptedSingleStrand
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                throw Self.inputMaterializationError(
+                    for: originalInputURL,
+                    underlyingError: error
                 )
-                let processResult = try await processRunner.run(
-                    arguments: arguments,
-                    workingDirectory: scratchURL
-                )
-                try Task.checkCancellation()
-                finalRuntimeIdentity = processResult.runtimeIdentity
+            }
+            let materializedInputURL = materialization.outputURL
+            guard let materializedOutputDescriptor = materialization.step.outputs.first else {
+                throw SavontClusteringError.invalidInputFASTQ(originalInputURL)
+            }
+            let materializedInputDescriptor = ProvenanceFileDescriptor(
+                path: materializedOutputDescriptor.path,
+                checksumSHA256: materializedOutputDescriptor.checksumSHA256,
+                fileSize: materializedOutputDescriptor.fileSize,
+                format: .fastq,
+                role: .input,
+                originPath: originalInputURL.path
+            )
+            let consumedPlainInputDescriptor = materialization.step.inputs.first {
+                $0.path == originalInputURL.path && $0.format == .fastq
+            }
 
-                let rawOutputURL = scratchURL.appendingPathComponent("final_asvs.fasta")
-                let rawOutputDescriptor: ProvenanceFileDescriptor?
-                if fileManager.fileExists(atPath: rawOutputURL.path), !Self.isDirectory(rawOutputURL, fileManager: fileManager) {
-                    rawOutputDescriptor = try ProvenanceFileDescriptor.file(
-                        url: rawOutputURL,
-                        format: .fasta,
-                        role: .output
+            var attemptedThreads = request.threads
+            var attemptedSingleStrand = request.singleStrand
+            var usedSingleThreadFallback = false
+            var usedSingleStrandFallback = false
+            var usedEmptyClusterFallback = false
+            var attemptSteps: [ProvenanceStep] = []
+            var finalRuntimeIdentity: ProvenanceRuntimeIdentity?
+            var summary: SavontClusterSummary?
+
+            attemptLoop: while true {
+                try Task.checkCancellation()
+                let scratchURL = runScratchURL.appendingPathComponent(
+                    ".savont-attempt-\(UUID().uuidString)",
+                    isDirectory: true
+                )
+                try fileManager.createDirectory(at: scratchURL, withIntermediateDirectories: false)
+                do {
+                    defer { Self.removeIfPresent(scratchURL, fileManager: fileManager) }
+                    let executionRequest = try SavontClusteringRunRequest(
+                        inputFASTQURL: materializedInputURL,
+                        outputFASTAURL: outputURL,
+                        threads: request.threads,
+                        qualityValueCutoff: request.qualityValueCutoff,
+                        minimumClusterSize: request.minimumClusterSize,
+                        minimumReadLength: request.minimumReadLength,
+                        maximumReadLength: request.maximumReadLength,
+                        singleStrand: request.singleStrand
                     )
-                } else {
-                    rawOutputDescriptor = nil
-                }
-                let exactArgv = processResult.argv.isEmpty ? ["savont"] + arguments : processResult.argv
-                attemptSteps.append(ProvenanceStep(
-                    toolName: "savont",
-                    toolVersion: SavontClusteringRunRequest.toolVersion,
-                    argv: exactArgv,
-                    durableReplayArgv: nil,
-                    resolvedOptions: attemptResolvedOptions(
-                        request: request,
-                        resolvedInputURL: materializedInputURL,
+                    let arguments = try executionRequest.arguments(
                         outputDirectory: scratchURL,
                         threads: attemptedThreads,
                         singleStrand: attemptedSingleStrand
-                    ),
-                    runtimeIdentity: processResult.runtimeIdentity,
-                    inputs: [materializedInputDescriptor],
-                    outputs: rawOutputDescriptor.map { [$0] } ?? [],
-                    exitStatus: Int(processResult.exitCode),
-                    wallTimeSeconds: max(0, processResult.completedAt.timeIntervalSince(processResult.startedAt)),
-                    stderr: processResult.stderr.isEmpty ? nil : processResult.stderr,
-                    startedAt: processResult.startedAt,
-                    completedAt: processResult.completedAt
-                ))
-
-                if processResult.exitCode == 0 {
-                    guard rawOutputDescriptor != nil else {
-                        throw SavontClusteringError.missingFinalASVs(rawOutputURL)
-                    }
-                    let successfulSummary = try SavontClusterFASTA.normalize(
-                        sourceURL: rawOutputURL,
-                        destinationURL: stagedOutputURL
                     )
-                    guard successfulSummary.clusterCount > 0 else {
-                        throw SavontClusteringError.emptyFinalASVs(rawOutputURL)
-                    }
-                    summary = successfulSummary
-                    break attemptLoop
-                }
-
-                switch SavontRetryPolicy.decision(
-                    exitCode: processResult.exitCode,
-                    attemptedThreads: attemptedThreads,
-                    attemptedSingleStrand: attemptedSingleStrand,
-                    stderr: processResult.stderr
-                ) {
-                case .singleThread:
-                    attemptedThreads = 1
-                    usedSingleThreadFallback = true
-                    continue attemptLoop
-                case .singleStrand:
-                    attemptedSingleStrand = true
-                    usedSingleStrandFallback = true
-                    continue attemptLoop
-                case .emptyClusters:
-                    try Data().write(to: rawOutputURL, options: .atomic)
-                    summary = try SavontClusterFASTA.normalize(
-                        sourceURL: rawOutputURL,
-                        destinationURL: stagedOutputURL
+                    let processResult = try await processRunner.run(
+                        arguments: arguments,
+                        workingDirectory: scratchURL
                     )
-                    usedEmptyClusterFallback = true
-                    break attemptLoop
-                case .none:
-                    throw SavontClusteringError.processFailed(
-                        status: processResult.exitCode,
+                    try Task.checkCancellation()
+                    finalRuntimeIdentity = processResult.runtimeIdentity
+
+                    let rawOutputURL = scratchURL.appendingPathComponent("final_asvs.fasta")
+                    let rawOutputDescriptor: ProvenanceFileDescriptor?
+                    if fileManager.fileExists(atPath: rawOutputURL.path), !Self.isDirectory(rawOutputURL, fileManager: fileManager) {
+                        rawOutputDescriptor = try ProvenanceFileDescriptor.file(
+                            url: rawOutputURL,
+                            format: .fasta,
+                            role: .output
+                        )
+                    } else {
+                        rawOutputDescriptor = nil
+                    }
+                    let exactArgv = processResult.argv.isEmpty ? ["savont"] + arguments : processResult.argv
+                    attemptSteps.append(ProvenanceStep(
+                        toolName: "savont",
+                        toolVersion: SavontClusteringRunRequest.toolVersion,
+                        argv: exactArgv,
+                        durableReplayArgv: nil,
+                        resolvedOptions: attemptResolvedOptions(
+                            request: request,
+                            resolvedInputURL: materializedInputURL,
+                            outputDirectory: scratchURL,
+                            threads: attemptedThreads,
+                            singleStrand: attemptedSingleStrand
+                        ),
+                        runtimeIdentity: processResult.runtimeIdentity,
+                        inputs: [materializedInputDescriptor],
+                        outputs: rawOutputDescriptor.map { [$0] } ?? [],
+                        exitStatus: Int(processResult.exitCode),
+                        wallTimeSeconds: max(0, processResult.completedAt.timeIntervalSince(processResult.startedAt)),
+                        stderr: processResult.stderr.isEmpty ? nil : processResult.stderr,
+                        startedAt: processResult.startedAt,
+                        completedAt: processResult.completedAt
+                    ))
+
+                    if processResult.exitCode == 0 {
+                        guard rawOutputDescriptor != nil else {
+                            throw SavontClusteringError.missingFinalASVs(rawOutputURL)
+                        }
+                        let successfulSummary = try SavontClusterFASTA.normalize(
+                            sourceURL: rawOutputURL,
+                            destinationURL: stagedOutputURL
+                        )
+                        guard successfulSummary.clusterCount > 0 else {
+                            throw SavontClusteringError.emptyFinalASVs(rawOutputURL)
+                        }
+                        summary = successfulSummary
+                        break attemptLoop
+                    }
+
+                    switch SavontRetryPolicy.decision(
+                        exitCode: processResult.exitCode,
+                        attemptedThreads: attemptedThreads,
+                        attemptedSingleStrand: attemptedSingleStrand,
                         stderr: processResult.stderr
-                    )
+                    ) {
+                    case .singleThread:
+                        attemptedThreads = 1
+                        usedSingleThreadFallback = true
+                        continue attemptLoop
+                    case .singleStrand:
+                        attemptedSingleStrand = true
+                        usedSingleStrandFallback = true
+                        continue attemptLoop
+                    case .emptyClusters:
+                        try Data().write(to: rawOutputURL, options: .atomic)
+                        summary = try SavontClusterFASTA.normalize(
+                            sourceURL: rawOutputURL,
+                            destinationURL: stagedOutputURL
+                        )
+                        usedEmptyClusterFallback = true
+                        break attemptLoop
+                    case .none:
+                        throw SavontClusteringError.processFailed(
+                            status: processResult.exitCode,
+                            stderr: processResult.stderr
+                        )
+                    }
                 }
             }
-        }
 
-        try Task.checkCancellation()
-        let finalSummary = try requireSummary(summary)
-        let runtimeIdentity = finalRuntimeIdentity ?? ProvenanceRuntimeIdentity(
-            condaEnvironment: SavontClusteringRunRequest.condaEnvironment
-        )
-        let stagedDescriptor = try ProvenanceFileDescriptor.file(
-            url: stagedOutputURL,
-            format: .fasta,
-            role: .output
-        )
-        let finalDescriptor = ProvenanceFileDescriptor(
-            path: outputURL.path,
-            checksumSHA256: stagedDescriptor.checksumSHA256,
-            fileSize: stagedDescriptor.fileSize,
-            format: .fasta,
-            role: .output,
-            originPath: stagedOutputURL.path
-        )
-        let topLevelArgv = replayArgv(for: request)
-        let workflowCompletedAt = Date()
-        let finalSidecarURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
-        let publicationBackupCleanupCandidateCount = [outputURL, finalSidecarURL].reduce(into: 0) {
-            if fileManager.fileExists(atPath: $1.path) {
-                $0 += 1
+            try Task.checkCancellation()
+            let finalSummary = try requireSummary(summary)
+            let runtimeIdentity = finalRuntimeIdentity ?? ProvenanceRuntimeIdentity(
+                condaEnvironment: SavontClusteringRunRequest.condaEnvironment
+            )
+            let stagedDescriptor = try ProvenanceFileDescriptor.file(
+                url: stagedOutputURL,
+                format: .fasta,
+                role: .output
+            )
+            let finalDescriptor = ProvenanceFileDescriptor(
+                path: outputURL.path,
+                checksumSHA256: stagedDescriptor.checksumSHA256,
+                fileSize: stagedDescriptor.fileSize,
+                format: .fasta,
+                role: .output,
+                originPath: stagedOutputURL.path
+            )
+            let topLevelArgv = replayArgv(for: request)
+            let workflowCompletedAt = Date()
+            let finalSidecarURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
+            let publicationBackupCleanupCandidateCount = [outputURL, finalSidecarURL].reduce(into: 0) {
+                if fileManager.fileExists(atPath: $1.path) {
+                    $0 += 1
+                }
             }
-        }
-        var builder = ProvenanceRunBuilder(
-            workflowName: "lungfish fastq savont-cluster",
-            workflowVersion: SavontClusteringRunRequest.workflowVersion,
-            toolName: "savont",
-            toolVersion: SavontClusteringRunRequest.toolVersion
-        )
-        builder = builder.argv(topLevelArgv)
-        builder = builder.durableReplayArgv(topLevelArgv)
-        builder = builder.reproducibleCommand(topLevelArgv.map(shellEscape).joined(separator: " "))
-        builder = builder.options(
-            explicit: explicitOptions(request: request, resolvedInputURL: materializedInputURL),
-            defaults: defaultOptions(),
-            resolved: resolvedOptions(
-                request: request,
-                resolvedInputURL: materializedInputURL,
+            var builder = ProvenanceRunBuilder(
+                workflowName: "lungfish fastq savont-cluster",
+                workflowVersion: SavontClusteringRunRequest.workflowVersion,
+                toolName: "savont",
+                toolVersion: SavontClusteringRunRequest.toolVersion
+            )
+            builder = builder.argv(topLevelArgv)
+            builder = builder.durableReplayArgv(topLevelArgv)
+            builder = builder.reproducibleCommand(topLevelArgv.map(shellEscape).joined(separator: " "))
+            builder = builder.options(
+                explicit: explicitOptions(request: request, resolvedInputURL: materializedInputURL),
+                defaults: defaultOptions(),
+                resolved: resolvedOptions(
+                    request: request,
+                    resolvedInputURL: materializedInputURL,
+                    summary: finalSummary,
+                    usedSingleThreadFallback: usedSingleThreadFallback,
+                    usedSingleStrandFallback: usedSingleStrandFallback,
+                    usedEmptyClusterFallback: usedEmptyClusterFallback,
+                    publicationBackupCleanupCandidateCount: publicationBackupCleanupCandidateCount
+                )
+            )
+            if let originalBundleDescriptor {
+                builder = try builder.input(originalBundleDescriptor)
+            } else {
+                guard let consumedPlainInputDescriptor else {
+                    throw SavontClusteringError.invalidInputFASTQ(originalInputURL)
+                }
+                builder = try builder.consumedInputSnapshot(consumedPlainInputDescriptor)
+            }
+            builder = builder.runtime(runtimeIdentity)
+            builder = try builder.relocatedOutput(finalDescriptor)
+            builder = builder.step(materialization.step)
+            for step in attemptSteps {
+                builder = builder.step(step)
+            }
+            let combinedStderr = attemptSteps.compactMap(\.stderr).joined(separator: "\n")
+            let envelope = try builder.complete(
+                exitStatus: 0,
+                stderr: combinedStderr.isEmpty ? nil : combinedStderr,
+                startedAt: workflowStartedAt,
+                endedAt: workflowCompletedAt
+            )
+            try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: stagedSidecarURL)
+            try Task.checkCancellation()
+            let publicationCleanupPendingURLs = try publishPair(
+                stagedOutputURL: stagedOutputURL,
+                stagedSidecarURL: stagedSidecarURL,
+                outputURL: outputURL
+            )
+            let ownedCleanup = cleanupOwnedArtifacts(ownedCleanupURLs)
+
+            return SavontClusteringResult(
+                outputFASTAURL: outputURL,
+                provenanceURL: ProvenanceRecorder.fileSidecarURL(for: outputURL),
                 summary: finalSummary,
                 usedSingleThreadFallback: usedSingleThreadFallback,
                 usedSingleStrandFallback: usedSingleStrandFallback,
-                usedEmptyClusterFallback: usedEmptyClusterFallback,
-                publicationBackupCleanupCandidateCount: publicationBackupCleanupCandidateCount
+                cleanupPendingURLs: publicationCleanupPendingURLs + ownedCleanup.retainedURLs
             )
-        )
-        if let originalBundleDescriptor {
-            builder = try builder.input(originalBundleDescriptor)
-        } else {
-            guard let consumedPlainInputDescriptor else {
-                throw SavontClusteringError.invalidInputFASTQ(originalInputURL)
+        } catch {
+            let ownedCleanup = cleanupOwnedArtifacts(ownedCleanupURLs)
+            guard !ownedCleanup.retainedURLs.isEmpty else {
+                throw error
             }
-            builder = try builder.consumedInputSnapshot(consumedPlainInputDescriptor)
+            throw SavontClusteringError.cleanupFailed(
+                originalError: error.localizedDescription,
+                retainedURLs: ownedCleanup.retainedURLs,
+                cleanupErrors: ownedCleanup.errors
+            )
         }
-        builder = builder.runtime(runtimeIdentity)
-        builder = try builder.relocatedOutput(finalDescriptor)
-        builder = builder.step(materialization.step)
-        for step in attemptSteps {
-            builder = builder.step(step)
-        }
-        let combinedStderr = attemptSteps.compactMap(\.stderr).joined(separator: "\n")
-        let envelope = try builder.complete(
-            exitStatus: 0,
-            stderr: combinedStderr.isEmpty ? nil : combinedStderr,
-            startedAt: workflowStartedAt,
-            endedAt: workflowCompletedAt
-        )
-        try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: stagedSidecarURL)
-        try Task.checkCancellation()
-        let publicationCleanupPendingURLs = try publishPair(
-            stagedOutputURL: stagedOutputURL,
-            stagedSidecarURL: stagedSidecarURL,
-            outputURL: outputURL
-        )
+    }
 
-        return SavontClusteringResult(
-            outputFASTAURL: outputURL,
-            provenanceURL: ProvenanceRecorder.fileSidecarURL(for: outputURL),
-            summary: finalSummary,
-            usedSingleThreadFallback: usedSingleThreadFallback,
-            usedSingleStrandFallback: usedSingleStrandFallback,
-            publicationCleanupPendingURLs: publicationCleanupPendingURLs
-        )
+    static func inputMaterializationError(
+        for inputURL: URL,
+        underlyingError: Error
+    ) -> SavontClusteringError {
+        let reason: String
+        if let mhcError = underlyingError as? FullLengthONTMHCGenotypingError,
+           case .reportFailed(let reportFailureReason) = mhcError {
+            reason = reportFailureReason
+        } else {
+            reason = underlyingError.localizedDescription
+        }
+        return .inputMaterializationFailed(inputURL, reason: reason)
     }
 
     private func publishPair(
@@ -645,6 +703,26 @@ public struct SavontClusteringPipeline: Sendable {
     private static func isDirectory(_ url: URL, fileManager: FileManager) -> Bool {
         var isDirectory: ObjCBool = false
         return fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
+    private func cleanupOwnedArtifacts(
+        _ urls: [URL]
+    ) -> (retainedURLs: [URL], errors: [String]) {
+        let fileManager = FileManager.default
+        var retainedURLs: [URL] = []
+        var errors: [String] = []
+        for url in urls where fileManager.fileExists(atPath: url.path) {
+            do {
+                try ownedCleanupInjector?(url)
+                try fileManager.removeItem(at: url)
+            } catch {
+                retainedURLs.append(url)
+                errors.append(
+                    "\(url.path): \(String(describing: error)) (\(error.localizedDescription))"
+                )
+            }
+        }
+        return (retainedURLs, errors)
     }
 
     private static func removeIfPresent(_ url: URL, fileManager: FileManager) {

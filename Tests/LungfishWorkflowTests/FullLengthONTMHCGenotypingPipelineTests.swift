@@ -1212,6 +1212,7 @@ final class FullLengthONTMHCGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(value(after: "--bundle", in: step.argv), bundle.path)
         XCTAssertEqual(value(after: "--manifest", in: step.argv), manifestURL.path)
         XCTAssertEqual(values(after: "--payload", in: step.argv), [firstFASTQ.path, secondFASTQ.path])
+        XCTAssertEqual(step.durableReplayArgv, step.argv)
         XCTAssertTrue(try XCTUnwrap(value(after: "--output", in: step.argv)).hasSuffix("/workflow/DL46/00-input.fastq"))
         XCTAssertEqual(step.resolvedOptions["payloadCount"], .integer(2))
         XCTAssertEqual(step.exitStatus, 0)

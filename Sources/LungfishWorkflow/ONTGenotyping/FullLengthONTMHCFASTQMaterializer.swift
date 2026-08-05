@@ -49,6 +49,7 @@ enum FullLengthONTMHCFASTQMaterializer {
         outputURL: URL,
         logicalOutputURL: URL? = nil,
         internalCommandName: String = "materialize-full-length-mhc-fastq",
+        recordsDurableReplayArgv: Bool = true,
         beforePayloadRead: ((URL) throws -> Void)? = nil,
         afterFirstSourceChunkRead: ((URL) throws -> Void)? = nil
     ) throws -> FullLengthONTMHCFASTQMaterializationResult {
@@ -152,7 +153,7 @@ enum FullLengthONTMHCFASTQMaterializer {
                     toolName: "lungfish-internal \(internalCommandName)",
                     toolVersion: WorkflowRun.currentAppVersion,
                     argv: argv,
-                    durableReplayArgv: argv,
+                    durableReplayArgv: recordsDurableReplayArgv ? argv : nil,
                     reproducibleCommand: argv.map(shellEscape).joined(separator: " "),
                     resolvedOptions: [
                         "inputKind": .string(input.bundleURL == nil ? "plain-fastq" : "lungfishfastq-bundle"),
