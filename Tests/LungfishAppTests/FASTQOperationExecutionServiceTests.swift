@@ -756,6 +756,34 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: sidecar), sidecarBeforeImport)
     }
 
+    func testSavontImporterAcceptsCanonicalTruncatedTopLevelStderr() async throws {
+        let processStderr = String(repeating: "Savont progress update\n", count: 800)
+        let fixture = try await makePipelineSavontImportFixture(
+            prefix: "FASTQExecSavontTruncatedStderr",
+            processStderr: processStderr
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let sidecar = ProvenanceRecorder.fileSidecarURL(for: fixture.output)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(fromSidecar: sidecar))
+        let attemptStderr = try XCTUnwrap(
+            envelope.steps.first(where: { $0.toolName == "savont" })?.stderr
+        )
+        let summaryStderr = try XCTUnwrap(envelope.stderr)
+        XCTAssertEqual(attemptStderr, processStderr)
+        XCTAssertLessThan(summaryStderr.count, attemptStderr.count)
+        XCTAssertTrue(summaryStderr.hasSuffix("... [truncated]"))
+
+        let importer = BundleFASTQOperationImporter(destinationDirectory: fixture.directory)
+        let imported = try await importer.importOutputs(
+            at: [fixture.output],
+            forResolvedRequest: fixture.request,
+            originalRequest: fixture.request,
+            outputDirectory: fixture.directory
+        )
+
+        XCTAssertEqual(imported, [fixture.output])
+    }
+
     func testSavontImporterRejectsMismatchedDurableThreads() async throws {
         try await assertMutatedPipelineSavontImportRejected(prefix: "FASTQExecSavontThreads") { envelope, _ in
             copiedSavontEnvelope(envelope, durableReplayArgv: replacingArgument(
@@ -4304,6 +4332,12 @@ private struct SuccessfulSavontFixtureProcessRunner: SavontProcessRunning {
         condaPrefix: "/managed/conda/envs/savont"
     )
 
+    let stderr: String
+
+    init(stderr: String = "") {
+        self.stderr = stderr
+    }
+
     func run(arguments: [String], workingDirectory: URL) async throws -> SavontProcessResult {
         try ">cluster_depth_5\nACGT\n".write(
             to: workingDirectory.appendingPathComponent("final_asvs.fasta"),
@@ -4313,7 +4347,7 @@ private struct SuccessfulSavontFixtureProcessRunner: SavontProcessRunning {
         return SavontProcessResult(
             exitCode: 0,
             stdout: "ok",
-            stderr: "",
+            stderr: stderr,
             argv: ["/managed/conda/bin/micromamba", "run", "-n", "savont", "savont"] + arguments,
             runtimeIdentity: Self.runtime,
             startedAt: Date(timeIntervalSince1970: 10),
@@ -4504,7 +4538,10 @@ private func makeSavontFanoutExecutionFixture(
     )
 }
 
-private func makePipelineSavontImportFixture(prefix: String) async throws -> SavontImportFixture {
+private func makePipelineSavontImportFixture(
+    prefix: String,
+    processStderr: String = ""
+) async throws -> SavontImportFixture {
     let directory = try FASTQOperationTestHelper.makeTempDir(prefix: prefix)
     let input = directory.appendingPathComponent("reads.fastq")
     let output = directory.appendingPathComponent("reads-savont-clusters.fasta")
@@ -4531,7 +4568,7 @@ private func makePipelineSavontImportFixture(prefix: String) async throws -> Sav
         singleStrand: true
     )
     _ = try await SavontClusteringPipeline(
-        processRunner: SuccessfulSavontFixtureProcessRunner(),
+        processRunner: SuccessfulSavontFixtureProcessRunner(stderr: processStderr),
         scratchRootURL: directory.appendingPathComponent("scratch", isDirectory: true)
     ).run(workflowRequest)
     return SavontImportFixture(

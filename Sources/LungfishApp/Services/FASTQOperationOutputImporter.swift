@@ -798,7 +798,9 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
         }
 
         let combinedStderr = attempts.compactMap(\.stderr).joined(separator: "\n")
-        let expectedTopLevelStderr = combinedStderr.isEmpty ? nil : combinedStderr
+        let expectedTopLevelStderr = ProvenanceStderr.normalized(
+            combinedStderr.isEmpty ? nil : combinedStderr
+        )
         guard recordedSingleThreadFallback == usedSingleThreadFallback,
               recordedSingleStrandFallback == usedSingleStrandFallback,
               recordedEmptyFallback == usedEmptyFallback,
