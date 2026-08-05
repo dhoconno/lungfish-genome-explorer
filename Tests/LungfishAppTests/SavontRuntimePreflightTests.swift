@@ -51,6 +51,28 @@ final class SavontRuntimePreflightTests: XCTestCase {
         XCTAssertNil(state.pendingLaunchRequest)
     }
 
+    func testMissingManagedBootstrapBlocksRunEvenWhenSavontExecutableLooksHealthy() async throws {
+        let provider = SavontRuntimeStatusProviderStub(
+            status: try makePackStatus(
+                state: .needsInstall,
+                environmentExists: true,
+                missingExecutables: [],
+                smokeTestFailure: nil
+            )
+        )
+        let state = makeSavontState(statusProvider: provider)
+
+        await state.refreshSavontRuntimeReadiness()
+
+        XCTAssertFalse(state.isRunEnabled)
+        XCTAssertEqual(
+            state.readinessText,
+            "Install the Full-length MHC Genotyping pack in Plugin Manager to run Savont."
+        )
+        state.prepareForRun()
+        XCTAssertNil(state.pendingLaunchRequest)
+    }
+
     func testHealthyManagedRuntimeEnablesRunAfterAsynchronousCheck() async throws {
         let provider = SavontRuntimeStatusProviderStub(
             status: try makePackStatus(

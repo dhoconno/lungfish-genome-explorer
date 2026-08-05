@@ -36,8 +36,12 @@ enum SavontRuntimePreflight {
             return .installRequired
         }
 
+        guard packStatus.state == .ready else {
+            return packStatus.state == .failed ? .repairRequired : .installRequired
+        }
+
         guard let toolStatus = packStatus.toolStatuses.first(where: { $0.requirement.id == toolID }) else {
-            return packStatus.state == .needsInstall ? .installRequired : .repairRequired
+            return .repairRequired
         }
 
         if toolStatus.isReady {
