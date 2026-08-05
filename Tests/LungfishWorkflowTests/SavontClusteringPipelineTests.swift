@@ -129,6 +129,48 @@ final class SavontClusteringPipelineTests: XCTestCase {
         XCTAssertTrue(try fixture.temporaryArtifacts().isEmpty)
     }
 
+    func testPlainFASTQProvenanceUsesPreRunConsumedSnapshotWhenInputMutatesDuringRun() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let consumedChecksum = try ProvenanceFileHasher.sha256(of: fixture.input)
+        let consumedSize = try ProvenanceFileHasher.fileSize(of: fixture.input)
+        let replacementFASTQ = "@replacement\nTTTTTT\n+\nIIIIII\n"
+        let runner = FakeSavontProcessRunner(actions: [
+            .mutateInput(
+                fixture.input,
+                replacement: replacementFASTQ,
+                fasta: ">c_depth_3\nACGT\n"
+            ),
+        ])
+        let request = try SavontClusteringRunRequest(
+            inputFASTQURL: fixture.input,
+            outputFASTAURL: fixture.output,
+            threads: 2
+        )
+
+        let result = try await SavontClusteringPipeline(
+            processRunner: runner,
+            scratchRootURL: fixture.root
+        ).run(request)
+        let envelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: result.provenanceURL)
+        )
+
+        XCTAssertEqual(
+            try String(contentsOf: fixture.input, encoding: .utf8),
+            replacementFASTQ
+        )
+        XCTAssertNotEqual(try ProvenanceFileHasher.sha256(of: fixture.input), consumedChecksum)
+        let topLevelInput = try XCTUnwrap(
+            envelope.files.first { $0.path == fixture.input.path && $0.role == .input }
+        )
+        let attemptInput = try XCTUnwrap(envelope.steps.first?.inputs.first)
+        XCTAssertEqual(topLevelInput.checksumSHA256, consumedChecksum)
+        XCTAssertEqual(topLevelInput.fileSize, consumedSize)
+        XCTAssertEqual(attemptInput.checksumSHA256, consumedChecksum)
+        XCTAssertEqual(attemptInput.fileSize, consumedSize)
+    }
+
     func testCrashRetriesWithOneThreadAndRecordsBothAttempts() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -279,6 +321,34 @@ final class SavontClusteringPipelineTests: XCTestCase {
         XCTAssertTrue(try fixture.temporaryArtifacts().isEmpty)
     }
 
+    func testSuccessfulExitWithEmptyFinalASVsFailsAndCleansScratch() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let runner = FakeSavontProcessRunner(actions: [.success(fasta: "")])
+        let request = try SavontClusteringRunRequest(
+            inputFASTQURL: fixture.input,
+            outputFASTAURL: fixture.output
+        )
+
+        do {
+            _ = try await SavontClusteringPipeline(
+                processRunner: runner,
+                scratchRootURL: fixture.root
+            ).run(request)
+            XCTFail("Expected empty output failure")
+        } catch SavontClusteringError.emptyFinalASVs(let url) {
+            XCTAssertEqual(url.lastPathComponent, "final_asvs.fasta")
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.output.path))
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: ProvenanceRecorder.fileSidecarURL(for: fixture.output).path
+            )
+        )
+        XCTAssertTrue(try fixture.temporaryArtifacts().isEmpty)
+    }
+
     func testMalformedCountRejectsPublicationAndCleansScratch() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -340,6 +410,7 @@ private struct SavontInvocation: Sendable {
 private actor FakeSavontProcessRunner: SavontProcessRunning {
     enum Action: Sendable {
         case result(SavontProcessResult, fasta: String?)
+        case mutateInput(URL, replacement: String, fasta: String)
         case waitForCancellation
 
         static func success(fasta: String?) -> Action {
@@ -405,6 +476,22 @@ private actor FakeSavontProcessRunner: SavontProcessRunning {
                 )
             }
             return result
+        case .mutateInput(let inputURL, let replacement, let fasta):
+            try replacement.write(to: inputURL, atomically: true, encoding: .utf8)
+            try fasta.write(
+                to: workingDirectory.appendingPathComponent("final_asvs.fasta"),
+                atomically: true,
+                encoding: .utf8
+            )
+            return SavontProcessResult(
+                exitCode: 0,
+                stdout: "ok",
+                stderr: "",
+                argv: ["savont"] + arguments,
+                runtimeIdentity: Fixture.fixedRuntimeIdentity,
+                startedAt: Date(timeIntervalSince1970: 10),
+                completedAt: Date(timeIntervalSince1970: 11)
+            )
         case .waitForCancellation:
             try await Task.sleep(for: .seconds(60))
             throw TestFailure.injected

@@ -106,6 +106,7 @@ public enum SavontClusteringError: Error, LocalizedError, Sendable, Equatable {
     case invalidInputFASTQ(URL)
     case processFailed(status: Int32, stderr: String)
     case missingFinalASVs(URL)
+    case emptyFinalASVs(URL)
     case outputDestinationIsDirectory(URL)
     case publicationRollbackFailed(originalError: String, rollbackErrors: [String])
 
@@ -117,6 +118,8 @@ public enum SavontClusteringError: Error, LocalizedError, Sendable, Equatable {
             "Savont failed with exit status \(status): \(stderr)"
         case .missingFinalASVs(let url):
             "Savont completed without producing final_asvs.fasta at \(url.path)."
+        case .emptyFinalASVs(let url):
+            "Savont completed with an empty final_asvs.fasta at \(url.path)."
         case .outputDestinationIsDirectory(let url):
             "Savont output destination is an existing directory: \(url.path)"
         case .publicationRollbackFailed(let originalError, let rollbackErrors):
@@ -272,10 +275,14 @@ public struct SavontClusteringPipeline: Sendable {
                     guard rawOutputDescriptor != nil else {
                         throw SavontClusteringError.missingFinalASVs(rawOutputURL)
                     }
-                    summary = try SavontClusterFASTA.normalize(
+                    let successfulSummary = try SavontClusterFASTA.normalize(
                         sourceURL: rawOutputURL,
                         destinationURL: stagedOutputURL
                     )
+                    guard successfulSummary.clusterCount > 0 else {
+                        throw SavontClusteringError.emptyFinalASVs(rawOutputURL)
+                    }
+                    summary = successfulSummary
                     break attemptLoop
                 }
 
@@ -354,7 +361,7 @@ public struct SavontClusteringPipeline: Sendable {
         if FASTQBundle.isBundleURL(originalInputURL) {
             builder = try builder.input(originalInputDescriptor)
         } else {
-            builder = try builder.input(originalInputURL, format: .fastq, role: .input)
+            builder = try builder.consumedInputSnapshot(originalInputDescriptor)
         }
         builder = builder.runtime(runtimeIdentity)
         builder = try builder.relocatedOutput(finalDescriptor)
