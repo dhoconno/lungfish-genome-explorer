@@ -399,7 +399,10 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
             return outputURLs
 
         case .savont:
-            try validateSavontOutputsHaveCanonicalProvenance(outputURLs)
+            try validateSavontOutputsHaveCanonicalProvenance(
+                outputURLs,
+                resolvedRequest: request
+            )
             return outputURLs
 
         default:
@@ -407,7 +410,17 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
         }
     }
 
-    private func validateSavontOutputsHaveCanonicalProvenance(_ outputURLs: [URL]) throws {
+    private func validateSavontOutputsHaveCanonicalProvenance(
+        _ outputURLs: [URL],
+        resolvedRequest: FASTQOperationLaunchRequest
+    ) throws {
+        guard case .savont(let batchRequest) = resolvedRequest,
+              !batchRequest.inputURLs.isEmpty else {
+            throw ProvenanceRehydrationError.missingSourceProvenance(
+                "Savont output provenance could not be matched to a resolved input."
+            )
+        }
+
         for outputURL in outputURLs {
             let standardizedOutputURL = outputURL.standardizedFileURL
             let sidecarURL = ProvenanceRecorder.fileSidecarURL(for: standardizedOutputURL)
@@ -428,17 +441,50 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
                 )
             }
 
+            let matchedRequest = batchRequest.inputURLs.lazy.compactMap { inputURL in
+                let singleInputRequest = resolvedRequest.replacingInputURLs(with: [inputURL])
+                guard let invocation = try? FASTQOperationCLIInvocationBuilder().buildInvocation(
+                    for: singleInputRequest,
+                    outputTargetPath: standardizedOutputURL.path
+                ) else {
+                    return nil as (FASTQSavontClusteringRequest, URL)?
+                }
+                let expectedArgv = [CLICommandIdentity.executableName, invocation.subcommand]
+                    + invocation.arguments
+                guard envelope.durableReplayArgv == expectedArgv,
+                      case .savont(let request) = singleInputRequest else {
+                    return nil as (FASTQSavontClusteringRequest, URL)?
+                }
+                return (request, inputURL.standardizedFileURL)
+            }.first
+            guard let (savontRequest, standardizedInputURL) = matchedRequest else {
+                throw ProvenanceRehydrationError.missingSourceProvenance(
+                    "Savont provenance could not be matched to its resolved CLI request."
+                )
+            }
+
             guard envelope.workflowName == "lungfish fastq savont-cluster",
+                  envelope.workflowVersion == SavontClusteringRunRequest.workflowVersion,
                   envelope.toolName == "savont",
+                  envelope.toolVersion == SavontClusteringRunRequest.toolVersion,
+                  envelope.tool.name == "savont",
+                  envelope.tool.version == SavontClusteringRunRequest.toolVersion,
                   envelope.exitStatus == 0,
-                  let durableArgv = envelope.durableReplayArgv,
-                  durableArgv.count >= 3,
-                  URL(fileURLWithPath: durableArgv[0]).lastPathComponent == CLICommandIdentity.executableName,
-                  Array(durableArgv[1...2]) == ["fastq", "savont-cluster"],
-                  let outputArgumentIndex = durableArgv.firstIndex(of: "--output"),
-                  durableArgv.indices.contains(outputArgumentIndex + 1),
-                  URL(fileURLWithPath: durableArgv[outputArgumentIndex + 1]).standardizedFileURL
-                    == standardizedOutputURL,
+                  let wallTimeSeconds = envelope.wallTimeSeconds,
+                  wallTimeSeconds >= 0,
+                  envelope.runtimeIdentity.condaEnvironment == SavontClusteringRunRequest.condaEnvironment,
+                  isNonEmpty(envelope.runtimeIdentity.condaPrefix),
+                  isNonEmpty(envelope.runtimeIdentity.executablePath),
+                  savontOptionsMatch(
+                    envelope.options,
+                    request: savontRequest,
+                    inputURL: standardizedInputURL,
+                    outputURL: standardizedOutputURL
+                  ),
+                  savontInputLineageIsComplete(
+                    envelope,
+                    durableInputURL: standardizedInputURL
+                  ),
                   let descriptor = envelope.output,
                   descriptor.role == .output,
                   descriptor.format == .fasta,
@@ -467,6 +513,136 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
                 )
             }
         }
+    }
+
+    private func savontOptionsMatch(
+        _ options: ProvenanceOptions,
+        request: FASTQSavontClusteringRequest,
+        inputURL: URL,
+        outputURL: URL
+    ) -> Bool {
+        let requestValues: [String: ParameterValue] = [
+            "inputFASTQ": .file(inputURL),
+            "outputFASTA": .file(outputURL),
+            "threads": .integer(request.threads),
+            "qualityValueCutoff": .integer(request.qualityValueCutoff),
+            "minimumClusterSize": .integer(request.minimumClusterSize),
+            "minimumReadLength": request.minimumReadLength.map(ParameterValue.integer) ?? .null,
+            "maximumReadLength": request.maximumReadLength.map(ParameterValue.integer) ?? .null,
+            "singleStrand": .boolean(request.singleStrand),
+        ]
+        guard requestValues.allSatisfy({ options.explicit[$0.key] == $0.value }),
+              requestValues.allSatisfy({ options.resolvedDefaults[$0.key] == $0.value }) else {
+            return false
+        }
+
+        let expectedDefaults: [String: ParameterValue] = [
+            "threads": .integer(max(1, ProcessInfo.processInfo.activeProcessorCount)),
+            "qualityValueCutoff": .integer(90),
+            "minimumClusterSize": .integer(3),
+            "minimumReadLength": .null,
+            "maximumReadLength": .null,
+            "singleStrand": .boolean(false),
+            "condaEnvironment": .string(SavontClusteringRunRequest.condaEnvironment),
+            "timeoutSeconds": .integer(Int(ManagedSavontProcessRunner.timeoutSeconds)),
+        ]
+        guard expectedDefaults.allSatisfy({ options.defaults[$0.key] == $0.value }),
+              options.resolvedDefaults["condaEnvironment"]
+                == .string(SavontClusteringRunRequest.condaEnvironment),
+              options.resolvedDefaults["timeoutSeconds"]
+                == .integer(Int(ManagedSavontProcessRunner.timeoutSeconds)),
+              isNonNegativeInteger(options.resolvedDefaults["clusterCount"]),
+              isNonNegativeInteger(options.resolvedDefaults["totalSupportingReads"]),
+              options.resolvedDefaults["usedSingleThreadFallback"]?.booleanValue != nil,
+              options.resolvedDefaults["usedSingleStrandFallback"]?.booleanValue != nil,
+              options.resolvedDefaults["emptyClusterFallback"]?.booleanValue != nil,
+              let explicitResolvedInput = options.explicit["resolvedInputFASTQ"]?.fileValue,
+              let resolvedInput = options.resolvedDefaults["resolvedInputFASTQ"]?.fileValue,
+              isNonEmpty(resolvedInput.path),
+              explicitResolvedInput.standardizedFileURL == resolvedInput.standardizedFileURL else {
+            return false
+        }
+        return true
+    }
+
+    private func savontInputLineageIsComplete(
+        _ envelope: ProvenanceEnvelope,
+        durableInputURL: URL
+    ) -> Bool {
+        let durablePath = durableInputURL.standardizedFileURL.path
+        guard let resolvedInputURL = envelope.options.resolvedDefaults["resolvedInputFASTQ"]?.fileValue else {
+            return false
+        }
+        let resolvedInputPath = resolvedInputURL.standardizedFileURL.path
+        guard envelope.files.contains(where: {
+            $0.role == .input
+                && standardizedPath($0.path) == durablePath
+                && descriptorIsComplete($0)
+        }),
+        let materialization = envelope.steps.first(where: {
+            $0.toolName == "lungfish-internal materialize-savont-clustering-fastq"
+                && $0.exitStatus == 0
+                && ($0.wallTimeSeconds ?? -1) >= 0
+                && !$0.outputs.isEmpty
+                && $0.outputs.allSatisfy(descriptorIsComplete)
+                && $0.outputs.contains { standardizedPath($0.path) == resolvedInputPath }
+        }) else {
+            return false
+        }
+
+        if !FASTQBundle.isBundleURL(durableInputURL) {
+            guard materialization.inputs.contains(where: {
+                standardizedPath($0.path) == durablePath && descriptorIsComplete($0)
+            }) else {
+                return false
+            }
+        } else if materialization.inputs.isEmpty || !materialization.inputs.allSatisfy(descriptorIsComplete) {
+            return false
+        }
+
+        return envelope.steps.contains(where: { step in
+            guard step.toolName == "savont",
+                  step.toolVersion == SavontClusteringRunRequest.toolVersion,
+                  step.exitStatus == 0,
+                  (step.wallTimeSeconds ?? -1) >= 0 else {
+                return false
+            }
+            return step.inputs.contains { input in
+                descriptorIsComplete(input)
+                    && standardizedPath(input.path) == resolvedInputPath
+                    && materialization.outputs.contains {
+                    standardizedPath($0.path) == standardizedPath(input.path)
+                        && $0.checksumSHA256 == input.checksumSHA256
+                        && $0.fileSize == input.fileSize
+                }
+            }
+        })
+    }
+
+    private func descriptorIsComplete(_ descriptor: ProvenanceFileDescriptor) -> Bool {
+        guard let checksum = descriptor.checksumSHA256,
+              checksum.count == 64,
+              checksum.unicodeScalars.allSatisfy({
+                  CharacterSet(charactersIn: "0123456789abcdefABCDEF").contains($0)
+              }),
+              descriptor.fileSize != nil,
+              descriptor.format != nil else {
+            return false
+        }
+        return !descriptor.path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func standardizedPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.path
+    }
+
+    private func isNonEmpty(_ value: String?) -> Bool {
+        value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
+
+    private func isNonNegativeInteger(_ value: ParameterValue?) -> Bool {
+        guard let integer = value?.integerValue else { return false }
+        return integer >= 0
     }
 
     private func rehydrateONTFluidigmSampleBundles(
