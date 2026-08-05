@@ -181,9 +181,10 @@ public enum GenotypeEffectiveCallAuthority {
                     authoritativeOverride: entry
                 )
             } else {
+                let effective = normalizedOverrideCall(entry.overrideCall)
                 values[target] = .init(
                     baseline: baseline.baseline,
-                    effective: entry.overrideCall,
+                    effective: effective,
                     status: overrideStatus(
                         effective: entry.overrideCall,
                         baseline: baseline.status
@@ -250,6 +251,9 @@ public enum GenotypeEffectiveCallAuthority {
         let trimmed = effective.trimmingCharacters(
             in: .whitespacesAndNewlines
         )
+        if trimmed == "-" {
+            return .noHaplotype
+        }
         guard trimmed != "?",
               !trimmed.hasPrefix("ERR:") else {
             switch baseline {
@@ -260,6 +264,12 @@ public enum GenotypeEffectiveCallAuthority {
             }
         }
         return .called
+    }
+
+    private static func normalizedOverrideCall(_ call: String) -> String {
+        call.trimmingCharacters(in: .whitespacesAndNewlines) == "-"
+            ? ""
+            : call
     }
 
     private static func reduceLocusStatus(

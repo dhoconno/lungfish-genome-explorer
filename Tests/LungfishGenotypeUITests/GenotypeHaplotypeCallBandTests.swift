@@ -65,18 +65,58 @@ final class GenotypeHaplotypeCallBandTests: XCTestCase {
         XCTAssertTrue(accessibility.contains("no haplotype"))
         XCTAssertTrue(accessibility.contains("pipeline"))
 
-        let rendered = try XCTUnwrap(
-            after.renderedValue(
+        XCTAssertEqual(
+            after.renderedLocusValue(
                 sample: "SAMPLE_001",
-                locus: "Very-Long-MHC-A-Locus",
-                slot: .h2
-            )
+                locus: "Very-Long-MHC-A-Locus"
+            ),
+            "A-override • —"
         )
-        XCTAssertTrue(rendered.contains("H2"))
-        XCTAssertTrue(rendered.contains("no haplotype"))
-        XCTAssertTrue(
-            rendered.contains("pipeline"),
-            "Status and source must remain visible without relying on color."
+        XCTAssertFalse(after.renderedValues(sample: "SAMPLE_001").joined().contains("pipeline"))
+        XCTAssertTrue(after.accessibilitySummary(sample: "SAMPLE_001").contains("pipeline"))
+    }
+
+    func testCompactRowsDescribeResolvedMissingAndAmbiguousCalls() {
+        XCTAssertEqual(
+            compactSnapshot(h1: "M2A", h2: "M4A").renderedLocusValue(
+                sample: "S", locus: "MHC-A"
+            ),
+            "M2A • M4A"
+        )
+        XCTAssertEqual(
+            compactSnapshot(
+                h1: "M2A",
+                h2: "-",
+                h2Status: .called
+            ).renderedLocusValue(sample: "S", locus: "MHC-A"),
+            "M2A • —"
+        )
+        XCTAssertEqual(
+            compactSnapshot(
+                h1: "ERR: NO HAP",
+                h2: "ERR: NO HAP",
+                h1Status: .noHaplotype,
+                h2Status: .noHaplotype
+            ).renderedLocusValue(sample: "S", locus: "MHC-A"),
+            "—"
+        )
+        XCTAssertEqual(
+            compactSnapshot(
+                h1: "ERR: TMG",
+                h2: "ERR: TMG",
+                h1Status: .tooManyGenotypes,
+                h2Status: .tooManyGenotypes
+            ).renderedLocusValue(sample: "S", locus: "MHC-A"),
+            "Too many genotypes"
+        )
+        XCTAssertEqual(
+            compactSnapshot(
+                h1: "ERR: TMH (M1A, M2A, M3A)",
+                h2: "ERR: TMH (M1A, M2A, M3A)",
+                h1Status: .tooManyHaplotypes,
+                h2Status: .tooManyHaplotypes
+            ).renderedLocusValue(sample: "S", locus: "MHC-A"),
+            "Too many haplotypes"
         )
     }
 
@@ -103,7 +143,7 @@ final class GenotypeHaplotypeCallBandTests: XCTestCase {
         let font = NSFont.systemFont(ofSize: 13)
         let headerFont = NSFont.systemFont(ofSize: 13, weight: .semibold)
         let short = GenotypeManualHaplotypeColumnMeasurement.requiredWidth(
-            values: ["H1 A · called · pipeline"],
+            values: ["A • B"],
             sampleTitle: "S",
             retainedReadTitle: nil,
             font: font,
@@ -111,8 +151,8 @@ final class GenotypeHaplotypeCallBandTests: XCTestCase {
         )
         let long = GenotypeManualHaplotypeColumnMeasurement.requiredWidth(
             values: [
-                "H1 " + String(repeating: "long-haplotype-name-", count: 8)
-                    + " · called · analyst override",
+                String(repeating: "long-haplotype-name-", count: 8)
+                    + " • B",
             ],
             sampleTitle: "S",
             retainedReadTitle: nil,
@@ -408,6 +448,35 @@ final class GenotypeHaplotypeCallBandTests: XCTestCase {
                     h2: .init(
                         value: "Other-A2",
                         status: .called,
+                        source: .pipeline,
+                        isEditable: true
+                    )
+                ),
+            ]
+        )
+    }
+
+    private func compactSnapshot(
+        h1: String,
+        h2: String,
+        h1Status: GenotypeHaplotypeCallStatus = .called,
+        h2Status: GenotypeHaplotypeCallStatus = .called
+    ) -> GenotypeHaplotypeCallBandSnapshot {
+        GenotypeHaplotypeCallBandSnapshot(
+            orderedLoci: ["MHC-A"],
+            calls: [
+                .init(
+                    sample: "S",
+                    locus: "MHC-A",
+                    h1: .init(
+                        value: h1,
+                        status: h1Status,
+                        source: .pipeline,
+                        isEditable: true
+                    ),
+                    h2: .init(
+                        value: h2,
+                        status: h2Status,
                         source: .pipeline,
                         isEditable: true
                     )

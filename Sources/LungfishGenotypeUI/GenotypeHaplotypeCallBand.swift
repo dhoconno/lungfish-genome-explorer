@@ -163,6 +163,24 @@ struct GenotypeHaplotypeCallBandSnapshot: Equatable, Sendable {
             + Self.sourceLabel(value.source)
     }
 
+    func renderedLocusValue(sample: String, locus: String) -> String {
+        let h1 = value(sample: sample, locus: locus, slot: .h1)
+        let h2 = value(sample: sample, locus: locus, slot: .h2)
+        let statuses = [h1?.status, h2?.status]
+        if statuses.contains(.tooManyGenotypes) {
+            return "Too many genotypes"
+        }
+        if statuses.contains(.tooManyHaplotypes) {
+            return "Too many haplotypes"
+        }
+        let h1Label = Self.compactLabel(h1)
+        let h2Label = Self.compactLabel(h2)
+        guard h1Label != "—" || h2Label != "—" else {
+            return "—"
+        }
+        return "\(h1Label) • \(h2Label)"
+    }
+
     func tooltip(
         sample: String,
         locus: String,
@@ -219,17 +237,28 @@ struct GenotypeHaplotypeCallBandSnapshot: Equatable, Sendable {
 
     func renderedValues(sample: String) -> [String] {
         orderedLoci.map { locus in
-            let h1 = renderedValue(
-                sample: sample,
-                locus: locus,
-                slot: .h1
-            ) ?? "—"
-            let h2 = renderedValue(
-                sample: sample,
-                locus: locus,
-                slot: .h2
-            ) ?? "—"
-            return h1 + "   " + h2
+            renderedLocusValue(sample: sample, locus: locus)
+        }
+    }
+
+    private static func compactLabel(
+        _ value: GenotypeHaplotypeCallBandSlotValue?
+    ) -> String {
+        guard let value else { return "—" }
+        switch value.status {
+        case .notAssayed, .noHaplotype, .tooManyHaplotypes,
+             .tooManyGenotypes:
+            return "—"
+        case .called, .specialCase:
+            let label = value.value.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            guard !label.isEmpty,
+                  label != "-",
+                  !label.hasPrefix("ERR:") else {
+                return "—"
+            }
+            return label
         }
     }
 

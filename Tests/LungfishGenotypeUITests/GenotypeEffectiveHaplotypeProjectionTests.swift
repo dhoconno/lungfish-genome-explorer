@@ -4,6 +4,51 @@ import LungfishIO
 @testable import LungfishGenotypeUI
 
 final class GenotypeEffectiveHaplotypeProjectionTests: XCTestCase {
+    func testExplicitNotCalledOverrideClearsOnlyOneSlot() throws {
+        var sidecar = GenotypeAnnotationSidecar.empty(
+            generatedAt: "2026-08-03T00:00:00Z"
+        )
+        sidecar.callOverrides = [
+            override(
+                sample: "Sample-1",
+                locus: "MHC-A",
+                slot: .h1,
+                value: "-",
+                timestamp: "2026-08-03T01:00:00Z"
+            ),
+        ]
+
+        let projection = GenotypeEffectiveHaplotypeProjection(
+            analysis: makeAnalysis(),
+            sidecar: sidecar
+        )
+        let h1 = try XCTUnwrap(projection.value(
+            sample: "Sample-1",
+            locus: "MHC-A",
+            slot: .h1
+        ))
+        let h2 = try XCTUnwrap(projection.value(
+            sample: "Sample-1",
+            locus: "MHC-A",
+            slot: .h2
+        ))
+
+        XCTAssertEqual(h1.effective, "")
+        XCTAssertEqual(h1.status, .noHaplotype)
+        XCTAssertEqual(h1.source, .analystOverride)
+        XCTAssertEqual(h2.effective, "M1A")
+        XCTAssertEqual(h2.status, .called)
+        XCTAssertEqual(h2.source, .pipeline)
+        XCTAssertEqual(
+            projection.authoritativeOverride(
+                sample: "Sample-1",
+                locus: "MHC-A",
+                slot: .h1
+            )?.overrideCall,
+            "-"
+        )
+    }
+
     func testBuildsImmutableEffectiveSlotsAndOrderedSnapshots() throws {
         let analysis = makeAnalysis()
         let originalManualAssignments = [

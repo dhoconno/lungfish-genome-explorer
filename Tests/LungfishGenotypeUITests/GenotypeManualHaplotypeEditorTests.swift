@@ -592,6 +592,17 @@ final class GenotypeManualHaplotypeEditorTests: XCTestCase {
         )
     }
 
+    func testManualEditorUsesSharedAssignmentCard() {
+        let view = GenotypeManualHaplotypeEditor(
+            model: makeModel(sample: "Animal-1")
+        )
+
+        XCTAssertEqual(
+            view.testingSharedAssignmentCardIdentifier,
+            "shared-haplotype-assignment-card"
+        )
+    }
+
     func testSaveFailureKeepsDraftAndOffersRetryAndReload() {
         struct SaveFailure: Error, LocalizedError {
             var errorDescription: String? { "Sidecar changed elsewhere." }

@@ -848,25 +848,8 @@ struct GenotypeManualHaplotypeEditor: View {
     var typographyModel: ContentTypographyModel = .shared
     var onCompareAndCopy: () -> Void = {}
 
-    private var headingFont: Font {
-        typographyModel.font(for: .emphasizedBody)
-    }
-    private var bodyFont: Font {
-        typographyModel.font(for: .body)
-    }
-    private var captionFont: Font {
-        typographyModel.font(for: .caption)
-    }
-    private var monospacedFont: Font {
-        typographyModel.font(for: .monospaced)
-    }
     private var comboFieldFont: NSFont {
         typographyModel.resolvedNSFont(for: .body)
-    }
-    private var contentTypographyScale: CGFloat {
-        typographyModel.scaledPointSize(
-            fromCanonicalPointSize: 100
-        ) / 100
     }
 
     var testingContentTypographyPointSizes: (
@@ -882,280 +865,96 @@ struct GenotypeManualHaplotypeEditor: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Haplotype Assignments")
-                        .font(headingFont)
-                    Text(
-                        "\(model.draft.assignedSlotCount) of 14 assigned"
-                    )
-                    .font(captionFont)
-                    .foregroundStyle(.secondary)
-                }
-                Spacer()
-                if model.draft.isDirty {
-                    Text("Unsaved")
-                        .font(captionFont)
-                        .foregroundStyle(.secondary)
-                }
-                Button("Save Assignments") {
-                    model.save()
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(!model.canSave)
-                .accessibilityIdentifier("manual-haplotype-save")
-            }
-            Text("Edit the two manual assignments for each workbook locus.")
-                .font(captionFont)
-                .foregroundStyle(.secondary)
-
-            if let readOnlyMessage = model.readOnlyMessage {
-                Label(readOnlyMessage, systemImage: "lock.fill")
-                    .font(captionFont)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier(
-                        "manual-haplotype-read-only-message"
-                    )
-            }
-            if let orphanWarning = model.orphanLegacyWarningMessage {
-                VStack(alignment: .leading, spacing: 4) {
-                    Label(
-                        orphanWarning,
-                        systemImage: "exclamationmark.triangle.fill"
-                    )
-                    .font(captionFont)
-                    .foregroundStyle(.secondary)
-                    ForEach(
-                        Array(
-                            model.orphanLegacyAssignments.enumerated()
-                        ),
-                        id: \.offset
-                    ) { _, assignment in
-                        Text(
-                            "\(assignment.locus) \(assignment.slot.displayName): \(assignment.label)"
-                        )
-                        .font(monospacedFont)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                    }
-                }
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier(
-                    "manual-haplotype-orphan-legacy-warning"
+        GenotypeHaplotypeAssignmentEditorCard(
+            sample: model.draft.sample,
+            completenessSummary:
+                "\(model.draft.assignedSlotCount) of 14 assigned",
+            instruction:
+                "Edit the two manual assignments for each workbook locus.",
+            rows: sharedRows,
+            isDirty: model.draft.isDirty,
+            canSave: model.canSave,
+            isReadOnly: model.isReadOnly,
+            readOnlyMessage: model.readOnlyMessage,
+            emptyStateMessage: model.emptyStateMessage,
+            warning: sharedWarning,
+            persistenceErrorMessage: model.persistenceErrorMessage,
+            accessibilityPrefix: "manual-haplotype",
+            typographyModel: typographyModel,
+            compareAndCopyIsEnabled: !model.copyCandidates.isEmpty,
+            onSave: model.save,
+            onRetry: model.retry,
+            onReload: model.reload,
+            onChange: { address, label in
+                guard let locus = GenotypeManualHaplotypeLocus(
+                    normalizing: address.locus
+                ) else { return }
+                model.updateLabel(
+                    label,
+                    locus: locus,
+                    slot: address.slot
                 )
-            }
-            if let emptyStateMessage = model.emptyStateMessage {
-                Text(emptyStateMessage)
-                    .font(captionFont)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier(
-                        "manual-haplotype-empty-message"
-                    )
-            }
-
-            ForEach(model.rows) { row in
-                ManualHaplotypeLocusLayout(
-                    typographyScale: contentTypographyScale
-                ) {
-                    Text(row.locus.workbookLabel)
-                        .font(headingFont)
-                    slotEditor(row.h1)
-                    slotEditor(row.h2)
-                }
-                .accessibilityElement(children: .contain)
-                .accessibilityLabel(
-                    "\(row.locus.workbookLabel) haplotype assignments"
-                )
-                if row.locus != GenotypeManualHaplotypeLocus.allCases.last {
-                    Divider()
-                }
-            }
-
-            ManualHaplotypeActionButton(
-                title: "Compare & Copy\u{2026}",
-                accessibilityLabel:
-                    "Compare genotypes and copy haplotype assignments",
-                accessibilityIdentifier:
-                    "manual-haplotype-compare-copy",
-                font: comboFieldFont,
-                isEnabled: !model.copyCandidates.isEmpty,
-                action: onCompareAndCopy
-            )
-
-            if let error = model.persistenceErrorMessage {
-                VStack(alignment: .leading, spacing: 6) {
-                    Label(error, systemImage: "exclamationmark.triangle.fill")
-                        .font(captionFont)
-                        .foregroundStyle(.secondary)
-                    HStack {
-                        Button("Retry") { model.retry() }
-                            .accessibilityIdentifier(
-                                "manual-haplotype-retry"
-                            )
-                        Button("Reload") { model.reload() }
-                            .accessibilityIdentifier(
-                                "manual-haplotype-reload"
-                            )
-                    }
-                }
-            }
-
-        }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(nsColor: .controlBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
-        )
-        .padding(.vertical, 4)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .fixedSize(horizontal: false, vertical: true)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(
-            "Haplotype assignments for \(model.draft.sample)"
+            },
+            onClear: { address in
+                guard let locus = GenotypeManualHaplotypeLocus(
+                    normalizing: address.locus
+                ) else { return }
+                model.clear(locus: locus, slot: address.slot)
+            },
+            onRestore: nil,
+            onCompareAndCopy: onCompareAndCopy
         )
     }
 
-    private func slotEditor(
+    var testingSharedAssignmentCardIdentifier: String {
+        GenotypeHaplotypeAssignmentEditorCard.accessibilityIdentifier
+    }
+
+    private var sharedRows: [GenotypeHaplotypeAssignmentEditorRow] {
+        model.rows.map { row in
+            .init(
+                locusLabel: row.locus.workbookLabel,
+                h1: sharedSlot(row.h1),
+                h2: sharedSlot(row.h2)
+            )
+        }
+    }
+
+    private func sharedSlot(
         _ slot: GenotypeManualHaplotypeEditorModel.SlotPresentation
-    ) -> some View {
-        HStack(alignment: .center, spacing: 6) {
-            Text(slot.slot.displayName)
-                .font(captionFont)
-                .fixedSize(horizontal: true, vertical: false)
-                .accessibilityAddTraits(.isHeader)
-            Group {
-                if let colorTokenIndex = slot.colorTokenIndex {
-                    Circle()
-                        .fill(color(forTokenIndex: colorTokenIndex))
-                } else {
-                    Color.clear
-                }
-            }
-            .frame(width: 9, height: 9)
-            .accessibilityHidden(true)
-            ManualHaplotypeComboBox(
-                text: slot.label,
-                suggestions: model.autocompleteSuggestions(
-                    matching: slot.label,
-                    locus: slot.locus,
-                    slot: slot.slot
-                ).map(\.label),
-                accessibilityLabel: slot.accessibilityLabel,
-                accessibilityIdentifier: slot.accessibilityIdentifier,
-                accessibilityHelp: slot.validationDescription,
-                isEnabled: !model.isReadOnly,
-                font: comboFieldFont,
-                onChange: {
-                    model.updateLabel(
-                        $0,
-                        locus: slot.locus,
-                        slot: slot.slot
-                    )
-                }
-            )
-            .frame(
-                minWidth: 120,
-                idealWidth: 180,
-                maxWidth: .infinity,
-                minHeight: ceil(comboFieldFont.pointSize + 10)
-            )
-
-            if let validation = slot.validationDescription {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
-                    .help(validation)
-                    .accessibilityLabel(validation)
-                    .accessibilityIdentifier(
-                        "\(slot.accessibilityIdentifier)-validation"
-                    )
-            }
-
-            Button {
-                model.clear(locus: slot.locus, slot: slot.slot)
-            } label: {
-                Image(systemName: "xmark.circle")
-            }
-            .buttonStyle(.borderless)
-            .disabled(model.isReadOnly || slot.label.isEmpty)
-            .accessibilityLabel(slot.clearAccessibilityLabel)
-            .accessibilityIdentifier(
-                "\(slot.accessibilityIdentifier)-clear"
-            )
-        }
-        .help(slot.validationDescription ?? slot.accessibilityLabel)
-    }
-
-    private func color(forTokenIndex index: Int) -> Color {
-        let palette = HaplotypeColorToken.canonicalPalette
-        let safeIndex = max(0, min(palette.count - 1, index))
-        let token = palette[safeIndex]
-        return Color(
-            red: token.fillColor.red,
-            green: token.fillColor.green,
-            blue: token.fillColor.blue
+    ) -> GenotypeHaplotypeAssignmentEditorSlot {
+        .init(
+            address: .init(
+                locus: slot.locus.workbookLabel,
+                slot: slot.slot
+            ),
+            label: slot.label,
+            suggestions: model.autocompleteSuggestions(
+                matching: slot.label,
+                locus: slot.locus,
+                slot: slot.slot
+            ).map(\.label),
+            colorTokenIndex: slot.colorTokenIndex,
+            validationDescription: slot.validationDescription,
+            accessibilityLabel: slot.accessibilityLabel,
+            clearAccessibilityLabel: slot.clearAccessibilityLabel,
+            accessibilityIdentifier: slot.accessibilityIdentifier
         )
     }
-}
 
-@MainActor
-private struct ManualHaplotypeActionButton: NSViewRepresentable {
-    let title: String
-    let accessibilityLabel: String
-    let accessibilityIdentifier: String
-    let font: NSFont
-    let isEnabled: Bool
-    let action: () -> Void
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(action: action)
-    }
-
-    func makeNSView(context: Context) -> NSButton {
-        let button = NSButton(
-            title: title,
-            target: context.coordinator,
-            action: #selector(Coordinator.performAction)
+    private var sharedWarning:
+        GenotypeHaplotypeAssignmentEditorWarning? {
+        guard let message = model.orphanLegacyWarningMessage else {
+            return nil
+        }
+        return .init(
+            message: message,
+            details: model.orphanLegacyAssignments.map {
+                "\($0.locus) \($0.slot.displayName): \($0.label)"
+            },
+            accessibilityIdentifier:
+                "manual-haplotype-orphan-legacy-warning"
         )
-        button.bezelStyle = .rounded
-        button.controlSize = .small
-        configure(button, coordinator: context.coordinator)
-        return button
-    }
-
-    func updateNSView(_ button: NSButton, context: Context) {
-        configure(button, coordinator: context.coordinator)
-    }
-
-    private func configure(
-        _ button: NSButton,
-        coordinator: Coordinator
-    ) {
-        coordinator.action = action
-        button.title = title
-        button.font = font
-        button.isEnabled = isEnabled
-        button.setAccessibilityElement(true)
-        button.setAccessibilityRole(.button)
-        button.setAccessibilityLabel(accessibilityLabel)
-        button.setAccessibilityIdentifier(accessibilityIdentifier)
-    }
-
-    @MainActor
-    final class Coordinator: NSObject {
-        var action: () -> Void
-
-        init(action: @escaping () -> Void) {
-            self.action = action
-        }
-
-        @objc func performAction() {
-            action()
-        }
     }
 }
 
@@ -1182,7 +981,7 @@ func makeGenotypeManualHaplotypeEditorHostingView(
 }
 
 @MainActor
-private struct ManualHaplotypeComboBox: NSViewRepresentable {
+struct ManualHaplotypeComboBox: NSViewRepresentable {
     let text: String
     let suggestions: [String]
     let accessibilityLabel: String

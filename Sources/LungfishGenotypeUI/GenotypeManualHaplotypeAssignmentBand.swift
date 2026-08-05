@@ -807,29 +807,30 @@ final class GenotypeManualHaplotypeSampleBandView:
         )
     }
 
-    func valueLayout(
-        target: GenotypeHaplotypeBandTarget
+    func effectiveValueLayout(
+        sample: String,
+        locus: String
     ) -> GenotypeManualHaplotypeValueLayout? {
         guard bandMode == .effectiveMiSeqCalls,
               isExpanded,
               let locusIndex = effectiveSnapshot.orderedLoci.firstIndex(
-                of: target.locus
+                of: locus
               ),
-              let columnFrame = columnFrames[target.sample],
-              let value = effectiveSnapshot.renderedValue(for: target)
+              let columnFrame = columnFrames[sample]
         else {
             return nil
         }
-        let halfWidth = columnFrame.width / 2
-        let slotOffset = target.slot == .h1 ? CGFloat.zero : halfWidth
         let rowRect = NSRect(
-            x: columnFrame.minX + slotOffset + 2,
+            x: columnFrame.minX + 3,
             y: disclosureHeight + rowHeight * CGFloat(locusIndex),
-            width: max(0, halfWidth - 4),
+            width: max(0, columnFrame.width - 6),
             height: rowHeight
         )
         return GenotypeManualHaplotypeValueLayout(
-            value: value,
+            value: effectiveSnapshot.renderedLocusValue(
+                sample: sample,
+                locus: locus
+            ),
             rowRect: rowRect,
             textRect: rowRect.insetBy(
                 dx: 1,
@@ -882,21 +883,17 @@ final class GenotypeManualHaplotypeSampleBandView:
         for (sample, columnFrame) in columnFrames
         where columnFrame.intersects(dirtyRect) {
             for locus in effectiveSnapshot.orderedLoci {
-                for slot in HaplotypeSlot.allCases {
-                    let target = GenotypeHaplotypeBandTarget(
-                        sample: sample,
-                        locus: locus,
-                        slot: slot
-                    )
-                    guard let layout = valueLayout(target: target),
-                          layout.rowRect.intersects(dirtyRect) else {
-                        continue
-                    }
-                    layout.value.draw(
-                        in: layout.textRect,
-                        withAttributes: attributes
-                    )
+                guard let layout = effectiveValueLayout(
+                    sample: sample,
+                    locus: locus
+                ),
+                      layout.rowRect.intersects(dirtyRect) else {
+                    continue
                 }
+                layout.value.draw(
+                    in: layout.textRect,
+                    withAttributes: attributes
+                )
             }
         }
     }

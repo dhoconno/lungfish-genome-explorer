@@ -7206,6 +7206,17 @@ extension GenotypeComparisonMatrixView {
         )
     }
 
+    func testingHaplotypeBandRenderedValue(
+        sample: String,
+        locus: String
+    ) -> String? {
+        guard haplotypeBandMode == .effectiveMiSeqCalls else { return nil }
+        return effectiveHaplotypeBandSnapshot.renderedLocusValue(
+            sample: sample,
+            locus: locus
+        )
+    }
+
     func testingHaplotypeBandHitTarget(
         _ target: GenotypeHaplotypeBandTarget
     ) -> NSButton? {
