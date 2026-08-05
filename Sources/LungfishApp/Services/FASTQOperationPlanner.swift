@@ -450,15 +450,21 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
         var candidate = requestedURL
         var counter = 2
         while fileManager.fileExists(atPath: candidate.path)
-            || reservedOutputPaths.contains(candidate.standardizedFileURL.path) {
+            || reservedOutputPaths.contains(caseFoldedReservationKey(for: candidate)) {
             let filename = pathExtension.isEmpty
                 ? "\(baseName)-\(counter)"
                 : "\(baseName)-\(counter).\(pathExtension)"
             candidate = parent.appendingPathComponent(filename)
             counter += 1
         }
-        reservedOutputPaths.insert(candidate.standardizedFileURL.path)
+        reservedOutputPaths.insert(caseFoldedReservationKey(for: candidate))
         return candidate
+    }
+
+    private func caseFoldedReservationKey(for url: URL) -> String {
+        url.standardizedFileURL.path
+            .precomposedStringWithCanonicalMapping
+            .lowercased()
     }
 
     private func groupedEnvelope(_ envelope: ProvenanceEnvelope, matches outputPayloadURLs: [URL]) -> Bool {

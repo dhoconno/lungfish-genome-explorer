@@ -250,6 +250,38 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertTrue(plans.allSatisfy { $0.outputTarget.deletingLastPathComponent() == tempDir })
     }
 
+    func testSavontPlannerReservesCaseInsensitiveOutputPathsAcrossBatch() throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecSavontCaseCollision")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let inputs = [
+            URL(fileURLWithPath: "/tmp/a/Sample.fastq"),
+            URL(fileURLWithPath: "/tmp/b/sample.fastq"),
+        ]
+        let request = FASTQOperationLaunchRequest.savont(request: FASTQSavontClusteringRequest(
+            inputURLs: inputs,
+            outputDirectoryURL: tempDir,
+            singleInputOutputName: nil,
+            threads: 8,
+            qualityValueCutoff: 90,
+            minimumClusterSize: 3,
+            minimumReadLength: nil,
+            maximumReadLength: nil,
+            singleStrand: false
+        ))
+
+        let plans = FASTQOperationPlanner().makeExecutionPlans(
+            originalRequest: request,
+            resolvedRequest: request,
+            baseOutputDirectory: tempDir
+        )
+
+        XCTAssertEqual(plans.map(\.outputTarget.lastPathComponent), [
+            "Sample-savont-clusters.fasta",
+            "sample-savont-clusters-2.fasta",
+        ])
+        XCTAssertEqual(Set(plans.map { $0.outputTarget.path.lowercased() }).count, 2)
+    }
+
     func testSavontInvocationUsesCuratedOptionsAndOmitsUnsetLengthBounds() throws {
         let request = FASTQSavontClusteringRequest(
             inputURLs: [URL(fileURLWithPath: "/tmp/reads.fastq.gz")],
@@ -358,12 +390,14 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             let output = URL(fileURLWithPath: invocation.arguments[outputIndex + 1])
             let input = URL(fileURLWithPath: invocation.arguments[1])
             try ">cluster_ReadCount-3\nACGT\n".write(to: output, atomically: true, encoding: .utf8)
+            let command = ["lungfish-cli", "fastq"] + invocation.arguments
             try writeSyntheticProvenance(
                 to: output.deletingLastPathComponent(),
                 name: "lungfish fastq savont-cluster",
-                toolName: "SavontClusteringPipeline",
+                toolName: "savont",
                 toolVersion: SavontClusteringRunRequest.toolVersion,
-                command: ["lungfish-cli", "fastq"] + invocation.arguments,
+                command: command,
+                durableReplayArgv: command,
                 inputURL: input,
                 outputURL: output,
                 format: .fasta,
@@ -393,7 +427,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         }
     }
 
-    func testSavontImporterPreservesCanonicalSidecarAndRejectsMissingProvenance() async throws {
+    func testSavontImporterPreservesValidCanonicalSidecar() async throws {
         let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecSavontImport")
         defer { try? FileManager.default.removeItem(at: tempDir) }
         let input = tempDir.appendingPathComponent("reads.fastq")
@@ -412,12 +446,14 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             singleStrand: false
         ))
         let sidecar = ProvenanceRecorder.fileSidecarURL(for: output)
+        let command = ["lungfish-cli", "fastq", "savont-cluster", input.path, "--output", output.path]
         try writeSyntheticProvenance(
             to: tempDir,
             name: "lungfish fastq savont-cluster",
-            toolName: "SavontClusteringPipeline",
+            toolName: "savont",
             toolVersion: SavontClusteringRunRequest.toolVersion,
-            command: ["lungfish-cli", "fastq", "savont-cluster", input.path, "--output", output.path],
+            command: command,
+            durableReplayArgv: command,
             inputURL: input,
             outputURL: output,
             format: .fasta,
@@ -435,19 +471,149 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
 
         XCTAssertEqual(imported, [output])
         XCTAssertEqual(try Data(contentsOf: sidecar), sidecarBeforeImport)
+    }
 
-        try FileManager.default.removeItem(at: sidecar)
+    func testSavontImporterRejectsMissingCanonicalSidecar() async throws {
+        let fixture = try makeSavontImportFixture(prefix: "FASTQExecSavontMissingProvenance")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let importer = BundleFASTQOperationImporter(destinationDirectory: fixture.directory)
+
         do {
             _ = try await importer.importOutputs(
-                at: [output],
-                forResolvedRequest: request,
-                originalRequest: request,
-                outputDirectory: tempDir
+                at: [fixture.output],
+                forResolvedRequest: fixture.request,
+                originalRequest: fixture.request,
+                outputDirectory: fixture.directory
             )
             XCTFail("Expected missing Savont provenance to block import")
         } catch ProvenanceRehydrationError.missingSourceProvenance {
             // Expected.
         }
+    }
+
+    func testSavontImporterRejectsStaleOutputChecksum() async throws {
+        let fixture = try makeSavontImportFixture(prefix: "FASTQExecSavontStaleProvenance")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        try writeValidSavontProvenance(for: fixture)
+        try ">cluster_ReadCount-3\nTGCA\n".write(
+            to: fixture.output,
+            atomically: true,
+            encoding: .utf8
+        )
+
+        await assertSavontImportRejected(fixture)
+    }
+
+    func testSavontImporterRejectsStaleOutputSize() async throws {
+        let fixture = try makeSavontImportFixture(prefix: "FASTQExecSavontStaleSize")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let actualDescriptor = try ProvenanceFileDescriptor.file(
+            url: fixture.output,
+            format: .fasta,
+            role: .output
+        )
+        let staleDescriptor = ProvenanceFileDescriptor(
+            path: actualDescriptor.path,
+            checksumSHA256: actualDescriptor.checksumSHA256,
+            fileSize: try ProvenanceFileHasher.fileSize(of: fixture.output) + 1,
+            format: .fasta,
+            role: .output
+        )
+        let envelope = ProvenanceEnvelope(
+            workflowName: "lungfish fastq savont-cluster",
+            workflowVersion: SavontClusteringRunRequest.workflowVersion,
+            toolName: "savont",
+            toolVersion: SavontClusteringRunRequest.toolVersion,
+            argv: fixture.savontCommand,
+            durableReplayArgv: fixture.savontCommand,
+            runtimeIdentity: ProvenanceRuntimeIdentity.fixture(),
+            output: staleDescriptor,
+            outputs: [staleDescriptor],
+            exitStatus: 0
+        )
+        try ProvenanceWriter(signingProvider: nil).write(
+            envelope,
+            toSidecar: ProvenanceRecorder.fileSidecarURL(for: fixture.output)
+        )
+
+        await assertSavontImportRejected(fixture)
+    }
+
+    func testSavontImporterRejectsUnrelatedSuccessfulProvenanceNamingSameOutput() async throws {
+        let fixture = try makeSavontImportFixture(prefix: "FASTQExecSavontUnrelatedProvenance")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let command = ["lungfish-cli", "fastq", "qc-summary", fixture.input.path, "--output", fixture.output.path]
+        try writeSyntheticProvenance(
+            to: fixture.directory,
+            name: "lungfish fastq qc-summary",
+            toolName: "lungfish fastq qc-summary",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: command,
+            durableReplayArgv: command,
+            inputURL: fixture.input,
+            outputURL: fixture.output,
+            format: .fasta,
+            sidecarURL: ProvenanceRecorder.fileSidecarURL(for: fixture.output)
+        )
+
+        await assertSavontImportRejected(fixture)
+    }
+
+    func testSavontImporterRejectsIncompleteOutputIntegrityDescriptor() async throws {
+        let fixture = try makeSavontImportFixture(prefix: "FASTQExecSavontIncompleteProvenance")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let command = fixture.savontCommand
+        let descriptor = ProvenanceFileDescriptor(
+            path: fixture.output.path,
+            format: .fasta,
+            role: .output
+        )
+        let envelope = ProvenanceEnvelope(
+            workflowName: "lungfish fastq savont-cluster",
+            workflowVersion: SavontClusteringRunRequest.workflowVersion,
+            toolName: "savont",
+            toolVersion: SavontClusteringRunRequest.toolVersion,
+            argv: command,
+            durableReplayArgv: command,
+            runtimeIdentity: ProvenanceRuntimeIdentity.fixture(),
+            output: descriptor,
+            outputs: [descriptor],
+            exitStatus: 0
+        )
+        try ProvenanceWriter(signingProvider: nil).write(
+            envelope,
+            toSidecar: ProvenanceRecorder.fileSidecarURL(for: fixture.output)
+        )
+
+        await assertSavontImportRejected(fixture)
+    }
+
+    func testSavontImporterRejectsFailedSavontEnvelope() async throws {
+        let fixture = try makeSavontImportFixture(prefix: "FASTQExecSavontFailedProvenance")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let descriptor = try ProvenanceFileDescriptor.file(
+            url: fixture.output,
+            format: .fasta,
+            role: .output
+        )
+        let envelope = ProvenanceEnvelope(
+            workflowName: "lungfish fastq savont-cluster",
+            workflowVersion: SavontClusteringRunRequest.workflowVersion,
+            toolName: "savont",
+            toolVersion: SavontClusteringRunRequest.toolVersion,
+            argv: fixture.savontCommand,
+            durableReplayArgv: fixture.savontCommand,
+            runtimeIdentity: ProvenanceRuntimeIdentity.fixture(),
+            output: descriptor,
+            outputs: [descriptor],
+            exitStatus: 1
+        )
+        try ProvenanceWriter(signingProvider: nil).write(
+            envelope,
+            toSidecar: ProvenanceRecorder.fileSidecarURL(for: fixture.output)
+        )
+
+        await assertSavontImportRejected(fixture)
     }
 
     func testSavontManifestMetadataIncludesResolvedScientificOptions() {
@@ -3586,6 +3752,78 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         )
 
         XCTAssertEqual(runner.invocations.count, 1)
+    }
+}
+
+private struct SavontImportFixture {
+    let directory: URL
+    let input: URL
+    let output: URL
+    let request: FASTQOperationLaunchRequest
+
+    var savontCommand: [String] {
+        ["lungfish-cli", "fastq", "savont-cluster", input.path, "--output", output.path]
+    }
+}
+
+private func makeSavontImportFixture(prefix: String) throws -> SavontImportFixture {
+    let directory = try FASTQOperationTestHelper.makeTempDir(prefix: prefix)
+    let input = directory.appendingPathComponent("reads.fastq")
+    let output = directory.appendingPathComponent("reads-savont-clusters.fasta")
+    try "@read\nACGT\n+\nIIII\n".write(to: input, atomically: true, encoding: .utf8)
+    try ">cluster_ReadCount-3\nACGT\n".write(to: output, atomically: true, encoding: .utf8)
+    let request = FASTQOperationLaunchRequest.savont(request: FASTQSavontClusteringRequest(
+        inputURLs: [input],
+        outputDirectoryURL: directory,
+        singleInputOutputName: nil,
+        threads: 4,
+        qualityValueCutoff: 90,
+        minimumClusterSize: 3,
+        minimumReadLength: nil,
+        maximumReadLength: nil,
+        singleStrand: false
+    ))
+    return SavontImportFixture(
+        directory: directory,
+        input: input,
+        output: output,
+        request: request
+    )
+}
+
+private func writeValidSavontProvenance(for fixture: SavontImportFixture) throws {
+    try writeSyntheticProvenance(
+        to: fixture.directory,
+        name: "lungfish fastq savont-cluster",
+        toolName: "savont",
+        toolVersion: SavontClusteringRunRequest.toolVersion,
+        command: fixture.savontCommand,
+        durableReplayArgv: fixture.savontCommand,
+        inputURL: fixture.input,
+        outputURL: fixture.output,
+        format: .fasta,
+        sidecarURL: ProvenanceRecorder.fileSidecarURL(for: fixture.output)
+    )
+}
+
+private func assertSavontImportRejected(
+    _ fixture: SavontImportFixture,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) async {
+    let importer = BundleFASTQOperationImporter(destinationDirectory: fixture.directory)
+    do {
+        _ = try await importer.importOutputs(
+            at: [fixture.output],
+            forResolvedRequest: fixture.request,
+            originalRequest: fixture.request,
+            outputDirectory: fixture.directory
+        )
+        XCTFail("Expected Savont provenance validation to reject import", file: file, line: line)
+    } catch ProvenanceRehydrationError.missingSourceProvenance {
+        // Expected.
+    } catch {
+        XCTFail("Expected missingSourceProvenance, got \(error)", file: file, line: line)
     }
 }
 

@@ -411,7 +411,8 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
         for outputURL in outputURLs {
             let standardizedOutputURL = outputURL.standardizedFileURL
             let sidecarURL = ProvenanceRecorder.fileSidecarURL(for: standardizedOutputURL)
-            guard FileManager.default.fileExists(atPath: standardizedOutputURL.path),
+            let resourceValues = try? standardizedOutputURL.resourceValues(forKeys: [.isRegularFileKey])
+            guard resourceValues?.isRegularFile == true,
                   FileManager.default.fileExists(atPath: sidecarURL.path) else {
                 throw ProvenanceRehydrationError.missingSourceProvenance(
                     "Savont output is missing its canonical provenance sidecar: \(standardizedOutputURL.path)"
@@ -420,20 +421,49 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
 
             let envelope: ProvenanceEnvelope
             do {
-                envelope = try ProvenanceEnvelopeReader.decode(Data(contentsOf: sidecarURL))
+                envelope = try ProvenanceEnvelopeReader.decodeCanonical(Data(contentsOf: sidecarURL))
             } catch {
                 throw ProvenanceRehydrationError.missingSourceProvenance(
                     "Savont output has invalid canonical provenance: \(sidecarURL.path)"
                 )
             }
 
-            let recordedOutputPaths = ([envelope.output].compactMap { $0 }
-                + envelope.outputs
-                + envelope.steps.flatMap(\.outputs))
-                .map { URL(fileURLWithPath: $0.path).standardizedFileURL.path }
-            guard recordedOutputPaths.contains(standardizedOutputURL.path) else {
+            guard envelope.workflowName == "lungfish fastq savont-cluster",
+                  envelope.toolName == "savont",
+                  envelope.exitStatus == 0,
+                  let durableArgv = envelope.durableReplayArgv,
+                  durableArgv.count >= 3,
+                  URL(fileURLWithPath: durableArgv[0]).lastPathComponent == CLICommandIdentity.executableName,
+                  Array(durableArgv[1...2]) == ["fastq", "savont-cluster"],
+                  let outputArgumentIndex = durableArgv.firstIndex(of: "--output"),
+                  durableArgv.indices.contains(outputArgumentIndex + 1),
+                  URL(fileURLWithPath: durableArgv[outputArgumentIndex + 1]).standardizedFileURL
+                    == standardizedOutputURL,
+                  let descriptor = envelope.output,
+                  descriptor.role == .output,
+                  descriptor.format == .fasta,
+                  URL(fileURLWithPath: descriptor.path).standardizedFileURL == standardizedOutputURL,
+                  let expectedChecksum = descriptor.checksumSHA256,
+                  let expectedFileSize = descriptor.fileSize else {
                 throw ProvenanceRehydrationError.missingSourceProvenance(
-                    "Savont provenance does not identify the final output: \(standardizedOutputURL.path)"
+                    "Savont provenance does not describe a successful canonical clustering output: \(standardizedOutputURL.path)"
+                )
+            }
+
+            do {
+                let actualChecksum = try ProvenanceFileHasher.sha256(of: standardizedOutputURL)
+                let actualFileSize = try ProvenanceFileHasher.fileSize(of: standardizedOutputURL)
+                guard expectedChecksum.lowercased() == actualChecksum,
+                      expectedFileSize == actualFileSize else {
+                    throw ProvenanceRehydrationError.missingSourceProvenance(
+                        "Savont output does not match its canonical provenance integrity record: \(standardizedOutputURL.path)"
+                    )
+                }
+            } catch let error as ProvenanceRehydrationError {
+                throw error
+            } catch {
+                throw ProvenanceRehydrationError.missingSourceProvenance(
+                    "Savont output integrity could not be verified: \(standardizedOutputURL.path)"
                 )
             }
         }
