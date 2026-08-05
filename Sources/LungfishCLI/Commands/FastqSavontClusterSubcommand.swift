@@ -74,17 +74,34 @@ struct FastqSavontClusterSubcommand: AsyncParsableCommand {
         emitStandardOutput: (Data) -> Void,
         emitStandardError: (String) -> Void
     ) async throws {
-        let result = try await runtime.run(makeRequestForTesting())
+        let request = try makeRequestForTesting()
+        emitStandardError(
+            "Savont clustering started: \(request.inputFASTQURL.path) -> \(request.outputFASTAURL.path)\n"
+        )
+        let result = try await runtime.run(request)
         let payload = FastqSavontClusterPayload(result: result)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         var data = try encoder.encode(payload)
         data.append(contentsOf: Data("\n".utf8))
-        emitStandardOutput(data)
 
-        guard !result.cleanupPendingURLs.isEmpty else { return }
-        let paths = result.cleanupPendingURLs.map(\.path).joined(separator: ", ")
-        emitStandardError("warning: Savont cleanup is pending for: \(paths)\n")
+        if result.usedSingleThreadFallback {
+            emitStandardError("warning: Savont used the single-thread fallback.\n")
+        }
+        if result.usedSingleStrandFallback {
+            emitStandardError("warning: Savont used the single-strand fallback.\n")
+        }
+        let clusterNoun = result.summary.clusterCount == 1 ? "cluster" : "clusters"
+        let readNoun = result.summary.totalSupportingReads == 1 ? "read" : "reads"
+        emitStandardError(
+            "Savont clustering complete: \(result.summary.clusterCount) \(clusterNoun), "
+                + "\(result.summary.totalSupportingReads) supporting \(readNoun).\n"
+        )
+        if !result.cleanupPendingURLs.isEmpty {
+            let paths = result.cleanupPendingURLs.map(\.path).joined(separator: ", ")
+            emitStandardError("warning: Savont cleanup is pending for: \(paths)\n")
+        }
+        emitStandardOutput(data)
     }
 }
 

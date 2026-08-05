@@ -89,7 +89,7 @@ final class FastqSavontClusterCommandTests: XCTestCase {
         }
     }
 
-    func testSavontClusterEncodesOnlyJSONToStdoutAndCleanupWarningToStderr() async throws {
+    func testSavontClusterEncodesOnlyJSONToStdoutAndWarningsAndProgressToStderr() async throws {
         let command = try FastqSavontClusterSubcommand.parse([
             "/tmp/reads.fastq",
             "--output", "/tmp/clusters.fasta",
@@ -99,7 +99,7 @@ final class FastqSavontClusterCommandTests: XCTestCase {
             provenanceURL: URL(fileURLWithPath: "/tmp/.clusters.fasta.lungfish-provenance.json"),
             summary: SavontClusterSummary(clusterCount: 2, totalSupportingReads: 83),
             usedSingleThreadFallback: true,
-            usedSingleStrandFallback: false,
+            usedSingleStrandFallback: true,
             cleanupPendingURLs: [
                 URL(fileURLWithPath: "/tmp/.clusters.fasta.backup"),
                 URL(fileURLWithPath: "/tmp/.savont-run-retained"),
@@ -132,7 +132,7 @@ final class FastqSavontClusterCommandTests: XCTestCase {
               "outputFASTAPath" : "/tmp/clusters.fasta",
               "provenancePath" : "/tmp/.clusters.fasta.lungfish-provenance.json",
               "totalSupportingReads" : 83,
-              "usedSingleStrandFallback" : false,
+              "usedSingleStrandFallback" : true,
               "usedSingleThreadFallback" : true
             }
 
@@ -140,7 +140,56 @@ final class FastqSavontClusterCommandTests: XCTestCase {
         )
         XCTAssertEqual(
             standardError,
-            "warning: Savont cleanup is pending for: /tmp/.clusters.fasta.backup, /tmp/.savont-run-retained\n"
+            """
+            Savont clustering started: /tmp/reads.fastq -> /tmp/clusters.fasta
+            warning: Savont used the single-thread fallback.
+            warning: Savont used the single-strand fallback.
+            Savont clustering complete: 2 clusters, 83 supporting reads.
+            warning: Savont cleanup is pending for: /tmp/.clusters.fasta.backup, /tmp/.savont-run-retained
+
+            """
         )
+    }
+
+    func testSavontClusterOrdinarySuccessReportsProgressWithoutWarnings() async throws {
+        let command = try FastqSavontClusterSubcommand.parse([
+            "/tmp/ordinary.fastq",
+            "--output", "/tmp/ordinary-clusters.fasta",
+        ])
+        let result = SavontClusteringResult(
+            outputFASTAURL: URL(fileURLWithPath: "/tmp/ordinary-clusters.fasta"),
+            provenanceURL: URL(fileURLWithPath: "/tmp/.ordinary-clusters.fasta.lungfish-provenance.json"),
+            summary: SavontClusterSummary(clusterCount: 1, totalSupportingReads: 9),
+            usedSingleThreadFallback: false,
+            usedSingleStrandFallback: false
+        )
+        var events: [String] = []
+        var standardOutput = Data()
+        let runtime = FastqSavontClusterSubcommand.Runtime { _ in
+            events.append("pipeline")
+            return result
+        }
+
+        try await command.executeForTesting(
+            runtime: runtime,
+            emitStandardOutput: {
+                events.append("stdout")
+                standardOutput.append($0)
+            },
+            emitStandardError: { events.append($0) }
+        )
+
+        XCTAssertEqual(events, [
+            "Savont clustering started: /tmp/ordinary.fastq -> /tmp/ordinary-clusters.fasta\n",
+            "pipeline",
+            "Savont clustering complete: 1 cluster, 9 supporting reads.\n",
+            "stdout",
+        ])
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: standardOutput) as? [String: Any]
+        )
+        XCTAssertEqual(object["cleanupPendingPaths"] as? [String], [])
+        XCTAssertEqual(object["usedSingleThreadFallback"] as? Bool, false)
+        XCTAssertEqual(object["usedSingleStrandFallback"] as? Bool, false)
     }
 }
