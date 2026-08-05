@@ -22,6 +22,9 @@ final class FASTQOperationDialogState {
 
     var selectedToolID: FASTQOperationToolID {
         didSet {
+            if selectedToolID == .savont {
+                savontRuntimeReadiness = .checking
+            }
             if selectedCategory != selectedToolID.categoryID {
                 selectedCategory = selectedToolID.categoryID
                 return
@@ -157,14 +160,18 @@ final class FASTQOperationDialogState {
 
     private let availableToolIDsOverride: [FASTQOperationToolID]?
     private let workflowLibrary: any WorkflowLibraryEnabling
+    private let savontRuntimeStatusProvider: any PluginPackStatusProviding
     private var embeddedToolReady: Bool
+    private var savontRuntimeReadiness: SavontRuntimeReadiness
+    private var savontRuntimeCheckGeneration: UInt = 0
 
     init(
         initialCategory: FASTQOperationCategoryID,
         selectedInputURLs: [URL],
         projectURL: URL? = nil,
         availableToolIDs: [FASTQOperationToolID]? = nil,
-        workflowLibrary: any WorkflowLibraryEnabling = WorkflowLibraryEnablementStore.shared
+        workflowLibrary: any WorkflowLibraryEnabling = WorkflowLibraryEnablementStore.shared,
+        savontRuntimeStatusProvider: any PluginPackStatusProviding = PluginPackStatusService.shared
     ) {
         let availableToolIDsOverride = availableToolIDs.map(Self.uniquedToolIDs(_:))
         let defaultToolID =
@@ -173,6 +180,7 @@ final class FASTQOperationDialogState {
             ?? initialCategory.defaultToolID
         self.availableToolIDsOverride = availableToolIDsOverride
         self.workflowLibrary = workflowLibrary
+        self.savontRuntimeStatusProvider = savontRuntimeStatusProvider
         self.selectedCategory = defaultToolID.categoryID
         self.selectedToolID = defaultToolID
         self.selectedInputURLs = selectedInputURLs
@@ -279,6 +287,7 @@ final class FASTQOperationDialogState {
         self.ontGenotypingHaplotypeDropoutLocusOverridePercents = [:]
         self.ontGenotypingExtraArguments = ""
         self.embeddedToolReady = defaultToolID.defaultEmbeddedReadiness
+        self.savontRuntimeReadiness = .checking
 
         if self.selectedCategory == .assembly {
             self.selectedToolID = Self.defaultAssemblyTool(for: self.detectedAssemblyReadType)
@@ -324,6 +333,20 @@ final class FASTQOperationDialogState {
     func updateEmbeddedReadiness(_ ready: Bool, for toolID: FASTQOperationToolID) {
         guard selectedToolID == toolID else { return }
         embeddedToolReady = ready
+    }
+
+    func refreshSavontRuntimeReadiness() async {
+        guard selectedToolID == .savont else { return }
+
+        savontRuntimeCheckGeneration &+= 1
+        let generation = savontRuntimeCheckGeneration
+        savontRuntimeReadiness = .checking
+        let readiness = await SavontRuntimePreflight.readiness(using: savontRuntimeStatusProvider)
+
+        guard selectedToolID == .savont,
+              generation == savontRuntimeCheckGeneration,
+              !Task.isCancelled else { return }
+        savontRuntimeReadiness = readiness
     }
 
     func prepareForRun() {
@@ -607,7 +630,9 @@ final class FASTQOperationDialogState {
             return .pbaa(request: request)
 
         case .savont:
-            guard !selectedInputURLs.isEmpty, let outputDirectoryURL else { return nil }
+            guard savontRuntimeReadiness.allowsRun,
+                  !selectedInputURLs.isEmpty,
+                  let outputDirectoryURL else { return nil }
             let singleInputOutputName: String?
             if selectedInputURLs.count == 1 {
                 guard let safeName = FASTQSavontClusteringRequest.safeSingleInputOutputName(
@@ -919,6 +944,11 @@ final class FASTQOperationDialogState {
             return configurationMessage
         }
 
+        if selectedToolID == .savont,
+           let runtimeMessage = savontRuntimeReadiness.blockingMessage {
+            return runtimeMessage
+        }
+
         if !embeddedToolReady {
             return selectedToolID.embeddedReadinessText
         }
@@ -980,6 +1010,7 @@ final class FASTQOperationDialogState {
         && missingRequiredAuxiliaryInputKinds.isEmpty
         && selectedToolConfigurationIsReady
         && embeddedToolReady
+        && (selectedToolID != .savont || savontRuntimeReadiness.allowsRun)
     }
 
     var datasetLabel: String {

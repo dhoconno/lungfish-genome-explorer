@@ -373,7 +373,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertEqual(request.extraArguments, ["--min-cluster-read-count", "2"])
     }
 
-    func testSavontDefaultsAndRetainsEverySelectedInput() throws {
+    func testSavontDefaultsAndRetainsEverySelectedInput() async throws {
         let inputs = [
             URL(fileURLWithPath: "/tmp/barcode01.fastq.gz"),
             URL(fileURLWithPath: "/tmp/barcode02.lungfishfastq", isDirectory: true),
@@ -382,10 +382,12 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
             initialCategory: .clustering,
             selectedInputURLs: inputs,
             projectURL: URL(fileURLWithPath: "/tmp/project", isDirectory: true),
-            workflowLibrary: AllEnabledFASTQWorkflowLibrary()
+            workflowLibrary: AllEnabledFASTQWorkflowLibrary(),
+            savontRuntimeStatusProvider: ReadySavontRuntimeStatusProvider()
         )
 
         state.selectTool(.savont)
+        await state.refreshSavontRuntimeReadiness()
 
         XCTAssertEqual(state.savontQualityValueCutoff, 90)
         XCTAssertEqual(state.savontMinimumClusterSize, 3)
@@ -413,16 +415,18 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertFalse(request.singleStrand)
     }
 
-    func testSavontSingleInputUsesEditableOutputNameAndAdvancedOptions() throws {
+    func testSavontSingleInputUsesEditableOutputNameAndAdvancedOptions() async throws {
         let input = URL(fileURLWithPath: "/tmp/barcode12.fastq.gz")
         let state = FASTQOperationDialogState(
             initialCategory: .clustering,
             selectedInputURLs: [input],
             projectURL: URL(fileURLWithPath: "/tmp/project", isDirectory: true),
-            workflowLibrary: AllEnabledFASTQWorkflowLibrary()
+            workflowLibrary: AllEnabledFASTQWorkflowLibrary(),
+            savontRuntimeStatusProvider: ReadySavontRuntimeStatusProvider()
         )
 
         state.selectTool(.savont)
+        await state.refreshSavontRuntimeReadiness()
         XCTAssertEqual(state.savontSingleInputOutputName, "barcode12-savont-clusters")
 
         state.savontSingleInputOutputName = "curated-clusters"
@@ -470,14 +474,16 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         }
     }
 
-    func testSavontAcceptsSafeLeafOutputNameWithFastaExtension() {
+    func testSavontAcceptsSafeLeafOutputNameWithFastaExtension() async {
         let state = FASTQOperationDialogState(
             initialCategory: .clustering,
             selectedInputURLs: [URL(fileURLWithPath: "/tmp/barcode12.fastq")],
             projectURL: URL(fileURLWithPath: "/tmp/project", isDirectory: true),
-            workflowLibrary: AllEnabledFASTQWorkflowLibrary()
+            workflowLibrary: AllEnabledFASTQWorkflowLibrary(),
+            savontRuntimeStatusProvider: ReadySavontRuntimeStatusProvider()
         )
         state.selectTool(.savont)
+        await state.refreshSavontRuntimeReadiness()
         state.savontSingleInputOutputName = "curated.fasta"
 
         XCTAssertTrue(state.isRunEnabled)
@@ -2131,5 +2137,46 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
 private final class AllEnabledFASTQWorkflowLibrary: WorkflowLibraryEnabling {
     func isWorkflowEnabled(_ toolID: FASTQOperationToolID) -> Bool {
         true
+    }
+}
+
+private struct ReadySavontRuntimeStatusProvider: PluginPackStatusProviding {
+    func visibleStatuses() async -> [PluginPackStatus] {
+        guard let status = await status(forPackID: "full-length-mhc-genotyping") else { return [] }
+        return [status]
+    }
+
+    func status(for pack: PluginPack) async -> PluginPackStatus {
+        makeReadyStatus(for: pack)
+    }
+
+    func status(forPackID packID: String) async -> PluginPackStatus? {
+        guard let pack = PluginPack.builtInPack(id: packID) else { return nil }
+        return makeReadyStatus(for: pack)
+    }
+
+    func invalidateVisibleStatusesCache() async {}
+
+    func install(
+        pack: PluginPack,
+        reinstall: Bool,
+        progress: (@Sendable (PluginPackInstallProgress) -> Void)?
+    ) async throws {}
+
+    private func makeReadyStatus(for pack: PluginPack) -> PluginPackStatus {
+        PluginPackStatus(
+            pack: pack,
+            state: .ready,
+            toolStatuses: pack.toolRequirements.map { requirement in
+                PackToolStatus(
+                    requirement: requirement,
+                    environmentExists: true,
+                    missingExecutables: [],
+                    smokeTestFailure: nil,
+                    storageUnavailablePath: nil
+                )
+            },
+            failureMessage: nil
+        )
     }
 }
