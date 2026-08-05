@@ -91,6 +91,12 @@ struct FastqSavontClusterSubcommand: AsyncParsableCommand {
         if result.usedSingleStrandFallback {
             emitStandardError("warning: Savont used the single-strand fallback.\n")
         }
+        if result.summary.clusterCount == 0 {
+            emitStandardError(
+                "warning: Savont produced no clusters after the single-strand fallback; "
+                    + "an empty FASTA was published.\n"
+            )
+        }
         let clusterNoun = result.summary.clusterCount == 1 ? "cluster" : "clusters"
         let readNoun = result.summary.totalSupportingReads == 1 ? "read" : "reads"
         emitStandardError(
