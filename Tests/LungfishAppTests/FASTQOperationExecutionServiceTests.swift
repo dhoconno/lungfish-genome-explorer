@@ -553,6 +553,37 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         }
     }
 
+    func testSavontExecutionReportsRollbackCleanupFailureWithoutMaskingOriginalError() async throws {
+        let fixture = try makeSavontFanoutExecutionFixture(prefix: "FASTQExecSavontCleanupFailure")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let retainedOutput = fixture.directory
+            .appendingPathComponent(FASTQSavontClusteringRequest.defaultOutputBaseName(for: fixture.inputs[0]))
+            .appendingPathExtension("fasta")
+            .standardizedFileURL
+        let service = FASTQOperationExecutionService(
+            commandRunner: FailSecondSavontCommandRunner(),
+            directImporter: BundleFASTQOperationImporter(destinationDirectory: fixture.directory),
+            savontRollbackRemover: FailingSavontRollbackRemover(blockedURL: retainedOutput)
+        )
+
+        do {
+            _ = try await service.execute(request: fixture.request, workingDirectory: fixture.directory)
+            XCTFail("Expected Savont rollback cleanup to fail")
+        } catch let cleanupError as FASTQOperationRollbackCleanupError {
+            XCTAssertNotNil(cleanupError.originalError as? SavontRollbackTestError)
+            XCTAssertEqual(cleanupError.retainedPaths, [retainedOutput])
+            XCTAssertEqual(cleanupError.removalFailures.map(\.path), [retainedOutput])
+            XCTAssertTrue(cleanupError.removalFailures[0].message.contains("injected cleanup failure"))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: retainedOutput.path))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: ProvenanceRecorder.fileSidecarURL(for: retainedOutput).path
+        ))
+    }
+
     func testSavontExecutionRollsBackAllOutputsWhenImporterRejectsPublishedProvenance() async throws {
         let fixture = try makeSavontFanoutExecutionFixture(prefix: "FASTQExecSavontImportRollback")
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
@@ -720,6 +751,20 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         }
     }
 
+    func testSavontImporterRejectsAttemptArgvWithUnmanagedPrefix() async throws {
+        try await assertMutatedPipelineSavontImportRejected(prefix: "FASTQExecSavontAttemptPrefix") { envelope, _ in
+            copiedSavontEnvelope(envelope, steps: replacingFirstSavontStep(in: envelope) { step in
+                guard let asvIndex = step.argv.lastIndex(of: "asv") else { return step }
+                let argv = ["/bin/echo", "unmanaged", "savont"] + Array(step.argv[asvIndex...])
+                return copiedSavontStep(
+                    step,
+                    argv: argv,
+                    reproducibleCommand: argv.map(shellEscape).joined(separator: " ")
+                )
+            })
+        }
+    }
+
     func testSavontImporterRejectsMismatchedAttemptScientificOptions() async throws {
         try await assertMutatedPipelineSavontImportRejected(prefix: "FASTQExecSavontAttemptOptions") { envelope, _ in
             copiedSavontEnvelope(envelope, steps: replacingFirstSavontStep(in: envelope) { step in
@@ -738,6 +783,29 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
                     runtimeIdentity: ProvenanceRuntimeIdentity(
                         executablePath: "/managed/micromamba",
                         condaEnvironment: "unrelated",
+                        condaPrefix: "/managed/conda/envs/unrelated"
+                    )
+                )
+            })
+        }
+    }
+
+    func testSavontImporterRejectsAttemptRuntimeWithUnmanagedCondaPrefix() async throws {
+        try await assertMutatedPipelineSavontImportRejected(prefix: "FASTQExecSavontAttemptCondaPrefix") {
+            envelope, _ in
+            copiedSavontEnvelope(envelope, steps: replacingFirstSavontStep(in: envelope) { step in
+                guard let runtime = step.runtimeIdentity else { return step }
+                return copiedSavontStep(
+                    step,
+                    runtimeIdentity: ProvenanceRuntimeIdentity(
+                        appVersion: runtime.appVersion,
+                        executablePath: runtime.executablePath,
+                        processIdentifier: runtime.processIdentifier,
+                        operatingSystemVersion: runtime.operatingSystemVersion,
+                        architecture: runtime.architecture,
+                        gitRevision: runtime.gitRevision,
+                        user: runtime.user,
+                        condaEnvironment: SavontClusteringRunRequest.condaEnvironment,
                         condaPrefix: "/managed/conda/envs/unrelated"
                     )
                 )
@@ -4198,8 +4266,29 @@ private struct PipelineBackedSavontCommandRunner: FASTQOperationCommandRunning {
     }
 }
 
-private enum SavontRollbackTestError: Error {
+private enum SavontRollbackTestError: Error, LocalizedError {
     case expectedFailure
+    case injectedCleanupFailure
+
+    var errorDescription: String? {
+        switch self {
+        case .expectedFailure:
+            return "expected Savont execution failure"
+        case .injectedCleanupFailure:
+            return "injected cleanup failure"
+        }
+    }
+}
+
+private struct FailingSavontRollbackRemover: FASTQOperationSavontRollbackRemoving {
+    let blockedURL: URL
+
+    func removeItem(at url: URL) throws {
+        if url.standardizedFileURL == blockedURL.standardizedFileURL {
+            throw SavontRollbackTestError.injectedCleanupFailure
+        }
+        try FileManager.default.removeItem(at: url)
+    }
 }
 
 private final class FailSecondSavontCommandRunner: @unchecked Sendable, FASTQOperationCommandRunning {
@@ -4390,6 +4479,7 @@ private func replacingFirstSavontStep(
 private func copiedSavontStep(
     _ step: ProvenanceStep,
     argv: [String]? = nil,
+    reproducibleCommand: String? = nil,
     resolvedOptions: [String: ParameterValue]? = nil,
     runtimeIdentity: ProvenanceRuntimeIdentity? = nil,
     inputs: [ProvenanceFileDescriptor]? = nil,
@@ -4404,7 +4494,7 @@ private func copiedSavontStep(
         githubReleaseVersion: step.githubReleaseVersion,
         argv: argv ?? step.argv,
         durableReplayArgv: step.durableReplayArgv,
-        reproducibleCommand: step.reproducibleCommand,
+        reproducibleCommand: reproducibleCommand ?? step.reproducibleCommand,
         resolvedOptions: resolvedOptions ?? step.resolvedOptions,
         runtimeIdentity: runtimeIdentity ?? step.runtimeIdentity,
         inputs: inputs ?? step.inputs,

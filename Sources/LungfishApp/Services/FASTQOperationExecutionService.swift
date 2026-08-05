@@ -121,6 +121,34 @@ protocol FASTQOperationDirectImporting: Sendable {
     ) async throws -> [URL]
 }
 
+protocol FASTQOperationSavontRollbackRemoving: Sendable {
+    func removeItem(at url: URL) throws
+}
+
+struct FileManagerFASTQOperationSavontRollbackRemover: FASTQOperationSavontRollbackRemoving {
+    func removeItem(at url: URL) throws {
+        try FileManager.default.removeItem(at: url)
+    }
+}
+
+struct FASTQOperationRollbackRemovalFailure: Sendable, Equatable {
+    let path: URL
+    let message: String
+}
+
+struct FASTQOperationRollbackCleanupError: Error, LocalizedError {
+    let originalError: any Error
+    let retainedPaths: [URL]
+    let removalFailures: [FASTQOperationRollbackRemovalFailure]
+
+    var errorDescription: String? {
+        let retained = retainedPaths.map(\.path).joined(separator: ", ")
+        let failures = removalFailures.map { "\($0.path.path): \($0.message)" }.joined(separator: "; ")
+        return "Savont rollback cleanup failed after \(originalError.localizedDescription). "
+            + "Retained paths: \(retained). Removal failures: \(failures)"
+    }
+}
+
 protocol ReferenceBundleWrapping: Sendable {
     func importReferenceBundle(
         sourceURL: URL,
@@ -178,6 +206,7 @@ struct FASTQOperationExecutionService {
     private let planner: FASTQOperationPlanner
     private let invocationBuilder: FASTQOperationCLIInvocationBuilder
     private let stagingCleanup: FASTQOperationStagingCleanup
+    private let savontRollbackRemover: any FASTQOperationSavontRollbackRemoving
 
     init(
         inputResolver: any FASTQOperationInputResolving = FASTQSourceResolverAdapter(),
@@ -185,7 +214,9 @@ struct FASTQOperationExecutionService {
         directImporter: any FASTQOperationDirectImporting = IdentityFASTQOperationImporter(),
         planner: FASTQOperationPlanner = FASTQOperationPlanner(),
         invocationBuilder: FASTQOperationCLIInvocationBuilder = FASTQOperationCLIInvocationBuilder(),
-        stagingCleanup: FASTQOperationStagingCleanup = FASTQOperationStagingCleanup()
+        stagingCleanup: FASTQOperationStagingCleanup = FASTQOperationStagingCleanup(),
+        savontRollbackRemover: any FASTQOperationSavontRollbackRemoving =
+            FileManagerFASTQOperationSavontRollbackRemover()
     ) {
         self.inputResolver = inputResolver
         self.commandRunner = commandRunner
@@ -193,6 +224,7 @@ struct FASTQOperationExecutionService {
         self.planner = planner
         self.invocationBuilder = invocationBuilder
         self.stagingCleanup = stagingCleanup
+        self.savontRollbackRemover = savontRollbackRemover
     }
 
     func execute(
@@ -341,12 +373,31 @@ struct FASTQOperationExecutionService {
                 )
             }
         } catch {
+            let originalError = error
+            var rollbackRemovalFailures: [FASTQOperationRollbackRemovalFailure] = []
             for candidate in freshSavontRollbackCandidates
                 where fileManager.fileExists(atPath: candidate.path) {
-                try? fileManager.removeItem(at: candidate)
+                do {
+                    try savontRollbackRemover.removeItem(at: candidate)
+                } catch {
+                    rollbackRemovalFailures.append(FASTQOperationRollbackRemovalFailure(
+                        path: candidate,
+                        message: error.localizedDescription
+                    ))
+                }
             }
             stagingCleanup.cleanupFailedRun(candidates: failureCleanupCandidates)
-            throw error
+            let retainedPaths = freshSavontRollbackCandidates.filter {
+                fileManager.fileExists(atPath: $0.path)
+            }
+            if !rollbackRemovalFailures.isEmpty || !retainedPaths.isEmpty {
+                throw FASTQOperationRollbackCleanupError(
+                    originalError: originalError,
+                    retainedPaths: retainedPaths,
+                    removalFailures: rollbackRemovalFailures
+                )
+            }
+            throw originalError
         }
     }
 

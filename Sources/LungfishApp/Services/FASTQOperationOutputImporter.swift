@@ -662,8 +662,10 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
                   step.wallTimeSeconds.map({ $0 >= 0 }) == true,
                   let runtime = step.runtimeIdentity,
                   runtime.condaEnvironment == SavontClusteringRunRequest.condaEnvironment,
-                  isNonEmpty(runtime.condaPrefix),
                   isNonEmpty(runtime.executablePath),
+                  NSString(string: runtime.executablePath).isAbsolutePath,
+                  let condaPrefix = runtime.condaPrefix,
+                  condaPrefix.hasSuffix("/envs/\(SavontClusteringRunRequest.condaEnvironment)"),
                   let inputURL = step.resolvedOptions["inputFASTQ"]?.fileValue,
                   inputURL.standardizedFileURL.path == resolvedInputPath,
                   let outputDirectory = step.resolvedOptions["outputDirectory"]?.fileValue,
@@ -712,10 +714,14 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
                 return false
             }
 
-            guard let asvIndex = step.argv.lastIndex(of: "asv"),
-                  asvIndex > step.argv.startIndex,
-                  step.argv[step.argv.index(before: asvIndex)] == "savont",
-                  Array(step.argv[asvIndex...]) == expectedArguments,
+            let expectedArgv = [
+                runtime.executablePath,
+                "run",
+                "-n",
+                SavontClusteringRunRequest.condaEnvironment,
+                "savont",
+            ] + expectedArguments
+            guard step.argv == expectedArgv,
                   step.reproducibleCommand == step.argv.map(shellEscape).joined(separator: " ") else {
                 return false
             }
