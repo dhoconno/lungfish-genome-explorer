@@ -74,7 +74,10 @@ public enum FASTASequenceActionMenuBuilder {
         addItem(
             titled: handlers.blastMenuTitle,
             handler: handlers.onBlast,
-            enabled: isEnabled,
+            enabled: isEnabled && selectionCount <= 50,
+            disabledToolTip: selectionCount > 50
+                ? "Verify with BLAST is limited to 50 selected sequences."
+                : nil,
             to: &items
         )
         addItem(
@@ -103,7 +106,7 @@ public enum FASTASequenceActionMenuBuilder {
         addItem(
             titled: "Align with MAFFT…",
             handler: handlers.onAlignWithMAFFT,
-            enabled: isEnabled,
+            enabled: selectionCount >= 2,
             to: &items
         )
         addItem(
@@ -119,6 +122,7 @@ public enum FASTASequenceActionMenuBuilder {
         titled title: String,
         handler: (() -> Void)?,
         enabled: Bool,
+        disabledToolTip: String? = nil,
         to items: inout [NSMenuItem]
     ) {
         guard let handler else { return }
@@ -131,6 +135,7 @@ public enum FASTASequenceActionMenuBuilder {
         )
         item.target = target
         item.isEnabled = enabled
+        item.toolTip = disabledToolTip
         objc_setAssociatedObject(
             item,
             actionAssociationKey,

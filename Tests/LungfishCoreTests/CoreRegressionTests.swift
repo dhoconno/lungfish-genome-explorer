@@ -859,8 +859,8 @@ final class TempFileManagerRegressionTests: XCTestCase {
             .appendingPathComponent("lungfish-test-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
 
-        await manager.registerSessionTempDirectory(tempDir)
-        await manager.unregisterSessionTempDirectory(tempDir)
+        manager.registerSessionTempDirectory(tempDir)
+        manager.unregisterSessionTempDirectory(tempDir)
 
         // After unregistering, cleanupSessionFiles should NOT remove it
         // (it was unregistered before cleanup)
@@ -869,6 +869,17 @@ final class TempFileManagerRegressionTests: XCTestCase {
 
         // Manual cleanup
         try FileManager.default.removeItem(at: tempDir)
+    }
+
+    func testSynchronousTerminationCleanupRemovesEveryRegisteredDirectory() throws {
+        let manager = TempFileManager()
+        let first = try manager.createRegisteredTempDirectory(prefix: "lungfish-test-")
+        let second = try manager.createRegisteredTempDirectory(prefix: "lungfish-test-")
+
+        manager.cleanupSessionFilesSynchronously()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: first.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: second.path))
     }
 }
 

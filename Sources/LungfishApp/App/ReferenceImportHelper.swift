@@ -12,6 +12,7 @@ public enum ReferenceImportHelper {
         _ sourceURL: URL,
         _ outputDirectory: URL,
         _ preferredBundleName: String?,
+        _ provenanceInputFiles: [URL]?,
         _ progressHandler: (@Sendable (Double, String) -> Void)?
     ) async throws -> ReferenceBundleImportResult
 
@@ -50,6 +51,9 @@ public enum ReferenceImportHelper {
         let preferredName = value(for: "--name", in: arguments)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let bundleName = preferredName?.isEmpty == true ? nil : preferredName
+        let provenanceInputPaths = values(for: "--provenance-input-file", in: arguments)
+        let provenanceInputFiles = provenanceInputPaths.isEmpty ? nil
+            : provenanceInputPaths.map { URL(fileURLWithPath: $0) }
 
         final class ExitCodeBox: @unchecked Sendable {
             private let lock = NSLock()
@@ -84,7 +88,7 @@ public enum ReferenceImportHelper {
                 ))
 
                 let action = importAction ?? defaultImportAction
-                let result = try await action(inputURL, outputDirectory, bundleName) { progress, message in
+                let result = try await action(inputURL, outputDirectory, bundleName, provenanceInputFiles) { progress, message in
                     progressHandler?(progress, message)
                     emit(Event(
                         event: "progress",
@@ -134,6 +138,13 @@ public enum ReferenceImportHelper {
         return arguments[flagIndex + 1]
     }
 
+    private static func values(for flag: String, in arguments: [String]) -> [String] {
+        arguments.enumerated().compactMap { index, argument in
+            guard argument == flag, arguments.indices.contains(index + 1) else { return nil }
+            return arguments[index + 1]
+        }
+    }
+
     private static func emit(_ event: Event) {
         guard let data = try? JSONEncoder().encode(event),
               var line = String(data: data, encoding: .utf8) else { return }
@@ -148,12 +159,14 @@ public enum ReferenceImportHelper {
         sourceURL: URL,
         outputDirectory: URL,
         preferredBundleName: String?,
+        provenanceInputFiles: [URL]?,
         progressHandler: (@Sendable (Double, String) -> Void)?
     ) async throws -> ReferenceBundleImportResult {
         try await ReferenceBundleImportService.shared.importAsReferenceBundle(
             sourceURL: sourceURL,
             outputDirectory: outputDirectory,
             preferredBundleName: preferredBundleName,
+            provenanceInputFiles: provenanceInputFiles,
             progressHandler: progressHandler
         )
     }

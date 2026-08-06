@@ -43,6 +43,7 @@ enum ReferenceBundleImportHelperLauncher {
         sourceURL: URL,
         outputDirectory: URL,
         preferredBundleName: String? = nil,
+        provenanceInputFiles: [URL]? = nil,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> ReferenceBundleImportResult {
         guard let helperExecutableURL = Bundle.main.executableURL else {
@@ -55,6 +56,7 @@ enum ReferenceBundleImportHelperLauncher {
                 outputDirectory: outputDirectory,
                 helperExecutableURL: helperExecutableURL,
                 preferredBundleName: preferredBundleName,
+                provenanceInputFiles: provenanceInputFiles,
                 progressHandler: progressHandler
             )
         }.value
@@ -65,6 +67,7 @@ enum ReferenceBundleImportHelperLauncher {
         outputDirectory: URL,
         helperExecutableURL: URL,
         preferredBundleName: String?,
+        provenanceInputFiles: [URL]?,
         progressHandler: (@Sendable (Double, String) -> Void)?
     ) throws -> ReferenceBundleImportResult {
         guard !helperExecutableURL.path.isEmpty else {
@@ -82,6 +85,9 @@ enum ReferenceBundleImportHelperLauncher {
         if let preferredBundleName,
            !preferredBundleName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             arguments.append(contentsOf: ["--name", preferredBundleName])
+        }
+        for input in provenanceInputFiles ?? [] {
+            arguments.append(contentsOf: ["--provenance-input-file", input.path])
         }
         process.arguments = arguments
 

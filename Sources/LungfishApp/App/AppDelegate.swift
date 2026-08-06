@@ -566,11 +566,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         debugTempEscapeScanTimer = nil
 #endif
 
-        // Clean up any temp files created during this session
-        // Note: This is synchronous since we're terminating
-        Task {
-            await TempFileManager.shared.cleanupSessionFiles()
-        }
+        // Process teardown cannot wait for an unstructured task. Remove
+        // registered session files before returning from the termination hook.
+        TempFileManager.shared.cleanupSessionFilesSynchronously()
     }
 
     public func applicationShouldTerminate(

@@ -238,7 +238,12 @@ extension AppDelegate {
         }
     }
 
-    func importFASTAFromURL(_ url: URL, routeContext: OperationRouteContext? = nil) {
+    func importFASTAFromURL(
+        _ url: URL,
+        routeContext: OperationRouteContext? = nil,
+        durableProvenanceInputFiles: [URL]? = nil,
+        preferredBundleName: String? = nil
+    ) {
         guard let controller = targetMainWindowController(routeContext: routeContext) ?? activeMainWindowController(),
               let sidebarController = controller.mainSplitViewController?.sidebarController,
               let projectURL = routeContext?.projectURL ?? sidebarController.currentProjectURL else {
@@ -297,7 +302,9 @@ extension AppDelegate {
             do {
                 let result = try await ReferenceBundleImportHelperLauncher.importAsReferenceBundleViaAppHelper(
                     sourceURL: url,
-                    outputDirectory: refsDir
+                    outputDirectory: refsDir,
+                    preferredBundleName: preferredBundleName,
+                    provenanceInputFiles: durableProvenanceInputFiles
                 ) { progress, message in
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {

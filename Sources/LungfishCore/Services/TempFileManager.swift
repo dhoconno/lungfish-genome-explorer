@@ -5,6 +5,37 @@
 import Foundation
 import os.log
 
+private final class SessionTempDirectoryRegistry: @unchecked Sendable {
+    private let lock = NSLock()
+    private var urls: Set<URL> = []
+
+    func insert(_ url: URL) {
+        lock.lock()
+        urls.insert(url.standardizedFileURL)
+        lock.unlock()
+    }
+
+    func remove(_ url: URL) {
+        lock.lock()
+        urls.remove(url.standardizedFileURL)
+        lock.unlock()
+    }
+
+    func contains(_ url: URL) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return urls.contains(url.standardizedFileURL)
+    }
+
+    func takeAll() -> [URL] {
+        lock.lock()
+        defer { lock.unlock() }
+        let snapshot = Array(urls)
+        urls.removeAll()
+        return snapshot
+    }
+}
+
 // MARK: - TempFileManager
 
 /// Manages cleanup of temporary files created by Lungfish.
@@ -46,6 +77,7 @@ public actor TempFileManager {
         "lungfish-genbank-",
         "lungfish-genome-",
         "lungfish-batch-",
+        "lungfish-fasta-ops-",
         ".lungfish-temp-",
         "lungfish-debug"
     ]
@@ -55,11 +87,11 @@ public actor TempFileManager {
     public var maxTempFileAge: TimeInterval = 24 * 60 * 60
 
     /// Tracks temp directories created during this session for cleanup.
-    private var sessionTempDirectories: Set<URL> = []
+    private let sessionTempDirectories = SessionTempDirectoryRegistry()
 
     // MARK: - Initialization
 
-    private init() {}
+    init() {}
 
     /// Sets the max temp file age from a retention value in hours.
     public func setMaxAge(hours: Int) {
@@ -119,17 +151,20 @@ public actor TempFileManager {
     /// when `cleanupSessionFiles()` is called.
     ///
     /// - Parameter url: The temp directory URL.
-    public func registerSessionTempDirectory(_ url: URL) {
+    public nonisolated func registerSessionTempDirectory(_ url: URL) {
         sessionTempDirectories.insert(url)
-        logger.debug("Registered session temp directory: \(url.path)")
     }
 
     /// Unregisters a temp directory (call after successful cleanup).
     ///
     /// - Parameter url: The temp directory URL.
-    public func unregisterSessionTempDirectory(_ url: URL) {
+    public nonisolated func unregisterSessionTempDirectory(_ url: URL) {
         sessionTempDirectories.remove(url)
-        logger.debug("Unregistered session temp directory: \(url.path)")
+    }
+
+    /// Internal verification seam for synchronous session-temp callers.
+    nonisolated func isSessionTempDirectoryRegistered(_ url: URL) -> Bool {
+        sessionTempDirectories.contains(url)
     }
 
     /// Cleans up all temp directories created during this session.
@@ -139,17 +174,32 @@ public actor TempFileManager {
     /// - Returns: The total bytes reclaimed.
     @discardableResult
     public func cleanupSessionFiles() async -> UInt64 {
-        logger.info("Cleaning up \(self.sessionTempDirectories.count) session temp directories")
+        let directories = sessionTempDirectories.takeAll()
+        logger.info("Cleaning up \(directories.count) session temp directories")
 
         var totalBytesReclaimed: UInt64 = 0
 
-        for url in sessionTempDirectories {
+        for url in directories {
             totalBytesReclaimed += await removeItem(at: url)
         }
 
-        sessionTempDirectories.removeAll()
-
         return totalBytesReclaimed
+    }
+
+    /// Removes every registered session directory before process teardown.
+    /// This synchronous path is intentionally limited to app termination,
+    /// where starting an un-awaited task cannot guarantee cleanup completes.
+    public nonisolated func cleanupSessionFilesSynchronously() {
+        for url in sessionTempDirectories.takeAll() {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    /// Removes one registered directory synchronously without affecting other
+    /// operations that may be using session storage concurrently.
+    nonisolated func cleanupTempDirectorySynchronously(_ url: URL) {
+        unregisterSessionTempDirectory(url)
+        try? FileManager.default.removeItem(at: url)
     }
 
     /// Cleans up a specific temp directory after an operation completes.
@@ -170,6 +220,12 @@ public actor TempFileManager {
     /// - Returns: The URL of the created directory.
     /// - Throws: If the directory cannot be created.
     public func createTempDirectory(prefix: String) throws -> URL {
+        try createRegisteredTempDirectory(prefix: prefix)
+    }
+
+    /// Creates and registers a session directory before returning it to a
+    /// synchronous caller.
+    public nonisolated func createRegisteredTempDirectory(prefix: String) throws -> URL {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("\(prefix)\(UUID().uuidString)", isDirectory: true)
 
@@ -179,9 +235,7 @@ public actor TempFileManager {
         )
 
         // Track this directory for potential cleanup
-        sessionTempDirectories.insert(tempDir)
-
-        logger.debug("Created temp directory: \(tempDir.path)")
+        registerSessionTempDirectory(tempDir)
 
         return tempDir
     }

@@ -4,12 +4,133 @@ import XCTest
 
 @MainActor
 final class FASTACollectionViewControllerTests: XCTestCase {
+    func testBlastLoadingUsesSharedDrawerAndCollapsesSelectionDetail() throws {
+        let vc = FASTACollectionViewController()
+        _ = vc.view
+        vc.configure(
+            sequences: [try makeSequence(name: "seq1", bases: "AACCGGTT")],
+            annotations: [],
+            sourceNames: [:]
+        )
+        vc.testSelectRows([0])
+
+        XCTAssertFalse(vc.testDetailIsCollapsed)
+        vc.showBlastLoading(phase: .submitting, requestId: "RID-1")
+
+        XCTAssertTrue(vc.testDetailIsCollapsed)
+        XCTAssertTrue(vc.testBlastDrawerIsOpen)
+        XCTAssertEqual(vc.testBlastDrawerTab?.presentationStyle, .sequenceBlast)
+        guard case .loading(let phase, let requestId) = vc.testBlastDrawerTab?.displayState else {
+            return XCTFail("Expected the shared BLAST drawer loading state")
+        }
+        XCTAssertEqual(phase, .submitting)
+        XCTAssertEqual(requestId, "RID-1")
+    }
+
+    func testSelectionChangeClosesBlastDrawerAndRestoresFASTASelectionDetail() throws {
+        let vc = FASTACollectionViewController()
+        _ = vc.view
+        vc.configure(
+            sequences: [
+                try makeSequence(name: "seq1", bases: "AACCGGTT"),
+                try makeSequence(name: "seq2", bases: "ATATAT")
+            ],
+            annotations: [],
+            sourceNames: [:]
+        )
+        vc.testSelectRows([0])
+        vc.showBlastResults(makeBlastResult(queryID: "seq1"))
+
+        guard case .results = vc.testBlastDrawerTab?.displayState else {
+            return XCTFail("Expected the shared BLAST drawer result state")
+        }
+        XCTAssertTrue(vc.testBlastDrawerIsOpen)
+
+        vc.testSelectRows([1])
+
+        XCTAssertFalse(vc.testBlastDrawerIsOpen)
+        XCTAssertFalse(vc.testDetailIsCollapsed)
+        XCTAssertEqual(vc.testDetailText, ">seq2\nATATAT\n")
+        XCTAssertGreaterThan(vc.testDetailHeight, 1)
+    }
+
+    func testSelectionChangeCancelsLoadingBlastBeforeRestoringFASTASelectionDetail() throws {
+        let vc = FASTACollectionViewController()
+        var cancellationCount = 0
+        vc.onBlastCancelRequested = { cancellationCount += 1 }
+        _ = vc.view
+        vc.configure(
+            sequences: [
+                try makeSequence(name: "seq1", bases: "AACCGGTT"),
+                try makeSequence(name: "seq2", bases: "ATATAT")
+            ],
+            annotations: [],
+            sourceNames: [:]
+        )
+        vc.testSelectRows([0])
+        vc.showBlastLoading(phase: .waiting, requestId: "RID-1")
+
+        vc.testSelectRows([1])
+
+        XCTAssertEqual(cancellationCount, 1)
+        XCTAssertFalse(vc.testBlastDrawerIsOpen)
+        XCTAssertEqual(vc.testDetailText, ">seq2\nATATAT\n")
+    }
+
+    func testBlastFailureAndExistingDrawerCallbacksAreForwarded() throws {
+        let vc = FASTACollectionViewController()
+        var cancelCount = 0
+        var rerunCount = 0
+        vc.onBlastCancelRequested = { cancelCount += 1 }
+        vc.onBlastRerunRequested = { rerunCount += 1 }
+        _ = vc.view
+        vc.configure(
+            sequences: [try makeSequence(name: "seq1", bases: "AACCGGTT")],
+            annotations: [],
+            sourceNames: [:]
+        )
+        vc.testSelectRows([0])
+
+        vc.showBlastFailure("Remote BLAST failed")
+        XCTAssertTrue(vc.testBlastDrawerIsOpen)
+        guard case .empty = vc.testBlastDrawerTab?.displayState else {
+            return XCTFail("Expected the shared drawer failure/empty presentation")
+        }
+
+        vc.testBlastDrawerTab?.onCancelBlast?()
+        vc.testBlastDrawerTab?.onRerunBlast?()
+        XCTAssertEqual(cancelCount, 1)
+        XCTAssertEqual(rerunCount, 1)
+    }
+
+    func testChangingCancelHandlerAfterDrawerCreationStillRestoresSelectionDetail() throws {
+        let vc = FASTACollectionViewController()
+        _ = vc.view
+        vc.configure(
+            sequences: [try makeSequence(name: "seq1", bases: "AACCGGTT")],
+            annotations: [],
+            sourceNames: [:]
+        )
+        vc.testSelectRows([0])
+        vc.showBlastLoading(phase: .waiting, requestId: "RID-1")
+
+        var cancellationCount = 0
+        vc.onBlastCancelRequested = { cancellationCount += 1 }
+        vc.testBlastDrawerTab?.onCancelBlast?()
+
+        XCTAssertEqual(cancellationCount, 1)
+        XCTAssertFalse(vc.testBlastDrawerIsOpen)
+        XCTAssertFalse(vc.testDetailIsCollapsed)
+        XCTAssertEqual(vc.testDetailText, ">seq1\nAACCGGTT\n")
+    }
+
     func testContextMenuUsesSharedFastaActionSetWhenCallbacksPresent() throws {
         let vc = FASTACollectionViewController()
         vc.onExtractSequenceRequested = { _ in }
         vc.onBlastRequested = { _ in }
         vc.onExportRequested = { _ in }
         vc.onCreateBundleRequested = { _ in }
+        vc.onAlignWithMAFFTRequested = { _ in }
         vc.onRunOperationRequested = { _ in }
         _ = vc.view
 
@@ -46,6 +167,83 @@ final class FASTACollectionViewControllerTests: XCTestCase {
         vc.testInvokeContextMenuItem(titled: "Run Operation…")
 
         XCTAssertEqual(capturedNames, ["seq2"])
+    }
+
+    func testContextActionsUseSelectedRecordsInVisibleOrder() throws {
+        let vc = FASTACollectionViewController()
+        let pasteboard = RecordingPasteboard()
+        vc.testSetPasteboard(pasteboard)
+        var captured: [String: [String]] = [:]
+        vc.onExtractSequenceRequested = { captured["Extract Sequence…"] = $0.map(\.name) }
+        vc.onBlastRequested = { captured["Verify with BLAST…"] = $0.map(\.name) }
+        vc.onExportRequested = { captured["Export FASTA…"] = $0.map(\.name) }
+        vc.onCreateBundleRequested = { captured["Create Bundle…"] = $0.map(\.name) }
+        vc.onAlignWithMAFFTRequested = { captured["Align with MAFFT…"] = $0.map(\.name) }
+        vc.onRunOperationRequested = { captured["Run Operation…"] = $0.map(\.name) }
+        _ = vc.view
+        vc.configure(
+            sequences: [
+                try makeSequence(name: "seq1", bases: "AACCGGTT"),
+                try makeSequence(name: "seq2", bases: "ATATAT")
+            ],
+            annotations: [],
+            sourceNames: [:]
+        )
+
+        vc.testSelectRows([1])
+        let singleSequenceActions = ["Extract Sequence…", "Verify with BLAST…", "Export FASTA…", "Create Bundle…", "Run Operation…"]
+        singleSequenceActions.forEach {
+            vc.testInvokeContextMenuItem(titled: $0)
+        }
+        singleSequenceActions.forEach {
+            XCTAssertEqual(captured[$0], ["seq2"], "action: \($0)")
+        }
+        XCTAssertFalse(vc.testContextMenuItem(titled: "Align with MAFFT…")?.isEnabled ?? true)
+        vc.testInvokeContextMenuItem(titled: "Copy FASTA")
+        XCTAssertEqual(pasteboard.lastString, ">seq2\nATATAT\n")
+
+        captured.removeAll()
+        vc.testSelectRows([1, 0])
+        let multiSequenceActions = ["Extract Sequence…", "Verify with BLAST…", "Export FASTA…", "Create Bundle…", "Align with MAFFT…", "Run Operation…"]
+        multiSequenceActions.forEach {
+            vc.testInvokeContextMenuItem(titled: $0)
+        }
+        multiSequenceActions.forEach {
+            XCTAssertEqual(captured[$0], ["seq1", "seq2"], "action: \($0)")
+        }
+        vc.testInvokeContextMenuItem(titled: "Copy FASTA")
+        XCTAssertEqual(pasteboard.lastString, ">seq1\nAACCGGTT\n\n>seq2\nATATAT\n")
+    }
+
+    func testContextMenuReconcilesClickedRowAndKeepsCurrentSelectionWithoutOne() throws {
+        let vc = FASTACollectionViewController()
+        var capturedNames: [String] = []
+        vc.onRunOperationRequested = { capturedNames = $0.map(\.name) }
+        _ = vc.view
+        vc.configure(
+            sequences: [
+                try makeSequence(name: "seq1", bases: "AAAA"),
+                try makeSequence(name: "seq2", bases: "CCCC"),
+                try makeSequence(name: "seq3", bases: "GGGG")
+            ],
+            annotations: [],
+            sourceNames: [:]
+        )
+
+        vc.testSelectRows([0, 1])
+        vc.testUpdateContextMenu(clickedRow: 1)
+        vc.testInvokeContextMenuItem(titled: "Run Operation…")
+        XCTAssertEqual(capturedNames, ["seq1", "seq2"])
+
+        vc.testSelectRows([0, 1])
+        vc.testUpdateContextMenu(clickedRow: 2)
+        vc.testInvokeContextMenuItem(titled: "Run Operation…")
+        XCTAssertEqual(capturedNames, ["seq3"])
+
+        vc.testSelectRows([0, 1])
+        vc.testUpdateContextMenu(clickedRow: nil)
+        vc.testInvokeContextMenuItem(titled: "Run Operation…")
+        XCTAssertEqual(capturedNames, ["seq1", "seq2"])
     }
 
     func testCollectionOmitsMiniMapAndStartsWithCollapsedDetail() throws {
@@ -134,5 +332,26 @@ final class FASTACollectionViewControllerTests: XCTestCase {
 
     private func makeSequence(name: String, bases: String) throws -> Sequence {
         try Sequence(name: name, alphabet: .dna, bases: bases)
+    }
+
+    private func makeBlastResult(queryID: String) -> BlastVerificationResult {
+        BlastVerificationResult(
+            taxonName: "Selected FASTA sequences",
+            taxId: 0,
+            readResults: [BlastReadResult(
+                id: queryID,
+                verdict: .verified,
+                topHitOrganism: "Macaca mulatta",
+                topHitAccession: "AB123456",
+                percentIdentity: 99.5,
+                eValue: 0,
+                matchesQueriedTaxon: true
+            )],
+            submittedAt: Date(),
+            completedAt: Date(),
+            rid: "RID-1",
+            blastProgram: "megablast",
+            database: "core_nt"
+        )
     }
 }

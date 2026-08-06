@@ -185,7 +185,8 @@ extension MainSplitViewController {
         viewerController.displayFASTACollection(
             sequences: allSequences,
             annotations: allAnnotations,
-            sourceNames: sourceNames
+            sourceNames: sourceNames,
+            durableSourceURLs: documents.map(\.url)
         )
         recordUITestEvent("viewport.collection.displayed sequences=\(allSequences.count)")
         mainSplitLogger.info("displayMultiDocumentCollection: Displayed collection with \(allSequences.count) sequences from \(documents.count) files")

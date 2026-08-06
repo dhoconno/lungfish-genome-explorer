@@ -30,6 +30,8 @@ final class ReferenceImportHelperTests: XCTestCase {
 
         let inputURL = root.appendingPathComponent("input.fasta")
         try Data(">seq\nAACCGGTT\n".utf8).write(to: inputURL)
+        let durableSource = root.appendingPathComponent("original.fasta")
+        try Data(">original\nACGT\n".utf8).write(to: durableSource)
 
         let bundleURL = root.appendingPathComponent("Ref.lungfishref", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
@@ -42,11 +44,14 @@ final class ReferenceImportHelperTests: XCTestCase {
                 "--input-file", inputURL.path,
                 "--output-dir", root.path,
                 "--name", "Ref",
+                "--provenance-input-file", durableSource.path,
+                "--provenance-input-file", inputURL.path,
             ],
-            importAction: { sourceURL, outputDirectory, preferredName, progress in
+            importAction: { sourceURL, outputDirectory, preferredName, provenanceInputFiles, progress in
                 XCTAssertEqual(sourceURL, inputURL)
                 XCTAssertEqual(outputDirectory, root)
                 XCTAssertEqual(preferredName, "Ref")
+                XCTAssertEqual(provenanceInputFiles, [durableSource, inputURL])
                 progress?(0.5, "Halfway there")
                 return ReferenceBundleImportResult(bundleURL: bundleURL, bundleName: "Ref")
             },
@@ -60,5 +65,29 @@ final class ReferenceImportHelperTests: XCTestCase {
         XCTAssertEqual(snapshot.count, 1)
         XCTAssertEqual(snapshot.first?.0, 0.5)
         XCTAssertEqual(snapshot.first?.1, "Halfway there")
+    }
+
+    func testRunIfRequestedPreservesServiceDefaultWhenNoDurableProvenanceInputIsSupplied() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("reference-import-helper-default-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let inputURL = root.appendingPathComponent("input.fasta")
+        try Data(">seq\nAACCGGTT\n".utf8).write(to: inputURL)
+        let bundleURL = root.appendingPathComponent("Ref.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let exitCode = ReferenceImportHelper.runIfRequested(
+            arguments: [
+                "Lungfish", "--reference-import-helper", "--input-file", inputURL.path,
+                "--output-dir", root.path,
+            ],
+            importAction: { _, _, _, provenanceInputFiles, _ in
+                XCTAssertNil(provenanceInputFiles)
+                return ReferenceBundleImportResult(bundleURL: bundleURL, bundleName: "Ref")
+            }
+        )
+
+        XCTAssertEqual(exitCode, 0)
     }
 }
