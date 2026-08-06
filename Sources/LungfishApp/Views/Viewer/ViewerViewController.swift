@@ -28,9 +28,37 @@ import LungfishKit
 /// Logger for viewer operations
 private let logger = Logger(subsystem: LogSubsystem.app, category: "ViewerViewController")
 
+private final class FASTABlastProgressRelay: @unchecked Sendable {
+    @MainActor
+    private let delivery: (Double, String) -> Void
+
+    @MainActor
+    init(delivery: @escaping (Double, String) -> Void) {
+        self.delivery = delivery
+    }
+
+    nonisolated func report(fraction: Double, message: String) {
+        Task { @MainActor [weak self] in
+            self?.delivery(fraction, message)
+        }
+    }
+}
+
 /// Controller for the main viewer panel containing sequence and track display.
 @MainActor
 public class ViewerViewController: NSViewController {
+
+    typealias FASTABlastVerificationRunner = @MainActor (
+        _ request: BlastVerificationRequest,
+        _ progress: @escaping @Sendable (Double, String) -> Void
+    ) async throws -> BlastVerificationResult
+
+    typealias FASTAOperationDialogPresenter = @MainActor (
+        _ records: [String],
+        _ suggestedName: String,
+        _ initialCategory: FASTQOperationCategoryID,
+        _ initialToolID: FASTQOperationToolID?
+    ) -> Void
 
     // MARK: - UI Components
 
@@ -72,6 +100,15 @@ public class ViewerViewController: NSViewController {
 
     /// FASTA collection browser (shown in place of sequence viewer for multi-sequence FASTA files)
     private var fastaCollectionController: FASTACollectionViewController?
+
+    var fastaBlastVerificationRunner: FASTABlastVerificationRunner = { request, progress in
+        try await BlastService.shared.verify(request: request, progress: progress)
+    }
+    var fastaOperationDialogPresenterForTesting: FASTAOperationDialogPresenter?
+    private var activeFASTABlastTask: Task<Void, Never>?
+    private var activeFASTABlastOperationID: UUID?
+    private var activeFASTABlastRunID: UUID?
+    private var lastFASTABlastRequest: (sourceLabel: String, fastaRecords: [String])?
 
     /// Taxonomy classification browser (shown in place of sequence viewer for kreport results)
     var taxonomyViewController: TaxonomyViewController?
@@ -151,6 +188,7 @@ public class ViewerViewController: NSViewController {
 
     /// Currently displayed document
     public private(set) var currentDocument: LoadedDocument?
+    private var fastaCollectionSourceURLs: [URL] = []
 
     /// Track height constant
     private let sequenceTrackY: CGFloat = 20
@@ -1340,12 +1378,14 @@ public class ViewerViewController: NSViewController {
     ///   - annotations: Associated annotations (grouped by chromosome internally).
     public func displayFASTACollection(
         sequences: [LungfishCore.Sequence],
-        annotations: [SequenceAnnotation]
+        annotations: [SequenceAnnotation],
+        durableSourceURLs: [URL] = []
     ) {
         displayFASTACollection(
             sequences: sequences,
             annotations: annotations,
-            sourceNames: [:]
+            sourceNames: [:],
+            durableSourceURLs: durableSourceURLs
         )
     }
 
@@ -1363,7 +1403,8 @@ public class ViewerViewController: NSViewController {
     public func displayFASTACollection(
         sequences: [LungfishCore.Sequence],
         annotations: [SequenceAnnotation],
-        sourceNames: [UUID: String]
+        sourceNames: [UUID: String],
+        durableSourceURLs: [URL] = []
     ) {
         hideQuickLookPreview()
         hideFASTQDatasetView()
@@ -1379,6 +1420,11 @@ public class ViewerViewController: NSViewController {
         hideMappingView()
         hideAlignmentTreeBundleViews()
         contentMode = .genomics
+
+        let capturedSourceURLs = normalizedExistingURLs(
+            durableSourceURLs.isEmpty ? fastaExportSourceURLs() : durableSourceURLs
+        )
+        fastaCollectionSourceURLs = capturedSourceURLs
 
         let controller = FASTACollectionViewController()
         addChild(controller)
@@ -1397,14 +1443,27 @@ public class ViewerViewController: NSViewController {
             dashView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
 
-        controller.onBlastRequested = { [weak self] selectedSequences in
+        controller.onBlastRequested = { [weak self, weak controller] selectedSequences in
+            guard let controller else { return }
             let fastaRecords = selectedSequences.map(Self.fastaRecord(for:))
             let sourceLabel = selectedSequences.count == 1
                 ? selectedSequences[0].name
                 : "\(selectedSequences.count) FASTA sequences"
             self?.runGenericBlastVerification(
                 sourceLabel: sourceLabel,
-                fastaRecords: fastaRecords
+                fastaRecords: fastaRecords,
+                presentingIn: controller
+            )
+        }
+        controller.onBlastCancelRequested = { [weak self] in
+            self?.cancelActiveFASTABlast()
+        }
+        controller.onBlastRerunRequested = { [weak self, weak controller] in
+            guard let self, let controller, let lastRequest = self.lastFASTABlastRequest else { return }
+            self.runGenericBlastVerification(
+                sourceLabel: lastRequest.sourceLabel,
+                fastaRecords: lastRequest.fastaRecords,
+                presentingIn: controller
             )
         }
         controller.onExtractSequenceRequested = { [weak self] selectedSequences in
@@ -1423,6 +1482,14 @@ public class ViewerViewController: NSViewController {
             self?.createReferenceBundle(
                 from: selectedSequences.map(Self.fastaRecord(for:)),
                 suggestedName: Self.bundleName(for: selectedSequences)
+            )
+        }
+        controller.onAlignWithMAFFTRequested = { [weak self] selectedSequences in
+            self?.presentFASTAOperationDialog(
+                records: selectedSequences.map(Self.fastaRecord(for:)),
+                suggestedName: Self.bundleName(for: selectedSequences),
+                initialCategory: .alignment,
+                initialToolID: .mafft
             )
         }
         controller.onRunOperationRequested = { [weak self] selectedSequences in
@@ -1479,7 +1546,8 @@ public class ViewerViewController: NSViewController {
             self.showCollectionBackButton(
                 sequences: allSequences,
                 annotations: allAnnotations,
-                sourceNames: allSourceNames
+                sourceNames: allSourceNames,
+                durableSourceURLs: capturedSourceURLs
             )
 
             self.viewerView.needsDisplay = true
@@ -1504,6 +1572,7 @@ public class ViewerViewController: NSViewController {
     /// Removes the FASTA collection browser and restores normal viewer components.
     public func hideFASTACollectionView() {
         guard let controller = fastaCollectionController else { return }
+        cancelActiveFASTABlast()
         controller.view.removeFromSuperview()
         controller.removeFromParent()
         fastaCollectionController = nil
@@ -1551,8 +1620,30 @@ public class ViewerViewController: NSViewController {
 
     private func runGenericBlastVerification(
         sourceLabel: String,
-        fastaRecords: [String]
+        fastaRecords: [String],
+        presentingIn controller: FASTACollectionViewController
     ) {
+        guard !fastaRecords.isEmpty else {
+            controller.showBlastFailure(BlastServiceError.noSequences.localizedDescription)
+            return
+        }
+        guard fastaRecords.count <= 50 else {
+            controller.showBlastFailure("Select 50 or fewer sequences to verify with BLAST.")
+            return
+        }
+
+        let sequences = Self.blastSequences(from: fastaRecords)
+        guard !sequences.isEmpty else {
+            controller.showBlastFailure(BlastServiceError.noSequences.localizedDescription)
+            return
+        }
+
+        cancelActiveFASTABlast()
+        lastFASTABlastRequest = (sourceLabel, fastaRecords)
+        let runID = UUID()
+        activeFASTABlastRunID = runID
+        controller.showBlastLoading(phase: .submitting, requestId: nil)
+
         let blastCliCmd = OperationCenter.buildCLICommand(subcommand: "blast verify", args: [])
         let opID = OperationCenter.shared.start(
             title: "BLAST \(sourceLabel)",
@@ -1560,56 +1651,91 @@ public class ViewerViewController: NSViewController {
             operationType: .blastVerification,
             cliCommand: blastCliCmd
         )
+        activeFASTABlastOperationID = opID
 
-        let task = Task.detached {
+        let request = BlastVerificationRequest(
+            taxonName: sourceLabel,
+            taxId: 0,
+            sequences: sequences,
+            database: "core_nt",
+            entrezQuery: nil
+        )
+        let runner = fastaBlastVerificationRunner
+        let progressRelay = FASTABlastProgressRelay { [weak self, weak controller] fraction, message in
+            guard let self, let controller,
+                  self.activeFASTABlastRunID == runID else { return }
+            guard OperationCenter.shared.update(
+                id: opID,
+                progress: fraction,
+                detail: message
+            ) else { return }
+            controller.showBlastLoading(
+                phase: Self.blastPhase(forProgressMessage: message),
+                requestId: nil
+            )
+        }
+
+        let task = Task { [weak self, weak controller] in
             do {
-                let sequences = Self.blastSequences(from: fastaRecords)
-                guard !sequences.isEmpty else {
-                    throw BlastServiceError.noSequences
-                }
-
-                let request = BlastVerificationRequest(
-                    taxonName: sourceLabel,
-                    taxId: 0,
-                    sequences: sequences,
-                    database: "core_nt",
-                    entrezQuery: nil
-                )
-
-                let result = try await BlastService.shared.verify(
-                    request: request,
-                    progress: { fraction, message in
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                _ = OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
-                            }
-                        }
+                let result = try await runner(
+                    request,
+                    { fraction, message in
+                        progressRelay.report(fraction: fraction, message: message)
                     }
                 )
 
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.complete(
-                            id: opID,
-                            detail: "\(result.verifiedCount)/\(result.readResults.count) verified"
-                        )
-                    }
-                }
+                guard let self, let controller,
+                      self.activeFASTABlastRunID == runID else { return }
+                guard OperationCenter.shared.complete(
+                    id: opID,
+                    detail: "Results ready for \(result.readResults.count) sequence\(result.readResults.count == 1 ? "" : "s")"
+                ) else { return }
+                self.clearActiveFASTABlast(runID: runID)
+                controller.showBlastResults(result)
+            } catch is CancellationError {
+                return
             } catch {
+                guard let self, let controller,
+                      self.activeFASTABlastRunID == runID else { return }
                 let errorText = error.localizedDescription
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.fail(
-                            id: opID,
-                            detail: errorText,
-                            errorMessage: errorText
-                        )
-                    }
-                }
+                guard OperationCenter.shared.fail(
+                    id: opID,
+                    detail: errorText,
+                    errorMessage: errorText
+                ) else { return }
+                self.clearActiveFASTABlast(runID: runID)
+                controller.showBlastFailure(errorText)
             }
         }
 
         OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+        activeFASTABlastTask = task
+    }
+
+    private func cancelActiveFASTABlast() {
+        guard activeFASTABlastTask != nil || activeFASTABlastOperationID != nil else { return }
+        activeFASTABlastRunID = nil
+        if let operationID = activeFASTABlastOperationID {
+            OperationCenter.shared.cancel(id: operationID)
+        } else {
+            activeFASTABlastTask?.cancel()
+        }
+        activeFASTABlastTask = nil
+        activeFASTABlastOperationID = nil
+    }
+
+    private func clearActiveFASTABlast(runID: UUID) {
+        guard activeFASTABlastRunID == runID else { return }
+        activeFASTABlastRunID = nil
+        activeFASTABlastTask = nil
+        activeFASTABlastOperationID = nil
+    }
+
+    nonisolated private static func blastPhase(forProgressMessage message: String) -> BlastJobPhase {
+        let lowercased = message.lowercased()
+        if lowercased.contains("waiting") { return .waiting }
+        if lowercased.contains("parsing") { return .parsing }
+        return .submitting
     }
 
     func exportFASTARecords(_ records: [String], suggestedName: String) {
@@ -1647,11 +1773,18 @@ public class ViewerViewController: NSViewController {
             } catch {
                 try? FileManager.default.removeItem(at: destination)
                 logger.error("FASTA export failed for \(destination.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                self.presentBlockingAlert(
+                    title: "FASTA Export Failed",
+                    message: error.localizedDescription
+                )
             }
         }
     }
 
     private func fastaExportSourceURLs() -> [URL] {
+        if fastaCollectionController != nil, !fastaCollectionSourceURLs.isEmpty {
+            return fastaCollectionSourceURLs
+        }
         let candidates = [
             currentDocument?.url,
             currentBundleURL,
@@ -1662,6 +1795,15 @@ public class ViewerViewController: NSViewController {
         var seen = Set<String>()
         return candidates.compactMap { candidate in
             guard let url = candidate?.standardizedFileURL else { return nil }
+            guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+            return seen.insert(url.path).inserted ? url : nil
+        }
+    }
+
+    private func normalizedExistingURLs(_ urls: [URL]) -> [URL] {
+        var seen = Set<String>()
+        return urls.compactMap { candidate in
+            let url = candidate.standardizedFileURL
             guard FileManager.default.fileExists(atPath: url.path) else { return nil }
             return seen.insert(url.path).inserted ? url : nil
         }
@@ -2089,21 +2231,95 @@ public class ViewerViewController: NSViewController {
         guard !records.isEmpty else { return }
         let projectURL = projectURLForDerivedReferenceBundle()
         guard canWriteProjectOutputs(projectURL: projectURL, workflowName: "Reference bundle creation") else { return }
-        let tempDirectory = try? ProjectTempDirectory.create(
-            prefix: "fasta-bundle-source-",
-            in: projectURL
-        )
-        guard let tempDirectory else { return }
-
-        let sourceURL = tempDirectory.appendingPathComponent(
-            "\(Self.sanitizedFilesystemStem(suggestedName)).fasta"
-        )
-        let normalized = records.joined(separator: "")
-        try? normalized.write(to: sourceURL, atomically: true, encoding: .utf8)
+        let durableSources = fastaExportSourceURLs()
+        let selectedIDs = FASTAOperationCatalog.selectedIdentifiers(in: records.joined(separator: ""))
+        if let projectURL,
+           durableSources.count == 1,
+           FASTAOperationCatalog.inputSequenceFormat(for: durableSources[0]) == .fasta,
+           selectedIDs.count == records.count {
+            createReferenceBundleDirectlyFromDurableFASTA(
+                sourceURL: durableSources[0],
+                selectedIDs: selectedIDs,
+                projectURL: projectURL,
+                suggestedName: suggestedName
+            )
+            return
+        }
+        let stagedBundleURL: URL
+        do {
+            stagedBundleURL = try FASTAOperationCatalog.createTemporaryInputBundle(
+                fastaRecords: records,
+                suggestedName: suggestedName,
+                projectURL: projectURL,
+                durableSourceURLs: fastaExportSourceURLs()
+            )
+        } catch {
+            presentBlockingAlert(title: "Reference Bundle Creation Failed", message: error.localizedDescription)
+            return
+        }
+        let sourceURL = stagedBundleURL.appendingPathComponent("selection.fasta")
         AppDelegate.shared?.importFASTAFromURL(
             sourceURL,
-            routeContext: OperationRouteContext(projectURL: projectURL, windowStateScope: windowStateScope)
+            routeContext: OperationRouteContext(projectURL: projectURL, windowStateScope: windowStateScope),
+            durableProvenanceInputFiles: fastaExportSourceURLs(),
+            preferredBundleName: suggestedName
         )
+    }
+
+    private func createReferenceBundleDirectlyFromDurableFASTA(
+        sourceURL: URL,
+        selectedIDs: [String],
+        projectURL: URL,
+        suggestedName: String
+    ) {
+        let arguments = FASTASelectionReferenceBundleCLI.arguments(
+            sourceURL: sourceURL,
+            sequenceIDs: selectedIDs,
+            projectURL: projectURL,
+            bundleName: suggestedName
+        ) + ["--quiet"]
+        let routeContext = OperationRouteContext(projectURL: projectURL, windowStateScope: windowStateScope)
+        let operationID = OperationCenter.shared.start(
+            title: "Create Reference Bundle",
+            detail: "Creating a reference bundle from \(selectedIDs.count) selected FASTA sequence(s)...",
+            operationType: .bundleBuild,
+            cliCommand: "lungfish-cli " + arguments.map(shellEscape).joined(separator: " "),
+            routeContext: routeContext
+        )
+        let cancellation = LungfishCLIRunner.CancellationHandle()
+        OperationCenter.shared.setCancelCallback(for: operationID) { cancellation.cancel() }
+        Task.detached { [weak self] in
+            do {
+                let output = try LungfishCLIRunner.run(arguments: arguments, cancellation: cancellation)
+                guard let bundleURL = FASTASelectionReferenceBundleCLI.bundleURL(from: output.stdout) else {
+                    throw LungfishCLIRunner.RunError.invalidInvocation(
+                        "The reference-bundle command completed without reporting its bundle path."
+                    )
+                }
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        _ = OperationCenter.shared.complete(
+                            id: operationID,
+                            detail: "Created \(bundleURL.lastPathComponent)",
+                            bundleURLs: [bundleURL]
+                        )
+                    }
+                }
+            } catch LungfishCLIRunner.RunError.cancelled {
+                return
+            } catch {
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        _ = OperationCenter.shared.fail(
+                            id: operationID,
+                            detail: "Reference bundle creation failed",
+                            errorMessage: error.localizedDescription
+                        )
+                        self?.presentBlockingAlert(title: "Reference Bundle Creation Failed", message: error.localizedDescription)
+                    }
+                }
+            }
+        }
     }
 
     func createReferenceBundle(
@@ -2118,23 +2334,39 @@ public class ViewerViewController: NSViewController {
         }
         let projectURL = projectURLForDerivedReferenceBundle(sourceAlignmentBundleURL: sourceAlignmentBundleURL)
         guard canWriteProjectOutputs(projectURL: projectURL, workflowName: "Annotated reference import") else { return }
-        guard !records.isEmpty,
-              let projectURL,
-              let refsDir = try? ReferenceSequenceFolder.ensureFolder(in: projectURL),
-              let tempDirectory = try? ProjectTempDirectory.create(prefix: "fasta-bundle-source-", in: projectURL) else {
+        guard !records.isEmpty, let projectURL else {
             createReferenceBundle(from: records, suggestedName: suggestedName)
             return
         }
 
+        let refsDir: URL
+        let stagingRoot: URL
+        let durableSourceURLs = ([sourceAlignmentBundleURL] + fastaExportSourceURLs()).compactMap { $0 }
+        do {
+            refsDir = try ReferenceSequenceFolder.ensureFolder(in: projectURL)
+            // The FASTA and BED are one in-process annotation-extraction staging
+            // set. Keep them in a plain registered session directory rather than
+            // appending an unrecorded BED file to a provenance-bearing FASTA bundle.
+            stagingRoot = try TempFileManager.shared.createRegisteredTempDirectory(
+                prefix: "lungfish-fasta-ops-annotated-"
+            )
+        } catch {
+            presentBlockingAlert(title: "Annotated Reference Import Failed", message: error.localizedDescription)
+            return
+        }
+
         let stem = Self.sanitizedFilesystemStem(suggestedName)
-        let sourceURL = tempDirectory.appendingPathComponent("\(stem).fasta")
-        let annotationURL = tempDirectory.appendingPathComponent("\(stem).bed")
+        let sourceURL = stagingRoot.appendingPathComponent("selection.fasta")
+        let annotationURL = stagingRoot.appendingPathComponent("selected-annotations.bed")
         let provenanceStartedAt = Date()
         do {
             try records.joined(separator: "").write(to: sourceURL, atomically: true, encoding: .utf8)
             try Self.writeAnnotationBED(annotationsByRecord, to: annotationURL)
         } catch {
+            TempFileManager.shared.unregisterSessionTempDirectory(stagingRoot)
+            try? FileManager.default.removeItem(at: stagingRoot)
             logger.error("createReferenceBundle: Could not stage annotated MSA extraction - \(error.localizedDescription, privacy: .public)")
+            presentBlockingAlert(title: "Annotated Reference Import Failed", message: error.localizedDescription)
             return
         }
 
@@ -2154,10 +2386,16 @@ public class ViewerViewController: NSViewController {
         )
 
         Task.detached {
+            defer {
+                TempFileManager.shared.unregisterSessionTempDirectory(stagingRoot)
+                try? FileManager.default.removeItem(at: stagingRoot)
+            }
             do {
                 let result = try await ReferenceBundleImportHelperLauncher.importAsReferenceBundleViaAppHelper(
                     sourceURL: sourceURL,
-                    outputDirectory: refsDir
+                    outputDirectory: refsDir,
+                    preferredBundleName: suggestedName,
+                    provenanceInputFiles: durableSourceURLs
                 ) { progress, message in
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
@@ -2181,6 +2419,9 @@ public class ViewerViewController: NSViewController {
                     sourceAlignmentBundleURL: sourceAlignmentBundleURL,
                     sourceFASTAURL: sourceURL,
                     sourceAnnotationURL: annotationURL,
+                    durableSourceURLs: durableSourceURLs,
+                    selectedSequenceIDs: FASTAOperationCatalog.selectedIdentifiers(in: records.joined(separator: "")),
+                    selectedAnnotationsByRecord: annotationsByRecord,
                     annotationResult: annotationResult,
                     startedAt: provenanceStartedAt
                 )
@@ -2227,18 +2468,19 @@ public class ViewerViewController: NSViewController {
     func shareFASTARecords(_ records: [String], suggestedName: String) {
         guard !records.isEmpty else { return }
         let projectURL = projectURLForDerivedReferenceBundle()
-        guard let tempDirectory = try? ProjectTempDirectory.create(
-            prefix: "fasta-share-",
-            in: projectURL
-        ) else {
+        let stagedBundleURL: URL
+        do {
+            stagedBundleURL = try FASTAOperationCatalog.createTemporaryInputBundle(
+                fastaRecords: records,
+                suggestedName: suggestedName,
+                projectURL: projectURL,
+                durableSourceURLs: fastaExportSourceURLs()
+            )
+        } catch {
+            presentBlockingAlert(title: "FASTA Share Failed", message: error.localizedDescription)
             return
         }
-
-        let shareURL = tempDirectory.appendingPathComponent(
-            "\(Self.sanitizedFilesystemStem(suggestedName)).fa"
-        )
-        let normalized = records.joined(separator: "")
-        try? normalized.write(to: shareURL, atomically: true, encoding: .utf8)
+        let shareURL = stagedBundleURL.appendingPathComponent("selection.fasta")
         DefaultSharingServicePresenter().present(items: [shareURL], relativeTo: view, preferredEdge: .minY)
     }
 
@@ -2359,13 +2601,22 @@ public class ViewerViewController: NSViewController {
         initialCategory: FASTQOperationCategoryID = .searchSubsetting,
         initialToolID: FASTQOperationToolID? = nil
     ) {
+        if let fastaOperationDialogPresenterForTesting {
+            fastaOperationDialogPresenterForTesting(records, suggestedName, initialCategory, initialToolID)
+            return
+        }
         guard !records.isEmpty, !FASTAOperationCatalog.availableToolIDs().isEmpty else { return }
         let projectURL = projectURLForDerivedReferenceBundle()
-        guard let bundleURL = try? FASTAOperationCatalog.createTemporaryInputBundle(
-            fastaRecords: records,
-            suggestedName: suggestedName,
-            projectURL: projectURL
-        ) else {
+        let bundleURL: URL
+        do {
+            bundleURL = try FASTAOperationCatalog.createTemporaryInputBundle(
+                fastaRecords: records,
+                suggestedName: suggestedName,
+                projectURL: projectURL,
+                durableSourceURLs: fastaExportSourceURLs()
+            )
+        } catch {
+            presentBlockingAlert(title: "FASTA Operation Failed", message: error.localizedDescription)
             return
         }
         AppDelegate.shared?.showFASTQOperationsDialog(
@@ -2387,7 +2638,8 @@ public class ViewerViewController: NSViewController {
     private func showCollectionBackButton(
         sequences: [LungfishCore.Sequence],
         annotations: [SequenceAnnotation],
-        sourceNames: [UUID: String] = [:]
+        sourceNames: [UUID: String] = [:],
+        durableSourceURLs: [URL] = []
     ) {
         hideCollectionBackButton()
 
@@ -2434,6 +2686,7 @@ public class ViewerViewController: NSViewController {
         collectionBackSequences = sequences
         collectionBackAnnotations = annotations
         collectionBackSourceNames = sourceNames
+        collectionBackSourceURLs = durableSourceURLs
         collectionBackButton = button
         collectionNavBar = navBar
     }
@@ -2445,22 +2698,26 @@ public class ViewerViewController: NSViewController {
         collectionBackSequences = nil
         collectionBackAnnotations = nil
         collectionBackSourceNames = nil
+        collectionBackSourceURLs = nil
     }
 
     private var collectionNavBar: NSView?
     private var collectionBackSequences: [LungfishCore.Sequence]?
     private var collectionBackAnnotations: [SequenceAnnotation]?
     private var collectionBackSourceNames: [UUID: String]?
+    private var collectionBackSourceURLs: [URL]?
 
     @objc private func collectionBackButtonTapped(_ sender: Any?) {
         guard let sequences = collectionBackSequences,
               let annotations = collectionBackAnnotations else { return }
         let sourceNames = collectionBackSourceNames ?? [:]
+        let durableSourceURLs = collectionBackSourceURLs ?? []
         hideCollectionBackButton()
         displayFASTACollection(
             sequences: sequences,
             annotations: annotations,
-            sourceNames: sourceNames
+            sourceNames: sourceNames,
+            durableSourceURLs: durableSourceURLs
         )
     }
 
@@ -2682,7 +2939,8 @@ public class ViewerViewController: NSViewController {
             logger.info("displayDocument: Multi-sequence document (\(document.sequences.count) seqs), showing collection view")
             displayFASTACollection(
                 sequences: document.sequences,
-                annotations: document.annotations
+                annotations: document.annotations,
+                durableSourceURLs: [document.url]
             )
             return
         }
@@ -3690,6 +3948,14 @@ public class ReferenceFrame {
 
 #if DEBUG
 extension ViewerViewController {
+    var fastaCollectionSourceURLsForTesting: [URL] {
+        fastaCollectionSourceURLs
+    }
+
+    func testTapCollectionBackNavigation() {
+        collectionBackButtonTapped(nil)
+    }
+
     var testBundleBackNavigationAccessibilityIdentifier: String? {
         bundleBackNavigationButton?.accessibilityIdentifier()
     }

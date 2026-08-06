@@ -2,6 +2,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishIO
+@testable import LungfishWorkflow
 
 @MainActor
 final class FASTAOperationCatalogTests: XCTestCase {
@@ -98,6 +99,145 @@ final class FASTAOperationCatalogTests: XCTestCase {
         )
 
         XCTAssertEqual(FASTAOperationCatalog.inputSequenceFormat(for: bundleURL), .fasta)
+    }
+
+    func testTemporaryInputBundleNormalizesVisibleSelectionAndWritesCanonicalRootProvenance() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "fasta-operation-provenance-\(UUID().uuidString)", isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let durableSource = root.appendingPathComponent("Savont results.fasta")
+        try ">first\nAC\n>second\nTTAA\n".write(to: durableSource, atomically: true, encoding: .utf8)
+
+        let bundleURL = try FASTAOperationCatalog.createTemporaryInputBundle(
+            fastaRecords: [">second\r\nTTAA", ">first\nAC\n"],
+            suggestedName: "visible selection",
+            projectURL: root,
+            durableSourceURLs: [durableSource]
+        )
+
+        let payloadURL = bundleURL.appendingPathComponent("selection.fasta")
+        XCTAssertEqual(try String(contentsOf: payloadURL, encoding: .utf8), ">second\nTTAA\n>first\nAC\n")
+
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: bundleURL))
+        XCTAssertEqual(envelope.workflowName, "lungfish app selected fasta materialization")
+        XCTAssertEqual(envelope.output?.path, payloadURL.path)
+        XCTAssertEqual(envelope.output?.fileSize, UInt64(23))
+        XCTAssertNotNil(envelope.output?.checksumSHA256)
+        XCTAssertEqual(envelope.options.resolvedDefaults["recordCount"], .integer(2))
+        XCTAssertEqual(envelope.options.resolvedDefaults["baseCount"], .integer(6))
+        XCTAssertEqual(envelope.options.explicit["selectedSequenceIDs"], .array([.string("second"), .string("first")]))
+        XCTAssertEqual(envelope.options.explicit["selectedSequenceCount"], .integer(2))
+        XCTAssertTrue(envelope.files.contains { $0.path == durableSource.path && $0.role == .input })
+        XCTAssertEqual(envelope.exitStatus, 0)
+        XCTAssertGreaterThanOrEqual(envelope.wallTimeSeconds ?? -1, 0)
+        XCTAssertEqual(
+            envelope.steps.first?.argv,
+            [
+                "Lungfish Genome Explorer", "fasta-selection-materialization",
+                "--source", durableSource.path,
+                "--sequence-id", "second",
+                "--sequence-id", "first",
+                "--output", payloadURL.path,
+            ]
+        )
+        XCTAssertEqual(
+            envelope.steps.first?.durableReplayArgv,
+            [
+                "lungfish-cli", "extract", "contigs",
+                "--contigs", durableSource.path,
+                "--contig", "second",
+                "--contig", "first",
+                "--output", payloadURL.path,
+            ]
+        )
+    }
+
+    func testTemporaryInputBundleRecordsDurableBundleDirectoryWithManifestChecksumAndSize() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "fasta-operation-directory-provenance-\(UUID().uuidString)", isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let durableBundle = root.appendingPathComponent("input.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: durableBundle, withIntermediateDirectories: true)
+        try "payload".write(
+            to: durableBundle.appendingPathComponent("sequence.fasta"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let bundleURL = try FASTAOperationCatalog.createTemporaryInputBundle(
+            fastaRecords: [">selected\nACGT\n"],
+            suggestedName: "selected",
+            projectURL: root,
+            durableSourceURLs: [durableBundle]
+        )
+
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: bundleURL))
+        let descriptor = try XCTUnwrap(envelope.files.first { $0.path == durableBundle.path })
+        XCTAssertEqual(descriptor.originPath, durableBundle.standardizedFileURL.path)
+        XCTAssertEqual(descriptor.format, .unknown)
+        XCTAssertNotNil(descriptor.checksumSHA256)
+        XCTAssertEqual(descriptor.fileSize, UInt64(7))
+    }
+
+    func testTemporaryInputBundleUsesSessionTemporaryStorageInsteadOfProjectStorage() throws {
+        let projectURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "fasta-operation-project-\(UUID().uuidString).lungfish",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: projectURL) }
+
+        let bundleURL = try FASTAOperationCatalog.createTemporaryInputBundle(
+            fastaRecords: [">selected\nACGT\n"],
+            suggestedName: "selected",
+            projectURL: projectURL
+        )
+        defer { try? FileManager.default.removeItem(at: bundleURL.deletingLastPathComponent()) }
+
+        XCTAssertTrue(bundleURL.path.hasPrefix(FileManager.default.temporaryDirectory.path))
+        XCTAssertFalse(bundleURL.path.hasPrefix(ProjectTempDirectory.tempRoot(for: projectURL).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ProjectTempDirectory.tempRoot(for: projectURL).path))
+    }
+
+    func testTemporaryInputBundleIsRegisteredBeforeItIsReturnedAndSupportsSynchronousTerminationCleanup() throws {
+        let bundleURL = try FASTAOperationCatalog.createTemporaryInputBundle(
+            fastaRecords: [">selected\nACGT\n"],
+            suggestedName: "selected",
+            projectURL: nil
+        )
+        let temporaryRoot = bundleURL.deletingLastPathComponent()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: temporaryRoot.path))
+
+        XCTAssertTrue(TempFileManager.shared.isSessionTempDirectoryRegistered(temporaryRoot))
+        TempFileManager.shared.cleanupTempDirectorySynchronously(temporaryRoot)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: temporaryRoot.path))
+    }
+
+    func testTemporaryInputBundleRemovesWholeSessionRootWhenMaterializationFails() throws {
+        let systemTemp = FileManager.default.temporaryDirectory
+        let before = try Set(
+            FileManager.default.contentsOfDirectory(atPath: systemTemp.path)
+                .filter { $0.hasPrefix("lungfish-fasta-ops-") }
+        )
+
+        XCTAssertThrowsError(
+            try FASTAOperationCatalog.createTemporaryInputBundle(
+                fastaRecords: [">selected\nACGT\n"],
+                suggestedName: String(repeating: "x", count: 1_024),
+                projectURL: nil
+            )
+        )
+
+        let after = try Set(
+            FileManager.default.contentsOfDirectory(atPath: systemTemp.path)
+                .filter { $0.hasPrefix("lungfish-fasta-ops-") }
+        )
+        XCTAssertEqual(after, before)
     }
 
     private func makeReferenceBundle(

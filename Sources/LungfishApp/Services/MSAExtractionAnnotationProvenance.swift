@@ -12,6 +12,9 @@ enum MSAExtractionAnnotationProvenance {
         sourceAlignmentBundleURL: URL?,
         sourceFASTAURL: URL,
         sourceAnnotationURL: URL,
+        durableSourceURLs: [URL] = [],
+        selectedSequenceIDs: [String] = [],
+        selectedAnnotationsByRecord: [String: [SequenceAnnotation]] = [:],
         annotationResult: ReferenceBundleAnnotationImportResult,
         startedAt: Date,
         completedAt: Date = Date()
@@ -19,18 +22,25 @@ enum MSAExtractionAnnotationProvenance {
         let sidecarURL = bundleURL
             .appendingPathComponent("annotations", isDirectory: true)
             .appendingPathComponent(sidecarFilename)
+        let durableSources = uniqueExistingURLs(durableSourceURLs)
+        let annotationSelection = annotationSelectionValue(selectedAnnotationsByRecord)
+        let annotationBEDChecksum = ProvenanceRecorder.sha256(of: sourceAnnotationURL)
+        let annotationBEDSize = (try? sourceAnnotationURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
         let argv = [
             "lungfish-gui",
             "msa",
             "extract-annotated-bundle",
-            "--source-fasta", sourceFASTAURL.path,
-            "--source-annotations", sourceAnnotationURL.path,
-            "--output", bundleURL.path,
         ]
+        + (durableSources.isEmpty
+            ? ["--source-fasta", sourceFASTAURL.path, "--source-annotations", sourceAnnotationURL.path]
+            : durableSources.flatMap { ["--source", $0.path] }
+                + selectedSequenceIDs.flatMap { ["--sequence-id", $0] })
+        + ["--output", bundleURL.path]
         let inputDescriptors = try inputDescriptors(
             sourceAlignmentBundleURL: sourceAlignmentBundleURL,
             sourceFASTAURL: sourceFASTAURL,
-            sourceAnnotationURL: sourceAnnotationURL
+            sourceAnnotationURL: sourceAnnotationURL,
+            durableSourceURLs: durableSources
         )
         let outputDescriptors = try outputDescriptors(
             bundleURL: bundleURL,
@@ -65,8 +75,11 @@ enum MSAExtractionAnnotationProvenance {
         .options(
             explicit: [
                 "source_alignment_bundle": sourceAlignmentBundleURL.map(ParameterValue.file) ?? .null,
-                "source_fasta": .file(sourceFASTAURL),
-                "source_annotations": .file(sourceAnnotationURL),
+                "durable_source_files": .array(durableSources.map(ParameterValue.file)),
+                "selected_sequence_ids": .array(selectedSequenceIDs.map(ParameterValue.string)),
+                "selected_annotations_by_record": annotationSelection,
+                "selected_annotation_bed_sha256": annotationBEDChecksum.map(ParameterValue.string) ?? .null,
+                "selected_annotation_bed_size": .integer(annotationBEDSize),
                 "output_bundle": .file(bundleURL),
                 "output_annotation_track_id": .string(annotationResult.track.id),
                 "output_annotation_track_name": .string(annotationResult.track.name),
@@ -77,8 +90,11 @@ enum MSAExtractionAnnotationProvenance {
             ],
             resolved: [
                 "source_alignment_bundle": sourceAlignmentBundleURL.map(ParameterValue.file) ?? .null,
-                "source_fasta": .file(sourceFASTAURL),
-                "source_annotations": .file(sourceAnnotationURL),
+                "durable_source_files": .array(durableSources.map(ParameterValue.file)),
+                "selected_sequence_ids": .array(selectedSequenceIDs.map(ParameterValue.string)),
+                "selected_annotations_by_record": annotationSelection,
+                "selected_annotation_bed_sha256": annotationBEDChecksum.map(ParameterValue.string) ?? .null,
+                "selected_annotation_bed_size": .integer(annotationBEDSize),
                 "output_bundle": .file(bundleURL),
                 "output_annotation_track_id": .string(annotationResult.track.id),
                 "output_annotation_track_name": .string(annotationResult.track.name),
@@ -86,15 +102,26 @@ enum MSAExtractionAnnotationProvenance {
             ]
         )
         .runtime(ProvenanceRuntimeIdentity())
-        if let sourceAlignmentBundleURL {
+        if let sourceAlignmentBundleURL, durableSources.isEmpty {
             builder = try builder.input(ProvenanceFileDescriptor(fileRecord: ProvenanceRecorder.fileOrDirectoryRecord(
                 url: sourceAlignmentBundleURL,
                 format: .unknown,
                 role: .input
             )))
         }
-        builder = try builder.input(sourceFASTAURL, format: .fasta, role: .input)
-        builder = try builder.input(sourceAnnotationURL, format: .bed, role: .input)
+        if durableSources.isEmpty {
+            builder = try builder.input(sourceFASTAURL, format: .fasta, role: .input)
+            builder = try builder.input(sourceAnnotationURL, format: .bed, role: .input)
+        } else {
+            for sourceURL in durableSources {
+                let descriptor = ProvenanceFileDescriptor(fileRecord: ProvenanceRecorder.fileOrDirectoryRecord(
+                    url: sourceURL,
+                    format: .unknown,
+                    role: .input
+                ))
+                builder = try builder.input(descriptor)
+            }
+        }
         builder = try builder.output(bundleDescriptor)
         let envelope = try builder
             .step(step)
@@ -106,8 +133,18 @@ enum MSAExtractionAnnotationProvenance {
     private static func inputDescriptors(
         sourceAlignmentBundleURL: URL?,
         sourceFASTAURL: URL,
-        sourceAnnotationURL: URL
+        sourceAnnotationURL: URL,
+        durableSourceURLs: [URL]
     ) throws -> [ProvenanceFileDescriptor] {
+        if !durableSourceURLs.isEmpty {
+            return durableSourceURLs.map {
+                ProvenanceFileDescriptor(fileRecord: ProvenanceRecorder.fileOrDirectoryRecord(
+                    url: $0,
+                    format: .unknown,
+                    role: .input
+                ))
+            }
+        }
         var descriptors: [ProvenanceFileDescriptor] = []
         if let sourceAlignmentBundleURL {
             descriptors.append(ProvenanceFileDescriptor(fileRecord: ProvenanceRecorder.fileOrDirectoryRecord(
@@ -119,6 +156,46 @@ enum MSAExtractionAnnotationProvenance {
         descriptors.append(try ProvenanceFileDescriptor.file(url: sourceFASTAURL, format: .fasta, role: .input))
         descriptors.append(try ProvenanceFileDescriptor.file(url: sourceAnnotationURL, format: .bed, role: .input))
         return descriptors
+    }
+
+    private static func uniqueExistingURLs(_ urls: [URL]) -> [URL] {
+        var seen = Set<String>()
+        return urls.compactMap { url in
+            let standardized = url.standardizedFileURL
+            guard FileManager.default.fileExists(atPath: standardized.path),
+                  seen.insert(standardized.path).inserted else { return nil }
+            return standardized
+        }
+    }
+
+    private static func annotationSelectionValue(
+        _ annotationsByRecord: [String: [SequenceAnnotation]]
+    ) -> ParameterValue {
+        .dictionary(
+            annotationsByRecord.keys.sorted().reduce(into: [:]) { result, recordName in
+                result[recordName] = .array(
+                    (annotationsByRecord[recordName] ?? []).map { annotation in
+                        .dictionary([
+                            "id": .string(annotation.id.uuidString),
+                            "type": .string(annotation.type.rawValue),
+                            "name": .string(annotation.name),
+                            "chromosome": annotation.chromosome.map(ParameterValue.string) ?? .null,
+                            "intervals": .array(annotation.intervals.map { interval in
+                                .dictionary([
+                                    "start": .integer(interval.start),
+                                    "end": .integer(interval.end),
+                                ])
+                            }),
+                            "strand": .string(annotation.strand.rawValue),
+                            "qualifiers": .dictionary(annotation.qualifiers.mapValues { qualifier in
+                                .array(qualifier.values.map(ParameterValue.string))
+                            }),
+                            "note": annotation.note.map(ParameterValue.string) ?? .null,
+                        ])
+                    }
+                )
+            }
+        )
     }
 
     private static func outputDescriptors(

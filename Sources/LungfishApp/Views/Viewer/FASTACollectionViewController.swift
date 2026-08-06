@@ -26,7 +26,7 @@ private let logger = Logger(subsystem: LogSubsystem.app, category: "FASTACollect
 /// ``VCFDatasetViewController``.
 @MainActor
 public final class FASTACollectionViewController: NSViewController,
-    NSTableViewDataSource, NSTableViewDelegate, NSSplitViewDelegate {
+    NSTableViewDataSource, NSTableViewDelegate, NSSplitViewDelegate, NSMenuDelegate {
 
     // MARK: - Data
 
@@ -71,6 +71,23 @@ public final class FASTACollectionViewController: NSViewController,
     public var onRunOperationRequested: (([LungfishCore.Sequence]) -> Void)? {
         didSet { refreshContextMenu() }
     }
+    public var onAlignWithMAFFTRequested: (([LungfishCore.Sequence]) -> Void)? {
+        didSet { refreshContextMenu() }
+    }
+    public var onBlastCancelRequested: (() -> Void)? {
+        didSet {
+            if let blastDrawerContainer {
+                configureBlastDrawerCallbacks(blastDrawerContainer)
+            }
+        }
+    }
+    public var onBlastRerunRequested: (() -> Void)? {
+        didSet {
+            if let blastDrawerContainer {
+                configureBlastDrawerCallbacks(blastDrawerContainer)
+            }
+        }
+    }
 
     // MARK: - Filter State
 
@@ -91,6 +108,11 @@ public final class FASTACollectionViewController: NSViewController,
     private var isAdjustingDetailSplit = false
     private var scalarPasteboard: PasteboardWriting = DefaultPasteboard()
     private var contextMenu = NSMenu()
+    private var collectionSplitBottomConstraint: NSLayoutConstraint?
+    private var blastDrawerContainer: BlastResultsDrawerContainerView?
+    private var blastDrawerHeightConstraint: NSLayoutConstraint?
+    private var lastBlastDrawerHeight: CGFloat = 220
+    private var isBlastDrawerOpen = false
 
     // MARK: - Lifecycle
 
@@ -196,6 +218,7 @@ public final class FASTACollectionViewController: NSViewController,
         scrollView.isHidden = isEmpty
         tableView.deselectAll(nil)
         selectionDetailView.setSequences([])
+        closeBlastDrawerIfNeeded(animated: false)
         collapseSelectionDetail()
         refreshContextMenu()
 
@@ -404,6 +427,11 @@ public final class FASTACollectionViewController: NSViewController,
             summaryHeight?.constant = height
         }
 
+        let splitBottomConstraint = collectionSplitView.bottomAnchor.constraint(
+            equalTo: view.bottomAnchor
+        )
+        collectionSplitBottomConstraint = splitBottomConstraint
+
         NSLayoutConstraint.activate([
             // Summary bar (top, below safe area to avoid overlapping title bar)
             summaryBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
@@ -420,7 +448,7 @@ public final class FASTACollectionViewController: NSViewController,
             collectionSplitView.topAnchor.constraint(equalTo: searchBarView.bottomAnchor),
             collectionSplitView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             collectionSplitView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            collectionSplitView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            splitBottomConstraint,
 
             scrollView.topAnchor.constraint(equalTo: tableContainer.topAnchor),
             scrollView.leadingAnchor.constraint(equalTo: tableContainer.leadingAnchor),
@@ -440,7 +468,13 @@ public final class FASTACollectionViewController: NSViewController,
     }
 
     private func refreshContextMenu() {
-        contextMenu = FASTASequenceActionMenuBuilder.buildMenu(
+        contextMenu.delegate = self
+        rebuildContextMenu(contextMenu)
+        tableView.menu = contextMenu
+    }
+
+    private func rebuildContextMenu(_ menu: NSMenu) {
+        let rebuiltMenu = FASTASequenceActionMenuBuilder.buildMenu(
             selectionCount: tableView.numberOfSelectedRows,
             handlers: FASTASequenceActionHandlers(
                 onExtractSequence: onExtractSequenceRequested == nil ? nil : { [weak self] in
@@ -460,9 +494,9 @@ public final class FASTACollectionViewController: NSViewController,
                     guard let self else { return }
                     self.onCreateBundleRequested?(self.selectedSequences())
                 },
-                onAlignWithMAFFT: onRunOperationRequested == nil ? nil : { [weak self] in
+                onAlignWithMAFFT: onAlignWithMAFFTRequested == nil ? nil : { [weak self] in
                     guard let self else { return }
-                    self.onRunOperationRequested?(self.selectedSequences())
+                    self.onAlignWithMAFFTRequested?(self.selectedSequences())
                 },
                 onRunOperation: onRunOperationRequested == nil ? nil : { [weak self] in
                     guard let self else { return }
@@ -470,7 +504,24 @@ public final class FASTACollectionViewController: NSViewController,
                 }
             )
         )
-        tableView.menu = contextMenu
+        menu.removeAllItems()
+        let rebuiltItems = rebuiltMenu.items
+        rebuiltItems.forEach { item in
+            rebuiltMenu.removeItem(item)
+            menu.addItem(item)
+        }
+    }
+
+    public func menuNeedsUpdate(_ menu: NSMenu) {
+        reconcileContextMenuSelection(clickedRow: tableView.clickedRow)
+        rebuildContextMenu(menu)
+    }
+
+    private func reconcileContextMenuSelection(clickedRow: Int) {
+        guard clickedRow >= 0, clickedRow < displayedSequences.count,
+              !tableView.selectedRowIndexes.contains(clickedRow) else { return }
+        tableView.selectRowIndexes(IndexSet(integer: clickedRow), byExtendingSelection: false)
+        updateSelectionDetail()
     }
 
     private func selectedSequences() -> [LungfishCore.Sequence] {
@@ -593,6 +644,11 @@ public final class FASTACollectionViewController: NSViewController,
     // MARK: - Selection Detail
 
     private func updateSelectionDetail() {
+        if isBlastDrawerOpen,
+           case .loading = blastDrawerContainer?.blastResultsTab.displayState {
+            onBlastCancelRequested?()
+        }
+        closeBlastDrawerIfNeeded(animated: view.window != nil)
         let selection = selectedSequences()
         selectionDetailView.setSequences(selection)
         if selection.isEmpty {
@@ -603,9 +659,6 @@ public final class FASTACollectionViewController: NSViewController,
     }
 
     private func collapseSelectionDetail() {
-        if !selectionDetailView.isHidden, selectionDetailView.frame.height > 1 {
-            lastExpandedDetailHeight = selectionDetailView.frame.height
-        }
         guard collectionSplitView.bounds.height > 0 else {
             selectionDetailView.isHidden = true
             return
@@ -643,7 +696,128 @@ public final class FASTACollectionViewController: NSViewController,
         isAdjustingDetailSplit = true
         collectionSplitView.setPosition(dividerPosition, ofDividerAt: 0)
         collectionSplitView.adjustSubviews()
+        collectionSplitView.layoutSubtreeIfNeeded()
         isAdjustingDetailSplit = false
+    }
+
+    // MARK: - Shared BLAST Drawer
+
+    public func showBlastLoading(phase: BlastJobPhase, requestId: String?) {
+        collapseSelectionDetail()
+        let drawer = ensureBlastDrawer()
+        drawer.showLoading(phase: phase, requestId: requestId)
+        openBlastDrawerIfNeeded()
+    }
+
+    public func showBlastResults(_ result: BlastVerificationResult) {
+        collapseSelectionDetail()
+        let drawer = ensureBlastDrawer()
+        drawer.showResults(result)
+        openBlastDrawerIfNeeded()
+    }
+
+    public func showBlastFailure(_ message: String) {
+        collapseSelectionDetail()
+        let drawer = ensureBlastDrawer()
+        drawer.showFailure(message: message)
+        openBlastDrawerIfNeeded()
+    }
+
+    private func ensureBlastDrawer() -> BlastResultsDrawerTab {
+        if let blastDrawerContainer {
+            configureBlastDrawerCallbacks(blastDrawerContainer)
+            return blastDrawerContainer.blastResultsTab
+        }
+
+        let container = BlastResultsDrawerContainerView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.isHidden = true
+        view.addSubview(container)
+
+        let heightConstraint = container.heightAnchor.constraint(equalToConstant: 0)
+        NSLayoutConstraint.activate([
+            container.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            container.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            container.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            heightConstraint,
+        ])
+
+        collectionSplitBottomConstraint?.isActive = false
+        let newSplitBottom = collectionSplitView.bottomAnchor.constraint(equalTo: container.topAnchor)
+        newSplitBottom.isActive = true
+        collectionSplitBottomConstraint = newSplitBottom
+
+        blastDrawerContainer = container
+        blastDrawerHeightConstraint = heightConstraint
+        container.blastResultsTab.presentationStyle = .sequenceBlast
+        configureBlastDrawerCallbacks(container)
+        container.onDrag = { [weak self] delta in
+            guard let self, self.isBlastDrawerOpen,
+                  let heightConstraint = self.blastDrawerHeightConstraint else { return }
+            let maximum = max(160, self.view.bounds.height - 120)
+            let proposed = min(max(heightConstraint.constant + delta, 160), maximum)
+            heightConstraint.constant = proposed
+            self.lastBlastDrawerHeight = proposed
+            self.view.layoutSubtreeIfNeeded()
+        }
+        container.onDragEnd = { [weak self] in
+            self?.view.layoutSubtreeIfNeeded()
+        }
+        view.layoutSubtreeIfNeeded()
+        return container.blastResultsTab
+    }
+
+    private func configureBlastDrawerCallbacks(_ container: BlastResultsDrawerContainerView) {
+        container.blastResultsTab.onCancelBlast = { [weak self] in
+            guard let self else { return }
+            self.onBlastCancelRequested?()
+            self.closeBlastDrawerIfNeeded(animated: self.view.window != nil)
+            let selection = self.selectedSequences()
+            self.selectionDetailView.setSequences(selection)
+            if selection.isEmpty {
+                self.collapseSelectionDetail()
+            } else {
+                self.revealSelectionDetail()
+            }
+        }
+        container.onRerunBlast = { [weak self] in
+            self?.onBlastRerunRequested?()
+        }
+    }
+
+    private func openBlastDrawerIfNeeded() {
+        guard let container = blastDrawerContainer,
+              let heightConstraint = blastDrawerHeightConstraint else { return }
+        container.isHidden = false
+        guard !isBlastDrawerOpen else { return }
+        isBlastDrawerOpen = true
+        let maximum = max(160, view.bounds.height - 120)
+        let targetHeight = min(max(lastBlastDrawerHeight, 160), maximum)
+        if view.window == nil {
+            heightConstraint.constant = targetHeight
+            view.layoutSubtreeIfNeeded()
+            return
+        }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.25
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            context.allowsImplicitAnimation = true
+            heightConstraint.animator().constant = targetHeight
+            view.layoutSubtreeIfNeeded()
+        }
+    }
+
+    private func closeBlastDrawerIfNeeded(animated _: Bool) {
+        guard isBlastDrawerOpen,
+              let container = blastDrawerContainer,
+              let heightConstraint = blastDrawerHeightConstraint else { return }
+        if heightConstraint.constant > 1 {
+            lastBlastDrawerHeight = heightConstraint.constant
+        }
+        isBlastDrawerOpen = false
+        heightConstraint.constant = 0
+        container.isHidden = true
+        view.layoutSubtreeIfNeeded()
     }
 
     public func splitViewDidResizeSubviews(_ notification: Notification) {
@@ -844,6 +1018,28 @@ extension FASTACollectionViewController {
         }
         _ = item.target?.perform(action, with: item)
     }
+
+    func testUpdateContextMenu(clickedRow: Int?) {
+        reconcileContextMenuSelection(clickedRow: clickedRow ?? -1)
+        rebuildContextMenu(contextMenu)
+    }
+
+    func testContextMenuItem(titled title: String) -> NSMenuItem? {
+        contextMenu.items.first { $0.title == title }
+    }
+
+    func testSetPasteboard(_ pasteboard: PasteboardWriting) {
+        scalarPasteboard = pasteboard
+    }
+
+    var testBlastDrawerIsOpen: Bool {
+        isBlastDrawerOpen
+    }
+
+    var testBlastDrawerTab: BlastResultsDrawerTab? {
+        blastDrawerContainer?.blastResultsTab
+    }
+
 }
 #endif
 
