@@ -76,6 +76,106 @@ final class PBAAClusteringPipelineTests: XCTestCase {
         XCTAssertTrue(launchPath.components(separatedBy: ":").contains("/usr/local/bin"))
     }
 
+    func testProcessRunnerTerminatesNextflowProcessPromptlyWhenTaskIsCancelled() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pbaa-cancel-nextflow-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let managedBin = home
+            .appendingPathComponent(".lungfish", isDirectory: true)
+            .appendingPathComponent("conda", isDirectory: true)
+            .appendingPathComponent("envs", isDirectory: true)
+            .appendingPathComponent("nextflow", isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: managedBin, withIntermediateDirectories: true)
+        let managedNextflow = managedBin.appendingPathComponent("nextflow")
+        let pidFile = root.appendingPathComponent("nextflow.pid")
+
+        // A stub "nextflow" that reports its own PID, then sleeps far longer
+        // than the test should ever have to wait — if cancellation wiring
+        // works, the process is killed almost immediately instead of the
+        // test blocking until this sleep completes.
+        try """
+        #!/bin/bash
+        /usr/bin/printf "%s" "$$" > "\(pidFile.path)"
+        exec /bin/sleep 300
+        """.write(to: managedNextflow, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: managedNextflow.path
+        )
+
+        let reads = root.appendingPathComponent("reads.fastq")
+        let guide = root.appendingPathComponent("guide.fasta")
+        try "@r1\nACGT\n+\nIIII\n".write(to: reads, atomically: true, encoding: .utf8)
+        try ">g1|target\nACGT\n".write(to: guide, atomically: true, encoding: .utf8)
+        let request = try PBAAClusteringRunRequest(
+            inputFASTQURL: reads,
+            guideSourceURL: guide,
+            outputDirectory: root.appendingPathComponent("out", isDirectory: true),
+            outputName: "sample"
+        )
+        let workflowDirectory = root.appendingPathComponent("workflow", isDirectory: true)
+        try FileManager.default.createDirectory(at: workflowDirectory, withIntermediateDirectories: true)
+
+        let originalPATH = ProcessInfo.processInfo.environment["PATH"]
+        setenv("PATH", "/usr/bin:/bin:/usr/sbin:/sbin", 1)
+        defer {
+            if let originalPATH {
+                setenv("PATH", originalPATH, 1)
+            } else {
+                unsetenv("PATH")
+            }
+        }
+
+        let runner = ProcessPBAANextflowRunner(homeDirectoryProvider: { home })
+
+        let task = Task {
+            try await runner.run(request: request, workflowDirectory: workflowDirectory)
+        }
+
+        // Wait for the stub process to actually start and record its PID.
+        let deadline = Date().addingTimeInterval(30)
+        while !FileManager.default.fileExists(atPath: pidFile.path), Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        guard FileManager.default.fileExists(atPath: pidFile.path) else {
+            task.cancel()
+            _ = try? await task.value
+            XCTFail("stub nextflow process never wrote its PID file within the deadline")
+            return
+        }
+        let pidString = try String(contentsOf: pidFile, encoding: .utf8)
+        let pid = try XCTUnwrap(
+            Int32(pidString.trimmingCharacters(in: .whitespacesAndNewlines)),
+            "pid file contents were not a valid PID: \(pidString)"
+        )
+        XCTAssertTrue(ProcessTreeTerminator.processExists(pid: pid), "stub nextflow process should have started")
+
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            XCTFail("Expected cancellation to propagate as an error")
+        } catch is CancellationError {
+            // expected
+        } catch {
+            // Some paths surface CancellationError wrapped differently; accept
+            // any thrown error here since the real assertion is prompt process
+            // termination below.
+        }
+
+        // The process must be terminated promptly (well under its 300s sleep),
+        // proving the Task cancellation was wired to the child process.
+        let terminationDeadline = Date().addingTimeInterval(5)
+        var stillRunning = ProcessTreeTerminator.processExists(pid: pid)
+        while stillRunning, Date() < terminationDeadline {
+            try await Task.sleep(nanoseconds: 50_000_000)
+            stillRunning = ProcessTreeTerminator.processExists(pid: pid)
+        }
+        XCTAssertFalse(stillRunning, "nextflow process (pid \(pid)) should be terminated promptly after Task cancellation")
+    }
+
     func testPipelineImportsPassedFastaAsReferenceBundleAndWritesProvenance() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("pbaa-pipeline-\(UUID().uuidString)", isDirectory: true)
