@@ -1469,10 +1469,17 @@ final class FASTQOperationDialogState {
             }
             do {
                 _ = try AdvancedCommandLineOptions.parse(mafftExtraOptionsText)
-                return nil
             } catch {
                 return "Advanced options are not valid: \(error.localizedDescription)"
             }
+            // AS22 (task E4): makeMSAAlignmentRequest() requires a non-nil
+            // projectURL and silently returns nil without one. Readiness
+            // must reflect that so Run doesn't report "ready" while
+            // producing no pending request at all.
+            if projectURL == nil {
+                return "Open or create a project before aligning with MAFFT."
+            }
+            return nil
 
         case .refreshQCSummary, .minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon, .kraken2, .esViritu, .taxTriage, .removeHumanReads:
             return nil

@@ -292,6 +292,46 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertEqual(state.readinessText, "Ready to configure output.")
     }
 
+    /// Regression test for AS22: prepareForRun()'s mafft branch checked
+    /// selectedToolConfigurationIsReady (FASTQ-input confirmation, thread
+    /// count, advanced-options parseability) but never checked for a
+    /// non-nil projectURL, while makeMSAAlignmentRequest() does
+    /// `guard let projectURL else { return nil }`. With no project open,
+    /// isRunEnabled/readinessText previously reported "ready" while Run
+    /// silently produced no pending request at all.
+    func testMAFFTRequiresProjectBeforeRunCanProceed() {
+        let inputURL = URL(fileURLWithPath: "/tmp/sample.fasta")
+        let state = FASTQOperationDialogState(
+            initialCategory: .alignment,
+            selectedInputURLs: [inputURL],
+            projectURL: nil
+        )
+
+        state.selectTool(.mafft)
+
+        XCTAssertFalse(state.isRunEnabled, "MAFFT must not report ready with no project open")
+        XCTAssertNotEqual(state.readinessText, "Ready to configure output.")
+
+        state.prepareForRun()
+        XCTAssertNil(state.pendingMSAAlignmentRequest, "Run must not silently no-op with a stale/absent pending request")
+    }
+
+    func testMAFFTBuildsAlignmentRequestOnceProjectIsSet() {
+        let inputURL = URL(fileURLWithPath: "/tmp/sample.fasta")
+        let projectURL = URL(fileURLWithPath: "/tmp/Fixture.lungfish", isDirectory: true)
+        let state = FASTQOperationDialogState(
+            initialCategory: .alignment,
+            selectedInputURLs: [inputURL],
+            projectURL: projectURL
+        )
+
+        state.selectTool(.mafft)
+
+        XCTAssertTrue(state.isRunEnabled)
+        state.prepareForRun()
+        XCTAssertNotNil(state.pendingMSAAlignmentRequest)
+    }
+
     func testQualityTrimRoutesExtraArgumentsIntoLaunchRequest() {
         let state = FASTQOperationDialogState(
             initialCategory: .trimmingFiltering,
