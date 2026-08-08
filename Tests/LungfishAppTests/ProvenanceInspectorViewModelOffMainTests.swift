@@ -117,6 +117,50 @@ final class ProvenanceInspectorViewModelOffMainTests: XCTestCase {
         XCTAssertEqual(observation.wasMainThread, false, "provenance sidecar lookup ran on the main thread")
     }
 
+    // MARK: - isLoading render-state regression (F6 review round 1)
+    //
+    // Round-1 review finding: `isLoading` was correctly maintained but write-only -- nothing
+    // consumed it, so ProvenanceSection silently kept showing the previous selection's
+    // provenance during a slow walk with no affordance. `ProvenanceSection`'s `if
+    // viewModel.isLoading { ... ProgressView() ... }` (see
+    // `ProvenanceSectionSourceTests.testProvenanceSectionRendersLoadingIndicatorFromViewModel`)
+    // renders directly from this `@Observable` property, so proving the property's true/false
+    // transitions here is equivalent to proving the section's loading affordance appears and
+    // disappears at the right times.
+
+    func testIsLoadingIsTrueWhileLookupInFlightAndFalseAfterCompletion() async throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try writeEnvelope(workflowName: "Gated Workflow", to: dir)
+
+        let gate = GatedFetchController()
+        ProvenanceInspectorViewModel.loadFetchGate = { await gate.waitUntilReleased() }
+
+        let viewModel = ProvenanceInspectorViewModel()
+        XCTAssertFalse(viewModel.isLoading, "Precondition: idle view model must not report loading")
+
+        viewModel.load(
+            item: ProvenanceInspectableItem(
+                url: dir,
+                sidebarType: .fastqBundle,
+                contentMode: .fastq,
+                displayName: "Gated"
+            )
+        )
+
+        // isLoading flips to true synchronously, before the detached lookup even starts.
+        XCTAssertTrue(viewModel.isLoading, "isLoading must be true as soon as load(item:) is called")
+
+        await gate.waitUntilFetchHasStarted()
+        XCTAssertTrue(viewModel.isLoading, "isLoading must stay true while the sidecar lookup is in flight")
+
+        await gate.release()
+        try await waitUntilLoadCompletes(viewModel)
+
+        XCTAssertFalse(viewModel.isLoading, "isLoading must be false once the lookup has applied its result")
+        XCTAssertEqual(viewModel.summary.workflowName, "Gated Workflow")
+    }
+
     // MARK: - Stale-discard regression (F6)
     //
     // Controlled-ordering double-invoke: start a lookup, gate it mid-flight, start and complete

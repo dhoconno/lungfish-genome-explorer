@@ -124,6 +124,17 @@ struct ProvenanceSection: View {
                 .foregroundStyle(statusForegroundStyle)
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
+
+            if viewModel.isLoading {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .scaleEffect(0.7)
+                    Text("Loading provenance...")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityIdentifier("provenance-loading-indicator")
+            }
         }
     }
 
