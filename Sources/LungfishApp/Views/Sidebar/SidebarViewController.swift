@@ -111,9 +111,29 @@ public class SidebarViewController: NSViewController {
 
     /// Shared project refresh subscription for auto-refreshing when files change.
     private var projectRefreshSubscriptionID: ProjectFilesystemRefreshCoordinator.SubscriptionID?
+
+    /// Watcher-driven reloads take the background-scan path (F5/F7): they are
+    /// already debounced and asynchronous, and nothing observes them synchronously.
+    /// Direct `reloadFromFilesystem()` calls stay synchronous because their callers
+    /// select a freshly-written URL on the very next line.
     private lazy var refreshScheduler = SidebarRefreshScheduler { [weak self] notifyUnchangedSelectionRefresh in
-        self?.reloadFromFilesystem(notifyUnchangedSelectionRefresh: notifyUnchangedSelectionRefresh)
+        self?.reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: notifyUnchangedSelectionRefresh)
     }
+
+    /// Monotonic token used to discard stale background scan results.
+    ///
+    /// Bumped by every reload (synchronous or background), by `openProject` and by
+    /// `closeProject`, and re-checked on the main actor immediately before the tree
+    /// is applied.
+    private var sidebarScanGeneration: Int = 0
+
+    /// Test-only hook awaited between a background scan finishing and its result
+    /// being applied.
+    ///
+    /// Lets a test deterministically produce the "scan completed against an older
+    /// tree, then a newer reload landed first" ordering that the generation guard
+    /// exists to defend against. Always `nil` outside tests.
+    static var scanBarrierForTesting: (@Sendable () async -> Void)?
 
     /// Universal search coordinator for project-scoped metadata/entity queries.
     private let universalSearchService = UniversalProjectSearchService.shared
@@ -784,8 +804,10 @@ public class SidebarViewController: NSViewController {
     public func openProject(at url: URL) {
         sidebarLogger.info("openProject: Opening project at '\(url.path, privacy: .public)'")
 
-        // Stop watching previous project
+        // Stop watching previous project, and invalidate any of its in-flight
+        // background scans so they cannot land on the newly-opened project.
         refreshScheduler.cancel()
+        sidebarScanGeneration &+= 1
         ProjectFilesystemRefreshCoordinator.shared.unregister(projectRefreshSubscriptionID)
         projectRefreshSubscriptionID = nil
         clearUniversalSearchState(for: projectURL)
@@ -822,6 +844,9 @@ public class SidebarViewController: NSViewController {
 
         let priorProjectURL = projectURL
         refreshScheduler.cancel()
+        // Invalidate any in-flight background scan so it cannot repopulate the
+        // sidebar for a project that is no longer open.
+        sidebarScanGeneration &+= 1
         ProjectFilesystemRefreshCoordinator.shared.unregister(projectRefreshSubscriptionID)
         projectRefreshSubscriptionID = nil
         projectURL = nil
@@ -898,10 +923,105 @@ public class SidebarViewController: NSViewController {
         refreshScheduler.requestFullReload(notifyUnchangedSelectionRefresh: notifyUnchangedSelectionRefresh)
     }
 
+    /// UI state captured before a reload and restored after the new tree is applied.
+    ///
+    /// Held as a value so the background reload can snapshot it on the main actor
+    /// BEFORE the scan starts, then restore it on the main actor after.
+    private struct SidebarReloadState {
+        let selectedURLs: [URL]
+        let selectedURLSet: Set<URL>
+        let scrollAnchor: SidebarScrollAnchor?
+        let expandedURLs: Set<URL>
+        let shouldApplyInitialExpansionDefaults: Bool
+    }
+
+    /// Captures selection, scroll and expansion state, and suppresses selection
+    /// side effects for the duration of the rebuild.
+    private func beginReload() -> SidebarReloadState {
+        let selectedURLs = selectedItems().compactMap { $0.url?.standardizedFileURL }
+        let state = SidebarReloadState(
+            selectedURLs: selectedURLs,
+            selectedURLSet: Set(selectedURLs),
+            scrollAnchor: captureScrollAnchor(),
+            expandedURLs: saveExpandedItemURLs(),
+            shouldApplyInitialExpansionDefaults: rootItems.isEmpty
+        )
+        suppressSelectionCallbacks = true
+        return state
+    }
+
+    /// Runs the project scan off the main actor, then applies the resulting tree.
+    ///
+    /// F5/F7: this is the path the FSEvents watcher drives (via
+    /// `requestReloadFromFilesystem` and the debouncing `SidebarRefreshScheduler`),
+    /// and it was the one blocking the main thread for the whole recursive walk.
+    /// The scan now runs on a detached task over `Sendable` values; only the cheap
+    /// `materialize` + outline-view update happen on the main actor.
+    ///
+    /// `sidebarScanGeneration` is bumped on every reload and re-checked on the main
+    /// actor with NO `await` between the guard and the `rootItems` mutation, so a
+    /// slow scan started before a newer reload (or a project close) can never
+    /// clobber fresher state.
+    ///
+    /// Internal rather than private so tests can drive the background path
+    /// directly, without waiting on `SidebarRefreshScheduler`'s debounce.
+    /// - Returns: The task performing the scan and apply, for tests to await.
+    @discardableResult
+    func reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: Bool) -> Task<Void, Never>? {
+        sidebarLogger.info("reloadFromFilesystemAsync: CALLED - starting background filesystem scan")
+        guard let projectURL = projectURL else {
+            sidebarLogger.debug("reloadFromFilesystemAsync: No project URL set")
+            sidebarScanGeneration &+= 1
+            rootItems = []
+            reloadOutlineView()
+            return nil
+        }
+
+        sidebarLogger.info("reloadFromFilesystemAsync: Scanning '\(projectURL.path, privacy: .public)'")
+
+        sidebarScanGeneration &+= 1
+        let generation = sidebarScanGeneration
+        let state = beginReload()
+
+        let barrier = Self.scanBarrierForTesting
+
+        return Task { [weak self] in
+            let nodes = await Task.detached(priority: .userInitiated) {
+                SidebarProjectScanner.scanRootNodes(from: projectURL)
+            }.value
+
+            // Tests use this to hold a completed-but-unapplied scan while they make
+            // the tree move on underneath it, which is what makes the stale-scan
+            // regression test deterministic instead of timing-dependent. Always nil
+            // in production.
+            if let barrier {
+                await barrier()
+            }
+
+            guard let self else { return }
+            // No `await` between these guards and the rootItems mutation inside
+            // finishReload — that is what makes the generation check sound.
+            guard self.sidebarScanGeneration == generation else {
+                sidebarLogger.debug("reloadFromFilesystemAsync: Discarding stale scan result")
+                return
+            }
+            guard self.projectURL?.standardizedFileURL == projectURL.standardizedFileURL else {
+                sidebarLogger.debug("reloadFromFilesystemAsync: Project changed during scan, discarding result")
+                return
+            }
+            self.finishReload(
+                nodes: nodes,
+                state: state,
+                notifyUnchangedSelectionRefresh: notifyUnchangedSelectionRefresh
+            )
+        }
+    }
+
     private func reloadFromFilesystem(notifyUnchangedSelectionRefresh: Bool) {
         sidebarLogger.info("reloadFromFilesystem: CALLED - starting filesystem scan")
         guard let projectURL = projectURL else {
             sidebarLogger.debug("reloadFromFilesystem: No project URL set")
+            sidebarScanGeneration &+= 1
             rootItems = []
             reloadOutlineView()
             return
@@ -909,21 +1029,36 @@ public class SidebarViewController: NSViewController {
 
         sidebarLogger.info("reloadFromFilesystem: Scanning '\(projectURL.path, privacy: .public)'")
 
-        // Save current selection to restore after reload
-        let selectedURLs = selectedItems().compactMap { $0.url?.standardizedFileURL }
-        let selectedURLSet = Set(selectedURLs)
-        let scrollAnchor = captureScrollAnchor()
+        // Invalidate any in-flight background scan: this synchronous rebuild is
+        // now the authoritative tree.
+        sidebarScanGeneration &+= 1
+        let state = beginReload()
 
-        // Suppress selection side effects while rebuilding and restoring rows.
-        suppressSelectionCallbacks = true
+        finishReload(
+            nodes: SidebarProjectScanner.scanRootNodes(from: projectURL),
+            state: state,
+            notifyUnchangedSelectionRefresh: notifyUnchangedSelectionRefresh
+        )
+    }
 
-        // Save expansion state before rebuilding (items are recreated, so match by URL)
-        let expandedURLs = saveExpandedItemURLs()
-        let shouldApplyInitialExpansionDefaults = rootItems.isEmpty
+    /// Materializes a scanned tree and restores the captured UI state around it.
+    ///
+    /// Shared by the synchronous and background reload paths so both apply the
+    /// tree, expansion, selection and scroll position identically.
+    private func finishReload(
+        nodes: [SidebarScanNode],
+        state: SidebarReloadState,
+        notifyUnchangedSelectionRefresh: Bool
+    ) {
+        let selectedURLs = state.selectedURLs
+        let selectedURLSet = state.selectedURLSet
+        let scrollAnchor = state.scrollAnchor
+        let expandedURLs = state.expandedURLs
+        let shouldApplyInitialExpansionDefaults = state.shouldApplyInitialExpansionDefaults
 
         // Build the sidebar items from the project folder's contents (not the folder itself)
         // This shows the contents at the root level, similar to how Finder shows folder contents
-        rootItems = buildRootItems(from: projectURL)
+        rootItems = materialize(nodes)
 
         // Reload the outline view
         reloadOutlineView()
@@ -1067,29 +1202,66 @@ public class SidebarViewController: NSViewController {
 
         sidebarLogger.info("updateSidebar: Incremental update for \(affectedTopLevelNames.count) top-level items")
 
+        // Bail out early (on the main actor) if any affected top-level item is new,
+        // since that needs a full reload rather than a subtree diff.
         for topLevelName in affectedTopLevelNames {
             let topLevelURL = projectURL.appendingPathComponent(topLevelName)
-
-            guard let existingItemIndex = rootItems.firstIndex(where: {
+            guard rootItems.contains(where: {
                 $0.url?.standardizedFileURL.path == topLevelURL.standardizedFileURL.path
             }) else {
                 sidebarLogger.debug("updateSidebar: New top-level item '\(topLevelName)' — full reload")
                 requestReloadFromFilesystem(notifyUnchangedSelectionRefresh: false)
                 return
             }
-
-            let existingItem = rootItems[existingItemIndex]
-            let rebuiltItem = buildSidebarTree(from: topLevelURL, isRoot: false)
-
-            applySubtreeDiff(
-                existingItem: existingItem,
-                rebuiltItem: rebuiltItem,
-                parent: nil,
-                indexInParent: existingItemIndex
-            )
         }
 
-        notifySelectedItemsRefreshedIfNeeded(changedPaths: changedPaths.all)
+        // F7: each affected top-level item is re-scanned recursively, which for a
+        // FASTQ bundle means demux/derivative walks plus per-node JSON sidecar
+        // decodes. Do that work off the main actor and apply only the surgical
+        // insert/remove/reload diff here.
+        let affectedURLs = affectedTopLevelNames
+            .sorted()
+            .map { projectURL.appendingPathComponent($0) }
+        let generation = sidebarScanGeneration
+        let allChangedPaths = changedPaths.all
+
+        Task { [weak self] in
+            let rebuiltNodes = await Task.detached(priority: .userInitiated) {
+                affectedURLs.map { SidebarProjectScanner.scanTree(from: $0, isRoot: false) }
+            }.value
+
+            guard let self else { return }
+            // Re-check on the main actor with no `await` before the mutations below:
+            // a full reload that started while this scan was running owns the tree.
+            guard self.sidebarScanGeneration == generation else {
+                sidebarLogger.debug("updateSidebar: Discarding stale incremental scan result")
+                return
+            }
+            guard self.projectURL?.standardizedFileURL == projectURL.standardizedFileURL else {
+                sidebarLogger.debug("updateSidebar: Project changed during scan, discarding result")
+                return
+            }
+
+            for (topLevelURL, rebuiltNode) in zip(affectedURLs, rebuiltNodes) {
+                guard let existingItemIndex = self.rootItems.firstIndex(where: {
+                    $0.url?.standardizedFileURL.path == topLevelURL.standardizedFileURL.path
+                }) else {
+                    // The item disappeared while the scan ran; a later watcher event
+                    // covers it, and a blanket reload here would break the surgical
+                    // update contract.
+                    continue
+                }
+
+                self.applySubtreeDiff(
+                    existingItem: self.rootItems[existingItemIndex],
+                    rebuiltItem: self.materialize(rebuiltNode),
+                    parent: nil,
+                    indexInParent: existingItemIndex
+                )
+            }
+
+            self.notifySelectedItemsRefreshedIfNeeded(changedPaths: allChangedPaths)
+        }
     }
 
     private func notifySelectedItemsRefreshedIfNeeded(changedPaths: [URL]) {

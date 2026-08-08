@@ -91,6 +91,55 @@ final class SidebarDirectoryScanSnapshotTests: XCTestCase {
         )
     }
 
+    /// The incremental watcher path must keep applying a surgical subtree diff.
+    ///
+    /// Moving its rescan off the main actor (F7) must not tempt the apply step into
+    /// a blanket `reloadData()`, which would undo the targeted insert/remove/reload
+    /// contract the sidebar depends on.
+    func testIncrementalUpdatePathStillAppliesSurgicalSubtreeDiff() throws {
+        let source = combinedSidebarViewControllerSource()
+        let updateBody = try slice(
+            source,
+            from: "private func updateSidebar(changedPaths: FileSystemWatcher.ChangedPaths)",
+            to: "private func notifySelectedItemsRefreshedIfNeeded(changedPaths: [URL])"
+        )
+
+        XCTAssertTrue(
+            updateBody.contains("applySubtreeDiff("),
+            "The incremental sidebar update must apply a surgical subtree diff."
+        )
+        XCTAssertFalse(
+            updateBody.contains("outlineView.reloadData()"),
+            "The incremental sidebar update must not fall back to a blanket reloadData()."
+        )
+        XCTAssertTrue(
+            updateBody.contains("SidebarProjectScanner.scanTree"),
+            "The incremental rescan must go through the nonisolated scanner so it can run off-main."
+        )
+    }
+
+    /// Both background apply paths must re-check the scan generation before
+    /// mutating the tree, or a slow scan can clobber newer state.
+    func testBackgroundScanAppliesAreGenerationGuarded() throws {
+        let source = combinedSidebarViewControllerSource()
+
+        XCTAssertTrue(
+            source.contains("func reloadFromFilesystemAsync"),
+            "The background reload path must exist."
+        )
+        XCTAssertTrue(
+            source.contains("sidebarScanGeneration"),
+            "Background sidebar scans must carry a generation token."
+        )
+
+        let occurrences = source.components(separatedBy: "guard self.sidebarScanGeneration == generation").count - 1
+        XCTAssertEqual(
+            occurrences,
+            2,
+            "Both the full-reload and incremental background apply steps must re-check the scan generation."
+        )
+    }
+
     private func sidebarProjectScannerSource() -> String {
         let url = sidebarViewControllerSourceDirectory()
             .appendingPathComponent("SidebarProjectScanner.swift")
