@@ -357,6 +357,166 @@ final class SidebarScanSnapshotParityTests: XCTestCase {
         )
     }
 
+    /// Expansion the user performs WHILE a background scan is running must survive
+    /// the apply.
+    ///
+    /// The reload state (expansion, selection, scroll) is captured at apply time,
+    /// not before the scan. Snapshotting up front would restore the pre-scan
+    /// expansion set and silently collapse whatever the user opened meanwhile.
+    func testUserExpansionDuringBackgroundScanIsNotReverted() async throws {
+        try makeFixtureProject()
+        let sidebar = openedSidebar()
+
+        // Start collapsed so the expansion below is unambiguously the user's.
+        let importsItem = try XCTUnwrap(sidebar.rootItems.first { $0.title == "Imports" })
+        sidebar.outlineView.collapseItem(importsItem)
+        XCTAssertFalse(sidebar.outlineView.isItemExpanded(importsItem))
+
+        let gate = ScanGate()
+        SidebarViewController.scanBarrierForTesting = { await gate.arriveAndWait() }
+        addTeardownBlock { SidebarViewController.scanBarrierForTesting = nil }
+
+        let scan = sidebar.reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: false)
+        await gate.waitForArrival()
+
+        // The user expands Imports while the scan is still in flight.
+        let liveImports = try XCTUnwrap(sidebar.rootItems.first { $0.title == "Imports" })
+        sidebar.outlineView.expandItem(liveImports)
+        XCTAssertTrue(sidebar.outlineView.isItemExpanded(liveImports))
+
+        await gate.release()
+        await scan?.value
+
+        let reloadedImports = try XCTUnwrap(sidebar.rootItems.first { $0.title == "Imports" })
+        XCTAssertTrue(
+            sidebar.outlineView.isItemExpanded(reloadedImports),
+            "A background scan must not revert expansion the user performed while it ran"
+        )
+    }
+
+    /// Selection callbacks must NOT be suppressed while a background scan runs —
+    /// only while the outline view is actually being mutated. Otherwise the user's
+    /// clicks during a scan are silently swallowed.
+    func testSelectionIsNotSuppressedDuringBackgroundScan() async throws {
+        try makeFixtureProject()
+        let sidebar = openedSidebar()
+
+        let gate = ScanGate()
+        SidebarViewController.scanBarrierForTesting = { await gate.arriveAndWait() }
+        addTeardownBlock { SidebarViewController.scanBarrierForTesting = nil }
+
+        let scan = sidebar.reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: false)
+        await gate.waitForArrival()
+
+        XCTAssertFalse(
+            sidebar.suppressSelectionCallbacks,
+            "Selection callbacks must stay live while a background scan is in flight"
+        )
+
+        await gate.release()
+        await scan?.value
+
+        XCTAssertFalse(
+            sidebar.suppressSelectionCallbacks,
+            "Suppression must be released once the apply completes"
+        )
+    }
+
+    /// Two overlapping incremental (F7) scans must be mutually ordered: the older
+    /// one must not apply after the newer one.
+    ///
+    /// `updateSidebar` bumps `sidebarScanGeneration` before capturing it, exactly
+    /// like the full-reload path. Without that bump both scans capture the same
+    /// generation, both pass the guard, and whichever finishes last wins — so a
+    /// scan of the OLD tree can overwrite a newer subtree patch, showing rows the
+    /// user already deleted.
+    ///
+    /// The gate holds each scan between its read and its apply, so the "older scan
+    /// applies last" ordering is forced rather than raced.
+    func testOverlappingIncrementalScansAreMutuallyOrdered() async throws {
+        try makeFixtureProject()
+        let importsURL = projectURL.appendingPathComponent("Imports", isDirectory: true)
+        let doomed = importsURL.appendingPathComponent("doomed.txt")
+        try "doomed".write(to: doomed, atomically: true, encoding: .utf8)
+
+        let sidebar = openedSidebar()
+        func importsTitles() -> [String] {
+            sidebar.rootItems
+                .first { $0.title == "Imports" }?
+                .children.map(\.title) ?? []
+        }
+        XCTAssertTrue(importsTitles().contains("doomed.txt"), "Precondition: doomed.txt should be present")
+
+        let gate = CountingScanGate()
+        SidebarViewController.scanBarrierForTesting = { await gate.arriveAndWait() }
+        addTeardownBlock { SidebarViewController.scanBarrierForTesting = nil }
+
+        let changed = FileSystemWatcher.ChangedPaths(nonSidecar: [doomed], all: [doomed])
+
+        // Scan A reads the tree while doomed.txt still exists.
+        let scanA = sidebar.updateSidebar(changedPaths: changed)
+        await gate.waitForArrivals(1)
+
+        // Delete the file, then start scan B, which reads the NEW tree.
+        try FileManager.default.removeItem(at: doomed)
+        let scanB = sidebar.updateSidebar(changedPaths: changed)
+        await gate.waitForArrivals(2)
+
+        // Release B (the newer, correct result) so it applies FIRST, then release
+        // the older A so it applies LAST. This is the ordering that exposes the
+        // bug: without the generation bump both scans look current, and A's stale
+        // tree — still containing doomed.txt — wins simply by landing last.
+        await gate.release(arrival: 2)
+        await scanB?.value
+        await gate.release(arrival: 1)
+        await scanA?.value
+
+        XCTAssertFalse(
+            importsTitles().contains("doomed.txt"),
+            "A stale incremental scan must not reinstate a row a newer scan removed"
+        )
+    }
+
+    /// Rendezvous that holds SEVERAL concurrent scans and releases them
+    /// INDIVIDUALLY by arrival order, so a test can force a chosen apply ordering.
+    ///
+    /// Arrivals are numbered 1, 2, … in the order scans reach the barrier;
+    /// `release(arrival:)` unblocks exactly one of them.
+    private actor CountingScanGate {
+        private var arrivedCount = 0
+        private var arrivalWaiters: [(threshold: Int, continuation: CheckedContinuation<Void, Never>)] = []
+        private var heldScans: [Int: CheckedContinuation<Void, Never>] = [:]
+        private var preReleased: Set<Int> = []
+
+        func arriveAndWait() async {
+            arrivedCount += 1
+            let ordinal = arrivedCount
+
+            let satisfied = arrivalWaiters.filter { $0.threshold <= arrivedCount }
+            arrivalWaiters.removeAll { $0.threshold <= arrivedCount }
+            for waiter in satisfied {
+                waiter.continuation.resume()
+            }
+
+            if preReleased.remove(ordinal) != nil { return }
+            await withCheckedContinuation { heldScans[ordinal] = $0 }
+        }
+
+        func waitForArrivals(_ count: Int) async {
+            if arrivedCount >= count { return }
+            await withCheckedContinuation { arrivalWaiters.append((count, $0)) }
+        }
+
+        /// Releases the scan that arrived at position `arrival` (1-based).
+        func release(arrival: Int) {
+            if let continuation = heldScans.removeValue(forKey: arrival) {
+                continuation.resume()
+            } else {
+                preReleased.insert(arrival)
+            }
+        }
+    }
+
     /// Rendezvous used to hold a background scan between its filesystem read and
     /// its main-actor apply.
     ///

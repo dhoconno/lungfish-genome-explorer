@@ -100,8 +100,26 @@ final class SidebarDirectoryScanSnapshotTests: XCTestCase {
         let source = combinedSidebarViewControllerSource()
         let updateBody = try slice(
             source,
-            from: "private func updateSidebar(changedPaths: FileSystemWatcher.ChangedPaths)",
+            from: "func updateSidebar(changedPaths: FileSystemWatcher.ChangedPaths)",
             to: "private func notifySelectedItemsRefreshedIfNeeded(changedPaths: [URL])"
+        )
+
+        // The incremental path must bump the generation before capturing it, the
+        // same way the full-reload path does. Without the bump, two overlapping
+        // incremental scans capture the same token and neither invalidates the
+        // other. Behaviour is covered by
+        // SidebarScanSnapshotParityTests.testOverlappingIncrementalScansAreMutuallyOrdered.
+        let bumpRange = try XCTUnwrap(
+            updateBody.range(of: "sidebarScanGeneration &+= 1"),
+            "The incremental update must bump the scan generation."
+        )
+        let captureRange = try XCTUnwrap(
+            updateBody.range(of: "let generation = sidebarScanGeneration"),
+            "The incremental update must capture the scan generation."
+        )
+        XCTAssertTrue(
+            bumpRange.upperBound <= captureRange.lowerBound,
+            "The incremental update must bump the generation BEFORE capturing it."
         )
 
         XCTAssertTrue(
@@ -137,6 +155,39 @@ final class SidebarDirectoryScanSnapshotTests: XCTestCase {
             occurrences,
             2,
             "Both the full-reload and incremental background apply steps must re-check the scan generation."
+        )
+    }
+
+    /// Selection suppression must go through the nesting-aware scope, never a bare
+    /// `suppressSelectionCallbacks = ...` write.
+    ///
+    /// A direct write from a nested site (such as `applySidebarSelection`) can clear
+    /// suppression that an enclosing rebuild still owns, letting a synthetic
+    /// selection event escape mid-rebuild. Behaviour is covered by
+    /// SidebarScanSnapshotParityTests.testSelectionIsNotSuppressedDuringBackgroundScan.
+    func testSelectionSuppressionGoesThroughTheNestingAwareScope() throws {
+        let source = combinedSidebarViewControllerSource()
+
+        XCTAssertTrue(
+            source.contains("func withSelectionSuppressed"),
+            "A nesting-aware selection-suppression scope must exist."
+        )
+        XCTAssertTrue(
+            source.contains("selectionSuppressionDepth"),
+            "Selection suppression must be depth-counted so nesting is safe."
+        )
+
+        // The only permitted direct writes are the two counter primitives.
+        let directWrites = source.components(separatedBy: "suppressSelectionCallbacks = ").count - 1
+        XCTAssertEqual(
+            directWrites,
+            3,
+            """
+            Only the declaration and the two counter primitives \
+            (beginSelectionSuppression/endSelectionSuppression) may assign \
+            suppressSelectionCallbacks directly; everything else must use \
+            withSelectionSuppressed.
+            """
         )
     }
 

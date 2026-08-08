@@ -127,18 +127,38 @@ public class SidebarViewController: NSViewController {
     /// is applied.
     private var sidebarScanGeneration: Int = 0
 
+    #if DEBUG
     /// Test-only hook awaited between a background scan finishing and its result
     /// being applied.
     ///
     /// Lets a test deterministically produce the "scan completed against an older
     /// tree, then a newer reload landed first" ordering that the generation guard
-    /// exists to defend against. Always `nil` outside tests.
+    /// exists to defend against. Always `nil` outside tests, and compiled out of
+    /// release builds entirely.
     static var scanBarrierForTesting: (@Sendable () async -> Void)?
+    #endif
 
-    /// Number of reloads that have called `beginReload` without yet finishing or
-    /// being discarded. Selection suppression is released when this returns to 0,
-    /// so a discarded scan cannot un-suppress a newer reload still in flight.
-    private var pendingReloadCount = 0
+    /// The barrier a background scan should await before applying, if any.
+    ///
+    /// Compiles to `nil` in release builds so the hook has zero production cost.
+    private static var scanBarrier: (@Sendable () async -> Void)? {
+        #if DEBUG
+        return scanBarrierForTesting
+        #else
+        return nil
+        #endif
+    }
+
+    /// Awaits the test barrier when one is installed. No-op in release builds.
+    private static func awaitScanBarrierIfNeeded(_ barrier: (@Sendable () async -> Void)?) async {
+        guard let barrier else { return }
+        await barrier()
+    }
+
+    /// Nesting depth of `withSelectionSuppressed` scopes. Suppression is released
+    /// only when this returns to 0, so an inner scope cannot un-suppress an outer
+    /// rebuild that still owns the flag.
+    private var selectionSuppressionDepth = 0
 
     /// Universal search coordinator for project-scoped metadata/entity queries.
     private let universalSearchService = UniversalProjectSearchService.shared
@@ -928,10 +948,13 @@ public class SidebarViewController: NSViewController {
         refreshScheduler.requestFullReload(notifyUnchangedSelectionRefresh: notifyUnchangedSelectionRefresh)
     }
 
-    /// UI state captured before a reload and restored after the new tree is applied.
+    /// UI state a reload preserves across the rebuild: which rows were selected,
+    /// which were expanded, and where the user was scrolled to.
     ///
-    /// Held as a value so the background reload can snapshot it on the main actor
-    /// BEFORE the scan starts, then restore it on the main actor after.
+    /// Captured at APPLY time rather than before the scan. On the background path
+    /// the scan can take arbitrarily long, and the user may expand, select or
+    /// scroll while it runs; snapshotting up front would silently revert all three
+    /// when the result landed.
     private struct SidebarReloadState {
         let selectedURLs: [URL]
         let selectedURLSet: Set<URL>
@@ -940,36 +963,41 @@ public class SidebarViewController: NSViewController {
         let shouldApplyInitialExpansionDefaults: Bool
     }
 
-    /// Captures selection, scroll and expansion state, and suppresses selection
-    /// side effects for the duration of the rebuild.
-    private func beginReload() -> SidebarReloadState {
+    /// Captures the live selection, scroll and expansion state.
+    ///
+    /// Call immediately before mutating `rootItems`, never before an `await`.
+    private func captureReloadState() -> SidebarReloadState {
         let selectedURLs = selectedItems().compactMap { $0.url?.standardizedFileURL }
-        let state = SidebarReloadState(
+        return SidebarReloadState(
             selectedURLs: selectedURLs,
             selectedURLSet: Set(selectedURLs),
             scrollAnchor: captureScrollAnchor(),
             expandedURLs: saveExpandedItemURLs(),
             shouldApplyInitialExpansionDefaults: rootItems.isEmpty
         )
-        suppressSelectionCallbacks = true
-        pendingReloadCount += 1
-        return state
     }
 
-    /// Releases the suppression a reload took out when its result is discarded.
+    /// Runs `body` with sidebar selection callbacks suppressed.
     ///
-    /// A discarded background scan never reaches `finishReload`, so without this
-    /// `suppressSelectionCallbacks` would stay `true` forever and the sidebar would
-    /// stop emitting selection changes. The counter ensures a discard cannot clear
-    /// suppression that a NEWER in-flight reload still owns.
-    private func abandonReload() {
-        endReload()
+    /// Suppression must cover ONLY the window in which the outline view is being
+    /// mutated — never a background scan, or the user's own clicks during a scan
+    /// would be swallowed. The counter makes nesting safe: an inner scope (such as
+    /// `applySidebarSelection`) cannot clear suppression an outer rebuild still
+    /// owns.
+    func withSelectionSuppressed<T>(_ body: () throws -> T) rethrows -> T {
+        beginSelectionSuppression()
+        defer { endSelectionSuppression() }
+        return try body()
     }
 
-    /// Balances one `beginReload`, clearing suppression once no reload is pending.
-    private func endReload() {
-        pendingReloadCount = max(0, pendingReloadCount - 1)
-        if pendingReloadCount == 0 {
+    private func beginSelectionSuppression() {
+        selectionSuppressionDepth += 1
+        suppressSelectionCallbacks = true
+    }
+
+    private func endSelectionSuppression() {
+        selectionSuppressionDepth = max(0, selectionSuppressionDepth - 1)
+        if selectionSuppressionDepth == 0 {
             suppressSelectionCallbacks = false
         }
     }
@@ -1005,39 +1033,29 @@ public class SidebarViewController: NSViewController {
 
         sidebarScanGeneration &+= 1
         let generation = sidebarScanGeneration
-        let state = beginReload()
 
-        let barrier = Self.scanBarrierForTesting
+        let barrier = Self.scanBarrier
 
         return Task { [weak self] in
             let nodes = await Task.detached(priority: .userInitiated) {
                 SidebarProjectScanner.scanRootNodes(from: projectURL)
             }.value
 
-            // Tests use this to hold a completed-but-unapplied scan while they make
-            // the tree move on underneath it, which is what makes the stale-scan
-            // regression test deterministic instead of timing-dependent. Always nil
-            // in production.
-            if let barrier {
-                await barrier()
-            }
+            await Self.awaitScanBarrierIfNeeded(barrier)
 
             guard let self else { return }
             // No `await` between these guards and the rootItems mutation inside
             // finishReload — that is what makes the generation check sound.
             guard self.sidebarScanGeneration == generation else {
                 sidebarLogger.debug("reloadFromFilesystemAsync: Discarding stale scan result")
-                self.abandonReload()
                 return
             }
             guard self.projectURL?.standardizedFileURL == projectURL.standardizedFileURL else {
                 sidebarLogger.debug("reloadFromFilesystemAsync: Project changed during scan, discarding result")
-                self.abandonReload()
                 return
             }
             self.finishReload(
                 nodes: nodes,
-                state: state,
                 notifyUnchangedSelectionRefresh: notifyUnchangedSelectionRefresh
             )
         }
@@ -1058,29 +1076,31 @@ public class SidebarViewController: NSViewController {
         // Invalidate any in-flight background scan: this synchronous rebuild is
         // now the authoritative tree.
         sidebarScanGeneration &+= 1
-        let state = beginReload()
 
         finishReload(
             nodes: SidebarProjectScanner.scanRootNodes(from: projectURL),
-            state: state,
             notifyUnchangedSelectionRefresh: notifyUnchangedSelectionRefresh
         )
     }
 
-    /// Materializes a scanned tree and restores the captured UI state around it.
+    /// Materializes a scanned tree and restores the surrounding UI state.
     ///
     /// Shared by the synchronous and background reload paths so both apply the
-    /// tree, expansion, selection and scroll position identically.
+    /// tree, expansion, selection and scroll position identically. The state is
+    /// captured HERE, at apply time, so a background scan cannot revert expansion,
+    /// selection or scrolling the user performed while it was running.
     private func finishReload(
         nodes: [SidebarScanNode],
-        state: SidebarReloadState,
         notifyUnchangedSelectionRefresh: Bool
     ) {
+        let state = captureReloadState()
         let selectedURLs = state.selectedURLs
         let selectedURLSet = state.selectedURLSet
         let scrollAnchor = state.scrollAnchor
         let expandedURLs = state.expandedURLs
         let shouldApplyInitialExpansionDefaults = state.shouldApplyInitialExpansionDefaults
+
+        beginSelectionSuppression()
 
         // Build the sidebar items from the project folder's contents (not the folder itself)
         // This shows the contents at the root level, similar to how Finder shows folder contents
@@ -1103,7 +1123,7 @@ public class SidebarViewController: NSViewController {
         // Restore selection if possible
         restoreSelection(urls: selectedURLs)
         restoreScrollAnchor(scrollAnchor)
-        endReload()
+        endSelectionSuppression()
 
         // Propagate selection only if it actually changed after refresh.
         let restoredItems = selectedItems()
@@ -1188,8 +1208,15 @@ public class SidebarViewController: NSViewController {
     /// to a full reload.
     ///
     /// - Parameter changedPaths: The FSEvents `ChangedPaths` with both filtered and unfiltered paths.
-    private func updateSidebar(changedPaths: FileSystemWatcher.ChangedPaths) {
-        guard let projectURL else { return }
+    /// - Returns: The task performing the off-main rescan and surgical apply, so
+    ///   tests can await it. `nil` when the update resolved synchronously (no
+    ///   project, nothing to do, or a fall-back to a full reload).
+    ///
+    /// Internal rather than private so tests can drive overlapping incremental
+    /// updates directly.
+    @discardableResult
+    func updateSidebar(changedPaths: FileSystemWatcher.ChangedPaths) -> Task<Void, Never>? {
+        guard let projectURL else { return nil }
 
         sidebarLogger.debug("updateSidebar: Processing \(changedPaths.nonSidecar.count) non-sidecar changed paths")
 
@@ -1197,7 +1224,7 @@ public class SidebarViewController: NSViewController {
         updateSearchIndex(changedPaths: changedPaths.all)
 
         let nonSidecar = changedPaths.nonSidecar
-        guard !nonSidecar.isEmpty else { return }
+        guard !nonSidecar.isEmpty else { return nil }
 
         // Map each changed path to its top-level sidebar parent.
         let projectPath = projectURL.standardizedFileURL.path
@@ -1223,7 +1250,7 @@ public class SidebarViewController: NSViewController {
         if affectsRoot || affectedTopLevelNames.contains(AnalysesFolder.directoryName) {
             sidebarLogger.info("updateSidebar: Root-level or Analyses change — falling back to full reload")
             requestReloadFromFilesystem(notifyUnchangedSelectionRefresh: false)
-            return
+            return nil
         }
 
         sidebarLogger.info("updateSidebar: Incremental update for \(affectedTopLevelNames.count) top-level items")
@@ -1237,7 +1264,7 @@ public class SidebarViewController: NSViewController {
             }) else {
                 sidebarLogger.debug("updateSidebar: New top-level item '\(topLevelName)' — full reload")
                 requestReloadFromFilesystem(notifyUnchangedSelectionRefresh: false)
-                return
+                return nil
             }
         }
 
@@ -1248,17 +1275,27 @@ public class SidebarViewController: NSViewController {
         let affectedURLs = affectedTopLevelNames
             .sorted()
             .map { projectURL.appendingPathComponent($0) }
+
+        // Bump the generation exactly as the full-reload path does. Without this,
+        // two overlapping incremental scans are not mutually ordered (an older one
+        // could apply last), and an incremental scan would not invalidate an older
+        // in-flight full reload whose wholesale rootItems replacement would clobber
+        // this surgical patch.
+        sidebarScanGeneration &+= 1
         let generation = sidebarScanGeneration
         let allChangedPaths = changedPaths.all
+        let barrier = Self.scanBarrier
 
-        Task { [weak self] in
+        return Task { [weak self] in
             let rebuiltNodes = await Task.detached(priority: .userInitiated) {
                 affectedURLs.map { SidebarProjectScanner.scanTree(from: $0, isRoot: false) }
             }.value
 
+            await Self.awaitScanBarrierIfNeeded(barrier)
+
             guard let self else { return }
             // Re-check on the main actor with no `await` before the mutations below:
-            // a full reload that started while this scan was running owns the tree.
+            // a newer reload or incremental scan owns the tree.
             guard self.sidebarScanGeneration == generation else {
                 sidebarLogger.debug("updateSidebar: Discarding stale incremental scan result")
                 return
@@ -1268,22 +1305,25 @@ public class SidebarViewController: NSViewController {
                 return
             }
 
-            for (topLevelURL, rebuiltNode) in zip(affectedURLs, rebuiltNodes) {
-                guard let existingItemIndex = self.rootItems.firstIndex(where: {
-                    $0.url?.standardizedFileURL.path == topLevelURL.standardizedFileURL.path
-                }) else {
-                    // The item disappeared while the scan ran; a later watcher event
-                    // covers it, and a blanket reload here would break the surgical
-                    // update contract.
-                    continue
-                }
+            // Suppress only while the outline view is actually being mutated.
+            self.withSelectionSuppressed {
+                for (topLevelURL, rebuiltNode) in zip(affectedURLs, rebuiltNodes) {
+                    guard let existingItemIndex = self.rootItems.firstIndex(where: {
+                        $0.url?.standardizedFileURL.path == topLevelURL.standardizedFileURL.path
+                    }) else {
+                        // The item disappeared while the scan ran; a later watcher event
+                        // covers it, and a blanket reload here would break the surgical
+                        // update contract.
+                        continue
+                    }
 
-                self.applySubtreeDiff(
-                    existingItem: self.rootItems[existingItemIndex],
-                    rebuiltItem: self.materialize(rebuiltNode),
-                    parent: nil,
-                    indexInParent: existingItemIndex
-                )
+                    self.applySubtreeDiff(
+                        existingItem: self.rootItems[existingItemIndex],
+                        rebuiltItem: self.materialize(rebuiltNode),
+                        parent: nil,
+                        indexInParent: existingItemIndex
+                    )
+                }
             }
 
             self.notifySelectedItemsRefreshedIfNeeded(changedPaths: allChangedPaths)
