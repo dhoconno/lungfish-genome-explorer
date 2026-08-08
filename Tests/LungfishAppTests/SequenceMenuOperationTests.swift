@@ -82,6 +82,40 @@ final class SequenceMenuOperationTests: XCTestCase {
         XCTAssertTrue(appDelegate.canNavigateToGene(viewerController: viewerController))
     }
 
+    func testExtractSelectionMenuValidationRequiresReferenceFrame() {
+        let appDelegate = AppDelegate()
+        XCTAssertFalse(appDelegate.canExtractSelection(viewerController: nil))
+
+        let viewerController = ViewerViewController()
+        XCTAssertFalse(appDelegate.canExtractSelection(viewerController: viewerController))
+
+        viewerController.referenceFrame = ReferenceFrame(
+            chromosome: "chr1",
+            start: 0,
+            end: 10,
+            pixelWidth: 800,
+            sequenceLength: 100
+        )
+        XCTAssertTrue(appDelegate.canExtractSelection(viewerController: viewerController))
+    }
+
+    func testZoomMenuValidationRequiresReferenceFrameOrMSAViewer() {
+        let appDelegate = AppDelegate()
+        XCTAssertFalse(appDelegate.canZoom(viewerController: nil))
+
+        let viewerController = ViewerViewController()
+        XCTAssertFalse(appDelegate.canZoom(viewerController: viewerController))
+
+        viewerController.referenceFrame = ReferenceFrame(
+            chromosome: "chr1",
+            start: 0,
+            end: 10,
+            pixelWidth: 800,
+            sequenceLength: 100
+        )
+        XCTAssertTrue(appDelegate.canZoom(viewerController: viewerController))
+    }
+
     func testORFAnnotationCommandArgumentsUseCLIBackedSequenceWorkflow() {
         let bundleURL = URL(fileURLWithPath: "/Project/Reference Sequences/example.lungfishref", isDirectory: true)
         let request = SequenceAnnotationOperationRequest(

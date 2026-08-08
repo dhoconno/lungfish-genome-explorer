@@ -247,7 +247,10 @@ extension SequenceViewerView {
     }
 
     @objc func extractSelectionSequence(_ sender: Any?) {
-        guard let region = currentVisibleViewportRegion() else { return }
+        guard let region = currentVisibleViewportRegion() else {
+            NSSound.beep()
+            return
+        }
         presentExtractionSheet(
             for: .region(chromosome: region.chromosome, start: region.start, end: region.end)
         )

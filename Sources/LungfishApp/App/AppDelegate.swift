@@ -1809,14 +1809,25 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return activeSequenceViewer.viewerView.canRunSelectedSequenceFASTAOperation()
         }
 
-        // Extract can bootstrap from the currently visible region.
+        // Extract can bootstrap from the currently visible region, which
+        // requires an active reference frame (not just a viewer instance).
         if menuItem.action == #selector(extractSelection(_:)) {
-            let hasViewer = activeMainWindowController()?
+            let viewerController = activeMainWindowController()?
                 .mainSplitViewController?
                 .viewerController?
                 .activeSequenceViewerController
-                .viewerView != nil
-            return hasViewer
+            return canExtractSelection(viewerController: viewerController)
+        }
+
+        // Zoom actions require an active reference frame or MSA viewer.
+        if menuItem.action == #selector(zoomIn(_:))
+            || menuItem.action == #selector(zoomOut(_:))
+            || menuItem.action == #selector(zoomToFit(_:))
+            || menuItem.action == #selector(zoomReset(_:)) {
+            let viewerController = activeMainWindowController()?
+                .mainSplitViewController?
+                .viewerController
+            return canZoom(viewerController: viewerController)
         }
 
         // "Cancel All Operations" needs running operations
@@ -1916,6 +1927,21 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     func canNavigateToGene(viewerController: ViewerViewController?) -> Bool {
         canNavigateToPosition(viewerController: viewerController)
             && viewerController?.annotationSearchIndex != nil
+    }
+
+    /// Extract Visible Region… needs an active reference frame to bootstrap
+    /// its region from (mirrors currentVisibleViewportRegion()'s own guard
+    /// in ViewerViewController+Extraction.swift).
+    func canExtractSelection(viewerController: ViewerViewController?) -> Bool {
+        viewerController?.referenceFrame != nil
+    }
+
+    /// Zoom In/Out/To Fit/Reset need either an active reference frame or an
+    /// active MSA viewer to operate on (mirrors the guards in each
+    /// ViewerViewController.zoom*() implementation).
+    func canZoom(viewerController: ViewerViewController?) -> Bool {
+        viewerController?.referenceFrame != nil
+            || viewerController?.multipleSequenceAlignmentViewController != nil
     }
 
     @objc public func showWindowSizeDialog(_ sender: Any?) {
