@@ -18,7 +18,17 @@ import LungfishIO
 ///
 /// Only the micromamba bootstrap remains bundled; the actual build tools are
 /// resolved from app bundle search paths or managed environments.
-@MainActor
+///
+/// Deliberately NOT `@MainActor`: `build()` performs synchronous whole-file
+/// I/O (FASTA/BED/VCF parsing, bundle tree enumeration) that must not block
+/// the main thread. Callers construct one builder per build, invoke `build()`
+/// from whatever actor/task suits them (a background `Task` for GUI callers,
+/// directly for CLI callers), and hop to `@MainActor` themselves only to
+/// apply the `progressHandler` callback to UI state. This type has no stored
+/// state that is shared across actor boundaries: each instance is created
+/// and driven to completion by a single caller, and the `progressHandler`
+/// closure (not the `@Published` properties) is how progress is reported
+/// off-actor.
 public final class NativeBundleBuilder: ObservableObject {
 
     // MARK: - Published Properties
