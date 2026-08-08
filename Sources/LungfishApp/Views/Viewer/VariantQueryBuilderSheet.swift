@@ -60,13 +60,11 @@ struct VariantQueryBuilderView: View {
         self.onApply = onApply
         self.onSavePreset = onSavePreset
         self.onCancel = onCancel
-        let defaultRule = QueryRule(
-            category: .callQuality,
-            field: QueryCategory.callQuality.fields.first ?? "Quality",
-            op: QueryCategory.callQuality.operators(for: QueryCategory.callQuality.fields.first ?? "Quality").first ?? "=",
-            value: ""
-        )
-        _rules = State(initialValue: [defaultRule])
+        // AS6 (task E4): restore the sheet's rules from the existing
+        // filter text instead of always starting from a single blank
+        // default rule -- mirrors SampleQueryBuilderView.parseInitialRules,
+        // which already does this correctly for the sample query builder.
+        _rules = State(initialValue: Self.parseInitialRules(from: initialFilterText))
     }
 
     var body: some View {
@@ -249,6 +247,99 @@ struct VariantQueryBuilderView: View {
         let filterText = clauses.joined(separator: "; ")
         queryLogger.info("Query builder applied: \(filterText)")
         onApply(filterText)
+    }
+
+    // MARK: - Filter Text Parsing (AS6)
+
+    /// Parses a semicolon-delimited filter string (as produced by
+    /// `applyQuery()`/`QueryRule.toFilterClause()`, or hand-typed directly
+    /// into the filter text field) back into `[QueryRule]` so reopening
+    /// the query builder restores the current filter instead of always
+    /// starting from a single blank default rule.
+    ///
+    /// This is a best-effort inverse of `toFilterClause()`: known clause
+    /// shapes (`qual>=30`, `filter=PASS`, `region=...`, `Sample[x].y=...`,
+    /// known population/call-quality/INFO fields, etc.) are recognized and
+    /// classified into the matching category. An unrecognized field name
+    /// still round-trips via `.infoField` (the field picker renders any
+    /// string, known or not). A clause that doesn't match any known
+    /// operator/shape at all (e.g. freeform hand-typed text) becomes a
+    /// preserved raw-text rule rather than being silently dropped --
+    /// mirrors `SampleQueryBuilderView.parseInitialRules`'s fallback.
+    static func parseInitialRules(from rawText: String) -> [QueryRule] {
+        let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return [QueryRule()] }
+
+        // Longest operators first so ">=" isn't matched as ">" etc.
+        let operators = ["!=", ">=", "<=", "~", "=", ">", "<"]
+        var parsed: [QueryRule] = []
+
+        for rawClause in text.split(separator: ";") {
+            let clause = rawClause.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !clause.isEmpty else { continue }
+            parsed.append(parseClause(clause, operators: operators))
+        }
+
+        return parsed.isEmpty ? [QueryRule()] : parsed
+    }
+
+    private static func parseClause(_ clause: String, operators: [String]) -> QueryRule {
+        // Sample[name].suffix<op>value
+        if clause.hasPrefix("Sample["), let closeBracket = clause.firstIndex(of: "]") {
+            let sampleName = clause[clause.index(clause.startIndex, offsetBy: 7)..<closeBracket]
+            let rest = clause[clause.index(after: closeBracket)...]
+            if rest.hasPrefix("."), let op = operators.first(where: { rest.contains($0) }),
+               let opRange = rest.range(of: op) {
+                let suffix = rest[rest.index(after: rest.startIndex)..<opRange.lowerBound]
+                let value = String(rest[opRange.upperBound...])
+                return QueryRule(
+                    category: .sampleGenotype,
+                    field: "\(sampleName).\(suffix)",
+                    op: op,
+                    value: value
+                )
+            }
+        }
+
+        guard let op = operators.first(where: { clause.contains($0) }),
+              let opRange = clause.range(of: op) else {
+            // No recognizable operator at all -- preserve as raw text
+            // rather than dropping it.
+            return QueryRule(category: .identity, field: "ID/Name", op: "=", value: clause)
+        }
+
+        let key = String(clause[..<opRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let value = String(clause[opRange.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        switch key {
+        case "region":
+            return QueryRule(category: .location, field: "Region", op: "=", value: value)
+        case "chr":
+            return QueryRule(category: .location, field: "Chromosome", op: "=", value: value)
+        case "genes":
+            return QueryRule(category: .location, field: "Gene List", op: "=", value: value)
+        case "text":
+            return QueryRule(category: .identity, field: "ID/Name", op: "=", value: value)
+        case "type":
+            return QueryRule(category: .identity, field: "Type", op: "=", value: value)
+        case "qual":
+            return QueryRule(category: .callQuality, field: "Quality", op: op, value: value)
+        case "filter":
+            return QueryRule(category: .callQuality, field: "Filter", op: "=", value: value)
+        case "sc":
+            return QueryRule(category: .callQuality, field: "Sample Count", op: op, value: value)
+        case "DP", "MQ":
+            return QueryRule(category: .callQuality, field: key, op: op, value: value)
+        case "AF", "gnomAD_AF", "ExAC_AF", "1000G_AF":
+            return QueryRule(category: .population, field: key, op: op, value: value)
+        case "IMPACT", "GENE", "CLNSIG":
+            return QueryRule(category: .biologicalEffect, field: key, op: op, value: value)
+        default:
+            // Unrecognized field name: preserve it via .infoField so the
+            // round trip doesn't lose the clause -- the field picker
+            // renders any string, known or not (see RuleRowView).
+            return QueryRule(category: .infoField, field: key, op: op, value: value)
+        }
     }
 }
 
