@@ -1509,8 +1509,19 @@ extension SequenceViewerView {
     /// Test seam: fires once at the start of the detached body in `fetchBundleRegionOffMain`,
     /// before any bundle I/O runs. Lets tests assert the heavy work actually left the main
     /// thread. `nonisolated(unsafe)` (not `@unchecked Sendable`) matches the existing pattern
-    /// in `FASTQSourceResolver.materializer`. Debug-only; compiled out of release builds.
+    /// in `ReferenceBundleAnnotationImportService.threadingProbe`. Debug-only; compiled out of
+    /// release builds.
     nonisolated(unsafe) static var fastaOperationThreadingProbe: (@Sendable () -> Void)?
+
+    /// Test seam: an optional async gate awaited inside the detached body in
+    /// `fetchBundleRegionOffMain`, immediately after `fastaOperationThreadingProbe` fires and
+    /// before the real bundle I/O runs. Lets tests deterministically hold one in-flight fetch
+    /// suspended (e.g. via a `CheckedContinuation` the test controls) while a second,
+    /// superseding request runs to completion and bumps `fastaOperationFetchGeneration` — then
+    /// release the first fetch and assert its stale result is discarded by the generation guard
+    /// at each `@objc` call site. `nil` by default (no-op), so it does not affect any test that
+    /// doesn't set it. Debug-only; compiled out of release builds.
+    nonisolated(unsafe) static var fastaOperationFetchGate: (@Sendable () async -> Void)?
     #endif
 
     /// Fetches a single genomic region from `bundle` on the cooperative thread pool.
@@ -1530,6 +1541,7 @@ extension SequenceViewerView {
         try await Task.detached(priority: .userInitiated) {
             #if DEBUG
             fastaOperationThreadingProbe?()
+            await fastaOperationFetchGate?()
             #endif
             return try await bundle.fetchSequence(region: region)
         }.value

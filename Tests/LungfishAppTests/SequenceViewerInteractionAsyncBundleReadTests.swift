@@ -194,6 +194,150 @@ final class SequenceViewerInteractionAsyncBundleReadTests: XCTestCase {
         XCTAssertFalse(observation.wasMainThread, "selectedFASTAOperationInput ran its bundle I/O on the main thread")
     }
 
+    // MARK: - Generation guard (stale fetch cannot commit after a newer request begins)
+    //
+    // Controlled-ordering regression tests in the style of
+    // SequenceViewerFetchInvalidationTests: an older, still in-flight fetch is deterministically
+    // held mid-flight (via the `fastaOperationFetchGate` debug seam), a newer request is started
+    // and allowed to complete first (bumping `fastaOperationFetchGeneration`), and only then is
+    // the older fetch released. Both go through the real `@objc`-adjacent production entry
+    // points (`copyAnnotationSequenceImpl`, `runSelectedSequenceFASTAOperation`), not a
+    // hand-rolled reimplementation of the guard.
+
+    func testStaleAnnotationCopyCannotCommitAfterNewerCopyBegins() async throws {
+        let bundleURL = try makeReferenceBundle(chromosomeName: "MN908947", sequence: "AAACCCGGGTTT")
+        let bundle = ReferenceBundle(url: bundleURL, manifest: try BundleManifest.load(from: bundleURL))
+        let viewer = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+        viewer.setReferenceBundle(bundle)
+
+        // Two distinct annotations so the pasteboard content unambiguously identifies which
+        // fetch's result actually landed.
+        let staleAnnotation = SequenceAnnotation(
+            type: .gene, name: "stale-gene", chromosome: "MN908947", start: 3, end: 6
+        )
+        let freshAnnotation = SequenceAnnotation(
+            type: .gene, name: "fresh-gene", chromosome: "MN908947", start: 9, end: 12
+        )
+        let staleExpectedBases = try bundle.fetchSequenceSync(
+            region: GenomicRegion(chromosome: "MN908947", start: 3, end: 6)
+        )
+        let freshExpectedBases = try bundle.fetchSequenceSync(
+            region: GenomicRegion(chromosome: "MN908947", start: 9, end: 12)
+        )
+        XCTAssertNotEqual(staleExpectedBases, freshExpectedBases, "Precondition: fixtures must be distinguishable")
+
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString("sentinel-before-either-fetch", forType: .string)
+
+        let gate = GatedFetchController()
+        SequenceViewerView.fastaOperationFetchGate = { await gate.waitUntilReleased() }
+        defer { SequenceViewerView.fastaOperationFetchGate = nil }
+
+        // Start the stale fetch. It will suspend inside the detached body at the gate, having
+        // already captured its generation via `fastaOperationFetchGeneration += 1` synchronously
+        // before this call returns control to the caller (the `+= 1` and capture happen
+        // synchronously at the top of `copyAnnotationSequenceImpl`, before the `Task` body's
+        // first `await`).
+        viewer.copyAnnotationSequenceImpl(staleAnnotation)
+        await gate.waitUntilFetchHasStarted()
+
+        // Now run a second, ungated copy to completion. This bumps
+        // `fastaOperationFetchGeneration` and writes its own (correct) result to the pasteboard.
+        SequenceViewerView.fastaOperationFetchGate = nil
+        viewer.copyAnnotationSequenceImpl(freshAnnotation)
+        try await waitUntilPasteboardContains(freshExpectedBases, pasteboard: pasteboard)
+
+        XCTAssertEqual(pasteboard.string(forType: .string), freshExpectedBases)
+
+        // Release the stale fetch. Its bundle I/O will now complete, but its generation no
+        // longer matches, so its clipboard-write branch must be skipped entirely.
+        await gate.release()
+
+        // Give the released stale Task a chance to run to completion and (incorrectly, if the
+        // guard were broken) overwrite the pasteboard.
+        for _ in 0..<20 { await Task.yield() }
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        XCTAssertEqual(
+            pasteboard.string(forType: .string),
+            freshExpectedBases,
+            "Stale annotation-copy fetch overwrote the pasteboard after a newer copy had already committed"
+        )
+    }
+
+    func testStaleFASTAOperationInputCannotPresentDialogAfterNewerRequestBegins() async throws {
+        let bundleURL = try makeReferenceBundle(chromosomeName: "MN908947", sequence: "AAACCCGGGTTT")
+        let bundle = ReferenceBundle(url: bundleURL, manifest: try BundleManifest.load(from: bundleURL))
+        let viewerController = ViewerViewController()
+        viewerController.loadView()
+        viewerController.referenceFrame = ReferenceFrame(
+            chromosome: "MN908947.3",
+            start: 3,
+            end: 6,
+            pixelWidth: 400,
+            sequenceLength: 12
+        )
+        viewerController.viewerView.setReferenceBundle(bundle)
+        viewerController.viewerView.selectVisibleRegion()
+
+        var presentedSuggestedNames: [String] = []
+        viewerController.fastaOperationDialogPresenterForTesting = { _, suggestedName, _, _ in
+            presentedSuggestedNames.append(suggestedName)
+        }
+
+        let gate = GatedFetchController()
+        SequenceViewerView.fastaOperationFetchGate = { await gate.waitUntilReleased() }
+        defer { SequenceViewerView.fastaOperationFetchGate = nil }
+
+        // Start the stale request over the 3-6 selection; it suspends inside the gate.
+        viewerController.viewerView.runSelectedSequenceFASTAOperation(toolID: .reverseComplement)
+        await gate.waitUntilFetchHasStarted()
+
+        // Move the selection and fire a second, ungated request that completes first and bumps
+        // the generation counter.
+        viewerController.referenceFrame?.start = 9
+        viewerController.referenceFrame?.end = 12
+        viewerController.viewerView.selectVisibleRegion()
+        SequenceViewerView.fastaOperationFetchGate = nil
+        viewerController.viewerView.runSelectedSequenceFASTAOperation(toolID: .reverseComplement)
+
+        try await waitUntil(timeout: 2) { presentedSuggestedNames.contains("MN908947_10_12") }
+        XCTAssertEqual(presentedSuggestedNames, ["MN908947_10_12"])
+
+        // Release the stale request. Even though its own fetch now completes successfully, its
+        // generation no longer matches, so it must not present a second (stale) dialog.
+        await gate.release()
+        for _ in 0..<20 { await Task.yield() }
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        XCTAssertEqual(
+            presentedSuggestedNames,
+            ["MN908947_10_12"],
+            "Stale selectedFASTAOperationInput fetch presented a dialog after a newer request had already superseded it"
+        )
+    }
+
+    private func waitUntilPasteboardContains(
+        _ expected: String,
+        pasteboard: NSPasteboard,
+        timeout: TimeInterval = 2
+    ) async throws {
+        try await waitUntil(timeout: timeout) { pasteboard.string(forType: .string) == expected }
+    }
+
+    private func waitUntil(timeout: TimeInterval, _ condition: () -> Bool) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() {
+            if Date() >= deadline {
+                XCTFail("Timed out waiting for condition")
+                return
+            }
+            await Task.yield()
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+    }
+
     // MARK: - Fixture
 
     private func makeReferenceBundle(
@@ -268,5 +412,56 @@ private final class ThreadObservationBox: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return _wasMainThread
+    }
+}
+
+/// Test-only controllable gate for `SequenceViewerView.fastaOperationFetchGate`. Lets a test
+/// deterministically hold a fetch suspended mid-flight (inside the detached bundle-I/O body,
+/// after the threading probe fires but before the real file read) so a second, superseding
+/// request can be started and completed first — exercising the generation guard's actual
+/// discriminating behavior instead of relying on incidental scheduling/timing.
+///
+/// Implemented as an `actor` (not a lock-protected `@unchecked Sendable` box) since its state
+/// only needs to be touched from `async` call sites here.
+private actor GatedFetchController {
+    private var hasStarted = false
+    private var isReleased = false
+    private var startContinuations: [CheckedContinuation<Void, Never>] = []
+    private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
+
+    /// Awaited from inside the production code's detached body. Signals "fetch has started"
+    /// to any waiter, then suspends until `release()` is called.
+    func waitUntilReleased() async {
+        hasStarted = true
+        let waitingStarts = startContinuations
+        startContinuations.removeAll()
+        for continuation in waitingStarts {
+            continuation.resume()
+        }
+        if isReleased { return }
+        await withCheckedContinuation { continuation in
+            releaseContinuations.append(continuation)
+        }
+    }
+
+    /// Awaited from the test body. Returns once `waitUntilReleased()` has been entered by the
+    /// gated fetch (i.e. the fetch has reached the detached body and is now suspended there).
+    func waitUntilFetchHasStarted() async {
+        if hasStarted { return }
+        await withCheckedContinuation { continuation in
+            startContinuations.append(continuation)
+        }
+    }
+
+    /// Releases every fetch currently suspended in `waitUntilReleased()`, and lets any future
+    /// call to `waitUntilReleased()` return immediately (matching a real one-shot gate that has
+    /// already been opened).
+    func release() {
+        isReleased = true
+        let waitingReleases = releaseContinuations
+        releaseContinuations.removeAll()
+        for continuation in waitingReleases {
+            continuation.resume()
+        }
     }
 }
