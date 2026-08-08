@@ -323,7 +323,7 @@ public final class AIToolRegistry {
         let query = call.string("query") ?? ""
         let limit = call.int("limit") ?? 20
 
-        let results = searchIndex.search(query: query, limit: limit)
+        let results = await searchIndex.searchOffMain(query: query, limit: limit)
 
         if results.isEmpty {
             return "No genes found matching '\(query)'. Try a different search term or check if annotation data is available."
@@ -373,7 +373,7 @@ public final class AIToolRegistry {
                 return merged
             }.value
         } else if let chromosome, let start, let end, let index {
-            var regionResults = index.queryVariantsInRegion(
+            var regionResults = await index.queryVariantsInRegionOffMain(
                 chromosome: chromosome,
                 start: start,
                 end: end,
@@ -410,7 +410,7 @@ public final class AIToolRegistry {
                 )
             }
         } else if let chromosome, let index {
-            var regionResults = index.queryVariantsInRegion(
+            var regionResults = await index.queryVariantsInRegionOffMain(
                 chromosome: chromosome,
                 start: 0,
                 end: Int.max,
@@ -608,7 +608,7 @@ public final class AIToolRegistry {
         }
 
         // Search for the gene
-        let results = searchIndex.search(query: geneName, limit: 5)
+        let results = await searchIndex.searchOffMain(query: geneName, limit: 5)
 
         // Find exact match first, then partial
         let match = results.first { $0.name.caseInsensitiveCompare(geneName) == .orderedSame }
@@ -627,13 +627,13 @@ public final class AIToolRegistry {
         ]
 
         if searchIndex.hasVariantDatabase {
-            let count = searchIndex.queryVariantCountInRegion(
+            let count = await searchIndex.queryVariantCountInRegionOffMain(
                 chromosome: gene.chromosome,
                 start: gene.start,
                 end: gene.end
             )
             if count > 0 {
-                let variants = searchIndex.queryVariantsInRegion(
+                let variants = await searchIndex.queryVariantsInRegionOffMain(
                     chromosome: gene.chromosome,
                     start: gene.start,
                     end: gene.end,
@@ -757,7 +757,7 @@ public final class AIToolRegistry {
             return "Error: gene_name parameter is required."
         }
 
-        let results = searchIndex.search(query: geneName, limit: 5)
+        let results = await searchIndex.searchOffMain(query: geneName, limit: 5)
         let match = results.first { $0.name.caseInsensitiveCompare(geneName) == .orderedSame }
             ?? results.first
 

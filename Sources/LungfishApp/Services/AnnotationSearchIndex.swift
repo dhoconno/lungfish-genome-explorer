@@ -18,6 +18,17 @@ private let searchLogger = Logger(subsystem: LogSubsystem.app, category: "Annota
 @MainActor
 public final class AnnotationSearchIndex {
 
+    #if DEBUG
+    /// Test-only threading probe. When set, invoked once per off-main query (see the
+    /// `*OffMain` methods below) from inside the `Task.detached` body -- i.e. after the
+    /// executor hop those methods rely on for main-thread safety, immediately before the
+    /// underlying `AnnotationDatabase`/`VariantDatabase` SQLite call runs. Exists solely
+    /// so `AnnotationSearchIndexOffMainTests` can assert `!Thread.isMainThread` from
+    /// inside the real call path when driven from a `@MainActor` caller (see F12). Not
+    /// compiled into release builds.
+    nonisolated(unsafe) static var threadingProbe: (@Sendable () -> Void)?
+    #endif
+
     // MARK: - Types
 
     /// A search result representing a single annotation or variant feature.
@@ -383,6 +394,97 @@ public final class AnnotationSearchIndex {
                 guard remaining > 0 else { break }
                 let variantRecords = handle.db.searchByID(idFilter: query, limit: remaining)
                 results.append(contentsOf: variantRecordsToSearchResults(variantRecords, db: handle.db, trackId: handle.trackId))
+            }
+        }
+
+        return results
+    }
+
+    /// Off-main counterpart of `search(query:limit:)`.
+    ///
+    /// Callers such as `AIToolRegistry` run on `@MainActor` but must not block the main
+    /// thread on the underlying SQLite query while an AI tool call is in flight (F12). This
+    /// snapshots the immutable inputs `search` needs (database handles, track-name maps) on
+    /// the main actor -- a handful of dictionary lookups, not the query itself -- then runs
+    /// the actual `AnnotationDatabase`/`VariantDatabase` SQLite calls inside `Task.detached`,
+    /// matching the structural hop used by `ReferenceBundleAnnotationImportService.performAttach`
+    /// and `ReferenceBundleMergeService.runDetached`. Produces results identical to `search`.
+    public func searchOffMain(query: String, limit: Int = 20) async -> [SearchResult] {
+        guard !query.isEmpty else { return [] }
+
+        let snapshot = SearchSnapshot(
+            annotationDatabases: annotationDatabases,
+            variantDatabases: variantDatabases,
+            legacyEntries: annotationDatabases.isEmpty ? entries : [],
+            annotationTrackNames: annotationTrackNames,
+            variantTrackNames: variantTrackNames
+        )
+
+        let task = Task<[SearchResult], Never>.detached(priority: .userInitiated) {
+            #if DEBUG
+            Self.threadingProbe?()
+            #endif
+            return Self.performSearch(query: query, limit: limit, snapshot: snapshot)
+        }
+        return await task.value
+    }
+
+    /// Sendable snapshot of the state `searchOffMain` needs to run detached from the main actor.
+    private struct SearchSnapshot: Sendable {
+        let annotationDatabases: [(trackId: String, db: AnnotationDatabase)]
+        let variantDatabases: [(trackId: String, db: VariantDatabase)]
+        let legacyEntries: [SearchResult]
+        let annotationTrackNames: [String: String]
+        let variantTrackNames: [String: String]
+    }
+
+    /// Pure, non-isolated implementation shared by `search` and `searchOffMain`'s detached body.
+    nonisolated private static func performSearch(
+        query: String,
+        limit: Int,
+        snapshot: SearchSnapshot
+    ) -> [SearchResult] {
+        var results: [SearchResult] = []
+
+        if !snapshot.annotationDatabases.isEmpty {
+            for handle in snapshot.annotationDatabases {
+                let remaining = limit - results.count
+                guard remaining > 0 else { break }
+                let records = handle.db.query(nameFilter: query, limit: remaining)
+                results.append(contentsOf: records.map { record in
+                    Self.annotationRecordToSearchResult(record, trackId: handle.trackId, trackNames: snapshot.annotationTrackNames)
+                })
+            }
+        } else {
+            let lowered = query.lowercased()
+            for entry in snapshot.legacyEntries {
+                if entry.name.lowercased().hasPrefix(lowered) {
+                    results.append(entry)
+                    if results.count >= limit { break }
+                }
+            }
+            if results.count < limit {
+                for entry in snapshot.legacyEntries {
+                    if !entry.name.lowercased().hasPrefix(lowered),
+                       entry.name.lowercased().contains(lowered) {
+                        results.append(entry)
+                        if results.count >= limit { break }
+                    }
+                }
+            }
+        }
+
+        if results.count < limit {
+            for handle in snapshot.variantDatabases {
+                let remaining = limit - results.count
+                guard remaining > 0 else { break }
+                let variantRecords = handle.db.searchByID(idFilter: query, limit: remaining)
+                results.append(contentsOf: Self.variantRecordsToSearchResults(
+                    variantRecords,
+                    db: handle.db,
+                    trackId: handle.trackId,
+                    trackNames: snapshot.variantTrackNames
+                ))
             }
         }
 
@@ -786,6 +888,174 @@ public final class AnnotationSearchIndex {
         return count
     }
 
+    /// Sendable snapshot of the state `queryVariantsInRegionOffMain` and
+    /// `queryVariantCountInRegionOffMain` need to run detached from the main actor.
+    private struct VariantRegionSnapshot: Sendable {
+        let variantDatabases: [(trackId: String, db: VariantDatabase)]
+        let variantTrackChromosomes: [String: Set<String>]
+        let bundleAliasGroupsByExact: [String: Set<String>]
+        let bundleAliasGroupsByCanonical: [String: Set<String>]
+        let variantTrackNames: [String: String]
+    }
+
+    private func makeVariantRegionSnapshot() -> VariantRegionSnapshot {
+        VariantRegionSnapshot(
+            variantDatabases: variantDatabases,
+            variantTrackChromosomes: variantTrackChromosomes,
+            bundleAliasGroupsByExact: bundleAliasGroupsByExact,
+            bundleAliasGroupsByCanonical: bundleAliasGroupsByCanonical,
+            variantTrackNames: variantTrackNames
+        )
+    }
+
+    /// Off-main counterpart of `queryVariantsInRegion`.
+    ///
+    /// Callers such as `AIToolRegistry` run on `@MainActor` but must not block the main
+    /// thread on the underlying SQLite query while an AI tool call is in flight (F12). This
+    /// snapshots the immutable inputs the query needs (database handles, chromosome-alias
+    /// maps, track-name maps) on the main actor -- dictionary/array reads, not the query
+    /// itself -- then runs the actual `VariantDatabase` SQLite calls inside `Task.detached`,
+    /// matching the structural hop used by `ReferenceBundleAnnotationImportService.performAttach`
+    /// and `ReferenceBundleMergeService.runDetached`. Produces results identical to
+    /// `queryVariantsInRegion`.
+    public func queryVariantsInRegionOffMain(
+        chromosome: String,
+        start: Int,
+        end: Int,
+        nameFilter: String = "",
+        types: Set<String> = [],
+        infoFilters: [VariantDatabase.InfoFilter] = [],
+        limit: Int = 5000
+    ) async -> [SearchResult] {
+        let snapshot = makeVariantRegionSnapshot()
+        let task = Task<[SearchResult], Never>.detached(priority: .userInitiated) {
+            #if DEBUG
+            Self.threadingProbe?()
+            #endif
+            return Self.performQueryVariantsInRegion(
+                chromosome: chromosome,
+                start: start,
+                end: end,
+                nameFilter: nameFilter,
+                types: types,
+                infoFilters: infoFilters,
+                limit: limit,
+                snapshot: snapshot
+            )
+        }
+        return await task.value
+    }
+
+    /// Off-main counterpart of `queryVariantCountInRegion`. See `queryVariantsInRegionOffMain`
+    /// for the snapshot-and-detach rationale.
+    public func queryVariantCountInRegionOffMain(
+        chromosome: String,
+        start: Int,
+        end: Int,
+        nameFilter: String = "",
+        types: Set<String> = [],
+        infoFilters: [VariantDatabase.InfoFilter] = []
+    ) async -> Int {
+        let snapshot = makeVariantRegionSnapshot()
+        let task = Task<Int, Never>.detached(priority: .userInitiated) {
+            #if DEBUG
+            Self.threadingProbe?()
+            #endif
+            return Self.performQueryVariantCountInRegion(
+                chromosome: chromosome,
+                start: start,
+                end: end,
+                nameFilter: nameFilter,
+                types: types,
+                infoFilters: infoFilters,
+                snapshot: snapshot
+            )
+        }
+        return await task.value
+    }
+
+    /// Pure, non-isolated implementation shared by `queryVariantsInRegion` and
+    /// `queryVariantsInRegionOffMain`'s detached body.
+    nonisolated private static func performQueryVariantsInRegion(
+        chromosome: String,
+        start: Int,
+        end: Int,
+        nameFilter: String,
+        types: Set<String>,
+        infoFilters: [VariantDatabase.InfoFilter],
+        limit: Int,
+        snapshot: VariantRegionSnapshot
+    ) -> [SearchResult] {
+        var results: [SearchResult] = []
+        for handle in snapshot.variantDatabases {
+            let remaining = limit - results.count
+            guard remaining > 0 else { break }
+            let candidates = Self.resolvedChromosomeCandidates(
+                for: chromosome,
+                trackId: handle.trackId,
+                variantTrackChromosomes: snapshot.variantTrackChromosomes,
+                bundleAliasGroupsByExact: snapshot.bundleAliasGroupsByExact,
+                bundleAliasGroupsByCanonical: snapshot.bundleAliasGroupsByCanonical
+            )
+            for queryChrom in candidates {
+                let chunkLimit = limit - results.count
+                guard chunkLimit > 0 else { break }
+                let variantRecords = handle.db.queryForTableInRegion(
+                    chromosome: queryChrom,
+                    start: start,
+                    end: end,
+                    nameFilter: nameFilter,
+                    types: types,
+                    infoFilters: infoFilters,
+                    limit: chunkLimit
+                )
+                if !variantRecords.isEmpty {
+                    results.append(contentsOf: Self.variantRecordsToSearchResults(
+                        variantRecords,
+                        db: handle.db,
+                        trackId: handle.trackId,
+                        trackNames: snapshot.variantTrackNames
+                    ))
+                }
+            }
+        }
+        return results
+    }
+
+    /// Pure, non-isolated implementation shared by `queryVariantCountInRegion` and
+    /// `queryVariantCountInRegionOffMain`'s detached body.
+    nonisolated private static func performQueryVariantCountInRegion(
+        chromosome: String,
+        start: Int,
+        end: Int,
+        nameFilter: String,
+        types: Set<String>,
+        infoFilters: [VariantDatabase.InfoFilter],
+        snapshot: VariantRegionSnapshot
+    ) -> Int {
+        var count = 0
+        for handle in snapshot.variantDatabases {
+            let candidates = Self.resolvedChromosomeCandidates(
+                for: chromosome,
+                trackId: handle.trackId,
+                variantTrackChromosomes: snapshot.variantTrackChromosomes,
+                bundleAliasGroupsByExact: snapshot.bundleAliasGroupsByExact,
+                bundleAliasGroupsByCanonical: snapshot.bundleAliasGroupsByCanonical
+            )
+            for queryChrom in candidates {
+                count += handle.db.queryCountInRegion(
+                    chromosome: queryChrom,
+                    start: start,
+                    end: end,
+                    nameFilter: nameFilter,
+                    types: types,
+                    infoFilters: infoFilters
+                )
+            }
+        }
+        return count
+    }
+
     /// Queries variants overlapping genes specified by name.
     ///
     /// For each gene name:
@@ -1039,10 +1309,22 @@ public final class AnnotationSearchIndex {
         db: VariantDatabase,
         trackId: String
     ) -> [SearchResult] {
+        Self.variantRecordsToSearchResults(records, db: db, trackId: trackId, trackNames: variantTrackNames)
+    }
+
+    /// Non-isolated core of `variantRecordsToSearchResults(_:db:trackId:)`, taking the track-name
+    /// map as a parameter so it can also run from `searchOffMain`'s `Task.detached` body without
+    /// touching main-actor state.
+    nonisolated private static func variantRecordsToSearchResults(
+        _ records: [VariantDatabaseRecord],
+        db: VariantDatabase,
+        trackId: String,
+        trackNames: [String: String]
+    ) -> [SearchResult] {
         guard !records.isEmpty else { return [] }
         let variantIds = records.compactMap(\.id)
         let infoDicts = db.batchInfoValues(variantIds: variantIds)
-        let sourceName = variantTrackNames[trackId]
+        let sourceName = trackNames[trackId]
         return records.map { record in
             let infoDict = record.id.flatMap { infoDicts[$0] }
             return record.toSearchResult(trackId: trackId, infoDict: infoDict, sourceFile: sourceName)
@@ -1053,6 +1335,17 @@ public final class AnnotationSearchIndex {
         _ record: AnnotationDatabaseRecord,
         trackId: String
     ) -> SearchResult {
+        Self.annotationRecordToSearchResult(record, trackId: trackId, trackNames: annotationTrackNames)
+    }
+
+    /// Non-isolated core of `annotationRecordToSearchResult(_:trackId:)`, taking the track-name
+    /// map as a parameter so it can also run from an off-main `Task.detached` body without
+    /// touching main-actor state.
+    nonisolated private static func annotationRecordToSearchResult(
+        _ record: AnnotationDatabaseRecord,
+        trackId: String,
+        trackNames: [String: String]
+    ) -> SearchResult {
         let parsedAttributes = record.attributes.map(AnnotationDatabase.parseAttributes).flatMap { attributes in
             attributes.isEmpty ? nil : attributes
         }
@@ -1062,7 +1355,7 @@ public final class AnnotationSearchIndex {
             start: record.start,
             end: record.end,
             trackId: trackId,
-            trackName: annotationTrackNames[trackId],
+            trackName: trackNames[trackId],
             type: record.type,
             strand: record.strand,
             attributes: parsedAttributes,
@@ -1122,6 +1415,26 @@ public final class AnnotationSearchIndex {
     /// Returns chromosome names to try for variant queries in this track.
     /// Includes direct match plus normalized/alias fallbacks.
     private func resolvedChromosomeCandidates(for chromosome: String, trackId: String) -> [String] {
+        Self.resolvedChromosomeCandidates(
+            for: chromosome,
+            trackId: trackId,
+            variantTrackChromosomes: variantTrackChromosomes,
+            bundleAliasGroupsByExact: bundleAliasGroupsByExact,
+            bundleAliasGroupsByCanonical: bundleAliasGroupsByCanonical
+        )
+    }
+
+    /// Non-isolated core of `resolvedChromosomeCandidates(for:trackId:)`, taking the alias/track
+    /// maps as parameters so it can also run from `queryVariantsInRegionOffMain`'s and
+    /// `queryVariantCountInRegionOffMain`'s `Task.detached` bodies without touching main-actor
+    /// state.
+    nonisolated private static func resolvedChromosomeCandidates(
+        for chromosome: String,
+        trackId: String,
+        variantTrackChromosomes: [String: Set<String>],
+        bundleAliasGroupsByExact: [String: Set<String>],
+        bundleAliasGroupsByCanonical: [String: Set<String>]
+    ) -> [String] {
         let available = variantTrackChromosomes[trackId] ?? []
         if available.isEmpty || available.contains(chromosome) { return [chromosome] }
 
@@ -1151,6 +1464,21 @@ public final class AnnotationSearchIndex {
 
     /// Returns candidate chromosome names for annotation lookups.
     private func annotationChromosomeCandidates(for chromosome: String) -> [String] {
+        Self.annotationChromosomeCandidates(
+            for: chromosome,
+            bundleAliasGroupsByExact: bundleAliasGroupsByExact,
+            bundleAliasGroupsByCanonical: bundleAliasGroupsByCanonical
+        )
+    }
+
+    /// Non-isolated core of `annotationChromosomeCandidates(for:)`, taking the alias maps as
+    /// parameters so it can also run from `queryAnnotationsInRegionOffMain`'s `Task.detached`
+    /// body without touching main-actor state.
+    nonisolated private static func annotationChromosomeCandidates(
+        for chromosome: String,
+        bundleAliasGroupsByExact: [String: Set<String>],
+        bundleAliasGroupsByCanonical: [String: Set<String>]
+    ) -> [String] {
         var candidates: [String] = [chromosome]
         let trimmed = chromosome.trimmingCharacters(in: .whitespacesAndNewlines)
         let lower = trimmed.lowercased()
@@ -1180,7 +1508,7 @@ public final class AnnotationSearchIndex {
     }
 
     /// Canonical chromosome key used for alias fallback matching.
-    private func canonicalChromosomeName(_ name: String) -> String {
+    nonisolated private static func canonicalChromosomeName(_ name: String) -> String {
         var value = name.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         if value.hasPrefix("chr") {
             value = String(value.dropFirst(3))
@@ -1211,7 +1539,7 @@ public final class AnnotationSearchIndex {
             for token in group {
                 let lower = token.lowercased()
                 bundleAliasGroupsByExact[lower, default: []].formUnion(group)
-                let canonical = canonicalChromosomeName(token)
+                let canonical = Self.canonicalChromosomeName(token)
                 bundleAliasGroupsByCanonical[canonical, default: []].formUnion(group)
             }
         }
