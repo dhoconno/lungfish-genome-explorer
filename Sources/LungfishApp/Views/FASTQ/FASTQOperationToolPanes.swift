@@ -37,7 +37,7 @@ struct FASTQOperationToolPanes: View {
                 initialTool: state.selectedToolID.assemblyTool ?? .spades,
                 embeddedInOperationsDialog: true,
                 embeddedRunTrigger: state.embeddedRunTrigger,
-                onRun: state.captureAssemblyRequest(_:),
+                onRun: state.captureAssemblyRequest(_:runMode:),
                 onRunnerAvailabilityChange: readinessHandler(for: state.selectedToolID)
             )
             .id(state.selectedToolID.rawValue)

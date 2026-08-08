@@ -4306,6 +4306,168 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
 
         XCTAssertEqual(runner.invocations.count, 1)
     }
+
+    // MARK: - MB-2: per-bundle short-read assembly split
+
+    /// Two paired-end bundles selected together in `.perInput` (perBundle) mode must
+    /// split into two assembly requests, each carrying only its OWN R1/R2 pair and
+    /// `pairedEnd == true`. This guards against the MB-2 regression where the flat
+    /// pooled-list `pairedEnd` inference silently co-assembled unrelated samples.
+    func testAssemblyPerBundleModeSplitsPairedEndBundlesWithOwnRRPairEach() throws {
+        let sampleA_R1 = URL(fileURLWithPath: "/tmp/SampleA_R1.fastq.gz")
+        let sampleA_R2 = URL(fileURLWithPath: "/tmp/SampleA_R2.fastq.gz")
+        let sampleB_R1 = URL(fileURLWithPath: "/tmp/SampleB_R1.fastq.gz")
+        let sampleB_R2 = URL(fileURLWithPath: "/tmp/SampleB_R2.fastq.gz")
+
+        let request = FASTQOperationLaunchRequest.assemble(
+            request: AssemblyRunRequest(
+                tool: .spades,
+                readType: .illuminaShortReads,
+                inputURLs: [sampleA_R1, sampleA_R2, sampleB_R1, sampleB_R2],
+                projectName: "Demo",
+                outputDirectory: URL(fileURLWithPath: "/tmp/assembly-out"),
+                pairedEnd: true,
+                threads: 8,
+                memoryGB: nil,
+                minContigLength: nil,
+                selectedProfileID: nil,
+                extraArguments: []
+            ),
+            outputMode: .perInput
+        )
+
+        let plans = FASTQOperationPlanner().makeExecutionPlans(
+            originalRequest: request,
+            resolvedRequest: request,
+            baseOutputDirectory: URL(fileURLWithPath: "/tmp/out")
+        )
+
+        XCTAssertEqual(plans.count, 2)
+
+        guard case .assemble(let firstRequest, _) = plans[0].originalRequest,
+              case .assemble(let secondRequest, _) = plans[1].originalRequest else {
+            return XCTFail("Expected split .assemble requests")
+        }
+
+        XCTAssertEqual(firstRequest.inputURLs, [sampleA_R1, sampleA_R2])
+        XCTAssertTrue(firstRequest.pairedEnd)
+        XCTAssertEqual(secondRequest.inputURLs, [sampleB_R1, sampleB_R2])
+        XCTAssertTrue(secondRequest.pairedEnd)
+    }
+
+    /// The same two paired-end bundles selected in `.groupedResult` (combined) mode
+    /// must remain a single pooled request — the explicit user choice to combine.
+    func testAssemblyCombinedModeProducesOnePooledRequest() throws {
+        let sampleA_R1 = URL(fileURLWithPath: "/tmp/SampleA_R1.fastq.gz")
+        let sampleA_R2 = URL(fileURLWithPath: "/tmp/SampleA_R2.fastq.gz")
+        let sampleB_R1 = URL(fileURLWithPath: "/tmp/SampleB_R1.fastq.gz")
+        let sampleB_R2 = URL(fileURLWithPath: "/tmp/SampleB_R2.fastq.gz")
+
+        let request = FASTQOperationLaunchRequest.assemble(
+            request: AssemblyRunRequest(
+                tool: .spades,
+                readType: .illuminaShortReads,
+                inputURLs: [sampleA_R1, sampleA_R2, sampleB_R1, sampleB_R2],
+                projectName: "Demo",
+                outputDirectory: URL(fileURLWithPath: "/tmp/assembly-out"),
+                pairedEnd: true,
+                threads: 8,
+                memoryGB: nil,
+                minContigLength: nil,
+                selectedProfileID: nil,
+                extraArguments: []
+            ),
+            outputMode: .groupedResult
+        )
+
+        let plans = FASTQOperationPlanner().makeExecutionPlans(
+            originalRequest: request,
+            resolvedRequest: request,
+            baseOutputDirectory: URL(fileURLWithPath: "/tmp/out")
+        )
+
+        XCTAssertEqual(plans.count, 1)
+        guard case .assemble(let pooledRequest, _) = plans[0].originalRequest else {
+            return XCTFail("Expected pooled .assemble request")
+        }
+        XCTAssertEqual(pooledRequest.inputURLs, [sampleA_R1, sampleA_R2, sampleB_R1, sampleB_R2])
+    }
+
+    /// Long-read tools (Flye/Hifiasm) always run against a single input in v1 and
+    /// never reach the multi-bundle split path; a lone single-file request with
+    /// `pairedEnd == false` must continue to produce exactly one unsplit plan.
+    func testAssemblyLongReadSingleInputRequestIsUnaffectedByPerBundleSplit() throws {
+        let ontRead = URL(fileURLWithPath: "/tmp/ont-sample.fastq.gz")
+
+        let request = FASTQOperationLaunchRequest.assemble(
+            request: AssemblyRunRequest(
+                tool: .flye,
+                readType: .ontReads,
+                inputURLs: [ontRead],
+                projectName: "Demo",
+                outputDirectory: URL(fileURLWithPath: "/tmp/assembly-out"),
+                pairedEnd: false,
+                threads: 8,
+                memoryGB: nil,
+                minContigLength: nil,
+                selectedProfileID: nil,
+                extraArguments: []
+            ),
+            outputMode: .perInput
+        )
+
+        let plans = FASTQOperationPlanner().makeExecutionPlans(
+            originalRequest: request,
+            resolvedRequest: request,
+            baseOutputDirectory: URL(fileURLWithPath: "/tmp/out")
+        )
+
+        XCTAssertEqual(plans.count, 1)
+        guard case .assemble(let soloRequest, _) = plans[0].originalRequest else {
+            return XCTFail("Expected single .assemble request")
+        }
+        XCTAssertEqual(soloRequest.inputURLs, [ontRead])
+    }
+
+    /// Unpaired single-end multi-file selections in `.perInput` mode must still split
+    /// one request per file (pre-existing behavior, must not regress).
+    func testAssemblyPerBundleModeSplitsUnpairedSingleEndFilesIndividually() throws {
+        let sampleA = URL(fileURLWithPath: "/tmp/SampleA.fastq.gz")
+        let sampleB = URL(fileURLWithPath: "/tmp/SampleB.fastq.gz")
+
+        let request = FASTQOperationLaunchRequest.assemble(
+            request: AssemblyRunRequest(
+                tool: .megahit,
+                readType: .illuminaShortReads,
+                inputURLs: [sampleA, sampleB],
+                projectName: "Demo",
+                outputDirectory: URL(fileURLWithPath: "/tmp/assembly-out"),
+                pairedEnd: false,
+                threads: 8,
+                memoryGB: nil,
+                minContigLength: nil,
+                selectedProfileID: nil,
+                extraArguments: []
+            ),
+            outputMode: .perInput
+        )
+
+        let plans = FASTQOperationPlanner().makeExecutionPlans(
+            originalRequest: request,
+            resolvedRequest: request,
+            baseOutputDirectory: URL(fileURLWithPath: "/tmp/out")
+        )
+
+        XCTAssertEqual(plans.count, 2)
+        guard case .assemble(let firstRequest, _) = plans[0].originalRequest,
+              case .assemble(let secondRequest, _) = plans[1].originalRequest else {
+            return XCTFail("Expected split .assemble requests")
+        }
+        XCTAssertEqual(firstRequest.inputURLs, [sampleA])
+        XCTAssertFalse(firstRequest.pairedEnd)
+        XCTAssertEqual(secondRequest.inputURLs, [sampleB])
+        XCTAssertFalse(secondRequest.pairedEnd)
+    }
 }
 
 private struct SavontImportFixture {

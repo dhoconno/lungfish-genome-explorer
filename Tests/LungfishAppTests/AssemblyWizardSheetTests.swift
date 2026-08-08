@@ -68,4 +68,34 @@ final class AssemblyWizardSheetTests: XCTestCase {
             []
         )
     }
+
+    // MARK: - MB-2: multi-bundle grouping
+
+    func testGroupBundlesCollapsesPairedEndFilesIntoOneBundleEach() {
+        let sampleA_R1 = URL(fileURLWithPath: "/tmp/SampleA_R1.fastq.gz")
+        let sampleA_R2 = URL(fileURLWithPath: "/tmp/SampleA_R2.fastq.gz")
+        let sampleB_R1 = URL(fileURLWithPath: "/tmp/SampleB_R1.fastq.gz")
+        let sampleB_R2 = URL(fileURLWithPath: "/tmp/SampleB_R2.fastq.gz")
+
+        let bundles = AssemblyWizardSheet.groupBundles(
+            inputFiles: [sampleA_R1, sampleA_R2, sampleB_R1, sampleB_R2]
+        )
+
+        XCTAssertEqual(bundles, [[sampleA_R1, sampleA_R2], [sampleB_R1, sampleB_R2]])
+    }
+
+    func testGroupBundlesTreatsUnpairedFilesAsOwnSingleElementBundles() {
+        let sampleA = URL(fileURLWithPath: "/tmp/SampleA.fastq.gz")
+        let sampleB = URL(fileURLWithPath: "/tmp/SampleB.fastq.gz")
+
+        let bundles = AssemblyWizardSheet.groupBundles(inputFiles: [sampleA, sampleB])
+
+        XCTAssertEqual(bundles, [[sampleA], [sampleB]])
+    }
+
+    func testGroupBundlesSingleFileYieldsOneSingleElementBundle() {
+        let sample = URL(fileURLWithPath: "/tmp/sample.fastq.gz")
+
+        XCTAssertEqual(AssemblyWizardSheet.groupBundles(inputFiles: [sample]), [[sample]])
+    }
 }

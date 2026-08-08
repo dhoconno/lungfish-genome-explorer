@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import LungfishIO
+import LungfishKit
 import LungfishWorkflow
 
 @MainActor
@@ -858,7 +859,15 @@ final class FASTQOperationDialogState {
         embeddedToolReady = true
     }
 
-    func captureAssemblyRequest(_ request: AssemblyRunRequest) {
+    /// Captures the assembly request built by `AssemblyWizardSheet`, along
+    /// with the multi-bundle run mode the user selected. `runMode` maps onto
+    /// the existing `.perInput`/`.groupedResult` output-mode vocabulary that
+    /// already drives every other operation's split-vs-pool behavior:
+    /// `.perBundle` -> `.perInput` (FASTQOperationPlanner splits the pooled
+    /// request back into one per-bundle request), `.combined` ->
+    /// `.groupedResult` (single pooled request, no split). This is an
+    /// explicit user choice, not an inference from `request.pairedEnd`.
+    func captureAssemblyRequest(_ request: AssemblyRunRequest, runMode: MultiBundleRunMode = .perBundle) {
         outputDirectoryURL = request.outputDirectory
         pendingMinimap2Config = nil
         pendingMappingRequest = nil
@@ -868,9 +877,10 @@ final class FASTQOperationDialogState {
         pendingEsVirituConfigs = []
         pendingTaxTriageConfig = nil
         pendingViralReconRequest = nil
+        let assemblyOutputMode: FASTQOperationOutputMode = runMode == .combined ? .groupedResult : .perInput
         pendingLaunchRequest = .assemble(
             request: request,
-            outputMode: outputMode
+            outputMode: assemblyOutputMode
         )
         embeddedToolReady = true
     }
