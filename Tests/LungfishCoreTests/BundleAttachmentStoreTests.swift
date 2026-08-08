@@ -112,4 +112,27 @@ struct BundleAttachmentStoreTests {
 
         try FileManager.default.removeItem(at: tmp)
     }
+
+    /// Regression test for AS21: the sidebar's "Remove Attachment" action
+    /// used `try? store.remove(filename:)`, discarding the thrown error
+    /// entirely. This pins the contract the UI fix depends on: removing a
+    /// file that's already gone from disk (e.g. a race, or a locked/
+    /// permission-denied bundle parent) must throw rather than silently
+    /// succeeding, so the caller has an error to surface.
+    @Test("Remove throws when the attachment file no longer exists on disk")
+    func removeNonexistentAttachmentThrows() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test-bundle-\(UUID().uuidString)")
+        let attachDir = tmp.appendingPathComponent("attachments")
+        try FileManager.default.createDirectory(at: attachDir, withIntermediateDirectories: true)
+
+        let store = BundleAttachmentStore(bundleURL: tmp)
+        store.reload()
+
+        #expect(throws: (any Error).self) {
+            try store.remove(filename: "never-existed.txt")
+        }
+
+        try FileManager.default.removeItem(at: tmp)
+    }
 }
