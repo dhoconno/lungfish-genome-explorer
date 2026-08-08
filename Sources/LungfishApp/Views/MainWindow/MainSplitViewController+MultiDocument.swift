@@ -82,9 +82,20 @@ extension MainSplitViewController {
                         fullyLoadedDocuments.append(existingDoc)
                     } else if let docType = DocumentType.detect(from: url) {
                         placeholderDocuments.append((existingDoc, url, docType))
+                    } else {
+                        // AS36 (task E4): DocumentType.detect returning nil
+                        // (unrecognized/renamed/corrupted extension) used to
+                        // drop the item with zero trace, even in debug logs.
+                        mainSplitLogger.info(
+                            "handleMultipleItemsSelected: Dropped '\(item.title, privacy: .public)' - DocumentType.detect returned nil for \(url.lastPathComponent, privacy: .public)"
+                        )
                     }
                 } else if let docType = DocumentType.detect(from: url) {
                     unregisteredURLs.append((url, docType))
+                } else {
+                    mainSplitLogger.info(
+                        "handleMultipleItemsSelected: Dropped '\(item.title, privacy: .public)' - DocumentType.detect returned nil for \(url.lastPathComponent, privacy: .public)"
+                    )
                 }
             } else if let doc = DocumentManager.shared.documents.first(where: { $0.name == item.title }) {
                 fullyLoadedDocuments.append(doc)

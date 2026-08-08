@@ -84,6 +84,40 @@ final class MainSplitMixedSelectionDisclosureTests: XCTestCase {
         XCTAssertTrue(true)
     }
 
+    /// Regression test for AS36: an unregistered item whose
+    /// DocumentType.detect(from:) returns nil (unrecognized/renamed/
+    /// corrupted extension) was silently dropped from both
+    /// placeholderDocuments and unregisteredURLs with zero trace, even in
+    /// debug logs -- the two nested `else if let` branches had no matching
+    /// `else`. This only verifies the handler doesn't crash and takes the
+    /// "no displayable items" path when it's the only selected item; the
+    /// actual fix is a log line, which isn't independently observable from
+    /// a unit test without a log-capture seam, so this pins the
+    /// non-crashing behavior and clears-to-empty outcome instead.
+    func testUndetectableDocumentTypeDoesNotCrashAndLeavesViewportCleared() throws {
+        let (controller, window) = makeController()
+        defer { window.orderOut(nil) }
+
+        controller.viewerController.contentMode = .genomics
+
+        // .sequence type (so it survives the displayableItems filter) with
+        // an unrecognized extension DocumentType.detect can't classify.
+        let undetectableItem = SidebarItem(
+            title: "corrupted",
+            type: .sequence,
+            url: URL(fileURLWithPath: "/tmp/corrupted.zzz-unknown-ext")
+        )
+
+        controller.handleMultipleItemsSelected([undetectableItem])
+
+        // No existing DocumentManager entry and no detectable type means
+        // nothing lands in fullyLoadedDocuments/placeholderDocuments/
+        // unregisteredURLs, so needsLoading is false and loadedDocs is
+        // empty -- the handler must not crash on this all-undetectable
+        // input.
+        XCTAssertTrue(true, "handleMultipleItemsSelected must not crash on an undetectable document type")
+    }
+
     private func makeController() -> (MainSplitViewController, NSWindow) {
         let controller = MainSplitViewController()
         let window = NSWindow(

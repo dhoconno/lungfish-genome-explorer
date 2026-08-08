@@ -101,6 +101,7 @@ extension AppDelegate {
               let originSplit = originController.mainSplitViewController,
               let window = originController.window else {
             debugLog("showFASTQOperationsDialog: No main window available")
+            NSSound.beep()
             return
         }
 
@@ -368,6 +369,7 @@ extension AppDelegate {
         guard let controller = activeMainWindowController(sender: sender),
               let window = controller.window else {
             debugLog("launchNaoMgsImport: No main window available")
+            NSSound.beep()
             return
         }
         let routeContext = currentOperationRouteContext(for: controller)
@@ -395,6 +397,7 @@ extension AppDelegate {
         guard let controller = activeMainWindowController(sender: sender),
               let window = controller.window else {
             debugLog("launchPrimerSchemeImport: No main window available")
+            NSSound.beep()
             return
         }
         let routeContext = currentOperationRouteContext(for: controller)
@@ -442,6 +445,7 @@ extension AppDelegate {
         guard let controller = activeMainWindowController(sender: sender),
               let window = controller.window else {
             debugLog("launchNvdImport: No main window available")
+            NSSound.beep()
             return
         }
         let routeContext = currentOperationRouteContext(for: controller)
@@ -469,6 +473,7 @@ extension AppDelegate {
         guard let controller = activeMainWindowController(sender: sender),
               let window = controller.window else {
             debugLog("launchCzIdImport: No main window available")
+            NSSound.beep()
             return
         }
         let routeContext = currentOperationRouteContext(for: controller)
