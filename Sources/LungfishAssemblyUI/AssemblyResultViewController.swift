@@ -361,8 +361,17 @@ public final class AssemblyResultViewController: NSViewController {
     private func performCopySelectedFASTA() {
         guard let result = currentResult, !selectedContigNames.isEmpty else { return }
         let selectedContigs = selectedContigNames
-        Task {
-            try? await materializationAction.copyFASTA(result: result, selectedContigs: selectedContigs)
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await self.materializationAction.copyFASTA(result: result, selectedContigs: selectedContigs)
+            } catch {
+                NSSound.beep()
+                self.presentWarning(
+                    title: "Copy FASTA Failed",
+                    message: "Could not copy the selected contig FASTA: \(error.localizedDescription)"
+                )
+            }
         }
     }
 
