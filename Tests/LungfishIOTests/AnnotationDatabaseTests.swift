@@ -436,6 +436,111 @@ final class AnnotationDatabaseTests: XCTestCase {
         XCTAssertEqual(Set(db.queryForTable(limit: 10).map(\.name)), ["keep_one", "reject_delete", "keep_two"])
     }
 
+    // MARK: - Tests: F38 SQLITE_STATIC use-after-free regression
+
+    /// Demonstrates the exact hazard described in F38: binding a bridged NSString's
+    /// `utf8String` pointer with a `nil` (SQLITE_STATIC) destructor is only safe if the
+    /// NSString outlives `sqlite3_step()`. Scoping the bridge inside an `autoreleasepool`
+    /// that closes *before* `sqlite3_step()` runs -- exactly what "a bridged NSString
+    /// scoped to force deallocation before sqlite3_step" means -- frees the backing buffer
+    /// early; once the allocator reuses that freed block for unrelated large strings, the
+    /// row SQLite eventually reads is corrupted. This test targets the vulnerable *pattern*
+    /// directly (not AnnotationDatabase, which is a black box that cannot have an
+    /// autoreleasepool boundary injected into the middle of its own function body from the
+    /// outside) to prove why `nil`/SQLITE_STATIC is unsafe here and why SQLITE_TRANSIENT is
+    /// required. It does not touch production code and stays green regardless of the F38 fix;
+    /// its purpose is to fail loudly if this reproduction technique itself stops demonstrating
+    /// the hazard (e.g. after a toolchain change), which would mean testInsertAnnotationAndUpdateAnnotationNeverBindWithNilDestructor
+    /// below needs a companion behavioral test again.
+    func testSQLiteStaticBindOfPrematurelyDeallocatedNSStringCorruptsStoredContent() throws {
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(":memory:", &db), SQLITE_OK)
+        defer { sqlite3_close(db) }
+        XCTAssertEqual(sqlite3_exec(db, "CREATE TABLE t (a TEXT, b TEXT, c TEXT)", nil, nil, nil), SQLITE_OK)
+
+        // Short strings, built at runtime (not literals) per row so each NSString bridge
+        // recycles the same small scratch buffer -- exactly the memory shape that makes
+        // the SQLITE_STATIC-with-a-temporary hazard from F38 deterministically observable.
+        func shortString(_ tag: String, _ i: Int) -> String {
+            "\(tag)\(i)"
+        }
+
+        func insertWithStaticDestructorAndPrematureDealloc(_ a: String, _ b: String, _ c: String) {
+            var stmt: OpaquePointer?
+            XCTAssertEqual(sqlite3_prepare_v2(db, "INSERT INTO t (a,b,c) VALUES (?,?,?)", -1, &stmt, nil), SQLITE_OK)
+            defer { sqlite3_finalize(stmt) }
+            // Each bind's NSString is scoped to its own autoreleasepool, which drains
+            // (deallocating the temporary's backing buffer) before the pool closes --
+            // i.e. before sqlite3_step() below ever runs. This mirrors the exact
+            // SQLITE_STATIC-with-a-temporary hazard described in F38.
+            _ = autoreleasepool {
+                sqlite3_bind_text(stmt, 1, (a as NSString).utf8String, -1, nil)
+            }
+            _ = autoreleasepool {
+                sqlite3_bind_text(stmt, 2, (b as NSString).utf8String, -1, nil)
+            }
+            _ = autoreleasepool {
+                sqlite3_bind_text(stmt, 3, (c as NSString).utf8String, -1, nil)
+            }
+            XCTAssertEqual(sqlite3_step(stmt), SQLITE_DONE)
+        }
+
+        for i in 0..<20 {
+            insertWithStaticDestructorAndPrematureDealloc(shortString("alpha", i), shortString("beta", i), shortString("gamma", i))
+        }
+
+        var query: OpaquePointer?
+        XCTAssertEqual(sqlite3_prepare_v2(db, "SELECT a, b, c FROM t ORDER BY rowid", -1, &query, nil), SQLITE_OK)
+        defer { sqlite3_finalize(query) }
+        var corruptedRowCount = 0
+        var rowIndex = 0
+        while sqlite3_step(query) == SQLITE_ROW {
+            let a = String(cString: sqlite3_column_text(query, 0))
+            let b = String(cString: sqlite3_column_text(query, 1))
+            let c = String(cString: sqlite3_column_text(query, 2))
+            if a != shortString("alpha", rowIndex) || b != shortString("beta", rowIndex) || c != shortString("gamma", rowIndex) {
+                corruptedRowCount += 1
+            }
+            rowIndex += 1
+        }
+        XCTAssertEqual(rowIndex, 20)
+        XCTAssertGreaterThan(
+            corruptedRowCount, 0,
+            "Expected the SQLITE_STATIC-with-prematurely-deallocated-NSString pattern to corrupt at least one row"
+        )
+    }
+
+    /// Regression guard for F38: `AnnotationDatabase+Mutation.swift` must never pass `nil`
+    /// (SQLITE_STATIC semantics) as the destructor argument to `sqlite3_bind_text` for a
+    /// bridged `(str as NSString).utf8String` temporary -- see
+    /// `testSQLiteStaticBindOfPrematurelyDeallocatedNSStringCorruptsStoredContent` above for
+    /// why that pattern is unsafe. Every bind in this file must use SQLITE_TRANSIENT (or an
+    /// equivalent non-nil copying destructor) so SQLite copies the bytes immediately instead
+    /// of trusting the temporary to outlive sqlite3_step().
+    func testInsertAnnotationAndUpdateAnnotationNeverBindWithNilDestructor() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // AnnotationDatabaseTests.swift -> LungfishIOTests
+            .deletingLastPathComponent() // LungfishIOTests -> Tests
+            .deletingLastPathComponent() // Tests -> repo root
+            .appendingPathComponent("Sources/LungfishIO/Bundles/AnnotationDatabase+Mutation.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let bindTextLines = source
+            .components(separatedBy: .newlines)
+            .filter { $0.contains("sqlite3_bind_text(") }
+        XCTAssertGreaterThan(bindTextLines.count, 0, "Expected to find sqlite3_bind_text calls to inspect in \(sourceURL.path)")
+
+        // Every sqlite3_bind_text call in this file is a single, complete statement on
+        // its own line. A call using the `nil` (SQLITE_STATIC) destructor ends the
+        // statement with `nil)`; a fixed call ends with `SQLITE_TRANSIENT)`.
+        let nilDestructorCalls = bindTextLines.filter { line in
+            line.trimmingCharacters(in: .whitespaces).hasSuffix("nil)")
+        }
+        XCTAssertTrue(
+            nilDestructorCalls.isEmpty,
+            "Found sqlite3_bind_text call(s) using a nil (SQLITE_STATIC) destructor on a temporary: \(nilDestructorCalls)"
+        )
+    }
+
     // MARK: - Tests: createFromBED with GenBank Types
 
     func testCreateFromBEDWithGenBankTypes() throws {
