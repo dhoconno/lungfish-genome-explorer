@@ -435,10 +435,15 @@ extension InspectorViewController {
         let capturedURLs = variantDBURLs
         let capturedBundleURL = bundle.url
         viewModel.sampleSectionViewModel.onSaveMetadata = { [weak self] sampleName, metadata in
+            // canWriteProjectOutputs already presents an alert on denial
+            // (ProjectWriteGatePresenter.presentBlockedWrite), so no
+            // additional alert is needed here -- just report failure so
+            // SampleSectionViewModel.saveMetadataEdits() rolls back its
+            // optimistic write (AS13 / task E4).
             guard self?.canWriteProjectOutputs(
                 bundleURL: capturedBundleURL,
                 workflowName: "Sample metadata edit"
-            ) == true else { return }
+            ) == true else { return false }
             do {
                 let targets = capturedURLs.map {
                     VariantSampleMetadataImportTarget(databaseURL: $0)
@@ -450,8 +455,24 @@ extension InspectorViewController {
                     targets: targets
                 )
                 inspectorLogger.info("updateSampleSection: Saved metadata for '\(sampleName)' to \(result.totalUpdated) variant database(s)")
+                return true
             } catch {
                 inspectorLogger.warning("updateSampleSection: Failed to save metadata: \(error.localizedDescription)")
+                // AS13 (task E4): this path previously only logged a
+                // warning with no user-facing indication that the edit
+                // was lost. The write-blocked path above already alerts;
+                // this is the other failure mode (mutation threw despite
+                // write access being granted).
+                if let window = self?.view.window {
+                    NSSound.beep()
+                    let alert = NSAlert()
+                    alert.messageText = "Could Not Save Sample Metadata"
+                    alert.informativeText = "Failed to save metadata for \"\(sampleName)\": \(error.localizedDescription)"
+                    alert.alertStyle = .warning
+                    alert.addButton(withTitle: "OK")
+                    alert.beginSheetModal(for: window)
+                }
+                return false
             }
         }
 

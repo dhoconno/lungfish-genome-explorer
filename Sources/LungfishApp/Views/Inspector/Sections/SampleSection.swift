@@ -59,8 +59,16 @@ public final class SampleSectionViewModel {
     /// New value being typed in the metadata editor.
     var newMetadataValue: String = ""
 
-    /// Callback to persist metadata changes to the database.
-    var onSaveMetadata: ((_ sampleName: String, _ metadata: [String: String]) -> Void)?
+    /// Callback to persist metadata changes to the database. Returns
+    /// `true` on success, `false` on failure (write access denied, or the
+    /// underlying mutation threw) -- see `saveMetadataEdits()`, which
+    /// rolls back its optimistic update when this returns `false`.
+    var onSaveMetadata: ((_ sampleName: String, _ metadata: [String: String]) -> Bool)?
+
+    /// Set by `saveMetadataEdits()` when the most recent save attempt
+    /// failed (onSaveMetadata returned false), so a hosting view can show
+    /// an error. Cleared on the next successful save or edit session.
+    var lastSaveFailed: Bool = false
 
     /// Callback to import metadata from a file.
     var onImportMetadata: (() -> Void)?
@@ -119,17 +127,35 @@ public final class SampleSectionViewModel {
         editingMetadata = metadata.sorted(by: { $0.key < $1.key }).map { (key: $0.key, value: $0.value) }
         newMetadataKey = ""
         newMetadataValue = ""
+        lastSaveFailed = false
     }
 
     /// Saves the current metadata edits.
+    ///
+    /// Applies an optimistic update to `sampleMetadata` so the UI reflects
+    /// the edit immediately, then calls `onSaveMetadata`. If persistence
+    /// fails (write access denied, or the underlying mutation threw --
+    /// AS13 / task E4), the optimistic write is rolled back to the
+    /// pre-edit value and the editing sheet stays open (`editingSample`
+    /// remains set) instead of silently discarding the failure while the
+    /// Inspector shows a value that was never actually saved.
     func saveMetadataEdits() {
         guard let sampleName = editingSample else { return }
         var metadata: [String: String] = [:]
         for pair in editingMetadata where !pair.key.isEmpty {
             metadata[pair.key] = pair.value
         }
+
+        let previousMetadata = sampleMetadata[sampleName]
         sampleMetadata[sampleName] = metadata
-        onSaveMetadata?(sampleName, metadata)
+
+        if let onSaveMetadata, onSaveMetadata(sampleName, metadata) == false {
+            sampleMetadata[sampleName] = previousMetadata
+            lastSaveFailed = true
+            return
+        }
+
+        lastSaveFailed = false
         editingSample = nil
 
         // Update metadata fields

@@ -356,6 +356,75 @@ final class SampleSectionViewModelTests: XCTestCase {
         XCTAssertTrue(vm.displayState.filters.isEmpty)
     }
 
+    // MARK: - Metadata Edit Save/Rollback (AS13)
+
+    /// Regression test for AS13: saveMetadataEdits() used to write the
+    /// edited metadata into sampleMetadata and dismiss the editing sheet
+    /// unconditionally, THEN fire onSaveMetadata -- so a denied write
+    /// (locked/read-only project) or a persistence throw left the
+    /// Inspector showing the new value while the underlying database was
+    /// never touched. onSaveMetadata now reports success/failure and a
+    /// failed save must roll back the optimistic write and keep the sheet
+    /// open (editingSample non-nil) so the user's edits aren't silently
+    /// lost.
+    func testSaveMetadataEditsAppliesOptimisticUpdateOnSuccess() {
+        let vm = makeViewModel()
+        vm.update(sampleCount: 1, sampleNames: ["Sample1"], metadataFields: [])
+        var savedCalls: [(String, [String: String])] = []
+        vm.onSaveMetadata = { sampleName, metadata in
+            savedCalls.append((sampleName, metadata))
+            return true
+        }
+
+        vm.beginEditingMetadata(for: "Sample1")
+        vm.editingMetadata = [(key: "sex", value: "F")]
+        vm.saveMetadataEdits()
+
+        XCTAssertEqual(vm.sampleMetadata["Sample1"], ["sex": "F"])
+        XCTAssertNil(vm.editingSample, "A successful save must close the editing sheet")
+        XCTAssertEqual(savedCalls.count, 1)
+        XCTAssertEqual(savedCalls.first?.0, "Sample1")
+    }
+
+    func testSaveMetadataEditsRollsBackOptimisticUpdateOnFailure() {
+        let vm = makeViewModel()
+        vm.update(
+            sampleCount: 1,
+            sampleNames: ["Sample1"],
+            metadataFields: ["sex"],
+            sampleMetadata: ["Sample1": ["sex": "M"]]
+        )
+        vm.onSaveMetadata = { _, _ in false }
+
+        vm.beginEditingMetadata(for: "Sample1")
+        vm.editingMetadata = [(key: "sex", value: "F")]
+        vm.saveMetadataEdits()
+
+        XCTAssertEqual(
+            vm.sampleMetadata["Sample1"],
+            ["sex": "M"],
+            "A failed save must roll back to the pre-edit metadata rather than leaving the optimistic write in place"
+        )
+        XCTAssertNotNil(vm.editingSample, "A failed save must keep the editing sheet open so edits aren't lost")
+        XCTAssertEqual(vm.editingSample, "Sample1")
+        XCTAssertTrue(vm.lastSaveFailed, "A failed save must be discoverable so the UI can show an error")
+    }
+
+    func testSaveMetadataEditsWithNoCallbackStillAppliesOptimisticUpdate() {
+        // No onSaveMetadata wired at all (e.g. UI not yet wired to a
+        // persistence backend) must not be treated as a failure -- there's
+        // nothing to roll back against.
+        let vm = makeViewModel()
+        vm.update(sampleCount: 1, sampleNames: ["Sample1"], metadataFields: [])
+
+        vm.beginEditingMetadata(for: "Sample1")
+        vm.editingMetadata = [(key: "sex", value: "F")]
+        vm.saveMetadataEdits()
+
+        XCTAssertEqual(vm.sampleMetadata["Sample1"], ["sex": "F"])
+        XCTAssertNil(vm.editingSample)
+    }
+
     func testResetPreservesSampleData() {
         let vm = makeViewModel()
         vm.update(sampleCount: 5, sampleNames: testSampleNames, metadataFields: ["sex"])
