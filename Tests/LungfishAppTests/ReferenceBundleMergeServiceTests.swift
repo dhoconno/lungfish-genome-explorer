@@ -56,7 +56,10 @@ final class ReferenceBundleMergeServiceTests: XCTestCase {
         XCTAssertEqual(provenance.options.explicit["requestedBundleName"]?.stringValue, "Merged Reference")
         XCTAssertEqual(provenance.options.explicit["resolvedBundleName"]?.stringValue, "Merged Reference")
         XCTAssertEqual(provenance.options.explicit["mergeMode"]?.stringValue, "sequence-only")
-        XCTAssertEqual(provenance.options.resolvedDefaults["annotationMerge"]?.stringValue, "unsupported")
+        XCTAssertEqual(
+            provenance.options.resolvedDefaults["annotationMerge"]?.stringValue,
+            "no-annotations-in-sources"
+        )
         XCTAssertEqual(provenance.options.resolvedDefaults["variantMerge"]?.stringValue, "unsupported")
         XCTAssertEqual(provenance.options.resolvedDefaults["trackMerge"]?.stringValue, "unsupported")
         XCTAssertEqual(provenance.options.explicit["outputBundle"]?.fileValue?.path, mergedURL.path)
@@ -158,7 +161,7 @@ final class ReferenceBundleMergeServiceTests: XCTestCase {
         XCTAssertFalse(provenance.argv.contains("Merged Reference.lungfishref"))
     }
 
-    func testMergeRejectsSourceBundleWithNonSequenceTracks() async throws {
+    func testMergeRejectsSourceBundleWithVariantTracks() async throws {
         let root = try makeTempDirectory()
         let projectURL = root.appendingPathComponent("Fixture.lungfish", isDirectory: true)
 
@@ -172,23 +175,315 @@ final class ReferenceBundleMergeServiceTests: XCTestCase {
             into: projectURL,
             displayName: "A"
         )
-        let annotatedBundle = try makeAnnotatedReferenceBundle(in: projectURL)
+        let variantBundle = try makeVariantReferenceBundle(in: projectURL)
 
         do {
             _ = try await ReferenceBundleMergeService.merge(
-                sourceBundleURLs: [sequenceOnlyBundle, annotatedBundle],
+                sourceBundleURLs: [sequenceOnlyBundle, variantBundle],
                 outputDirectory: projectURL,
                 bundleName: "Should Not Merge"
             )
-            XCTFail("Expected annotated reference bundles to be rejected")
+            XCTFail("Expected variant-bearing reference bundles to be rejected")
         } catch {
+            let message = error.localizedDescription
             XCTAssertTrue(
-                error.localizedDescription.contains("contains annotations, variants, tracks, or alignments")
+                message.contains("variant tracks"),
+                "Refusal must name the unsupported payload precisely: \(message)"
+            )
+            XCTAssertFalse(
+                message.contains("contains annotations, variants, tracks, or alignments"),
+                "Refusal must no longer claim annotations are unsupported: \(message)"
+            )
+            XCTAssertTrue(
+                message.lowercased().contains("annotation"),
+                "Refusal must tell the user annotations now merge: \(message)"
             )
         }
         XCTAssertFalse(
             FileManager.default.fileExists(
                 atPath: projectURL.appendingPathComponent("Should Not Merge.lungfishref").path
+            )
+        )
+    }
+
+    func testMergePreservesAnnotationsFromTwoGenBankBundles() async throws {
+        let root = try makeTempDirectory()
+        let projectURL = root.appendingPathComponent("Fixture.lungfish", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let genBankA = root.appendingPathComponent("A.gb")
+        let genBankB = root.appendingPathComponent("B.gb")
+        try Self.genBankRecord(
+            locus: "GBSEQA",
+            geneName: "geneA",
+            sequence: "atcgatcgatcgatcgatcg"
+        ).write(to: genBankA, atomically: true, encoding: .utf8)
+        try Self.genBankRecord(
+            locus: "GBSEQB",
+            geneName: "geneB",
+            sequence: "ggccggccggccggccggcc"
+        ).write(to: genBankB, atomically: true, encoding: .utf8)
+
+        let bundleA = try await ReferenceBundleImportService.shared.importAsReferenceBundle(
+            sourceURL: genBankA,
+            outputDirectory: projectURL,
+            preferredBundleName: "GenBank A"
+        ).bundleURL
+        let bundleB = try await ReferenceBundleImportService.shared.importAsReferenceBundle(
+            sourceURL: genBankB,
+            outputDirectory: projectURL,
+            preferredBundleName: "GenBank B"
+        ).bundleURL
+
+        // Sanity: both sources really do carry annotation tracks.
+        XCTAssertFalse(try BundleManifest.load(from: bundleA).annotations.isEmpty)
+        XCTAssertFalse(try BundleManifest.load(from: bundleB).annotations.isEmpty)
+
+        let mergedURL = try await ReferenceBundleMergeService.merge(
+            sourceBundleURLs: [bundleA, bundleB],
+            outputDirectory: projectURL,
+            bundleName: "Merged GenBank"
+        )
+
+        let manifest = try BundleManifest.load(from: mergedURL)
+
+        // Both sequence sets survive.
+        let chromosomeNames = Set((manifest.genome?.chromosomes ?? []).map(\.name))
+        XCTAssertTrue(chromosomeNames.contains("GBSEQA"), "Merged genome missing GBSEQA: \(chromosomeNames)")
+        XCTAssertTrue(chromosomeNames.contains("GBSEQB"), "Merged genome missing GBSEQB: \(chromosomeNames)")
+
+        // Both annotation track sets survive, attributable to their origin bundle.
+        XCTAssertEqual(manifest.annotations.count, 2, "Expected one annotation track per source bundle")
+        let trackIDs = Set(manifest.annotations.map(\.id))
+        XCTAssertEqual(trackIDs.count, 2, "Annotation track ids must be unique: \(trackIDs)")
+
+        var mergedGenes: Set<String> = []
+        var mergedChromosomes: Set<String> = []
+        for track in manifest.annotations {
+            let databasePath = try XCTUnwrap(track.databasePath, "Track \(track.id) lost its annotation database")
+            let databaseURL = try BundleManifest.validatedBundleMemberURL(
+                for: databasePath,
+                in: mergedURL,
+                field: "annotations.database_path"
+            )
+            let database = try AnnotationDatabase(url: databaseURL)
+            for record in database.query(limit: Int.max) {
+                mergedGenes.insert(record.name)
+                mergedChromosomes.insert(record.chromosome)
+            }
+        }
+        XCTAssertTrue(mergedGenes.contains("geneA"), "Merged annotations missing geneA: \(mergedGenes)")
+        XCTAssertTrue(mergedGenes.contains("geneB"), "Merged annotations missing geneB: \(mergedGenes)")
+        XCTAssertEqual(
+            mergedChromosomes,
+            ["GBSEQA", "GBSEQB"],
+            "Annotations must stay bound to their original sequence names"
+        )
+
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: mergedURL))
+        XCTAssertEqual(provenance.options.explicit["mergeMode"]?.stringValue, "sequence-and-annotations")
+        XCTAssertEqual(
+            provenance.options.resolvedDefaults["annotationMerge"]?.stringValue,
+            "preserved"
+        )
+    }
+
+    func testMergePreservesGenBankRecordStoreAcrossSources() async throws {
+        let root = try makeTempDirectory()
+        let projectURL = root.appendingPathComponent("Fixture.lungfish", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let genBankA = root.appendingPathComponent("A.gb")
+        let genBankB = root.appendingPathComponent("B.gb")
+        try Self.genBankRecord(
+            locus: "STOREA",
+            geneName: "geneA",
+            sequence: "atcgatcgatcgatcgatcg"
+        ).write(to: genBankA, atomically: true, encoding: .utf8)
+        try Self.genBankRecord(
+            locus: "STOREB",
+            geneName: "geneB",
+            sequence: "ggccggccggccggccggcc"
+        ).write(to: genBankB, atomically: true, encoding: .utf8)
+
+        let bundleA = try await ReferenceBundleImportService.shared.importAsReferenceBundle(
+            sourceURL: genBankA,
+            outputDirectory: projectURL,
+            preferredBundleName: "Store A"
+        ).bundleURL
+        let bundleB = try await ReferenceBundleImportService.shared.importAsReferenceBundle(
+            sourceURL: genBankB,
+            outputDirectory: projectURL,
+            preferredBundleName: "Store B"
+        ).bundleURL
+
+        let mergedURL = try await ReferenceBundleMergeService.merge(
+            sourceBundleURLs: [bundleA, bundleB],
+            outputDirectory: projectURL,
+            bundleName: "Merged Store"
+        )
+
+        let manifest = try BundleManifest.load(from: mergedURL)
+        let recordStore = try XCTUnwrap(
+            manifest.recordStore,
+            "Merged bundle dropped the GenBank record store"
+        )
+        XCTAssertEqual(recordStore.recordCount, 2)
+
+        let bundle = try await ReferenceBundle(url: mergedURL)
+        let database = try XCTUnwrap(bundle.recordStoreDatabase())
+        let rows = try database.records()
+        XCTAssertEqual(rows.map(\.sequenceName), ["STOREA", "STOREB"])
+        XCTAssertEqual(rows.map(\.sourceOrdinal), [0, 1])
+        XCTAssertTrue(
+            rows.allSatisfy { $0.values["record.ACCESSION"] != nil },
+            "Merged record store lost per-record ACCESSION metadata"
+        )
+    }
+
+    func testMergeCombinesGenBankAndFASTASources() async throws {
+        let root = try makeTempDirectory()
+        let projectURL = root.appendingPathComponent("Fixture.lungfish", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let genBank = root.appendingPathComponent("Mixed.gb")
+        try Self.genBankRecord(
+            locus: "MIXEDGB",
+            geneName: "geneMixed",
+            sequence: "atcgatcgatcgatcgatcg"
+        ).write(to: genBank, atomically: true, encoding: .utf8)
+        let fasta = root.appendingPathComponent("Mixed.fa")
+        try ">MIXEDFA\nACGTACGTACGT\n".write(to: fasta, atomically: true, encoding: .utf8)
+
+        let genBankBundle = try await ReferenceBundleImportService.shared.importAsReferenceBundle(
+            sourceURL: genBank,
+            outputDirectory: projectURL,
+            preferredBundleName: "Mixed GenBank"
+        ).bundleURL
+        let fastaBundle = try await ReferenceBundleImportService.shared.importAsReferenceBundle(
+            sourceURL: fasta,
+            outputDirectory: projectURL,
+            preferredBundleName: "Mixed FASTA"
+        ).bundleURL
+
+        let mergedURL = try await ReferenceBundleMergeService.merge(
+            sourceBundleURLs: [genBankBundle, fastaBundle],
+            outputDirectory: projectURL,
+            bundleName: "Mixed Merge"
+        )
+
+        let manifest = try BundleManifest.load(from: mergedURL)
+        let chromosomeNames = Set((manifest.genome?.chromosomes ?? []).map(\.name))
+        XCTAssertEqual(chromosomeNames, ["MIXEDGB", "MIXEDFA"])
+        XCTAssertEqual(
+            manifest.annotations.count,
+            1,
+            "The GenBank source's annotations must survive a mixed merge"
+        )
+        // Only one source carries a record store, so the store is dropped rather than
+        // written half-populated — but the loss must be recorded, not silent.
+        XCTAssertNil(manifest.recordStore)
+        XCTAssertTrue(
+            manifest.warnings.contains { $0.code == "partial_record_store_dropped" },
+            "Dropping the record store must leave a warning in the merged manifest"
+        )
+    }
+
+    func testMergeRefusesSourceBundleWithUnreadableManifest() async throws {
+        let root = try makeTempDirectory()
+        let projectURL = root.appendingPathComponent("Fixture.lungfish", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fastaA = root.appendingPathComponent("A.fa")
+        try ">chrA\nAAAA\n".write(to: fastaA, atomically: true, encoding: .utf8)
+        let bundleA = try ReferenceSequenceFolder.importReference(
+            from: fastaA,
+            into: projectURL,
+            displayName: "A"
+        )
+
+        let corruptBundle = projectURL.appendingPathComponent("Corrupt.lungfishref", isDirectory: true)
+        let genomeDirectory = corruptBundle.appendingPathComponent("genome", isDirectory: true)
+        try FileManager.default.createDirectory(at: genomeDirectory, withIntermediateDirectories: true)
+        try ">chrC\nGGGG\n".write(
+            to: genomeDirectory.appendingPathComponent("sequence.fa"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "{ not valid json".write(
+            to: corruptBundle.appendingPathComponent(BundleManifest.filename),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        do {
+            _ = try await ReferenceBundleMergeService.merge(
+                sourceBundleURLs: [bundleA, corruptBundle],
+                outputDirectory: projectURL,
+                bundleName: "Should Not Merge"
+            )
+            XCTFail("Expected an unreadable manifest to refuse the merge")
+        } catch {
+            XCTAssertTrue(
+                error.localizedDescription.contains("Corrupt"),
+                "Refusal must name the offending bundle: \(error.localizedDescription)"
+            )
+        }
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: projectURL.appendingPathComponent("Should_Not_Merge.lungfishref").path
+            )
+        )
+    }
+
+    func testMergeRefusesDuplicateSequenceNamesAcrossSources() async throws {
+        let root = try makeTempDirectory()
+        let projectURL = root.appendingPathComponent("Fixture.lungfish", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fastaA = root.appendingPathComponent("A.fa")
+        let fastaB = root.appendingPathComponent("B.fa")
+        try ">shared\nAAAA\n".write(to: fastaA, atomically: true, encoding: .utf8)
+        try ">shared\nCCCC\n".write(to: fastaB, atomically: true, encoding: .utf8)
+
+        let bundleA = try ReferenceSequenceFolder.importReference(
+            from: fastaA,
+            into: projectURL,
+            displayName: "A"
+        )
+        let bundleB = try ReferenceSequenceFolder.importReference(
+            from: fastaB,
+            into: projectURL,
+            displayName: "B"
+        )
+
+        do {
+            _ = try await ReferenceBundleMergeService.merge(
+                sourceBundleURLs: [bundleA, bundleB],
+                outputDirectory: projectURL,
+                bundleName: "Colliding Merge"
+            )
+            XCTFail("Expected duplicate sequence names to refuse the merge")
+        } catch {
+            let message = error.localizedDescription
+            XCTAssertTrue(
+                message.contains("shared"),
+                "Refusal must name the colliding record: \(message)"
+            )
+        }
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: projectURL.appendingPathComponent("Colliding_Merge.lungfishref").path
             )
         )
     }
@@ -241,12 +536,12 @@ final class ReferenceBundleMergeServiceTests: XCTestCase {
         return root
     }
 
-    private func makeAnnotatedReferenceBundle(in projectURL: URL) throws -> URL {
-        let bundleURL = projectURL.appendingPathComponent("Annotated.lungfishref", isDirectory: true)
+    private func makeVariantReferenceBundle(in projectURL: URL) throws -> URL {
+        let bundleURL = projectURL.appendingPathComponent("WithVariants.lungfishref", isDirectory: true)
         let genomeDirectory = bundleURL.appendingPathComponent("genome", isDirectory: true)
-        let annotationsDirectory = bundleURL.appendingPathComponent("annotations", isDirectory: true)
+        let variantsDirectory = bundleURL.appendingPathComponent("variants", isDirectory: true)
         try FileManager.default.createDirectory(at: genomeDirectory, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: annotationsDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: variantsDirectory, withIntermediateDirectories: true)
 
         try ">chrB\nCCCC\n".write(
             to: genomeDirectory.appendingPathComponent("sequence.fa"),
@@ -254,15 +549,15 @@ final class ReferenceBundleMergeServiceTests: XCTestCase {
             encoding: .utf8
         )
         try "placeholder\n".write(
-            to: annotationsDirectory.appendingPathComponent("genes.bb"),
+            to: variantsDirectory.appendingPathComponent("calls.bcf"),
             atomically: true,
             encoding: .utf8
         )
 
         let manifest = BundleManifest(
-            name: "Annotated",
-            identifier: "org.lungfish.test.annotated",
-            source: SourceInfo(organism: "Annotated", assembly: "Annotated"),
+            name: "WithVariants",
+            identifier: "org.lungfish.test.withvariants",
+            source: SourceInfo(organism: "WithVariants", assembly: "WithVariants"),
             genome: GenomeInfo(
                 path: "genome/sequence.fa",
                 indexPath: "genome/sequence.fa.fai",
@@ -277,15 +572,46 @@ final class ReferenceBundleMergeServiceTests: XCTestCase {
                     )
                 ]
             ),
-            annotations: [
-                AnnotationTrackInfo(
-                    id: "genes",
-                    name: "Genes",
-                    path: "annotations/genes.bb"
+            variants: [
+                VariantTrackInfo(
+                    id: "calls",
+                    name: "Calls",
+                    path: "variants/calls.bcf",
+                    indexPath: "variants/calls.bcf.csi"
                 )
             ]
         )
         try manifest.save(to: bundleURL)
         return bundleURL
+    }
+
+    /// Builds a minimal single-record GenBank source with one gene feature.
+    ///
+    /// Kept inline (rather than depending on `test-data/`) so the fixture is
+    /// available from fresh clones and worktrees.
+    private static func genBankRecord(
+        locus: String,
+        geneName: String,
+        sequence: String
+    ) -> String {
+        let length = sequence.count
+        let originLine = "        1 " + sequence
+        return """
+        LOCUS       \(locus)                \(length) bp    DNA     linear   SYN 01-JAN-2024
+        DEFINITION  Synthetic record \(locus) for reference merge tests.
+        ACCESSION   \(locus)
+        VERSION     \(locus).1
+        FEATURES             Location/Qualifiers
+             source          1..\(length)
+                             /organism="Synthetic construct"
+                             /mol_type="genomic DNA"
+             gene            1..\(length)
+                             /gene="\(geneName)"
+                             /locus_tag="\(locus)_001"
+        ORIGIN
+        \(originLine)
+        //
+
+        """
     }
 }

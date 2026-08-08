@@ -286,7 +286,7 @@ extension SidebarViewController: NSOutlineViewDataSource {
         case .fastq:
             return "Enter a name for the merged FASTQ bundle:"
         case .reference:
-            return "Enter a name for the merged sequence-only reference bundle. Bundles with annotations, variants, tracks, or alignments are rejected rather than partially merged."
+            return "Enter a name for the merged reference bundle. Sequences and annotation tracks are carried across; bundles with variant tracks, signal tracks, or alignments are rejected rather than partially merged."
         }
     }
 

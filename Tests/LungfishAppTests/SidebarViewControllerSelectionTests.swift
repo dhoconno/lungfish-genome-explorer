@@ -340,7 +340,7 @@ final class SidebarViewControllerSelectionTests: XCTestCase {
         )
         XCTAssertTrue(
             SidebarViewController.mergeDialogInformativeText(for: .reference)
-                .contains("sequence-only reference bundle")
+                .contains("Sequences and annotation tracks are carried across")
         )
         XCTAssertTrue(
             SidebarViewController.mergeDialogInformativeText(for: .reference)
