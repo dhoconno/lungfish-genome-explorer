@@ -235,6 +235,59 @@ final class AssemblyResultViewControllerTests: XCTestCase {
         )
     }
 
+    func testRerunBlastButtonReRunsBlastForCurrentSelection() async throws {
+        let records = [
+            AssemblyContigRecord(
+                rank: 1,
+                name: "contig_7",
+                header: "contig_7 annotated header",
+                lengthBP: 8,
+                gcPercent: 50,
+                shareOfAssemblyPercent: 100,
+                previewSequence: "AACCGGTT"
+            ),
+        ]
+        let sequences = ["contig_7": ">contig_7 annotated header\nAACCGGTT\n"]
+
+        let vc = AssemblyResultViewController()
+        _ = vc.view
+        vc.catalogLoader = { _ in
+            FakeAssemblyContigCatalog(records: records, sequenceByName: sequences)
+        }
+        try await vc.configureForTesting(
+            result: makeAssemblyResult(),
+            materializationRunner: { _ in
+                .init(stdout: ">contig_7 annotated header\nAACCGGTT\n", stderr: "", status: 0)
+            }
+        )
+
+        var blastRequestCount = 0
+        vc.onBlastVerification = { _ in
+            blastRequestCount += 1
+        }
+
+        try await vc.testSelectContigs(named: ["contig_7"])
+        vc.testTriggerBlast()
+        await waitUntil(timeoutNanoseconds: 5_000_000_000) { blastRequestCount == 1 }
+
+        vc.showBlastResults(BlastVerificationResult(
+            taxonName: "contig_7",
+            taxId: 0,
+            readResults: [],
+            submittedAt: Date(),
+            completedAt: Date(),
+            rid: "RID-1",
+            blastProgram: "megablast",
+            database: "core_nt"
+        ))
+
+        let drawer = try XCTUnwrap(vc.testBlastDrawerContainer)
+        drawer.blastResultsTab.rerunBlastButton.performClick(nil)
+
+        await waitUntil(timeoutNanoseconds: 5_000_000_000) { blastRequestCount == 2 }
+        XCTAssertEqual(blastRequestCount, 2)
+    }
+
     func testConfigureLoadsContigsWhenResultIsMissingFASTAIndex() async throws {
         let vc = AssemblyResultViewController()
         _ = vc.view

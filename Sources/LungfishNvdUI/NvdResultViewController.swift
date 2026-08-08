@@ -1848,6 +1848,9 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         container.onDragEnd = { [weak self] in
             self?.view.layoutSubtreeIfNeeded()
         }
+        container.blastResultsTab.onRerunBlast = { [weak self] in
+            self?.blastVerifySelectedContig()
+        }
         view.layoutSubtreeIfNeeded()
 
         return container.blastResultsTab

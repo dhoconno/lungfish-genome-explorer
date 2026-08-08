@@ -153,6 +153,39 @@ final class NvdResultViewControllerTests: XCTestCase {
         )
     }
 
+    func testRerunBlastButtonReRunsBlastForSelectedContig() throws {
+        let fixture = try NvdMenuFixture()
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: fixture.rootURL)
+        }
+
+        let vc = NvdResultViewController()
+        _ = vc.view
+        vc.configure(database: fixture.database, manifest: fixture.manifest, bundleURL: fixture.bundleURL)
+        vc.testSelectOutlineRow(0)
+
+        var blastRequestCount = 0
+        vc.onBlastVerification = { _, _ in
+            blastRequestCount += 1
+        }
+
+        vc.showBlastResults(BlastVerificationResult(
+            taxonName: "contig_1",
+            taxId: 0,
+            readResults: [],
+            submittedAt: Date(),
+            completedAt: Date(),
+            rid: "RID-1",
+            blastProgram: "megablast",
+            database: "core_nt"
+        ))
+
+        let drawer = try XCTUnwrap(vc.testBlastDrawerContainer)
+        drawer.blastResultsTab.rerunBlastButton.performClick(nil)
+
+        XCTAssertEqual(blastRequestCount, 1)
+    }
+
     func testContigTSVExportWritesScientificProvenanceSidecar() throws {
         let fixture = try NvdMenuFixture()
         addTeardownBlock {

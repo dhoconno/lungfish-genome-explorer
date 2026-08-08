@@ -596,6 +596,9 @@ public final class AssemblyResultViewController: NSViewController {
         container.onDragEnd = { [weak self] in
             self?.view.layoutSubtreeIfNeeded()
         }
+        container.blastResultsTab.onRerunBlast = { [weak self] in
+            self?.performBlastSelected()
+        }
         view.layoutSubtreeIfNeeded()
         container.blastResultsTab.presentationStyle = .contigBlast
         return container.blastResultsTab
@@ -706,6 +709,7 @@ extension AssemblyResultViewController {
     var testDetailPane: AssemblyContigDetailPane { detailPane }
     var testActionBar: AssemblyActionBar { actionBar }
     var testContextMenuTitles: [String] { contextMenu.items.map(\.title) }
+    var testBlastDrawerContainer: BlastResultsDrawerContainerView? { blastDrawerContainer }
     var testEmptyStateView: NSView { emptyStateView }
     var testEmptyStateMessage: String { emptyStateLabel.stringValue }
     var testEmptyStateFontPointSize: CGFloat { emptyStateLabel.font?.pointSize ?? 0 }
