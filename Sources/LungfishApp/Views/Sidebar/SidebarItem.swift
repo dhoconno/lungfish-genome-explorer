@@ -114,6 +114,69 @@ public enum SidebarItemType {
         }
     }
 
+    /// The sidebar context-menu actions this bundle kind genuinely supports.
+    ///
+    /// Introduced for task E2 (2026-08-08 repo review fix campaign): the
+    /// context menu previously gated bundle-specific items behind
+    /// `item.type == .referenceBundle` (or a second hardcoded check for
+    /// `.fastqBundle`), so right-clicking any other bundle kind
+    /// (`.mhcReferenceBundle`, `.multipleSequenceAlignmentBundle`,
+    /// `.phylogeneticTreeBundle`, `.primerSchemeBundle`,
+    /// `.genotypeResultBundle`, `.twelveSAmpliconResultBundle`,
+    /// `.czIdResult`) showed none of the generic bundle actions even though
+    /// `isBundle` already classified them as bundles with their own icon,
+    /// viewer, and document section.
+    ///
+    /// This mapping is the single source of truth for "which bundle actions
+    /// apply to which kind" so future bundle kinds don't repeat the bug by
+    /// omission — the menu-building code consults `bundleCapabilities`
+    /// instead of enumerating kinds inline.
+    var bundleCapabilities: SidebarBundleCapabilities {
+        guard isBundle else { return .none }
+
+        switch self {
+        case .referenceBundle:
+            // .referenceBundle: full action set including sequence export
+            // and (via BundleMergeSelection — owned by task GB1) merge.
+            return SidebarBundleCapabilities(
+                canOpen: true,
+                canShowPackageContents: true,
+                canGetBundleInfo: true,
+                canShowInInspector: true,
+                canExportSequences: true
+            )
+        case .mhcReferenceBundle, .fastqBundle, .multipleSequenceAlignmentBundle, .phylogeneticTreeBundle,
+             .primerSchemeBundle, .genotypeResultBundle, .twelveSAmpliconResultBundle, .czIdResult:
+            // .mhcReferenceBundle gets the baseline actions here, NOT
+            // canExportSequences: exportSequences()'s sequence-loading path
+            // (AppDelegate+ImportCenter.loadSequencesForExport) only knows
+            // how to read a .lungfishref bundle's manifest.genome.path; an
+            // MHC bundle's reference.fa lives under a different manifest
+            // shape (MHCAmpliconReferenceBundleManifest.referenceFastaPath)
+            // that path doesn't understand. Advertising Export Sequences
+            // for MHC bundles without first teaching the export pipeline to
+            // read that manifest would just relocate the AS3 bug instead of
+            // fixing it. Left as a follow-up; see task E2 report.
+            // Every other bundle kind: the baseline actions that are
+            // kind-agnostic in their handlers (Open Bundle routes through
+            // the same selection-change path used for double-click; Show
+            // Package Contents just reveals the bundle directory in Finder;
+            // Get Bundle Info reads the bundle's manifest.json generically;
+            // Show in Inspector just posts a notification). FASTQ bundles
+            // keep their own additional "Export as FASTQ" item, built
+            // separately in the menu-delegate's FASTQ-specific section.
+            return SidebarBundleCapabilities(
+                canOpen: true,
+                canShowPackageContents: true,
+                canGetBundleInfo: true,
+                canShowInInspector: true,
+                canExportSequences: false
+            )
+        default:
+            return .none
+        }
+    }
+
     /// Creates a sidebar item type from a LungfishIO UICategory.
     ///
     /// - Parameter category: The UICategory from format detection
@@ -144,3 +207,38 @@ public enum SidebarItemType {
         }
     }
 }
+
+/// The set of generic, kind-agnostic bundle actions the sidebar context
+/// menu can offer for a given `SidebarItemType`. See
+/// `SidebarItemType.bundleCapabilities`.
+struct SidebarBundleCapabilities: Equatable {
+    var canOpen: Bool
+    var canShowPackageContents: Bool
+    var canGetBundleInfo: Bool
+    var canShowInInspector: Bool
+    var canExportSequences: Bool
+
+    static let none = SidebarBundleCapabilities(
+        canOpen: false,
+        canShowPackageContents: false,
+        canGetBundleInfo: false,
+        canShowInInspector: false,
+        canExportSequences: false
+    )
+}
+
+#if DEBUG
+extension SidebarItemType {
+    /// Every bundle kind, for exhaustive capability-mapping tests. Kept in
+    /// sync manually with `isBundle`'s switch cases (a compiler-enforced
+    /// exhaustive mapping isn't practical here since `isBundle` itself is a
+    /// non-exhaustive `switch`/`default` over the full enum).
+    static var allBundleKindsForTesting: [SidebarItemType] {
+        [
+            .referenceBundle, .mhcReferenceBundle, .multipleSequenceAlignmentBundle,
+            .phylogeneticTreeBundle, .fastqBundle, .primerSchemeBundle,
+            .genotypeResultBundle, .twelveSAmpliconResultBundle, .czIdResult,
+        ]
+    }
+}
+#endif

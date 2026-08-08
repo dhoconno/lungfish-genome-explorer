@@ -49,6 +49,16 @@ extension SidebarViewController: NSMenuDelegate {
         // If no items selected (shouldn't happen at this point, but safety check)
         guard !items.isEmpty else { return }
 
+        populateContextMenu(menu, for: items)
+    }
+
+    /// Builds the context-menu items for a selection. Split out of
+    /// `menuNeedsUpdate` so tests can exercise real menu construction
+    /// without depending on `NSOutlineView.clickedRow`, which only reflects
+    /// real mouse events and can't be set programmatically. Mirrors the
+    /// `FASTACollectionViewController.testUpdateContextMenu` test-seam
+    /// pattern used elsewhere in this codebase.
+    private func populateContextMenu(_ menu: NSMenu, for items: [SidebarItem]) {
         // Check what types we have selected
         let hasFiles = items.contains {
             $0.type != .group
@@ -90,9 +100,13 @@ extension SidebarViewController: NSMenuDelegate {
             menu.addItem(.separator())
         }
 
-        // Reference bundle(s) selected — export sequences
-        if hasBundles {
-            let bundleCount = items.filter { $0.type == .referenceBundle }.count
+        // Reference-shaped bundle(s) selected (.referenceBundle / .mhcReferenceBundle)
+        // — export sequences. Scoped by SidebarItemType.bundleCapabilities.canExportSequences
+        // rather than a hardcoded `.referenceBundle` check, so MHC reference
+        // bundles also get Export Sequences (task E2 / AS3).
+        let exportableBundleItems = items.filter { $0.type.bundleCapabilities.canExportSequences }
+        if !exportableBundleItems.isEmpty {
+            let bundleCount = exportableBundleItems.count
             let exportTitle = bundleCount > 1
                 ? "Export \(bundleCount) Sequences\u{2026}"
                 : "Export Sequences\u{2026}"
@@ -112,26 +126,43 @@ extension SidebarViewController: NSMenuDelegate {
             menu.addItem(NSMenuItem.separator())
         }
 
-        // Single bundle selected - show bundle-specific options
-        if items.count == 1 && hasBundles {
-            let openItem = NSMenuItem(title: "Open Bundle", action: #selector(contextMenuOpen(_:)), keyEquivalent: "")
-            openItem.target = self
-            menu.addItem(openItem)
+        // Single bundle selected - show the baseline bundle actions every
+        // bundle kind supports (SidebarItemType.bundleCapabilities).
+        if items.count == 1, let soleItem = items.first, soleItem.type.isBundle {
+            let capabilities = soleItem.type.bundleCapabilities
 
-            let showContentsItem = NSMenuItem(title: "Show Package Contents", action: #selector(contextMenuShowBundleContents(_:)), keyEquivalent: "")
-            showContentsItem.target = self
-            menu.addItem(showContentsItem)
+            if capabilities.canOpen {
+                let openItem = NSMenuItem(title: "Open Bundle", action: #selector(contextMenuOpen(_:)), keyEquivalent: "")
+                openItem.target = self
+                menu.addItem(openItem)
+            }
 
-            let getInfoItem = NSMenuItem(title: "Get Bundle Info", action: #selector(contextMenuGetBundleInfo(_:)), keyEquivalent: "")
-            getInfoItem.target = self
-            menu.addItem(getInfoItem)
+            if capabilities.canShowPackageContents {
+                let showContentsItem = NSMenuItem(title: "Show Package Contents", action: #selector(contextMenuShowBundleContents(_:)), keyEquivalent: "")
+                showContentsItem.target = self
+                menu.addItem(showContentsItem)
+            }
 
-            let importMetadataItem = NSMenuItem(title: "Import Sample Metadata…", action: #selector(contextMenuImportSampleMetadata(_:)), keyEquivalent: "")
-            importMetadataItem.target = self
-            menu.addItem(importMetadataItem)
+            if capabilities.canGetBundleInfo {
+                let getInfoItem = NSMenuItem(title: "Get Bundle Info", action: #selector(contextMenuGetBundleInfo(_:)), keyEquivalent: "")
+                getInfoItem.target = self
+                menu.addItem(getInfoItem)
+            }
+
+            // Import Sample Metadata stays scoped to .referenceBundle and
+            // .fastqBundle only — that's what contextMenuImportSampleMetadata's
+            // own guard supports (NOT .mhcReferenceBundle or the other
+            // bundle kinds). It is intentionally NOT part of the generic
+            // baseline capability so we never advertise an action the
+            // handler can't perform.
+            if hasBundles || hasFASTQBundles {
+                let importMetadataItem = NSMenuItem(title: "Import Sample Metadata…", action: #selector(contextMenuImportSampleMetadata(_:)), keyEquivalent: "")
+                importMetadataItem.target = self
+                menu.addItem(importMetadataItem)
+            }
 
             // Delete Variant Tracks — only if bundle has variant tracks
-            if let url = items.first?.url, bundleHasVariantTracks(url) {
+            if let url = soleItem.url, bundleHasVariantTracks(url) {
                 menu.addItem(NSMenuItem.separator())
                 let deleteVariantsItem = NSMenuItem(title: "Delete Variant Tracks\u{2026}", action: #selector(contextMenuDeleteVariantTracks(_:)), keyEquivalent: "")
                 deleteVariantsItem.target = self
@@ -139,7 +170,7 @@ extension SidebarViewController: NSMenuDelegate {
             }
 
             // Reassemble — only if bundle has assembly provenance
-            if let url = items.first?.url, bundleHasAssemblyProvenance(url) {
+            if let url = soleItem.url, bundleHasAssemblyProvenance(url) {
                 let reassembleItem = NSMenuItem(title: "Reassemble\u{2026}", action: #selector(contextMenuReassemble(_:)), keyEquivalent: "")
                 reassembleItem.target = self
                 menu.addItem(reassembleItem)
@@ -148,14 +179,12 @@ extension SidebarViewController: NSMenuDelegate {
             menu.addItem(NSMenuItem.separator())
         }
 
-        // FASTQ bundle(s) selected - show FASTQ-specific options
+        // FASTQ bundle(s) selected - show FASTQ-specific options.
+        // Open Bundle / Show Package Contents / Get Bundle Info for a single
+        // FASTQ bundle are now added by the generic single-bundle capability
+        // block above (SidebarItemType.bundleCapabilities) — this section
+        // only adds the actions unique to FASTQ bundles.
         if hasFASTQBundles {
-            if items.count == 1 {
-                let openItem = NSMenuItem(title: "Open Bundle", action: #selector(contextMenuOpen(_:)), keyEquivalent: "")
-                openItem.target = self
-                menu.addItem(openItem)
-            }
-
             let fastqCount = items.filter { $0.type == .fastqBundle }.count
             let exportTitle = fastqCount > 1
                 ? "Export \(fastqCount) as FASTQ\u{2026}"
@@ -172,12 +201,6 @@ extension SidebarViewController: NSMenuDelegate {
                 )
                 mergeItem.target = self
                 menu.addItem(mergeItem)
-            }
-
-            if items.count == 1 {
-                let showContentsItem = NSMenuItem(title: "Show Package Contents", action: #selector(contextMenuShowBundleContents(_:)), keyEquivalent: "")
-                showContentsItem.target = self
-                menu.addItem(showContentsItem)
             }
 
             // Clone Metadata From... — available for FASTQ bundles
@@ -263,8 +286,8 @@ extension SidebarViewController: NSMenuDelegate {
             menu.addItem(copyPathItem)
         }
 
-        // Show in Inspector (for reference bundles)
-        if items.count == 1 && hasBundles {
+        // Show in Inspector (any bundle kind — SidebarItemType.bundleCapabilities)
+        if items.count == 1, let soleItem = items.first, soleItem.type.bundleCapabilities.canShowInInspector {
             let showInInspectorItem = NSMenuItem(title: "Show in Inspector", action: #selector(contextMenuShowInInspector(_:)), keyEquivalent: "")
             showInInspectorItem.target = self
             menu.addItem(showInInspectorItem)
@@ -307,6 +330,16 @@ extension SidebarViewController: NSMenuDelegate {
         }
     }
 
+    /// Test-only seam: builds the real context menu for an explicit item
+    /// selection, bypassing `NSOutlineView.clickedRow` (which only reflects
+    /// real mouse-down events in a live window and can't be driven headlessly
+    /// in unit tests).
+    func testContextMenuItems(for items: [SidebarItem]) -> [NSMenuItem] {
+        let menu = NSMenu()
+        populateContextMenu(menu, for: items)
+        return menu.items
+    }
+
     @objc private func contextMenuOpen(_ sender: Any?) {
         let items = selectedItems()
         guard let item = items.first, item.type != .group && item.type != .project && item.type != .batchGroup else { return }
@@ -347,13 +380,59 @@ extension SidebarViewController: NSMenuDelegate {
                 )
     }
 
+    /// Result of resolving a merge-target destination directory for a
+    /// "Merge into New Bundle" selection: either the deepest common parent
+    /// directory of every selected item's URL, or a user-facing reason the
+    /// merge cannot proceed (surfaced via an alert instead of a silent
+    /// no-op — see `contextMenuMergeIntoNewBundle`).
+    enum MergeDestinationResolution: Equatable {
+        case resolved(URL)
+        case missingURLs(titles: [String])
+        case noCommonParent
+    }
+
+    /// Pure, testable pre-flight check used by `contextMenuMergeIntoNewBundle`
+    /// before it commits to presenting the merge confirmation sheet.
+    static func resolveMergeDestination(for items: [SidebarItem]) -> MergeDestinationResolution {
+        let missingURLItems = items.filter { $0.url == nil }
+        guard missingURLItems.isEmpty else {
+            return .missingURLs(titles: missingURLItems.map(\.title))
+        }
+        let selectedURLs = items.compactMap(\.url)
+        guard let destinationDirectory = deepestCommonParent(for: selectedURLs) else {
+            return .noCommonParent
+        }
+        return .resolved(destinationDirectory)
+    }
+
     @objc private func contextMenuMergeIntoNewBundle(_ sender: Any?) {
         let items = selectedItems()
         guard let mergeKind = BundleMergeSelection.detectKind(for: items) else { return }
 
         let selectedURLs = items.compactMap(\.url)
-        guard selectedURLs.count == items.count,
-              let destinationDirectory = Self.deepestCommonParent(for: selectedURLs) else { return }
+        let destinationDirectory: URL
+        switch Self.resolveMergeDestination(for: items) {
+        case .resolved(let resolvedDirectory):
+            destinationDirectory = resolvedDirectory
+        case .missingURLs(let titles):
+            // At least one selected item has no URL (e.g. a stale/virtual
+            // sidebar item). The menu item was shown because
+            // BundleMergeSelection.detectKind passed on type alone, so
+            // clicking it must not silently do nothing — tell the user
+            // which item(s) can't be merged instead.
+            let missingURLTitles = titles.joined(separator: ", ")
+            sidebarLogger.error("contextMenuMergeIntoNewBundle: Missing URL for item(s): \(missingURLTitles, privacy: .public)")
+            presentMergeIntoNewBundleFailure(
+                message: "The following selected item(s) have no file location and cannot be merged: \(missingURLTitles)."
+            )
+            return
+        case .noCommonParent:
+            sidebarLogger.error("contextMenuMergeIntoNewBundle: Could not determine a common parent directory for the selected items")
+            presentMergeIntoNewBundleFailure(
+                message: "Could not determine a common folder to create the merged bundle in."
+            )
+            return
+        }
 
         let alert = NSAlert()
         alert.messageText = "Merge into New Bundle"
@@ -401,10 +480,24 @@ extension SidebarViewController: NSMenuDelegate {
         }
     }
 
+    /// Shows an alert for a "Merge into New Bundle" pre-flight failure
+    /// (before the merge itself is even attempted) — e.g. a selected item
+    /// has no URL, or the selection has no common parent folder.
+    private func presentMergeIntoNewBundleFailure(message: String) {
+        let alert = NSAlert()
+        alert.messageText = "Cannot Merge Selected Items"
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        if let window = view.window ?? NSApp.keyWindow {
+            alert.beginSheetModal(for: window)
+        }
+    }
+
     /// Shows the internal contents of a bundle in Finder (like "Show Package Contents" in macOS).
     @objc private func contextMenuShowBundleContents(_ sender: Any?) {
         let items = selectedItems()
-        guard let item = items.first, (item.type == .referenceBundle || item.type == .fastqBundle), let url = item.url else { return }
+        guard let item = items.first, item.type.bundleCapabilities.canShowPackageContents, let url = item.url else { return }
 
         sidebarLogger.info("contextMenuShowBundleContents: Showing contents of '\(item.title, privacy: .public)'")
 
@@ -415,7 +508,7 @@ extension SidebarViewController: NSMenuDelegate {
     /// Shows bundle metadata info in an alert dialog.
     @objc private func contextMenuGetBundleInfo(_ sender: Any?) {
         let items = selectedItems()
-        guard let item = items.first, item.type == .referenceBundle, let url = item.url else { return }
+        guard let item = items.first, item.type.bundleCapabilities.canGetBundleInfo, let url = item.url else { return }
 
         sidebarLogger.info("contextMenuGetBundleInfo: Getting info for '\(item.title, privacy: .public)'")
 
