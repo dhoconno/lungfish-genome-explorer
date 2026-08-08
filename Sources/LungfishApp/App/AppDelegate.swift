@@ -1850,7 +1850,27 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 || controller?.mainSplitViewController?.sidebarController?.currentProjectURL != nil
         }
 
+        // Export Sequences (FASTA/GenBank) — task E2 / AS1, AS32: disable
+        // proactively rather than round-tripping to a runtime alert when
+        // the sidebar selection has items but none of them are exportable
+        // as sequences and no document is open in the viewer.
+        if menuItem.action == #selector(exportFASTA(_:)) || menuItem.action == #selector(exportGenBank(_:)) {
+            return canExportSequences()
+        }
+
         return true
+    }
+
+    /// Whether File > Export > Sequences (FASTA/GenBank) has anything to act
+    /// on: either an exportable sidebar selection, or (with no sidebar
+    /// selection at all) a currently open document with sequences.
+    private func canExportSequences() -> Bool {
+        let rawSidebarSelection = mainWindowController?.mainSplitViewController?.sidebarController?.selectedItems() ?? []
+        if !rawSidebarSelection.isEmpty {
+            return SequenceExportSelection.partition(rawSidebarSelection).hasExportableItems
+        }
+        let currentDocument = mainWindowController?.mainSplitViewController?.viewerController?.currentDocument
+        return !(currentDocument?.sequences.isEmpty ?? true)
     }
 
     private func projectStorageOriginController(
