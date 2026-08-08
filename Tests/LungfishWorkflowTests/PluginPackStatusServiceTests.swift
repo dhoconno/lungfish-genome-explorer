@@ -248,6 +248,90 @@ final class PluginPackStatusServiceTests: XCTestCase {
         XCTAssertEqual(calls, ["deacon-panhuman", "deacon-ribokmers"])
     }
 
+    func testStatusForPackEvaluatesToolRequirementsConcurrentlyWithOrderPreservingResults() async throws {
+        actor DelayRecorder {
+            var callOrder: [String] = []
+
+            func recordStart(_ databaseID: String) {
+                callOrder.append(databaseID)
+            }
+
+            func recordedCallOrder() -> [String] { callOrder }
+        }
+
+        let recorder = DelayRecorder()
+        let manager = CondaManager(
+            rootPrefix: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString),
+            bundledMicromambaProvider: { nil },
+            bundledMicromambaVersionProvider: { nil }
+        )
+
+        // Three stub tool requirements with staggered artificial delays. A serial
+        // await-per-tool loop would take slow(300ms) + medium(150ms) + fast(20ms) =
+        // ~470ms and would start "medium" only after "slow" finishes. A concurrent
+        // (bounded TaskGroup) implementation starts all three close together and
+        // finishes in roughly max(300, 150, 20) =~ 300ms.
+        let pack = PluginPack(
+            id: "concurrency-parity",
+            name: "Concurrency Parity",
+            description: "Test pack",
+            sfSymbol: "wrench",
+            packages: [],
+            category: "Tests",
+            requirements: [
+                .managedDatabase("slow-db", displayName: "Slow DB"),
+                .managedDatabase("medium-db", displayName: "Medium DB"),
+                .managedDatabase("fast-db", displayName: "Fast DB"),
+            ]
+        )
+
+        let delaysMilliseconds: [String: UInt64] = [
+            "slow-db": 300,
+            "medium-db": 150,
+            "fast-db": 20,
+        ]
+        let installedStatus: [String: Bool] = [
+            "slow-db": true,
+            "medium-db": false,
+            "fast-db": true,
+        ]
+
+        let service = PluginPackStatusService(
+            condaManager: manager,
+            databaseInstalledCheck: { databaseID in
+                await recorder.recordStart(databaseID)
+                if let delay = delaysMilliseconds[databaseID] {
+                    try? await Task.sleep(for: .milliseconds(delay))
+                }
+                return installedStatus[databaseID] ?? false
+            },
+            cacheLifetime: 60
+        )
+
+        let started = Date()
+        let status = await service.status(for: pack)
+        let elapsed = Date().timeIntervalSince(started)
+
+        // Order-preserving: results must come back in requirement order regardless
+        // of which subprocess/check finished first.
+        XCTAssertEqual(status.toolStatuses.map(\.requirement.id), ["slow-db", "medium-db", "fast-db"])
+        XCTAssertEqual(status.toolStatuses.map(\.environmentExists), [true, false, true])
+        XCTAssertEqual(
+            status.toolStatuses.map(\.smokeTestFailure),
+            [nil, "Medium DB is not installed", nil]
+        )
+        XCTAssertEqual(status.state, .needsInstall)
+
+        // Concurrency evidence: total wall-clock time is close to the slowest single
+        // check (300ms), not the sum of all three (470ms).
+        XCTAssertLessThan(elapsed, 0.45)
+
+        // All three checks must have been started before any had a chance to
+        // naturally complete serially, i.e. they were dispatched concurrently.
+        let callOrder = await recorder.recordedCallOrder()
+        XCTAssertEqual(Set(callOrder), Set(delaysMilliseconds.keys))
+    }
+
     func testVisibleStatusesRetryTransientSmokeFailuresBeforeSurfacingReinstall() async throws {
         let sandbox = FileManager.default.temporaryDirectory
             .appendingPathComponent("pack-visible-smoke-failure-\(UUID().uuidString)", isDirectory: true)

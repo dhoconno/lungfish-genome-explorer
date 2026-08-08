@@ -155,6 +155,10 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         250_000_000,
         750_000_000,
     ]
+    /// Upper bound on tool-requirement evaluations (subprocess smoke tests, filesystem
+    /// checks) that run concurrently in `evaluateAll(_:bootstrapReady:)`. Bounded so a
+    /// pack with many tool requirements doesn't spawn unbounded subprocesses at once.
+    private static let maxConcurrentToolEvaluations = 4
 
     private struct CachedPackStatus {
         let generation: Int
@@ -321,12 +325,7 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         }
 
         let bootstrapReady = await bootstrapIsReady()
-        var toolStatuses: [PackToolStatus] = []
-        toolStatuses.reserveCapacity(pack.toolRequirements.count)
-
-        for requirement in pack.toolRequirements {
-            toolStatuses.append(await evaluate(requirement, bootstrapReady: bootstrapReady))
-        }
+        let toolStatuses = await evaluateAll(pack.toolRequirements, bootstrapReady: bootstrapReady)
 
         return makePackStatus(
             pack: pack,
@@ -334,6 +333,51 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
             bootstrapReady: bootstrapReady,
             storageAvailability: storageAvailability
         )
+    }
+
+    /// Evaluates every tool requirement concurrently (bounded by
+    /// `maxConcurrentToolEvaluations`) instead of serially awaiting one subprocess
+    /// smoke test at a time. Callers observe roughly the slowest single evaluation's
+    /// latency rather than the sum of all evaluations' latencies. Results are
+    /// reassembled in the original `requirements` order regardless of completion order.
+    private func evaluateAll(
+        _ requirements: [PackToolRequirement],
+        bootstrapReady: Bool
+    ) async -> [PackToolStatus] {
+        guard !requirements.isEmpty else { return [] }
+
+        var results = [PackToolStatus?](repeating: nil, count: requirements.count)
+        var nextIndex = 0
+
+        await withTaskGroup(of: (Int, PackToolStatus).self) { group in
+            let initialBatchSize = min(Self.maxConcurrentToolEvaluations, requirements.count)
+            for index in 0..<initialBatchSize {
+                let requirement = requirements[index]
+                group.addTask {
+                    (index, await self.evaluate(requirement, bootstrapReady: bootstrapReady))
+                }
+            }
+            nextIndex = initialBatchSize
+
+            while let (completedIndex, status) = await group.next() {
+                results[completedIndex] = status
+                if nextIndex < requirements.count {
+                    let index = nextIndex
+                    let requirement = requirements[index]
+                    group.addTask {
+                        (index, await self.evaluate(requirement, bootstrapReady: bootstrapReady))
+                    }
+                    nextIndex += 1
+                }
+            }
+        }
+
+        return results.map { status in
+            guard let status else {
+                preconditionFailure("evaluateAll: every scheduled index must produce a result")
+            }
+            return status
+        }
     }
 
     private func makePackStatus(
