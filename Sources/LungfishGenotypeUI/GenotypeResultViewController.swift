@@ -2674,6 +2674,7 @@ public final class GenotypeResultViewController: NSViewController {
             "Haplotype analysis actions"
         )
         let menu = NSMenu(title: "Haplotype analysis actions")
+        menu.delegate = self
         menu.addItem(withTitle: "AI Discovery", action: #selector(runAIHaplotypingDiscovery), keyEquivalent: "")
         menu.addItem(withTitle: "AI Refinement", action: #selector(runAIHaplotypingRefinement), keyEquivalent: "")
         menu.addItem(withTitle: "Export Excel View…", action: #selector(exportExcelView(_:)), keyEquivalent: "")
@@ -5639,6 +5640,18 @@ public final class GenotypeResultViewController: NSViewController {
         guard let result else { return }
         guard let onAIHaplotypingRequested else {
             aiHaplotypingStatus = "AI haplotyping is not available in this app context."
+            rebuildArtifactLens()
+            return
+        }
+        if annotationStore?.isReadOnly ?? false {
+            NSSound.beep()
+            aiHaplotypingStatus = "Bundle is read-only. Save a writable copy to run AI haplotyping."
+            rebuildArtifactLens()
+            return
+        }
+        if mode == .aiRefinement, activeHaplotypeAnalysis() == nil {
+            NSSound.beep()
+            aiHaplotypingStatus = "Refinement requires an existing haplotype analysis. Run AI Discovery first."
             rebuildArtifactLens()
             return
         }
@@ -10251,6 +10264,24 @@ extension GenotypeResultViewController: NSSplitViewDelegate {
             minimumSplitExtents().leading,
             extent - splitView.dividerThickness - minimumSplitExtents().trailing
         )
+    }
+}
+
+extension GenotypeResultViewController: NSMenuDelegate {
+    public func menuNeedsUpdate(_ menu: NSMenu) {
+        guard menu === presentationActionsButton.menu else { return }
+        let isReadOnly = annotationStore?.isReadOnly ?? false
+        let hasAnalysis = activeHaplotypeAnalysis() != nil
+        for item in menu.items {
+            switch item.action {
+            case #selector(runAIHaplotypingDiscovery):
+                item.isEnabled = !isReadOnly
+            case #selector(runAIHaplotypingRefinement):
+                item.isEnabled = hasAnalysis && !isReadOnly
+            default:
+                break
+            }
+        }
     }
 }
 

@@ -164,6 +164,13 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// The TaxTriage config used for this run (for re-run and provenance).
     private(set) var taxTriageConfig: TaxTriageConfig?
 
+    /// Whether presentUnifiedExtractionDialog() has a result path to extract
+    /// from. Extract Reads must stay disabled when neither is set, matching
+    /// the guard in presentUnifiedExtractionDialog().
+    private var hasExtractableResultPath: Bool {
+        taxTriageDatabase != nil || taxTriageConfig != nil
+    }
+
     /// Parsed metrics from the TASS metrics files.
     private(set) var metrics: [TaxTriageMetric] = []
 
@@ -2669,7 +2676,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             guard let self else { return }
             self.actionBar.updateInfoText("1 row selected")
             self.actionBar.setBlastEnabled(true)
-            self.actionBar.setExtractEnabled(true)
+            self.actionBar.setExtractEnabled(self.hasExtractableResultPath)
             self.hideMultiSelectionPlaceholder()
             self.selectedBatchSampleId = row.sample
             self.selectedBatchOrganismName = row.organism
@@ -2697,7 +2704,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             guard let self else { return }
             self.actionBar.updateInfoText("\(rows.count) rows selected")
             self.actionBar.setBlastEnabled(false, reason: "Select a single row to use BLAST Verify")
-            self.actionBar.setExtractEnabled(true)
+            self.actionBar.setExtractEnabled(self.hasExtractableResultPath)
             self.showMultiSelectionPlaceholder(count: rows.count)
             self.selectedBatchSampleId = nil
             self.selectedBatchOrganismName = nil
@@ -2957,7 +2964,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             guard let self else { return }
             self.actionBar.updateInfoText("1 row selected")
             self.actionBar.setBlastEnabled(true)
-            self.actionBar.setExtractEnabled(true)
+            self.actionBar.setExtractEnabled(self.hasExtractableResultPath)
             self.hideMultiSelectionPlaceholder()
             self.selectedBatchSampleId = row.sample
             self.selectedBatchOrganismName = row.organism
@@ -2983,7 +2990,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             guard let self else { return }
             self.actionBar.updateInfoText("\(rows.count) rows selected")
             self.actionBar.setBlastEnabled(false, reason: "Select a single row to use BLAST Verify")
-            self.actionBar.setExtractEnabled(true)
+            self.actionBar.setExtractEnabled(self.hasExtractableResultPath)
             self.showMultiSelectionPlaceholder(count: rows.count)
             self.selectedBatchSampleId = nil
             self.selectedBatchOrganismName = nil
@@ -3116,7 +3123,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             self.showMultiSelectionPlaceholder(count: count)
             self.actionBar.updateInfoText("\(count) items selected")
             self.actionBar.setBlastEnabled(false, reason: "Select a single row to use BLAST Verify")
-            self.actionBar.setExtractEnabled(true)
+            self.actionBar.setExtractEnabled(self.hasExtractableResultPath)
         }
 
         // Table selection -> action bar update + BAM viewer update
@@ -3387,6 +3394,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     private func presentUnifiedExtractionDialog() {
         guard let resultPath = taxTriageDatabase?.databaseURL ?? taxTriageConfig?.outputDirectory else { return }
         let selectors = buildTaxTriageSelectors()
+        guard !selectors.isEmpty else { return }
         let firstAccession = selectors.first?.accessions.first ?? "extract"
         let sid = selectors.first?.sampleId ?? "sample"
         onExtractReadsRequested?(.taxtriage, resultPath, selectors, "taxtriage_\(sid)_\(firstAccession)")
@@ -3572,7 +3580,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 actionBar.updateInfoText("\(name) \u{2014} \(readStr) reads")
             }
             actionBar.setBlastEnabled(true)
-            actionBar.setExtractEnabled(true)
+            actionBar.setExtractEnabled(hasExtractableResultPath)
         } else {
             actionBar.updateInfoText("Select an organism to view details")
             actionBar.setBlastEnabled(false, reason: "Select a row to use BLAST Verify")

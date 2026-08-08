@@ -1848,6 +1848,9 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         container.onDragEnd = { [weak self] in
             self?.view.layoutSubtreeIfNeeded()
         }
+        container.blastResultsTab.onRerunBlast = { [weak self] in
+            self?.blastVerifySelectedContig()
+        }
         view.layoutSubtreeIfNeeded()
 
         return container.blastResultsTab
@@ -2067,7 +2070,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         multiSelectionPlaceholder.isHidden = false
         actionBar.updateInfoText("\(count) items selected")
         actionBar.setBlastEnabled(false, reason: "Select a single row to use BLAST Verify")
-        actionBar.setExtractEnabled(true)
+        actionBar.setExtractEnabled(database != nil)
     }
 
     private func hideMultiSelectionPlaceholder() {
@@ -2084,7 +2087,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
             let classification = hit.adjustedTaxidName.isEmpty ? "Unclassified" : hit.adjustedTaxidName
             actionBar.updateInfoText("\(displayName) \u{2014} \(classification)")
             actionBar.setBlastEnabled(true)
-            actionBar.setExtractEnabled(true)
+            actionBar.setExtractEnabled(database != nil)
         } else {
             actionBar.updateInfoText("Select a contig to view details")
             actionBar.setBlastEnabled(false, reason: "Select a row to use BLAST Verify")
@@ -2636,6 +2639,7 @@ extension NvdResultViewController {
     var testOutlineContainer: NSView? { outlineContainer }
     var testSplitView: NSSplitView { splitView }
     var testBlastDrawerContainer: BlastResultsDrawerContainerView? { blastDrawerContainer }
+    var testActionBar: ClassifierActionBar { actionBar }
     var testOutlineView: NSOutlineView { outlineView }
     var testSearchField: NSSearchField { searchField }
     var testDetailContentView: NSView { detailContentView }

@@ -1093,6 +1093,102 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
             wait(for: [deferredWorkCompleted], timeout: 2)
         }
     }
+
+    // MARK: - AS9/AS10: Extract Reads enablement in cached-rows-only state (no database)
+
+    @MainActor func testExtractButtonDisabledWhenOnlyCachedRowsAreLoaded() {
+        let vc = NaoMgsResultViewController()
+        vc.loadViewIfNeeded()
+        vc.configureWithCachedRows(
+            [Self.makeCachedRow()],
+            manifest: Self.makeManifest(),
+            awaitingDatabase: false
+        )
+
+        vc.testSelectTaxonomyRow(0)
+
+        XCTAssertFalse(vc.testActionBar.extractButton.isEnabled)
+        XCTAssertEqual(vc.testContextMenuExtractReadsEnabled(), false)
+    }
+
+    @MainActor func testExtractButtonDisabledForMultiSelectionWithoutDatabase() {
+        let vc = NaoMgsResultViewController()
+        vc.loadViewIfNeeded()
+        vc.configureWithCachedRows(
+            [Self.makeCachedRow(taxId: 1), Self.makeCachedRow(taxId: 2)],
+            manifest: Self.makeManifest(),
+            awaitingDatabase: false
+        )
+
+        vc.testingShowMultiSelectionPlaceholder(count: 2)
+
+        XCTAssertFalse(vc.testActionBar.extractButton.isEnabled)
+    }
+
+    // MARK: - AS10: Export enablement/behavior when only cached rows are loaded
+
+    @MainActor func testExportSucceedsWithCachedRowsAndNoDatabase() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("NaoMgsExportCachedRows-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let vc = NaoMgsResultViewController()
+        vc.loadViewIfNeeded()
+        vc.configureWithCachedRows(
+            [Self.makeCachedRow()],
+            manifest: Self.makeManifest(),
+            awaitingDatabase: false
+        )
+
+        // exportResults() used to bail out entirely when database == nil, even
+        // though displayedRows (and therefore writeSummaryTSV) had data to export.
+        XCTAssertNoThrow(try vc.writeSummaryTSV(to: tempDir.appendingPathComponent("cached-summary.tsv")))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: tempDir.appendingPathComponent("cached-summary.tsv").path))
+    }
+
+    // MARK: - AS26: Accession NCBI URL must not force-unwrap
+
+    @MainActor func testViewAccessionOnNCBIDoesNotCrashForMalformedAccession() {
+        let vc = NaoMgsResultViewController()
+        vc.loadViewIfNeeded()
+
+        let item = NSMenuItem(title: "View on NCBI", action: nil, keyEquivalent: "")
+        item.representedObject = "bad accession with spaces"
+
+        // Previously this force-unwrapped URL(string:), which crashes for
+        // accessions containing characters invalid in a URL.
+        vc.contextViewAccessionOnNCBI(item)
+    }
+
+    private static func makeCachedRow(taxId: Int = 1234) -> NaoMgsTaxonSummaryRow {
+        NaoMgsTaxonSummaryRow(
+            sample: "sample-1",
+            taxId: taxId,
+            name: "Example virus",
+            hitCount: 10,
+            uniqueReadCount: 8,
+            avgIdentity: 99.5,
+            avgBitScore: 200,
+            avgEditDistance: 1,
+            pcrDuplicateCount: 2,
+            accessionCount: 1,
+            topAccessions: ["NC_000001.1"],
+            bamPath: nil,
+            bamIndexPath: nil
+        )
+    }
+
+    private static func makeManifest() -> NaoMgsManifest {
+        NaoMgsManifest(
+            sampleName: "sample-1",
+            sourceFilePath: "/tmp/naomgs.tsv",
+            hitCount: 10,
+            taxonCount: 1,
+            topTaxon: "Example virus",
+            topTaxonId: 1234
+        )
+    }
 }
 
 @MainActor

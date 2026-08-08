@@ -313,6 +313,10 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     /// dependency on the App-internal extraction/operation pipeline.
     public var onExtractReadsRequested: (@MainActor (ClassifierTool, URL, [ClassifierRowSelector], String) -> Void)?
 
+    /// Overrides warning presentation for testing. When unset, warnings are
+    /// shown via a sheet-modal NSAlert (or NSApp.presentError with no window).
+    var warningPresenter: ((String, String) -> Void)?
+
     // MARK: - Lifecycle
 
     public override func loadView() {
@@ -769,7 +773,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         rebuildDetailContent()
         // Create a lightweight summary for the action bar
         updateActionBarForRow(row, totalHits: (try? database?.totalHitCount(samples: Array(selectedSamples))) ?? 0)
-        actionBar.setExtractEnabled(true)
+        actionBar.setExtractEnabled(database != nil)
     }
 
     // MARK: - Detail Content Rebuild
@@ -2118,6 +2122,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
         let extractItem = NSMenuItem(title: "Extract Reads\u{2026}", action: #selector(contextExtractFASTQ(_:)), keyEquivalent: "")
         extractItem.target = self
+        extractItem.isEnabled = database != nil
         menu.addItem(extractItem)
     }
 
@@ -2199,6 +2204,9 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         let accessions = row.topAccessions
         guard !accessions.isEmpty else {
             logger.warning("No accessions for BLAST fallback: taxId=\(row.taxId), sample=\(sample)")
+            presentBlastVerifyUnavailableWarning(
+                message: "No reference accessions are recorded for this taxon, so BLAST Verify cannot fall back to extracting reads from the BAM file."
+            )
             return
         }
 
@@ -2212,6 +2220,9 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
         guard FileManager.default.fileExists(atPath: bamURL.path) else {
             logger.warning("BAM not found for BLAST fallback: \(bamURL.path, privacy: .public)")
+            presentBlastVerifyUnavailableWarning(
+                message: "The BAM file for this sample (\(bamURL.lastPathComponent)) could not be found. It may have moved or been renamed."
+            )
             return
         }
 
@@ -2268,6 +2279,9 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
                     MainActor.assumeIsolated {
                         guard !bamHits.isEmpty else {
                             logger.warning("No reads extracted from BAM for BLAST: taxId=\(row.taxId), sample=\(sample)")
+                            self?.presentBlastVerifyUnavailableWarning(
+                                message: "No aligned reads for the recorded accessions were found in the BAM file, so there is nothing to submit to BLAST."
+                            )
                             return
                         }
                         logger.info("BLAST fallback: extracted \(bamHits.count) reads from BAM")
@@ -2275,13 +2289,49 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
                     }
                 }
             } catch {
-                DispatchQueue.main.async {
+                DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
                         logger.error("BLAST BAM extraction failed: \(error.localizedDescription, privacy: .public)")
+                        self?.presentBlastVerifyUnavailableWarning(
+                            message: "Extracting reads from the BAM file failed: \(error.localizedDescription)"
+                        )
                     }
                 }
             }
         }
+    }
+
+    /// Beeps and shows an alert explaining why BLAST Verify could not run.
+    private func presentBlastVerifyUnavailableWarning(message: String) {
+        NSSound.beep()
+        presentWarning(title: "BLAST Verify Unavailable", message: message)
+    }
+
+    private func presentWarning(title: String, message: String) {
+        if let warningPresenter {
+            warningPresenter(title, message)
+            return
+        }
+
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+
+        if let window = view.window ?? NSApp.keyWindow {
+            alert.beginSheetModal(for: window)
+        } else {
+            NSApp.presentError(NaoMgsResultWarning(title: title, message: message))
+        }
+    }
+
+    private struct NaoMgsResultWarning: LocalizedError {
+        let title: String
+        let message: String
+
+        var errorDescription: String? { title }
+        var recoverySuggestion: String? { message }
     }
 
     /// Delivers BLAST hits to the verification callback.
@@ -2330,7 +2380,10 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
     @objc func contextViewAccessionOnNCBI(_ sender: NSMenuItem) {
         guard let accession = sender.representedObject as? String else { return }
-        let url = URL(string: "https://www.ncbi.nlm.nih.gov/nuccore/\(accession)")!
+        guard let url = URL(string: "https://www.ncbi.nlm.nih.gov/nuccore/\(accession)") else {
+            logger.warning("Could not build NCBI URL for accession: \(accession, privacy: .public)")
+            return
+        }
         NSWorkspace.shared.open(url)
     }
 
@@ -2411,6 +2464,17 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     var testBlastDrawerContainer: BlastResultsDrawerContainerView? { blastDrawerContainer }
     var testTaxonomyTableView: NSTableView { taxonomyTableView }
     var testTaxonomyScrollView: NSScrollView { taxonomyTableScrollView }
+    var testActionBar: ClassifierActionBar { actionBar }
+    func testSelectTaxonomyRow(_ index: Int) {
+        taxonomyTableView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
+        tableViewSelectionDidChange(Notification(name: NSTableView.selectionDidChangeNotification, object: taxonomyTableView))
+    }
+    func testContextMenuExtractReadsEnabled() -> Bool? {
+        guard let row = displayedRows.first else { return nil }
+        let menu = NSMenu(title: "Taxon Actions")
+        populateContextMenu(menu, for: row)
+        return menu.items.first { $0.title == "Extract Reads\u{2026}" }?.isEnabled
+    }
 #if DEBUG
     var testTaxonomyReloadCount: Int { taxonomyReloadCount }
     var testTaxonomyTransformCount: Int { taxonomyTransformCount }
@@ -2531,7 +2595,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         multiSelectionPlaceholder.isHidden = false
         actionBar.updateInfoText("\(count) items selected")
         actionBar.setBlastEnabled(false, reason: "Select a single row to use BLAST Verify")
-        actionBar.setExtractEnabled(true)
+        actionBar.setExtractEnabled(database != nil)
     }
 
     private func hideMultiSelectionPlaceholder() {
@@ -2599,7 +2663,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     }
 
     public func exportResults() {
-        guard database != nil, let window = view.window else { return }
+        guard !displayedRows.isEmpty, let window = view.window else { return }
         let sampleName = manifest?.sampleName ?? "naomgs"
 
         let savePanel = MetagenomicsFilePanelFactory.tsvSummaryExportPanel(
