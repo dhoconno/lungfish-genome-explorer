@@ -62,6 +62,10 @@ One `Workflow` run, scaled up per user request (cheaper parallel agents, larger 
 - Findings report updated with fixed/deferred status per finding.
 - Branch left merge-ready with a summary report at `docs/reports/2026-08-08-repo-review-results.md`; final message to the user covers outcomes, deferred items, and budget spent.
 
+## Phase 5 — Additional Rounds (budget permitting)
+
+If Phase 4 completes with meaningful budget and wall clock remaining, run additional rounds rather than stopping early. Each round: (a) promote the highest-value items from the unverified backlog and the panel's deferred list, verify and fix them; (b) dispatch a fresh, smaller finder fleet targeting areas round 1 covered thinly or areas churned by the fixes themselves (regression-hunting in changed files); (c) same gates apply — verification, expert ranking, per-diff review, green bar. Rounds repeat (round 2, round 3, …) until budget, time, or findings run dry, always leaving enough headroom to finish the in-flight round cleanly.
+
 ## Error Handling
 
 - A finder/verifier that dies is dropped (results filtered), never retried more than once.
