@@ -38,8 +38,10 @@ private final class FASTABlastProgressRelay: @unchecked Sendable {
     }
 
     nonisolated func report(fraction: Double, message: String) {
-        Task { @MainActor [weak self] in
-            self?.delivery(fraction, message)
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                self?.delivery(fraction, message)
+            }
         }
     }
 }
