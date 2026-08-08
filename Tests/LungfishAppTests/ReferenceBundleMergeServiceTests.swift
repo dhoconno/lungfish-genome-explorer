@@ -4,6 +4,33 @@ import XCTest
 @testable import LungfishIO
 @testable import LungfishWorkflow
 
+/// Thread-safe capture box for observations made from inside the merge's `@Sendable`
+/// probe closure, which fires on whatever thread the merge body is running on.
+private final class MarkerObservationBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _wasInProgress: Bool?
+    private var _fired = false
+
+    func record(_ inProgress: Bool) {
+        lock.lock()
+        _wasInProgress = inProgress
+        _fired = true
+        lock.unlock()
+    }
+
+    var fired: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return _fired
+    }
+
+    var wasInProgress: Bool? {
+        lock.lock()
+        defer { lock.unlock() }
+        return _wasInProgress
+    }
+}
+
 @MainActor
 final class ReferenceBundleMergeServiceTests: XCTestCase {
     private enum FixtureError: Error {
@@ -395,6 +422,283 @@ final class ReferenceBundleMergeServiceTests: XCTestCase {
         )
     }
 
+    func testMergeWarnsWhenAnnotationTrackCannotBeReExported() async throws {
+        let root = try makeTempDirectory()
+        let projectURL = root.appendingPathComponent("Fixture.lungfish", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let genBank = root.appendingPathComponent("Readable.gb")
+        try Self.genBankRecord(
+            locus: "READABLE",
+            geneName: "geneReadable",
+            sequence: "atcgatcgatcgatcgatcg"
+        ).write(to: genBank, atomically: true, encoding: .utf8)
+        let readableBundle = try await ReferenceBundleImportService.shared.importAsReferenceBundle(
+            sourceURL: genBank,
+            outputDirectory: projectURL,
+            preferredBundleName: "Readable"
+        ).bundleURL
+
+        // A track declaring no databasePath: the legacy/placeholder shape the merge cannot
+        // re-read. It must be skipped with a warning, not silently, and not fatally.
+        let legacyBundle = try makeLegacyAnnotationBundle(in: projectURL)
+
+        let mergedURL = try await ReferenceBundleMergeService.merge(
+            sourceBundleURLs: [readableBundle, legacyBundle],
+            outputDirectory: projectURL,
+            bundleName: "Partial Annotations"
+        )
+
+        let manifest = try BundleManifest.load(from: mergedURL)
+
+        // The readable track still came across; the merge did not abort.
+        XCTAssertEqual(manifest.annotations.count, 1)
+
+        let warning = try XCTUnwrap(
+            manifest.warnings.first { $0.code == "annotation_track_dropped" },
+            "Skipping an unreadable annotation track must leave a warning in the merged manifest"
+        )
+        XCTAssertEqual(warning.category, "merge.annotations")
+        XCTAssertTrue(
+            warning.message.contains("Legacy Genes"),
+            "Warning must name the dropped track: \(warning.message)"
+        )
+        XCTAssertTrue(
+            warning.message.contains("LegacyAnnotated"),
+            "Warning must name the bundle the track came from: \(warning.message)"
+        )
+    }
+
+    func testMergeDisambiguatesTracksFromIdenticallyNamedSourceBundles() async throws {
+        let root = try makeTempDirectory()
+        let projectURL = root.appendingPathComponent("Fixture.lungfish", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        // Both bundles ask for the SAME preferred name, so the importer uniquifies the
+        // second to "Same Name 2" on disk while both still carry a track whose id is
+        // "imported_annotations". Without the usedSlugs dedup in inspectSourceBundles both
+        // tracks would namespace to the same id and their exported GFF3 files would collide
+        // in the temp directory -- the second silently overwriting the first.
+        let genBankA = root.appendingPathComponent("A.gb")
+        let genBankB = root.appendingPathComponent("B.gb")
+        try Self.genBankRecord(
+            locus: "DEDUPA",
+            geneName: "geneDedupA",
+            sequence: "atcgatcgatcgatcgatcg"
+        ).write(to: genBankA, atomically: true, encoding: .utf8)
+        try Self.genBankRecord(
+            locus: "DEDUPB",
+            geneName: "geneDedupB",
+            sequence: "ggccggccggccggccggcc"
+        ).write(to: genBankB, atomically: true, encoding: .utf8)
+
+        let bundleA = try await ReferenceBundleImportService.shared.importAsReferenceBundle(
+            sourceURL: genBankA,
+            outputDirectory: projectURL,
+            preferredBundleName: "Same Name"
+        ).bundleURL
+        let bundleB = try await ReferenceBundleImportService.shared.importAsReferenceBundle(
+            sourceURL: genBankB,
+            outputDirectory: projectURL,
+            preferredBundleName: "Same Name"
+        ).bundleURL
+        XCTAssertNotEqual(bundleA, bundleB)
+
+        let mergedURL = try await ReferenceBundleMergeService.merge(
+            sourceBundleURLs: [bundleA, bundleB],
+            outputDirectory: projectURL,
+            bundleName: "Dedup Merge"
+        )
+
+        let manifest = try BundleManifest.load(from: mergedURL)
+        XCTAssertEqual(manifest.annotations.count, 2, "Both tracks must survive")
+        XCTAssertEqual(
+            Set(manifest.annotations.map(\.id)).count,
+            2,
+            "Track ids must be disambiguated: \(manifest.annotations.map(\.id))"
+        )
+        XCTAssertNoThrow(
+            try manifest.annotations.forEach { track in
+                let databasePath = try XCTUnwrap(track.databasePath)
+                let url = try BundleManifest.validatedBundleMemberURL(
+                    for: databasePath,
+                    in: mergedURL,
+                    field: "annotations.database_path"
+                )
+                XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+            }
+        )
+
+        // The real proof the exports did not overwrite each other: both genes are present.
+        var mergedGenes: Set<String> = []
+        for track in manifest.annotations {
+            let databasePath = try XCTUnwrap(track.databasePath)
+            let databaseURL = try BundleManifest.validatedBundleMemberURL(
+                for: databasePath,
+                in: mergedURL,
+                field: "annotations.database_path"
+            )
+            for record in try AnnotationDatabase(url: databaseURL).query(limit: Int.max) {
+                mergedGenes.insert(record.name)
+            }
+        }
+        XCTAssertTrue(mergedGenes.contains("geneDedupA"), "Lost track A's features: \(mergedGenes)")
+        XCTAssertTrue(mergedGenes.contains("geneDedupB"), "Lost track B's features: \(mergedGenes)")
+    }
+
+    func testMergeMarksOutputDirectoryInProgressAndClearsItAfterwards() async throws {
+        let root = try makeTempDirectory()
+        let projectURL = root.appendingPathComponent("Fixture.lungfish", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fastaA = root.appendingPathComponent("A.fa")
+        let fastaB = root.appendingPathComponent("B.fa")
+        try ">chrMarkerA\nAAAA\n".write(to: fastaA, atomically: true, encoding: .utf8)
+        try ">chrMarkerB\nCCCC\n".write(to: fastaB, atomically: true, encoding: .utf8)
+
+        let bundleA = try ReferenceSequenceFolder.importReference(
+            from: fastaA,
+            into: projectURL,
+            displayName: "Marker A"
+        )
+        let bundleB = try ReferenceSequenceFolder.importReference(
+            from: fastaB,
+            into: projectURL,
+            displayName: "Marker B"
+        )
+
+        XCTAssertFalse(OperationMarker.isInProgress(projectURL))
+
+        // Observe the marker from inside the merge. The probe fires while the merge body is
+        // running, which is the only window in which the crash-recovery sentinel exists.
+        let markerBox = MarkerObservationBox()
+        let observedDirectory = projectURL
+        ReferenceBundleMergeService.recordStoreThreadingProbe = {
+            markerBox.record(OperationMarker.isInProgress(observedDirectory))
+        }
+        defer { ReferenceBundleMergeService.recordStoreThreadingProbe = nil }
+
+        let mergedURL = try await ReferenceBundleMergeService.merge(
+            sourceBundleURLs: [bundleA, bundleB],
+            outputDirectory: projectURL,
+            bundleName: "Marker Merge"
+        )
+
+        XCTAssertTrue(markerBox.fired, "Probe never fired -- merge body did not run")
+        XCTAssertEqual(
+            markerBox.wasInProgress,
+            true,
+            "Output directory must carry the .processing marker while the merge runs"
+        )
+        XCTAssertFalse(
+            OperationMarker.isInProgress(projectURL),
+            "The .processing marker must be cleared once the merge finishes"
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: mergedURL.path))
+    }
+
+    func testMergeClearsInProgressMarkerWhenMergeFails() async throws {
+        let root = try makeTempDirectory()
+        let projectURL = root.appendingPathComponent("Fixture.lungfish", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fastaA = root.appendingPathComponent("A.fa")
+        let fastaB = root.appendingPathComponent("B.fa")
+        try ">chrFailA\nAAAA\n".write(to: fastaA, atomically: true, encoding: .utf8)
+        try ">chrFailB\nCCCC\n".write(to: fastaB, atomically: true, encoding: .utf8)
+
+        let bundleA = try ReferenceSequenceFolder.importReference(
+            from: fastaA,
+            into: projectURL,
+            displayName: "Fail A"
+        )
+        let bundleB = try ReferenceSequenceFolder.importReference(
+            from: fastaB,
+            into: projectURL,
+            displayName: "Fail B"
+        )
+
+        do {
+            _ = try await ReferenceBundleMergeService.merge(
+                sourceBundleURLs: [bundleA, bundleB],
+                outputDirectory: projectURL,
+                bundleName: "Failed Marker",
+                provenanceWriter: BundleMergeProvenanceSidecarWriter { _, _ in
+                    throw FixtureError.provenanceWriteFailed
+                }
+            )
+            XCTFail("Expected merge to fail when provenance cannot be written")
+        } catch FixtureError.provenanceWriteFailed {
+            // Expected.
+        }
+
+        XCTAssertFalse(
+            OperationMarker.isInProgress(projectURL),
+            "A failed merge must not leave the output directory marked in progress"
+        )
+    }
+
+    func testMergeRefusesManifestThatMatchesNeitherSchema() async throws {
+        let root = try makeTempDirectory()
+        let projectURL = root.appendingPathComponent("Fixture.lungfish", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fastaA = root.appendingPathComponent("A.fa")
+        try ">chrA\nAAAA\n".write(to: fastaA, atomically: true, encoding: .utf8)
+        let bundleA = try ReferenceSequenceFolder.importReference(
+            from: fastaA,
+            into: projectURL,
+            displayName: "A"
+        )
+
+        // Valid JSON that decodes as NEITHER BundleManifest NOR ReferenceSequenceManifest.
+        // This is the actual discrimination boundary: the corrupt-JSON test only proves the
+        // JSON parser rejects garbage, whereas this proves we distinguish "known-safe legacy
+        // schema" from "schema we do not recognise" rather than waving the latter through.
+        let unknownBundle = projectURL.appendingPathComponent("UnknownSchema.lungfishref", isDirectory: true)
+        let genomeDirectory = unknownBundle.appendingPathComponent("genome", isDirectory: true)
+        try FileManager.default.createDirectory(at: genomeDirectory, withIntermediateDirectories: true)
+        try ">chrU\nTTTT\n".write(
+            to: genomeDirectory.appendingPathComponent("sequence.fa"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try #"{"name":"x"}"#.write(
+            to: unknownBundle.appendingPathComponent(BundleManifest.filename),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        do {
+            _ = try await ReferenceBundleMergeService.merge(
+                sourceBundleURLs: [bundleA, unknownBundle],
+                outputDirectory: projectURL,
+                bundleName: "Should Not Merge"
+            )
+            XCTFail("Expected a manifest matching neither schema to refuse the merge")
+        } catch {
+            XCTAssertTrue(
+                error.localizedDescription.contains("UnknownSchema"),
+                "Refusal must name the offending bundle: \(error.localizedDescription)"
+            )
+        }
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: projectURL.appendingPathComponent("Should_Not_Merge.lungfishref").path
+            )
+        )
+    }
+
     func testMergeRefusesSourceBundleWithUnreadableManifest() async throws {
         let root = try makeTempDirectory()
         let projectURL = root.appendingPathComponent("Fixture.lungfish", isDirectory: true)
@@ -578,6 +882,57 @@ final class ReferenceBundleMergeServiceTests: XCTestCase {
                     name: "Calls",
                     path: "variants/calls.bcf",
                     indexPath: "variants/calls.bcf.csi"
+                )
+            ]
+        )
+        try manifest.save(to: bundleURL)
+        return bundleURL
+    }
+
+    /// A bundle whose annotation track declares no `databasePath`, the shape that predates
+    /// indexed annotations. The merge cannot re-read such a track and must skip it with a
+    /// warning rather than aborting or dropping it silently.
+    private func makeLegacyAnnotationBundle(in projectURL: URL) throws -> URL {
+        let bundleURL = projectURL.appendingPathComponent("LegacyAnnotated.lungfishref", isDirectory: true)
+        let genomeDirectory = bundleURL.appendingPathComponent("genome", isDirectory: true)
+        let annotationsDirectory = bundleURL.appendingPathComponent("annotations", isDirectory: true)
+        try FileManager.default.createDirectory(at: genomeDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: annotationsDirectory, withIntermediateDirectories: true)
+
+        try ">LEGACYSEQ\nCCCCCCCCCCCC\n".write(
+            to: genomeDirectory.appendingPathComponent("sequence.fa"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "placeholder\n".write(
+            to: annotationsDirectory.appendingPathComponent("genes.bb"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let manifest = BundleManifest(
+            name: "LegacyAnnotated",
+            identifier: "org.lungfish.test.legacyannotated",
+            source: SourceInfo(organism: "LegacyAnnotated", assembly: "LegacyAnnotated"),
+            genome: GenomeInfo(
+                path: "genome/sequence.fa",
+                indexPath: "genome/sequence.fa.fai",
+                totalLength: 12,
+                chromosomes: [
+                    ChromosomeInfo(
+                        name: "LEGACYSEQ",
+                        length: 12,
+                        offset: 0,
+                        lineBases: 12,
+                        lineWidth: 13
+                    )
+                ]
+            ),
+            annotations: [
+                AnnotationTrackInfo(
+                    id: "genes",
+                    name: "Legacy Genes",
+                    path: "annotations/genes.bb"
                 )
             ]
         )

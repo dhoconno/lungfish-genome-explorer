@@ -96,6 +96,22 @@ struct SequenceNameCollision: Equatable {
 /// and alignments are still refused because merging concatenates distinct references,
 /// which would require rebasing their coordinates onto the merged sequence space.
 enum ReferenceBundleMergeService {
+    #if DEBUG
+    /// Test-only threading probe, fired at the FIRST statement of `mergeOffMain` -- before
+    /// any `await`, so it observes the thread the merge body was *entered* on.
+    ///
+    /// Asserts the entry half of the off-main invariant: the heavy work must not begin on
+    /// the main thread when driven from the `@MainActor` entry point.
+    nonisolated(unsafe) static var threadingProbe: (@Sendable () -> Void)?
+
+    /// Test-only probe fired inside `mergeRecordStores`, immediately after an
+    /// `await reporter.report(...)` that hops *to* the main actor to touch OperationCenter.
+    ///
+    /// Asserts the other half of the invariant: synchronous SQLite work that follows a
+    /// main-actor progress hop must not be stranded on the main thread by that hop.
+    nonisolated(unsafe) static var recordStoreThreadingProbe: (@Sendable () -> Void)?
+    #endif
+
     @MainActor
     static func merge(
         sourceBundleURLs: [URL],
@@ -113,21 +129,19 @@ enum ReferenceBundleMergeService {
             message: "Merging \(sourceBundleURLs.count) reference bundles into \"\(bundleName)\"."
         )
 
-        // The merge itself runs off the main actor: `mergeOffMain` is nonisolated and does
-        // whole-file FASTA I/O, SQLite exports, and a NativeBundleBuilder build. Progress
-        // hops back here through an awaited @MainActor call, so updates stay ordered rather
-        // than racing through detached tasks.
-        let reporter = ProgressReporter { progress, detail, logMessage in
+        // The reporter is the ONLY thing that touches the main actor. Everything else runs
+        // on the cooperative pool -- see `runDetached`.
+        let reporter = ProgressReporter { progress, detail, log in
             await MainActor.run {
                 _ = OperationCenter.shared.update(id: operationID, progress: progress, detail: detail)
-                if let logMessage {
-                    OperationCenter.shared.log(id: operationID, level: .info, message: logMessage)
+                if let log {
+                    OperationCenter.shared.log(id: operationID, level: log.level, message: log.message)
                 }
             }
         }
 
         do {
-            let mergedURL = try await mergeOffMain(
+            let mergedURL = try await runDetached(
                 sourceBundleURLs: sourceBundleURLs,
                 outputDirectory: outputDirectory,
                 bundleName: bundleName,
@@ -160,12 +174,26 @@ enum ReferenceBundleMergeService {
         }
     }
 
-    /// Progress sink that lets the nonisolated merge report back to the main actor.
+    /// A log line the merge wants recorded in the Operations panel, with its severity.
+    struct ProgressLog: Sendable {
+        let level: OperationLogLevel
+        let message: String
+
+        static func info(_ message: String) -> ProgressLog {
+            ProgressLog(level: .info, message: message)
+        }
+
+        static func warning(_ message: String) -> ProgressLog {
+            ProgressLog(level: .warning, message: message)
+        }
+    }
+
+    /// Progress sink that lets the detached merge report back to the main actor.
     struct ProgressReporter: Sendable {
         /// `(fractionComplete, userVisibleDetail, optionalLogLine)`
-        let report: @Sendable (Double, String, String?) async -> Void
+        let report: @Sendable (Double, String, ProgressLog?) async -> Void
 
-        init(report: @escaping @Sendable (Double, String, String?) async -> Void) {
+        init(report: @escaping @Sendable (Double, String, ProgressLog?) async -> Void) {
             self.report = report
         }
 
@@ -178,13 +206,49 @@ enum ReferenceBundleMergeService {
         bundleName: String,
         provenanceWriter: BundleMergeProvenanceSidecarWriter
     ) async throws -> URL {
-        try await mergeOffMain(
+        try await runDetached(
             sourceBundleURLs: sourceBundleURLs,
             outputDirectory: outputDirectory,
             bundleName: bundleName,
             provenanceWriter: provenanceWriter,
             reporter: .none
         )
+    }
+
+    /// Runs the merge on the cooperative thread pool, unconditionally.
+    ///
+    /// Note on why this is belt-and-braces rather than load-bearing. Under the Swift 6.2
+    /// language mode this package builds in, a `nonisolated async` function called from
+    /// `@MainActor` does NOT inherit the caller's executor -- it hops to the generic
+    /// executor on entry (SE-0338) -- and a continuation resuming after `await
+    /// MainActor.run { ... }` lands back on the generic executor too, not on main. Both
+    /// were verified empirically for this package's toolchain, and
+    /// `ReferenceBundleMergeServiceOffMainTests` asserts both from the real call path.
+    ///
+    /// So `mergeOffMain` would already run off-main without this wrapper. `Task.detached`
+    /// is kept because it makes the guarantee structural instead of dependent on
+    /// `ReferenceBundleMergeService` never gaining actor isolation: the day someone marks
+    /// this enum `@MainActor` (or the isolation rules shift again), the detached hop is what
+    /// keeps `mergeRecordStores`' SQLite union and `writeMergeProvenance`'s whole-bundle
+    /// enumeration plus SHA256 hashing off the main thread. All captured values are
+    /// `Sendable` snapshots taken at the call site.
+    private static func runDetached(
+        sourceBundleURLs: [URL],
+        outputDirectory: URL,
+        bundleName: String,
+        provenanceWriter: BundleMergeProvenanceSidecarWriter,
+        reporter: ProgressReporter
+    ) async throws -> URL {
+        let task = Task<URL, Error>.detached(priority: .userInitiated) {
+            try await mergeOffMain(
+                sourceBundleURLs: sourceBundleURLs,
+                outputDirectory: outputDirectory,
+                bundleName: bundleName,
+                provenanceWriter: provenanceWriter,
+                reporter: reporter
+            )
+        }
+        return try await task.value
     }
 
     private static func mergeOffMain(
@@ -194,6 +258,9 @@ enum ReferenceBundleMergeService {
         provenanceWriter: BundleMergeProvenanceSidecarWriter,
         reporter: ProgressReporter
     ) async throws -> URL {
+        #if DEBUG
+        threadingProbe?()
+        #endif
         guard sourceBundleURLs.count >= 2 else {
             throw ReferenceBundleMergeServiceError.requiresAtLeastTwoBundles
         }
@@ -210,9 +277,25 @@ enum ReferenceBundleMergeService {
         )
         defer { try? FileManager.default.removeItem(at: tempDirectory) }
 
+        // Crash-recovery sentinel. The previous implementation got this for free by routing
+        // through `ReferenceBundleImportService.importAsReferenceBundle`; building through
+        // `NativeBundleBuilder` directly means we own it. Without the marker, a crash or
+        // force-quit mid-merge leaves the output directory looking complete.
+        OperationMarker.markInProgress(outputDirectory, detail: "Merging reference bundles\u{2026}")
+        defer { OperationMarker.clearInProgress(outputDirectory) }
+
+        // Crash-recovery sentinel. The previous implementation got this for free by routing
+        // through `ReferenceBundleImportService.importAsReferenceBundle`; building through
+        // `NativeBundleBuilder` directly means we own it. Without the marker, a crash or
+        // force-quit mid-merge leaves the output directory looking complete.
+
         var createdBundleURL: URL?
         do {
-            await reporter.report(0.1, "Concatenating sequences\u{2026}", "Concatenating \(sources.count) source FASTA files.")
+            await reporter.report(
+                0.1,
+                "Concatenating sequences\u{2026}",
+                .info("Concatenating \(sources.count) source FASTA files.")
+            )
             let mergedFASTA = tempDirectory.appendingPathComponent("merged.fa")
             FileManager.default.createFile(atPath: mergedFASTA.path, contents: nil)
             let outputHandle = try FileHandle(forWritingTo: mergedFASTA)
@@ -231,16 +314,24 @@ enum ReferenceBundleMergeService {
             try outputHandle.close()
 
             await reporter.report(0.3, "Exporting annotations\u{2026}", nil)
-            let annotationInputs = try await exportAnnotationInputs(
+            let annotationExport = try await exportAnnotationInputs(
                 from: sources,
                 into: tempDirectory,
                 reporter: reporter
             )
+            let annotationInputs = annotationExport.inputs
             if !annotationInputs.isEmpty {
                 await reporter.report(
                     0.45,
                     "Exported \(annotationInputs.count) annotation tracks",
-                    "Preserving \(annotationInputs.count) annotation tracks from \(sources.count) source bundles."
+                    .info("Preserving \(annotationInputs.count) annotation tracks from \(sources.count) source bundles.")
+                )
+            }
+            if let warning = annotationExport.warning {
+                await reporter.report(
+                    0.45,
+                    "Some annotation tracks could not be carried across",
+                    .warning(warning.message)
                 )
             }
 
@@ -249,7 +340,11 @@ enum ReferenceBundleMergeService {
                 into: tempDirectory
             )
             if let warning = mergedRecordStore.warning {
-                await reporter.report(0.5, "Merging record metadata\u{2026}", warning.message)
+                await reporter.report(
+                    0.5,
+                    "Merging record metadata\u{2026}",
+                    .warning(warning.message)
+                )
             }
 
             await reporter.report(0.55, "Building merged bundle\u{2026}", nil)
@@ -263,7 +358,8 @@ enum ReferenceBundleMergeService {
                 outputDirectory: outputDirectory,
                 source: mergedSourceInfo(from: sources, bundleName: resolvedBundleName),
                 compressFASTA: true,
-                warnings: mergedWarnings(from: sources) + [mergedRecordStore.warning].compactMap { $0 },
+                warnings: mergedWarnings(from: sources)
+                    + [annotationExport.warning, mergedRecordStore.warning].compactMap { $0 },
                 referenceRecordStoreURL: mergedRecordStore.url
             )
             // `NativeBundleBuilder`'s progress handler is synchronous, so this hop cannot be
@@ -461,26 +557,44 @@ enum ReferenceBundleMergeService {
 
     // MARK: - Annotation preservation
 
+    /// The outcome of re-exporting source annotation tracks for the merged build.
+    private struct AnnotationExport {
+        let inputs: [AnnotationInput]
+        /// A warning to persist in the merged manifest when tracks had to be skipped.
+        let warning: BundleWarning?
+    }
+
     /// Re-exports every source annotation track as a GFF3 the builder can reconsume.
     ///
     /// GenBank imports keep no copy of their original `.gb` inside the bundle, so the
     /// annotation SQLite database is the durable representation. Exporting it back to GFF3
     /// round-trips through a format `NativeBundleBuilder` already ingests, and keeps each
     /// track's records bound to their original sequence names.
+    ///
+    /// A track can be un-re-readable for three reasons: it predates `databasePath` (legacy
+    /// or placeholder artifact), its declared path fails bundle-member validation, or the
+    /// file is simply gone. None of those should abort a merge that can otherwise succeed,
+    /// so such tracks are skipped -- but every skip is accumulated into a returned
+    /// `BundleWarning` and reported at `.warning` level, so the loss is recorded in the
+    /// merged manifest and visible in the Operations log rather than silent.
     private static func exportAnnotationInputs(
         from sources: [SourceBundle],
         into tempDirectory: URL,
         reporter: ProgressReporter
-    ) async throws -> [AnnotationInput] {
+    ) async throws -> AnnotationExport {
         let exportDirectory = tempDirectory.appendingPathComponent("annotations", isDirectory: true)
         var inputs: [AnnotationInput] = []
+        var skipped: [String] = []
         var didCreateDirectory = false
 
         for source in sources {
             for track in source.annotations {
-                // A track with no database is a legacy or placeholder artifact we cannot
-                // re-read. Skip it rather than fail the merge; the warning below records it.
-                guard let databasePath = track.databasePath else { continue }
+                let label = "\"\(track.name)\" in \(source.displayName)"
+
+                guard let databasePath = track.databasePath else {
+                    skipped.append("\(label) (no annotation database; predates indexed annotations)")
+                    continue
+                }
                 let databaseURL: URL
                 do {
                     databaseURL = try BundleManifest.validatedBundleMemberURL(
@@ -489,9 +603,13 @@ enum ReferenceBundleMergeService {
                         field: "annotations.database_path"
                     )
                 } catch {
+                    skipped.append("\(label) (declared path '\(databasePath)' is not a valid bundle member)")
                     continue
                 }
-                guard FileManager.default.fileExists(atPath: databaseURL.path) else { continue }
+                guard FileManager.default.fileExists(atPath: databaseURL.path) else {
+                    skipped.append("\(label) (annotation database file '\(databasePath)' is missing)")
+                    continue
+                }
 
                 if !didCreateDirectory {
                     try FileManager.default.createDirectory(
@@ -519,7 +637,18 @@ enum ReferenceBundleMergeService {
                 )
             }
         }
-        return inputs
+
+        let warning = skipped.isEmpty ? nil : BundleWarning(
+            category: "merge.annotations",
+            code: "annotation_track_dropped",
+            message: """
+                \(skipped.count) annotation \(skipped.count == 1 ? "track was" : "tracks were") \
+                not carried into the merged bundle because \
+                \(skipped.count == 1 ? "it" : "they") could not be re-read: \
+                \(skipped.joined(separator: "; ")).
+                """
+        )
+        return AnnotationExport(inputs: inputs, warning: warning)
     }
 
     /// The outcome of trying to carry GenBank record stores across a merge.
@@ -538,6 +667,9 @@ enum ReferenceBundleMergeService {
         from sources: [SourceBundle],
         into tempDirectory: URL
     ) throws -> MergedRecordStore {
+        #if DEBUG
+        recordStoreThreadingProbe?()
+        #endif
         var storeURLs: [URL] = []
         var sourcesWithoutStore: [String] = []
         for source in sources {
