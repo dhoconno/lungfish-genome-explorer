@@ -36,12 +36,41 @@ private enum MainActorAnnotationImportRunner {
         trackID: String? = nil,
         trackName: String? = nil
     ) async throws -> ReferenceBundleAnnotationImportResult {
-        try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+        return try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
             sourceURL: sourceURL,
             bundleURL: bundleURL,
             trackID: trackID,
             trackName: trackName
         )
+    }
+}
+
+/// Thread-safe capture box for the `threadingProbe` hook. The probe closure is
+/// `@Sendable` and fires from whatever thread `performAttach` actually runs on; this
+/// box lets the (MainActor) test method read the captured value afterward.
+private final class ThreadObservationBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _wasMainThread: Bool?
+    private var _fired = false
+
+    func record() {
+        let isMain = Thread.isMainThread
+        lock.lock()
+        _wasMainThread = isMain
+        _fired = true
+        lock.unlock()
+    }
+
+    var fired: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return _fired
+    }
+
+    var wasMainThread: Bool? {
+        lock.lock()
+        defer { lock.unlock() }
+        return _wasMainThread
     }
 }
 
@@ -58,6 +87,7 @@ final class ReferenceBundleAnnotationImportServiceOffMainTests: XCTestCase {
     }
 
     override func tearDown() async throws {
+        ReferenceBundleAnnotationImportService.threadingProbe = nil
         if let tempRoot {
             try? FileManager.default.removeItem(at: tempRoot)
         }
@@ -188,6 +218,66 @@ final class ReferenceBundleAnnotationImportServiceOffMainTests: XCTestCase {
         }.value
 
         XCTAssertEqual(choices.count, 1)
+    }
+
+    // MARK: - Threading regression (review round 1, CRITICAL finding)
+    //
+    // These tests call `attachAnnotationTrack` from an actual `@MainActor` context (as
+    // every production caller does) and assert, via a probe fired from inside
+    // `performAttach`'s `Task.detached` body, that the heavy work is NOT running on the
+    // main thread. `Task.detached` makes this an unconditional, structural guarantee
+    // rather than relying on the isolation-crossing `await` hop that Swift 6 happens to
+    // insert when a `@MainActor` caller awaits a nonisolated async callee on this
+    // toolchain -- that hop is real (confirmed empirically while building this fix: a
+    // `@MainActor` caller awaiting a plain nonisolated async method, even one with zero
+    // internal awaits, lands on a background thread here), but it is compiler/runtime
+    // behavior this class should not depend on implicitly. The discriminating mutation
+    // these tests actually catch is the class regaining `@MainActor` (F14's original
+    // bug): confirmed RED by temporarily re-adding `@MainActor` to
+    // `ReferenceBundleAnnotationImportService` during development, which made both
+    // `wasMainThread` assertions below fail (`Optional(true)` instead of
+    // `Optional(false)`), then GREEN again after reverting.
+
+    /// GFF3 import, driven from @MainActor: the heavy work must not run on the main thread.
+    func testGFF3ImportRunsHeavyWorkOffMainThreadWhenCalledFromMainActor() async throws {
+        let gffFixture = repoRoot.appendingPathComponent("Tests/Fixtures/sarscov2/genome.gff3")
+        guard FileManager.default.fileExists(atPath: gffFixture.path) else {
+            throw XCTSkip("GFF3 fixture not found at \(gffFixture.path)")
+        }
+        let bundleURL = try makeBundle(named: "ThreadProbeGFF3")
+        let observation = ThreadObservationBox()
+        ReferenceBundleAnnotationImportService.threadingProbe = { observation.record() }
+
+        _ = try await MainActorAnnotationImportRunner.attach(
+            sourceURL: gffFixture,
+            bundleURL: bundleURL,
+            trackID: "thread_probe_gff3"
+        )
+
+        XCTAssertTrue(observation.fired, "threadingProbe never fired -- test is not exercising the real code path")
+        XCTAssertEqual(observation.wasMainThread, false, "annotation import heavy work ran on the main thread")
+    }
+
+    /// BED import, driven from @MainActor: this is the CRITICAL path from the review --
+    /// createFromBED has zero internal `await`s, so this is the format most exposed to
+    /// the nonisolated-inherits-caller's-thread pitfall.
+    func testBEDImportRunsHeavyWorkOffMainThreadWhenCalledFromMainActor() async throws {
+        let bedFixture = repoRoot.appendingPathComponent("Tests/Fixtures/sarscov2/test.bed")
+        guard FileManager.default.fileExists(atPath: bedFixture.path) else {
+            throw XCTSkip("BED fixture not found at \(bedFixture.path)")
+        }
+        let bundleURL = try makeBundle(named: "ThreadProbeBED")
+        let observation = ThreadObservationBox()
+        ReferenceBundleAnnotationImportService.threadingProbe = { observation.record() }
+
+        _ = try await MainActorAnnotationImportRunner.attach(
+            sourceURL: bedFixture,
+            bundleURL: bundleURL,
+            trackID: "thread_probe_bed"
+        )
+
+        XCTAssertTrue(observation.fired, "threadingProbe never fired -- test is not exercising the real code path")
+        XCTAssertEqual(observation.wasMainThread, false, "annotation import heavy work ran on the main thread")
     }
 
     private func makeBundle(named name: String, relativePath: String? = nil) throws -> URL {

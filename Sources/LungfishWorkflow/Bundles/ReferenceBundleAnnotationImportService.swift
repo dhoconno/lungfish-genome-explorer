@@ -56,23 +56,43 @@ public enum ReferenceBundleAnnotationImportError: Error, LocalizedError {
 
 /// Attaches an annotation track (GFF/GFF3/GTF/BED) to an existing reference bundle.
 ///
-/// Deliberately not `@MainActor`: `attachAnnotationTrack` does GFF/BED parsing
+/// Deliberately not `@MainActor`, and `attachAnnotationTrack` deliberately hops onto
+/// `Task.detached` before doing any work: the method does GFF/BED parsing
 /// (`AnnotationDatabase.createFromBED`/`createFromGFF3`), full-file SHA256 hashing
 /// (`ProvenanceRecorder.sha256(of:)`), directory-tree copies for rollback, and JSON
-/// provenance encode/decode + atomic writes -- none of which touch UI state. Every
-/// dependency is already off-main: `AnnotationDatabase` is `@unchecked Sendable`,
-/// `BundleManifest`/`ProvenanceWriter` are `Sendable` value types, `ProvenanceRecorder`
-/// is an `actor` (its `sha256(of:)` helper is a plain `static func`), and
-/// `ProvenanceRehydrator` is a stateless `enum` of static functions. Callers already
-/// `await` construction and `attachAnnotationTrack(...)` (see
+/// provenance encode/decode + atomic writes -- none of which touch UI state, and none
+/// of which is preceded by any `await` of its own. A nonisolated `async` function with
+/// no suspension point before its synchronous work *inherits the caller's thread* --
+/// removing `@MainActor` alone would NOT move this work off the main thread for the
+/// real call sites, which all `await` from `@MainActor` context. The explicit
+/// `Task.detached` in `attachAnnotationTrack` is what actually forces the executor hop,
+/// for both the BED path (fully synchronous, no internal awaits at all) and the GFF3
+/// path (whose internal suspension via `.lines` is not something callers should have to
+/// rely on for main-thread safety). Every dependency is already off-main-safe:
+/// `AnnotationDatabase` is `@unchecked Sendable`, `BundleManifest`/`ProvenanceWriter`
+/// are `Sendable` value types, `ProvenanceRecorder` is an `actor` (its `sha256(of:)`
+/// helper is a plain `static func`), and `ProvenanceRehydrator` is a stateless `enum`
+/// of static functions -- so nothing blocks running the whole body detached. Callers
+/// already `await` construction and `attachAnnotationTrack(...)` (see
 /// `AppDelegate+ImportCenter.swift`, `MainSplitViewController+FASTQImport.swift`,
-/// `ViewerViewController.swift`, `GeneiousImportCollectionService.swift`), so removing
-/// the isolation only changes those calls from a MainActor hop to a real background
-/// executor hop -- no call site needs to change. Callers that want MainActor UI updates
-/// from the returned `ReferenceBundleAnnotationImportResult` continue to hop themselves
-/// after `await`, exactly as before.
+/// `ViewerViewController.swift`, `GeneiousImportCollectionService.swift`); no call site
+/// needs to change. Callers that want MainActor UI updates from the returned
+/// `ReferenceBundleAnnotationImportResult` continue to hop themselves after `await`,
+/// exactly as before.
 public final class ReferenceBundleAnnotationImportService {
     public init() {}
+
+    #if DEBUG
+    /// Test-only threading probe. When set, invoked once at the start of the heavy
+    /// parse/hash/provenance work inside `performAttach`'s `Task.detached` body -- i.e.
+    /// after the executor hop this class relies on for main-thread safety, and before
+    /// any of `createFromBED`/`createFromGFF3`/`ProvenanceRecorder.sha256(of:)` runs.
+    /// Exists solely so `ReferenceBundleAnnotationImportServiceOffMainTests` can assert
+    /// `!Thread.isMainThread` from inside the real call path when driven from a
+    /// `@MainActor` caller, without depending on `AnnotationDatabase` internals. Not
+    /// compiled into release builds.
+    nonisolated(unsafe) static var threadingProbe: (@Sendable () -> Void)?
+    #endif
 
     private struct ProvenanceLayoutSnapshot {
         let rootProvenanceURL: URL
@@ -152,12 +172,48 @@ public final class ReferenceBundleAnnotationImportService {
         }
     }
 
+    /// Attaches an annotation track to a reference bundle.
+    ///
+    /// The entire body -- GFF/BED parsing, SHA256 hashing, provenance directory
+    /// copy/restore, and JSON encode/decode + atomic writes -- runs inside
+    /// `Task.detached`, which unconditionally hops execution to the cooperative
+    /// thread pool regardless of the caller's actor. This is deliberate and load-bearing:
+    /// `attachAnnotationTrack` has no `await` of its own between entry and the
+    /// `Task.detached` call, so without the detached hop a nonisolated `async` func
+    /// called from `@MainActor` (as every real call site does -- see
+    /// `AppDelegate+ImportCenter.swift`, `MainSplitViewController+FASTQImport.swift`,
+    /// `ViewerViewController.swift`) would simply inherit the caller's thread and run
+    /// every synchronous step (including the fully-synchronous `createFromBED` path)
+    /// on the main thread until the first real suspension point. `Task.detached`
+    /// guarantees the executor hop happens up front, for both the GFF3 and BED
+    /// formats, independent of whatever suspension behavior `createFromGFF3`'s
+    /// internal `for try await line in gffURL.lines` happens to have.
     public func attachAnnotationTrack(
         sourceURL: URL,
         bundleURL: URL,
         trackID requestedTrackID: String? = nil,
         trackName requestedTrackName: String? = nil
     ) async throws -> ReferenceBundleAnnotationImportResult {
+        let task = Task<ReferenceBundleAnnotationImportResult, Error>.detached(priority: .userInitiated) {
+            try await ReferenceBundleAnnotationImportService.performAttach(
+                sourceURL: sourceURL,
+                bundleURL: bundleURL,
+                requestedTrackID: requestedTrackID,
+                requestedTrackName: requestedTrackName
+            )
+        }
+        return try await task.value
+    }
+
+    private static func performAttach(
+        sourceURL: URL,
+        bundleURL: URL,
+        requestedTrackID: String?,
+        requestedTrackName: String?
+    ) async throws -> ReferenceBundleAnnotationImportResult {
+        #if DEBUG
+        threadingProbe?()
+        #endif
         let startedAt = Date()
         guard ReferenceBundleImportService.classify(sourceURL) == .annotationTrack else {
             throw ReferenceBundleAnnotationImportError.unsupportedFormat(sourceURL)
@@ -294,7 +350,7 @@ public final class ReferenceBundleAnnotationImportService {
         return collapsed.isEmpty ? "annotations" : collapsed
     }
 
-    private func resolvedTrackID(
+    private static func resolvedTrackID(
         _ requestedTrackID: String?,
         sourceURL: URL,
         existingIDs: Set<String>,
@@ -325,7 +381,7 @@ public final class ReferenceBundleAnnotationImportService {
         return !value.isEmpty && value.unicodeScalars.allSatisfy { allowed.contains($0) }
     }
 
-    private func makeUniqueTrackID(
+    private static func makeUniqueTrackID(
         base: String,
         existingIDs: Set<String>,
         annotationsDir: URL
@@ -366,7 +422,7 @@ public final class ReferenceBundleAnnotationImportService {
         return String(targetPath.dropFirst(normalizedProjectPath.count))
     }
 
-    private func writeProvenance(
+    private static func writeProvenance(
         sourceURL: URL,
         bundleURL: URL,
         manifestURL: URL,
@@ -456,11 +512,11 @@ public final class ReferenceBundleAnnotationImportService {
         )
     }
 
-    private func importProvenanceURL(bundleURL: URL, trackID: String) -> URL {
+    private static func importProvenanceURL(bundleURL: URL, trackID: String) -> URL {
         bundleURL.appendingPathComponent("annotations/\(trackID)-import-provenance.json")
     }
 
-    private func removeAnnotationDatabaseArtifacts(at databaseURL: URL) throws {
+    private static func removeAnnotationDatabaseArtifacts(at databaseURL: URL) throws {
         for url in [
             databaseURL,
             URL(fileURLWithPath: databaseURL.path + "-wal"),
@@ -471,7 +527,7 @@ public final class ReferenceBundleAnnotationImportService {
         }
     }
 
-    private func writeCanonicalProvenance(
+    private static func writeCanonicalProvenance(
         command: [String],
         sourceURL: URL,
         bundleURL: URL,
@@ -590,7 +646,7 @@ public final class ReferenceBundleAnnotationImportService {
         try ProvenanceWriter(signingProvider: nil).write(mergedEnvelope, to: bundleURL)
     }
 
-    private func mergedProvenanceFiles(
+    private static func mergedProvenanceFiles(
         _ primary: [ProvenanceFileDescriptor],
         _ additional: [ProvenanceFileDescriptor]
     ) -> [ProvenanceFileDescriptor] {
@@ -609,7 +665,7 @@ public final class ReferenceBundleAnnotationImportService {
         return merged
     }
 
-    private func provenanceFormat(for url: URL) -> FileFormat {
+    private static func provenanceFormat(for url: URL) -> FileFormat {
         switch ReferenceBundleImportService.normalizedExtension(for: url) {
         case "bed":
             return .bed
@@ -620,7 +676,7 @@ public final class ReferenceBundleAnnotationImportService {
         }
     }
 
-    private func loadProvenanceLog(from url: URL) throws -> AnnotationTrackImportProvenanceLog {
+    private static func loadProvenanceLog(from url: URL) throws -> AnnotationTrackImportProvenanceLog {
         guard FileManager.default.fileExists(atPath: url.path) else {
             return AnnotationTrackImportProvenanceLog(schemaVersion: 1, entries: [])
         }
@@ -629,7 +685,7 @@ public final class ReferenceBundleAnnotationImportService {
         return try decoder.decode(AnnotationTrackImportProvenanceLog.self, from: Data(contentsOf: url))
     }
 
-    private func fileSnapshot(for url: URL) -> AnnotationImportFileSnapshot? {
+    private static func fileSnapshot(for url: URL) -> AnnotationImportFileSnapshot? {
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
         let size = (attributes?[.size] as? NSNumber)?.uint64Value
@@ -640,7 +696,7 @@ public final class ReferenceBundleAnnotationImportService {
         )
     }
 
-    private func appVersionString() -> String {
+    private static func appVersionString() -> String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "debug"
     }
 }
