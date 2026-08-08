@@ -50,6 +50,39 @@ final class NvdResultViewControllerTests: XCTestCase {
         XCTAssertEqual(vc.testOutlineSelectedRowIndexes(), IndexSet(integer: 0))
     }
 
+    func testExtractButtonDisabledWhenOnlyCachedRowsAreLoaded() {
+        // Regression test for AS11: the action bar's Extract Reads button
+        // unconditionally enabled itself on row selection regardless of
+        // `database == nil`, unlike the row-level context menu item which
+        // correctly disables in this state. During the cached-rows-only
+        // load window (before configure(database:) completes), clicking
+        // Extract produced no dialog and no error.
+        let vc = NvdResultViewController()
+        _ = vc.view
+
+        let bundleURL = URL(fileURLWithPath: "/project/Analyses/nvd-run-a", isDirectory: true)
+        let manifest = NvdManifest(
+            experiment: "exp-cached-only",
+            sampleCount: 1,
+            contigCount: 1,
+            hitCount: 1,
+            blastDbVersion: "db",
+            snakemakeRunId: "run-a",
+            sourceDirectoryPath: "/project",
+            samples: [],
+            cachedTopContigs: nil
+        )
+        vc.configureWithCachedRows(
+            [Self.contigRow(sampleId: "sample-A", qseqid: "NODE_1")],
+            manifest: manifest,
+            bundleURL: bundleURL
+        )
+
+        vc.testSelectOutlineRow(0)
+
+        XCTAssertFalse(vc.testActionBar.extractButton.isEnabled)
+    }
+
     func testContextMenuValidationUsesIdentityBackedVisibleSelectionCount() throws {
         let fixture = try NvdMenuFixture(duplicateContigs: true)
         addTeardownBlock {
