@@ -108,6 +108,12 @@ public class SequenceViewerView: NSView {
     /// Generation counter for variant fetches — prevents stale results from overwriting newer ones
     var variantFetchGeneration: Int = 0
 
+    /// Generation counter for interaction-triggered bundle-sequence fetches (annotation
+    /// copy/complement/reverse-complement, FASTA operation dialog input). Prevents a stale
+    /// async fetch started by an earlier menu action from applying its result (clipboard
+    /// write / dialog presentation) after a newer request has superseded it.
+    var fastaOperationFetchGeneration: Int = 0
+
     // MARK: - Read Alignment State
 
     /// Cached aligned reads for the current visible region

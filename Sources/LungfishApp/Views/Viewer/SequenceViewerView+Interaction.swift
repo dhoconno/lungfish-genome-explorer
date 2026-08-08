@@ -1144,14 +1144,21 @@ extension SequenceViewerView {
 
     @objc func copyAnnotationSequence(_ sender: NSMenuItem?) {
         guard let annotation = sender?.representedObject as? SequenceAnnotation else { return }
-        guard let bases = fetchAnnotationBases(annotation) else {
-            NSSound.beep()
-            return
+        fastaOperationFetchGeneration += 1
+        let thisGeneration = fastaOperationFetchGeneration
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let bases = await self.fetchAnnotationBasesAsync(annotation) else {
+                guard thisGeneration == self.fastaOperationFetchGeneration else { return }
+                NSSound.beep()
+                return
+            }
+            guard thisGeneration == self.fastaOperationFetchGeneration else { return }
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(bases, forType: .string)
+            sequenceViewerLogger.info("Copied \(bases.count) bases from annotation '\(annotation.name)' to clipboard")
         }
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(bases, forType: .string)
-        sequenceViewerLogger.info("Copied \(bases.count) bases from annotation '\(annotation.name)' to clipboard")
     }
 
     @objc func copyAnnotationCoordinates(_ sender: NSMenuItem?) {
@@ -1166,28 +1173,42 @@ extension SequenceViewerView {
 
     @objc func copyAnnotationComplement(_ sender: NSMenuItem?) {
         guard let annotation = sender?.representedObject as? SequenceAnnotation else { return }
-        guard let bases = fetchAnnotationBases(annotation) else {
-            NSSound.beep()
-            return
+        fastaOperationFetchGeneration += 1
+        let thisGeneration = fastaOperationFetchGeneration
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let bases = await self.fetchAnnotationBasesAsync(annotation) else {
+                guard thisGeneration == self.fastaOperationFetchGeneration else { return }
+                NSSound.beep()
+                return
+            }
+            guard thisGeneration == self.fastaOperationFetchGeneration else { return }
+            let complement = self.complementString(bases)
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(complement, forType: .string)
+            sequenceViewerLogger.info("Copied \(complement.count) bases (complement) from annotation '\(annotation.name)' to clipboard")
         }
-        let complement = complementString(bases)
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(complement, forType: .string)
-        sequenceViewerLogger.info("Copied \(complement.count) bases (complement) from annotation '\(annotation.name)' to clipboard")
     }
 
     @objc func copyAnnotationReverseComplement(_ sender: NSMenuItem?) {
         guard let annotation = sender?.representedObject as? SequenceAnnotation else { return }
-        guard let bases = fetchAnnotationBases(annotation) else {
-            NSSound.beep()
-            return
+        fastaOperationFetchGeneration += 1
+        let thisGeneration = fastaOperationFetchGeneration
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let bases = await self.fetchAnnotationBasesAsync(annotation) else {
+                guard thisGeneration == self.fastaOperationFetchGeneration else { return }
+                NSSound.beep()
+                return
+            }
+            guard thisGeneration == self.fastaOperationFetchGeneration else { return }
+            let revComp = self.reverseComplementString(bases)
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(revComp, forType: .string)
+            sequenceViewerLogger.info("Copied \(revComp.count) bases (reverse complement) from annotation '\(annotation.name)' to clipboard")
         }
-        let revComp = reverseComplementString(bases)
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(revComp, forType: .string)
-        sequenceViewerLogger.info("Copied \(revComp.count) bases (reverse complement) from annotation '\(annotation.name)' to clipboard")
     }
 
     @objc func zoomToAnnotationAction(_ sender: NSMenuItem?) {
@@ -1238,14 +1259,21 @@ extension SequenceViewerView {
 
     /// Copies the annotation's raw sequence to the clipboard (callable from notification handlers).
     func copyAnnotationSequenceImpl(_ annotation: SequenceAnnotation) {
-        guard let bases = fetchAnnotationBases(annotation) else {
-            NSSound.beep()
-            return
+        fastaOperationFetchGeneration += 1
+        let thisGeneration = fastaOperationFetchGeneration
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let bases = await self.fetchAnnotationBasesAsync(annotation) else {
+                guard thisGeneration == self.fastaOperationFetchGeneration else { return }
+                NSSound.beep()
+                return
+            }
+            guard thisGeneration == self.fastaOperationFetchGeneration else { return }
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(bases, forType: .string)
+            sequenceViewerLogger.info("Copied \(bases.count) bases from annotation '\(annotation.name)' to clipboard")
         }
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(bases, forType: .string)
-        sequenceViewerLogger.info("Copied \(bases.count) bases from annotation '\(annotation.name)' to clipboard")
     }
 
     struct FASTAOperationInput {
@@ -1268,17 +1296,29 @@ extension SequenceViewerView {
     }
 
     /// Opens the generic FASTQ/FASTA Operations dialog for the current sequence selection.
+    ///
+    /// Called from a synchronous `@objc` menu-action context (no `async` entry point exists
+    /// on the AppKit call side), so this kicks off its own `Task` and applies the result back
+    /// on the main actor. A generation guard discards the result if a newer request has
+    /// superseded this one (e.g. rapid repeated menu invocations) before it resolves.
     func runSelectedSequenceFASTAOperation(toolID: FASTQOperationToolID) {
-        do {
-            let input = try selectedFASTAOperationInput()
-            viewController?.presentFASTAOperationDialog(
-                records: input.records,
-                suggestedName: input.suggestedName,
-                initialCategory: toolID.categoryID,
-                initialToolID: toolID
-            )
-        } catch {
-            presentFASTAOperationInputError(error)
+        fastaOperationFetchGeneration += 1
+        let thisGeneration = fastaOperationFetchGeneration
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let input = try await self.selectedFASTAOperationInput()
+                guard thisGeneration == self.fastaOperationFetchGeneration else { return }
+                self.viewController?.presentFASTAOperationDialog(
+                    records: input.records,
+                    suggestedName: input.suggestedName,
+                    initialCategory: toolID.categoryID,
+                    initialToolID: toolID
+                )
+            } catch {
+                guard thisGeneration == self.fastaOperationFetchGeneration else { return }
+                self.presentFASTAOperationInputError(error)
+            }
         }
     }
 
@@ -1301,7 +1341,16 @@ extension SequenceViewerView {
         return hasNonEmptySelectedOrVisibleSequenceRange(sequenceLength: Int(chromosome.length))
     }
 
-    func selectedFASTAOperationInput() throws -> FASTAOperationInput {
+    /// Resolves the FASTA input for the current selection/visible range.
+    ///
+    /// For bundle-backed chromosomes this performs real file I/O (bgzip decompression or
+    /// indexed-FASTA seek+read). That work is dispatched to the cooperative thread pool via
+    /// `Task.detached` in `fetchBundleRegionsOffMain` so it never runs on the main thread —
+    /// a nonisolated `async` function with no internal `await` before its synchronous body
+    /// inherits the *caller's* thread when awaited from `@MainActor` code, so the detached
+    /// hop is required, not incidental. See `Sources/LungfishKit/AsyncFileReader.swift` for
+    /// the same pattern applied to whole-file reads.
+    func selectedFASTAOperationInput() async throws -> FASTAOperationInput {
         if let seq = activeSequence ?? sequence {
             let range = selectedOrVisibleSequenceRange(sequenceLength: seq.length)
             let start = max(0, range.lowerBound)
@@ -1329,9 +1378,8 @@ extension SequenceViewerView {
             throw FASTAOperationInputError.emptyRange
         }
 
-        let bases = try bundle.fetchSequenceSync(
-            region: GenomicRegion(chromosome: chromosome.name, start: start, end: end)
-        )
+        let region = GenomicRegion(chromosome: chromosome.name, start: start, end: end)
+        let bases = try await Self.fetchBundleRegionOffMain(bundle: bundle, region: region)
         let sequenceName = selectedSequenceName(chromosome: chromosome.name, start: start, end: end)
         let fasta = formatFASTA(name: sequenceName, sequence: bases)
         return FASTAOperationInput(records: [fasta], suggestedName: sequenceName)
@@ -1397,15 +1445,22 @@ extension SequenceViewerView {
 
     /// Copies the annotation's reverse complement to the clipboard (callable from notification handlers).
     func copyAnnotationReverseComplementImpl(_ annotation: SequenceAnnotation) {
-        guard let bases = fetchAnnotationBases(annotation) else {
-            NSSound.beep()
-            return
+        fastaOperationFetchGeneration += 1
+        let thisGeneration = fastaOperationFetchGeneration
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let bases = await self.fetchAnnotationBasesAsync(annotation) else {
+                guard thisGeneration == self.fastaOperationFetchGeneration else { return }
+                NSSound.beep()
+                return
+            }
+            guard thisGeneration == self.fastaOperationFetchGeneration else { return }
+            let revComp = self.reverseComplementString(bases)
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(revComp, forType: .string)
+            sequenceViewerLogger.info("Copied \(revComp.count) bases (reverse complement) from annotation '\(annotation.name)' to clipboard")
         }
-        let revComp = reverseComplementString(bases)
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(revComp, forType: .string)
-        sequenceViewerLogger.info("Copied \(revComp.count) bases (reverse complement) from annotation '\(annotation.name)' to clipboard")
     }
 
     /// Returns the complement of a DNA string.
@@ -1419,7 +1474,10 @@ extension SequenceViewerView {
     }
 
     /// Fetches the full sequence bases for an annotation, handling multi-block and bundle-backed sequences.
-    func fetchAnnotationBases(_ annotation: SequenceAnnotation) -> String? {
+    ///
+    /// Bundle-backed fetches are dispatched off the main actor (see `fetchBundleRegionOffMain`);
+    /// single-sequence mode is an in-memory string slice and stays synchronous on the caller.
+    func fetchAnnotationBasesAsync(_ annotation: SequenceAnnotation) async -> String? {
         if let bundle = currentReferenceBundle {
             // Bundle mode: fetch each interval and concatenate
             let chrom = annotation.chromosome ?? bundle.chromosomeNames.first ?? ""
@@ -1428,13 +1486,13 @@ extension SequenceViewerView {
                 let start = max(0, interval.start)
                 let end = interval.end
                 let region = GenomicRegion(chromosome: chrom, start: start, end: end)
-                if let bases = try? bundle.fetchSequenceSync(region: region) {
+                if let bases = try? await Self.fetchBundleRegionOffMain(bundle: bundle, region: region) {
                     allBases += bases
                 }
             }
             return allBases.isEmpty ? nil : allBases
         } else if let seq = sequence {
-            // Single-sequence mode
+            // Single-sequence mode: pure in-memory slicing, no I/O.
             var allBases = ""
             for interval in annotation.intervals {
                 let start = max(0, interval.start)
@@ -1445,6 +1503,36 @@ extension SequenceViewerView {
             return allBases.isEmpty ? nil : allBases
         }
         return nil
+    }
+
+    #if DEBUG
+    /// Test seam: fires once at the start of the detached body in `fetchBundleRegionOffMain`,
+    /// before any bundle I/O runs. Lets tests assert the heavy work actually left the main
+    /// thread. `nonisolated(unsafe)` (not `@unchecked Sendable`) matches the existing pattern
+    /// in `FASTQSourceResolver.materializer`. Debug-only; compiled out of release builds.
+    nonisolated(unsafe) static var fastaOperationThreadingProbe: (@Sendable () -> Void)?
+    #endif
+
+    /// Fetches a single genomic region from `bundle` on the cooperative thread pool.
+    ///
+    /// `ReferenceBundle.fetchSequence(region:)` is a nonisolated `async` function whose body
+    /// (bgzip block decompression or indexed-FASTA seek+read) has no internal `await` before
+    /// touching the filesystem. Swift does not guarantee an executor hop for a nonisolated
+    /// `async` callee with no internal suspension point — when awaited directly from
+    /// `@MainActor` code it can inherit the caller's (main) thread. `Task.detached`
+    /// unconditionally schedules its body on the cooperative thread pool regardless of the
+    /// caller's actor or the callee's suspension behavior, so it is the structural guarantee
+    /// this needs (see `Sources/LungfishKit/AsyncFileReader.swift` for the same pattern).
+    nonisolated private static func fetchBundleRegionOffMain(
+        bundle: ReferenceBundle,
+        region: GenomicRegion
+    ) async throws -> String {
+        try await Task.detached(priority: .userInitiated) {
+            #if DEBUG
+            fastaOperationThreadingProbe?()
+            #endif
+            return try await bundle.fetchSequence(region: region)
+        }.value
     }
 
     @objc func deleteAnnotationAction(_ sender: NSMenuItem?) {

@@ -216,7 +216,7 @@ final class SequenceMenuOperationTests: XCTestCase {
         ])
     }
 
-    func testSelectedFASTAOperationInputFallsBackToIndexedReferenceBundle() throws {
+    func testSelectedFASTAOperationInputFallsBackToIndexedReferenceBundle() async throws {
         let bundleURL = try makeReferenceBundle(
             chromosomeName: "MN908947",
             sequence: "AAACCCGGGTTT"
@@ -234,13 +234,13 @@ final class SequenceMenuOperationTests: XCTestCase {
         viewerController.viewerView.setReferenceBundle(bundle)
         viewerController.viewerView.selectVisibleRegion()
 
-        let input = try viewerController.viewerView.selectedFASTAOperationInput()
+        let input = try await viewerController.viewerView.selectedFASTAOperationInput()
 
         XCTAssertEqual(input.suggestedName, "MN908947_4_9")
         XCTAssertEqual(input.records, [">MN908947_4_9\nCCCGGG\n"])
     }
 
-    func testSelectedFASTAOperationInputUsesVisibleRegionWhenNoExplicitSelectionExists() throws {
+    func testSelectedFASTAOperationInputUsesVisibleRegionWhenNoExplicitSelectionExists() async throws {
         let bundleURL = try makeReferenceBundle(
             chromosomeName: "MN908947",
             sequence: "AAACCCGGGTTT"
@@ -258,7 +258,7 @@ final class SequenceMenuOperationTests: XCTestCase {
         viewerController.viewerView.setReferenceBundle(bundle)
         viewerController.viewerView.clearSelection()
 
-        let input = try viewerController.viewerView.selectedFASTAOperationInput()
+        let input = try await viewerController.viewerView.selectedFASTAOperationInput()
 
         XCTAssertEqual(input.suggestedName, "MN908947_4_9")
         XCTAssertEqual(input.records, [">MN908947_4_9\nCCCGGG\n"])
