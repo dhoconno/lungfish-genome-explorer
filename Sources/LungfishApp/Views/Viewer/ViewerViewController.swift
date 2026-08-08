@@ -62,6 +62,10 @@ public class ViewerViewController: NSViewController {
         _ initialToolID: FASTQOperationToolID?
     ) -> Void
 
+    typealias OverlappingReadsExtractionRunner = @Sendable (
+        _ config: BAMRegionExtractionConfig
+    ) async throws -> LungfishWorkflow.ExtractionResult
+
     // MARK: - UI Components
 
     /// The custom view for rendering sequences and tracks
@@ -111,6 +115,14 @@ public class ViewerViewController: NSViewController {
     private var activeFASTABlastOperationID: UUID?
     private var activeFASTABlastRunID: UUID?
     private var lastFASTABlastRequest: (sourceLabel: String, fastaRecords: [String])?
+
+    /// Runs `ReadExtractionService.extractByBAMRegion` for the "Extract Overlapping
+    /// Reads" annotation action. Overridable in tests to inject failures without a
+    /// real BAM/samtools environment.
+    var overlappingReadsExtractionRunner: OverlappingReadsExtractionRunner = { config in
+        try await ReadExtractionService().extractByBAMRegion(config: config)
+    }
+    var activeOverlappingReadsExtractionTask: Task<Void, Never>?
 
     /// Taxonomy classification browser (shown in place of sequence viewer for kreport results)
     var taxonomyViewController: TaxonomyViewController?

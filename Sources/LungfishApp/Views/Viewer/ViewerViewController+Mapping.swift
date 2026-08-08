@@ -4,6 +4,7 @@
 
 import AppKit
 import LungfishCore
+import LungfishKit
 import LungfishWorkflow
 import os.log
 
@@ -258,13 +259,67 @@ extension ViewerViewController {
 
     func extractOverlappingReads(from annotation: SequenceAnnotation) {
         guard let config = mappingExtractionConfiguration(for: annotation) else { return }
-        Task.detached(priority: .userInitiated) {
+
+        let command = "# Extract Overlapping Reads for annotation '\(annotation.name)' (samtools region extraction; see output provenance for replay details)"
+        let opID = OperationCenter.shared.start(
+            title: "Extract Overlapping Reads",
+            detail: "Extracting reads overlapping \(annotation.name)…",
+            operationType: .taxonomyExtraction,
+            cliCommand: command
+        )
+
+        let runner = overlappingReadsExtractionRunner
+        let annotationName = annotation.name
+        let task = Task { [weak self] in
             do {
-                let service = ReadExtractionService()
-                _ = try await service.extractByBAMRegion(config: config)
+                let result = try await runner(config)
+                DispatchQueue.main.async { MainActor.assumeIsolated {
+                    _ = OperationCenter.shared.complete(
+                        id: opID,
+                        detail: "Extracted \(result.readCount) read\(result.readCount == 1 ? "" : "s") overlapping \(annotationName)",
+                        outputURLs: result.fastqURLs
+                    )
+                }}
             } catch {
                 mappingDisplayLogger.error("extractOverlappingReads failed: \(error.localizedDescription, privacy: .public)")
+                DispatchQueue.main.async { [weak self] in MainActor.assumeIsolated {
+                    _ = OperationCenter.shared.fail(
+                        id: opID,
+                        detail: "Extract Overlapping Reads failed",
+                        errorMessage: error.localizedDescription
+                    )
+                    self?.presentExtractOverlappingReadsFailureAlert(error)
+                }}
             }
         }
+        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+        activeOverlappingReadsExtractionTask = task
     }
+
+    private func presentExtractOverlappingReadsFailureAlert(_ error: Error) {
+        let alert = NSAlert()
+        alert.messageText = "Extract Overlapping Reads Failed"
+        alert.informativeText = error.localizedDescription
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        if let window = view.window {
+            alert.beginSheetModal(for: window)
+        } else {
+            NSApp.presentError(ExtractOverlappingReadsWarning(
+                title: alert.messageText,
+                message: alert.informativeText
+            ))
+        }
+    }
+}
+
+/// Presentable wrapper so `presentExtractOverlappingReadsFailureAlert` can surface
+/// a failure via `NSApp.presentError` when no window is available for a sheet,
+/// mirroring `AnnotationDrawerWarning` in `ViewerViewController+AnnotationDrawer.swift`.
+private struct ExtractOverlappingReadsWarning: LocalizedError {
+    let title: String
+    let message: String
+
+    var errorDescription: String? { title }
+    var recoverySuggestion: String? { message }
 }
