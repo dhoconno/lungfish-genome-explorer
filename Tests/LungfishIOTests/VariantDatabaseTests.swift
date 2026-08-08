@@ -192,6 +192,55 @@ final class VariantDatabaseTests: XCTestCase {
         XCTAssertEqual(VariantDatabase.metadataValue(at: dbURL, key: "import_state"), "complete")
     }
 
+    /// F39 regression: a failed COMMIT during import must abort the import with a thrown
+    /// error, not be silently logged while the import continues and reports success with
+    /// a truncated database.
+    func testCreateFromVCFThrowsWhenCommitFails() throws {
+        VariantDatabase.resetDebugCommitFailureInjection()
+        defer { VariantDatabase.resetDebugCommitFailureInjection() }
+
+        // Multi-chromosome, partitioned import performs an inter-chromosome
+        // `commitImportTransaction(reopen: true, forceShrink: true)` after the first
+        // chromosome completes — that's the 1st COMMIT this import issues, so failing it
+        // deterministically exercises the mid-stream (non-final) COMMIT failure path.
+        let vcf = """
+        ##fileformat=VCFv4.3
+        ##INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">
+        ##contig=<ID=chr1,length=1000000>
+        ##contig=<ID=chr2,length=1000000>
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+        chr1\t100\trs1\tA\tG\t30\tPASS\tDP=10
+        chr2\t200\trs2\tC\tT\t31\tPASS\tDP=11
+        """
+        let vcfURL = try createTempVCF(content: vcf, name: "commit_failure.vcf")
+        let dbURL = tempDir.appendingPathComponent("commit_failure.db")
+
+        VariantDatabase.debugFailCommitAtCount = 1
+
+        XCTAssertThrowsError(
+            try VariantDatabase.createFromVCF(
+                vcfURL: vcfURL,
+                outputURL: dbURL,
+                parseGenotypes: true,
+                partitionByChromosome: true
+            )
+        ) { error in
+            guard case VariantDatabaseError.createFailed(let message) = error else {
+                return XCTFail("Expected createFailed, got \(error)")
+            }
+            XCTAssertTrue(message.contains("COMMIT failed"), "Expected COMMIT-failure message, got: \(message)")
+        }
+
+        // Without the fix, the import would swallow the COMMIT failure, keep parsing, and
+        // report success — leaving behind a staging DB that never gets published because
+        // `createFromVCF` publishes only on a non-throwing return. With the fix, the whole
+        // import aborts, so no usable database is published at `outputURL`.
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: dbURL.path),
+            "A failed COMMIT must not result in a published (even if truncated) variant database"
+        )
+    }
+
     func testCreateFromEmptyVCF() throws {
         let emptyVCF = """
         ##fileformat=VCFv4.3

@@ -9,6 +9,23 @@ import os.log
 
 extension VariantDatabase {
 
+    #if DEBUG
+    /// Test-only injection seam (F39 regression coverage): when set, the Nth call to
+    /// `commitImportTransaction`'s COMMIT (1-indexed) reports a synthetic SQLite failure
+    /// instead of actually committing, so tests can prove that a failed COMMIT is
+    /// propagated as a thrown error rather than silently swallowed. Reset to `nil`
+    /// after firing once so it does not leak into later commits within the same import.
+    nonisolated(unsafe) static var debugFailCommitAtCount: Int?
+    nonisolated(unsafe) private static var debugCommitInvocationCount = 0
+
+    /// Resets the COMMIT-failure injection counter. Call from test `setUp`/`tearDown`
+    /// to avoid state leaking between tests.
+    static func resetDebugCommitFailureInjection() {
+        debugFailCommitAtCount = nil
+        debugCommitInvocationCount = 0
+    }
+    #endif
+
     static func resolveImportProfile(_ requested: VCFImportProfile, inputFileSize: Int64) -> VCFImportProfile {
         guard requested == .auto else { return requested }
         let physicalRAMGiB = Double(ProcessInfo.processInfo.physicalMemory) / Double(1 << 30)
@@ -410,7 +427,7 @@ extension VariantDatabase {
         /// - Force COMMIT+shrink when RSS crosses a high watermark.
         /// - Reduce write budget under pressure (more frequent commits).
         /// - Gradually relax budget once RSS drops.
-        func memoryPressureFlush() {
+        func memoryPressureFlush() throws {
             var info = mach_task_basic_info()
             var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size / MemoryLayout<natural_t>.size)
             let result = withUnsafeMutablePointer(to: &info) {
@@ -426,7 +443,7 @@ extension VariantDatabase {
 
             if residentBytes > highThreshold {
                 adaptiveWriteBudget = max(tuning.minWriteBudget, adaptiveWriteBudget / 2)
-                commitImportTransaction(reopen: true, forceShrink: true)
+                try commitImportTransaction(reopen: true, forceShrink: true)
                 variantDBLogger.warning(
                     "createFromVCF: Memory pressure (resident \(residentBytes / (1024 * 1024)) MB / \(physicalRAM / (1024 * 1024)) MB), budget=\(adaptiveWriteBudget), forced commit+shrink"
                 )
@@ -438,14 +455,37 @@ extension VariantDatabase {
             }
         }
 
-        func commitImportTransaction(reopen: Bool, forceShrink: Bool = false) {
+        /// Commits (and optionally reopens) the current import transaction.
+        ///
+        /// A failed COMMIT or BEGIN is no longer just logged: `insertCount`-many rows
+        /// may have been silently discarded by SQLite's automatic ROLLBACK-on-COMMIT-failure,
+        /// so this throws `VariantDatabaseError.createFailed` and lets the caller abort the
+        /// import rather than continuing and reporting a truncated database as a success (F39).
+        func commitImportTransaction(reopen: Bool, forceShrink: Bool = false) throws {
             var commitErr: UnsafeMutablePointer<CChar>?
-            sqlite3_exec(db, "COMMIT", nil, nil, &commitErr)
-            if let commitErr {
-                let msg = String(cString: commitErr)
-                sqlite3_free(commitErr)
-                variantDBLogger.warning("createFromVCF: COMMIT failed: \(msg), issuing ROLLBACK")
+            var commitRC = sqlite3_exec(db, "COMMIT", nil, nil, &commitErr)
+            #if DEBUG
+            if let failAt = Self.debugFailCommitAtCount {
+                Self.debugCommitInvocationCount += 1
+                if Self.debugCommitInvocationCount == failAt {
+                    if let commitErr { sqlite3_free(commitErr) }
+                    commitErr = strdup("F39 test injection: simulated COMMIT failure")
+                    commitRC = SQLITE_IOERR
+                    Self.debugFailCommitAtCount = nil
+                }
+            }
+            #endif
+            if commitRC != SQLITE_OK {
+                let msg: String
+                if let commitErr {
+                    msg = String(cString: commitErr)
+                    sqlite3_free(commitErr)
+                } else {
+                    msg = String(cString: sqlite3_errmsg(db))
+                }
+                variantDBLogger.error("createFromVCF: COMMIT failed: \(msg), issuing ROLLBACK")
                 sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+                throw VariantDatabaseError.createFailed("createFromVCF: COMMIT failed, import aborted to avoid a silently truncated database: \(msg)")
             }
 
             transactionCommitCount += 1
@@ -458,19 +498,25 @@ extension VariantDatabase {
 
             if reopen {
                 var beginErr: UnsafeMutablePointer<CChar>?
-                sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, &beginErr)
-                if let beginErr {
-                    let msg = String(cString: beginErr)
-                    sqlite3_free(beginErr)
-                    variantDBLogger.warning("createFromVCF: BEGIN TRANSACTION failed: \(msg)")
+                let beginRC = sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, &beginErr)
+                if beginRC != SQLITE_OK {
+                    let msg: String
+                    if let beginErr {
+                        msg = String(cString: beginErr)
+                        sqlite3_free(beginErr)
+                    } else {
+                        msg = String(cString: sqlite3_errmsg(db))
+                    }
+                    variantDBLogger.error("createFromVCF: BEGIN TRANSACTION failed: \(msg)")
+                    throw VariantDatabaseError.createFailed("createFromVCF: failed to reopen import transaction after commit: \(msg)")
                 }
             }
         }
 
         @inline(__always)
-        func rotateImportTransactionIfNeeded() {
+        func rotateImportTransactionIfNeeded() throws {
             guard writesSinceCommit >= adaptiveWriteBudget else { return }
-            commitImportTransaction(reopen: true)
+            try commitImportTransaction(reopen: true)
         }
 
         let maxPartitionChromosomes = 512
@@ -478,7 +524,7 @@ extension VariantDatabase {
         @inline(__always)
         func streamVCFLines(
             onProgress: ((Double) -> Void)? = nil,
-            _ handler: (Substring) -> Void
+            _ handler: (Substring) throws -> Void
         ) throws -> Bool {
             if ext == "gz" {
                 return try streamGzipLines(
@@ -502,7 +548,7 @@ extension VariantDatabase {
             _ line: Substring,
             parseHeaders: Bool,
             activeChromosome: String?
-        ) {
+        ) throws {
             guard !line.isEmpty, !wasCancelled else { return }
 
             if line.first == "#" {
@@ -546,7 +592,7 @@ extension VariantDatabase {
                                 }
                             }
                         }
-                        rotateImportTransactionIfNeeded()
+                        try rotateImportTransactionIfNeeded()
                     }
                     return
                 }
@@ -623,7 +669,7 @@ extension VariantDatabase {
                         }
                     }
 
-                    rotateImportTransactionIfNeeded()
+                    try rotateImportTransactionIfNeeded()
                     return
                 }
 
@@ -697,27 +743,19 @@ extension VariantDatabase {
 
             // Periodic adaptive memory pressure check.
             if insertCount % tuning.memoryProbeVariantInterval == 0 {
-                memoryPressureFlush()
+                try memoryPressureFlush()
             }
 
             // Periodic deep memory reset to fight malloc fragmentation over long imports.
             // Commits the current transaction, releases all SQLite memory, and asks the OS
-            // allocator to return freed pages to the kernel.
+            // allocator to return freed pages to the kernel, then reopens the transaction.
             if tuning.connectionResetInterval > 0,
                insertCount % tuning.connectionResetInterval == 0 {
-                commitImportTransaction(reopen: false, forceShrink: true)
+                try commitImportTransaction(reopen: true, forceShrink: true)
                 // On Darwin, ask all malloc zones to return freed pages to the kernel.
                 // This fights heap fragmentation from billions of small alloc/free cycles.
                 malloc_zone_pressure_relief(nil, 0)
                 variantDBLogger.info("createFromVCF: Deep memory reset at \(insertCount) variants")
-                // Reopen transaction.
-                var beginErr: UnsafeMutablePointer<CChar>?
-                sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, &beginErr)
-                if let beginErr {
-                    let msg = String(cString: beginErr)
-                    sqlite3_free(beginErr)
-                    variantDBLogger.warning("createFromVCF: BEGIN TRANSACTION after reset failed: \(msg)")
-                }
             }
 
             // Insert structured INFO key-value pairs into variant_info EAV table.
@@ -933,7 +971,7 @@ extension VariantDatabase {
                 writesSinceCommit += 1
             }
 
-            rotateImportTransactionIfNeeded()
+            try rotateImportTransactionIfNeeded()
         }
 
         var partitionChromosomeOrder: [String] = []
@@ -975,7 +1013,7 @@ extension VariantDatabase {
                 }
 
                 wasCancelled = try streamVCFLines(onProgress: byteProgress) { line in
-                    parseLine(
+                    try parseLine(
                         line,
                         parseHeaders: parseHeadersOnThisPass,
                         activeChromosome: chromosome
@@ -989,7 +1027,7 @@ extension VariantDatabase {
                 progressHandler?(completedFraction, "Imported chromosome \(chromIndex + 1) of \(totalChromosomes): \(chromosome)")
 
                 if chromIndex + 1 < totalChromosomes {
-                    commitImportTransaction(reopen: true, forceShrink: true)
+                    try commitImportTransaction(reopen: true, forceShrink: true)
                     malloc_zone_pressure_relief(nil, 0)
                 }
             }
@@ -1000,7 +1038,7 @@ extension VariantDatabase {
                 progressHandler?(0.05 + fraction * 0.85, "Parsing variants (\(insertCount))...")
             }
             wasCancelled = try streamVCFLines(onProgress: byteProgress) { line in
-                parseLine(line, parseHeaders: true, activeChromosome: onlyChromosome)
+                try parseLine(line, parseHeaders: true, activeChromosome: onlyChromosome)
             }
         }
 
@@ -1022,7 +1060,7 @@ extension VariantDatabase {
         Self.insertMetadataRow(db, key: "import_partition_mode", value: partitionMode, replace: true)
 
         // Finalize all parsed rows before index creation, then explicitly release heap/cache.
-        commitImportTransaction(reopen: false, forceShrink: true)
+        try commitImportTransaction(reopen: false, forceShrink: true)
 
         // Record variant count and transition to indexing state.
         Self.insertMetadataRow(db, key: "import_variant_count", value: "\(insertCount)", replace: true)
