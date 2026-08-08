@@ -10,6 +10,32 @@ import LungfishWorkflow
 import os
 import LungfishKit
 
+/// Holds a `Task<Void, Never>` handle for a sequential mapping batch so its
+/// cancel callback (registered per-bundle, before the batch `Task` literal
+/// finishes being constructed) can cancel whichever task ends up assigned.
+/// An actor rather than a plain class + `@unchecked Sendable`: `Task` is
+/// itself `Sendable`, so an actor gives race-free cross-isolation access to
+/// the stored handle without any unsafe opt-out.
+private actor MappingBatchTaskHandle {
+    private var task: Task<Void, Never>?
+
+    nonisolated func assign(_ task: Task<Void, Never>) {
+        Task { await self.setTask(task) }
+    }
+
+    private func setTask(_ task: Task<Void, Never>) {
+        self.task = task
+    }
+
+    nonisolated func cancel() {
+        Task { await self.cancelStoredTask() }
+    }
+
+    private func cancelStoredTask() {
+        task?.cancel()
+    }
+}
+
 extension AppDelegate {
     // MARK: - ToolsMenuActions
 
@@ -834,13 +860,40 @@ extension AppDelegate {
 
     }
 
-    /// Runs a planned mapping request for every bundle in `plan`. `.perBundle`
-    /// plans start one independent `OperationCenter` operation per bundle, so
-    /// each bundle's progress/success/failure is tracked and reported on its
-    /// own; `.combined` plans have exactly one pooled request, whose
-    /// operation history gets `plan.warning` logged as a warning line before
-    /// the run starts (MB-1: explicit pooled-naming + logged warning instead
-    /// of silent @RG misattribution).
+    /// Derives the correct `pairedEnd` value for a mapping request from its
+    /// ACTUALLY-RESOLVED file list (never from the raw file count -- see
+    /// F2 in the C2 fix-round-1 review: pooling two single-end bundles that
+    /// each resolve to exactly one file would otherwise fabricate a mate
+    /// pair between two unrelated samples).
+    ///
+    /// Reuses `MetagenomicsSampleGrouper`, which infers R1/R2 role from
+    /// filename convention (`_R1`/`_R2`, `_1`/`_2`, etc.) rather than
+    /// position or count: `pairedEnd` is true only when the resolved files
+    /// collapse to exactly one grouped sample that itself has both a
+    /// `fastq1` and `fastq2` role match. Any other shape (a lone file, two
+    /// files with no matching R1/R2 stem, 3+ files, multiple distinct
+    /// grouped samples after pooling) maps to `false`, degrading safely to
+    /// single-end/"-U"/"in=" command construction instead of fabricating a
+    /// pair.
+    static func resolvedPairedEnd(for resolvedFiles: [URL]) -> Bool {
+        guard resolvedFiles.count == 2 else { return false }
+        let grouped = MetagenomicsSampleGrouper.group(resolvedFiles)
+        guard grouped.count == 1, let sample = grouped.first else { return false }
+        return sample.isPairedEnd
+    }
+
+    /// Runs a planned mapping request for every bundle in `plan`,
+    /// SEQUENTIALLY (matching `runClassificationBatch`'s precedent) rather
+    /// than N concurrent `Task.detached` mappers -- an unbounded fan-out
+    /// would otherwise spawn N mappers each requesting up to
+    /// `processorCount` threads plus N reference-index rebuilds
+    /// simultaneously (F5 in the C2 fix-round-1 review). `.perBundle` plans
+    /// start one independent `OperationCenter` operation per bundle in
+    /// sequence, so each bundle's progress/success/failure is still
+    /// individually tracked; `.combined` plans have exactly one pooled
+    /// request, whose operation history gets `plan.warning` logged as a
+    /// warning line before the run starts (MB-1: explicit pooled-naming +
+    /// logged warning instead of silent @RG misattribution).
     private func runManagedMapping(
         plan: MappingRunPlan,
         routeContext explicitRouteContext: OperationRouteContext? = nil
@@ -852,21 +905,60 @@ extension AppDelegate {
             workflowName: "Read mapping"
         ) else { return }
 
-        for request in plan.requests {
-            runSingleManagedMapping(
-                request: request,
-                warning: plan.warning,
-                routeContext: routeContext
-            )
+        let requests = plan.requests
+        guard !requests.isEmpty else { return }
+
+        // Declared before the Task literal (rather than `let task =
+        // Task.detached { ... }`) so `registerCancel`'s closure, invoked
+        // from inside the loop, can capture `taskHandle` by reference and
+        // call `.cancel()` on whichever `Task` ends up assigned -- avoids
+        // the "captures 'task' before it is declared" forward-reference
+        // error a `let`-bound self-referential closure would hit here.
+        let taskHandle = MappingBatchTaskHandle()
+        let task = Task.detached { [weak self] in
+            for request in requests {
+                if Task.isCancelled { break }
+                guard let self else { break }
+                await self.runSingleManagedMappingAwaitingCompletion(
+                    request: request,
+                    warning: plan.warning,
+                    routeContext: routeContext,
+                    registerCancel: { @MainActor opID in
+                        // Cancelling any one bundle's row cancels the whole
+                        // remaining sequential batch, since they share one
+                        // outer Task; the currently in-flight bundle stops
+                        // at its next cancellation checkpoint (resolveInputFiles
+                        // / pipeline.run), and the loop's `Task.isCancelled`
+                        // guard prevents any further bundle from starting.
+                        OperationCenter.shared.setCancelCallback(for: opID) { taskHandle.cancel() }
+                    }
+                )
+            }
         }
+        taskHandle.assign(task)
     }
 
-    private func runSingleManagedMapping(
-        request: MappingRunRequest,
+    /// Runs one `MappingRunRequest` to completion (success or failure),
+    /// awaiting the whole pipeline before returning, so the sequential loop
+    /// in `runManagedMapping` never starts a second bundle's mapping while
+    /// this one is still using the CPU/reference index. This method is a
+    /// member of `AppDelegate` (`@MainActor`) so its body already runs on
+    /// the main actor -- exactly like the pre-existing single-request
+    /// `runManagedMapping` it replaces, which called `self?.
+    /// resolveInputFiles`/`self.prepareMappingViewerBundleIfPossible` (both
+    /// themselves `@MainActor`-isolated members) the same way from inside
+    /// `Task.detached`. `ManagedMappingPipeline.run` is a plain (non-actor)
+    /// async call, so it still genuinely executes off the main actor's
+    /// queue even though awaited from here. `registerCancel` is invoked
+    /// with the freshly-started operation's ID so the caller can wire
+    /// cancellation before any awaiting begins.
+    private func runSingleManagedMappingAwaitingCompletion(
+        request initialRequest: MappingRunRequest,
         warning: String?,
-        routeContext: OperationRouteContext?
-    ) {
-        var request = request
+        routeContext: OperationRouteContext?,
+        registerCancel: @MainActor (UUID) -> Void
+    ) async {
+        var request = initialRequest
         let projectURL = routeContext?.projectURL ?? request.projectURL
         if let projectURL,
            let analysisDir = try? AnalysesFolder.createAnalysisDirectory(tool: request.tool.rawValue, in: projectURL) {
@@ -878,118 +970,109 @@ extension AppDelegate {
             detail: "Mapping \(request.inputFASTQURLs.count) file(s) to \(request.referenceFASTAURL.lastPathComponent)",
             routeContext: routeContext
         )
+        registerCancel(opID)
 
         if let warning {
             OperationCenter.shared.log(id: opID, level: .warning, message: warning)
         }
 
-        let task = Task.detached { [weak self] in
-            do {
-                if AppUITestConfiguration.current.isEnabled,
-                   AppUITestConfiguration.current.backendMode == .deterministic {
-                    let result = try AppUITestMappingBackend.writeResult(for: request)
-                    let outputDirectory = request.outputDirectory
-                    let capturedRequest = request
-                    DispatchQueue.main.async { MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.complete(
-                            id: opID,
-                            detail: "Mapping complete: \(result.mappedReads)/\(result.totalReads) reads mapped"
-                        )
-                        AppUITestConfiguration.current.appendEvent(
-                            "mapping.operation.completed target=\(outputDirectory.lastPathComponent)"
-                        )
-                        AppDelegate.shared?.routePostMappingDeterministicCompletion(
-                            outputDirectory: outputDirectory,
-                            request: capturedRequest
-                        )
-                    }}
-                    return
-                }
-
-                let materializeTempDir = try ProjectTempDirectory.createFromContext(
-                    prefix: "\(request.tool.rawValue)-",
-                    contextURL: request.inputFASTQURLs.first ?? request.referenceFASTAURL
+        do {
+            if AppUITestConfiguration.current.isEnabled,
+               AppUITestConfiguration.current.backendMode == .deterministic {
+                let result = try AppUITestMappingBackend.writeResult(for: request)
+                let outputDirectory = request.outputDirectory
+                let capturedRequest = request
+                _ = OperationCenter.shared.complete(
+                    id: opID,
+                    detail: "Mapping complete: \(result.mappedReads)/\(result.totalReads) reads mapped"
                 )
-                defer { try? FileManager.default.removeItem(at: materializeTempDir) }
+                AppUITestConfiguration.current.appendEvent(
+                    "mapping.operation.completed target=\(outputDirectory.lastPathComponent)"
+                )
+                routePostMappingDeterministicCompletion(
+                    outputDirectory: outputDirectory,
+                    request: capturedRequest
+                )
+                return
+            }
 
-                let resolvedFiles = try await self?.resolveInputFiles(
-                    request.inputFASTQURLs,
-                    tempDirectory: materializeTempDir,
-                    progress: { message in
-                        DispatchQueue.main.async { MainActor.assumeIsolated {
-                            _ = OperationCenter.shared.update(id: opID, progress: 0, detail: message)
-                            OperationCenter.shared.log(id: opID, level: .info, message: message)
-                        }}
-                    }
-                ) ?? request.inputFASTQURLs
+            let materializeTempDir = try ProjectTempDirectory.createFromContext(
+                prefix: "\(request.tool.rawValue)-",
+                contextURL: request.inputFASTQURLs.first ?? request.referenceFASTAURL
+            )
+            defer { try? FileManager.default.removeItem(at: materializeTempDir) }
 
-                let resolvedRequest = request.withInputFASTQURLs(resolvedFiles)
-                let pipeline = ManagedMappingPipeline()
-                let result = try await pipeline.run(request: resolvedRequest) { fraction, message in
+            let resolvedFiles = try await self.resolveInputFiles(
+                request.inputFASTQURLs,
+                tempDirectory: materializeTempDir,
+                progress: { message in
                     DispatchQueue.main.async { MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
+                        _ = OperationCenter.shared.update(id: opID, progress: 0, detail: message)
                         OperationCenter.shared.log(id: opID, level: .info, message: message)
                     }}
                 }
+            )
 
-                var finalResult = result
-                if let self {
-                    do {
-                        if let preparedResult = try await self.prepareMappingViewerBundleIfPossible(
-                            result: result,
-                            request: resolvedRequest,
-                            opID: opID
-                        ) {
-                            finalResult = preparedResult
-                        }
-                    } catch {
-                        DispatchQueue.main.async { MainActor.assumeIsolated {
-                            OperationCenter.shared.log(
-                                id: opID,
-                                level: .warning,
-                                message: "Reference viewer bundle could not be prepared: \(error.localizedDescription)"
-                            )
-                        }}
-                    }
-                }
-
-                let capturedRequest = request
+            // F2 fix: pairedEnd is derived from the ACTUALLY-RESOLVED files'
+            // R1/R2 roles here, never from the pre-resolve URL count.
+            let resolvedPairedEnd = Self.resolvedPairedEnd(for: resolvedFiles)
+            let resolvedRequest = request.withInputFASTQURLs(resolvedFiles, pairedEnd: resolvedPairedEnd)
+            let pipeline = ManagedMappingPipeline()
+            let result = try await pipeline.run(request: resolvedRequest) { fraction, message in
                 DispatchQueue.main.async { MainActor.assumeIsolated {
-                    _ = OperationCenter.shared.complete(
-                        id: opID,
-                        detail: "Mapping complete: \(finalResult.mappedReads)/\(finalResult.totalReads) reads mapped",
-                        bundleURLs: [finalResult.viewerBundleURL ?? finalResult.bamURL]
-                    )
-
-                    if let bundleURL = Self.findSourceBundle(for: capturedRequest.inputFASTQURLs) {
-                        let entry = AnalysisManifestEntry(
-                            tool: capturedRequest.tool.rawValue,
-                            analysisDirectoryName: Self.analysisManifestDirectoryName(
-                                for: capturedRequest.outputDirectory,
-                                projectURL: routeContext?.projectURL ?? capturedRequest.projectURL
-                            ),
-                            displayName: "\(capturedRequest.tool.displayName) Mapping",
-                            parameters: capturedRequest.summaryParameters(),
-                            summary: "\(finalResult.mappedReads)/\(finalResult.totalReads) reads mapped",
-                            status: .completed
-                        )
-                        do {
-                            try AnalysisManifestStore.recordAnalysis(entry, bundleURL: bundleURL)
-                        } catch {
-                            appDelegateLogger.warning("Failed to record analysis manifest: \(error.localizedDescription, privacy: .public)")
-                        }
-                    }
-
-                    self?.targetMainWindowController(routeContext: routeContext)?.mainSplitViewController?
-                        .sidebarController.requestReloadFromFilesystem()
-                }}
-            } catch {
-                DispatchQueue.main.async { MainActor.assumeIsolated {
-                    _ = OperationCenter.shared.fail(id: opID, detail: "\(error)")
+                    _ = OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
+                    OperationCenter.shared.log(id: opID, level: .info, message: message)
                 }}
             }
+
+            var finalResult = result
+            do {
+                if let preparedResult = try await self.prepareMappingViewerBundleIfPossible(
+                    result: result,
+                    request: resolvedRequest,
+                    opID: opID
+                ) {
+                    finalResult = preparedResult
+                }
+            } catch {
+                OperationCenter.shared.log(
+                    id: opID,
+                    level: .warning,
+                    message: "Reference viewer bundle could not be prepared: \(error.localizedDescription)"
+                )
+            }
+
+            let capturedRequest = request
+            _ = OperationCenter.shared.complete(
+                id: opID,
+                detail: "Mapping complete: \(finalResult.mappedReads)/\(finalResult.totalReads) reads mapped",
+                bundleURLs: [finalResult.viewerBundleURL ?? finalResult.bamURL]
+            )
+
+            if let bundleURL = Self.findSourceBundle(for: capturedRequest.inputFASTQURLs) {
+                let entry = AnalysisManifestEntry(
+                    tool: capturedRequest.tool.rawValue,
+                    analysisDirectoryName: Self.analysisManifestDirectoryName(
+                        for: capturedRequest.outputDirectory,
+                        projectURL: routeContext?.projectURL ?? capturedRequest.projectURL
+                    ),
+                    displayName: "\(capturedRequest.tool.displayName) Mapping",
+                    parameters: capturedRequest.summaryParameters(),
+                    summary: "\(finalResult.mappedReads)/\(finalResult.totalReads) reads mapped",
+                    status: .completed
+                )
+                do {
+                    try AnalysisManifestStore.recordAnalysis(entry, bundleURL: bundleURL)
+                } catch {
+                    appDelegateLogger.warning("Failed to record analysis manifest: \(error.localizedDescription, privacy: .public)")
+                }
+            }
+
+            targetMainWindowController(routeContext: routeContext)?.mainSplitViewController?
+                .sidebarController.requestReloadFromFilesystem()
+        } catch {
+            _ = OperationCenter.shared.fail(id: opID, detail: "\(error)")
         }
-        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
     }
 
     private func runMAFFTAlignment(

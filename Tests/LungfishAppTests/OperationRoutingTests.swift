@@ -698,7 +698,7 @@ final class OperationRoutingTests: XCTestCase {
         XCTAssertTrue(body.contains("outputURLs: result.importedURLs"))
     }
 
-    func testManagedMappingLaunchesOneOperationPerBundleAndLogsPooledWarning() throws {
+    func testManagedMappingRunsSequentiallyWithOneOperationPerBundleAndLogsPooledWarning() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -711,15 +711,26 @@ final class OperationRoutingTests: XCTestCase {
         )
         let fanout = try sourceFunctionBody(
             named: "private func runManagedMapping(\n        plan: MappingRunPlan",
-            endingBefore: "    private func runSingleManagedMapping",
+            endingBefore: "    private func runSingleManagedMappingAwaitingCompletion",
             in: source
         )
-        XCTAssertTrue(fanout.contains("for request in plan.requests"))
-        XCTAssertTrue(fanout.contains("runSingleManagedMapping("))
+        // F5: one `Task.detached` driving a sequential `for` loop over
+        // `requests`, awaiting each bundle's mapping to completion before
+        // starting the next -- NOT N concurrent Task.detached mappers.
+        XCTAssertTrue(fanout.contains("let task = Task.detached"))
+        XCTAssertTrue(fanout.contains("for request in requests"))
+        XCTAssertTrue(fanout.contains("await self.runSingleManagedMappingAwaitingCompletion("))
         XCTAssertTrue(fanout.contains("warning: plan.warning"))
+        // Only one Task.detached CALL SITE (`let task = Task.detached`) in
+        // the fan-out function -- per-bundle work is awaited inline inside
+        // that one sequential loop, never spawned as its own detached task
+        // per bundle. (Doc comments elsewhere in the function mention
+        // "Task.detached" in prose, so this counts call sites specifically.)
+        let detachedCallSites = fanout.components(separatedBy: "let task = Task.detached").count - 1
+        XCTAssertEqual(detachedCallSites, 1, "Expected exactly one `let task = Task.detached` (sequential driver), found \(detachedCallSites)")
 
         let single = try sourceFunctionBody(
-            named: "private func runSingleManagedMapping",
+            named: "private func runSingleManagedMappingAwaitingCompletion",
             endingBefore: "    private func runMAFFTAlignment",
             in: source
         )
@@ -727,6 +738,10 @@ final class OperationRoutingTests: XCTestCase {
         let warningLog = try XCTUnwrap(single.range(of: "OperationCenter.shared.log(id: opID, level: .warning, message: warning)"))
         XCTAssertLessThan(opStart.lowerBound, warningLog.lowerBound)
         XCTAssertTrue(single.contains("if let warning {"))
+        // F2: pairedEnd must be recomputed from the resolved file list,
+        // never taken from the pre-resolve request as-is.
+        XCTAssertTrue(single.contains("Self.resolvedPairedEnd(for: resolvedFiles)"))
+        XCTAssertTrue(single.contains("request.withInputFASTQURLs(resolvedFiles, pairedEnd: resolvedPairedEnd)"))
     }
 
     private func sourceFunctionBody(named startNeedle: String, endingBefore endNeedle: String, in source: String) throws -> String {
