@@ -384,9 +384,17 @@ final class ProvenanceInspectorViewModel {
     var resolvedEnvelope: ProvenanceEnvelope?
     var resolvedSidecarURL: URL?
     var searchText: String = ""
+    var isLoading: Bool = false
     var onExportRequested: ((ProvenanceExportFormat) -> Void)?
 
     private let monitor: ProvenanceCoverageMonitor
+
+    /// Bumped on every `load(item:)`/`clear()` call. Captured synchronously by `load(item:)`
+    /// before the background lookup starts; the detached lookup's result is only applied to
+    /// `@Published`-style state if this generation still matches when it completes, so a
+    /// superseded lookup from rapid sidebar navigation cannot overwrite a newer selection's
+    /// result. Idiom: `SequenceViewerView.fastaOperationFetchGeneration`.
+    private var loadGeneration: Int = 0
 
     init(monitor: ProvenanceCoverageMonitor = ProvenanceCoverageMonitor()) {
         self.monitor = monitor
@@ -397,6 +405,8 @@ final class ProvenanceInspectorViewModel {
     }
 
     func clear() {
+        loadGeneration += 1
+        isLoading = false
         currentItem = nil
         audit = .notRequired
         summary = ProvenanceRunSummary()
@@ -412,21 +422,104 @@ final class ProvenanceInspectorViewModel {
         searchText = ""
     }
 
+    /// Updates the inspected item and asynchronously resolves its provenance state.
+    ///
+    /// Synchronous and non-`async` (called from many synchronous sidebar-selection call
+    /// sites -- `InspectorViewController+Notifications.swift`, `+PublicAPI.swift` -- with no
+    /// `async` entry point on the AppKit side). `currentItem` and `isLoading` update
+    /// immediately so the UI reflects the new selection without delay; the actual sidecar
+    /// lookup (up to 5 parent-directory levels, each trying several candidate sidecar paths
+    /// via `fileExists` + `Data(contentsOf:)` + `JSONDecoder`) and envelope presentation
+    /// build run inside `Task.detached`, off the main actor, matching
+    /// `ReferenceBundleAnnotationImportService.attachAnnotationTrack`'s structural hop: a
+    /// nonisolated `async` function with no suspension point before its synchronous work
+    /// inherits the caller's thread when awaited directly from `@MainActor` code, so
+    /// `Task.detached` -- not just removing `@MainActor` -- is what actually forces the work
+    /// off-main. The result is only applied back on the main actor if `loadGeneration` still
+    /// matches the generation captured when this call started, so a superseded lookup from
+    /// rapid arrow-key/click navigation cannot overwrite a newer selection's result.
     func load(item: ProvenanceInspectableItem) {
+        loadGeneration += 1
+        let thisGeneration = loadGeneration
         currentItem = item
-        audit = monitor.audit(item)
+        isLoading = true
+
+        let monitor = self.monitor
+        Task { @MainActor [weak self] in
+            let outcome = await Task.detached(priority: .userInitiated) {
+                await Self.performLookup(item: item, monitor: monitor)
+            }.value
+
+            guard let self, thisGeneration == self.loadGeneration else { return }
+            self.isLoading = false
+            self.apply(outcome, item: item)
+        }
+    }
+
+    /// The heavy, off-main portion of `load(item:)`: coverage audit (which may write missing
+    /// sidecars via `MetagenomicsBatchProvenanceWriter`), the multi-level sidecar directory
+    /// walk (`ProvenanceRecorder.findProvenanceEnvelope`), and JSON decode of the resolved
+    /// envelope. Pure with respect to `self` -- takes a value-type snapshot of `item` and
+    /// `monitor` and returns a value-type outcome -- so it is safe to run detached from the
+    /// cooperative thread pool. `nonisolated` so it carries no actor isolation of its own;
+    /// callers are responsible for the `Task.detached` hop (see `load(item:)`).
+    nonisolated private static func performLookup(
+        item: ProvenanceInspectableItem,
+        monitor: ProvenanceCoverageMonitor
+    ) async -> LookupOutcome {
+        #if DEBUG
+        loadThreadingProbe?()
+        await loadFetchGate?()
+        #endif
+        let audit = monitor.audit(item)
         guard let url = item.url,
               let resolved = ProvenanceRecorder.findProvenanceEnvelope(for: url) else {
+            return LookupOutcome(audit: audit, resolvedEnvelope: nil, resolvedSidecarURL: nil)
+        }
+        return LookupOutcome(audit: audit, resolvedEnvelope: resolved.envelope, resolvedSidecarURL: resolved.sidecarURL)
+    }
+
+    private struct LookupOutcome: Sendable {
+        var audit: ProvenanceAuditResult
+        var resolvedEnvelope: ProvenanceEnvelope?
+        var resolvedSidecarURL: URL?
+    }
+
+    /// Applies a completed off-main lookup's result to published state. Must only be called
+    /// after the caller has confirmed `loadGeneration` still matches.
+    private func apply(_ outcome: LookupOutcome, item: ProvenanceInspectableItem) {
+        audit = outcome.audit
+        guard let envelope = outcome.resolvedEnvelope, let sidecarURL = outcome.resolvedSidecarURL else {
             resolvedEnvelope = nil
             resolvedSidecarURL = nil
             buildMissingState(item: item)
             return
         }
 
-        resolvedEnvelope = resolved.envelope
-        resolvedSidecarURL = resolved.sidecarURL
-        buildPresentState(envelope: resolved.envelope, sidecarURL: resolved.sidecarURL)
+        resolvedEnvelope = envelope
+        resolvedSidecarURL = sidecarURL
+        buildPresentState(envelope: envelope, sidecarURL: sidecarURL)
     }
+
+    #if DEBUG
+    /// Test-only threading probe. Invoked once at the start of `performLookup`, inside the
+    /// `Task.detached` body -- i.e. after the executor hop `load(item:)` relies on for
+    /// main-thread safety, and before `ProvenanceCoverageMonitor.audit`/
+    /// `ProvenanceRecorder.findProvenanceEnvelope` run. Exists solely so
+    /// `ProvenanceInspectorViewModelOffMainTests` can assert `!Thread.isMainThread` from
+    /// inside the real call path when driven from a `@MainActor` caller. Idiom:
+    /// `ReferenceBundleAnnotationImportService.threadingProbe`. Not compiled into release
+    /// builds.
+    nonisolated(unsafe) static var loadThreadingProbe: (@Sendable () -> Void)?
+
+    /// Test seam: an optional async gate awaited inside `performLookup`, immediately after
+    /// `loadThreadingProbe` fires and before the real sidecar walk/decode runs. Lets a test
+    /// deterministically hold one in-flight lookup suspended while a second, superseding
+    /// `load(item:)` call completes first and bumps `loadGeneration` -- then release the first
+    /// lookup and assert its stale result is discarded by the generation guard. `nil` by
+    /// default (no-op). Idiom: `SequenceViewerView.fastaOperationFetchGate`. Debug-only.
+    nonisolated(unsafe) static var loadFetchGate: (@Sendable () async -> Void)?
+    #endif
 
     func export(format: ProvenanceExportFormat) {
         onExportRequested?(format)
