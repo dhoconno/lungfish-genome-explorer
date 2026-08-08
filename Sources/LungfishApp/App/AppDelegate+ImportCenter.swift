@@ -2223,15 +2223,25 @@ extension AppDelegate {
 
     /// Unified sequence export supporting multi-selection, format choice, and compression.
     private func exportSequences(defaultFormat: SequenceExportFormat) {
-        // Try sidebar multi-selection first
-        let sidebarItems = mainWindowController?.mainSplitViewController?.sidebarController?.selectedItems()
-            .filter { $0.type == .referenceBundle || $0.type == .sequence } ?? []
+        // Try sidebar multi-selection first. Partition rather than silently
+        // filter (task E2 / AS1): a mixed selection (e.g. a reference
+        // bundle plus a FASTQ bundle or classification result) must not
+        // export just the exportable subset while reporting success as if
+        // the whole selection was exported.
+        let rawSidebarSelection = mainWindowController?.mainSplitViewController?.sidebarController?.selectedItems() ?? []
+        let exportSelection = SequenceExportSelection.partition(rawSidebarSelection)
+        let sidebarItems = exportSelection.exportable
 
         // Fall back to current document
         let documents: [SequenceExportDocumentSnapshot]
         if !sidebarItems.isEmpty {
             // Will load from sidebar items
             documents = []
+        } else if !rawSidebarSelection.isEmpty {
+            // A selection was made but none of it is exportable as sequences.
+            let skippedNames = exportSelection.skippedDescriptions.joined(separator: ", ")
+            showExportError(message: "None of the selected items can be exported as sequences: \(skippedNames).")
+            return
         } else if let doc = mainWindowController?.mainSplitViewController?.viewerController?.currentDocument,
                   !doc.sequences.isEmpty {
             documents = [SequenceExportDocumentSnapshot(
@@ -2247,6 +2257,45 @@ extension AppDelegate {
 
         guard let window = mainWindowController?.window else { return }
 
+        // A mixed selection with SOME exportable items: proceed with the
+        // exportable subset, but tell the user exactly what got skipped
+        // instead of silently narrowing scope.
+        if !exportSelection.skipped.isEmpty {
+            let skippedNames = exportSelection.skippedDescriptions.joined(separator: ", ")
+            let alert = NSAlert()
+            alert.messageText = "Some Selected Items Will Be Skipped"
+            alert.informativeText = "\(exportSelection.skipped.count) of \(rawSidebarSelection.count) selected item(s) cannot be exported as sequences and will be skipped: \(skippedNames)."
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "Continue")
+            alert.addButton(withTitle: "Cancel")
+            alert.beginSheetModal(for: window) { [weak self] response in
+                guard response == .alertFirstButtonReturn else { return }
+                self?.continueExportSequences(
+                    sidebarItems: sidebarItems,
+                    documents: documents,
+                    defaultFormat: defaultFormat,
+                    window: window
+                )
+            }
+            return
+        }
+
+        continueExportSequences(
+            sidebarItems: sidebarItems,
+            documents: documents,
+            defaultFormat: defaultFormat,
+            window: window
+        )
+    }
+
+    /// Continuation of `exportSequences(defaultFormat:)` after the
+    /// skipped-items confirmation (if any) has been accepted.
+    private func continueExportSequences(
+        sidebarItems: [SidebarItem],
+        documents: [SequenceExportDocumentSnapshot],
+        defaultFormat: SequenceExportFormat,
+        window: NSWindow
+    ) {
         let selectedBundleURLs = sidebarItems.compactMap(\.url)
         if sidebarItems.count > 1,
            sidebarItems.allSatisfy({ $0.type == .referenceBundle }),
