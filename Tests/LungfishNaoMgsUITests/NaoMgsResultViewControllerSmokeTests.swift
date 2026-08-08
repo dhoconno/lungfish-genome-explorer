@@ -825,6 +825,169 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
         XCTAssertEqual(controller.testAccessionHeaderOrientations, [.horizontal, .horizontal])
     }
 
+    /// F41 regression: the on-demand miniBAM materialization fallback must not let a
+    /// slow, superseded selection's result clobber a newer selection's card.
+    ///
+    /// Selecting taxon A starts a fallback materialization (no BAM exists yet for the
+    /// sample). Before it completes, the test selects taxon B, which cancels/supersedes
+    /// the loading task and rebuilds `miniBAMControllers`. Taxon A's fallback is injected
+    /// with a long delay via `testMaterializationHook`; taxon B's completes immediately.
+    /// Without the generation guard, A's stale write would land after B's and show the
+    /// wrong contig. With the guard, only B's (current-generation) write is applied.
+    @MainActor func testMiniBAMFallbackMaterializationDiscardsStaleGenerationWrite() throws {
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("NaoMgsFallbackRace-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+
+        let hits: [NaoMgsVirusHit] = [
+            Self.makeNaoMgsHit(
+                sample: "sample-A",
+                seqId: "read-old",
+                taxId: 111,
+                subjectSeqId: "NC_OLD00001.1",
+                subjectTitle: "Stale selection virus"
+            ),
+            Self.makeNaoMgsHit(
+                sample: "sample-A",
+                seqId: "read-new",
+                taxId: 222,
+                subjectSeqId: "NC_NEW00002.1",
+                subjectTitle: "Fresh selection virus"
+            ),
+        ]
+        let database = try NaoMgsDatabase.create(
+            at: tempDirectory.appendingPathComponent("hits.sqlite"),
+            hits: hits
+        )
+        let manifest = NaoMgsManifest(
+            sampleName: "sample-A",
+            sourceFilePath: "/tmp/naomgs.tsv",
+            hitCount: 2,
+            taxonCount: 2,
+            topTaxon: "Stale selection virus",
+            topTaxonId: 111
+        )
+
+        let controller = NaoMgsResultViewController()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 720, height: 520)
+        let window = NSWindow(
+            contentRect: controller.view.frame,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = controller.view
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            window.orderOut(nil)
+            window.contentView = nil
+        }
+
+        // Generation 1 (stale/old selection) sleeps well past generation 2's completion
+        // before returning; generation 2 (fresh/new selection) returns immediately.
+        // The test synchronizes on `generation1HookEntered` to guarantee generation 1's
+        // detached fallback task has actually started (i.e. run past the outer Task's
+        // cancellation check) before the test triggers the superseding selection —
+        // otherwise plain Task scheduling could let generation 2 cancel generation 1
+        // before it ever reaches the fallback path, masking the race this test targets.
+        let staleDelayNanoseconds: UInt64 = 300_000_000
+        let generation1HookEntered = expectation(description: "Generation 1 fallback hook entered")
+        controller.testMaterializationHook = { generation in
+            if generation == 1 {
+                generation1HookEntered.fulfill()
+                try? await Task.sleep(nanoseconds: staleDelayNanoseconds)
+            }
+            // Touch the shared BAM path so the post-hook fileExists() check passes
+            // regardless of which generation wins the race.
+            let resultURL = database.databaseURL.deletingLastPathComponent()
+            let bamsDir = resultURL.appendingPathComponent("bams")
+            try? FileManager.default.createDirectory(at: bamsDir, withIntermediateDirectories: true)
+            let bamURL = bamsDir.appendingPathComponent("sample-A.bam")
+            if !FileManager.default.fileExists(atPath: bamURL.path) {
+                FileManager.default.createFile(atPath: bamURL.path, contents: Data())
+            }
+        }
+
+        controller.configure(database: database, manifest: manifest, bundleURL: tempDirectory)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        // Select taxon A (taxId 111) first — starts the slow (generation 1) fallback.
+        let table = controller.testTaxonomyTableView
+        let rowForTaxonA = try XCTUnwrap(
+            (0..<table.numberOfRows).first {
+                controller.testDisplayedTaxonOrder[$0] == "sample-A:111"
+            }
+        )
+        table.selectRowIndexes(IndexSet(integer: rowForTaxonA), byExtendingSelection: false)
+        XCTAssertEqual(controller.testMiniBAMLoadGeneration, 1)
+        wait(for: [generation1HookEntered], timeout: 3)
+
+        // Now that generation 1's fallback has actually started (and is sleeping),
+        // select taxon B (taxId 222) — this supersedes generation 1 and starts
+        // generation 2, which resolves immediately.
+        let rowForTaxonB = try XCTUnwrap(
+            (0..<table.numberOfRows).first {
+                controller.testDisplayedTaxonOrder[$0] == "sample-A:222"
+            }
+        )
+        table.selectRowIndexes(IndexSet(integer: rowForTaxonB), byExtendingSelection: false)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(controller.testMiniBAMLoadGeneration, 2)
+
+        // Wait past generation 1's injected delay so its (guarded) completion has had
+        // every opportunity to run and clobber generation 2's card if the guard is missing.
+        let raceResolved = expectation(description: "Stale generation 1 fallback settles")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            raceResolved.fulfill()
+        }
+        wait(for: [raceResolved], timeout: 3)
+
+        // Only generation 2's (current, fresh-selection) write should have been applied.
+        // Generation 1's late write must have been discarded by the guard.
+        XCTAssertEqual(
+            controller.testAppliedFallbackWrites.map(\.generation),
+            [2],
+            "Stale generation 1's fallback write should be discarded, not applied after generation 2"
+        )
+        XCTAssertEqual(
+            controller.testAppliedFallbackWrites.map(\.contig),
+            ["NC_NEW00002.1"]
+        )
+    }
+
+    private static func makeNaoMgsHit(
+        sample: String,
+        seqId: String,
+        taxId: Int,
+        subjectSeqId: String,
+        subjectTitle: String
+    ) -> NaoMgsVirusHit {
+        NaoMgsVirusHit(
+            sample: sample,
+            seqId: seqId,
+            taxId: taxId,
+            bestAlignmentScore: 120,
+            cigar: "100M",
+            queryStart: 0,
+            queryEnd: 100,
+            refStart: 0,
+            refEnd: 100,
+            readSequence: String(repeating: "A", count: 100),
+            readQuality: String(repeating: "I", count: 100),
+            subjectSeqId: subjectSeqId,
+            subjectTitle: subjectTitle,
+            bitScore: 210,
+            eValue: 1e-40,
+            percentIdentity: 99,
+            editDistance: 1,
+            fragmentLength: 100,
+            isReverseComplement: false,
+            pairStatus: "CP",
+            queryLength: 100
+        )
+    }
+
     @MainActor func testNaoMgsTypographyObserversDoNotRetainController() {
         weak var weakController: NaoMgsResultViewController?
         autoreleasepool {

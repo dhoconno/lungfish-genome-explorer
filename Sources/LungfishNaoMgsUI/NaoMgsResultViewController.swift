@@ -189,6 +189,13 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     /// Task for asynchronously loading miniBAM reads.
     private var miniBAMLoadingTask: Task<Void, Never>?
 
+    /// Bumped on every `loadMiniBAMsAsync` call. The on-demand materialization
+    /// fallback (F41) captures this value and rechecks it before writing into
+    /// `miniBAMControllers`, so a slow older request can't clobber a newer
+    /// selection's results. Mirrors the generation-counter idiom used by
+    /// `SequenceViewerView.fetchAnnotationsAsync`.
+    private var miniBAMLoadGeneration = 0
+
     /// Per-card loading spinners for miniBAM skeleton views.
     private var miniBAMCardSpinners: [NSProgressIndicator] = []
 
@@ -272,6 +279,17 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     var testDisableMiniBAMLoading = false
     private var detailRebuildCount = 0
     private var miniBAMLoadStartCount = 0
+
+    /// Test-only seam replacing the real `NaoMgsBamMaterializer.materializeAll`
+    /// subprocess call in the on-demand fallback path (F41 regression coverage).
+    /// Receives the captured generation for this fallback invocation so tests
+    /// can order/delay completions deterministically without real samtools/BAM I/O.
+    var testMaterializationHook: (@Sendable (Int) async -> Void)?
+
+    /// Records `(generation, contig)` for every fallback materialization write
+    /// that passed the `miniBAMLoadGeneration` guard and was applied to a
+    /// miniBAM card (F41 regression coverage).
+    private(set) var testAppliedFallbackWrites: [(generation: Int, contig: String)] = []
 #endif
 
     // MARK: - Selection Sync
@@ -1276,6 +1294,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         }
 #endif
         miniBAMLoadingTask?.cancel()
+        miniBAMLoadGeneration += 1
+        let thisGeneration = miniBAMLoadGeneration
         let displayed = Array(accessionSummaries.prefix(miniBAMDisplayLimit))
 
         miniBAMLoadingTask = Task { [weak self] in
@@ -1308,21 +1328,41 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
                 } else {
                     // Fallback: materialize on-demand for result directories that
                     // predate the NAO-MGS BAM materializer feature.
+                    //
+                    // Guarded by `miniBAMLoadGeneration` (F41): this detached task
+                    // isn't cancelled when `miniBAMLoadingTask` is cancelled, and
+                    // `buildMiniBAMList()` fully rebuilds `miniBAMControllers` on
+                    // every new selection, so a slow materialization from a
+                    // superseded selection must not clobber a newer one's card.
                     let capturedSummary = summary
                     let capturedIndex = index
                     let capturedResultURL = resultURL
                     let capturedDbPath = database.databaseURL.path
+                    let capturedGeneration = thisGeneration
                     Task.detached { [weak self] in
-                        guard let self else { return }
+#if DEBUG
+                        if let hook = await self?.testMaterializationHook {
+                            await hook(capturedGeneration)
+                        } else {
+                            guard let samtoolsPath = Self.naomgsLocateSamtools() else { return }
+                            _ = try? NaoMgsBamMaterializer.materializeAll(
+                                dbPath: capturedDbPath,
+                                resultURL: capturedResultURL,
+                                samtoolsPath: samtoolsPath
+                            )
+                        }
+#else
                         guard let samtoolsPath = Self.naomgsLocateSamtools() else { return }
                         _ = try? NaoMgsBamMaterializer.materializeAll(
                             dbPath: capturedDbPath,
                             resultURL: capturedResultURL,
                             samtoolsPath: samtoolsPath
                         )
+#endif
                         DispatchQueue.main.async { [weak self] in
                             MainActor.assumeIsolated {
                                 guard let self else { return }
+                                guard capturedGeneration == self.miniBAMLoadGeneration else { return }
                                 if FileManager.default.fileExists(atPath: bamURL.path),
                                    capturedIndex < self.miniBAMControllers.count {
                                     self.miniBAMControllers[capturedIndex].displayContig(
@@ -1331,6 +1371,11 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
                                         contigLength: max(capturedSummary.referenceLength, 1),
                                         readNameAllowlist: readNameAllowlist
                                     )
+#if DEBUG
+                                    self.testAppliedFallbackWrites.append(
+                                        (generation: capturedGeneration, contig: capturedSummary.accession)
+                                    )
+#endif
                                 }
                             }
                         }
@@ -2369,6 +2414,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 #if DEBUG
     var testTaxonomyReloadCount: Int { taxonomyReloadCount }
     var testTaxonomyTransformCount: Int { taxonomyTransformCount }
+    var testMiniBAMLoadGeneration: Int { miniBAMLoadGeneration }
     var testDisplayedTaxonOrder: [String] {
         displayedRows.map { "\($0.sample):\($0.taxId)" }
     }
