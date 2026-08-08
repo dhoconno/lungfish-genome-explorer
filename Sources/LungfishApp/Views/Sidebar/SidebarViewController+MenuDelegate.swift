@@ -849,6 +849,15 @@ extension SidebarViewController: NSMenuDelegate {
         let assemblyDir = bundleURL.appendingPathComponent("assembly")
         guard let provenance = try? AssemblyProvenance.load(from: assemblyDir) else {
             sidebarLogger.error("contextMenuReassemble: Failed to load provenance from \(bundleURL.lastPathComponent)")
+            NSSound.beep()
+            let alert = NSAlert()
+            alert.messageText = "Cannot Reassemble"
+            alert.informativeText = "\(item.title)'s assembly provenance file is missing or corrupted, so the original assembly inputs and tool settings could not be recovered."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            if let window = self.view.window {
+                alert.beginSheetModal(for: window)
+            }
             return
         }
 
