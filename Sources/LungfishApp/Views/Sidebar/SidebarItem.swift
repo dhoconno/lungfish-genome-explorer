@@ -34,7 +34,10 @@ public class SidebarItem: NSObject {
 }
 
 /// Types of sidebar items
-public enum SidebarItemType {
+///
+/// `Sendable` so the off-main sidebar scan (see `SidebarScanNode`) can carry the
+/// classification across actor boundaries; it is a plain payload-free enum.
+public enum SidebarItemType: Sendable {
     case group
     case folder
     case sequence
