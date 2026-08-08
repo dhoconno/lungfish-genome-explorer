@@ -1869,6 +1869,20 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return canExportSequences()
         }
 
+        // Export FASTQ — task E4 / AS15, AS32: disable proactively when the
+        // sidebar selection has nothing exportable as a FASTQ bundle.
+        if menuItem.action == #selector(exportFASTQ(_:)) {
+            let rawSidebarSelection = mainWindowController?.mainSplitViewController?.sidebarController?.selectedItems() ?? []
+            return FASTQExportSelection.partition(rawSidebarSelection).hasExportableItems
+        }
+
+        // Export Annotations (GFF3) — task E4 / AS16, AS32: disable
+        // proactively when there is no open document AND no sidebar
+        // selection with annotation-exportable bundles.
+        if menuItem.action == #selector(exportGFF3(_:)) {
+            return canExportGFF3()
+        }
+
         return true
     }
 

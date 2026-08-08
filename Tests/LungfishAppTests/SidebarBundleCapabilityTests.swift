@@ -76,6 +76,21 @@ final class SidebarBundleCapabilityTests: XCTestCase {
         }
     }
 
+    /// Only `.referenceBundle` supports annotation export (AS16 / task E4):
+    /// loadSequencesForExport only reads a `.lungfishref` bundle's
+    /// annotation tracks. Mirrors testExportSequencesCapabilityIsScopedToReferenceBundleOnly.
+    func testExportAnnotationsCapabilityIsScopedToReferenceBundleOnly() {
+        XCTAssertTrue(SidebarItemType.referenceBundle.bundleCapabilities.canExportAnnotations)
+
+        let nonExportKinds: [SidebarItemType] = [
+            .mhcReferenceBundle, .fastqBundle, .multipleSequenceAlignmentBundle, .phylogeneticTreeBundle,
+            .primerSchemeBundle, .genotypeResultBundle, .twelveSAmpliconResultBundle, .czIdResult,
+        ]
+        for kind in nonExportKinds {
+            XCTAssertFalse(kind.bundleCapabilities.canExportAnnotations, "\(kind) should not offer Export Annotations")
+        }
+    }
+
     // MARK: - Context menu construction: MHC reference bundle (AS3)
 
     func testMHCReferenceBundleContextMenuOffersBundleActions() throws {

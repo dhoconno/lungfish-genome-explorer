@@ -141,12 +141,18 @@ public enum SidebarItemType: Sendable {
         case .referenceBundle:
             // .referenceBundle: full action set including sequence export
             // and (via BundleMergeSelection — owned by task GB1) merge.
+            // canExportAnnotations (task E4/AS16): loadSequencesForExport
+            // (AppDelegate+ImportCenter) already knows how to read a
+            // .lungfishref bundle's annotation tracks, so File > Export >
+            // Annotations (GFF3) can fall back to a sidebar selection of
+            // this kind when no document is open in the viewer.
             return SidebarBundleCapabilities(
                 canOpen: true,
                 canShowPackageContents: true,
                 canGetBundleInfo: true,
                 canShowInInspector: true,
-                canExportSequences: true
+                canExportSequences: true,
+                canExportAnnotations: true
             )
         case .mhcReferenceBundle, .fastqBundle, .multipleSequenceAlignmentBundle, .phylogeneticTreeBundle,
              .primerSchemeBundle, .genotypeResultBundle, .twelveSAmpliconResultBundle, .czIdResult:
@@ -173,7 +179,8 @@ public enum SidebarItemType: Sendable {
                 canShowPackageContents: true,
                 canGetBundleInfo: true,
                 canShowInInspector: true,
-                canExportSequences: false
+                canExportSequences: false,
+                canExportAnnotations: false
             )
         default:
             return .none
@@ -220,13 +227,15 @@ struct SidebarBundleCapabilities: Equatable {
     var canGetBundleInfo: Bool
     var canShowInInspector: Bool
     var canExportSequences: Bool
+    var canExportAnnotations: Bool = false
 
     static let none = SidebarBundleCapabilities(
         canOpen: false,
         canShowPackageContents: false,
         canGetBundleInfo: false,
         canShowInInspector: false,
-        canExportSequences: false
+        canExportSequences: false,
+        canExportAnnotations: false
     )
 }
 

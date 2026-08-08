@@ -99,6 +99,14 @@ final class SequenceMenuOperationTests: XCTestCase {
         XCTAssertTrue(appDelegate.canExtractSelection(viewerController: viewerController))
     }
 
+    func testExportGFF3MenuValidationRequiresDocumentOrExportableSidebarSelection() {
+        // AS16/AS32 (task E4): with no window/document/sidebar at all,
+        // canExportGFF3() must not crash and must report false so
+        // validateMenuItem disables the item rather than always enabling it.
+        let appDelegate = AppDelegate()
+        XCTAssertFalse(appDelegate.canExportGFF3())
+    }
+
     func testZoomMenuValidationRequiresReferenceFrameOrMSAViewer() {
         let appDelegate = AppDelegate()
         XCTAssertFalse(appDelegate.canZoom(viewerController: nil))

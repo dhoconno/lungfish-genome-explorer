@@ -3042,19 +3042,61 @@ extension AppDelegate {
     }
 
     @objc func exportGFF3(_ sender: Any?) {
-        // Get current document
-        guard let document = mainWindowController?.mainSplitViewController?.viewerController?.currentDocument else {
-            showExportError(message: "No document is currently open.")
+        // Prefer the currently open document (existing behavior).
+        if let document = mainWindowController?.mainSplitViewController?.viewerController?.currentDocument {
+            guard !document.annotations.isEmpty else {
+                showExportError(message: "The current document has no annotations to export.")
+                return
+            }
+            let suggestedName = document.name.replacingOccurrences(of: ".\(document.url.pathExtension)", with: "") + ".gff3"
+            beginGFF3Export(annotations: document.annotations, suggestedName: suggestedName)
             return
         }
 
-        // Check if there are annotations to export
-        guard !document.annotations.isEmpty else {
-            showExportError(message: "The current document has no annotations to export.")
+        // No document open in the viewer: fall back to a sidebar selection
+        // of annotation-bearing bundles (AS16 / task E4). Only
+        // .referenceBundle currently advertises canExportAnnotations —
+        // loadSequencesForExport only knows how to read that manifest
+        // shape (same scoping reasoning as canExportSequences).
+        let sidebarSelection = mainWindowController?.mainSplitViewController?.sidebarController?.selectedItems() ?? []
+        let exportableItems = sidebarSelection.filter { $0.type.bundleCapabilities.canExportAnnotations && $0.url != nil }
+        guard let item = exportableItems.first, let bundleURL = item.url else {
+            showExportError(message: "No document is currently open. Select a reference bundle in the sidebar or open a document to export annotations.")
             return
         }
 
-        let suggestedName = document.name.replacingOccurrences(of: ".\(document.url.pathExtension)", with: "") + ".gff3"
+        Task { [weak self] in
+            do {
+                let (_, annotations) = try await self?.loadSequencesForExport(from: bundleURL) ?? ([], [])
+                await MainActor.run {
+                    guard !annotations.isEmpty else {
+                        self?.showExportError(message: "\(item.title) has no annotations to export.")
+                        return
+                    }
+                    let suggestedName = bundleURL.deletingPathExtension().lastPathComponent + ".gff3"
+                    self?.beginGFF3Export(annotations: annotations, suggestedName: suggestedName)
+                }
+            } catch {
+                await MainActor.run {
+                    debugLog("exportGFF3: Failed to load annotations from \(bundleURL.path) - \(error.localizedDescription)")
+                    self?.showExportError(message: "Failed to load annotations from \(item.title): \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    /// Whether File > Export > Annotations (GFF3) has anything to act on:
+    /// either an open viewer document, or a sidebar selection containing an
+    /// annotation-exportable bundle. Used by validateMenuItem.
+    func canExportGFF3() -> Bool {
+        if mainWindowController?.mainSplitViewController?.viewerController?.currentDocument != nil {
+            return true
+        }
+        let sidebarSelection = mainWindowController?.mainSplitViewController?.sidebarController?.selectedItems() ?? []
+        return sidebarSelection.contains { $0.type.bundleCapabilities.canExportAnnotations && $0.url != nil }
+    }
+
+    private func beginGFF3Export(annotations: [SequenceAnnotation], suggestedName: String) {
         let panel = AppFilePanelFactory.gff3ExportPanel(suggestedName: suggestedName)
 
         panel.begin { [weak self] response in
@@ -3062,11 +3104,11 @@ extension AppDelegate {
 
             Task {
                 do {
-                    try await GFF3Writer.write(document.annotations, to: url, source: "Lungfish")
+                    try await GFF3Writer.write(annotations, to: url, source: "Lungfish")
 
                     await MainActor.run {
-                        debugLog("exportGFF3: Successfully exported \(document.annotations.count) annotations to \(url.path)")
-                        self?.showExportSuccess(filename: url.lastPathComponent, count: document.annotations.count, itemType: "annotation")
+                        debugLog("exportGFF3: Successfully exported \(annotations.count) annotations to \(url.path)")
+                        self?.showExportSuccess(filename: url.lastPathComponent, count: annotations.count, itemType: "annotation")
                     }
                 } catch {
                     await MainActor.run {

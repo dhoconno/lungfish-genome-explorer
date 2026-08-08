@@ -290,7 +290,9 @@ extension AppDelegate {
             return
         }
 
-        let items = sidebarController.selectedItems().filter { $0.type == .fastqBundle && $0.url != nil }
+        let rawSelection = sidebarController.selectedItems()
+        let exportSelection = FASTQExportSelection.partition(rawSelection)
+        let items = exportSelection.exportable
         guard !items.isEmpty else {
             showExportError(message: "No FASTQ datasets selected. Select one or more FASTQ bundles in the sidebar.")
             return
@@ -298,6 +300,30 @@ extension AppDelegate {
 
         guard let window = mainWindowController?.window else { return }
 
+        // A mixed selection with SOME exportable items: proceed with the
+        // exportable subset, but tell the user exactly what got skipped
+        // instead of silently narrowing scope (AS15 / task E4).
+        if !exportSelection.skipped.isEmpty {
+            let skippedNames = exportSelection.skippedDescriptions.joined(separator: ", ")
+            let alert = NSAlert()
+            alert.messageText = "Some Selected Items Will Be Skipped"
+            alert.informativeText = "\(exportSelection.skipped.count) of \(rawSelection.count) selected item(s) are not FASTQ datasets and will be skipped: \(skippedNames)."
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "Continue")
+            alert.addButton(withTitle: "Cancel")
+            alert.beginSheetModal(for: window) { [weak self] response in
+                guard response == .alertFirstButtonReturn else { return }
+                self?.continueExportFASTQ(items: items, window: window)
+            }
+            return
+        }
+
+        continueExportFASTQ(items: items, window: window)
+    }
+
+    /// Continuation of `exportFASTQ(_:)` after the skipped-items
+    /// confirmation (if any) has been accepted.
+    private func continueExportFASTQ(items: [SidebarItem], window: NSWindow) {
         if items.count == 1 {
             // Single selection: use save panel
             let item = items[0]
