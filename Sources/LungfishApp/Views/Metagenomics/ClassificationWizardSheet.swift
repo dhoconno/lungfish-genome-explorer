@@ -167,7 +167,28 @@ struct ClassificationWizardSheet: View {
 
     /// Whether the Run button should be enabled.
     private var canRun: Bool {
-        !groupedSamples.isEmpty && selectedDatabase != nil && selectedDatabase?.status == .ready
+        !groupedSamples.isEmpty
+            && selectedDatabase != nil
+            && selectedDatabase?.status == .ready
+            && advancedArgumentsParseError == nil
+    }
+
+    /// Non-nil when the Extra Arguments field contains text that can't be
+    /// parsed as shell-style arguments (e.g. an unterminated quote).
+    private var advancedArgumentsParseError: String? {
+        Self.advancedArgumentsParseError(extraArgumentsText)
+    }
+
+    /// Pure, testable helper: non-nil when `text` can't be parsed as
+    /// shell-style arguments (e.g. an unterminated quote). Mirrors
+    /// TaxTriageWizardSheet.advancedArgumentsParseError (task E3/AS31).
+    static func advancedArgumentsParseError(_ text: String) -> String? {
+        do {
+            _ = try AdvancedCommandLineOptions.parse(text)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
     }
 
     /// Description text for the current preset.
@@ -297,6 +318,10 @@ struct ClassificationWizardSheet: View {
                     .foregroundStyle(Color.lungfishOrangeFallback)
             } else if !canRun && readyDatabases.isEmpty {
                 Text("No databases installed")
+                    .font(.caption)
+                    .foregroundStyle(Color.lungfishOrangeFallback)
+            } else if !canRun, let advancedArgumentsParseError {
+                Text(advancedArgumentsParseError)
                     .font(.caption)
                     .foregroundStyle(Color.lungfishOrangeFallback)
             }

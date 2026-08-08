@@ -980,7 +980,7 @@ struct WelcomeView: View {
 
         let savePanel = AppFilePanelFactory.newProjectPanel()
 
-        guard let window = NSApp.keyWindow else { return }
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
         let response = await savePanel.beginSheetModal(for: window)
         if response == .OK, let url = savePanel.url {
             // Create the project directory with .lungfish extension
@@ -1002,7 +1002,7 @@ struct WelcomeView: View {
 
         let openPanel = AppFilePanelFactory.welcomeProjectOpenPanel()
 
-        guard let window = NSApp.keyWindow else { return }
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
         let response = await openPanel.beginSheetModal(for: window)
         if response == .OK, let url = openPanel.url {
             viewModel.onOpenProject?(url)
