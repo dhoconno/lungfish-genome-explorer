@@ -40,8 +40,42 @@ extension SequenceViewerView {
         mouseMoved(with: event)
     }
 
+    /// Single cheap pre-check gating the whole `mouseMoved` hit-test chain (F2).
+    ///
+    /// Every hit-test in the chain (gutter, genotype, read, coverage, annotation) only ever
+    /// matches points that are (a) inside the view's own bounds and (b) at or below
+    /// `annotationTrackY`, the top of the annotation track — nothing above that line
+    /// (the ruler/sequence header) is interactive via `mouseMoved`. Returning `false` here
+    /// lets `mouseMoved` skip straight to clearing hover state instead of running the full
+    /// battery of chained O(N) hit-tests for events that can never hit anything.
+    ///
+    /// Pure/static so it is unit-testable without constructing a live view/window.
+    static func mouseMovedHitTestGate(point: NSPoint, viewBounds: NSRect, annotationTrackY: CGFloat) -> Bool {
+        guard viewBounds.contains(point) else { return false }
+        return point.y >= annotationTrackY
+    }
+
     public override func mouseMoved(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
+
+        // --- Single early bounds/row check (F2) ---
+        // None of the chained hit-tests below (gutter, genotype, read, coverage, annotation)
+        // can ever match a point outside this view's bounds or above the annotation track's
+        // top Y (the ruler/sequence header area has no mouseMoved hit-testable content).
+        // Bail out once per event instead of paying for each hit-test's own guard in turn.
+        guard SequenceViewerView.mouseMovedHitTestGate(point: location, viewBounds: bounds, annotationTrackY: annotationTrackY) else {
+            if hoveredAnnotation != nil {
+                hoveredAnnotation = nil
+                updateSelectionStatus()
+            }
+            hoveredRead = nil
+            lastHoveredGenotypeCell = nil
+            lastHoveredGenotypeTooltipText = nil
+            lastHoveredGenotypeStatusText = nil
+            hoverTooltip.hide()
+            NSCursor.arrow.set()
+            return
+        }
 
         // --- Gutter edge cursor ---
         if isNearGutterEdge(at: location) {
@@ -850,13 +884,34 @@ extension SequenceViewerView {
         let contentY = (point.y - rY) + readScrollOffset
         let rowIndex = Int(contentY / rowHeight)
 
-        // Find reads in this row and check horizontal position
-        for (row, read) in cachedPackedReads where row == rowIndex {
+        return SequenceViewerView.readInRow(
+            rowIndex,
+            from: cachedPackedReadsByRow,
+            atX: point.x,
+            frame: frame
+        )
+    }
+
+    /// Hit-tests only the reads bucketed into `rowIndex`, instead of scanning every packed
+    /// read (F1). `cachedPackedReadsByRow` is maintained incrementally via `didSet` on
+    /// `cachedPackedReads`, so this is O(reads in one row) rather than O(all packed reads).
+    ///
+    /// Pure/static so it can be unit-tested for hit-test parity against the original linear
+    /// scan without needing a live `NSView`/`ViewerViewController`.
+    static func readInRow(
+        _ rowIndex: Int,
+        from bucketsByRow: [Int: [AlignedRead]],
+        atX x: CGFloat,
+        frame: ReferenceFrame
+    ) -> AlignedRead? {
+        guard let rowReads = bucketsByRow[rowIndex] else { return nil }
+
+        for read in rowReads {
             let startPx = frame.genomicToPixel(Double(read.position))
             let endPx = frame.genomicToPixel(Double(read.alignmentEnd))
             let readWidth = max(ReadTrackRenderer.minReadPixels, endPx - startPx)
 
-            if point.x >= startPx && point.x <= startPx + readWidth {
+            if x >= startPx && x <= startPx + readWidth {
                 return read
             }
         }
