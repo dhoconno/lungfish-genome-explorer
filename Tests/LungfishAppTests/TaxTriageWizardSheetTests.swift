@@ -33,4 +33,13 @@ final class TaxTriageWizardSheetTests: XCTestCase {
         XCTAssertNil(presentation.statusText)
         XCTAssertTrue(presentation.isPrimaryEnabled)
     }
+
+    func testAdvancedArgumentsParseErrorDetectsUnterminatedQuote() {
+        // Regression test for AS31: performRun() silently no-ops when
+        // extraArgumentsText fails to parse, but canRun previously never
+        // checked parseability, leaving Run enabled with zero feedback.
+        XCTAssertNil(TaxTriageWizardSheet.advancedArgumentsParseError("--flag value"))
+        XCTAssertNil(TaxTriageWizardSheet.advancedArgumentsParseError(""))
+        XCTAssertNotNil(TaxTriageWizardSheet.advancedArgumentsParseError("--flag 'unterminated"))
+    }
 }

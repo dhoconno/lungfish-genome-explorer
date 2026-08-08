@@ -153,6 +153,24 @@ struct TaxTriageWizardSheet: View {
         && containerAvailable == true
         && !selectedDatabaseName.isEmpty
         && samples.allSatisfy { !$0.sampleId.trimmingCharacters(in: .whitespaces).isEmpty }
+        && advancedArgumentsParseError == nil
+    }
+
+    /// Non-nil when the Extra Arguments field contains text that can't be
+    /// parsed as shell-style arguments (e.g. an unterminated quote).
+    private var advancedArgumentsParseError: String? {
+        Self.advancedArgumentsParseError(extraArgumentsText)
+    }
+
+    /// Pure, testable helper: non-nil when `text` can't be parsed as
+    /// shell-style arguments (e.g. an unterminated quote).
+    static func advancedArgumentsParseError(_ text: String) -> String? {
+        do {
+            _ = try AdvancedCommandLineOptions.parse(text)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
     }
 
     private var standalonePresentation: TaxTriageStandalonePresentation {
@@ -285,6 +303,9 @@ struct TaxTriageWizardSheet: View {
         }
         if nextflowAvailable == nil || containerAvailable == nil {
             return "Checking prerequisites..."
+        }
+        if let advancedArgumentsParseError {
+            return advancedArgumentsParseError
         }
         return nil
     }

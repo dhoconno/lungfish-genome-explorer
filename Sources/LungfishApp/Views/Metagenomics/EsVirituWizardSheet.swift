@@ -11,12 +11,14 @@ struct EsVirituRunReadiness {
         isBatchMode: Bool,
         sampleName: String,
         isDatabaseInstalled: Bool,
-        databasePath: URL?
+        databasePath: URL?,
+        extraArgumentsText: String = ""
     ) -> Bool {
         groupedSampleCount > 0
             && isDatabaseInstalled
             && databasePath != nil
             && (isBatchMode || !sampleName.trimmingCharacters(in: .whitespaces).isEmpty)
+            && ((try? AdvancedCommandLineOptions.parse(extraArgumentsText)) != nil)
     }
 }
 
@@ -154,8 +156,20 @@ struct EsVirituWizardSheet: View {
             isBatchMode: isBatchMode,
             sampleName: sampleName,
             isDatabaseInstalled: isDatabaseInstalled,
-            databasePath: databasePath
+            databasePath: databasePath,
+            extraArgumentsText: extraArgumentsText
         )
+    }
+
+    /// Non-nil when the Extra Arguments field contains text that can't be
+    /// parsed as shell-style arguments (e.g. an unterminated quote).
+    private var advancedArgumentsParseError: String? {
+        do {
+            _ = try AdvancedCommandLineOptions.parse(extraArgumentsText)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
     }
 
     /// The system's physical memory in bytes.
@@ -221,7 +235,7 @@ struct EsVirituWizardSheet: View {
             subtitle: "Identify viral sequences using the EsViritu pipeline",
             accessoryText: standaloneAccessoryText,
             size: WizardSheetSize(width: 520, height: 500),
-            statusText: canRun ? nil : "Finish the settings above to continue",
+            statusText: canRun ? nil : (advancedArgumentsParseError ?? "Finish the settings above to continue"),
             statusColor: Color.lungfishOrangeFallback,
             isPrimaryEnabled: canRun,
             onCancel: { onCancel?() },
