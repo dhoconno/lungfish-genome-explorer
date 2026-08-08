@@ -891,7 +891,14 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         )
     }
 
-    func testProjectBarcodeDefinitionCandidatesIncludeTextBarcodeFiles() throws {
+    // The recursive barcode-definition-candidate scan (F8) no longer runs synchronously
+    // during `init` -- it starts as an empty array and is populated by
+    // `refreshProjectBarcodeDefinitionCandidates()`, which the dialog's `.task` awaits once
+    // the view appears. These two tests were written against the old synchronous contract;
+    // they now explicitly await that same call to drive the (now-async) scan before asserting
+    // on its result, exercising the exact API the dialog itself uses.
+
+    func testProjectBarcodeDefinitionCandidatesIncludeTextBarcodeFiles() async throws {
         let projectURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("FASTQOperationDialogRouting-\(UUID().uuidString).lungfish", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: projectURL) }
@@ -921,6 +928,8 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
             selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")],
             projectURL: projectURL
         )
+        XCTAssertEqual(state.projectBarcodeDefinitionCandidates, [], "scan must not run synchronously during init")
+        await state.refreshProjectBarcodeDefinitionCandidates()
 
         XCTAssertEqual(
             state.projectBarcodeDefinitionCandidates.map { FASTQOperationDialogState.displayPath(for: $0, relativeTo: projectURL) },
@@ -928,7 +937,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         )
     }
 
-    func testProjectBarcodeDefinitionCandidatesDoNotRefreshDuringUnrelatedTextEdits() throws {
+    func testProjectBarcodeDefinitionCandidatesDoNotRefreshDuringUnrelatedTextEdits() async throws {
         let projectURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("FASTQOperationDialogRouting-\(UUID().uuidString).lungfish", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: projectURL) }
@@ -943,6 +952,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
             projectURL: projectURL
         )
         state.selectTool(.ontGenotyping)
+        await state.refreshProjectBarcodeDefinitionCandidates()
 
         XCTAssertEqual(state.projectBarcodeDefinitionCandidates, [firstBarcodeURL.standardizedFileURL])
 

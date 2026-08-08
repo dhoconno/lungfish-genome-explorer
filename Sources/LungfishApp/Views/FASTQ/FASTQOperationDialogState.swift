@@ -164,6 +164,7 @@ final class FASTQOperationDialogState {
     private var embeddedToolReady: Bool
     private var savontRuntimeReadiness: SavontRuntimeReadiness
     private var savontRuntimeCheckGeneration: UInt = 0
+    private var barcodeDefinitionScanGeneration: UInt = 0
 
     init(
         initialCategory: FASTQOperationCategoryID,
@@ -192,7 +193,13 @@ final class FASTQOperationDialogState {
             projectURL: projectURL,
             selectedInputURLs: selectedInputURLs
         )
-        self.projectBarcodeDefinitionCandidates = Self.projectBarcodeDefinitionCandidates(in: projectURL)
+        // The recursive project directory scan behind `projectBarcodeDefinitionCandidates(in:)`
+        // used to run synchronously here, on the main actor, every time the dialog was
+        // constructed (F8). It now starts empty and is populated asynchronously by
+        // `refreshProjectBarcodeDefinitionCandidates()`, called once the dialog view appears
+        // (see `FASTQOperationDialog`'s `.task`), so dialog construction never blocks on
+        // filesystem enumeration.
+        self.projectBarcodeDefinitionCandidates = []
         self.pendingLaunchRequest = nil
         self.pendingMinimap2Config = nil
         self.pendingMappingRequest = nil
@@ -348,6 +355,45 @@ final class FASTQOperationDialogState {
               !Task.isCancelled else { return }
         savontRuntimeReadiness = readiness
     }
+
+    /// Performs the recursive project directory scan for barcode-definition candidates
+    /// off the main actor and applies the result if this is still the most recent request.
+    ///
+    /// `projectBarcodeDefinitionCandidates(in:)` uses `FileManager.enumerator` to walk the
+    /// entire project directory tree, so it must never run inline on `@MainActor` during
+    /// dialog construction (F8). The scan takes a `Sendable` snapshot of `projectURL` and
+    /// runs inside `Task.detached`, which unconditionally hops to the cooperative thread
+    /// pool regardless of the caller's actor -- mirroring
+    /// `ReferenceBundleAnnotationImportService.attachAnnotationTrack`'s structural hop, since
+    /// `projectBarcodeDefinitionCandidates(in:)` itself has no internal `await` and would
+    /// otherwise simply inherit this (`@MainActor`) caller's thread. A monotonically
+    /// increasing generation counter discards stale results the same way
+    /// `refreshSavontRuntimeReadiness` already does above, so a dialog reconfigured (or
+    /// dismissed and reopened) while a scan is in flight never has an older scan clobber a
+    /// newer one.
+    func refreshProjectBarcodeDefinitionCandidates() async {
+        barcodeDefinitionScanGeneration &+= 1
+        let generation = barcodeDefinitionScanGeneration
+        let scanProjectURL = projectURL
+
+        let candidates = await Task.detached(priority: .userInitiated) {
+            #if DEBUG
+            FASTQOperationDialogState.barcodeDefinitionScanThreadingProbe?()
+            #endif
+            return Self.projectBarcodeDefinitionCandidates(in: scanProjectURL)
+        }.value
+
+        guard generation == barcodeDefinitionScanGeneration, !Task.isCancelled else { return }
+        projectBarcodeDefinitionCandidates = candidates
+    }
+
+    #if DEBUG
+    /// Test-only threading probe. Fires once inside the `Task.detached` body of
+    /// `refreshProjectBarcodeDefinitionCandidates()`, after the executor hop, so tests can
+    /// assert `!Thread.isMainThread` from the real call path. Not compiled into release
+    /// builds.
+    nonisolated(unsafe) static var barcodeDefinitionScanThreadingProbe: (@Sendable () -> Void)?
+    #endif
 
     func prepareForRun() {
         if selectedToolID.usesEmbeddedConfiguration {
@@ -1025,7 +1071,7 @@ final class FASTQOperationDialogState {
         }
     }
 
-    static func displayPath(for url: URL, relativeTo projectURL: URL?) -> String {
+    nonisolated static func displayPath(for url: URL, relativeTo projectURL: URL?) -> String {
         let standardizedTarget = url.standardizedFileURL.path
         guard let projectURL else { return standardizedTarget }
 
@@ -1531,7 +1577,7 @@ final class FASTQOperationDialogState {
         }
     }
 
-    private static func projectBarcodeDefinitionCandidates(in projectURL: URL?) -> [URL] {
+    private nonisolated static func projectBarcodeDefinitionCandidates(in projectURL: URL?) -> [URL] {
         guard let projectURL else { return [] }
         let fm = FileManager.default
         let allowedExtensions = Set(["csv", "tsv", "txt"])
@@ -1567,6 +1613,15 @@ final class FASTQOperationDialogState {
                 .localizedStandardCompare(displayPath(for: $1, relativeTo: projectURL)) == .orderedAscending
         }
     }
+
+    #if DEBUG
+    /// Test-only passthrough to the private, nonisolated recursive scan, so tests can compare
+    /// the async scan's result against a direct call to the same underlying implementation
+    /// without duplicating its logic. Not compiled into release builds.
+    nonisolated static func directScanForTesting(in projectURL: URL?) -> [URL] {
+        projectBarcodeDefinitionCandidates(in: projectURL)
+    }
+    #endif
 
     private func trimmedNonEmpty(_ value: String) -> String? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
