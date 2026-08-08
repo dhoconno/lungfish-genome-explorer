@@ -135,6 +135,11 @@ public class SidebarViewController: NSViewController {
     /// exists to defend against. Always `nil` outside tests.
     static var scanBarrierForTesting: (@Sendable () async -> Void)?
 
+    /// Number of reloads that have called `beginReload` without yet finishing or
+    /// being discarded. Selection suppression is released when this returns to 0,
+    /// so a discarded scan cannot un-suppress a newer reload still in flight.
+    private var pendingReloadCount = 0
+
     /// Universal search coordinator for project-scoped metadata/entity queries.
     private let universalSearchService = UniversalProjectSearchService.shared
 
@@ -947,7 +952,26 @@ public class SidebarViewController: NSViewController {
             shouldApplyInitialExpansionDefaults: rootItems.isEmpty
         )
         suppressSelectionCallbacks = true
+        pendingReloadCount += 1
         return state
+    }
+
+    /// Releases the suppression a reload took out when its result is discarded.
+    ///
+    /// A discarded background scan never reaches `finishReload`, so without this
+    /// `suppressSelectionCallbacks` would stay `true` forever and the sidebar would
+    /// stop emitting selection changes. The counter ensures a discard cannot clear
+    /// suppression that a NEWER in-flight reload still owns.
+    private func abandonReload() {
+        endReload()
+    }
+
+    /// Balances one `beginReload`, clearing suppression once no reload is pending.
+    private func endReload() {
+        pendingReloadCount = max(0, pendingReloadCount - 1)
+        if pendingReloadCount == 0 {
+            suppressSelectionCallbacks = false
+        }
     }
 
     /// Runs the project scan off the main actor, then applies the resulting tree.
@@ -1003,10 +1027,12 @@ public class SidebarViewController: NSViewController {
             // finishReload — that is what makes the generation check sound.
             guard self.sidebarScanGeneration == generation else {
                 sidebarLogger.debug("reloadFromFilesystemAsync: Discarding stale scan result")
+                self.abandonReload()
                 return
             }
             guard self.projectURL?.standardizedFileURL == projectURL.standardizedFileURL else {
                 sidebarLogger.debug("reloadFromFilesystemAsync: Project changed during scan, discarding result")
+                self.abandonReload()
                 return
             }
             self.finishReload(
@@ -1077,7 +1103,7 @@ public class SidebarViewController: NSViewController {
         // Restore selection if possible
         restoreSelection(urls: selectedURLs)
         restoreScrollAnchor(scrollAnchor)
-        suppressSelectionCallbacks = false
+        endReload()
 
         // Propagate selection only if it actually changed after refresh.
         let restoredItems = selectedItems()

@@ -399,6 +399,37 @@ final class SidebarScanSnapshotParityTests: XCTestCase {
         }
     }
 
+    /// Discarding a stale background scan must still clear the selection-callback
+    /// suppression the reload turned on.
+    ///
+    /// `beginReload` sets `suppressSelectionCallbacks` before the scan starts and
+    /// the apply step clears it. If a discarded scan skipped that cleanup, the
+    /// sidebar would silently stop emitting selection changes for the rest of the
+    /// session.
+    func testDiscardedBackgroundScanClearsSelectionSuppression() async throws {
+        try makeFixtureProject()
+        let sidebar = openedSidebar()
+
+        let gate = ScanGate()
+        SidebarViewController.scanBarrierForTesting = { await gate.arriveAndWait() }
+        addTeardownBlock { SidebarViewController.scanBarrierForTesting = nil }
+
+        let staleScan = sidebar.reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: false)
+        await gate.waitForArrival()
+
+        // Invalidate the in-flight scan WITHOUT running another apply step, so
+        // nothing else can clear the flag on the discarded scan's behalf.
+        sidebar.closeProject()
+
+        await gate.release()
+        await staleScan?.value
+
+        XCTAssertFalse(
+            sidebar.suppressSelectionCallbacks,
+            "A discarded background scan must not leave selection callbacks suppressed"
+        )
+    }
+
     /// Closing a project while a background scan is in flight must not repopulate
     /// the sidebar. `closeProject` bumps the scan generation, and the apply step
     /// re-checks it on the main actor before touching `rootItems`.
