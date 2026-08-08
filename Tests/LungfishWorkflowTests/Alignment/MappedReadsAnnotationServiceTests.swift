@@ -448,6 +448,82 @@ final class MappedReadsAnnotationServiceTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: inheritedRootPublicKeyURL.path))
     }
 
+    func testConvertBestMappedReadsDoesNotTransitivelyMergeNonOverlappingReadsAcrossBridge() async throws {
+        // Regression for F34: read A (100-200) and read C (480-520) never overlap each
+        // other, but read B (150-500) overlaps both. A naive cluster that only compares
+        // incoming records against the cluster's ever-growing span (rather than each
+        // record's real overlap) would bridge A and C into one cluster via B. They must
+        // land in two clusters: {A, B} and {C}.
+        let fixture = try MappedReadsAnnotationFixture.make(rootURL: tempDir)
+        let mappingDirectory = tempDir.appendingPathComponent("bridge-mapping", isDirectory: true)
+        try FileManager.default.createDirectory(at: mappingDirectory, withIntermediateDirectories: true)
+        let bamURL = mappingDirectory.appendingPathComponent("miseq.sorted.bam")
+        let baiURL = mappingDirectory.appendingPathComponent("miseq.sorted.bam.bai")
+        FileManager.default.createFile(atPath: bamURL.path, contents: Data("bam".utf8))
+        FileManager.default.createFile(atPath: baiURL.path, contents: Data("bai".utf8))
+        try MappingResult(
+            mapper: .minimap2,
+            modeID: MappingMode.defaultShortRead.id,
+            bamURL: bamURL,
+            baiURL: baiURL,
+            totalReads: 3,
+            mappedReads: 3,
+            unmappedReads: 0,
+            wallClockSeconds: 1.0,
+            contigs: []
+        ).save(to: mappingDirectory)
+
+        // read-A: 0-based [100, 200)
+        // read-B: 0-based [150, 500) -- overlaps both A and C
+        // read-C: 0-based [480, 520) -- does NOT overlap read-A ([100,200) vs [480,520))
+        let runner = RecordingMappedReadsSamtoolsRunner(stdout: """
+        @HD\tVN:1.6\tSO:coordinate
+        @SQ\tSN:chr1\tLN:1000
+        read-A\t0\tchr1\t101\t60\t100M\t*\t0\t0\t\(String(repeating: "A", count: 100))\t\(String(repeating: "I", count: 100))\tNM:i:1
+        read-B\t0\tchr1\t151\t60\t350M\t*\t0\t0\t\(String(repeating: "C", count: 350))\t\(String(repeating: "I", count: 350))\tNM:i:5
+        read-C\t0\tchr1\t481\t60\t40M\t*\t0\t0\t\(String(repeating: "G", count: 40))\t\(String(repeating: "I", count: 40))\tNM:i:1
+        """)
+        let service = BestMappedReadsAnnotationService(
+            samtoolsRunner: runner,
+            trackIDProvider: { _ in "ann-bridge" }
+        )
+        let outputBundleURL = tempDir.appendingPathComponent("BestMappedReadsBridge.lungfishref", isDirectory: true)
+
+        let result = try await service.convertBestMappedReads(
+            request: BestMappedReadsAnnotationRequest(
+                sourceBundleURL: fixture.bundleURL,
+                mappingResultURL: mappingDirectory,
+                outputBundleURL: outputBundleURL,
+                outputTrackName: "miSeq MHC",
+                outputTrackID: "miseq_mhc_bridge",
+                primaryOnly: true
+            )
+        )
+
+        // Two distinct genomic intervals must survive: {read-A, read-B} and {read-C}.
+        XCTAssertEqual(result.selectedRecordCount, 2)
+
+        let database = try AnnotationDatabase(
+            url: outputBundleURL.appendingPathComponent("annotations/miseq_mhc_bridge.db")
+        )
+        let records = database.queryByRegion(chromosome: "chr1", start: 0, end: 600)
+        XCTAssertEqual(records.map(\.name).sorted(), ["read-A", "read-C"])
+
+        let clusterA = try XCTUnwrap(records.first { $0.name == "read-A" })
+        let clusterAAttributes = AnnotationDatabase.parseAttributes(try XCTUnwrap(clusterA.attributes))
+        // read-A won its cluster over read-B (NM 1 < 5); the cluster must contain
+        // exactly {A, B}, not {A, B, C}.
+        XCTAssertEqual(clusterAAttributes["best_interval_candidate_count"], "2")
+        XCTAssertEqual(clusterAAttributes["best_interval_start"], "100")
+        XCTAssertEqual(clusterAAttributes["best_interval_end"], "500")
+
+        let clusterC = try XCTUnwrap(records.first { $0.name == "read-C" })
+        let clusterCAttributes = AnnotationDatabase.parseAttributes(try XCTUnwrap(clusterC.attributes))
+        XCTAssertEqual(clusterCAttributes["best_interval_candidate_count"], "1")
+        XCTAssertEqual(clusterCAttributes["best_interval_start"], "480")
+        XCTAssertEqual(clusterCAttributes["best_interval_end"], "520")
+    }
+
     func testConvertBestMappedReadsRemovesCopiedOutputBundleWhenProvenanceFails() async throws {
         let fixture = try MappedReadsAnnotationFixture.make(rootURL: tempDir)
         let mappingDirectory = tempDir.appendingPathComponent("rollback-mapping", isDirectory: true)

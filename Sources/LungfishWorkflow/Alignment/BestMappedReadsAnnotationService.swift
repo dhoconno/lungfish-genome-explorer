@@ -254,8 +254,17 @@ public final class BestMappedReadsAnnotationService: @unchecked Sendable {
             records.append(record)
         }
 
+        /// True overlap against every record already folded into this cluster, not just
+        /// the cluster's accumulated (monotonically growing) span. Comparing only against
+        /// `start`/`end` lets a wide bridging record (e.g. A=100-200, B=150-500) transitively
+        /// pull in a record that never overlaps the cluster's other members (e.g. C=480-520,
+        /// which overlaps B but not A) -- see F34. Requiring the incoming record to overlap
+        /// every existing member keeps a cluster a true mutually-overlapping set.
         func overlaps(_ record: MappedReadsSAMRecord) -> Bool {
-            chromosome == record.referenceName && record.start0 <= end && record.end0 >= start
+            guard chromosome == record.referenceName else { return false }
+            return records.allSatisfy { member in
+                record.start0 < member.end0 && record.end0 > member.start0
+            }
         }
     }
 
