@@ -995,6 +995,38 @@ extension MainSplitViewController {
             return
         }
 
+        // Per-bundle short-read assembly (MB-2): a pooled `.assemble`
+        // request selected via the wizard's `.perBundle` picker mode
+        // (outputMode == .perInput) with N>1 bundle URLs is split into N
+        // independent requests here, mirroring the .savont fan-out above
+        // exactly -- each recursive call below creates its OWN analysis
+        // directory, starts its OWN OperationCenter operation, and runs its
+        // OWN Task.detached, so one bundle's assembly failure never aborts
+        // or discards another bundle's completed work (review round 1,
+        // point 4). `.combined` mode has no picker option this round (see
+        // AssemblyWizardSheet.multiBundleRunPolicy) and stays a single
+        // pooled request that falls through to the unsplit path below.
+        if case .assemble(let batchAssemblyRequest, let assembleOutputMode) = request,
+           assembleOutputMode == .perInput,
+           batchAssemblyRequest.inputURLs.count > 1 {
+            let independentRequests = request.independentAssembleLaunchRequests(
+                outputDirectory: destinationRoot
+            )
+            guard independentRequests.count == batchAssemblyRequest.inputURLs.count else {
+                mainSplitLogger.error(
+                    "runFASTQOperationLaunchRequest: Failed to prepare independent Assembly operations"
+                )
+                return
+            }
+            for independentRequest in independentRequests {
+                runFASTQOperationLaunchRequestValidated(
+                    independentRequest,
+                    preferredOutputDirectory: destinationRoot
+                )
+            }
+            return
+        }
+
         let workingDirectory: URL
         if case .assemble(let assemblyRequest, _) = request,
            let currentProjectURL {

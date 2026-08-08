@@ -882,6 +882,81 @@ extension AppDelegate {
         return sample.isPairedEnd
     }
 
+    /// Resolves the true input file list and `pairedEnd` value for ONE
+    /// assembly bundle URL, derived from that bundle's OWN manifest/payload
+    /// content -- never from group size or input count (MB-2 review round 1,
+    /// point 2: a genuine `.fullPaired` bundle must not collapse to
+    /// `pairedEnd == false` just because the wizard passed one bundle URL
+    /// per element, and two unrelated bundles happening to be named
+    /// `X_R1.lungfishfastq` / `X_R2.lungfishfastq` must never be treated as
+    /// mates just because they were adjacent in a selection).
+    ///
+    /// This operates on ONE bundle's contents at a time, so
+    /// `MetagenomicsSampleGrouper`'s filename-convention role inference is
+    /// safe here in a way it would NOT be if applied across multiple
+    /// bundles' pooled file lists: every file it sees already lives inside
+    /// the single bundle directory being resolved.
+    ///
+    /// - A `.fullPaired` derived bundle (the FASTQ Ops / BAM primer-trim /
+    ///   WorkflowBuilder interleave payload shape) resolves via
+    ///   `FASTQBundle.pairedFASTQURLs`, which is the only API that returns
+    ///   BOTH R1 and R2 for that payload --
+    ///   `SequenceInputResolver.resolvePrimarySequenceURL` deliberately
+    ///   returns R1 only for this payload and must not be used here.
+    /// - A plain (non-derived) bundle -- including a multi-file bundle whose
+    ///   `source-files.json` lists a genuine R1+R2 pair imported together --
+    ///   resolves via `FASTQBundle.resolveAllFASTQURLs`, then
+    ///   `MetagenomicsSampleGrouper.group` determines whether those files
+    ///   are a real mate pair from their OWN filenames.
+    /// - A virtual/derived bundle that still requires async materialization
+    ///   (subset/trim/demuxedVirtual -- content isn't on disk yet) cannot be
+    ///   inspected synchronously here; it is left as a single placeholder
+    ///   input with `pairedEnd == false`, matching this fix's placeholder
+    ///   behavior for every other not-yet-resolvable shape and consistent
+    ///   with pre-existing single-bundle assembly behavior for these
+    ///   payloads (materialization always yields exactly one file).
+    /// - Anything else (a loose non-bundle file, an unreadable bundle)
+    ///   passes through unchanged as a single input with `pairedEnd ==
+    ///   false`.
+    nonisolated static func resolvedAssemblyPairedEnd(for bundleURL: URL) -> (inputURLs: [URL], pairedEnd: Bool) {
+        let standardizedURL = bundleURL.standardizedFileURL
+
+        guard let enclosingBundleURL = SequenceInputResolver.enclosingFASTQBundleURL(for: standardizedURL) else {
+            return ([standardizedURL], false)
+        }
+
+        if let pairedURLs = FASTQBundle.pairedFASTQURLs(forDerivedBundle: enclosingBundleURL) {
+            return ([pairedURLs.r1, pairedURLs.r2], true)
+        }
+
+        if AssemblyInputMaterialization.requiresMaterialization(standardizedURL) {
+            return ([standardizedURL], false)
+        }
+
+        guard let resolvedURLs = FASTQBundle.resolveAllFASTQURLs(for: enclosingBundleURL),
+              !resolvedURLs.isEmpty else {
+            return ([standardizedURL], false)
+        }
+
+        // Mirrors `resolvedPairedEnd(for:)`'s logic exactly (same
+        // MetagenomicsSampleGrouper-backed role inference used by the C2
+        // mapping fix), duplicated here rather than shared because that
+        // sibling function is `@MainActor`-isolated (an `AppDelegate`
+        // member) while this one must stay `nonisolated` -- it is called
+        // synchronously from `FASTQOperationLaunchRequest
+        // .independentAssembleLaunchRequests`, itself invoked from
+        // `runFASTQOperationLaunchRequestValidated` before any `Task` is
+        // created.
+        let pairedEnd: Bool
+        if resolvedURLs.count == 2 {
+            let grouped = MetagenomicsSampleGrouper.group(resolvedURLs)
+            pairedEnd = grouped.count == 1 && (grouped.first?.isPairedEnd ?? false)
+        } else {
+            pairedEnd = false
+        }
+        return (resolvedURLs, pairedEnd)
+    }
+
     /// Runs a planned mapping request for every bundle in `plan`,
     /// SEQUENTIALLY (matching `runClassificationBatch`'s precedent) rather
     /// than N concurrent `Task.detached` mappers -- an unbounded fan-out

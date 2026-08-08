@@ -141,26 +141,50 @@ struct AssemblyWizardSheet: View {
         detectPairedEndFiles(inputFiles)
     }
 
-    /// `inputFiles` grouped into per-sample bundles (R1/R2 pairs collapsed to
-    /// one bundle, unpaired files each their own bundle). Drives the
-    /// multi-bundle run-mode picker shown for short-read tools.
-    private var bundles: [[URL]] {
-        Self.groupBundles(inputFiles: inputFiles)
-    }
+    /// Each element of `inputFiles` IS already one bundle: the sidebar
+    /// selection -> `resolveFASTQOperationInputURL` pipeline collapses a
+    /// selection down to one `.lungfishfastq`/`.lungfishref` bundle URL (or
+    /// one loose sequence file) per selected item before the wizard ever
+    /// sees it (`AppDelegate+ToolsMenu.resolveFASTQOperationInputURL`,
+    /// mirrored in `MappingWizardSheet`'s C2-review-fix doc comment). A
+    /// bundle's *contents* (how many physical FASTQ files it resolves to,
+    /// whether they're a genuine R1/R2 pair) are not knowable here -- do NOT
+    /// re-derive bundle boundaries or paired-ness by pattern-matching
+    /// `_R1`/`_R2` etc. against these URLs' filenames: two distinct bundles
+    /// can legitimately be named e.g. `Run1_R1.lungfishfastq` /
+    /// `Run1_R2.lungfishfastq`, and matching on that would silently merge
+    /// two different samples into one fabricated "pair". Per-bundle
+    /// resolution and true pairedEnd detection happen later, one bundle at a
+    /// time, in `AppDelegate.resolvedAssemblyPairedEnd(for:)`.
+    private var bundleCount: Int { inputFiles.count }
 
+    /// This round locks the picker to `.perBundle` only: implementing true
+    /// `.combined` pooling (materializing each bundle then merging via
+    /// `FASTQBundleMergeService` before one assembler invocation) is a
+    /// meaningfully larger change than this fix warrants, so it is deferred
+    /// rather than shipped as the same silent-pooling hazard this task exists
+    /// to close. See the fix-round-1 report for the explicit call-out.
     private static let multiBundleRunPolicy = MultiBundleRunPolicy(
-        allowedModes: [.perBundle, .combined],
-        defaultMode: .perBundle
+        allowedModes: [.perBundle],
+        defaultMode: .perBundle,
+        lockReason: "Combining multiple bundles into one assembly run is not yet supported; each bundle assembles separately."
     )
 
     /// Short-read assembly tools (SPAdes/MEGAHIT/SKESA) support running N>1
-    /// selected bundles either separately or pooled. Long-read tools (Flye/
-    /// Hifiasm) are exceptions per the multi-bundle adoption set: they already
-    /// reject N>1 selections outright via `readTopologyMessage`, so no picker
-    /// is shown and current single-input behavior is preserved.
+    /// selected bundles independently. Gated on the selected tool, NOT on
+    /// detected read type: an unclassifiable/mixed selection must still show
+    /// the picker for these three tools (the read-type gate previously used
+    /// here hid the picker exactly when the user most needed to see how
+    /// their multi-bundle selection would be split). Long-read tools (Flye/
+    /// Hifiasm) are exceptions per the multi-bundle adoption set: they
+    /// already reject N>1 selections outright via `readTopologyMessage`, so
+    /// no picker is shown for them and current single-input behavior is
+    /// preserved.
     private var showsMultiBundleRunModePicker: Bool {
-        effectiveReadType == .illuminaShortReads && bundles.count > 1
+        Self.shortReadTools.contains(selectedTool) && bundleCount > 1
     }
+
+    private static let shortReadTools: Set<AssemblyTool> = [.spades, .megahit, .skesa]
 
     private var detectedReadTypes: [AssemblyReadType] {
         inputFiles.compactMap(AssemblyReadType.detect(fromInputURL:))
@@ -378,7 +402,7 @@ struct AssemblyWizardSheet: View {
             if showsMultiBundleRunModePicker {
                 Divider()
                 MultiBundleRunModePicker(
-                    bundleCount: bundles.count,
+                    bundleCount: bundleCount,
                     policy: Self.multiBundleRunPolicy,
                     selection: $multiBundleRunMode
                 )
@@ -825,61 +849,6 @@ struct AssemblyWizardSheet: View {
 
         let unpaired = urls.filter { !matched.contains($0) }
         return (forward, reverse, unpaired)
-    }
-
-    /// Groups a flat selection of FASTQ input files into per-sample bundles:
-    /// R1/R2 pairs (matched by common Illumina/generic naming conventions)
-    /// collapse into one two-element bundle; anything left unpaired is its
-    /// own single-element bundle. Order of first appearance is preserved.
-    /// Mirrors `MappingWizardSheet.groupBundles` and
-    /// `FASTQOperationPlanner.groupIntoAssemblyBundles`'s pairing convention
-    /// so the picker's displayed bundle count always matches what the
-    /// planner actually splits into.
-    static func groupBundles(inputFiles: [URL]) -> [[URL]] {
-        let pairSuffixes: [(String, String)] = [
-            ("_R1", "_R2"),
-            ("_1.", "_2."),
-            ("_r1", "_r2"),
-            ("_forward", "_reverse"),
-        ]
-
-        var matched = Set<URL>()
-        var bundles: [[URL]] = []
-
-        for url in inputFiles {
-            guard !matched.contains(url) else { continue }
-            let name = url.lastPathComponent
-
-            var pairedWith: URL?
-            for (p1, p2) in pairSuffixes {
-                if name.contains(p1) {
-                    let pairName = name.replacingOccurrences(of: p1, with: p2)
-                    if let pair = inputFiles.first(where: { $0.lastPathComponent == pairName && $0 != url }) {
-                        pairedWith = pair
-                        break
-                    }
-                } else if name.contains(p2) {
-                    let pairName = name.replacingOccurrences(of: p2, with: p1)
-                    if let pair = inputFiles.first(where: { $0.lastPathComponent == pairName && $0 != url }) {
-                        pairedWith = pair
-                        break
-                    }
-                }
-            }
-
-            if let pairedWith {
-                matched.insert(url)
-                matched.insert(pairedWith)
-                // Preserve forward/reverse ordering regardless of selection order.
-                let isForward = pairSuffixes.contains { name.contains($0.0) }
-                bundles.append(isForward ? [url, pairedWith] : [pairedWith, url])
-            } else {
-                matched.insert(url)
-                bundles.append([url])
-            }
-        }
-
-        return bundles
     }
 
     private static func detectedReadType(from inputFiles: [URL]) -> AssemblyReadType? {

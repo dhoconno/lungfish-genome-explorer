@@ -4307,26 +4307,37 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(runner.invocations.count, 1)
     }
 
-    // MARK: - MB-2: per-bundle short-read assembly split
+    // MARK: - MB-2 review round 1: planner split predicate is unchanged; real per-bundle splitting moved upstream
 
-    /// Two paired-end bundles selected together in `.perInput` (perBundle) mode must
-    /// split into two assembly requests, each carrying only its OWN R1/R2 pair and
-    /// `pairedEnd == true`. This guards against the MB-2 regression where the flat
-    /// pooled-list `pairedEnd` inference silently co-assembled unrelated samples.
-    func testAssemblyPerBundleModeSplitsPairedEndBundlesWithOwnRRPairEach() throws {
-        let sampleA_R1 = URL(fileURLWithPath: "/tmp/SampleA_R1.fastq.gz")
-        let sampleA_R2 = URL(fileURLWithPath: "/tmp/SampleA_R2.fastq.gz")
-        let sampleB_R1 = URL(fileURLWithPath: "/tmp/SampleB_R1.fastq.gz")
-        let sampleB_R2 = URL(fileURLWithPath: "/tmp/SampleB_R2.fastq.gz")
+    /// This planner-level split predicate is UNCHANGED by the MB-2 fix
+    /// (`pairedEnd` still gates it, exactly as before): by the time a
+    /// request reaches this planner, `inputURLs` may equally be N
+    /// independent single-end files (safe to split) or the two files of one
+    /// genuine paired-end sample already resolved to raw R1/R2 paths (MUST
+    /// stay together) -- the planner cannot tell those apart from file count
+    /// alone. `testExecuteKeepsPairedAssemblyAsSinglePerInputPlan` (above)
+    /// already covers the `pairedEnd: true` case staying unsplit; this test
+    /// covers the complementary `pairedEnd: false` multi-file case still
+    /// splitting one request per file, with NO bundle-name pattern matching
+    /// applied (unrelated bundle URLs named to look like an R1/R2 pair must
+    /// never be merged -- that fabrication is exactly what round 1 of this
+    /// review caught and removed). Real per-bundle splitting for a
+    /// wizard-driven N>1 BUNDLE selection happens earlier and separately, in
+    /// `FASTQOperationLaunchRequest.independentAssembleLaunchRequests`
+    /// (`Tests/LungfishAppTests/AssemblyManagedInputMaterializationTests
+    /// .swift`), before any request reaches this planner.
+    func testAssemblePerInputModeSplitsBundleURLsWithoutNameBasedPairing() throws {
+        let bundleNamedR1 = URL(fileURLWithPath: "/tmp/Run1_R1.lungfishfastq")
+        let bundleNamedR2 = URL(fileURLWithPath: "/tmp/Run1_R2.lungfishfastq")
 
         let request = FASTQOperationLaunchRequest.assemble(
             request: AssemblyRunRequest(
                 tool: .spades,
                 readType: .illuminaShortReads,
-                inputURLs: [sampleA_R1, sampleA_R2, sampleB_R1, sampleB_R2],
+                inputURLs: [bundleNamedR1, bundleNamedR2],
                 projectName: "Demo",
                 outputDirectory: URL(fileURLWithPath: "/tmp/assembly-out"),
-                pairedEnd: true,
+                pairedEnd: false,
                 threads: 8,
                 memoryGB: nil,
                 minContigLength: nil,
@@ -4349,28 +4360,26 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             return XCTFail("Expected split .assemble requests")
         }
 
-        XCTAssertEqual(firstRequest.inputURLs, [sampleA_R1, sampleA_R2])
-        XCTAssertTrue(firstRequest.pairedEnd)
-        XCTAssertEqual(secondRequest.inputURLs, [sampleB_R1, sampleB_R2])
-        XCTAssertTrue(secondRequest.pairedEnd)
+        XCTAssertEqual(firstRequest.inputURLs, [bundleNamedR1])
+        XCTAssertFalse(firstRequest.pairedEnd, "Run1_R1/Run1_R2 must never be fabricated into a pair by name alone")
+        XCTAssertEqual(secondRequest.inputURLs, [bundleNamedR2])
+        XCTAssertFalse(secondRequest.pairedEnd)
     }
 
-    /// The same two paired-end bundles selected in `.groupedResult` (combined) mode
-    /// must remain a single pooled request — the explicit user choice to combine.
-    func testAssemblyCombinedModeProducesOnePooledRequest() throws {
-        let sampleA_R1 = URL(fileURLWithPath: "/tmp/SampleA_R1.fastq.gz")
-        let sampleA_R2 = URL(fileURLWithPath: "/tmp/SampleA_R2.fastq.gz")
-        let sampleB_R1 = URL(fileURLWithPath: "/tmp/SampleB_R1.fastq.gz")
-        let sampleB_R2 = URL(fileURLWithPath: "/tmp/SampleB_R2.fastq.gz")
+    /// A pooled request selected in `.groupedResult` (combined) mode must
+    /// remain a single unsplit request — the explicit user choice to combine.
+    func testAssembleCombinedModeProducesOnePooledRequest() throws {
+        let sampleA = URL(fileURLWithPath: "/tmp/SampleA.lungfishfastq")
+        let sampleB = URL(fileURLWithPath: "/tmp/SampleB.lungfishfastq")
 
         let request = FASTQOperationLaunchRequest.assemble(
             request: AssemblyRunRequest(
                 tool: .spades,
                 readType: .illuminaShortReads,
-                inputURLs: [sampleA_R1, sampleA_R2, sampleB_R1, sampleB_R2],
+                inputURLs: [sampleA, sampleB],
                 projectName: "Demo",
                 outputDirectory: URL(fileURLWithPath: "/tmp/assembly-out"),
-                pairedEnd: true,
+                pairedEnd: false,
                 threads: 8,
                 memoryGB: nil,
                 minContigLength: nil,
@@ -4390,14 +4399,14 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         guard case .assemble(let pooledRequest, _) = plans[0].originalRequest else {
             return XCTFail("Expected pooled .assemble request")
         }
-        XCTAssertEqual(pooledRequest.inputURLs, [sampleA_R1, sampleA_R2, sampleB_R1, sampleB_R2])
+        XCTAssertEqual(pooledRequest.inputURLs, [sampleA, sampleB])
     }
 
     /// Long-read tools (Flye/Hifiasm) always run against a single input in v1 and
     /// never reach the multi-bundle split path; a lone single-file request with
     /// `pairedEnd == false` must continue to produce exactly one unsplit plan.
     func testAssemblyLongReadSingleInputRequestIsUnaffectedByPerBundleSplit() throws {
-        let ontRead = URL(fileURLWithPath: "/tmp/ont-sample.fastq.gz")
+        let ontRead = URL(fileURLWithPath: "/tmp/ont-sample.lungfishfastq")
 
         let request = FASTQOperationLaunchRequest.assemble(
             request: AssemblyRunRequest(
@@ -4429,11 +4438,11 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(soloRequest.inputURLs, [ontRead])
     }
 
-    /// Unpaired single-end multi-file selections in `.perInput` mode must still split
-    /// one request per file (pre-existing behavior, must not regress).
-    func testAssemblyPerBundleModeSplitsUnpairedSingleEndFilesIndividually() throws {
-        let sampleA = URL(fileURLWithPath: "/tmp/SampleA.fastq.gz")
-        let sampleB = URL(fileURLWithPath: "/tmp/SampleB.fastq.gz")
+    /// Unpaired multi-bundle `.perInput` selections must still split one
+    /// request per bundle URL (pre-existing behavior, must not regress).
+    func testAssemblePerInputModeSplitsUnrelatedBundlesIndividually() throws {
+        let sampleA = URL(fileURLWithPath: "/tmp/SampleA.lungfishfastq")
+        let sampleB = URL(fileURLWithPath: "/tmp/SampleB.lungfishfastq")
 
         let request = FASTQOperationLaunchRequest.assemble(
             request: AssemblyRunRequest(

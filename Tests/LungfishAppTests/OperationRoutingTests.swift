@@ -698,6 +698,49 @@ final class OperationRoutingTests: XCTestCase {
         XCTAssertTrue(body.contains("outputURLs: result.importedURLs"))
     }
 
+    /// MB-2 review round 1, point 4: a pooled `.perBundle`-mode `.assemble`
+    /// request with N>1 bundle URLs must fan out BEFORE any
+    /// `OperationCenter.shared.start` call (matching the pre-existing
+    /// `.savont` fan-out exactly), recursing into
+    /// `runFASTQOperationLaunchRequestValidated` once per independent
+    /// request rather than sharing a single operation/CLI-invocation loop --
+    /// so one bundle's assembly failure never aborts or discards another
+    /// bundle's already-completed work.
+    func testAssembleLaunchFansOutBeforeOperationRegistrationWithPerBundleAttribution() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: root.appendingPathComponent(
+                "Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplay.swift"
+            ),
+            encoding: .utf8
+        )
+        let body = try sourceFunctionBody(
+            named: "func runFASTQOperationLaunchRequestValidated",
+            endingBefore: "    func outputDirectoryWritesIntoCurrentProject",
+            in: source
+        )
+        let savontFanout = try XCTUnwrap(body.range(of: "request.independentSavontLaunchRequests"))
+        let assembleFanout = try XCTUnwrap(body.range(of: "request.independentAssembleLaunchRequests"))
+        let operationStart = try XCTUnwrap(body.range(of: "OperationCenter.shared.start"))
+
+        // Both fan-outs precede the shared single-operation path.
+        XCTAssertLessThan(savontFanout.lowerBound, operationStart.lowerBound)
+        XCTAssertLessThan(assembleFanout.lowerBound, operationStart.lowerBound)
+        // The assemble fan-out's own recursive call is present and gated on
+        // outputMode == .perInput (the wizard's `.perBundle` picker
+        // selection), not on pairedEnd or bundle-name inference.
+        let assembleFanoutBlock = try sourceFunctionBody(
+            named: "request.independentAssembleLaunchRequests",
+            endingBefore: "let workingDirectory: URL",
+            in: String(body[assembleFanout.lowerBound...])
+        )
+        XCTAssertTrue(assembleFanoutBlock.contains("for independentRequest in independentRequests"))
+        XCTAssertTrue(assembleFanoutBlock.contains("runFASTQOperationLaunchRequestValidated("))
+    }
+
     func testManagedMappingRunsSequentiallyWithOneOperationPerBundleAndLogsPooledWarning() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

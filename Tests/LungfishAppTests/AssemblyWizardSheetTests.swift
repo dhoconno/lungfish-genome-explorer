@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishApp
+import LungfishKit
 @testable import LungfishWorkflow
 
 @MainActor
@@ -69,33 +70,17 @@ final class AssemblyWizardSheetTests: XCTestCase {
         )
     }
 
-    // MARK: - MB-2: multi-bundle grouping
+    // MARK: - MB-2 review round 1: picker gate is tool-based, not read-type-based
 
-    func testGroupBundlesCollapsesPairedEndFilesIntoOneBundleEach() {
-        let sampleA_R1 = URL(fileURLWithPath: "/tmp/SampleA_R1.fastq.gz")
-        let sampleA_R2 = URL(fileURLWithPath: "/tmp/SampleA_R2.fastq.gz")
-        let sampleB_R1 = URL(fileURLWithPath: "/tmp/SampleB_R1.fastq.gz")
-        let sampleB_R2 = URL(fileURLWithPath: "/tmp/SampleB_R2.fastq.gz")
-
-        let bundles = AssemblyWizardSheet.groupBundles(
-            inputFiles: [sampleA_R1, sampleA_R2, sampleB_R1, sampleB_R2]
+    func testMultiBundleRunPolicyLocksToPerBundleOnlyThisRound() {
+        // .combined pooling is not implemented this round (see the fix-round-1
+        // report); the picker must present exactly one selectable option.
+        let rowStates = MultiBundleRunModePicker.rowStates(
+            bundleCount: 3,
+            policy: MultiBundleRunPolicy(allowedModes: [.perBundle], defaultMode: .perBundle)
         )
 
-        XCTAssertEqual(bundles, [[sampleA_R1, sampleA_R2], [sampleB_R1, sampleB_R2]])
-    }
-
-    func testGroupBundlesTreatsUnpairedFilesAsOwnSingleElementBundles() {
-        let sampleA = URL(fileURLWithPath: "/tmp/SampleA.fastq.gz")
-        let sampleB = URL(fileURLWithPath: "/tmp/SampleB.fastq.gz")
-
-        let bundles = AssemblyWizardSheet.groupBundles(inputFiles: [sampleA, sampleB])
-
-        XCTAssertEqual(bundles, [[sampleA], [sampleB]])
-    }
-
-    func testGroupBundlesSingleFileYieldsOneSingleElementBundle() {
-        let sample = URL(fileURLWithPath: "/tmp/sample.fastq.gz")
-
-        XCTAssertEqual(AssemblyWizardSheet.groupBundles(inputFiles: [sample]), [[sample]])
+        XCTAssertEqual(rowStates.filter(\.isEnabled).map(\.mode), [.perBundle])
+        XCTAssertTrue(rowStates.first { $0.mode == .combined }.map { !$0.isEnabled } ?? false)
     }
 }

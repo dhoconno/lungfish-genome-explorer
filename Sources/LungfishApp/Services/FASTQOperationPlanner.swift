@@ -337,34 +337,41 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
         )
             where outputMode == .perInput &&
                   resolvedOutputMode == .perInput &&
+                  !originalAssemblyRequest.pairedEnd &&
+                  !resolvedAssemblyRequest.pairedEnd &&
                   originalAssemblyRequest.inputURLs.count > 1 &&
                   originalAssemblyRequest.inputURLs.count == resolvedAssemblyRequest.inputURLs.count:
-            // Split is driven by the user's selected run mode (outputMode == .perInput,
-            // set by AssemblyWizardSheet's MultiBundleRunModePicker for short-read
-            // tools), NOT by inferring pairedEnd from the flat pooled input list. A
-            // pooled paired-end multi-bundle selection legitimately reports
-            // pairedEnd == true (its R1/R2 files DO pair up 1:1 across the whole
-            // selection); grouping into per-sample bundles first, then pairing R1/R2
-            // WITHIN each bundle, is what correctly separates unrelated samples.
-            let originalBundles = Self.groupIntoAssemblyBundles(originalAssemblyRequest.inputURLs)
-            let resolvedBundles = Self.groupIntoAssemblyBundles(resolvedAssemblyRequest.inputURLs)
-            guard originalBundles.count > 1,
-                  originalBundles.count == resolvedBundles.count,
-                  zip(originalBundles, resolvedBundles).allSatisfy({ $0.count == $1.count }) else {
-                return [(originalRequest, resolvedRequest)]
-            }
-            return zip(originalBundles, resolvedBundles).map { originalBundle, resolvedBundle in
+            // `pairedEnd` gates this split (unchanged from the original
+            // implementation) because by the time a request reaches this
+            // planner, `inputURLs` may equally be N independent single-end
+            // files (safe to split, one CLI run per file) OR the two files
+            // of one genuine paired-end sample already resolved to raw R1/R2
+            // paths (MUST stay together as one `--paired` run -- see
+            // `testExecuteKeepsPairedAssemblyAsSinglePerInputPlan`). The
+            // planner cannot tell those two shapes apart from file count
+            // alone, so `pairedEnd` -- set correctly upstream -- remains the
+            // authoritative signal here.
+            //
+            // The MB-2 multi-bundle fix does NOT touch this predicate: real
+            // per-bundle splitting for a wizard-driven N>1 BUNDLE selection
+            // happens earlier and separately, in `FASTQOperationLaunchRequest
+            // .independentAssembleLaunchRequests` (driven by the user's
+            // explicit `.perBundle` picker choice, with each child's
+            // `pairedEnd` derived from that ONE bundle's own real content via
+            // `AppDelegate.resolvedAssemblyPairedEnd(for:)`) -- by the time
+            // any request reaches this planner, that fan-out has already
+            // reduced it to a single bundle's worth of input, so this branch
+            // is effectively dead for the GUI dialog flow and exists only for
+            // direct/API callers of `FASTQOperationExecutionService` with a
+            // pre-resolved multi-file, non-paired input list.
+            return zip(originalAssemblyRequest.inputURLs, resolvedAssemblyRequest.inputURLs).map { originalInputURL, resolvedInputURL in
                 (
                     .assemble(
-                        request: originalAssemblyRequest
-                            .replacingInputURLs(with: originalBundle)
-                            .replacingPairedEnd(with: originalBundle.count == 2),
+                        request: originalAssemblyRequest.replacingInputURLs(with: [originalInputURL]),
                         outputMode: outputMode
                     ),
                     .assemble(
-                        request: resolvedAssemblyRequest
-                            .replacingInputURLs(with: resolvedBundle)
-                            .replacingPairedEnd(with: resolvedBundle.count == 2),
+                        request: resolvedAssemblyRequest.replacingInputURLs(with: [resolvedInputURL]),
                         outputMode: resolvedOutputMode
                     )
                 )
@@ -616,61 +623,6 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
     static func sanitizedStem(for url: URL) -> String {
         let stem = url.deletingPathExtension().lastPathComponent
         return stem.isEmpty ? "output" : stem
-    }
-
-    /// Groups a flat list of assembly input files into per-sample bundles:
-    /// R1/R2 pairs (matched by common Illumina/generic naming conventions)
-    /// collapse into one two-element bundle; anything left unpaired is its
-    /// own single-element bundle. Order of first appearance is preserved.
-    /// Mirrors `AssemblyWizardSheet.detectPairedEndFiles` / `MappingWizardSheet
-    /// .groupBundles`'s pairing convention so the wizard's displayed bundle
-    /// count always matches what the planner actually splits into.
-    static func groupIntoAssemblyBundles(_ inputURLs: [URL]) -> [[URL]] {
-        let pairSuffixes: [(String, String)] = [
-            ("_R1", "_R2"),
-            ("_1.", "_2."),
-            ("_r1", "_r2"),
-            ("_forward", "_reverse"),
-        ]
-
-        var matched = Set<URL>()
-        var bundles: [[URL]] = []
-
-        for url in inputURLs {
-            guard !matched.contains(url) else { continue }
-            let name = url.lastPathComponent
-
-            var pairedWith: URL?
-            var isForward = false
-            for (p1, p2) in pairSuffixes {
-                if name.contains(p1) {
-                    let pairName = name.replacingOccurrences(of: p1, with: p2)
-                    if let pair = inputURLs.first(where: { $0.lastPathComponent == pairName && $0 != url }) {
-                        pairedWith = pair
-                        isForward = true
-                        break
-                    }
-                } else if name.contains(p2) {
-                    let pairName = name.replacingOccurrences(of: p2, with: p1)
-                    if let pair = inputURLs.first(where: { $0.lastPathComponent == pairName && $0 != url }) {
-                        pairedWith = pair
-                        isForward = false
-                        break
-                    }
-                }
-            }
-
-            if let pairedWith {
-                matched.insert(url)
-                matched.insert(pairedWith)
-                bundles.append(isForward ? [url, pairedWith] : [pairedWith, url])
-            } else {
-                matched.insert(url)
-                bundles.append([url])
-            }
-        }
-
-        return bundles
     }
 
     static func relativePath(from base: URL, to target: URL) -> String? {
@@ -1135,6 +1087,29 @@ extension AssemblyRunRequest {
     /// resulting single-bundle request's true topology (its OWN R1/R2 pair,
     /// not an inference over the original pooled multi-bundle selection).
     func replacingPairedEnd(with pairedEnd: Bool) -> AssemblyRunRequest {
+        AssemblyRunRequest(
+            tool: tool,
+            readType: readType,
+            inputURLs: inputURLs,
+            projectName: projectName,
+            outputDirectory: outputDirectory,
+            pairedEnd: pairedEnd,
+            threads: threads,
+            memoryGB: memoryGB,
+            minContigLength: minContigLength,
+            selectedProfileID: selectedProfileID,
+            extraArguments: extraArguments
+        )
+    }
+
+    /// Returns a copy with `projectName` set explicitly. Used by the
+    /// per-bundle assembly split so each of the N independent requests gets
+    /// its OWN distinct, bundle-derived project name instead of repeating
+    /// the pooled request's single user-typed name N times -- the same
+    /// pooled name across N Operations Panel rows would be indistinguishable
+    /// at a glance even though each row is a different bundle (MB-2 review
+    /// round 1, point 6).
+    func replacingProjectName(with projectName: String) -> AssemblyRunRequest {
         AssemblyRunRequest(
             tool: tool,
             readType: readType,
