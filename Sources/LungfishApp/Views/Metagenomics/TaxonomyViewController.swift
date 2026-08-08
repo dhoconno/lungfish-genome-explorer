@@ -98,6 +98,10 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     /// The classification result driving this view.
     var classificationResult: ClassificationResult?
 
+    /// Overrides warning presentation for testing. When unset, warnings are
+    /// shown via a sheet-modal NSAlert.
+    var warningPresenter: ((String, String) -> Void)?
+
     /// The taxonomy tree extracted from the result.
     var tree: TaxonTree?
 
@@ -424,6 +428,12 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     public func configureFromDatabase(_ db: Kraken2Database) {
         self.kraken2Database = db
         self.isBatchMode = true
+        // Falls back to the database's own directory so resolveKraken2ResultPath()
+        // works even if a caller doesn't set batchURL explicitly (callers may still
+        // override this with the true batch root directory before calling in).
+        if batchURL == nil {
+            batchURL = db.databaseURL.deletingLastPathComponent()
+        }
         batchTableView.resultIdentity = db.databaseURL.standardizedFileURL.path
         taxonomyTableView.resultIdentity = db.databaseURL.standardizedFileURL.path
 
@@ -1530,13 +1540,41 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         panel.beginSheetModal(for: window) { [weak self] response in
             guard let self, response == .OK, let url = panel.url else { return }
 
-            let content = self.buildDelimitedExport(tree: tree, separator: separator)
             do {
-                try content.write(to: url, atomically: true, encoding: .utf8)
+                try self.writeDelimitedExport(tree: tree, separator: separator, to: url)
                 logger.info("Exported taxonomy \(fileTypeName, privacy: .public) to \(url.lastPathComponent, privacy: .public)")
             } catch {
                 logger.error("Export failed: \(error.localizedDescription, privacy: .public)")
+                NSSound.beep()
+                self.presentWarning(
+                    title: "Export Failed",
+                    message: "Could not write \(fileTypeName) to \(url.lastPathComponent): \(error.localizedDescription)"
+                )
             }
+        }
+    }
+
+    /// Builds and writes the delimited export content. Extracted from the
+    /// NSSavePanel callback so the write-failure path is directly testable.
+    func writeDelimitedExport(tree: TaxonTree, separator: String, to url: URL) throws {
+        let content = buildDelimitedExport(tree: tree, separator: separator)
+        try content.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func presentWarning(title: String, message: String) {
+        if let warningPresenter {
+            warningPresenter(title, message)
+            return
+        }
+
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+
+        if let window = view.window ?? NSApp.keyWindow {
+            alert.beginSheetModal(for: window)
         }
     }
 
@@ -1774,6 +1812,11 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
 
     /// Returns the split view for testing.
     var testSplitView: NSSplitView { splitView }
+
+    /// Invokes presentWarning for testing the warningPresenter seam.
+    func testPresentWarning(title: String, message: String) {
+        presentWarning(title: title, message: message)
+    }
 
     /// Returns the current classification result for testing.
     var testClassificationResult: ClassificationResult? { classificationResult }
