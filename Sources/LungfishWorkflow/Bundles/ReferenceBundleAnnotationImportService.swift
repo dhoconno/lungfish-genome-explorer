@@ -54,7 +54,23 @@ public enum ReferenceBundleAnnotationImportError: Error, LocalizedError {
     }
 }
 
-@MainActor
+/// Attaches an annotation track (GFF/GFF3/GTF/BED) to an existing reference bundle.
+///
+/// Deliberately not `@MainActor`: `attachAnnotationTrack` does GFF/BED parsing
+/// (`AnnotationDatabase.createFromBED`/`createFromGFF3`), full-file SHA256 hashing
+/// (`ProvenanceRecorder.sha256(of:)`), directory-tree copies for rollback, and JSON
+/// provenance encode/decode + atomic writes -- none of which touch UI state. Every
+/// dependency is already off-main: `AnnotationDatabase` is `@unchecked Sendable`,
+/// `BundleManifest`/`ProvenanceWriter` are `Sendable` value types, `ProvenanceRecorder`
+/// is an `actor` (its `sha256(of:)` helper is a plain `static func`), and
+/// `ProvenanceRehydrator` is a stateless `enum` of static functions. Callers already
+/// `await` construction and `attachAnnotationTrack(...)` (see
+/// `AppDelegate+ImportCenter.swift`, `MainSplitViewController+FASTQImport.swift`,
+/// `ViewerViewController.swift`, `GeneiousImportCollectionService.swift`), so removing
+/// the isolation only changes those calls from a MainActor hop to a real background
+/// executor hop -- no call site needs to change. Callers that want MainActor UI updates
+/// from the returned `ReferenceBundleAnnotationImportResult` continue to hop themselves
+/// after `await`, exactly as before.
 public final class ReferenceBundleAnnotationImportService {
     public init() {}
 
