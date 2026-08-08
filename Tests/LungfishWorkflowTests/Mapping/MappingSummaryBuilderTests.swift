@@ -95,4 +95,78 @@ final class MappingSummaryBuilderTests: XCTestCase {
         XCTAssertEqual(summaries.map(\.contigName), ["allele-with-support", "allele-without-support"])
         XCTAssertEqual(summaries[1].mappedReads, 0)
     }
+
+    // MARK: - F36: concurrent stdout/stderr draining
+
+    /// Regression test for F36: streamSAMView's underlying process runner used to read stdout
+    /// to completion before reading stderr at all. macOS pipe buffers are ~64KB, so a child
+    /// process that writes more than that to stderr before (or while) stdout is still being
+    /// drained can block on a full stderr pipe while nothing is reading it -- deadlocking
+    /// against this caller, which is itself blocked inside the stdout read. This stub writes
+    /// >64KB to stderr FIRST, then writes to stdout, reproducing exactly that ordering.
+    func testRunProcessCapturingOutputDoesNotDeadlockOnLargeStderrBeforeStdout() async throws {
+        let scriptURL = try makeLargeStderrThenStdoutScript()
+        defer { try? FileManager.default.removeItem(at: scriptURL) }
+
+        // Race the (blocking, non-cancellable) process call against a short timeout. Pre-fix,
+        // streamSAMView's sequential stdout-then-stderr read deadlocks on this stub (it writes
+        // >64KB to stderr before any stdout), and the underlying synchronous pipe reads run on
+        // a background thread that Task cancellation cannot interrupt -- so the only way to
+        // observe the hang from a test without stalling the whole suite is to race it against
+        // a short timeout and fail fast if the timeout wins.
+        let outcome = await withTaskGroup(of: MappingSummaryTestOutcome.self) { group in
+            group.addTask {
+                do {
+                    let stdout = try await MappingSummaryBuilder.runProcessCapturingOutput(
+                        executableURL: scriptURL,
+                        arguments: [],
+                        workingDirectory: scriptURL.deletingLastPathComponent(),
+                        timeout: 10
+                    )
+                    return .completed(.success(stdout))
+                } catch {
+                    return .completed(.failure(error))
+                }
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                return .timedOut
+            }
+
+            let first = await group.next() ?? .timedOut
+            group.cancelAll()
+            return first
+        }
+
+        guard case .completed(let result) = outcome else {
+            XCTFail("process did not complete within the test timeout (deadlock reproduced)")
+            return
+        }
+        let stdout = try result.get()
+        XCTAssertTrue(stdout.contains("STDOUT_MARKER"), "expected stdout payload to be captured intact")
+    }
+
+    private func makeLargeStderrThenStdoutScript() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MappingSummaryBuilderTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let scriptURL = directory.appendingPathComponent("large_stderr_then_stdout.sh")
+
+        // >64KB of stderr output (macOS pipe buffer is ~64KB) written before any stdout output.
+        let script = """
+        #!/bin/bash
+        for i in $(seq 1 2000); do
+            echo "stderr line $i: 0123456789012345678901234567890123456789" >&2
+        done
+        echo "STDOUT_MARKER"
+        """
+        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+        return scriptURL
+    }
+}
+
+private enum MappingSummaryTestOutcome: Sendable {
+    case completed(Result<String, Error>)
+    case timedOut
 }

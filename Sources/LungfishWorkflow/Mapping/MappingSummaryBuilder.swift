@@ -137,10 +137,27 @@ public enum MappingSummaryBuilder {
         let samtoolsPath = try await runner.findTool(.samtools)
         let workingDirectory = sortedBAMURL.deletingLastPathComponent()
 
-        return try await withCheckedThrowingContinuation { continuation in
+        return try await runProcessCapturingOutput(
+            executableURL: samtoolsPath,
+            arguments: ["view", sortedBAMURL.path],
+            workingDirectory: workingDirectory,
+            timeout: timeout
+        )
+    }
+
+    /// Runs a process and captures stdout, draining stdout and stderr concurrently on
+    /// background queues so that a child process which fills the ~64KB stderr pipe buffer
+    /// while stdout is still being read cannot deadlock against this caller (F36).
+    static func runProcessCapturingOutput(
+        executableURL: URL,
+        arguments: [String],
+        workingDirectory: URL?,
+        timeout: TimeInterval
+    ) async throws -> String {
+        try await withCheckedThrowingContinuation { continuation in
             let process = Process()
-            process.executableURL = samtoolsPath
-            process.arguments = ["view", sortedBAMURL.path]
+            process.executableURL = executableURL
+            process.arguments = arguments
             process.currentDirectoryURL = workingDirectory
 
             let stdoutPipe = Pipe()
@@ -158,13 +175,27 @@ public enum MappingSummaryBuilder {
             do {
                 try process.run()
 
-                let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-                let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                let stdoutBox = MappingSummaryDataBox()
+                let stderrBox = MappingSummaryDataBox()
+                let group = DispatchGroup()
+
+                group.enter()
+                DispatchQueue.global().async {
+                    stdoutBox.value = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                    group.leave()
+                }
+                group.enter()
+                DispatchQueue.global().async {
+                    stderrBox.value = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                    group.leave()
+                }
+
                 process.waitUntilExit()
+                group.wait()
                 timeoutWorkItem.cancel()
 
-                let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
-                let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+                let stdout = String(data: stdoutBox.value, encoding: .utf8) ?? ""
+                let stderr = String(data: stderrBox.value, encoding: .utf8) ?? ""
                 guard process.terminationStatus == 0 else {
                     continuation.resume(throwing: MappingSummaryBuilderError.samtoolsViewFailed(stderr))
                     return
@@ -176,6 +207,13 @@ public enum MappingSummaryBuilder {
             }
         }
     }
+}
+
+/// Mutable box used to hand pipe-read results back from a background `DispatchQueue.global()`
+/// block. Access is synchronized externally via `DispatchGroup.wait()` before the value is read,
+/// so no two threads ever touch `value` concurrently.
+private final class MappingSummaryDataBox: @unchecked Sendable {
+    var value = Data()
 }
 
 private struct CoverageRow: Sendable, Equatable {
