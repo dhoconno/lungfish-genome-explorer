@@ -434,6 +434,10 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private var testingCommitToVisibleCount = 0
     private var testingCommitToVisibleTotalSeconds: TimeInterval = 0
     private var testingCommitToVisibleMaximumSeconds: TimeInterval = 0
+    /// Synchronous per-call counter (unlike ``testingCommitToVisibleCount``,
+    /// which coalesces same-runloop-turn calls via a settlement generation).
+    /// Used to verify keystroke-triggered filter recomputes are debounced.
+    private(set) var testingApplyFilterAndSortInvocationCount = 0
     private var testingColumnRebuildCount = 0
     private var testingSynchronizedMiSeqBandInvalidationCounter = 0
     private var testingVisibleSettlementGeneration = 0
@@ -456,6 +460,10 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+        // `pendingFilterTask` is not explicitly cancelled here: `final`-class
+        // deinits may only touch nonisolated state under Swift 6 strict
+        // concurrency. The task's own `[weak self]` capture makes this safe --
+        // it simply no-ops once `self` has been deallocated.
     }
 
     func configure(
@@ -813,7 +821,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 
     func setFilterText(
         _ text: String,
-        selectedRange: NSRange? = nil
+        selectedRange: NSRange? = nil,
+        debounce: Bool = false
     ) {
         let requestedState = NativeFilterState(
             text: text,
@@ -824,15 +833,26 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         )
         if deferManualHaplotypeTransition(.search, mutation: {
             [weak self] in
-            self?.applyFilterState(requestedState)
+            self?.applyFilterState(requestedState, debounce: debounce)
         }) {
             restoreNativeFilterState(committedNativeFilterState)
             return
         }
-        applyFilterState(requestedState)
+        applyFilterState(requestedState, debounce: debounce)
     }
 
-    private func applyFilterState(_ state: NativeFilterState) {
+    /// Delay before recomputing the matrix filter/sort in response to a
+    /// user-typed keystroke. Mirrors `BatchTableView.filterDebounceDelay`
+    /// (`Sources/LungfishKit/BatchTableView.swift`) so free-text search feels
+    /// consistent everywhere in the app.
+    private static let filterDebounceDelay: Duration = .milliseconds(180)
+
+    /// Pending debounced recompute scheduled by a user keystroke in the
+    /// filter field. Cancelled whenever a new keystroke arrives or the
+    /// filter is cleared/set programmatically.
+    private var pendingFilterTask: Task<Void, Never>?
+
+    private func applyFilterState(_ state: NativeFilterState, debounce: Bool = false) {
         let previousSamples = activeSampleNames()
         filterText = state.text
         restoreNativeFilterState(state)
@@ -841,7 +861,28 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
             rebuildColumns()
             applyDefaultSortDescriptor()
         }
-        applyFilterAndSort()
+        // Clearing the filter (or any non-keystroke update) still applies
+        // immediately -- only debounce the O(rows) recompute triggered by
+        // rapid typing, matching BatchTableView.scheduleFilterApply /
+        // ViralDetectionTableView.setFilterText(_:debounce:).
+        guard debounce, !state.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            pendingFilterTask?.cancel()
+            pendingFilterTask = nil
+            applyFilterAndSort()
+            return
+        }
+        pendingFilterTask?.cancel()
+        let delay = Self.filterDebounceDelay
+        pendingFilterTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: delay)
+            } catch {
+                return
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.pendingFilterTask = nil
+            self.applyFilterAndSort()
+        }
     }
 
     func applyFilters(allowedSampleIDs: Set<String>?, text: String) {
@@ -1833,7 +1874,8 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         let actionGeneration = nativeFilterActionGeneration
         setFilterText(
             sender.stringValue,
-            selectedRange: filterEditorSelectedRange()
+            selectedRange: filterEditorSelectedRange(),
+            debounce: true
         )
         DispatchQueue.main.async { [weak self] in
             guard let self,
@@ -2112,6 +2154,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
         let previousVisibleRows = visibleRows
 #if DEBUG
         let commitStart = ContinuousClock.now
+        testingApplyFilterAndSortInvocationCount += 1
 #endif
         let normalizedFilter = filterText.trimmingCharacters(in: .whitespacesAndNewlines)
         let matrixRowFilter = displayState.matrixRowFilterText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -8253,6 +8296,7 @@ extension GenotypeComparisonMatrixView {
         testingCommitToVisibleTotalSeconds = 0
         testingCommitToVisibleMaximumSeconds = 0
         testingColumnRebuildCount = 0
+        testingApplyFilterAndSortInvocationCount = 0
         testingVisibleSettlementGeneration &+= 1
         testingResetReloadCounters()
     }
