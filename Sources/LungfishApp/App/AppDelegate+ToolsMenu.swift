@@ -155,8 +155,8 @@ extension AppDelegate {
                     return
                 }
 
-                if let request = state.pendingMappingRequest {
-                    self.runManagedMapping(request: request, routeContext: routeContext)
+                if let plan = state.pendingMappingRequest {
+                    self.runManagedMapping(plan: plan, routeContext: routeContext)
                     return
                 }
 
@@ -834,17 +834,39 @@ extension AppDelegate {
 
     }
 
+    /// Runs a planned mapping request for every bundle in `plan`. `.perBundle`
+    /// plans start one independent `OperationCenter` operation per bundle, so
+    /// each bundle's progress/success/failure is tracked and reported on its
+    /// own; `.combined` plans have exactly one pooled request, whose
+    /// operation history gets `plan.warning` logged as a warning line before
+    /// the run starts (MB-1: explicit pooled-naming + logged warning instead
+    /// of silent @RG misattribution).
     private func runManagedMapping(
-        request: MappingRunRequest,
+        plan: MappingRunPlan,
         routeContext explicitRouteContext: OperationRouteContext? = nil
     ) {
-        var request = request
         let routeContext = explicitRouteContext ?? currentOperationRouteContext()
         guard canWriteProjectOutputs(
             projectURL: routeContext?.projectURL,
             windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
             workflowName: "Read mapping"
         ) else { return }
+
+        for request in plan.requests {
+            runSingleManagedMapping(
+                request: request,
+                warning: plan.warning,
+                routeContext: routeContext
+            )
+        }
+    }
+
+    private func runSingleManagedMapping(
+        request: MappingRunRequest,
+        warning: String?,
+        routeContext: OperationRouteContext?
+    ) {
+        var request = request
         let projectURL = routeContext?.projectURL ?? request.projectURL
         if let projectURL,
            let analysisDir = try? AnalysesFolder.createAnalysisDirectory(tool: request.tool.rawValue, in: projectURL) {
@@ -852,10 +874,14 @@ extension AppDelegate {
         }
 
         let opID = OperationCenter.shared.start(
-            title: "Map Reads (\(request.tool.displayName))",
+            title: "Map Reads (\(request.tool.displayName)): \(request.sampleName)",
             detail: "Mapping \(request.inputFASTQURLs.count) file(s) to \(request.referenceFASTAURL.lastPathComponent)",
             routeContext: routeContext
         )
+
+        if let warning {
+            OperationCenter.shared.log(id: opID, level: .warning, message: warning)
+        }
 
         let task = Task.detached { [weak self] in
             do {

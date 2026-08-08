@@ -5,6 +5,7 @@
 import SwiftUI
 import LungfishIO
 import LungfishWorkflow
+import LungfishKit
 
 struct MappingReadGroupFields: Equatable, Sendable {
     var id: String
@@ -56,6 +57,16 @@ struct MappingReadGroupFields: Equatable, Sendable {
     }
 }
 
+/// The outcome of planning a mapping run across one or more selected
+/// bundles: either N per-bundle requests (each with its own correct @RG
+/// SM/ID/LB/PU) or a single pooled request, plus an optional warning to
+/// surface in the operation history when bundles were pooled.
+struct MappingRunPlan: Equatable, Sendable {
+    let requests: [MappingRunRequest]
+    let mode: MultiBundleRunMode
+    let warning: String?
+}
+
 struct MappingWizardSheet: View {
     let inputFiles: [URL]
     let projectURL: URL?
@@ -90,8 +101,9 @@ struct MappingWizardSheet: View {
     @State private var hasUnclassifiedFASTQInputs = false
     @State private var mixedSequenceFormats = false
     @State private var isInspectingInputs = false
+    @State private var multiBundleRunMode: MultiBundleRunMode = .perBundle
 
-    var onRun: ((MappingRunRequest) -> Void)?
+    var onRun: ((MappingRunPlan) -> Void)?
     var onCancel: (() -> Void)?
     var onRunnerAvailabilityChange: ((Bool) -> Void)?
 
@@ -101,7 +113,7 @@ struct MappingWizardSheet: View {
         initialTool: MappingTool,
         embeddedInOperationsDialog: Bool = false,
         embeddedRunTrigger: Int = 0,
-        onRun: ((MappingRunRequest) -> Void)? = nil,
+        onRun: ((MappingRunPlan) -> Void)? = nil,
         onCancel: (() -> Void)? = nil,
         onRunnerAvailabilityChange: ((Bool) -> Void)? = nil
     ) {
@@ -129,9 +141,17 @@ struct MappingWizardSheet: View {
         inputFiles.first?.lungfishDisplayName ?? ""
     }
 
-    private var isPairedEnd: Bool {
-        inputFiles.count == 2
+    /// `inputFiles` grouped into per-sample bundles (R1/R2 pairs collapsed
+    /// to one bundle, unpaired files each their own bundle). Drives the
+    /// multi-bundle run-mode picker and the per-bundle request split.
+    private var bundles: [[URL]] {
+        Self.groupBundles(inputFiles: inputFiles)
     }
+
+    private static let multiBundleRunPolicy = MultiBundleRunPolicy(
+        allowedModes: [.perBundle, .combined],
+        defaultMode: .perBundle
+    )
 
     private var selectedReferenceCandidate: ReferenceCandidate? {
         referenceCandidates.first(where: { $0.id == selectedReferenceID })
@@ -208,6 +228,159 @@ struct MappingWizardSheet: View {
             platformUnit: platformUnitText
         )
         .resolvedReadGroup(sampleName: sampleName, modeID: modeID)
+    }
+
+    /// Groups a flat selection of FASTQ input files into per-sample bundles:
+    /// R1/R2 pairs (matched by common Illumina/generic naming conventions)
+    /// collapse into one two-element bundle; anything left unpaired is its
+    /// own single-element bundle. Order of first appearance is preserved.
+    static func groupBundles(inputFiles: [URL]) -> [[URL]] {
+        let pairSuffixes: [(String, String)] = [
+            ("_R1", "_R2"),
+            ("_1.", "_2."),
+            ("_r1", "_r2"),
+            ("_forward", "_reverse"),
+        ]
+
+        var matched = Set<URL>()
+        var bundles: [[URL]] = []
+
+        for url in inputFiles {
+            guard !matched.contains(url) else { continue }
+            let name = url.lastPathComponent
+
+            var pairedWith: URL?
+            for (p1, p2) in pairSuffixes {
+                if name.contains(p1) {
+                    let pairName = name.replacingOccurrences(of: p1, with: p2)
+                    if let pair = inputFiles.first(where: { $0.lastPathComponent == pairName && $0 != url }) {
+                        pairedWith = pair
+                        break
+                    }
+                } else if name.contains(p2) {
+                    let pairName = name.replacingOccurrences(of: p2, with: p1)
+                    if let pair = inputFiles.first(where: { $0.lastPathComponent == pairName && $0 != url }) {
+                        pairedWith = pair
+                        break
+                    }
+                }
+            }
+
+            if let pairedWith {
+                matched.insert(url)
+                matched.insert(pairedWith)
+                // Preserve forward/reverse ordering regardless of selection order.
+                let isForward = pairSuffixes.contains { name.contains($0.0) }
+                bundles.append(isForward ? [url, pairedWith] : [pairedWith, url])
+            } else {
+                matched.insert(url)
+                bundles.append([url])
+            }
+        }
+
+        return bundles
+    }
+
+    /// Builds the request(s) for a mapping run given the selected bundles
+    /// and run mode. `.perBundle` yields one `MappingRunRequest` per bundle,
+    /// each with its own @RG SM/ID/LB/PU derived from that bundle's sample
+    /// name. `.combined` yields a single pooled request with an explicit
+    /// "pooled-<n>-bundles" sample name and a non-nil warning describing the
+    /// pooling for the operation history. A single bundle never produces a
+    /// warning regardless of the selected mode.
+    static func buildRunPlan(
+        bundles: [[URL]],
+        mode: MultiBundleRunMode,
+        tool: MappingTool,
+        modeID: String,
+        referenceFASTAURL: URL,
+        sourceReferenceBundleURL: URL?,
+        projectURL: URL?,
+        outputDirectory: URL,
+        readGroupIDText: String,
+        readGroupSampleText: String,
+        readGroupLibraryText: String,
+        readGroupPlatformText: String,
+        readGroupPlatformUnitText: String,
+        threads: Int,
+        includeSecondary: Bool,
+        includeSupplementary: Bool,
+        minimumMappingQuality: Int,
+        advancedArguments: [String]
+    ) -> MappingRunPlan {
+        func request(
+            inputFASTQURLs: [URL],
+            sampleName: String,
+            readGroup: MappingReadGroup,
+            outputDirectory: URL
+        ) -> MappingRunRequest {
+            MappingRunRequest(
+                tool: tool,
+                modeID: modeID,
+                inputFASTQURLs: inputFASTQURLs,
+                referenceFASTAURL: referenceFASTAURL,
+                sourceReferenceBundleURL: sourceReferenceBundleURL,
+                projectURL: projectURL,
+                outputDirectory: outputDirectory,
+                sampleName: sampleName,
+                readGroup: readGroup,
+                pairedEnd: inputFASTQURLs.count == 2,
+                threads: threads,
+                includeSecondary: includeSecondary,
+                includeSupplementary: includeSupplementary,
+                minimumMappingQuality: minimumMappingQuality,
+                advancedArguments: advancedArguments
+            )
+        }
+
+        // Single bundle (or nothing selected): one request, no pooling, no warning.
+        guard bundles.count > 1, mode == .combined else {
+            var requests: [MappingRunRequest] = []
+            for bundle in bundles {
+                let sampleName = bundle.first?.lungfishDisplayName ?? "sample"
+                let readGroup = makeReadGroup(
+                    sampleName: sampleName,
+                    modeID: modeID,
+                    idText: bundles.count > 1 ? "" : readGroupIDText,
+                    sampleText: bundles.count > 1 ? "" : readGroupSampleText,
+                    libraryText: bundles.count > 1 ? "" : readGroupLibraryText,
+                    platformText: readGroupPlatformText,
+                    platformUnitText: bundles.count > 1 ? "" : readGroupPlatformUnitText
+                )
+                let bundleOutputDirectory = bundles.count > 1
+                    ? outputDirectory.appendingPathComponent(sampleName, isDirectory: true)
+                    : outputDirectory
+                requests.append(request(
+                    inputFASTQURLs: bundle,
+                    sampleName: sampleName,
+                    readGroup: readGroup,
+                    outputDirectory: bundleOutputDirectory
+                ))
+            }
+            return MappingRunPlan(requests: requests, mode: .perBundle, warning: nil)
+        }
+
+        // Combined: pool every bundle's files into one request with explicit pooled naming.
+        let pooledInputs = bundles.flatMap { $0 }
+        let pooledSampleName = "pooled-\(bundles.count)-bundles"
+        let readGroup = makeReadGroup(
+            sampleName: pooledSampleName,
+            modeID: modeID,
+            idText: readGroupIDText,
+            sampleText: readGroupSampleText,
+            libraryText: readGroupLibraryText,
+            platformText: readGroupPlatformText,
+            platformUnitText: readGroupPlatformUnitText
+        )
+        let pooledRequest = request(
+            inputFASTQURLs: pooledInputs,
+            sampleName: pooledSampleName,
+            readGroup: readGroup,
+            outputDirectory: outputDirectory
+        )
+        let warning = "Combined \(bundles.count) bundles into one pooled mapping run (\(pooledSampleName)). "
+            + "All reads share a single @RG SM tag; per-sample attribution is lost in this BAM."
+        return MappingRunPlan(requests: [pooledRequest], mode: .combined, warning: warning)
     }
 
     private var selectedModeBinding: Binding<String> {
@@ -321,6 +494,14 @@ struct MappingWizardSheet: View {
             referenceSection
             Divider()
             modeSection
+            if bundles.count > 1 {
+                Divider()
+                MultiBundleRunModePicker(
+                    bundleCount: bundles.count,
+                    policy: Self.multiBundleRunPolicy,
+                    selection: $multiBundleRunMode
+                )
+            }
             Divider()
             readGroupSection
             Divider()
@@ -696,25 +877,20 @@ struct MappingWizardSheet: View {
         let runToken = String(UUID().uuidString.prefix(8))
         let outputDir = baseDir.appendingPathComponent("mapping-\(runToken)")
 
-        let request = MappingRunRequest(
+        let plan = Self.buildRunPlan(
+            bundles: bundles,
+            mode: multiBundleRunMode,
             tool: initialTool,
             modeID: selectedMode.id,
-            inputFASTQURLs: inputFiles,
             referenceFASTAURL: referenceURL,
             sourceReferenceBundleURL: sourceReferenceBundleURL,
             projectURL: projectURL,
             outputDirectory: outputDir,
-            sampleName: inputDisplayName,
-            readGroup: Self.makeReadGroup(
-                sampleName: inputDisplayName,
-                modeID: selectedMode.id,
-                idText: readGroupIDText,
-                sampleText: readGroupSampleText,
-                libraryText: readGroupLibraryText,
-                platformText: readGroupPlatformText,
-                platformUnitText: readGroupPlatformUnitText
-            ),
-            pairedEnd: isPairedEnd,
+            readGroupIDText: readGroupIDText,
+            readGroupSampleText: readGroupSampleText,
+            readGroupLibraryText: readGroupLibraryText,
+            readGroupPlatformText: readGroupPlatformText,
+            readGroupPlatformUnitText: readGroupPlatformUnitText,
             threads: threads,
             includeSecondary: includeSecondary,
             includeSupplementary: includeSupplementary,
@@ -722,7 +898,7 @@ struct MappingWizardSheet: View {
             advancedArguments: advancedArguments()
         )
 
-        onRun?(request)
+        onRun?(plan)
     }
 
     private func advancedArguments() -> [String] {

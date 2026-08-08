@@ -47,7 +47,7 @@ final class FASTQOperationDialogState {
     var projectBarcodeDefinitionCandidates: [URL]
     var pendingLaunchRequest: FASTQOperationLaunchRequest?
     var pendingMinimap2Config: Minimap2Config?
-    var pendingMappingRequest: MappingRunRequest?
+    var pendingMappingRequest: MappingRunPlan?
     var pendingMSAAlignmentRequest: MSAAlignmentRunRequest?
     var pendingAssemblyRequest: AssemblyRunRequest?
     var pendingClassificationConfigs: [ClassificationConfig]
@@ -839,10 +839,11 @@ final class FASTQOperationDialogState {
         embeddedToolReady = true
     }
 
-    func captureMappingRequest(_ request: MappingRunRequest) {
-        setAuxiliaryInput(request.referenceFASTAURL, for: .referenceSequence)
+    func captureMappingRequest(_ plan: MappingRunPlan) {
+        guard let firstRequest = plan.requests.first else { return }
+        setAuxiliaryInput(firstRequest.referenceFASTAURL, for: .referenceSequence)
         pendingMinimap2Config = nil
-        pendingMappingRequest = request
+        pendingMappingRequest = plan
         pendingMSAAlignmentRequest = nil
         pendingAssemblyRequest = nil
         pendingClassificationConfigs = []
@@ -850,8 +851,8 @@ final class FASTQOperationDialogState {
         pendingTaxTriageConfig = nil
         pendingViralReconRequest = nil
         pendingLaunchRequest = .map(
-            inputURLs: request.inputFASTQURLs,
-            referenceURL: request.referenceFASTAURL,
+            inputURLs: plan.requests.flatMap(\.inputFASTQURLs),
+            referenceURL: firstRequest.referenceFASTAURL,
             outputMode: outputMode
         )
         embeddedToolReady = true

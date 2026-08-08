@@ -698,6 +698,37 @@ final class OperationRoutingTests: XCTestCase {
         XCTAssertTrue(body.contains("outputURLs: result.importedURLs"))
     }
 
+    func testManagedMappingLaunchesOneOperationPerBundleAndLogsPooledWarning() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: root.appendingPathComponent(
+                "Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift"
+            ),
+            encoding: .utf8
+        )
+        let fanout = try sourceFunctionBody(
+            named: "private func runManagedMapping(\n        plan: MappingRunPlan",
+            endingBefore: "    private func runSingleManagedMapping",
+            in: source
+        )
+        XCTAssertTrue(fanout.contains("for request in plan.requests"))
+        XCTAssertTrue(fanout.contains("runSingleManagedMapping("))
+        XCTAssertTrue(fanout.contains("warning: plan.warning"))
+
+        let single = try sourceFunctionBody(
+            named: "private func runSingleManagedMapping",
+            endingBefore: "    private func runMAFFTAlignment",
+            in: source
+        )
+        let opStart = try XCTUnwrap(single.range(of: "OperationCenter.shared.start"))
+        let warningLog = try XCTUnwrap(single.range(of: "OperationCenter.shared.log(id: opID, level: .warning, message: warning)"))
+        XCTAssertLessThan(opStart.lowerBound, warningLog.lowerBound)
+        XCTAssertTrue(single.contains("if let warning {"))
+    }
+
     private func sourceFunctionBody(named startNeedle: String, endingBefore endNeedle: String, in source: String) throws -> String {
         let start = try XCTUnwrap(source.range(of: startNeedle))
         let end = try XCTUnwrap(source[start.lowerBound...].range(of: endNeedle))

@@ -1491,15 +1491,17 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
             pairedEnd: false,
             threads: 8
         )
+        let plan = MappingRunPlan(requests: [request], mode: .perBundle, warning: nil)
 
-        state.captureMappingRequest(request)
+        state.captureMappingRequest(plan)
 
-        XCTAssertEqual(state.pendingMappingRequest, request)
-        XCTAssertEqual(state.pendingMappingRequest?.readGroup?.id, "rg-custom")
-        XCTAssertEqual(state.pendingMappingRequest?.readGroup?.sampleName, "sample-custom")
-        XCTAssertEqual(state.pendingMappingRequest?.readGroup?.library, "library-custom")
-        XCTAssertEqual(state.pendingMappingRequest?.readGroup?.platform, "ILLUMINA")
-        XCTAssertEqual(state.pendingMappingRequest?.readGroup?.platformUnit, "unit-custom")
+        XCTAssertEqual(state.pendingMappingRequest?.requests, [request])
+        XCTAssertNil(state.pendingMappingRequest?.warning)
+        XCTAssertEqual(state.pendingMappingRequest?.requests.first?.readGroup?.id, "rg-custom")
+        XCTAssertEqual(state.pendingMappingRequest?.requests.first?.readGroup?.sampleName, "sample-custom")
+        XCTAssertEqual(state.pendingMappingRequest?.requests.first?.readGroup?.library, "library-custom")
+        XCTAssertEqual(state.pendingMappingRequest?.requests.first?.readGroup?.platform, "ILLUMINA")
+        XCTAssertEqual(state.pendingMappingRequest?.requests.first?.readGroup?.platformUnit, "unit-custom")
         guard case .map(let inputURLs, let referenceURL, let outputMode) = state.pendingLaunchRequest else {
             return XCTFail("Expected mapping launch request")
         }
