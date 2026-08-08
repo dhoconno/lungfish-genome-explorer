@@ -21,7 +21,17 @@
 
 ---
 
+## Phase 0 baseline record (2026-08-08, commit 71d015fa)
+
+XCTest: 12,354 executed, 35 skipped, 2 failures — (1) `SRASearchIntegrationTests.testSingleAccessionViaENA` (network timeout, environmental flake), (2) `AppKitConcurrencyModalSafetyTests.testTargetedAppKitCallbacksAvoidUnsafeMainActorTaskHops` (real; fixed by Task A0). swift-testing: 560/560 pass. The formerly-9 external-path environmental failures now skip instead of fail. Green bar for this campaign: XCTest failures ⊆ {the SRA network flake}; 0 swift-testing failures.
+
 ## Phase A — User-visible correctness
+
+### Task A0: Baseline guard-test violation (unsafe MainActor hop in ViewerViewController)
+**Files:** Modify `Sources/LungfishApp/Views/Viewer/ViewerViewController.swift` (the `Task { @MainActor` site(s) — grep the file); Test: existing `Tests/LungfishAppTests/AppKitConcurrencyModalSafetyTests.swift` (already failing = the failing test for TDD purposes).
+Replace each `Task { @MainActor in … }` launched from a nonisolated/GCD context with `DispatchQueue.main.async { [weak self] in MainActor.assumeIsolated { … } }` per house rule (or `performOnMainRunLoop` where the file already uses it). Behavior must be identical; do not restructure surrounding logic.
+- [ ] `swift test --skip-update --filter AppKitConcurrencyModalSafetyTests` → pass.
+- [ ] Commit `fix: remove unsafe Task {@MainActor} hop in ViewerViewController (A0/baseline)`.
 
 ### Task A1: F38 SQLite bind_text use-after-free
 **Files:** Modify `Sources/LungfishIO/Bundles/AnnotationDatabase+Mutation.swift:40`; Test `Tests/LungfishIOTests/` (existing AnnotationDatabase test file if present, else new `AnnotationDatabaseMutationTests.swift`).
