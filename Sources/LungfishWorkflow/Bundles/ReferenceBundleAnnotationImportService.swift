@@ -47,11 +47,25 @@ actor BundleManifestMutationSerializer {
     /// finished, and queues any later callers for the same `bundleURL`
     /// behind this one. Callers for different bundle URLs never block each
     /// other.
+    ///
+    /// **Not reentrant for the same bundle.** `work` for a given `bundleURL` must
+    /// never itself call `run(bundleURL:)` again for that same (or a path-aliased)
+    /// `bundleURL` before returning -- the reentrant call would enqueue itself behind
+    /// its own still-running caller's tail and deadlock waiting on itself. This is a
+    /// documentation constraint, not an enforced one: no reentrancy guard/detection
+    /// is implemented here (EXTRA-1). Callers are responsible for ensuring their
+    /// `work` closures do not recursively route back through this serializer for the
+    /// same bundle.
     func run<T: Sendable>(
         bundleURL: URL,
         _ work: @Sendable @escaping () async throws -> T
     ) async throws -> T {
-        let key = bundleURL.standardizedFileURL.path
+        // Resolve symlinks (not just standardize) before hashing the key, so two
+        // URLs that are path-aliases of the same physical bundle (e.g. one path
+        // through a symlinked project directory, one through its resolved target)
+        // serialize against the same queue instead of silently running concurrently
+        // against what is actually one bundle on disk (EXTRA-1).
+        let key = bundleURL.resolvingSymlinksInPath().standardizedFileURL.path
         let previousEntry = tails[key]
         let generation = (previousEntry?.generation ?? 0) + 1
 

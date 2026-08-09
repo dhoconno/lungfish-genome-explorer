@@ -107,6 +107,66 @@ final class BundleManifestMutationSerializerTests: XCTestCase {
         XCTAssertEqual(log.events, ["a-start", "b-start", "b-end", "a-end"])
     }
 
+    /// EXTRA-1: two URLs that are path-aliases of the SAME physical bundle (one via a
+    /// symlinked directory, one via the symlink's resolved target) must serialize
+    /// against the same queue, not run concurrently as if they were different
+    /// bundles. Builds a real on-disk symlink (resolvingSymlinksInPath() only
+    /// resolves symlinks that actually exist) and calls `run` once through each path.
+    func testSymlinkAliasedBundleURLsShareTheSameSerializationQueue() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BundleManifestMutationSerializerTests-symlink-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let realDir = root.appendingPathComponent("real-project", isDirectory: true)
+        try FileManager.default.createDirectory(at: realDir, withIntermediateDirectories: true)
+        let symlinkDir = root.appendingPathComponent("aliased-project", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: symlinkDir, withDestinationURL: realDir)
+
+        let bundleViaReal = realDir.appendingPathComponent("shared.lungfishref")
+        let bundleViaSymlink = symlinkDir.appendingPathComponent("shared.lungfishref")
+        // resolvingSymlinksInPath() (like realpath(3)) only fully resolves symlinks in
+        // path components that actually exist on disk, so the bundle directory itself
+        // -- not just its parent -- must exist for the two paths to resolve identically.
+        try FileManager.default.createDirectory(at: bundleViaReal, withIntermediateDirectories: true)
+        // Sanity: these are two distinct URL string representations of one physical path.
+        XCTAssertNotEqual(bundleViaReal.standardizedFileURL.path, bundleViaSymlink.standardizedFileURL.path)
+        XCTAssertEqual(
+            bundleViaReal.resolvingSymlinksInPath().standardizedFileURL.path,
+            bundleViaSymlink.resolvingSymlinksInPath().standardizedFileURL.path,
+            "sanity: both paths must resolve to the same physical location"
+        )
+
+        let serializer = BundleManifestMutationSerializer()
+        let log = OrderingLog()
+        let firstMayFinish = AsyncGate()
+
+        async let first: Void = serializer.run(bundleURL: bundleViaReal) {
+            log.record("first-start")
+            await firstMayFinish.wait()
+            log.record("first-end")
+        }
+
+        while !log.events.contains("first-start") {
+            await Task.yield()
+        }
+
+        async let second: Void = serializer.run(bundleURL: bundleViaSymlink) {
+            log.record("second-start")
+        }
+
+        try await Task.sleep(for: .milliseconds(20))
+        XCTAssertFalse(
+            log.events.contains("second-start"),
+            "a call for the symlink-aliased path must not start while the first (real-path) call is still in-flight"
+        )
+
+        await firstMayFinish.signal()
+        _ = try await (first, second)
+
+        XCTAssertEqual(log.events, ["first-start", "first-end", "second-start"])
+    }
+
     /// A throwing `work` closure must propagate its error to the caller, and must not wedge
     /// the queue for later callers on the same bundle.
     func testThrowingWorkPropagatesErrorAndDoesNotWedgeTheQueue() async throws {
