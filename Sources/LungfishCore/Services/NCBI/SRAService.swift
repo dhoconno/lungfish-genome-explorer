@@ -182,6 +182,14 @@ public actor SRAService {
             URLQueryItem(name: "retmode", value: "csv")
         ]
 
+        // Reuse the API key already resolved by `ncbiService` (via
+        // NCBIAPIKeyResolver) instead of re-running key resolution here, so SRA
+        // run-info fetches get the same 10 req/s eutils rate limit as every
+        // other NCBI eutils call this service's caller configured. See F51.
+        if let apiKey = await ncbiService.resolvedAPIKey {
+            components.queryItems?.append(URLQueryItem(name: "api_key", value: apiKey))
+        }
+
         var request = URLRequest(url: components.url!)
         request.setValue("Lungfish Genome Explorer", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 30

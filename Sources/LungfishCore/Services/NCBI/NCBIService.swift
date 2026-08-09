@@ -189,6 +189,16 @@ public actor NCBIService: DatabaseService {
         retryEvents
     }
 
+    /// The resolved NCBI API key this service attaches to eutils requests, if any.
+    ///
+    /// Exposed so other eutils-consuming services (e.g. `SRAService`) that build
+    /// their own requests against endpoints not yet covered by `NCBIService` can
+    /// reuse this service's already-resolved key instead of re-running
+    /// `NCBIAPIKeyResolver` themselves. See F51.
+    public var resolvedAPIKey: String? {
+        apiKey
+    }
+
     public func resetRetryEvents() {
         retryEvents.removeAll()
     }

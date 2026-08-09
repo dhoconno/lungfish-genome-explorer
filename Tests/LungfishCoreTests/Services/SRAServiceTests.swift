@@ -39,6 +39,63 @@ final class SRAServiceTests: XCTestCase {
         XCTAssertEqual(requests.count, 2, "Expected one retry for transient run-info fetch failure")
     }
 
+    /// F51: SRAService's own run-info EFetch request must attach the same
+    /// resolved NCBI API key as its injected `ncbiService`, so SRA searches
+    /// get the higher (10 req/s) eutils rate limit whenever the caller
+    /// configured an API key, instead of always being capped at 3 req/s.
+    func testSearchAttachesResolvedAPIKeyToRunInfoRequest() async throws {
+        let ncbiClient = MockHTTPClient()
+        await ncbiClient.registerNCBISearch(ids: ["111"])
+
+        let runInfoCSV = """
+        Run,ReleaseDate,LoadDate,spots,bases,spots_with_mates,avgLength,size_MB,AssemblyName,download_path,Experiment,LibraryName,LibraryStrategy,LibrarySelection,LibrarySource,LibraryLayout,InsertSize,InsertDev,Platform,Model,SRAStudy,BioProject,Study_Pubmed_id,ProjectID,Sample,BioSample,SampleType,TaxID,ScientificName,SampleName
+        SRR11140748,2020-03-18,2020-03-18,421352,126405600,421352,300,210,na,https://example.invalid/SRR11140748.sra,SRX7892566,,WGS,RANDOM,GENOMIC,PAIRED,0,0,ILLUMINA,Illumina NextSeq 500,SRP252920,PRJNA615032,,615032,SRS6529339,SAMN14430827,simple,2697049,Severe acute respiratory syndrome coronavirus 2,USA-WA-UW-2244/2020
+        """
+
+        let efetchClient = SequencedHTTPClient(responses: [.text(runInfoCSV)])
+
+        let service = SRAService(
+            ncbiService: NCBIService(apiKey: "test-ncbi-key", httpClient: ncbiClient),
+            httpClient: efetchClient
+        )
+
+        _ = try await service.search(SearchQuery(term: "SRR11140748", limit: 5))
+
+        let requests = await efetchClient.requests
+        XCTAssertEqual(requests.count, 1)
+        let requestedURL = try XCTUnwrap(requests.first?.url)
+        let components = try XCTUnwrap(URLComponents(url: requestedURL, resolvingAgainstBaseURL: false))
+        let apiKeyValue = components.queryItems?.first { $0.name == "api_key" }?.value
+        XCTAssertEqual(apiKeyValue, "test-ncbi-key")
+    }
+
+    /// F51: When the injected `ncbiService` has no API key, SRAService must
+    /// not attach an `api_key` param (preserving the unauthenticated path).
+    func testSearchOmitsAPIKeyWhenNCBIServiceHasNone() async throws {
+        let ncbiClient = MockHTTPClient()
+        await ncbiClient.registerNCBISearch(ids: ["111"])
+
+        let runInfoCSV = """
+        Run,ReleaseDate,LoadDate,spots,bases,spots_with_mates,avgLength,size_MB,AssemblyName,download_path,Experiment,LibraryName,LibraryStrategy,LibrarySelection,LibrarySource,LibraryLayout,InsertSize,InsertDev,Platform,Model,SRAStudy,BioProject,Study_Pubmed_id,ProjectID,Sample,BioSample,SampleType,TaxID,ScientificName,SampleName
+        SRR11140748,2020-03-18,2020-03-18,421352,126405600,421352,300,210,na,https://example.invalid/SRR11140748.sra,SRX7892566,,WGS,RANDOM,GENOMIC,PAIRED,0,0,ILLUMINA,Illumina NextSeq 500,SRP252920,PRJNA615032,,615032,SRS6529339,SAMN14430827,simple,2697049,Severe acute respiratory syndrome coronavirus 2,USA-WA-UW-2244/2020
+        """
+
+        let efetchClient = SequencedHTTPClient(responses: [.text(runInfoCSV)])
+
+        let service = SRAService(
+            ncbiService: NCBIService(httpClient: ncbiClient, environment: [:]),
+            httpClient: efetchClient
+        )
+
+        _ = try await service.search(SearchQuery(term: "SRR11140748", limit: 5))
+
+        let requests = await efetchClient.requests
+        XCTAssertEqual(requests.count, 1)
+        let requestedURL = try XCTUnwrap(requests.first?.url)
+        let components = try XCTUnwrap(URLComponents(url: requestedURL, resolvingAgainstBaseURL: false))
+        XCTAssertNil(components.queryItems?.first { $0.name == "api_key" })
+    }
+
     func testSearchUsesNCBICorpusCountForPagination() async throws {
         let ncbiClient = MockHTTPClient()
         await ncbiClient.register(
