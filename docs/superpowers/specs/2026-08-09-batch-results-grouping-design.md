@@ -27,13 +27,13 @@ Kraken2's single-run flat layout (inconsistent with its own batch sibling — fo
 
 ### 1. Shared helper (LungfishIO, `AnalysesFolder`)
 
-Extract the per-sample subdirectory logic currently inlined at `AppDelegate+Classification.swift:730-755` into:
+Add to `AnalysesFolder`:
 
 ```swift
 public static func batchSampleDirectory(named sampleName: String, in batchDirectory: URL) throws -> URL
 ```
 
-Sanitizes `sampleName` (same character policy as the classification inline code), dedups collisions with `-2`, `-3`, … , creates the directory, returns its URL. A sibling `batchSampleFileURL(named:extension:in:)` covers flat-file outputs (Savont) with the same sanitize+dedup policy, creating no file (callers write it). Classification/EsViritu call sites are refactored onto the helper (behavior-preserving).
+Sanitizes `sampleName` using `MetagenomicsSampleGrouper.sanitizeSampleId`'s character policy (replicated or shared — the grouper lives in LungfishApp, so AnalysesFolder gets its own copy of the policy with a cross-reference comment), dedups collisions with `-2`, `-3`, … against the batch directory's existing entries, creates the directory, returns its URL. **This sanitize+dedup policy is NEW logic in the helper, not an extraction**: the classification inline code at `AppDelegate+Classification.swift:730-737` performs neither (its names were sanitized upstream by the grouper and are unique by construction). Classification/EsViritu call sites adopt the helper anyway so all surfaces share one path; their behavior is pinned by existing batch tests. A sibling `batchSampleFileURL(named:extension:in:)` covers flat-file outputs (Savont) with the same sanitize+dedup policy, creating no file (callers write it). Classification/EsViritu call sites are refactored onto the helper (behavior-preserving).
 
 ### 2. Mapping fan-out (`AppDelegate+ToolsMenu.swift`)
 
@@ -41,11 +41,11 @@ In `runManagedMapping`, when `plan.requests.count > 1`: create ONE `createAnalys
 
 ### 3. Assembly fan-out (`MainSplitViewController+GenomicsDisplay.swift` / `MainSplitViewController.swift`)
 
-`independentAssembleLaunchRequests` dispatch: create ONE batch directory up front; each child request carries `preferredOutputDirectory = batchSampleDirectory(named: <bundle display name>, in: batchDir)`. Fix the branch ordering at `GenomicsDisplay:1073-1081` so a provided `preferredOutputDirectory` wins over the per-child `createAnalysisDirectory` fallback (the fallback stays for single runs). The existing `uniqueAssemblyProjectName` dedup continues to feed `projectName`/op titles; directory naming uses the shared helper's dedup independently.
+`independentAssembleLaunchRequests` dispatch: create ONE batch directory up front; each child request carries `preferredOutputDirectory = batchSampleDirectory(named: <bundle display name>, in: batchDir)`. Fix the branch ordering at `GenomicsDisplay:1073-1081` so a provided `preferredOutputDirectory` wins over the per-child `createAnalysisDirectory` fallback (the fallback stays for single runs). The existing `uniqueAssemblyProjectName` dedup continues to feed `projectName`/op titles; directory naming uses the shared helper's dedup. **Ordering invariant (binding):** both dedup passes must consume the bundle list in the same fixed order — the original `inputURLs` order — so a name colliding twice gets the same `-2`/`-3` suffix in both the folder name and the project name/op title. For assembly this holds naturally (sequential dispatch); the orchestrator must precompute all sample directory names in input order BEFORE dispatching children, never inside concurrently-running child tasks.
 
-### 4. Savont / pbaa `.perInput` (`FASTQOperationPlanner.swift` + dispatch site)
+### 4. Savont `.perInput` (`FASTQOperationPlanner.swift` + dispatch site)
 
-When a `.perInput` split produces `totalRequestCount > 1`: the dispatch site (`GenomicsDisplay:991-1015`) creates ONE batch directory (tool name from the operation) and passes it as `baseOutputDirectory`. `outputParentDirectory` (:432-448) keeps its current shapes inside that root — Savont flat files, pbaa per-input directories — but per-input naming switches from input-file stem to **source bundle display name** where the input is bundle-derived (fall back to stem for loose files). Sanitize+dedup via the shared helper's policy.
+Savont is the ONLY tool that currently exercises a `.perInput` multi-bundle fan-out (`GenomicsDisplay:991-1015`, deliberately concurrent). pbaa has no multi-bundle path today (`PBAAClusteringRunRequest.inputFASTQURL` is singular; `.pbaa` takes the unsplit `default:` in `splitExecutionRequestsIfNeeded`) and is OUT of scope; if pbaa gains multi-input later it adopts this same pattern. When the Savont dispatch fans out N>1: the dispatch site creates ONE batch directory (tool "savont", `isBatch: true`) and passes it as `baseOutputDirectory`. `outputParentDirectory` keeps Savont's flat-file shape inside that root, but per-input naming switches from input-file stem to **source bundle display name** where the input is bundle-derived (fall back to stem for loose files), via `batchSampleFileURL`'s sanitize+dedup.
 
 ### 5. Sidebar
 
@@ -53,7 +53,7 @@ No new rendering code expected: `buildBatchAnalysisNode`'s generic branch (`Side
 
 ### 6. Error handling
 
-Batch directory is created before the first child launches; child failure isolation is preserved (siblings' results remain; the failed child's subdirectory may contain partial output, consistent with current single-run failure behavior). If ALL children fail or the batch is cancelled before any child starts, the orchestrator removes the batch directory iff it contains no sample subdirectories (empty-batch cleanup). `analysis-metadata.json` alone does not count as content.
+Batch directory is created before the first child launches; child failure isolation is preserved (siblings' results remain; the failed child's subdirectory may contain partial output, consistent with current single-run failure behavior). **Empty-batch cleanup** runs only after ALL children have reached a terminal state, never mid-flight: mapping and assembly perform the check at the end of their existing sequential loops; Savont's concurrent dispatch gains a completion barrier (a TaskGroup join or an all-children `awaitOperationTerminal` sweep at the dispatch site — the dispatch site at `GenomicsDisplay:991-1015` owns the check) before evaluating "does the batch directory contain any sample entries." `analysis-metadata.json` alone does not count as content. Because sample names/paths are precomputed in input order before dispatch (section 3 invariant), no child creates entries the cleanup pass cannot account for.
 
 ### 7. Testing
 
