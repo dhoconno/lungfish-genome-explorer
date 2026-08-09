@@ -7,8 +7,6 @@ import LungfishCore
 import SQLite3
 import os.log
 
-private let annotationSQLiteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-
 extension AnnotationDatabase {
 
     /// Returns the total number of annotations in the database.
@@ -105,7 +103,7 @@ extension AnnotationDatabase {
         }
 
         for (i, binding) in bindings.enumerated() {
-            sqlite3_bind_text(stmt, Int32(i + 1), (binding as NSString).utf8String, -1, nil)
+            sqlite3_bind_text(stmt, Int32(i + 1), (binding as NSString).utf8String, -1, annotationDatabaseSQLiteTransient)
         }
 
         var results: [AnnotationDatabaseRecord] = []
@@ -168,7 +166,7 @@ extension AnnotationDatabase {
         }
 
         for (i, binding) in queryParts.bindings.enumerated() {
-            sqlite3_bind_text(stmt, Int32(i + 1), (binding as NSString).utf8String, -1, nil)
+            sqlite3_bind_text(stmt, Int32(i + 1), (binding as NSString).utf8String, -1, annotationDatabaseSQLiteTransient)
         }
 
         var results: [AnnotationDatabaseRecord] = []
@@ -233,7 +231,7 @@ extension AnnotationDatabase {
                 1,
                 (chromosome as NSString).utf8String,
                 -1,
-                annotationSQLiteTransient
+                annotationDatabaseSQLiteTransient
             )
             guard sqlite3_step(insertStatement) == SQLITE_DONE else {
                 dbLogger.error("Failed to insert an annotation chromosome scope value")
@@ -287,7 +285,7 @@ extension AnnotationDatabase {
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return 0 }
 
         for (i, binding) in bindings.enumerated() {
-            sqlite3_bind_text(stmt, Int32(i + 1), (binding as NSString).utf8String, -1, nil)
+            sqlite3_bind_text(stmt, Int32(i + 1), (binding as NSString).utf8String, -1, annotationDatabaseSQLiteTransient)
         }
 
         guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
@@ -327,7 +325,7 @@ extension AnnotationDatabase {
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return 0 }
 
         for (i, binding) in queryParts.bindings.enumerated() {
-            sqlite3_bind_text(stmt, Int32(i + 1), (binding as NSString).utf8String, -1, nil)
+            sqlite3_bind_text(stmt, Int32(i + 1), (binding as NSString).utf8String, -1, annotationDatabaseSQLiteTransient)
         }
 
         guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
@@ -517,9 +515,9 @@ extension AnnotationDatabase {
         defer { sqlite3_finalize(stmt) }
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
 
-        sqlite3_bind_text(stmt, 1, (name as NSString).utf8String, -1, nil)
-        sqlite3_bind_text(stmt, 2, (name as NSString).utf8String, -1, nil)
-        sqlite3_bind_text(stmt, 3, (chromosome as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 1, (name as NSString).utf8String, -1, annotationDatabaseSQLiteTransient)
+        sqlite3_bind_text(stmt, 2, (name as NSString).utf8String, -1, annotationDatabaseSQLiteTransient)
+        sqlite3_bind_text(stmt, 3, (chromosome as NSString).utf8String, -1, annotationDatabaseSQLiteTransient)
         sqlite3_bind_int64(stmt, 4, Int64(start))
         sqlite3_bind_int64(stmt, 5, Int64(end))
 
@@ -562,7 +560,7 @@ extension AnnotationDatabase {
             return []
         }
 
-        sqlite3_bind_text(stmt, 1, (chromosome as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 1, (chromosome as NSString).utf8String, -1, annotationDatabaseSQLiteTransient)
         sqlite3_bind_int64(stmt, 2, Int64(start))
         sqlite3_bind_int64(stmt, 3, Int64(end))
         sqlite3_bind_int64(stmt, 4, Int64(limit))

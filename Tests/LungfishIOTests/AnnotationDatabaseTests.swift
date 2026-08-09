@@ -510,35 +510,71 @@ final class AnnotationDatabaseTests: XCTestCase {
         )
     }
 
-    /// Regression guard for F38: `AnnotationDatabase+Mutation.swift` must never pass `nil`
-    /// (SQLITE_STATIC semantics) as the destructor argument to `sqlite3_bind_text` for a
+    /// Regression guard for F38: none of the four `AnnotationDatabase*.swift` files may pass
+    /// `nil` (SQLITE_STATIC semantics) as the destructor argument to `sqlite3_bind_text` for a
     /// bridged `(str as NSString).utf8String` temporary -- see
     /// `testSQLiteStaticBindOfPrematurelyDeallocatedNSStringCorruptsStoredContent` above for
-    /// why that pattern is unsafe. Every bind in this file must use SQLITE_TRANSIENT (or an
-    /// equivalent non-nil copying destructor) so SQLite copies the bytes immediately instead
-    /// of trusting the temporary to outlive sqlite3_step().
+    /// why that pattern is unsafe. Every bind across this file family must use
+    /// `annotationDatabaseSQLiteTransient` (or an equivalent non-nil copying destructor) so
+    /// SQLite copies the bytes immediately instead of trusting the temporary to outlive
+    /// sqlite3_step(). Originally scoped to AnnotationDatabase+Mutation.swift only (F38);
+    /// widened to the full file family after the final whole-branch review found 25
+    /// structurally identical nil-destructor binds remaining in the other three files.
     func testInsertAnnotationAndUpdateAnnotationNeverBindWithNilDestructor() throws {
-        let sourceURL = URL(fileURLWithPath: #filePath)
+        let repoRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent() // AnnotationDatabaseTests.swift -> LungfishIOTests
             .deletingLastPathComponent() // LungfishIOTests -> Tests
             .deletingLastPathComponent() // Tests -> repo root
-            .appendingPathComponent("Sources/LungfishIO/Bundles/AnnotationDatabase+Mutation.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
-        let bindTextLines = source
-            .components(separatedBy: .newlines)
-            .filter { $0.contains("sqlite3_bind_text(") }
-        XCTAssertGreaterThan(bindTextLines.count, 0, "Expected to find sqlite3_bind_text calls to inspect in \(sourceURL.path)")
+        let relativePaths = [
+            "Sources/LungfishIO/Bundles/AnnotationDatabase.swift",
+            "Sources/LungfishIO/Bundles/AnnotationDatabase+Mutation.swift",
+            "Sources/LungfishIO/Bundles/AnnotationDatabase+Building.swift",
+            "Sources/LungfishIO/Bundles/AnnotationDatabase+Query.swift",
+        ]
 
-        // Every sqlite3_bind_text call in this file is a single, complete statement on
-        // its own line. A call using the `nil` (SQLITE_STATIC) destructor ends the
-        // statement with `nil)`; a fixed call ends with `SQLITE_TRANSIENT)`.
-        let nilDestructorCalls = bindTextLines.filter { line in
-            line.trimmingCharacters(in: .whitespaces).hasSuffix("nil)")
+        for relativePath in relativePaths {
+            let sourceURL = repoRoot.appendingPathComponent(relativePath)
+            let source = try String(contentsOf: sourceURL, encoding: .utf8)
+            let bindTextLines = source
+                .components(separatedBy: .newlines)
+                .filter { $0.contains("sqlite3_bind_text(") }
+            XCTAssertGreaterThan(bindTextLines.count, 0, "Expected to find sqlite3_bind_text calls to inspect in \(sourceURL.path)")
+
+            // Every single-line sqlite3_bind_text call ends its statement on the same line.
+            // A call using the `nil` (SQLITE_STATIC) destructor ends the statement with
+            // `nil)`; a fixed call ends with `annotationDatabaseSQLiteTransient)`. Multi-line
+            // calls (e.g. the chromosome-scope insert in AnnotationDatabase+Query.swift) wrap
+            // their destructor argument on its own line, so they are checked separately below.
+            let nilDestructorCalls = bindTextLines.filter { line in
+                line.trimmingCharacters(in: .whitespaces).hasSuffix("nil)")
+            }
+            XCTAssertTrue(
+                nilDestructorCalls.isEmpty,
+                "Found sqlite3_bind_text call(s) using a nil (SQLITE_STATIC) destructor on a temporary in \(relativePath): \(nilDestructorCalls)"
+            )
+
+            // Guard against a multi-line sqlite3_bind_text(...) call whose destructor argument
+            // is `nil` on its own line, which the single-line scan above cannot see.
+            let lines = source.components(separatedBy: .newlines)
+            for (index, line) in lines.enumerated() where line.contains("sqlite3_bind_text(") && !line.contains(")") {
+                // Scan forward to the matching close paren, collecting the argument lines.
+                var depth = 1
+                var callLines: [String] = [line]
+                var scanIndex = index + 1
+                while depth > 0, scanIndex < lines.count {
+                    let scanLine = lines[scanIndex]
+                    callLines.append(scanLine)
+                    depth += scanLine.filter { $0 == "(" }.count
+                    depth -= scanLine.filter { $0 == ")" }.count
+                    scanIndex += 1
+                }
+                let lastArgLine = callLines.last?.trimmingCharacters(in: .whitespaces) ?? ""
+                XCTAssertNotEqual(
+                    lastArgLine, "nil",
+                    "Found multi-line sqlite3_bind_text call using a nil (SQLITE_STATIC) destructor in \(relativePath) near line \(index + 1)"
+                )
+            }
         }
-        XCTAssertTrue(
-            nilDestructorCalls.isEmpty,
-            "Found sqlite3_bind_text call(s) using a nil (SQLITE_STATIC) destructor on a temporary: \(nilDestructorCalls)"
-        )
     }
 
     // MARK: - Tests: createFromBED with GenBank Types
