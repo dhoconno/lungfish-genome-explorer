@@ -4,6 +4,7 @@
 
 import SwiftUI
 import LungfishWorkflow
+import LungfishKit
 
 // MARK: - ClassificationWizardSheet
 
@@ -72,6 +73,26 @@ struct ClassificationWizardSheet: View {
     @State private var selectedDatabaseName: String = ""
     @State private var preset: ClassificationConfig.Preset = .balanced
     @State private var showAdvanced: Bool = false
+    @State private var classificationMultiBundleRunMode: MultiBundleRunMode = .perBundle
+
+    /// Kraken2/Bracken classification already runs one classify+profile pass
+    /// per sample (MetagenomicsSampleGrouper groups the selected FASTQ
+    /// bundles into samples, and `performRun` maps each sample to its own
+    /// `ClassificationConfig` -- see the "Batch Samples" summary below).
+    /// There is no combined/pooled mode: pooling reads across samples before
+    /// classification would conflate per-sample abundance estimates, which
+    /// is scientifically wrong for this tool. Locked per-bundle (round-2
+    /// picker retrofit) purely to make that existing, already-correct batch
+    /// behavior visible via the same shared picker component MAFFT/Savont/
+    /// pbaa/ONT genotyping use, matching the honest-copy standard set by the
+    /// C6/commit 7a5041c6 review fix: the lockReason describes what
+    /// execution actually does today, not an aspirational combined mode.
+    /// Display-only -- `performRun`'s per-sample fan-out is unchanged.
+    static let classificationMultiBundleRunPolicy = MultiBundleRunPolicy(
+        allowedModes: [.perBundle],
+        defaultMode: .perBundle,
+        lockReason: "Each sample already gets its own Kraken2/Bracken run"
+    )
 
     // Advanced settings
     @State private var confidence: Double = 0.2
@@ -377,6 +398,12 @@ struct ClassificationWizardSheet: View {
             Text("One Kraken2/Bracken run will be executed per sample.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            MultiBundleRunModePicker(
+                bundleCount: groupedSamples.count,
+                policy: Self.classificationMultiBundleRunPolicy,
+                selection: $classificationMultiBundleRunMode
+            )
 
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(groupedSamples.prefix(8)) { sample in
