@@ -1,4 +1,5 @@
 import XCTest
+import os
 @testable import LungfishWorkflow
 
 final class CondaOfflinePackServiceTests: XCTestCase {
@@ -204,6 +205,62 @@ final class CondaOfflinePackServiceTests: XCTestCase {
                 atPath: destinationCondaRoot.appendingPathComponent("envs/samtools/samtools").path
             ))
             XCTAssertTrue(FileManager.default.fileExists(atPath: install.provenanceURL.path))
+        }
+    }
+
+    /// R3-R3H-4 regression: runTar must drain stderr concurrently with the
+    /// child process rather than after `waitUntilExit()`. macOS pipe buffers
+    /// are ~64KB; a real `tar` invocation over a large conda environment can
+    /// exceed that in warning lines. Uses a fake "tar" (a shell script) that
+    /// deliberately writes well over 64KB to stderr before exiting, so a
+    /// wait-before-drain implementation would deadlock forever with nobody
+    /// reading the full pipe. Runs the call on a background thread and
+    /// bounds the wait with a timeout so a regression fails the test instead
+    /// of hanging the suite.
+    func testRunTarDrainsLargeStderrWithoutDeadlock() throws {
+        let fakeTarURL = tempRoot.appendingPathComponent("fake-tar.sh")
+        // Write ~200KB to stderr (well over the ~64KB pipe buffer), then exit 0.
+        let script = """
+        #!/bin/sh
+        i=0
+        while [ "$i" -lt 4000 ]; do
+            echo "tar: simulated warning line $i padding padding padding padding" >&2
+            i=$((i + 1))
+        done
+        exit 0
+        """
+        try script.write(to: fakeTarURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeTarURL.path)
+
+        let completed = expectation(description: "runTar completes without deadlocking")
+        let resultLock = OSAllocatedUnfairLock<Result<Void, Error>?>(initialState: nil)
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                try CondaOfflinePackService.runTar(
+                    executableURL: fakeTarURL,
+                    arguments: [],
+                    operation: "test"
+                )
+                resultLock.withLock { $0 = .success(()) }
+            } catch {
+                resultLock.withLock { $0 = .failure(error) }
+            }
+            completed.fulfill()
+        }
+
+        // A deadlocked implementation would never fulfill this expectation;
+        // bound the wait so the regression fails fast instead of hanging CI.
+        wait(for: [completed], timeout: 10)
+
+        let result = resultLock.withLock { $0 }
+        switch result {
+        case .success:
+            break
+        case .failure(let error):
+            XCTFail("runTar threw unexpectedly: \(error)")
+        case nil:
+            XCTFail("runTar did not complete within the timeout -- likely deadlocked on stderr pipe drain")
         }
     }
 }
