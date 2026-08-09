@@ -550,6 +550,72 @@ final class ReferenceBundleMergeServiceTests: XCTestCase {
         XCTAssertTrue(mergedGenes.contains("geneDedupB"), "Lost track B's features: \(mergedGenes)")
     }
 
+    /// Regression test for a round-2 fix: `trackID` in `exportAnnotationInputs` is built as
+    /// `"\(source.namespaceSlug)_\(slugify(track.id))"`. `namespaceSlug` is deduped PER SOURCE
+    /// BUNDLE (`usedSlugs` in `inspectSourceBundles`), but that gives zero protection against
+    /// two DIFFERENT `track.id` values within the SAME bundle slugifying to the same string --
+    /// e.g. "Genes v1" and "Genes-v1" both collapse to "genes_v1" under `slugify` (any run of
+    /// non-alphanumeric characters maps to a single underscore). Without a `usedTrackIDs`
+    /// dedup, the second track's export would silently overwrite the first's GFF3 file on
+    /// disk (both share the same `exportURL`, built directly from `trackID`), and the merged
+    /// manifest would end up with two `AnnotationTrackInfo`s sharing one `id`.
+    func testMergeDisambiguatesTracksWhoseIdsSlugifyIdenticallyWithinOneBundle() async throws {
+        let root = try makeTempDirectory()
+        let projectURL = root.appendingPathComponent("Fixture.lungfish", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let bundleURL = try makeBundleWithSlugCollidingTracks(
+            in: projectURL,
+            firstTrackID: "Genes v1",
+            firstGeneName: "geneSlugA",
+            secondTrackID: "Genes-v1",
+            secondGeneName: "geneSlugB"
+        )
+
+        // Merge requires at least two source bundles; this second bundle is
+        // sequence-only (no annotations) and exists purely to satisfy that
+        // requirement without affecting the collision under test.
+        let plainFASTA = root.appendingPathComponent("Plain.fa")
+        try ">PLAINSEQ\nACGTACGTACGT\n".write(to: plainFASTA, atomically: true, encoding: .utf8)
+        let plainBundleURL = try ReferenceSequenceFolder.importReference(
+            from: plainFASTA,
+            into: projectURL,
+            displayName: "Plain"
+        )
+
+        let mergedURL = try await ReferenceBundleMergeService.merge(
+            sourceBundleURLs: [bundleURL, plainBundleURL],
+            outputDirectory: projectURL,
+            bundleName: "Slug Collision Merge"
+        )
+
+        let manifest = try BundleManifest.load(from: mergedURL)
+        XCTAssertEqual(manifest.annotations.count, 2, "Both slug-colliding tracks must survive")
+        XCTAssertEqual(
+            Set(manifest.annotations.map(\.id)).count,
+            2,
+            "Track ids must be disambiguated even when they slugify identically: \(manifest.annotations.map(\.id))"
+        )
+
+        // The real proof the exports did not overwrite each other: both genes are present.
+        var mergedGenes: Set<String> = []
+        for track in manifest.annotations {
+            let databasePath = try XCTUnwrap(track.databasePath)
+            let databaseURL = try BundleManifest.validatedBundleMemberURL(
+                for: databasePath,
+                in: mergedURL,
+                field: "annotations.database_path"
+            )
+            for record in try AnnotationDatabase(url: databaseURL).query(limit: Int.max) {
+                mergedGenes.insert(record.name)
+            }
+        }
+        XCTAssertTrue(mergedGenes.contains("geneSlugA"), "Lost the first slug-colliding track's features: \(mergedGenes)")
+        XCTAssertTrue(mergedGenes.contains("geneSlugB"), "Lost the second slug-colliding track's features: \(mergedGenes)")
+    }
+
     func testMergeMarksOutputDirectoryInProgressAndClearsItAfterwards() async throws {
         let root = try makeTempDirectory()
         let projectURL = root.appendingPathComponent("Fixture.lungfish", isDirectory: true)
@@ -883,6 +949,74 @@ final class ReferenceBundleMergeServiceTests: XCTestCase {
                     path: "variants/calls.bcf",
                     indexPath: "variants/calls.bcf.csi"
                 )
+            ]
+        )
+        try manifest.save(to: bundleURL)
+        return bundleURL
+    }
+
+    /// A single reference bundle with two REAL (indexed, `.db`-backed) annotation tracks
+    /// whose ids are distinct strings that `slugify` collapses to the same output -- e.g.
+    /// "Genes v1" and "Genes-v1" both become "genes_v1" (`slugify` maps any run of
+    /// non-alphanumeric characters to one underscore). `BundleManifest.validate()` only
+    /// checks raw `track.id` string equality, so both pass manifest validation despite
+    /// being a real post-slugify collision.
+    private func makeBundleWithSlugCollidingTracks(
+        in projectURL: URL,
+        firstTrackID: String,
+        firstGeneName: String,
+        secondTrackID: String,
+        secondGeneName: String
+    ) throws -> URL {
+        let bundleURL = projectURL.appendingPathComponent("SlugCollision.lungfishref", isDirectory: true)
+        let genomeDirectory = bundleURL.appendingPathComponent("genome", isDirectory: true)
+        let annotationsDirectory = bundleURL.appendingPathComponent("annotations", isDirectory: true)
+        try FileManager.default.createDirectory(at: genomeDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: annotationsDirectory, withIntermediateDirectories: true)
+
+        try ">SLUGSEQ\n\(String(repeating: "ACGT", count: 5))\n".write(
+            to: genomeDirectory.appendingPathComponent("sequence.fa"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let firstBedURL = annotationsDirectory.appendingPathComponent("first-source.bed")
+        try "SLUGSEQ\t1\t6\t\(firstGeneName)\t0\t+\n".write(to: firstBedURL, atomically: true, encoding: .utf8)
+        let firstDatabaseURL = annotationsDirectory.appendingPathComponent("first.db")
+        _ = try AnnotationDatabase.createFromBED(bedURL: firstBedURL, outputURL: firstDatabaseURL)
+
+        let secondBedURL = annotationsDirectory.appendingPathComponent("second-source.bed")
+        try "SLUGSEQ\t8\t14\t\(secondGeneName)\t0\t+\n".write(to: secondBedURL, atomically: true, encoding: .utf8)
+        let secondDatabaseURL = annotationsDirectory.appendingPathComponent("second.db")
+        _ = try AnnotationDatabase.createFromBED(bedURL: secondBedURL, outputURL: secondDatabaseURL)
+
+        let manifest = BundleManifest(
+            name: "SlugCollision",
+            identifier: "org.lungfish.test.slugcollision",
+            source: SourceInfo(organism: "SlugCollision", assembly: "SlugCollision"),
+            genome: GenomeInfo(
+                path: "genome/sequence.fa",
+                indexPath: "genome/sequence.fa.fai",
+                totalLength: 20,
+                chromosomes: [
+                    ChromosomeInfo(name: "SLUGSEQ", length: 20, offset: 0, lineBases: 20, lineWidth: 21)
+                ]
+            ),
+            annotations: [
+                AnnotationTrackInfo(
+                    id: firstTrackID,
+                    name: firstTrackID,
+                    path: "annotations/first.db",
+                    databasePath: "annotations/first.db",
+                    featureCount: 1
+                ),
+                AnnotationTrackInfo(
+                    id: secondTrackID,
+                    name: secondTrackID,
+                    path: "annotations/second.db",
+                    databasePath: "annotations/second.db",
+                    featureCount: 1
+                ),
             ]
         )
         try manifest.save(to: bundleURL)

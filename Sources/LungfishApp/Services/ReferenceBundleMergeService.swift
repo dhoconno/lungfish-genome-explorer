@@ -586,6 +586,15 @@ enum ReferenceBundleMergeService {
         var inputs: [AnnotationInput] = []
         var skipped: [String] = []
         var didCreateDirectory = false
+        // `namespaceSlug` (assigned in `inspectSourceBundles`) is already deduped PER SOURCE
+        // BUNDLE, but does nothing to protect against two different `track.id` values within
+        // the SAME bundle slugifying to the same string (e.g. "Genes v1" and "Genes-v1" both
+        // collapse to "genes_v1" under `slugify`). Without this set, the second track's export
+        // would silently overwrite the first's GFF3 file on disk (same `exportURL`, derived
+        // directly from `trackID`) and both `AnnotationInput`s would carry the same `id`.
+        // Mirrors the `usedSlugs` dedup in `inspectSourceBundles` exactly: on collision, append
+        // a numeric suffix until the candidate is unique.
+        var usedTrackIDs: Set<String> = []
 
         for source in sources {
             for track in source.annotations {
@@ -619,7 +628,14 @@ enum ReferenceBundleMergeService {
                     didCreateDirectory = true
                 }
 
-                let trackID = "\(source.namespaceSlug)_\(slugify(track.id))"
+                var trackID = "\(source.namespaceSlug)_\(slugify(track.id))"
+                if !usedTrackIDs.insert(trackID).inserted {
+                    var counter = 2
+                    while !usedTrackIDs.insert("\(trackID)_\(counter)").inserted {
+                        counter += 1
+                    }
+                    trackID = "\(trackID)_\(counter)"
+                }
                 let exportURL = exportDirectory.appendingPathComponent("\(trackID).gff3")
                 let database = try AnnotationDatabase(url: databaseURL)
                 try AnnotationDatabaseGFFExporter.export(database: database, to: exportURL)
