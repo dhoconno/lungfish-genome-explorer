@@ -616,6 +616,73 @@ final class CLIFunctionalTests: XCTestCase {
         }
     }
 
+    /// R3-R3H-7 regression: `convert --force` must not delete an existing
+    /// --to file before the conversion is known to succeed. Previously the
+    /// existing output was removed immediately once --force was seen
+    /// (before input-format detection or output-format validation), so any
+    /// later, easily-triggered validation failure (unsupported --to-format,
+    /// "No annotations to write to GFF3", etc.) left the user's original
+    /// file permanently deleted with no output written and no backup.
+    func testConvertForceDoesNotDeleteExistingOutputWhenToFormatIsUnsupported() async throws {
+        let outputPath = tempDirectory.appendingPathComponent("output.xyz").path
+        let originalContent = "this is the user's pre-existing output file, must survive"
+        try originalContent.write(toFile: outputPath, atomically: true, encoding: .utf8)
+
+        let command = try ConvertCommand.parse([
+            TestFixtures.sarscov2.reference.path,
+            "--to-format", "xyz",
+            "--to", outputPath,
+            "--force",
+            "-q",
+        ])
+        do {
+            try await command.run()
+            XCTFail("Converting to unsupported format should throw")
+        } catch {
+            // Expected: CLIError.unsupportedFormat
+        }
+
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: outputPath),
+            "Existing --to file must not be deleted when --to-format is invalid"
+        )
+        let survivingContent = try String(contentsOfFile: outputPath, encoding: .utf8)
+        XCTAssertEqual(survivingContent, originalContent, "Existing --to file's content must be preserved")
+    }
+
+    /// Same defect, reached via input-format detection failure instead of
+    /// output-format validation: the --to file must survive an
+    /// unrecognized input extension too, since that failure also happens
+    /// after the original (buggy) unconditional removeItem call.
+    func testConvertForceDoesNotDeleteExistingOutputWhenInputFormatIsUnrecognized() async throws {
+        let bogusInput = tempDirectory.appendingPathComponent("input.xyz")
+        try "not a real sequence file".write(to: bogusInput, atomically: true, encoding: .utf8)
+        let outputPath = tempDirectory.appendingPathComponent("output.gb").path
+        let originalContent = "this is the user's pre-existing GenBank file, must survive"
+        try originalContent.write(toFile: outputPath, atomically: true, encoding: .utf8)
+
+        let command = try ConvertCommand.parse([
+            bogusInput.path,
+            "--to-format", "genbank",
+            "--to", outputPath,
+            "--force",
+            "-q",
+        ])
+        do {
+            try await command.run()
+            XCTFail("Converting from an unrecognized input format should throw")
+        } catch {
+            // Expected: CLIError.formatDetectionFailed
+        }
+
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: outputPath),
+            "Existing --to file must not be deleted when the input format can't be detected"
+        )
+        let survivingContent = try String(contentsOfFile: outputPath, encoding: .utf8)
+        XCTAssertEqual(survivingContent, originalContent, "Existing --to file's content must be preserved")
+    }
+
     /// Verifies that converting a nonexistent input file produces an error.
     func testConvertNonexistentInputThrows() async throws {
         let bogusInput = tempDirectory.appendingPathComponent("nonexistent.fasta").path
