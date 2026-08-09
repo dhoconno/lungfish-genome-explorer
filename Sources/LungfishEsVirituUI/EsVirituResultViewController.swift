@@ -600,22 +600,41 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     /// Updates the persisted `EsVirituBatchAggregatedManifest` with newly computed unique reads.
     ///
     /// Called after background unique-reads computation so that future opens get
-    /// fully-populated rows from the manifest cache.
+    /// fully-populated rows from the manifest cache. Dispatches the manifest
+    /// read/mutate/write to a background task (R3-R3ML-5): for a batch of N samples
+    /// needing computation, this decode+encode+write of the *entire* aggregated manifest
+    /// (all samples x all assemblies) previously happened synchronously on the main actor
+    /// once per completed sample, each call blocking the UI for the full manifest I/O
+    /// duration. The main actor is only touched to read the current `batchURL`/
+    /// `allBatchRows` snapshot up front; the actual file I/O runs off-main.
     private func updateEsVirituBatchAggregatedManifestUniqueReads() {
-        guard let batchURL,
-              var aggregated = MetagenomicsBatchResultStore.loadEsVirituBatchAggregatedManifest(from: batchURL)
-        else { return }
+        guard let batchURL else { return }
 
-        let updatedRows = allBatchRows
         let byAssemblyAndSample = Dictionary(
-            uniqueKeysWithValues: updatedRows.map { ("\($0.sample)\t\($0.assembly)", $0.uniqueReads) }
+            uniqueKeysWithValues: allBatchRows.map { ("\($0.sample)\t\($0.assembly)", $0.uniqueReads) }
         )
 
-        for i in aggregated.cachedRows.indices {
-            let row = aggregated.cachedRows[i]
+        Task.detached(priority: .utility) {
+            Self.writeUpdatedBatchAggregatedManifestUniqueReads(
+                batchURL: batchURL,
+                byAssemblyAndSample: byAssemblyAndSample
+            )
+        }
+    }
+
+    /// Pure merge step: applies newly computed unique-read counts onto a loaded
+    /// `EsVirituBatchAggregatedManifest`'s cached rows, keyed by "sample\tassembly".
+    /// Rows with no matching entry in `byAssemblyAndSample` are left unchanged.
+    nonisolated static func applyingUniqueReads(
+        byAssemblyAndSample: [String: Int],
+        to manifest: EsVirituBatchAggregatedManifest
+    ) -> EsVirituBatchAggregatedManifest {
+        var updated = manifest
+        for i in updated.cachedRows.indices {
+            let row = updated.cachedRows[i]
             let key = "\(row.sample)\t\(row.assembly)"
             if let uniqueReads = byAssemblyAndSample[key] {
-                aggregated.cachedRows[i] = EsVirituBatchAggregatedManifest.CachedRow(
+                updated.cachedRows[i] = EsVirituBatchAggregatedManifest.CachedRow(
                     sample: row.sample,
                     virusName: row.virusName,
                     family: row.family,
@@ -628,9 +647,22 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
                 )
             }
         }
+        return updated
+    }
 
+    /// Off-main-actor load/merge/save of the batch aggregated manifest. Safe to call from a
+    /// detached background task: touches only the filesystem and `Sendable` values, no
+    /// `self`/UI state.
+    nonisolated private static func writeUpdatedBatchAggregatedManifestUniqueReads(
+        batchURL: URL,
+        byAssemblyAndSample: [String: Int]
+    ) {
+        guard let aggregated = MetagenomicsBatchResultStore.loadEsVirituBatchAggregatedManifest(from: batchURL) else {
+            return
+        }
+        let updated = applyingUniqueReads(byAssemblyAndSample: byAssemblyAndSample, to: aggregated)
         do {
-            try MetagenomicsBatchResultStore.saveEsVirituBatchAggregatedManifest(aggregated, to: batchURL)
+            try MetagenomicsBatchResultStore.saveEsVirituBatchAggregatedManifest(updated, to: batchURL)
             logger.info("Updated EsViritu batch aggregated manifest with unique reads")
         } catch {
             logger.warning("Failed to update EsViritu batch aggregated manifest: \(error.localizedDescription, privacy: .public)")

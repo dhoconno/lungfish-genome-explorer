@@ -654,6 +654,109 @@ final class EsVirituResultViewControllerSmokeTests: XCTestCase {
         XCTAssertEqual(envelope.options.resolvedDefaults["searchText"]?.stringValue, "")
     }
 
+    // MARK: - R3-R3ML-5: off-main batch aggregated manifest unique-reads update
+
+    func testApplyingUniqueReadsMergesOnlyMatchingSampleAssemblyRows() {
+        let manifest = EsVirituBatchAggregatedManifest(
+            createdAt: Date(timeIntervalSince1970: 0),
+            sampleCount: 2,
+            sampleIds: ["sample-A", "sample-B"],
+            cachedRows: [
+                Self.cachedRow(sample: "sample-A", assembly: "GCF_A", uniqueReads: 0),
+                Self.cachedRow(sample: "sample-B", assembly: "GCF_B", uniqueReads: 0),
+            ]
+        )
+
+        let updated = EsVirituResultViewController.applyingUniqueReads(
+            byAssemblyAndSample: ["sample-A\tGCF_A": 17],
+            to: manifest
+        )
+
+        XCTAssertEqual(updated.cachedRows.first { $0.sample == "sample-A" }?.uniqueReads, 17)
+        // sample-B has no matching entry in byAssemblyAndSample -- must be left unchanged.
+        XCTAssertEqual(updated.cachedRows.first { $0.sample == "sample-B" }?.uniqueReads, 0)
+        // Non-uniqueReads fields must be preserved untouched.
+        XCTAssertEqual(updated.cachedRows.first { $0.sample == "sample-A" }?.readCount, 100)
+        XCTAssertEqual(updated.sampleIds, manifest.sampleIds)
+        XCTAssertEqual(updated.sampleCount, manifest.sampleCount)
+    }
+
+    func testApplyingUniqueReadsIsAPureFunctionThatDoesNotMutateItsInput() {
+        let original = EsVirituBatchAggregatedManifest(
+            createdAt: Date(timeIntervalSince1970: 0),
+            sampleCount: 1,
+            sampleIds: ["sample-A"],
+            cachedRows: [Self.cachedRow(sample: "sample-A", assembly: "GCF_A", uniqueReads: 5)]
+        )
+
+        _ = EsVirituResultViewController.applyingUniqueReads(
+            byAssemblyAndSample: ["sample-A\tGCF_A": 99],
+            to: original
+        )
+
+        XCTAssertEqual(original.cachedRows.first?.uniqueReads, 5, "the input manifest value must not be mutated")
+    }
+
+    /// Regression guard for R3-R3ML-5: the manifest read/mutate/write must run off the main
+    /// actor (via Task.detached), not synchronously inside the per-sample completion handler.
+    /// Asserts the source wiring rather than measuring wall-clock UI blocking, matching the
+    /// existing testImportWritesCanonicalProvenanceBeforeManifestUpdate-style ordering guard
+    /// used elsewhere in this codebase for changes that aren't practical to fixture end-to-end.
+    func testUpdateBatchAggregatedManifestDispatchesToDetachedTaskRatherThanRunningSynchronously() throws {
+        let source = try String(
+            contentsOf: packageRoot()
+                .appendingPathComponent("Sources/LungfishEsVirituUI/EsVirituResultViewController.swift"),
+            encoding: .utf8
+        )
+
+        let methodRange = try XCTUnwrap(
+            source.range(of: "private func updateEsVirituBatchAggregatedManifestUniqueReads() {")
+        )
+        let nextMethodRange = source.range(
+            of: "nonisolated static func applyingUniqueReads",
+            range: methodRange.upperBound..<source.endIndex
+        )
+        let methodBody = String(source[methodRange.upperBound..<(nextMethodRange?.lowerBound ?? source.endIndex)])
+
+        XCTAssertTrue(
+            methodBody.contains("Task.detached"),
+            "updateEsVirituBatchAggregatedManifestUniqueReads must dispatch its file I/O to a detached background task, not run synchronously on the main actor"
+        )
+        XCTAssertFalse(
+            methodBody.contains("MetagenomicsBatchResultStore.loadEsVirituBatchAggregatedManifest"),
+            "the load/mutate/save calls must live in the off-main helper, not inline in the main-actor method"
+        )
+    }
+
+    private static func cachedRow(
+        sample: String,
+        assembly: String,
+        uniqueReads: Int
+    ) -> EsVirituBatchAggregatedManifest.CachedRow {
+        EsVirituBatchAggregatedManifest.CachedRow(
+            sample: sample,
+            virusName: "Test virus",
+            family: "Testviridae",
+            assembly: assembly,
+            readCount: 100,
+            uniqueReads: uniqueReads,
+            rpkmf: 1.0,
+            coverageBreadth: 0.5,
+            coverageDepth: 2.0
+        )
+    }
+
+    private func packageRoot() -> URL {
+        var url = URL(fileURLWithPath: #filePath)
+        while url.pathComponents.count > 1 {
+            url.deleteLastPathComponent()
+            if FileManager.default.fileExists(atPath: url.appendingPathComponent("Package.swift").path) {
+                return url
+            }
+        }
+        fatalError("Could not locate package root from #filePath")
+    }
+
     private static func esvirituResult(_ assemblies: [ViralAssembly]) -> LungfishIO.EsVirituResult {
         LungfishIO.EsVirituResult(
             sampleId: "esviritu-ui",
