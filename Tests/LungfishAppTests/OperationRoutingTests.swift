@@ -760,6 +760,14 @@ final class OperationRoutingTests: XCTestCase {
         // iterating `independentRequests` alone, but it is still exactly
         // ONE `for` loop over `independentRequests`, still sequential.
         XCTAssertTrue(assembleFanoutBlock.contains("for (independentRequest, precomputedSampleDirectory) in zip(independentRequests, precomputedSampleDirectories)"))
+        // BG4 review fix: `guard let self else { break }`, NOT `{ return }`
+        // -- `return` would exit the whole `Task` closure and skip the
+        // post-loop empty-batch cleanup if the controller deallocates
+        // mid-batch, orphaning the batch directory. `break` falls through
+        // to cleanup, matching BG3's mapping fan-out driver
+        // (`runManagedMapping` in `AppDelegate+ToolsMenu.swift`) exactly.
+        XCTAssertTrue(assembleFanoutBlock.contains("guard let self else { break }"))
+        XCTAssertFalse(assembleFanoutBlock.contains("guard let self else { return }"))
         XCTAssertTrue(assembleFanoutBlock.contains("if let opID = self.runFASTQOperationLaunchRequestValidated("))
         XCTAssertTrue(assembleFanoutBlock.contains("await self.awaitOperationTerminal(id: opID)"))
         // The await sits INSIDE the for loop's body (after the dispatch

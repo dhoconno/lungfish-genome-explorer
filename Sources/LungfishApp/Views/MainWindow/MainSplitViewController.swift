@@ -106,7 +106,10 @@ extension FASTQOperationLaunchRequest {
         // (spec §3 ordering invariant) -- `nil` when there is no project to
         // root the batch directory in, or when batch-directory creation
         // fails, so the caller's per-child `createAnalysisDirectory`
-        // fallback (GenomicsDisplay:1073-1081) keeps working unchanged.
+        // fallback (the `workingDirectory` decision in
+        // `runFASTQOperationLaunchRequestValidated`,
+        // MainSplitViewController+GenomicsDisplay.swift) keeps working
+        // unchanged.
         let batchSampleDirectories: [URL]? = projectURL.flatMap { projectURL -> [URL]? in
             guard let batchDirectory = try? AnalysesFolder.createAnalysisDirectory(
                 tool: batchRequest.tool.rawValue, in: projectURL, isBatch: true

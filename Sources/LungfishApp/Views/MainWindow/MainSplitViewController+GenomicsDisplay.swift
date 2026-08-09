@@ -1095,7 +1095,20 @@ extension MainSplitViewController {
             let batchDirectory = precomputedSampleDirectories.first.flatMap { $0 }?.deletingLastPathComponent()
             Task { @MainActor [weak self] in
                 for (independentRequest, precomputedSampleDirectory) in zip(independentRequests, precomputedSampleDirectories) {
-                    guard let self else { return }
+                    // `break`, NOT `return` (BG4 review fix): `return` here
+                    // would exit this whole `Task` closure, jumping PAST the
+                    // post-loop empty-batch cleanup below -- if the
+                    // controller deallocates mid-batch, the batch directory
+                    // and its still-empty precomputed sample directories
+                    // would be orphaned on disk forever. `break` falls
+                    // through to cleanup instead, matching BG3's mapping
+                    // fan-out driver (`AppDelegate+ToolsMenu.swift`'s
+                    // `runManagedMapping`) exactly. The cleanup call below
+                    // does not need `self` -- it only touches the captured
+                    // `batchDirectory` value and the static
+                    // `AnalysesFolder` helper -- so it still runs correctly
+                    // even after `self` is gone.
+                    guard let self else { break }
                     // Threaded through as a DEDICATED parameter, never as
                     // `preferredOutputDirectory` (see that parameter's doc
                     // comment above for why conflating the two would break
@@ -1111,7 +1124,12 @@ extension MainSplitViewController {
 
                 // Empty-batch cleanup (spec §6): only after every child has
                 // reached a terminal state (the sequential loop above has
-                // just finished, whether by completion or cancellation).
+                // just finished, whether by completion, cancellation, or the
+                // controller deallocating mid-batch). Deliberately does NOT
+                // reference `self` -- only the captured `batchDirectory`
+                // value and the static `AnalysesFolder` helper -- so cleanup
+                // still runs even when the loop above exited via `break`
+                // because `self` was already nil.
                 // `removeBatchDirectoryIfEffectivelyEmpty` is itself a pure
                 // disk-content check -- a no-op when any child left real
                 // output behind -- so it is safe to call unconditionally
