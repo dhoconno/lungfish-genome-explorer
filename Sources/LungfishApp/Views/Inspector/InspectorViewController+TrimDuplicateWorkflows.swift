@@ -352,7 +352,7 @@ extension InspectorViewController {
                     progressHandler: { [weak self] progress, message in
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
-                                _ = OperationCenter.shared.update(
+                                _ = OperationCenter.shared.updateWithLog(
                                     id: operationID,
                                     progress: max(0.01, min(0.99, progress)),
                                     detail: message
@@ -473,7 +473,7 @@ extension InspectorViewController {
                     progressHandler: { [weak self] progress, message in
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
-                                _ = OperationCenter.shared.update(
+                                _ = OperationCenter.shared.updateWithLog(
                                     id: operationID,
                                     progress: max(0.01, min(0.99, progress)),
                                     detail: message

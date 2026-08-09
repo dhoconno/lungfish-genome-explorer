@@ -226,7 +226,7 @@ extension InspectorViewController {
 
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        _ = OperationCenter.shared.update(
+                        _ = OperationCenter.shared.updateWithLog(
                             id: opID,
                             progress: 0.75,
                             detail: "Attaching GATK variants to bundle..."

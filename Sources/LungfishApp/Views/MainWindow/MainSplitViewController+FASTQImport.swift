@@ -83,7 +83,7 @@ extension MainSplitViewController {
                 ) { progress, message in
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            _ = OperationCenter.shared.update(
+                            _ = OperationCenter.shared.updateWithLog(
                                 id: opID,
                                 progress: progress,
                                 detail: message
