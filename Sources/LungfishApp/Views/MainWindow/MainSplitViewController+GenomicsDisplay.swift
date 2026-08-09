@@ -966,10 +966,28 @@ extension MainSplitViewController {
     ///   ignores it; only the new sequential `.assemble` fan-out driver reads
     ///   it, to poll the just-started child's terminal state before
     ///   dispatching the next one.
+    ///
+    /// - Parameter precomputedAssemblyBatchSampleDirectory: BG4
+    ///   (batch-results-grouping spec §3). When non-nil, this call is one
+    ///   child of an `.assemble` batch fan-out and this URL is its own
+    ///   already-created sample directory under one shared
+    ///   `Analyses/<tool>-batch-<timestamp>/` root (precomputed by
+    ///   `independentAssembleLaunchRequests`, in original-bundle-list order,
+    ///   BEFORE any child was dispatched). A non-nil value here WINS over
+    ///   the per-child `createAnalysisDirectory` fallback used for single
+    ///   runs -- see the `.assemble` branch below. Deliberately a SEPARATE
+    ///   parameter from `preferredOutputDirectory` (which single, non-batch
+    ///   `.assemble` runs already receive non-nil, pointing at the parent
+    ///   `Analyses/` folder rather than a final per-run directory): reusing
+    ///   that parameter for this purpose would have made every
+    ///   dialog-launched single assembly run skip `createAnalysisDirectory`
+    ///   too and write straight into `Analyses/`, which is NOT this
+    ///   change's intent.
     @discardableResult
     func runFASTQOperationLaunchRequestValidated(
         _ request: FASTQOperationLaunchRequest,
-        preferredOutputDirectory: URL? = nil
+        preferredOutputDirectory: URL? = nil,
+        precomputedAssemblyBatchSampleDirectory: URL? = nil
     ) -> UUID? {
         let currentProjectURL = sidebarController.currentProjectURL?.standardizedFileURL
         let destinationRoot = preferredOutputDirectory?.standardizedFileURL
@@ -1046,8 +1064,16 @@ extension MainSplitViewController {
         if case .assemble(let batchAssemblyRequest, let assembleOutputMode) = request,
            assembleOutputMode == .perInput,
            batchAssemblyRequest.inputURLs.count > 1 {
+            // BG4 (spec §3): precomputes ONE shared batch directory plus one
+            // sample directory per bundle, in `batchAssemblyRequest
+            // .inputURLs` order, BEFORE any child below is dispatched --
+            // each returned request's own `AssemblyRunRequest
+            // .outputDirectory` already carries its sample directory
+            // (`nil` `currentProjectURL` or directory-creation failure falls
+            // back to leaving it unset, exactly the pre-BG4 behavior).
             let independentRequests = request.independentAssembleLaunchRequests(
-                outputDirectory: destinationRoot
+                outputDirectory: destinationRoot,
+                projectURL: currentProjectURL
             )
             guard independentRequests.count == batchAssemblyRequest.inputURLs.count else {
                 mainSplitLogger.error(
@@ -1055,22 +1081,67 @@ extension MainSplitViewController {
                 )
                 return nil
             }
+            // Every child's precomputed sample directory (if any) is its own
+            // `AssemblyRunRequest.outputDirectory`, set by
+            // `independentAssembleLaunchRequests` above. Read up front
+            // (rather than only inside the loop) so the shared batch
+            // directory -- each sample directory's parent -- is known for
+            // the empty-batch cleanup after the loop, regardless of how far
+            // the loop gets before a cancellation.
+            let precomputedSampleDirectories: [URL?] = independentRequests.map { independentRequest in
+                guard case .assemble(let childAssemblyRequest, _) = independentRequest else { return nil }
+                return childAssemblyRequest.outputDirectory
+            }
+            let batchDirectory = precomputedSampleDirectories.first.flatMap { $0 }?.deletingLastPathComponent()
             Task { @MainActor [weak self] in
-                for independentRequest in independentRequests {
+                for (independentRequest, precomputedSampleDirectory) in zip(independentRequests, precomputedSampleDirectories) {
                     guard let self else { return }
+                    // Threaded through as a DEDICATED parameter, never as
+                    // `preferredOutputDirectory` (see that parameter's doc
+                    // comment above for why conflating the two would break
+                    // single-run behavior).
                     if let opID = self.runFASTQOperationLaunchRequestValidated(
                         independentRequest,
-                        preferredOutputDirectory: destinationRoot
+                        preferredOutputDirectory: destinationRoot,
+                        precomputedAssemblyBatchSampleDirectory: precomputedSampleDirectory
                     ) {
                         await self.awaitOperationTerminal(id: opID)
                     }
+                }
+
+                // Empty-batch cleanup (spec §6): only after every child has
+                // reached a terminal state (the sequential loop above has
+                // just finished, whether by completion or cancellation).
+                // `removeBatchDirectoryIfEffectivelyEmpty` is itself a pure
+                // disk-content check -- a no-op when any child left real
+                // output behind -- so it is safe to call unconditionally
+                // here rather than tracking child success/failure. `nil`
+                // when `independentAssembleLaunchRequests` had no project to
+                // root a batch directory in (or failed to create one): there
+                // is then no shared batch directory to clean up, exactly the
+                // pre-BG4 behavior.
+                if let batchDirectory {
+                    AnalysesFolder.removeBatchDirectoryIfEffectivelyEmpty(batchDirectory)
                 }
             }
             return nil
         }
 
         let workingDirectory: URL
-        if case .assemble(let assemblyRequest, _) = request,
+        if case .assemble = request,
+           let precomputedAssemblyBatchSampleDirectory {
+            // BG4 (spec §3): a non-nil precomputed batch sample directory
+            // WINS over the `createAnalysisDirectory` fallback below -- it
+            // was already created by `independentAssembleLaunchRequests`
+            // under one shared `Analyses/<tool>-batch-<timestamp>/` root, so
+            // reusing it verbatim is what groups all of a batch's children
+            // together instead of each child creating its own sibling
+            // single-run directory. The pattern match (without binding --
+            // the directory is already fully resolved) stays so this branch
+            // only ever fires for `.assemble` requests, matching the
+            // fallback branch immediately below.
+            workingDirectory = precomputedAssemblyBatchSampleDirectory
+        } else if case .assemble(let assemblyRequest, _) = request,
            let currentProjectURL {
             do {
                 workingDirectory = try AnalysesFolder.createAnalysisDirectory(
