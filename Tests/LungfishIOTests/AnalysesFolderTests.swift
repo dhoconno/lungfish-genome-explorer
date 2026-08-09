@@ -413,4 +413,17 @@ final class AnalysesFolderTests: XCTestCase {
         let url = AnalysesFolder.batchSampleFileURL(named: "SampleX", extension: "fasta", in: batchDir)
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
     }
+
+    func testBatchSampleDirectoryThrowsWhenParentDoesNotExist() throws {
+        // Force failure: make a batch directory path that points to a non-existent parent.
+        let nonExistentBatchDir = tempDir.appendingPathComponent("does-not-exist/batch-dir", isDirectory: true)
+
+        // Attempting to create a sample directory in a non-existent batch dir should throw.
+        XCTAssertThrowsError(
+            try AnalysesFolder.batchSampleDirectory(named: "SampleA", in: nonExistentBatchDir)
+        ) { error in
+            let nsError = error as NSError
+            XCTAssertEqual(nsError.domain, NSCocoaErrorDomain)
+        }
+    }
 }
