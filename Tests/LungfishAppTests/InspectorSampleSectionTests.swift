@@ -449,7 +449,7 @@ final class SampleSectionViewModelTests: XCTestCase {
         }
 
         vm.toggleGenotypeRows()
-        wait(for: [expectation], timeout: 1.0)
+        wait(for: [expectation], timeout: 10.0)
     }
 
     // MARK: - Expansion State

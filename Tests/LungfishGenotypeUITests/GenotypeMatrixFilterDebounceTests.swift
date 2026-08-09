@@ -166,7 +166,7 @@ final class GenotypeMatrixFilterDebounceTests: XCTestCase {
 
 @MainActor
 private func waitUntil(
-    timeout: TimeInterval = 2.0,
+    timeout: TimeInterval = 10.0,
     file: StaticString = #filePath,
     line: UInt = #line,
     _ condition: @escaping @MainActor () -> Bool

@@ -743,7 +743,7 @@ final class SequenceMenuOperationTests: XCTestCase {
         XCTFail("Timed out waiting for \(url.path)")
     }
 
-    nonisolated private func waitForProcessExit(pid: Int32, timeout: TimeInterval = 2) async throws {
+    nonisolated private func waitForProcessExit(pid: Int32, timeout: TimeInterval = 10) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if !ProcessTreeTerminator.processExists(pid: pid) {

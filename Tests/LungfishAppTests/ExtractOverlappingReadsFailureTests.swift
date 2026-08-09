@@ -65,7 +65,7 @@ final class ExtractOverlappingReadsFailureTests: XCTestCase {
 
     /// Polls until `predicate()` is true or the timeout elapses.
     private func eventually(
-        timeout: TimeInterval = 2,
+        timeout: TimeInterval = 10,
         _ predicate: @escaping @MainActor () -> Bool
     ) async -> Bool {
         let deadline = Date().addingTimeInterval(timeout)

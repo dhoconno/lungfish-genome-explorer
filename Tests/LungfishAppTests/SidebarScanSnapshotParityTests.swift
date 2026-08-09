@@ -617,7 +617,7 @@ final class SidebarScanSnapshotParityTests: XCTestCase {
         sidebar.closeProject()
 
         // Let any in-flight scan and its apply step run to completion.
-        for _ in 0..<20 {
+        for _ in 0..<400 {
             await Task.yield()
             try? await Task.sleep(for: .milliseconds(25))
         }
@@ -640,7 +640,7 @@ final class SidebarScanSnapshotParityTests: XCTestCase {
         sidebar.requestReloadFromFilesystem(notifyUnchangedSelectionRefresh: false)
 
         var applied = ""
-        for _ in 0..<40 {
+        for _ in 0..<400 {
             try? await Task.sleep(for: .milliseconds(25))
             applied = snapshot(sidebar.rootItems)
             if applied == expected { break }

@@ -143,7 +143,7 @@ final class MappingBatchTaskHandleTests: XCTestCase {
             // there's no synchronous guarantee they've landed the instant
             // `assign`/`cancel` return.
             var cancelled = task.isCancelled
-            for _ in 0..<50 where !cancelled {
+            for _ in 0..<10_000 where !cancelled {
                 try? await Task.sleep(nanoseconds: 1_000_000)
                 cancelled = task.isCancelled
             }

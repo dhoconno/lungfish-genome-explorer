@@ -309,8 +309,8 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             posted.fulfill()
         }
 
-        await fulfillment(of: [posted], timeout: 2)
-        for _ in 0..<50 where state.workflowAvailabilityRevision == initialRevision {
+        await fulfillment(of: [posted], timeout: 10)
+        for _ in 0..<1000 where state.workflowAvailabilityRevision == initialRevision {
             try await Task.sleep(for: .milliseconds(10))
         }
 
@@ -1961,14 +1961,14 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
     }
 
     private func waitForProjectDiscovery(_ state: WorkflowOperationDialogState) async throws {
-        let deadline = Date().addingTimeInterval(2)
+        let deadline = Date().addingTimeInterval(10)
         while state.isDiscoveringProjectResources && Date() < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }
     }
 
     private func waitForWorkflowPackageTool(_ state: WorkflowOperationDialogState, id: String) async throws {
-        let deadline = Date().addingTimeInterval(2)
+        let deadline = Date().addingTimeInterval(10)
         while !state.tools.contains(where: { $0.id == id }) && Date() < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }

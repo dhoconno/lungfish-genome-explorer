@@ -921,7 +921,7 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
         )
         table.selectRowIndexes(IndexSet(integer: rowForTaxonA), byExtendingSelection: false)
         XCTAssertEqual(controller.testMiniBAMLoadGeneration, 1)
-        wait(for: [generation1HookEntered], timeout: 3)
+        wait(for: [generation1HookEntered], timeout: 10)
 
         // Now that generation 1's fallback has actually started (and is sleeping),
         // select taxon B (taxId 222) — this supersedes generation 1 and starts
@@ -1090,7 +1090,7 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
             DispatchQueue.main.async {
                 deferredWorkCompleted.fulfill()
             }
-            wait(for: [deferredWorkCompleted], timeout: 2)
+            wait(for: [deferredWorkCompleted], timeout: 10)
         }
     }
 

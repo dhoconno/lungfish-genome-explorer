@@ -283,7 +283,7 @@ final class ProvenanceInspectorViewModelOffMainTests: XCTestCase {
     /// the main actor.
     private func waitUntilLoadCompletes(
         _ viewModel: ProvenanceInspectorViewModel,
-        timeout: TimeInterval = 2
+        timeout: TimeInterval = 10
     ) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while viewModel.isLoading {

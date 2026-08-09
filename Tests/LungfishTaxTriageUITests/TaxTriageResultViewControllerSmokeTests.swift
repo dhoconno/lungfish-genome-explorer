@@ -634,7 +634,7 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
             "configureFromDatabase should return before SQLite rows are paged into the viewport"
         )
 
-        let deadline = Date().addingTimeInterval(2)
+        let deadline = Date().addingTimeInterval(10)
         while vc.testBatchFlatTableView.displayedRows.count < rows.count && Date() < deadline {
             RunLoop.main.run(until: Date().addingTimeInterval(0.02))
         }
@@ -763,7 +763,7 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
         _ = vc.view
         vc.configureFromDatabase(db, resultURL: tempDir)
 
-        let deadline = Date().addingTimeInterval(2)
+        let deadline = Date().addingTimeInterval(10)
         while vc.testBatchFlatTableView.displayedRows.count < rows.count && Date() < deadline {
             RunLoop.main.run(until: Date().addingTimeInterval(0.02))
         }

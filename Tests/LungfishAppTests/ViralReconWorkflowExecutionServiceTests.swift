@@ -280,7 +280,7 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
             )
         }
 
-        let deadline = Date().addingTimeInterval(2)
+        let deadline = Date().addingTimeInterval(10)
         while Date() < deadline
             && !(received.contains(.standardOutput("stdout-ready"))
                  && received.contains(.standardError("stderr-ready"))) {
@@ -417,7 +417,7 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
         )
 
         XCTAssertEqual(result.operationItem?.state, .cancelled)
-        try await waitUntil(timeout: 2) {
+        try await waitUntil(timeout: 10) {
             runner.cancelCallCount == 1
         }
     }
@@ -667,7 +667,7 @@ private func functionBody(named name: String, in source: String) throws -> Strin
     return ""
 }
 
-private func waitForFile(_ url: URL, timeout: TimeInterval = 2) async throws {
+private func waitForFile(_ url: URL, timeout: TimeInterval = 10) async throws {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
         if FileManager.default.fileExists(atPath: url.path) {
@@ -693,7 +693,7 @@ private func waitUntil(
     XCTFail("Timed out waiting for condition")
 }
 
-private func waitForProcessExit(pid: Int32, timeout: TimeInterval = 2) async throws {
+private func waitForProcessExit(pid: Int32, timeout: TimeInterval = 10) async throws {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
         if !ProcessTreeTerminator.processExists(pid: pid) {

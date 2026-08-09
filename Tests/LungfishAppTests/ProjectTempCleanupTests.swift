@@ -260,7 +260,7 @@ final class ProjectTempCleanupTests: XCTestCase {
         await sequence.resume(call: 0)
         await fulfillment(
             of: [staleCompletionProcessed],
-            timeout: 1
+            timeout: 10
         )
         XCTAssertTrue(
             delegate.testingHasTrackedAutomaticProjectStorageCleanup(

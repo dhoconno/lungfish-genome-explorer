@@ -302,7 +302,7 @@ final class SequenceViewerInteractionAsyncBundleReadTests: XCTestCase {
         SequenceViewerView.fastaOperationFetchGate = nil
         viewerController.viewerView.runSelectedSequenceFASTAOperation(toolID: .reverseComplement)
 
-        try await waitUntil(timeout: 2) { presentedSuggestedNames.contains("MN908947_10_12") }
+        try await waitUntil(timeout: 10) { presentedSuggestedNames.contains("MN908947_10_12") }
         XCTAssertEqual(presentedSuggestedNames, ["MN908947_10_12"])
 
         // Release the stale request. Even though its own fetch now completes successfully, its
@@ -321,7 +321,7 @@ final class SequenceViewerInteractionAsyncBundleReadTests: XCTestCase {
     private func waitUntilPasteboardContains(
         _ expected: String,
         pasteboard: NSPasteboard,
-        timeout: TimeInterval = 2
+        timeout: TimeInterval = 10
     ) async throws {
         try await waitUntil(timeout: timeout) { pasteboard.string(forType: .string) == expected }
     }

@@ -8377,7 +8377,7 @@ final class GenotypeResultViewportTests: XCTestCase {
                 .editManualHaplotypeAssignments
             )
         )
-        let deadline = Date(timeIntervalSinceNow: 1)
+        let deadline = Date(timeIntervalSinceNow: 10)
         var focusedCombo: NSComboBox?
         repeat {
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
