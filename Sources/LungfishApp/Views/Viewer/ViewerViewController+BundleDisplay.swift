@@ -139,12 +139,33 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         currentBundleDataProvider = context.provider
         currentBundleURL = context.url
         currentBundleViewState = context.viewState
+        currentBundleDisplayName = context.manifest.name
         applyBundleHorizontalScrollDirectionPreference()
         showAnnotations = context.viewState.showAnnotations
         annotationDisplayHeight = CGFloat(context.viewState.annotationHeight)
         annotationDisplaySpacing = CGFloat(context.viewState.annotationSpacing)
         visibleAnnotationTypes = context.viewState.visibleAnnotationTypes
         isRNAMode = context.viewState.isRNAMode
+    }
+
+    /// Computes the reference track header label for `contigName`, using the
+    /// bundle display name cached at context activation
+    /// (``currentBundleDisplayName``) and the currently-loaded chromosome set
+    /// (``currentBundleDataProvider``) for single-vs-multi-contig detection.
+    ///
+    /// Falls back to the plain `contigName` when no display name is cached —
+    /// this is the unchanged, pre-Item-2 behavior for non-mapping bundles
+    /// (direct `.lungfishref` open, chromosome navigator) whenever this hot
+    /// path runs without an active bundle display context.
+    func referenceTrackHeaderLabel(forContig contigName: String, fastaDescription: String?) -> String {
+        guard let bundleDisplayName = currentBundleDisplayName else { return contigName }
+        let isSingleContig = (currentBundleDataProvider?.chromosomes.count ?? 1) <= 1
+        return BundleDisplayLabel.trackHeaderLabel(
+            bundleName: bundleDisplayName,
+            contigName: contigName,
+            fastaDescription: fastaDescription,
+            isSingleContig: isSingleContig
+        )
     }
 
     private func resolvedChromosomes(for manifest: BundleManifest, bundle: ReferenceBundle) -> [ChromosomeInfo] {
@@ -265,7 +286,13 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
 
         chromosomeNavigatorView?.selectChromosome(named: targetChromosome.name)
 
-        let trackNames = [targetChromosome.name]
+        let referenceTrackLabel = BundleDisplayLabel.trackHeaderLabel(
+            bundleName: context.manifest.name,
+            contigName: targetChromosome.name,
+            fastaDescription: targetChromosome.fastaDescription,
+            isSingleContig: (context.manifest.genome?.chromosomes.count ?? 1) <= 1
+        )
+        let trackNames = [referenceTrackLabel]
             + context.manifest.annotations.map { "Annotations: \($0.name)" }
             + context.manifest.alignments.map { "Reads: \($0.name)" }
         headerView.setTrackNames(trackNames)
@@ -507,11 +534,15 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
             sequenceLength: chromLength
         )
 
+        let referenceTrackLabel = referenceTrackHeaderLabel(
+            forContig: chromosome.name,
+            fastaDescription: chromosome.fastaDescription
+        )
         if let provider = currentBundleDataProvider {
-            let trackNames = [chromosome.name] + provider.annotationTrackIds.map { "Annotations: \($0)" }
+            let trackNames = [referenceTrackLabel] + provider.annotationTrackIds.map { "Annotations: \($0)" }
             headerView.setTrackNames(trackNames)
         } else {
-            headerView.setTrackNames([chromosome.name])
+            headerView.setTrackNames([referenceTrackLabel])
         }
 
         enhancedRulerView.referenceFrame = referenceFrame
@@ -591,11 +622,15 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         chromosomeNavigatorView?.selectChromosome(named: chromosome)
 
         // Update header
+        let referenceTrackLabel = referenceTrackHeaderLabel(
+            forContig: chromosome,
+            fastaDescription: currentBundleDataProvider?.chromosomeInfo(named: chromosome)?.fastaDescription
+        )
         if let provider = currentBundleDataProvider {
-            let trackNames = [chromosome] + provider.annotationTrackIds.map { "Annotations: \($0)" }
+            let trackNames = [referenceTrackLabel] + provider.annotationTrackIds.map { "Annotations: \($0)" }
             headerView.setTrackNames(trackNames)
         } else {
-            headerView.setTrackNames([chromosome])
+            headerView.setTrackNames([referenceTrackLabel])
         }
 
         enhancedRulerView.referenceFrame = referenceFrame
@@ -623,6 +658,7 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         currentBundleDataProvider = nil
         currentBundleViewState = nil
         currentBundleURL = nil
+        currentBundleDisplayName = nil
         viewerView.horizontalScrollDirectionOverride = nil
         viewerView.clearReferenceBundle()
         removeChromosomeNavigator()

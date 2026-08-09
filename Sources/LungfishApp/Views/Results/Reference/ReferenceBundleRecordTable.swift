@@ -18,6 +18,22 @@ final class ReferenceBundleRecordTable: BatchTableView<ReferenceBundleRecordRow>
     private var numericDynamicColumnIdentifiers = Set<String>()
     var onDisplayedRowsChanged: (() -> Void)?
 
+    /// The reference bundle's user-facing `manifest.name`, used as the
+    /// primary "sequence" cell line. `nil` (the default) falls back to
+    /// showing the sequence name alone, unchanged from pre-Item-2 behavior.
+    ///
+    /// `didSet` re-runs `applyContentTypography()` because `usesSecondaryLines`
+    /// derives from this value — flipping it must recompute `tableView.rowHeight`
+    /// (only set inside `applyContentTypography()`) so the taller two-line row
+    /// height takes effect instead of staying at the single-line height set at
+    /// init, before this property is ever assigned.
+    var bundleDisplayName: String? {
+        didSet {
+            guard bundleDisplayName != oldValue else { return }
+            applyContentTypography()
+        }
+    }
+
     override var columnSpecs: [BatchColumnSpec] {
         let fixed: [BatchColumnSpec] = [
             .init(identifier: .init("sequence"), title: "Sequence", width: 220, minWidth: 140, defaultAscending: true),
@@ -41,6 +57,12 @@ final class ReferenceBundleRecordTable: BatchTableView<ReferenceBundleRecordRow>
     override var searchAccessibilityLabel: String? { "Filter reference records" }
     override var tableAccessibilityIdentifier: String? { "reference-bundle-sequence-table" }
     override var tableAccessibilityLabel: String? { "Reference record table" }
+
+    // A row shows the dimmed secondary sequence-name line whenever
+    // `bundleDisplayName` is set (see `secondaryCellText`), so the table needs
+    // the taller fixed row height even for rows in the same table with no
+    // secondary text.
+    override var usesSecondaryLines: Bool { bundleDisplayName != nil }
 
     override var columnTypeHints: [String: Bool] {
         var hints = ["sequence": false, "length": true, "role": false]
@@ -94,12 +116,36 @@ final class ReferenceBundleRecordTable: BatchTableView<ReferenceBundleRecordRow>
         for column: NSUserInterfaceItemIdentifier,
         row: ReferenceBundleRecordRow
     ) -> (text: String, alignment: NSTextAlignment, font: NSFont?) {
-        let value = columnValue(for: column.rawValue, row: row)
         let numeric = column.rawValue == "length" || numericDynamicColumnIdentifiers.contains(column.rawValue)
+        let displayText: String
+        if column.rawValue == "sequence", let bundleDisplayName {
+            // Primary line shows the bundle's user-facing name; the
+            // underlying sequence/contig name moves to the dimmed secondary
+            // line (see `secondaryCellText`). `columnValue(for:"sequence")`
+            // is intentionally NOT reused here — it stays keyed on the
+            // sequence name for copy/sort/filter-key callers.
+            displayText = bundleDisplayName
+        } else if numeric && column.rawValue == "length" {
+            displayText = row.summary.length.formatted()
+        } else {
+            displayText = columnValue(for: column.rawValue, row: row)
+        }
         return (
-            numeric && column.rawValue == "length" ? row.summary.length.formatted() : value,
+            displayText,
             numeric ? .right : .left,
             numeric ? .monospacedDigitSystemFont(ofSize: 12, weight: .regular) : .systemFont(ofSize: 12)
+        )
+    }
+
+    override func secondaryCellText(
+        for column: NSUserInterfaceItemIdentifier,
+        row: ReferenceBundleRecordRow
+    ) -> String? {
+        guard column.rawValue == "sequence", let bundleDisplayName else { return nil }
+        return BundleDisplayLabel.secondaryLine(
+            bundleName: bundleDisplayName,
+            contigName: row.summary.name,
+            fastaDescription: row.summary.displayDescription
         )
     }
 
@@ -137,7 +183,10 @@ final class ReferenceBundleRecordTable: BatchTableView<ReferenceBundleRecordRow>
             || row.summary.aliases.contains(where: { $0.localizedCaseInsensitiveContains(query) })
             || String(row.summary.length).localizedCaseInsensitiveContains(query)
             || row.summary.length.formatted().localizedCaseInsensitiveContains(query)
-            || roleDescription(for: row.summary).localizedCaseInsensitiveContains(query) {
+            || roleDescription(for: row.summary).localizedCaseInsensitiveContains(query)
+            // Bundle display label is a filter convenience only — copy/sort/
+            // rowIdentity stay keyed on `row.summary.name` (untouched below).
+            || (bundleDisplayName?.localizedCaseInsensitiveContains(query) == true) {
             return true
         }
         return row.values.values.contains { $0.localizedCaseInsensitiveContains(query) }

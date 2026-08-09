@@ -259,6 +259,19 @@ public class ViewerViewController: NSViewController {
     /// URL of the currently displayed bundle (needed for save-back).
     public var currentBundleURL: URL?
 
+    /// The reference bundle's user-facing `manifest.name`, cached at bundle
+    /// display-context activation.
+    ///
+    /// The hot-path track-header re-derivation sites (chromosome navigator
+    /// selection, cross-chromosome navigation) only have `currentBundleDataProvider`
+    /// in scope, not the manifest — so the display name is cached here once,
+    /// at `activateBundleDisplayContext`, instead of re-loading the manifest
+    /// on every contig row selection. `nil` (never activated, or a bundle
+    /// with no display-name context) makes the track header fall back to the
+    /// plain contig name — this is the default/unchanged behavior for
+    /// non-mapping bundles (direct `.lungfishref` open, chromosome navigator).
+    public var currentBundleDisplayName: String?
+
     /// Debounce work item for saving view state.
     var viewStateSaveWorkItem: DispatchWorkItem?
 

@@ -479,6 +479,7 @@ public class ReferenceBundleViewportController: NSViewController {
         sequenceTableView.isHidden = true
         contigTableView.isHidden = false
 
+        applyMappingBundleDisplayLabels()
         applyOriginalMappingRows(preferredSelectionName: preferredSelectionName)
         if let visibleTrackID = embeddedViewerController.viewerView.visibleAlignmentTrackIDSetting,
            !visibleTrackID.isEmpty {
@@ -518,8 +519,32 @@ public class ReferenceBundleViewportController: NSViewController {
         usesRecordStoreTable = manifest.recordStore != nil
         recordStoreWarning = tableContent.warning
         updateSummaryBar()
+        sequenceTableView.bundleDisplayName = manifest.name
         sequenceTableView.configure(dynamicFields: tableContent.fields, rows: sequenceRows)
         refreshSequenceSelection(preferredSelectionName: preferredSelectionName)
+    }
+
+    /// Sets the `contigTableView`'s bundle-name display decoration for
+    /// `.mappingResult` inputs from `currentInput.viewerBundleManifest`
+    /// (plumbed in by the caller — see `ReferenceBundleViewportController
+    /// +MappingResult.swift`/`configure(result:resultDirectoryURL:)` —
+    /// avoiding a second manifest disk read here). Absent manifest ⇒ nil
+    /// display name ⇒ tables fall back to the bare contig id, unchanged
+    /// from pre-Item-2 behavior.
+    private func applyMappingBundleDisplayLabels() {
+        guard let manifest = currentInput?.viewerBundleManifest else {
+            contigTableView.bundleDisplayName = nil
+            contigTableView.fastaDescriptionsByContig = [:]
+            return
+        }
+        contigTableView.bundleDisplayName = manifest.name
+        var descriptions: [String: String] = [:]
+        for chromosome in manifest.genome?.chromosomes ?? [] {
+            if let fastaDescription = chromosome.fastaDescription, !fastaDescription.isEmpty {
+                descriptions[chromosome.name] = fastaDescription
+            }
+        }
+        contigTableView.fastaDescriptionsByContig = descriptions
     }
 
     private func loadRecordTableContent(
@@ -1165,10 +1190,19 @@ extension ReferenceBundleViewportController: ResultViewportController {
     }
 
     public func configure(result: MappingResult, resultDirectoryURL: URL?) {
+        // Loaded only for display decoration (selector-cell bundle name,
+        // track header label) — deliberately NOT the input's `manifest`
+        // field, which drives `documentTitle` and must stay `nil` here.
+        // Missing/unreadable viewer bundle degrades to `nil` silently; the
+        // tables and track header then fall back to the bare contig id.
+        let viewerBundleManifest = result.viewerBundleURL.flatMap {
+            try? BundleManifest.load(from: $0)
+        }
         let input = ReferenceBundleViewportInput.mappingResult(
             result: result,
             resultDirectoryURL: resultDirectoryURL,
-            provenance: nil as MappingProvenance?
+            provenance: nil as MappingProvenance?,
+            viewerBundleManifest: viewerBundleManifest
         )
         do {
             try configure(input: input)

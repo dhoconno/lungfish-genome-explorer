@@ -14,6 +14,13 @@ struct ReferenceBundleViewportInput: Equatable {
     let mappingResult: MappingResult?
     let mappingResultDirectoryURL: URL?
     let mappingProvenance: MappingProvenance?
+    /// The viewer bundle's manifest for `.mappingResult` inputs, used ONLY to
+    /// derive display strings (selector-cell bundle name, track header
+    /// label) — never populates `manifest` above, which drives
+    /// `documentTitle` and is deliberately left `nil` for mapping results
+    /// (that summary-bar decision is out of scope for Item 2; see
+    /// `docs/superpowers/specs/2026-08-09-mapping-viewer-fixes-spec.md`).
+    let viewerBundleManifest: BundleManifest?
 
     var documentTitle: String {
         manifest?.name
@@ -36,14 +43,16 @@ struct ReferenceBundleViewportInput: Equatable {
             manifest: manifest,
             mappingResult: nil,
             mappingResultDirectoryURL: nil,
-            mappingProvenance: nil
+            mappingProvenance: nil,
+            viewerBundleManifest: nil
         )
     }
 
     static func mappingResult(
         result: MappingResult,
         resultDirectoryURL: URL?,
-        provenance: MappingProvenance?
+        provenance: MappingProvenance?,
+        viewerBundleManifest: BundleManifest? = nil
     ) -> ReferenceBundleViewportInput {
         ReferenceBundleViewportInput(
             kind: .mappingResult,
@@ -51,7 +60,8 @@ struct ReferenceBundleViewportInput: Equatable {
             manifest: nil,
             mappingResult: result,
             mappingResultDirectoryURL: resultDirectoryURL?.standardizedFileURL,
-            mappingProvenance: provenance
+            mappingProvenance: provenance,
+            viewerBundleManifest: viewerBundleManifest
         )
     }
 }

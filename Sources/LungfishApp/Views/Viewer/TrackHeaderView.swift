@@ -336,3 +336,11 @@ public class TrackHeaderView: NSView {
         return nil
     }
 }
+
+#if DEBUG
+extension TrackHeaderView {
+    /// Read-back accessor for the current track label strings, for
+    /// asserting on `setTrackNames(_:)` content in tests.
+    var testTrackNames: [String] { trackNames }
+}
+#endif

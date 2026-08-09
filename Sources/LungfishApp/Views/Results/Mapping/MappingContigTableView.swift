@@ -1,10 +1,32 @@
 import AppKit
+import LungfishCore
 import LungfishWorkflow
 import LungfishKit
 
 @MainActor
 final class MappingContigTableView: BatchTableView<MappingContigSummary> {
     var scalarPasteboard: PasteboardWriting?
+
+    /// The reference bundle's user-facing `manifest.name`, used as the
+    /// primary "contig" cell line. `nil` (the default) falls back to
+    /// showing the contig id alone, unchanged from pre-Item-2 behavior.
+    ///
+    /// `didSet` re-runs `applyContentTypography()` because `usesSecondaryLines`
+    /// derives from this value — flipping it must recompute `tableView.rowHeight`
+    /// (only set inside `applyContentTypography()`) so the taller two-line row
+    /// height takes effect instead of staying at the single-line height set at
+    /// init, before this property is ever assigned.
+    var bundleDisplayName: String? {
+        didSet {
+            guard bundleDisplayName != oldValue else { return }
+            applyContentTypography()
+        }
+    }
+
+    /// FASTA defline descriptions keyed by contig id, used to enrich the
+    /// dimmed secondary line when available. Missing entries are fine —
+    /// the secondary line falls back to the bare contig id.
+    var fastaDescriptionsByContig: [String: String] = [:]
 
     override var columnSpecs: [BatchColumnSpec] {
         [
@@ -25,6 +47,11 @@ final class MappingContigTableView: BatchTableView<MappingContigSummary> {
     override var tableAccessibilityIdentifier: String? { "mapping-result-contig-table" }
     override var tableAccessibilityLabel: String? { "Mapping contig table" }
     override var cellCopyPasteboard: PasteboardWriting? { scalarPasteboard }
+
+    // A row shows the dimmed secondary contig-id line whenever `bundleDisplayName`
+    // is set (see `secondaryCellText`), so the table needs the taller fixed row
+    // height even for rows in the same table with no secondary text.
+    override var usesSecondaryLines: Bool { bundleDisplayName != nil }
 
     override var columnTypeHints: [String: Bool] {
         [
@@ -62,7 +89,7 @@ final class MappingContigTableView: BatchTableView<MappingContigSummary> {
     ) -> (text: String, alignment: NSTextAlignment, font: NSFont?) {
         switch column.rawValue {
         case "contig":
-            return (row.contigName, .left, .systemFont(ofSize: 12))
+            return (bundleDisplayName ?? row.contigName, .left, .systemFont(ofSize: 12))
         case "length":
             return (row.contigLength.formatted(), .right, numericFont)
         case "reads":
@@ -80,6 +107,18 @@ final class MappingContigTableView: BatchTableView<MappingContigSummary> {
         default:
             return ("", .left, nil)
         }
+    }
+
+    override func secondaryCellText(
+        for column: NSUserInterfaceItemIdentifier,
+        row: MappingContigSummary
+    ) -> String? {
+        guard column.rawValue == "contig", let bundleDisplayName else { return nil }
+        return BundleDisplayLabel.secondaryLine(
+            bundleName: bundleDisplayName,
+            contigName: row.contigName,
+            fastaDescription: fastaDescriptionsByContig[row.contigName]
+        )
     }
 
     override func columnValue(for columnId: String, row: MappingContigSummary) -> String {
@@ -109,7 +148,7 @@ final class MappingContigTableView: BatchTableView<MappingContigSummary> {
         let query = filterText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return true }
 
-        let haystack = [
+        var haystack = [
             row.contigName,
             row.contigLength.formatted(),
             row.mappedReads.formatted(),
@@ -119,6 +158,12 @@ final class MappingContigTableView: BatchTableView<MappingContigSummary> {
             String(format: "%.1f", row.medianMAPQ),
             formatPercent(rawPercentValue(row.meanIdentity)),
         ]
+        // The bundle display label is a filter convenience only — copy/sort/
+        // reselection keys stay on `contigName` (see columnValue/compareRows/
+        // rowIdentity below, all untouched by this addition).
+        if let bundleDisplayName {
+            haystack.append(bundleDisplayName)
+        }
 
         return haystack.contains { $0.localizedCaseInsensitiveContains(query) }
     }
@@ -188,9 +233,13 @@ final class MappingContigTableView: BatchTableView<MappingContigSummary> {
 
 #if DEBUG
 extension MappingContigTableView {
+    /// Mirrors the production Cmd-click copy path wired in
+    /// `BatchTableView.tableView(_:viewFor:row:)`: the copy source of record
+    /// is `columnValue` (the stable contig id), not `cellContent`'s displayed
+    /// text (which shows the bundle display label when one is set).
     func copyValue(row: Int, columnID: String, pasteboard: PasteboardWriting?) {
         guard row >= 0, row < displayedRows.count else { return }
-        let content = cellContent(for: NSUserInterfaceItemIdentifier(columnID), row: displayedRows[row]).text
+        let content = columnValue(for: columnID, row: displayedRows[row])
         pasteboard?.setString(content)
     }
 

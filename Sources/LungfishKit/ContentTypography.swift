@@ -167,6 +167,25 @@ public struct ContentTypography {
         max(minimum, ceil(font(for: .body).boundingRectForFont.height + verticalPadding))
     }
 
+    /// Row height tall enough to fit both the primary line and the dimmed
+    /// secondary line ``BatchTableView`` cells can render underneath it
+    /// (see `makeCellView`/`applySecondaryCellText`), instead of clipping
+    /// the second line inside the single-line ``tableRowHeight(minimum:verticalPadding:)``.
+    ///
+    /// Mirrors the cell's own layout: the secondary line sits 1pt below the
+    /// primary line's bottom edge (`secondaryField.topAnchor == tf.bottomAnchor + 1`),
+    /// both using the `.monospaced` cell font, plus the same vertical padding
+    /// used for a single line so the two-line row isn't cramped top/bottom.
+    public func tableRowHeightWithSecondaryLine(
+        minimum: CGFloat = 22,
+        verticalPadding: CGFloat = 6,
+        interLineSpacing: CGFloat = 1
+    ) -> CGFloat {
+        let lineHeight = ceil(font(for: .monospaced).boundingRectForFont.height)
+        let twoLineContentHeight = (lineHeight * 2) + interLineSpacing
+        return max(minimum, ceil(twoLineContentHeight + verticalPadding))
+    }
+
     public func tableHeaderHeight(
         minimum: CGFloat = 24,
         verticalPadding: CGFloat = 7

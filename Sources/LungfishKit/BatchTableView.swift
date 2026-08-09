@@ -26,6 +26,11 @@ private final class BatchQuickCopyTextField: NSTextField {
     }
 }
 
+/// Fixed `NSView.tag` used to locate the optional dimmed secondary text
+/// field on a reused cell view, since `NSTableCellView` only exposes a
+/// `textField` slot for the primary line.
+private let batchSecondaryTextFieldTag = 9081
+
 /// Column specification for a batch table.
 ///
 /// Each entry describes one fixed column in a ``BatchTableView`` subclass.
@@ -125,6 +130,35 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
     ) -> (text: String, alignment: NSTextAlignment, font: NSFont?) {
         ("", .left, nil)
     }
+
+    /// Returns an optional dimmed secondary line drawn under the primary
+    /// ``cellContent(for:row:)`` text for a given column/row.
+    ///
+    /// Additive to ``cellContent(for:row:)`` — does NOT change its
+    /// `(text, alignment, font)` tuple, so existing single-line renderers are
+    /// unaffected. Return `nil` (the default) to keep the single-line cell.
+    /// Subclasses use this to show a bundle's user-facing display name as the
+    /// primary line while keeping the functional identifier (e.g. a FASTA
+    /// contig id) visible as a smaller, secondary line.
+    open func secondaryCellText(
+        for column: NSUserInterfaceItemIdentifier,
+        row: Row
+    ) -> String? {
+        nil
+    }
+
+    /// Declares that some rows in this table may render a dimmed secondary
+    /// line under the primary cell text (see ``secondaryCellText(for:row:)``).
+    ///
+    /// The default (`false`) keeps the original single-line fixed row height
+    /// so tables that never use the secondary-line seam are visually
+    /// unchanged. Subclasses that opt in (e.g. showing a bundle display name
+    /// as the primary line with the functional ID as a secondary line) must
+    /// override this to `true` so the fixed row height grows enough to fit
+    /// both lines without clipping — even for rows in that same table that
+    /// have no secondary line, since ``NSTableView`` uses one fixed
+    /// `rowHeight` for every row.
+    open var usesSecondaryLines: Bool { false }
 
     /// Returns whether the given row matches `filterText`.
     ///
@@ -363,7 +397,9 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
             24,
             ceil(typography.font(for: .body).boundingRectForFont.height + 8)
         )
-        tableView.rowHeight = typography.tableRowHeight()
+        tableView.rowHeight = usesSecondaryLines
+            ? typography.tableRowHeightWithSecondaryLine()
+            : typography.tableRowHeight()
         if let headerView = tableView.headerView {
             var frame = headerView.frame
             frame.size.height = typography.tableHeaderHeight()
@@ -702,10 +738,29 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         tf.translatesAutoresizingMaskIntoConstraints = false
         cell.addSubview(tf)
         cell.textField = tf
+
+        // Optional dimmed secondary line (populated via `secondaryCellText`).
+        // Hidden and empty by default so single-line cells are unaffected;
+        // additive to the primary `textField` slot, not a replacement for it.
+        let secondaryField = NSTextField(labelWithString: "")
+        secondaryField.tag = batchSecondaryTextFieldTag
+        secondaryField.font = typography.font(for: .monospaced)
+        secondaryField.textColor = .secondaryLabelColor
+        secondaryField.lineBreakMode = .byTruncatingTail
+        secondaryField.translatesAutoresizingMaskIntoConstraints = false
+        secondaryField.isHidden = true
+        cell.addSubview(secondaryField)
+
+        let primaryCenterY = tf.centerYAnchor.constraint(equalTo: cell.centerYAnchor)
+        primaryCenterY.identifier = "batchCellPrimaryCenterY"
+        primaryCenterY.priority = .defaultHigh
         NSLayoutConstraint.activate([
             tf.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
             tf.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
-            tf.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+            primaryCenterY,
+            secondaryField.leadingAnchor.constraint(equalTo: tf.leadingAnchor),
+            secondaryField.trailingAnchor.constraint(equalTo: tf.trailingAnchor),
+            secondaryField.topAnchor.constraint(equalTo: tf.bottomAnchor, constant: 1),
         ])
         return cell
     }
@@ -929,11 +984,42 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
         let cellView = tableView.makeView(withIdentifier: id, owner: self) as? NSTableCellView
             ?? makeCellView(identifier: id)
 
+        populateCellView(cellView, id: id, rowData: rowData)
+
+        return cellView
+    }
+
+    /// Populates (or resets) `cellView` for `id`/`rowData`, exactly as
+    /// ``tableView(_:viewFor:row:)`` does for a view AppKit handed back from
+    /// its reuse pool or built fresh — factored out so it can also be driven
+    /// directly on a specific, already-existing `NSTableCellView` instance
+    /// (see `testPopulateReusedCellView` below) to deterministically exercise
+    /// the reuse-reset seam without depending on AppKit's private reuse-queue
+    /// timing, which is not driven synchronously by any documented public API
+    /// in a headless/offscreen test host.
+    private func populateCellView(
+        _ cellView: NSTableCellView,
+        id: NSUserInterfaceItemIdentifier,
+        rowData: Row
+    ) {
         let (text, alignment, font) = cellContent(for: id, row: rowData)
         cellView.textField?.stringValue = text
         cellView.textField?.alignment   = alignment
         if let copyField = cellView.textField as? BatchQuickCopyTextField {
             copyField.pasteboard = cellCopyPasteboard
+            // Copy source of record is `columnValue`, not the displayed text —
+            // when a secondary line replaces the primary line with a bundle
+            // display label (see `secondaryCellText`), `cellContent`'s text is
+            // no longer the row's stable identifier. `columnValue` stays keyed
+            // on that identifier (e.g. contig id) by contract, so Cmd-click
+            // copy keeps copying the ID even though the display label is what
+            // is visibly showing. Captures `rowData`/`id` by value (not
+            // `[weak self]`) since both are immutable snapshots for this
+            // render; re-rendering the reused cell for a different row
+            // reassigns this closure before it can be invoked with stale data.
+            copyField.copiedValue = { [weak self] in
+                self?.columnValue(for: id.rawValue, row: rowData) ?? text
+            }
         }
         if let font {
             cellView.textField?.font = scaledContentFont(from: font)
@@ -943,7 +1029,36 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
             ).font(for: .monospaced)
         }
 
-        return cellView
+        let secondaryText = secondaryCellText(for: id, row: rowData)
+        applySecondaryCellText(secondaryText, to: cellView, alignment: alignment)
+    }
+
+    /// Populates (or hides) the dimmed secondary line added by
+    /// ``makeCellView(identifier:)`` and repositions the primary line to
+    /// leave room for it. Cells are reused across rows/columns, so this runs
+    /// on every render to reset state left over from a prior row.
+    private func applySecondaryCellText(
+        _ secondaryText: String?,
+        to cellView: NSTableCellView,
+        alignment: NSTextAlignment
+    ) {
+        guard let secondaryField = cellView.viewWithTag(batchSecondaryTextFieldTag) as? NSTextField else {
+            return
+        }
+        let primaryCenterY = cellView.constraints.first {
+            $0.identifier == "batchCellPrimaryCenterY"
+        }
+
+        if let secondaryText, !secondaryText.isEmpty {
+            secondaryField.stringValue = secondaryText
+            secondaryField.alignment = alignment
+            secondaryField.isHidden = false
+            primaryCenterY?.constant = -8
+        } else {
+            secondaryField.stringValue = ""
+            secondaryField.isHidden = true
+            primaryCenterY?.constant = 0
+        }
     }
 
     private func scaledContentFont(from baseline: NSFont) -> NSFont {
@@ -1078,6 +1193,48 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
 extension BatchTableView {
     public var testSearchField: NSSearchField { searchField }
     public var testTableView: NSTableView { tableView }
+
+    /// Renders the cell view for `row`/`columnID` through the real
+    /// `NSTableViewDelegate` path and returns its primary and (if visible)
+    /// secondary line text, for asserting on the additive secondary-line seam.
+    public func testCellText(row: Int, columnID: String) -> (primary: String, secondary: String?) {
+        guard let column = tableView.tableColumns.first(where: { $0.identifier.rawValue == columnID }),
+              let cellView = tableView(tableView, viewFor: column, row: row) as? NSTableCellView
+        else {
+            return ("", nil)
+        }
+        let primary = cellView.textField?.stringValue ?? ""
+        guard let secondaryField = cellView.viewWithTag(batchSecondaryTextFieldTag) as? NSTextField,
+              !secondaryField.isHidden else {
+            return (primary, nil)
+        }
+        return (primary, secondaryField.stringValue)
+    }
+
+    /// Re-populates a specific, already-existing `NSTableCellView` for
+    /// `row`/`columnID` through the exact same production code
+    /// (`populateCellView`) that ``tableView(_:viewFor:row:)`` runs on a view
+    /// AppKit hands back from its reuse pool.
+    ///
+    /// AppKit's real reuse-pool hand-off is driven by private, display-cycle
+    /// bookkeeping with no synchronous, documented public trigger — verified
+    /// empirically to be flaky (order of ~10-20% failures) even after a real
+    /// scroll + `layoutSubtreeIfNeeded()` + `display()` pass in a headless
+    /// test host. This hook drives the actual reuse-reset logic
+    /// deterministically instead, by handing `populateCellView` a specific,
+    /// caller-chosen `NSTableCellView` — usually one already returned by an
+    /// earlier ``tableView(_:viewFor:row:)`` call for a different row — so
+    /// tests can assert on leftover-state cleanup without racing AppKit's
+    /// pool timing.
+    public func testPopulateReusedCellView(
+        _ cellView: NSTableCellView,
+        row: Int,
+        columnID: String
+    ) {
+        guard let column = tableView.tableColumns.first(where: { $0.identifier.rawValue == columnID }),
+              row >= 0, row < displayedRows.count else { return }
+        populateCellView(cellView, id: column.identifier, rowData: displayedRows[row])
+    }
 }
 #endif
 

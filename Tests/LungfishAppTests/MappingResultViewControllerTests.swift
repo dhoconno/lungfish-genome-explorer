@@ -70,6 +70,198 @@ final class MappingResultViewControllerTests: XCTestCase {
         )
     }
 
+    // MARK: - Item 2: bundle display name in selector + track label
+
+    func testMappingContigCellShowsBundleNamePrimaryAndContigSecondary() {
+        let table = MappingContigTableView()
+        table.bundleDisplayName = "Fixture"
+        table.configure(rows: makeContigs())
+
+        let cell = table.cellContent(for: NSUserInterfaceItemIdentifier("contig"), row: makeContigs()[0])
+        let secondary = table.secondaryCellText(for: NSUserInterfaceItemIdentifier("contig"), row: makeContigs()[0])
+
+        XCTAssertEqual(cell.text, "Fixture")
+        XCTAssertEqual(secondary, "alpha")
+    }
+
+    func testMappingContigCellOmitsSecondaryWhenContigEqualsBundleName() {
+        let table = MappingContigTableView()
+        table.bundleDisplayName = "alpha"
+        let row = makeContigs()[0]
+        table.configure(rows: [row])
+
+        let secondary = table.secondaryCellText(for: NSUserInterfaceItemIdentifier("contig"), row: row)
+
+        XCTAssertNil(secondary)
+    }
+
+    func testMappingContigColumnValueAndCopyKeepContigID() {
+        let table = MappingContigTableView()
+        table.bundleDisplayName = "Fixture"
+        let row = makeContigs()[0]
+        table.configure(rows: [row])
+
+        XCTAssertEqual(table.columnValue(for: "contig", row: row), "alpha")
+
+        // Copy (both the production Cmd-click path in
+        // BatchTableView.tableView(_:viewFor:row:) and this DEBUG test
+        // helper) is keyed on `columnValue`, i.e. the contig id — NOT the
+        // displayed bundle label — even though the cell visibly shows
+        // "Fixture" as its primary line.
+        let pasteboard = RecordingPasteboard()
+        table.scalarPasteboard = pasteboard
+        table.copyValue(row: 0, columnID: "contig", pasteboard: pasteboard)
+        XCTAssertEqual(pasteboard.lastString, "alpha", "copy must keep the contig id, not the displayed bundle label")
+    }
+
+    func testMappingContigSortAndReselectionKeyedOnContigName() {
+        let table = MappingContigTableView()
+        table.bundleDisplayName = "Fixture"
+        table.configure(rows: makeContigs())
+
+        table.testTableView.sortDescriptors = [NSSortDescriptor(key: "contig", ascending: true)]
+        XCTAssertEqual(table.displayedRows.map(\.contigName), ["alpha", "beta"])
+
+        // rowIdentity (used for stable selection restore) is unaffected by the
+        // display-label decoration — this table has no override, so it stays nil.
+        XCTAssertNil(table.rowIdentity(for: makeContigs()[0]))
+    }
+
+    func testFilterMatchesBundleDisplayLabel() {
+        let table = MappingContigTableView()
+        table.bundleDisplayName = "Fixture"
+        table.configure(rows: makeContigs())
+
+        table.setFilterText("Fixture")
+        XCTAssertEqual(
+            table.displayedRows.count,
+            makeContigs().count,
+            "filtering by the bundle display name should match every row"
+        )
+
+        table.setFilterText("")
+        table.setFilterText("alpha")
+        XCTAssertEqual(table.displayedRows.map(\.contigName), ["alpha"])
+    }
+
+    func testReferenceRecordCellShowsBundleNameWithSecondaryAccession() {
+        let table = ReferenceBundleRecordTable(frame: NSRect(x: 0, y: 0, width: 800, height: 400))
+        table.bundleDisplayName = "Macaque MHC Reference"
+        let summary = BundleBrowserSequenceSummary(
+            name: "NC_041754.1",
+            displayDescription: "Macaca mulatta chromosome 1",
+            length: 100,
+            aliases: [],
+            isPrimary: true,
+            isMitochondrial: false,
+            metrics: nil
+        )
+        let row = ReferenceBundleRecordRow(summary: summary, values: [:])
+        table.configure(dynamicFields: [], rows: [row])
+
+        let cell = table.cellContent(for: NSUserInterfaceItemIdentifier("sequence"), row: row)
+        let secondary = table.secondaryCellText(for: NSUserInterfaceItemIdentifier("sequence"), row: row)
+
+        XCTAssertEqual(cell.text, "Macaque MHC Reference")
+        XCTAssertEqual(secondary, "NC_041754.1 (Macaca mulatta chromosome 1)")
+    }
+
+    func testReferenceRecordColumnValueKeepsSequenceName() {
+        let table = ReferenceBundleRecordTable(frame: NSRect(x: 0, y: 0, width: 800, height: 400))
+        table.bundleDisplayName = "Macaque MHC Reference"
+        let summary = BundleBrowserSequenceSummary(
+            name: "NC_041754.1",
+            displayDescription: nil,
+            length: 100,
+            aliases: [],
+            isPrimary: true,
+            isMitochondrial: false,
+            metrics: nil
+        )
+        let row = ReferenceBundleRecordRow(summary: summary, values: [:])
+        table.configure(dynamicFields: [], rows: [row])
+
+        XCTAssertEqual(table.columnValue(for: "sequence", row: row), "NC_041754.1")
+    }
+
+    func testTrackHeaderShowsManifestNameForSingleContigBundle() throws {
+        let vc = MappingResultViewController()
+        _ = vc.view
+
+        let bundleURL = try makeReferenceBundleWithAnnotationDatabase()
+        vc.configureForTesting(result: makeMappingResult(viewerBundleURL: bundleURL))
+
+        let embeddedViewer = try XCTUnwrap(
+            vc.children.compactMap { $0 as? ViewerViewController }.first
+        )
+        XCTAssertEqual(embeddedViewer.headerView.testTrackNames.first, "Fixture")
+    }
+
+    func testTrackHeaderShowsNameWithParentheticalContigForMultiContig() throws {
+        let vc = MappingResultViewController()
+        _ = vc.view
+
+        let bundleURL = try makeReferenceBundleWithAlignmentTracks()
+        vc.configureForTesting(result: makeAlphaGammaMappingResult(viewerBundleURL: bundleURL))
+        vc.testSelectContig(named: "alpha")
+
+        let embeddedViewer = try XCTUnwrap(
+            vc.children.compactMap { $0 as? ViewerViewController }.first
+        )
+        XCTAssertEqual(embeddedViewer.headerView.testTrackNames.first, "Alignment Tracks (alpha)")
+
+        vc.testSelectContig(named: "gamma")
+        XCTAssertEqual(embeddedViewer.headerView.testTrackNames.first, "Alignment Tracks (gamma)")
+    }
+
+    func testTrackHeaderFallsBackToContigNameWithoutCachedManifest() throws {
+        let host = ViewerViewController()
+        _ = host.view
+
+        XCTAssertNil(host.currentBundleDisplayName)
+        XCTAssertEqual(host.referenceTrackHeaderLabel(forContig: "chr1", fastaDescription: nil), "chr1")
+    }
+
+    func testNavigateToChromosomeKeepsBundleDisplayLabelInHeader() throws {
+        let vc = MappingResultViewController()
+        _ = vc.view
+
+        let bundleURL = try makeReferenceBundleWithAlignmentTracks()
+        vc.configureForTesting(result: makeAlphaGammaMappingResult(viewerBundleURL: bundleURL))
+        vc.testSelectContig(named: "alpha")
+
+        let embeddedViewer = try XCTUnwrap(
+            vc.children.compactMap { $0 as? ViewerViewController }.first
+        )
+        embeddedViewer.navigateToChromosomeAndPosition(
+            chromosome: "gamma",
+            chromosomeLength: 100,
+            start: 0,
+            end: 100
+        )
+
+        XCTAssertEqual(embeddedViewer.headerView.testTrackNames.first, "Alignment Tracks (gamma)")
+    }
+
+    func testMappingResultInputCarryingManifestKeepsDocumentTitle() throws {
+        let resultDirectory = tempDir.appendingPathComponent("mapping-run", isDirectory: true)
+        try FileManager.default.createDirectory(at: resultDirectory, withIntermediateDirectories: true)
+        let viewerBundleURL = try makeReferenceBundleWithAnnotationDatabase()
+        let result = makeMappingResult(viewerBundleURL: viewerBundleURL, resultDirectoryURL: resultDirectory)
+        let viewerManifest = try BundleManifest.load(from: viewerBundleURL)
+
+        let input = ReferenceBundleViewportInput.mappingResult(
+            result: result,
+            resultDirectoryURL: resultDirectory,
+            provenance: nil as MappingProvenance?,
+            viewerBundleManifest: viewerManifest
+        )
+
+        XCTAssertEqual(input.documentTitle, "mapping-run", "documentTitle must stay keyed on the result directory, not the bundle name")
+        XCTAssertNil(input.manifest, "viewerBundleManifest must NOT populate the existing manifest field")
+        XCTAssertEqual(input.viewerBundleManifest?.name, "Fixture")
+    }
+
     func testViewportShowsExplicitPlaceholderWhenViewerBundleIsMissing() {
         let vc = MappingResultViewController()
         _ = vc.view
@@ -733,6 +925,46 @@ final class MappingResultViewControllerTests: XCTestCase {
             unmappedReads: 2,
             wallClockSeconds: 1.5,
             contigs: makeContigs()
+        )
+    }
+
+    /// A `MappingResult` whose contigs match `makeReferenceBundleWithAlignmentTracks()`'s
+    /// chromosome set (`alpha`/`gamma`), so `testSelectContig(named:)` can
+    /// select either row and drive the embedded viewer to that chromosome.
+    private func makeAlphaGammaMappingResult(viewerBundleURL: URL?) -> MappingResult {
+        MappingResult(
+            mapper: .minimap2,
+            modeID: MappingMode.defaultShortRead.id,
+            sourceReferenceBundleURL: nil,
+            viewerBundleURL: viewerBundleURL,
+            bamURL: URL(fileURLWithPath: "/tmp/alpha-gamma.sorted.bam"),
+            baiURL: URL(fileURLWithPath: "/tmp/alpha-gamma.sorted.bam.bai"),
+            totalReads: 200,
+            mappedReads: 198,
+            unmappedReads: 2,
+            wallClockSeconds: 1.5,
+            contigs: [
+                MappingContigSummary(
+                    contigName: "alpha",
+                    contigLength: 100,
+                    mappedReads: 120,
+                    mappedReadPercent: 60,
+                    meanDepth: 10,
+                    coverageBreadth: 90,
+                    medianMAPQ: 60,
+                    meanIdentity: 99
+                ),
+                MappingContigSummary(
+                    contigName: "gamma",
+                    contigLength: 100,
+                    mappedReads: 80,
+                    mappedReadPercent: 40,
+                    meanDepth: 8,
+                    coverageBreadth: 85,
+                    medianMAPQ: 55,
+                    meanIdentity: 98
+                ),
+            ]
         )
     }
 
