@@ -154,6 +154,263 @@ public actor ReadExtractionService {
         )
     }
 
+    // MARK: - Extract by Read IDs (BAM source)
+
+    /// Extracts reads by QNAME directly from a BAM file, for callers that
+    /// have no resolvable source FASTQ (e.g. a mapping-result viewport with
+    /// no retained FASTQ bundle reference).
+    ///
+    /// Uses `samtools view -N <names.txt>` so mates return automatically by
+    /// QNAME match — there is no equivalent of `extractByReadIDs`'
+    /// `keepReadPairs` flag here because BAM name-filtering does not offer a
+    /// "single mate only" mode to opt out of. The persisted name file is kept
+    /// (not deleted) alongside the output so a CLI replay of this operation
+    /// is faithful to what actually ran.
+    ///
+    /// - Parameters:
+    ///   - config: Configuration specifying the BAM file, read IDs, filters, and output location.
+    ///   - progress: Optional callback reporting progress as `(fraction, message)`.
+    /// - Returns: A ``ReadIDBAMExtractionResult`` with output URL(s), the persisted
+    ///   name file, and singleton routing.
+    /// - Throws: ``ExtractionError`` on validation failure, tool errors, or empty output.
+    public func extractByReadIDsFromBAM(
+        config: ReadIDBAMExtractionConfig,
+        progress: (@Sendable (Double, String) -> Void)? = nil
+    ) async throws -> ReadIDBAMExtractionResult {
+        let fm = FileManager.default
+
+        guard fm.fileExists(atPath: config.bamURL.path) else {
+            throw ExtractionError.bamFileNotFound(config.bamURL)
+        }
+        guard !config.readIDs.isEmpty else {
+            throw ExtractionError.emptyReadIDSet
+        }
+
+        try fm.createDirectory(at: config.outputDirectory, withIntermediateDirectories: true)
+
+        let sanitizedBaseName = ExtractionBundleNaming.sanitizeFilename(config.outputBaseName)
+
+        // Persist (do not delete) the read-name file so a CLI replay of this
+        // operation is faithful to what actually ran.
+        let readNameFileURL = config.outputDirectory.appendingPathComponent("\(sanitizedBaseName)_read_names.txt")
+        let readNameContent = config.readIDs.sorted().joined(separator: "\n")
+        try readNameContent.write(to: readNameFileURL, atomically: true, encoding: .utf8)
+
+        progress?(0.1, "Wrote \(config.readIDs.count) read names to filter file")
+
+        // Filter by name (+ flag filter) into a temporary BAM first, so the
+        // subsequent fastq/fasta conversion only ever sees the exact records
+        // we asked for (and so read-counting is a simple `samtools view -c`).
+        let tempDir = try ProjectTempDirectory.createFromContext(
+            prefix: "lungfish-extract-bam-",
+            contextURL: config.outputDirectory
+        )
+        defer { try? fm.removeItem(at: tempDir) }
+
+        let filteredBAM = tempDir.appendingPathComponent("filtered.bam")
+        var viewArgs = ["view", "-b", "-N", readNameFileURL.path]
+        if config.flagFilter != 0 {
+            viewArgs += ["-F", String(config.flagFilter)]
+        }
+        viewArgs += ["-o", filteredBAM.path, config.bamURL.path]
+
+        let viewResult = try await toolRunner.run(.samtools, arguments: viewArgs, timeout: 7200)
+        guard viewResult.isSuccess else {
+            throw ExtractionError.samtoolsFailed(viewResult.stderr)
+        }
+
+        progress?(0.4, "Filtered BAM by read name...")
+
+        // A legitimately empty match set (e.g. every requested name's only
+        // record was filtered out by `excludeDuplicates`) is a valid "0
+        // results" outcome, not an error — short-circuit before running the
+        // fastq/fasta conversion steps.
+        let filteredRecordCount = try await countBAMRecords(filteredBAM)
+        guard filteredRecordCount > 0 else {
+            progress?(1.0, "No reads matched after filtering")
+            logger.info("BAM read-ID extraction matched 0 records after flag filtering")
+            return ReadIDBAMExtractionResult(
+                outputURLs: [],
+                readCount: 0,
+                readNameFileURL: readNameFileURL,
+                singletonsURL: nil
+            )
+        }
+
+        // When --include-secondary is set, disambiguate any duplicate output
+        // records (same QNAME appearing more than once, e.g. primary +
+        // secondary/supplementary) with a /sup or /sec suffix so downstream
+        // FASTQ/FASTA consumers don't silently collapse them.
+        let conversionInputBAM: URL
+        if config.includeSecondary {
+            conversionInputBAM = try await disambiguateSecondaryRecordNames(
+                inputBAM: filteredBAM,
+                tempDir: tempDir
+            )
+        } else {
+            conversionInputBAM = filteredBAM
+        }
+
+        // `samtools fastq`/`fasta` require name-collated input to correctly
+        // pair mates and classify READ1/READ2/READ_OTHER; our filtered BAM is
+        // still coordinate-sorted (inherited from the source BAM).
+        progress?(0.5, "Collating filtered records by name...")
+        let collatedBAM = tempDir.appendingPathComponent("collated.bam")
+        let collateResult = try await toolRunner.run(
+            .samtools,
+            arguments: ["collate", "-o", collatedBAM.path, conversionInputBAM.path],
+            timeout: 7200
+        )
+        guard collateResult.isSuccess else {
+            throw ExtractionError.samtoolsFailed(collateResult.stderr)
+        }
+
+        let outputExtension = config.format == .fasta ? "fasta" : "fastq"
+        let outputURL = config.outputDirectory.appendingPathComponent("\(sanitizedBaseName).\(outputExtension)")
+        let singletonsURL = config.outputDirectory.appendingPathComponent("\(sanitizedBaseName)_singletons.\(outputExtension)")
+        // READ_OTHER (neither READ1 nor READ2 flag set — e.g. an unpaired
+        // read, or a paired-flag-unset alignment) is NOT covered by `-o`;
+        // route it to its own sidecar and merge into the main output below,
+        // mirroring `convertBAMToSingleFASTQ`'s proven 4-way split.
+        let readOtherURL = tempDir.appendingPathComponent("read_other.\(outputExtension)")
+
+        progress?(0.6, "Converting to \(outputExtension.uppercased())...")
+
+        // `samtools fastq`/`fasta` apply their OWN default `-F 0x900` filter
+        // independent of what `samtools view -N -F` already did upstream —
+        // without an explicit override here, a secondary/supplementary
+        // record we deliberately kept (includeSecondary) would be silently
+        // dropped again at this step.
+        let convertTool: String = config.format == .fasta ? "fasta" : "fastq"
+        let convertResult = try await toolRunner.run(
+            .samtools,
+            arguments: [
+                convertTool,
+                "-F", "0",
+                "-0", readOtherURL.path,
+                "-s", singletonsURL.path,
+                "-o", outputURL.path,
+                collatedBAM.path,
+            ],
+            timeout: 7200
+        )
+        guard convertResult.isSuccess else {
+            throw ExtractionError.samtoolsFailed(convertResult.stderr)
+        }
+
+        // Merge READ_OTHER records into the main output file.
+        if fm.fileExists(atPath: readOtherURL.path) {
+            let readOtherSize = (try? fm.attributesOfItem(atPath: readOtherURL.path)[.size] as? UInt64) ?? 0
+            if readOtherSize > 0 {
+                if !fm.fileExists(atPath: outputURL.path) {
+                    fm.createFile(atPath: outputURL.path, contents: nil)
+                }
+                let outHandle = try FileHandle(forWritingTo: outputURL)
+                defer { try? outHandle.close() }
+                outHandle.seekToEndOfFile()
+                let inHandle = try FileHandle(forReadingFrom: readOtherURL)
+                defer { try? inHandle.close() }
+                while true {
+                    let chunk = inHandle.readData(ofLength: 1 << 20)
+                    if chunk.isEmpty { break }
+                    outHandle.write(chunk)
+                }
+            }
+        }
+
+        let outputExists = fm.fileExists(atPath: outputURL.path)
+        let outputSize = outputExists ? ((try? fm.attributesOfItem(atPath: outputURL.path)[.size] as? UInt64) ?? 0) : 0
+        if outputSize == 0, outputExists {
+            try? fm.removeItem(at: outputURL)
+        }
+
+        let singletonExists = fm.fileExists(atPath: singletonsURL.path)
+        let singletonSize = singletonExists ? ((try? fm.attributesOfItem(atPath: singletonsURL.path)[.size] as? UInt64) ?? 0) : 0
+        if singletonSize == 0, singletonExists {
+            try? fm.removeItem(at: singletonsURL)
+        }
+
+        guard outputSize > 0 || singletonSize > 0 else {
+            throw ExtractionError.emptyExtraction
+        }
+
+        progress?(0.9, "Counting extracted reads...")
+
+        let readCount = try await countBAMRecords(conversionInputBAM)
+
+        progress?(1.0, "Extracted \(readCount) reads from BAM by name")
+        logger.info("BAM read-ID extraction complete: \(readCount) reads from \(config.readIDs.count) requested names")
+
+        return ReadIDBAMExtractionResult(
+            outputURLs: outputSize > 0 ? [outputURL] : [],
+            readCount: readCount,
+            readNameFileURL: readNameFileURL,
+            singletonsURL: singletonSize > 0 ? singletonsURL : nil
+        )
+    }
+
+    /// Renames duplicate-QNAME records in a BAM (produced when
+    /// `includeSecondary` keeps primary + secondary/supplementary alignments
+    /// of the same read) so FASTQ/FASTA conversion doesn't silently collapse
+    /// them under one name. The first occurrence of a QNAME is left
+    /// unchanged; subsequent occurrences are suffixed `/sup` (supplementary,
+    /// flag 0x800) or `/sec` (secondary, flag 0x100).
+    private func disambiguateSecondaryRecordNames(inputBAM: URL, tempDir: URL) async throws -> URL {
+        let headerResult = try await toolRunner.run(.samtools, arguments: ["view", "-h", inputBAM.path], timeout: 7200)
+        guard headerResult.isSuccess else {
+            throw ExtractionError.samtoolsFailed(headerResult.stderr)
+        }
+
+        var seenNames = Set<String>()
+        var outputLines: [String] = []
+        for line in headerResult.stdout.split(separator: "\n", omittingEmptySubsequences: false) {
+            if line.hasPrefix("@") {
+                outputLines.append(String(line))
+                continue
+            }
+            guard !line.isEmpty else { continue }
+            var fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+            guard fields.count > 1, let flag = Int(fields[1]) else {
+                outputLines.append(String(line))
+                continue
+            }
+
+            let qname = fields[0]
+            if seenNames.contains(qname) {
+                if flag & 0x800 != 0 {
+                    fields[0] = "\(qname)/sup"
+                } else if flag & 0x100 != 0 {
+                    fields[0] = "\(qname)/sec"
+                }
+            } else {
+                seenNames.insert(qname)
+            }
+            outputLines.append(fields.joined(separator: "\t"))
+        }
+
+        let renamedSAM = tempDir.appendingPathComponent("renamed.sam")
+        try outputLines.joined(separator: "\n").write(to: renamedSAM, atomically: true, encoding: .utf8)
+
+        let renamedBAM = tempDir.appendingPathComponent("renamed.bam")
+        let convertResult = try await toolRunner.run(
+            .samtools,
+            arguments: ["view", "-b", "-o", renamedBAM.path, renamedSAM.path],
+            timeout: 7200
+        )
+        guard convertResult.isSuccess else {
+            throw ExtractionError.samtoolsFailed(convertResult.stderr)
+        }
+
+        return renamedBAM
+    }
+
+    /// Counts alignment records in a BAM via `samtools view -c`.
+    private func countBAMRecords(_ bamURL: URL) async throws -> Int {
+        let result = try await toolRunner.run(.samtools, arguments: ["view", "-c", bamURL.path], timeout: 600)
+        guard result.isSuccess else { return 0 }
+        return Int(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+    }
+
     // MARK: - Extract by BAM Region
 
     /// Extracts reads from a BAM file by genomic region via `samtools`.

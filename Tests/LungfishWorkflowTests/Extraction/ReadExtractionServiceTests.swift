@@ -86,4 +86,40 @@ final class ReadExtractionServiceTests: XCTestCase {
             )
         )
     }
+
+    // MARK: - ReadIDBAMExtractionConfig.flagFilter (pure, no I/O)
+
+    private func makeBAMConfig(
+        includeSecondary: Bool = false,
+        excludeDuplicates: Bool = false
+    ) -> ReadIDBAMExtractionConfig {
+        ReadIDBAMExtractionConfig(
+            bamURL: URL(fileURLWithPath: "/tmp/fake.bam"),
+            readIDs: ["read1"],
+            includeSecondary: includeSecondary,
+            excludeDuplicates: excludeDuplicates,
+            outputDirectory: URL(fileURLWithPath: "/tmp"),
+            outputBaseName: "out"
+        )
+    }
+
+    func testDefaultFlagFilterExcludesSecondaryAndSupplementaryOnly() {
+        // Bio gate: -F 0x900 default, dedup OFF by default.
+        XCTAssertEqual(makeBAMConfig().flagFilter, 0x900)
+    }
+
+    func testIncludeSecondaryDropsTheSecondarySupplementaryFilterBits() {
+        XCTAssertEqual(makeBAMConfig(includeSecondary: true).flagFilter, 0)
+    }
+
+    func testExcludeDuplicatesAddsTheDuplicateFilterBit() {
+        XCTAssertEqual(makeBAMConfig(excludeDuplicates: true).flagFilter, 0x900 | 0x400)
+    }
+
+    func testIncludeSecondaryAndExcludeDuplicatesCombinedFilter() {
+        XCTAssertEqual(
+            makeBAMConfig(includeSecondary: true, excludeDuplicates: true).flagFilter,
+            0x400
+        )
+    }
 }

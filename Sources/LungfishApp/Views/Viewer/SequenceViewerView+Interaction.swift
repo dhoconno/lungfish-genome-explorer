@@ -6,6 +6,7 @@ import AppKit
 import SwiftUI
 import LungfishCore
 import LungfishIO
+import LungfishKit
 import UniformTypeIdentifiers
 import Quartz
 import PDFKit
@@ -613,6 +614,13 @@ extension SequenceViewerView {
         let location = convert(event.locationInWindow, from: nil)
         contextMenuGenomicPosition = clampedContextMenuPosition(for: location, frame: frame)
 
+        // Read track right-click takes priority over annotation/selection menus:
+        // if the cursor is over a read, show the read-selection actions menu.
+        if let read = readAtPoint(location), let readMenu = buildReadContextMenu(for: read) {
+            NSMenu.popUpContextMenu(readMenu, with: event, for: self)
+            return
+        }
+
         // Variant context menu takes priority over generic annotation menus.
         let hoveredVariantResult = genotypeTooltipAtPoint(location)?.variantSearchResult
         if let variant = variantAtPoint(location),
@@ -670,6 +678,57 @@ extension SequenceViewerView {
 
         // No selection - show general context menu
         showGeneralContextMenu(at: event)
+    }
+
+    // MARK: - Read Selection Context Menu
+
+    /// Builds the read-track right-click context menu for the read under the
+    /// cursor, updating the selection first when the right-clicked read isn't
+    /// already part of it — matching the existing table right-click-selects
+    /// convention elsewhere in the app. Returns `nil` when `read` is `nil`
+    /// (caller falls through to the annotation/selection/general menus).
+    ///
+    /// Exposed as a plain (non-private) method so it can be driven directly
+    /// from tests via `testBuildReadContextMenu(forRead:)`, without needing
+    /// to synthesize `NSEvent`/pixel coordinates.
+    func buildReadContextMenu(for read: AlignedRead?) -> NSMenu? {
+        guard let read else { return nil }
+
+        if !selectedReadIDs.contains(read.id) {
+            selectedReadIDs = [read.id]
+            setNeedsDisplay(bounds)
+            updateSelectionStatus()
+        }
+
+        let reads = selectedReads
+        let handlers = ReadSelectionActionHandlers(
+            onCopyAsFASTA: { [weak self] in self?.copySelectedReadsAsFASTA(to: .general) },
+            onExtractReads: { [weak self] in self?.viewController?.extractSelectedReads(reads) }
+        )
+        return ReadSelectionActionMenuBuilder.buildMenu(selectionCount: reads.count, handlers: handlers)
+    }
+
+    /// Formats the currently selected reads as aligned-orientation FASTA and
+    /// writes the result to `pasteboard`. When one or more selected reads are
+    /// skipped (empty/`"*"` SEQ, e.g. secondary alignments), reports the skip
+    /// count via the status bar rather than a blocking alert.
+    func copySelectedReadsAsFASTA(to pasteboard: NSPasteboard) {
+        let reads = selectedReads
+        guard !reads.isEmpty else { return }
+
+        let result = AlignedReadFASTAFormatter.format(reads)
+        guard !result.fasta.isEmpty else {
+            viewController?.reportReadCopySkip(skippedCount: result.skippedCount, copiedCount: 0)
+            return
+        }
+
+        pasteboard.clearContents()
+        pasteboard.setString(result.fasta, forType: .string)
+
+        if result.skippedCount > 0 {
+            let copiedCount = reads.count - result.skippedCount
+            viewController?.reportReadCopySkip(skippedCount: result.skippedCount, copiedCount: copiedCount)
+        }
     }
 
     func alignmentFileContextMenu(at location: NSPoint) -> NSMenu? {

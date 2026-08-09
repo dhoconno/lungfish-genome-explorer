@@ -91,14 +91,20 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("ids"), help: "Path to read ID file (one ID per line, for --by-id)")
     var idsFile: String?
 
-    @Option(name: .customLong("source"), help: "Source FASTQ file(s). Repeat for paired-end. (for --by-id)")
+    @Option(name: .customLong("source"), help: "Source FASTQ file(s). Repeat for paired-end. Mutually exclusive with --bam. (for --by-id)")
     var sourceFiles: [String] = []
 
-    @Flag(name: .customLong("keep-read-pairs"), help: "Include both mates when either matches (for --by-id)")
+    @Flag(name: .customLong("keep-read-pairs"), help: "Include both mates when either matches (for --by-id --source; automatic in --by-id --bam mode)")
     var keepReadPairs: Bool = false
 
-    @Flag(name: .customLong("no-keep-read-pairs"), help: "Extract only exact read IDs without pairing (for --by-id)")
+    @Flag(name: .customLong("no-keep-read-pairs"), help: "Extract only exact read IDs without pairing (for --by-id --source only; a validation error in --by-id --bam mode, where pairing by QNAME is automatic and cannot be disabled)")
     var noKeepReadPairs: Bool = false
+
+    @Flag(name: .customLong("include-secondary"), help: "Include secondary/supplementary alignments, name-disambiguated with /sup or /sec (for --by-id --bam only)")
+    var includeSecondaryFlag: Bool = false
+
+    @Flag(name: .customLong("exclude-duplicates"), help: "Exclude PCR/optical duplicate-flagged reads -F 0x400 (for --by-id --bam only; duplicates are INCLUDED by default)")
+    var excludeDuplicatesFlag: Bool = false
 
     // MARK: - By-Region Options
 
@@ -211,11 +217,49 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
             guard idsFile != nil else {
                 throw CLIError.validationFailed(errors: ["--ids is required with --by-id"])
             }
-            guard !sourceFiles.isEmpty else {
-                throw CLIError.validationFailed(errors: ["At least one --source file is required with --by-id"])
+
+            let hasSource = !sourceFiles.isEmpty
+            let hasBam = bamFile != nil
+            guard hasSource || hasBam else {
+                throw CLIError.validationFailed(errors: [
+                    "--by-id requires either at least one --source file or --bam"
+                ])
             }
+            guard !(hasSource && hasBam) else {
+                throw CLIError.validationFailed(errors: [
+                    "--source and --bam are mutually exclusive with --by-id — choose a FASTQ source (--source) or a BAM source (--bam), not both"
+                ])
+            }
+
             if keepReadPairs && noKeepReadPairs {
                 throw CLIError.validationFailed(errors: ["--keep-read-pairs and --no-keep-read-pairs are mutually exclusive"])
+            }
+
+            if hasBam {
+                // Pairing by QNAME is automatic in BAM mode (samtools view -N
+                // matches mates regardless); there is no way to opt out of
+                // it, so --no-keep-read-pairs is a validation error here
+                // rather than being silently reinterpreted/ignored.
+                if noKeepReadPairs {
+                    throw CLIError.validationFailed(errors: [
+                        "--no-keep-read-pairs is not supported with --by-id --bam — mate pairing by QNAME is automatic and cannot be disabled in BAM mode"
+                    ])
+                }
+            } else {
+                if includeSecondaryFlag {
+                    throw CLIError.validationFailed(errors: [
+                        "--include-secondary requires --bam (for --by-id --source, secondary/supplementary filtering is not applicable)"
+                    ])
+                }
+                if excludeDuplicatesFlag {
+                    throw CLIError.validationFailed(errors: [
+                        "--exclude-duplicates requires --bam (for --by-id --source, duplicate filtering is not applicable)"
+                    ])
+                }
+            }
+
+            guard classifierFormat == "fastq" || classifierFormat == "fasta" else {
+                throw CLIError.validationFailed(errors: ["--read-format must be 'fastq' or 'fasta' (got '\(classifierFormat)')"])
             }
         }
 
@@ -456,6 +500,16 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
             throw CLIExitCode.inputError.exitCode
         }
 
+        if bamFile != nil {
+            return try await runByReadIDFromBAM(
+                service: service,
+                formatter: formatter,
+                outputDir: outputDir,
+                outputBase: outputBase,
+                readIDs: readIDs
+            )
+        }
+
         // Validate source files
         let sourceURLs = sourceFiles.map { URL(fileURLWithPath: $0) }
         for url in sourceURLs {
@@ -489,6 +543,73 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
                 print("\r\(formatter.info(message))", terminator: "")
             }
         }
+    }
+
+    /// BAM-source branch of `--by-id`: `samtools view -N <names.txt>` against
+    /// the given BAM, per the bio gate (`-F 0x900` default, dedup off by
+    /// default, singleton routing, `--include-secondary` name disambiguation).
+    /// Adapts `ReadIDBAMExtractionResult` into the common `ReadExtractionResult`
+    /// shape so the shared bundle-wrapping/summary-print code in `run()` works
+    /// unmodified across all four strategies.
+    private func runByReadIDFromBAM(
+        service: ReadExtractionService,
+        formatter: TerminalFormatter,
+        outputDir: URL,
+        outputBase: String,
+        readIDs: Set<String>
+    ) async throws -> ReadExtractionResult {
+        let fm = FileManager.default
+
+        let bamURL = URL(fileURLWithPath: bamFile!)
+        guard fm.fileExists(atPath: bamURL.path) else {
+            print(formatter.error("BAM file not found: \(bamFile!)"))
+            throw CLIExitCode.inputError.exitCode
+        }
+
+        let format: ReadIDBAMExtractionFormat = (classifierFormat == "fasta") ? .fasta : .fastq
+        let config = ReadIDBAMExtractionConfig(
+            bamURL: bamURL,
+            readIDs: readIDs,
+            includeSecondary: includeSecondaryFlag,
+            excludeDuplicates: excludeDuplicatesFlag,
+            format: format,
+            outputDirectory: outputDir,
+            outputBaseName: outputBase
+        )
+
+        print(formatter.header("Read ID Extraction (BAM source)"))
+        print("")
+        print(formatter.keyValueTable([
+            ("BAM file", bamURL.lastPathComponent),
+            ("Read IDs", "\(readIDs.count)"),
+            ("Include secondary/supplementary", includeSecondaryFlag ? "yes" : "no"),
+            ("Exclude duplicates", excludeDuplicatesFlag ? "yes" : "no"),
+            ("Format", format.rawValue),
+        ]))
+        print("")
+
+        let bamResult = try await service.extractByReadIDsFromBAM(config: config) { _, message in
+            if !globalOptions.quiet {
+                print("\r\(formatter.info(message))", terminator: "")
+            }
+        }
+
+        // Track the singleton sidecar as an output too — both for the
+        // provenance record (a run whose ENTIRE result set is singletons
+        // must still record at least one output) and so it isn't silently
+        // invisible to callers that only look at `fastqURLs`.
+        var outputURLs = bamResult.outputURLs
+        if let singletonsURL = bamResult.singletonsURL {
+            print("")
+            print(formatter.info("Singleton reads routed separately: \(singletonsURL.lastPathComponent)"))
+            outputURLs.append(singletonsURL)
+        }
+
+        return ReadExtractionResult(
+            fastqURLs: outputURLs,
+            readCount: bamResult.readCount,
+            pairedEnd: false
+        )
     }
 
     private func runByBAMRegion(
@@ -842,7 +963,14 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         var params: [String: String] = ["strategy": strategyLabel]
         if byId {
             params["idsFile"] = idsFile
-            params["sources"] = sourceFiles.joined(separator: ", ")
+            if bamFile != nil {
+                params["bamFile"] = bamFile
+                params["includeSecondary"] = includeSecondaryFlag ? "yes" : "no"
+                params["excludeDuplicates"] = excludeDuplicatesFlag ? "yes" : "no"
+                params["readFormat"] = classifierFormat
+            } else {
+                params["sources"] = sourceFiles.joined(separator: ", ")
+            }
         } else if byRegion {
             params["bamFile"] = bamFile
             params["regions"] = regions.joined(separator: ", ")
@@ -888,12 +1016,16 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
 
     private func provenanceInputRecords() -> [FileRecord] {
         if byId {
-            let sourceRecords = sourceFiles
-                .map { URL(fileURLWithPath: $0) }
-                .flatMap { provenanceRecords(for: $0, role: .input) }
             let idRecords = idsFile
                 .map { provenanceRecords(for: URL(fileURLWithPath: $0), format: .text, role: .input) }
                 ?? []
+            if let bamFile {
+                let bamRecords = provenanceRecords(for: URL(fileURLWithPath: bamFile), format: .bam, role: .input)
+                return bamRecords + idRecords
+            }
+            let sourceRecords = sourceFiles
+                .map { URL(fileURLWithPath: $0) }
+                .flatMap { provenanceRecords(for: $0, role: .input) }
             return sourceRecords + idRecords
         }
 
@@ -935,14 +1067,25 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
             if let idsFile {
                 command += ["--ids", idsFile]
             }
-            for sourceFile in sourceFiles {
-                command += ["--source", sourceFile]
-            }
-            if keepReadPairs {
-                command.append("--keep-read-pairs")
-            }
-            if noKeepReadPairs {
-                command.append("--no-keep-read-pairs")
+            if let bamFile {
+                command += ["--bam", bamFile]
+                if includeSecondaryFlag {
+                    command.append("--include-secondary")
+                }
+                if excludeDuplicatesFlag {
+                    command.append("--exclude-duplicates")
+                }
+                command += ["--read-format", classifierFormat]
+            } else {
+                for sourceFile in sourceFiles {
+                    command += ["--source", sourceFile]
+                }
+                if keepReadPairs {
+                    command.append("--keep-read-pairs")
+                }
+                if noKeepReadPairs {
+                    command.append("--no-keep-read-pairs")
+                }
             }
         } else if byRegion {
             command.append("--by-region")

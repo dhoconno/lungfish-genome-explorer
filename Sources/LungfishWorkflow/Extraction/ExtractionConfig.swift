@@ -141,6 +141,147 @@ public struct BAMRegionExtractionConfig: Sendable {
     }
 }
 
+// MARK: - ReadIDBAMExtractionConfig
+
+/// Configuration for extracting a set of reads by QNAME directly from a BAM
+/// file, via `samtools view -N <names.txt>` (falling back to FASTQ-derived
+/// extraction is the caller's responsibility — this config always targets a
+/// BAM source).
+///
+/// Used when the reads' original source FASTQ(s) cannot be resolved (e.g. a
+/// mapping-result viewport with no retained FASTQ bundle reference), so the
+/// BAM itself — from which the reads were selected — is the only available
+/// read source.
+///
+/// ## Bio-gate semantics
+///
+/// - Secondary (0x100) and supplementary (0x800) alignments are excluded by
+///   default (`samtools view -F 0x900`); set ``includeSecondary`` to include
+///   them, in which case duplicate-QNAME output records are disambiguated
+///   with a `/sup` or `/sec` suffix.
+/// - Mates return automatically because `samtools view -N` matches by QNAME
+///   — both mates of a pair come back together when either mate's QNAME is
+///   in the name file, with NO extra flag needed.
+/// - PCR/optical duplicates (0x400) are INCLUDED by default (unlike
+///   ``BAMRegionExtractionConfig``, whose `deduplicateReads` defaults to
+///   `true`) — read-selection extraction is about a user-identified set of
+///   specific reads, so silently dropping a duplicate-flagged one the user
+///   explicitly selected would be surprising. Set ``excludeDuplicates`` to
+///   opt into `-F 0x400` filtering.
+/// - Reads whose mate did not come back mapped/selected are routed to a
+///   `singletons.fastq` sidecar via `samtools fastq -s`, rather than being
+///   silently dropped.
+///
+/// ## Known limitation
+///
+/// A read pair that is FULLY unmapped (both mates unmapped) may not carry a
+/// `RNAME`/position and can be absent from a coordinate-sorted BAM's index
+/// range scan depending on how the BAM was produced; `samtools view -N`
+/// still matches by QNAME across the whole file, so this is a samtools/BAM
+/// production characteristic to document for users, not a Lungfish bug.
+///
+/// ## Thread Safety
+///
+/// `ReadIDBAMExtractionConfig` is a value type conforming to `Sendable`.
+public struct ReadIDBAMExtractionConfig: Sendable {
+
+    /// The BAM file to extract reads from.
+    public let bamURL: URL
+
+    /// The set of read QNAMEs to extract.
+    public let readIDs: Set<String>
+
+    /// When `true`, secondary/supplementary alignments matching a requested
+    /// QNAME are included (name-disambiguated with `/sup`/`/sec` suffixes).
+    /// Defaults to `false` (samtools' traditional `-F 0x900` behavior).
+    public let includeSecondary: Bool
+
+    /// When `true`, PCR/optical duplicate-flagged reads (0x400) are excluded.
+    /// Defaults to `false` — unlike region-based extraction, a user who
+    /// explicitly selected a duplicate-flagged read expects it back.
+    public let excludeDuplicates: Bool
+
+    /// Output read format: FASTQ (default) or FASTA.
+    public let format: ReadIDBAMExtractionFormat
+
+    /// The directory where output file(s) are written.
+    public let outputDirectory: URL
+
+    /// Base name for the output file(s), without extension.
+    public let outputBaseName: String
+
+    public init(
+        bamURL: URL,
+        readIDs: Set<String>,
+        includeSecondary: Bool = false,
+        excludeDuplicates: Bool = false,
+        format: ReadIDBAMExtractionFormat = .fastq,
+        outputDirectory: URL,
+        outputBaseName: String
+    ) {
+        self.bamURL = bamURL
+        self.readIDs = readIDs
+        self.includeSecondary = includeSecondary
+        self.excludeDuplicates = excludeDuplicates
+        self.format = format
+        self.outputDirectory = outputDirectory
+        self.outputBaseName = outputBaseName
+    }
+
+    /// The `samtools view -F` flag filter value for this configuration.
+    ///
+    /// Defaults to excluding secondary + supplementary (`0x900`); adds
+    /// duplicate exclusion (`0x400`) when ``excludeDuplicates`` is set.
+    /// When ``includeSecondary`` is `true`, secondary/supplementary are NOT
+    /// filtered (the caller disambiguates their output names instead).
+    public var flagFilter: Int {
+        var filter = 0
+        if !includeSecondary {
+            filter |= 0x900
+        }
+        if excludeDuplicates {
+            filter |= 0x400
+        }
+        return filter
+    }
+}
+
+/// Output format for ``ReadIDBAMExtractionConfig``-driven extraction.
+public enum ReadIDBAMExtractionFormat: String, Sendable {
+    case fastq
+    case fasta
+}
+
+/// Result of a BAM-source read-ID extraction, including the persisted name
+/// file (kept, not deleted, so a CLI replay of the operation is faithful)
+/// and any singleton reads routed to a separate sidecar file.
+public struct ReadIDBAMExtractionResult: Sendable {
+    /// Primary output file URL(s) — one for single-end/interleaved output.
+    public let outputURLs: [URL]
+
+    /// Number of reads extracted (paired mates count individually).
+    public let readCount: Int
+
+    /// URL of the persisted read-name file passed to `samtools view -N`.
+    public let readNameFileURL: URL
+
+    /// URL of the singleton sidecar file, if any singleton reads were
+    /// produced (a mate that did not itself match/return).
+    public let singletonsURL: URL?
+
+    public init(
+        outputURLs: [URL],
+        readCount: Int,
+        readNameFileURL: URL,
+        singletonsURL: URL? = nil
+    ) {
+        self.outputURLs = outputURLs
+        self.readCount = readCount
+        self.readNameFileURL = readNameFileURL
+        self.singletonsURL = singletonsURL
+    }
+}
+
 // MARK: - DatabaseExtractionConfig
 
 /// Configuration for extracting reads from a Lungfish SQLite database by tax ID or accession.

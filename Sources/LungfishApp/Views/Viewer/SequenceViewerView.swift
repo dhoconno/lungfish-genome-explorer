@@ -314,6 +314,16 @@ public class SequenceViewerView: NSView {
         return cachedPackedReads.first(where: { $0.read.id == firstID })?.read
     }
 
+    /// All currently selected reads (for multi-read actions like "Copy as
+    /// FASTA" / "Extract Reads…"). A single QNAME can map to more than one
+    /// record here when both mates of a pair are selected.
+    var selectedReads: [AlignedRead] {
+        guard !selectedReadIDs.isEmpty else { return [] }
+        return cachedPackedReads
+            .map(\.read)
+            .filter { selectedReadIDs.contains($0.id) }
+    }
+
     /// Cached packed reads for hit-testing (updated during draw).
     ///
     /// Whenever this is reassigned, `cachedPackedReadsByRow` is rebuilt to bucket
@@ -1353,6 +1363,24 @@ public class SequenceViewerView: NSView {
 
     func testSetSelectedReadIDs(_ ids: Set<UUID>) {
         selectedReadIDs = ids
+    }
+
+    var testSelectedReads: [AlignedRead] { selectedReads }
+
+    /// Test seam for the read-track right-click context menu, bypassing
+    /// `NSEvent`/pixel hit-testing. Pass the `AlignedRead` the test wants to
+    /// simulate a right-click landing on (or `nil` to simulate a miss).
+    /// Mirrors the selection-update + menu-build logic in
+    /// `buildReadContextMenu(for:)`.
+    func testBuildReadContextMenu(forRead read: AlignedRead?) -> NSMenu? {
+        buildReadContextMenu(for: read)
+    }
+
+    /// Test seam for "Copy as FASTA (aligned orientation)" without going
+    /// through the real `NSPasteboard.general` (which is process-global and
+    /// would make tests order-dependent). Writes to the pasteboard argument.
+    func testCopySelectedReadsAsFASTA(to pasteboard: NSPasteboard) {
+        copySelectedReadsAsFASTA(to: pasteboard)
     }
 
     func testShowHoverTooltip(text: String) {
