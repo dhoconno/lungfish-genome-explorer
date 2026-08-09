@@ -505,11 +505,11 @@ private struct InspectorReadRenderingSection: View {
 
                 Divider()
 
-                Toggle("Show matching bases as dots", isOn: $viewModel.showMismatches)
+                Toggle(viewModel.matchDotsToggleLabel, isOn: $viewModel.showMismatches)
                     .onChange(of: viewModel.showMismatches) { _, _ in
                         viewModel.onSettingsChanged?()
                     }
-                    .help("When on, matching bases are shown as dots and mismatches as colored letters. When off, all bases are shown as letters. Mismatches remain highlighted.")
+                    .help("When on, matching bases are shown as dots and mismatches as colored letters. When off, all bases are shown as letters. Mismatches remain highlighted. At high zoom (≥4 px/base), letters show automatically for legibility even when dots are on.")
 
                 Toggle("Show soft-clipped sequence", isOn: $viewModel.showSoftClips)
                     .onChange(of: viewModel.showSoftClips) { _, _ in

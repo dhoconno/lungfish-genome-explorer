@@ -20,6 +20,10 @@ extension SequenceViewerView {
     public override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
+        // Rect-based tooltips (e.g. the no-reference read-track badge) are re-registered every
+        // draw pass; clear stale rects first so they don't accumulate as content scrolls/redraws.
+        removeAllToolTips()
+
         guard let context = NSGraphicsContext.current?.cgContext else {
             sequenceViewerLogger.warning("SequenceViewerView.draw: No graphics context available")
             return
@@ -549,6 +553,22 @@ extension SequenceViewerView {
                             context: context, clipRect: clipRect,
                             contentHeight: contentHeight, scrollOffset: readScrollOffset
                         )
+                    }
+
+                    // Degradation cue: base-tier dots/letters classification needs either a
+                    // loaded reference or per-read MD tags. With neither, every base renders as
+                    // a mismatch letter — surface that so it doesn't read as "no mismatches found".
+                    if tier == .base {
+                        let hasReference = cachedBundleSequence != nil
+                        let hasMDTags = cachedPackedReads.contains { $0.read.mdTag != nil }
+                        if ReadTrackRenderer.shouldShowNoReferenceBadge(hasReference: hasReference, hasMDTags: hasMDTags) {
+                            drawTrackLoadingBadge(
+                                context: context,
+                                message: ReadTrackRenderer.noReferenceBadgeMessage,
+                                yOffset: rowsY + 2,
+                                tooltip: ReadTrackRenderer.noReferenceBadgeTooltip
+                            )
+                        }
                     }
                 } else {
                     cachedPackedReads = []

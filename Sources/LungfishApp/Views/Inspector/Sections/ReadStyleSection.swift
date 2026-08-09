@@ -34,6 +34,25 @@ public final class ReadStyleSectionViewModel {
     /// Mismatches (SNPs) are always displayed regardless of this setting.
     public var showMismatches: Bool = true
 
+    /// Current base-tier zoom scale (pixels per base) from the active viewer, when known.
+    /// Used only to compute `matchDotsToggleLabel`'s discoverability hint; `nil` means the
+    /// viewer hasn't reported a scale yet (e.g. no bundle loaded), in which case no hint shows.
+    public var currentPixelsPerBase: Double?
+
+    /// Label for the "Show matching bases as dots" toggle. Appends a discoverability hint when
+    /// the auto ≥4 px/base letters-at-high-zoom threshold (`ReadTrackRenderer.shouldRenderMatchAsDot`)
+    /// is currently overriding the toggle — i.e. the toggle is on, but letters are showing anyway
+    /// because the user is zoomed in far enough that dots would be illegible.
+    public var matchDotsToggleLabel: String {
+        let base = "Show matching bases as dots"
+        guard showMismatches, let pixelsPerBase = currentPixelsPerBase else { return base }
+        let dotsWouldRender = ReadTrackRenderer.shouldRenderMatchAsDot(
+            showMismatches: showMismatches,
+            pixelsPerBase: pixelsPerBase
+        )
+        return dotsWouldRender ? base : "\(base) (letters at max zoom)"
+    }
+
     /// Whether to show soft-clipped regions at reduced opacity.
     public var showSoftClips: Bool = true
 

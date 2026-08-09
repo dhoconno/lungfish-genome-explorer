@@ -1639,4 +1639,307 @@ final class ReadTrackRendererTests: XCTestCase {
 
         XCTAssertTrue(masked.isEmpty, "Sites below minDepth should not be masked")
     }
+
+    // MARK: - Item 4: Three-Valued Base Render Classifier
+
+    /// Helper: uppercased ASCII byte for a Character.
+    private func byte(_ c: Character) -> UInt8 {
+        Array(String(c).utf8)[0] & 0xDF
+    }
+
+    func testEqualsSignInSEQClassifiesAsMatch() {
+        // readByte == '=' (0x3D) is SAM-legal shorthand for "matches the reference base".
+        //
+        // This MUST go through `resolveBaseRender` — the exact function the production draw
+        // loop (`drawReadBases`) calls with the RAW, un-masked SEQ byte — not `classifyBase`
+        // directly. The draw loop masks with `& 0xDF` for every other byte, and '=' (0x3D) & 0xDF
+        // == 0x1D, which would silently bypass classifyBase's '=' guard if we masked first.
+        // Feeding raw 0x3D straight to classifyBase (as this test used to) exercises a byte the
+        // production path never actually passes, producing a false green over a real bug.
+        let refBytes: [UInt8] = Array("A".utf8)
+        let resolved = ReadTrackRenderer.resolveBaseRender(
+            rawReadByte: UInt8(ascii: "="),
+            cigarOp: .match,
+            refBytes: refBytes,
+            refPos: 0,
+            referenceStart: 0,
+            mdMismatchPositions: nil
+        )
+        XCTAssertEqual(resolved.renderClass, .match)
+        // Letter-mode rendering must show the reference base ('A'), never a literal '=' glyph
+        // and never the masked garbage byte (0x1D) that '= & 0xDF' produces.
+        XCTAssertEqual(resolved.upperByte, UInt8(ascii: "A"))
+    }
+
+    func testEqualsSignWithNoReferenceFallsBackToNeutralLetterByte() {
+        // No reference loaded: still classifies as match (SAM '=' is authoritative), and the
+        // letter-mode byte falls back to 'N' (renders as dot via the glyph-cache miss path)
+        // rather than leaking the masked 0x1D byte anywhere.
+        let resolved = ReadTrackRenderer.resolveBaseRender(
+            rawReadByte: UInt8(ascii: "="),
+            cigarOp: .match,
+            refBytes: nil,
+            refPos: 0,
+            referenceStart: 0,
+            mdMismatchPositions: nil
+        )
+        XCTAssertEqual(resolved.renderClass, .match)
+        XCTAssertEqual(resolved.upperByte, UInt8(ascii: "N"))
+    }
+
+    func testExplicitCigarEqAndXOverrideReferenceCompare() {
+        // Explicit CIGAR op wins regardless of what refBytes would say.
+        let refBytes: [UInt8] = Array("A".utf8)
+
+        // seqMatch (=) forces match even though refBytes would disagree (byte differs).
+        let forcedMatch = ReadTrackRenderer.classifyBase(
+            readByte: byte("T"),
+            cigarOp: .seqMatch,
+            refBytes: refBytes,
+            refPos: 0,
+            referenceStart: 0,
+            mdMismatchPositions: nil
+        )
+        XCTAssertEqual(forcedMatch, .match)
+
+        // seqMismatch (X) forces mismatch even though refBytes agree.
+        let forcedMismatch = ReadTrackRenderer.classifyBase(
+            readByte: byte("A"),
+            cigarOp: .seqMismatch,
+            refBytes: refBytes,
+            refPos: 0,
+            referenceStart: 0,
+            mdMismatchPositions: nil
+        )
+        XCTAssertEqual(forcedMismatch, .mismatch)
+    }
+
+    func testReadNNeverRendersAsDotEvenWhenMatching() {
+        // Reference is also N (an exact byte match) — still must be neutral N, not a dot.
+        let refBytes: [UInt8] = Array("N".utf8)
+        let result = ReadTrackRenderer.classifyBase(
+            readByte: byte("N"),
+            cigarOp: .match,
+            refBytes: refBytes,
+            refPos: 0,
+            referenceStart: 0,
+            mdMismatchPositions: nil
+        )
+        XCTAssertEqual(result, .neutralN)
+    }
+
+    func testReadNNeverRendersAsDotWhenReferenceDiffers() {
+        let refBytes: [UInt8] = Array("A".utf8)
+        let result = ReadTrackRenderer.classifyBase(
+            readByte: byte("N"),
+            cigarOp: .match,
+            refBytes: refBytes,
+            refPos: 0,
+            referenceStart: 0,
+            mdMismatchPositions: nil
+        )
+        XCTAssertEqual(result, .neutralN)
+    }
+
+    func testResolveBaseRenderHandlesRawNAndLowercaseNThroughRealPath() {
+        // Unlike '=', raw 'N' (0x4E) and 'n' (0x6E) both mask cleanly under & 0xDF to 0x4E, so
+        // this path was never broken — but confirm resolveBaseRender (what production actually
+        // calls) gets it right end-to-end for both cases, including the letter byte used to draw
+        // the neutral N glyph.
+        let refBytes: [UInt8] = Array("A".utf8)
+
+        let upperN = ReadTrackRenderer.resolveBaseRender(
+            rawReadByte: UInt8(ascii: "N"),
+            cigarOp: .match,
+            refBytes: refBytes,
+            refPos: 0,
+            referenceStart: 0,
+            mdMismatchPositions: nil
+        )
+        XCTAssertEqual(upperN.renderClass, .neutralN)
+        XCTAssertEqual(upperN.upperByte, UInt8(ascii: "N"))
+
+        let lowerN = ReadTrackRenderer.resolveBaseRender(
+            rawReadByte: UInt8(ascii: "n"),
+            cigarOp: .match,
+            refBytes: refBytes,
+            refPos: 0,
+            referenceStart: 0,
+            mdMismatchPositions: nil
+        )
+        XCTAssertEqual(lowerN.renderClass, .neutralN)
+        XCTAssertEqual(lowerN.upperByte, UInt8(ascii: "N"))
+    }
+
+    func testReferenceNIsNoCallNeutralNotMismatch() {
+        // Read base is a concrete call (A) but reference is N (assembly gap) — no-call, not mismatch.
+        let refBytes: [UInt8] = Array("N".utf8)
+        let result = ReadTrackRenderer.classifyBase(
+            readByte: byte("A"),
+            cigarOp: .match,
+            refBytes: refBytes,
+            refPos: 0,
+            referenceStart: 0,
+            mdMismatchPositions: nil
+        )
+        XCTAssertEqual(result, .match, "Reference N is a no-call: should not render as a false mismatch")
+    }
+
+    func testNonACGTUReferenceByteIsNoCall() {
+        // Reference byte is some non-ACGTU, non-IUPAC junk (e.g. '-' gap character) — no-call.
+        let refBytes: [UInt8] = Array("-".utf8)
+        let result = ReadTrackRenderer.classifyBase(
+            readByte: byte("A"),
+            cigarOp: .match,
+            refBytes: refBytes,
+            refPos: 0,
+            referenceStart: 0,
+            mdMismatchPositions: nil
+        )
+        XCTAssertEqual(result, .match, "Non-ACGTU reference byte should be treated as no-call, not a mismatch")
+    }
+
+    func testIUPACRefCodesDocumentedLimitation() {
+        // IUPAC ambiguity codes ARE handled cheaply (byte-switch, no allocation): a read base
+        // contained in the ref code's expansion classifies as MATCH. This is not a limitation —
+        // named to make the behavior explicit and regression-guarded.
+        // R = A or G
+        let refBytes: [UInt8] = Array("R".utf8)
+        let matchA = ReadTrackRenderer.classifyBase(
+            readByte: byte("A"),
+            cigarOp: .match,
+            refBytes: refBytes,
+            refPos: 0,
+            referenceStart: 0,
+            mdMismatchPositions: nil
+        )
+        XCTAssertEqual(matchA, .match, "A is a valid expansion of IUPAC code R (A/G)")
+
+        let matchG = ReadTrackRenderer.classifyBase(
+            readByte: byte("G"),
+            cigarOp: .match,
+            refBytes: refBytes,
+            refPos: 0,
+            referenceStart: 0,
+            mdMismatchPositions: nil
+        )
+        XCTAssertEqual(matchG, .match, "G is a valid expansion of IUPAC code R (A/G)")
+
+        let mismatchC = ReadTrackRenderer.classifyBase(
+            readByte: byte("C"),
+            cigarOp: .match,
+            refBytes: refBytes,
+            refPos: 0,
+            referenceStart: 0,
+            mdMismatchPositions: nil
+        )
+        XCTAssertEqual(mismatchC, .mismatch, "C is not in the expansion of IUPAC code R (A/G)")
+    }
+
+    func testRefBytesWindowMissFallsBackToMDTag() {
+        // referenceStart > 0 and refPos maps outside refBytes bounds -> fall back to MD tag.
+        let refBytes: [UInt8] = Array("AAAA".utf8) // covers referenceStart..<referenceStart+4
+        let mdMismatchPositions: Set<Int> = [500]
+
+        // refPos=500 is outside the refBytes window (referenceStart=100, count=4 -> covers 100..<104)
+        let result = ReadTrackRenderer.classifyBase(
+            readByte: byte("T"),
+            cigarOp: .match,
+            refBytes: refBytes,
+            refPos: 500,
+            referenceStart: 100,
+            mdMismatchPositions: mdMismatchPositions
+        )
+        XCTAssertEqual(result, .mismatch, "Position present in MD mismatch set should classify as mismatch")
+
+        let matchResult = ReadTrackRenderer.classifyBase(
+            readByte: byte("T"),
+            cigarOp: .match,
+            refBytes: refBytes,
+            refPos: 501,
+            referenceStart: 100,
+            mdMismatchPositions: mdMismatchPositions
+        )
+        XCTAssertEqual(matchResult, .match, "Position absent from MD mismatch set should classify as match")
+    }
+
+    func testNoReferenceNoMDTagClassifiesAllAsMismatch() {
+        // No refBytes and no MD tag: no reliable reference context, surface identity as mismatch letter.
+        let result = ReadTrackRenderer.classifyBase(
+            readByte: byte("A"),
+            cigarOp: .match,
+            refBytes: nil,
+            refPos: 100,
+            referenceStart: 0,
+            mdMismatchPositions: nil
+        )
+        XCTAssertEqual(result, .mismatch)
+    }
+
+    func testNoReferenceNoMDTagStillClassifiesReadNAsNeutral() {
+        // Even under total reference blackout, an N base must stay neutral, never a dot/mismatch letter
+        // conflated with real mismatches -- though visually it still renders as a letter either way.
+        let result = ReadTrackRenderer.classifyBase(
+            readByte: byte("N"),
+            cigarOp: .match,
+            refBytes: nil,
+            refPos: 100,
+            referenceStart: 0,
+            mdMismatchPositions: nil
+        )
+        XCTAssertEqual(result, .neutralN)
+    }
+
+    func testMDFallbackRespectsDeletionRuns() {
+        // MD "5^AAA5" — deletion run consumes 3 ref bases without emitting mismatch positions from
+        // the digit-run parser; positions after the deletion should not be misclassified as mismatch.
+        let mdPositions = ReadTrackRenderer.mismatchPositionsFromMDTag("5^AAA5", readStart: 100)
+        // No explicit mismatches recorded in this MD string.
+        XCTAssertTrue(mdPositions.isEmpty)
+
+        let result = ReadTrackRenderer.classifyBase(
+            readByte: byte("A"),
+            cigarOp: .match,
+            refBytes: nil,
+            refPos: 108, // past the deletion run, still a "match" per absent mdPositions
+            referenceStart: 0,
+            mdMismatchPositions: mdPositions
+        )
+        XCTAssertEqual(result, .match)
+    }
+
+    // MARK: - Item 4: Degradation Badge Condition
+
+    func testNoReferenceNoMDBadgeConditionTrue() {
+        XCTAssertTrue(ReadTrackRenderer.shouldShowNoReferenceBadge(hasReference: false, hasMDTags: false))
+    }
+
+    func testNoReferenceNoMDBadgeMessageShown() {
+        XCTAssertTrue(ReadTrackRenderer.shouldShowNoReferenceBadge(hasReference: false, hasMDTags: false))
+        XCTAssertEqual(
+            ReadTrackRenderer.noReferenceBadgeMessage,
+            "No reference: all bases shown as mismatches"
+        )
+        XCTAssertTrue(
+            ReadTrackRenderer.noReferenceBadgeTooltip.contains("reference"),
+            "Tooltip should mention loading a reference bundle"
+        )
+        XCTAssertTrue(
+            ReadTrackRenderer.noReferenceBadgeTooltip.lowercased().contains("calmd")
+                || ReadTrackRenderer.noReferenceBadgeTooltip.lowercased().contains("md tag"),
+            "Tooltip should mention re-running with samtools calmd / MD tags as actionable detail"
+        )
+    }
+
+    func testBadgeAbsentWhenReferenceLoaded() {
+        XCTAssertFalse(ReadTrackRenderer.shouldShowNoReferenceBadge(hasReference: true, hasMDTags: false))
+    }
+
+    func testBadgeAbsentWhenMDTagsPresent() {
+        XCTAssertFalse(ReadTrackRenderer.shouldShowNoReferenceBadge(hasReference: false, hasMDTags: true))
+    }
+
+    func testBadgeAbsentWhenBothReferenceAndMDPresent() {
+        XCTAssertFalse(ReadTrackRenderer.shouldShowNoReferenceBadge(hasReference: true, hasMDTags: true))
+    }
 }

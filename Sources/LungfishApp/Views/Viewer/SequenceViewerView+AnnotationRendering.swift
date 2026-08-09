@@ -845,7 +845,13 @@ extension SequenceViewerView {
     }
 
     /// Draws a compact loading badge anchored within a track region.
-    func drawTrackLoadingBadge(context: CGContext, message: String, yOffset: CGFloat) {
+    ///
+    /// - Parameter tooltip: When non-nil, registers a hover tooltip over the badge's rect with
+    ///   this text (additive — existing call sites that omit it are unaffected). Each call
+    ///   replaces any tooltip previously registered by this same call site's badge, since the
+    ///   badge redraws at the same rect every frame; callers that stop showing the badge should
+    ///   ensure `removeAllToolTips()` or a fresh draw pass clears stale rects.
+    func drawTrackLoadingBadge(context: CGContext, message: String, yOffset: CGFloat, tooltip: String? = nil) {
         let textAttrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 10, weight: .medium),
             .foregroundColor: NSColor.secondaryLabelColor,
@@ -866,6 +872,10 @@ extension SequenceViewerView {
             width: badgeWidth,
             height: badgeHeight
         )
+
+        if let tooltip {
+            _ = addToolTip(badgeRect, owner: tooltip as NSString, userData: nil)
+        }
 
         context.saveGState()
         context.setFillColor(NSColor.windowBackgroundColor.withAlphaComponent(0.92).cgColor)

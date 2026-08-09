@@ -400,4 +400,39 @@ final class ReadStyleSectionViewModelTests: XCTestCase {
         XCTAssertTrue(vm.selectedReadGroups.contains("RG3"))
         XCTAssertFalse(vm.selectedReadGroups.contains("RG2"))
     }
+
+    // MARK: - Item 4: Dots Toggle Discoverability Hint
+
+    func testInspectorToggleLabelShowsLettersAtMaxZoomHint() {
+        let vm = ReadStyleSectionViewModel()
+        vm.showMismatches = true
+        // At >= 4.0 px/base the auto-threshold overrides dots with letters.
+        vm.currentPixelsPerBase = 4.0
+
+        XCTAssertEqual(vm.matchDotsToggleLabel, "Show matching bases as dots (letters at max zoom)")
+    }
+
+    func testInspectorToggleLabelOmitsHintWhenZoomedOut() {
+        let vm = ReadStyleSectionViewModel()
+        vm.showMismatches = true
+        vm.currentPixelsPerBase = 1.0
+
+        XCTAssertEqual(vm.matchDotsToggleLabel, "Show matching bases as dots")
+    }
+
+    func testInspectorToggleLabelOmitsHintWhenDotsAlreadyOff() {
+        let vm = ReadStyleSectionViewModel()
+        vm.showMismatches = false
+        vm.currentPixelsPerBase = 8.0
+
+        XCTAssertEqual(vm.matchDotsToggleLabel, "Show matching bases as dots")
+    }
+
+    func testInspectorToggleLabelOmitsHintWhenScaleUnknown() {
+        let vm = ReadStyleSectionViewModel()
+        vm.showMismatches = true
+        vm.currentPixelsPerBase = nil
+
+        XCTAssertEqual(vm.matchDotsToggleLabel, "Show matching bases as dots")
+    }
 }
