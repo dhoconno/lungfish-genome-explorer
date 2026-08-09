@@ -68,6 +68,46 @@ final class CondaLockfileServiceTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.provenanceURL.path))
     }
 
+    /// R3-R3ML-16: parsePackageSpec did `withoutChannel.split(separator: "=",
+    /// maxSplits: 1).map(String.init)` then unconditionally indexed `parts[0]`.
+    /// String.split on an empty string returns [], not [""], so parts[0] traps if
+    /// spec is empty. The call site is
+    /// `parsePackageSpec(requirement.installPackages.first ?? requirement.id)`, so an
+    /// empty `id` with no `installPackages` (installPackages can legitimately be []
+    /// per PluginPack.swift's PackToolRequirement.init default) reaches the crash.
+    func testWriteLockfileDoesNotCrashOnEmptyRequirementIDAndNoInstallPackages() throws {
+        let pack = PluginPack(
+            id: "edge-case-pack",
+            name: "Edge Case Pack",
+            description: "Pack with an empty requirement id and no installPackages",
+            sfSymbol: "wrench",
+            packages: [],
+            category: "Testing",
+            requirements: [
+                PackToolRequirement(
+                    id: "",
+                    displayName: "Empty ID Tool",
+                    environment: "empty-id-tool",
+                    installPackages: nil,
+                    executables: ["empty-id-tool"]
+                ),
+            ]
+        )
+        let output = tempRoot.appendingPathComponent("edge-case-lock.yml")
+
+        let result = try CondaLockfileService().writeLockfile(
+            for: pack,
+            to: output,
+            commandLine: ["lungfish", "conda", "lock", "--pack", "edge-case-pack", "--output", output.path]
+        )
+
+        XCTAssertEqual(result.lockfileURL, output)
+        let yaml = try String(contentsOf: output, encoding: .utf8)
+        // The empty spec falls back to `(spec, nil)` -- name is the (empty) spec
+        // itself, so the emitted line is "  - name: " with nothing after the colon.
+        XCTAssertTrue(yaml.contains("  - name: \n"), "expected an empty-but-present name line, got:\n\(yaml)")
+    }
+
     func testInstallFromLockfilePlansExactEnvironmentCreatesAndWritesProvenance() async throws {
         let customCondaRoot = tempRoot.appendingPathComponent("conda", isDirectory: true)
         let lockfile = customCondaRoot
