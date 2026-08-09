@@ -440,6 +440,17 @@ final class SidebarScanSnapshotParityTests: XCTestCase {
         try "doomed".write(to: doomed, atomically: true, encoding: .utf8)
 
         let sidebar = openedSidebar()
+
+        // `openedSidebar()` registers a REAL FSEvents watcher on `projectURL`
+        // (3s coalescing latency). This test drives every scan manually through
+        // the gate below, so that live watcher is pure noise: under suite-level
+        // load a delayed callback from this test's own `write`/`removeItem` can
+        // fire mid-test, run an uncontrolled third `updateSidebar` outside the
+        // gate's ordering, and race the assertion below. Tear down just this
+        // project's watcher (not the process-wide coordinator) so the only scans
+        // that can run are the two this test explicitly starts and orders.
+        ProjectFilesystemRefreshCoordinator.shared.testingSimulateRootChanged(projectURL: projectURL)
+
         func importsTitles() -> [String] {
             sidebar.rootItems
                 .first { $0.title == "Imports" }?
