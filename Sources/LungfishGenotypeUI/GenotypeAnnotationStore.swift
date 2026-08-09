@@ -336,6 +336,26 @@ public final class GenotypeAnnotationStore {
         )
     }
 
+    // MARK: - Lightweight status/annotation mutators (R3-R3ML-9)
+    //
+    // confirmCall, setSampleStatus, setCallStatus, setCellHighlight, and addCellComment
+    // below mutate the in-memory sidecar directly and persist via the generic
+    // persist(action:) path, which retains the staleRevision optimistic-concurrency
+    // guard (safe against concurrent external writers) and an audit-log entry for
+    // every call. They intentionally do NOT build a
+    // GenotypeCallOverrideReplayPayload-style replay-and-verify step or the
+    // manualHaplotypeAssignment/callOverrideMutation audit sub-objects that
+    // mutateCallOverrides / replaceManualHaplotypeAssignments / transactMatrixMutation
+    // produce. Those heavier mutators exist for edits whose correctness depends on
+    // *how* an array was rewritten (reordering/replacing call-override or haplotype
+    // records), where a verified replay is the only way to confirm the mutation did
+    // what was intended. The mutators below are simple flag/annotation setters
+    // (status enums, highlight colors, free-text comments, confirm-in-place) whose
+    // effect is fully described by the audit entry's before/after fields already
+    // recorded here -- a replay-verification step would not catch any additional
+    // class of bug for this shape of edit. This is a deliberate scope boundary, not
+    // an oversight: full replay-audit provenance is reserved for array-reordering
+    // mutations, not status-flag mutations.
     func confirmCall(
         sample: String,
         locus: String,
