@@ -290,12 +290,22 @@ enum TranslationTrackRenderer {
         let visibleEnd = Int(frame.end)
         let centerY = yOffset + trackHeight / 2
 
+        let positions = result.aminoAcidPositions
+        // R3-R3H-8: a CDS translation that yields zero amino acids (e.g. a
+        // CDS annotation clipped at a chromosome boundary, or a
+        // malformed/truncated CDS from a GFF3/GenBank import, whose
+        // concatenated coding sequence is under 3bp) still produces a
+        // non-nil TranslationResult with an empty aminoAcidPositions array.
+        // `1..<positions.count` is an invalid Range when positions.count
+        // == 0 and traps with a fatal error; bail out before constructing
+        // it. Fewer than 2 positions also means there's nothing to connect.
+        guard positions.count > 1 else { return }
+
         context.saveGState()
         context.setStrokeColor(NSColor.tertiaryLabelColor.cgColor)
         context.setLineWidth(1)
         context.setLineDash(phase: 0, lengths: [3, 3])
 
-        let positions = result.aminoAcidPositions
         for i in 1..<positions.count {
             let prev = positions[i - 1]
             let curr = positions[i]
