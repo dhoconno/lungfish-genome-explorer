@@ -1,0 +1,47 @@
+# Repo Review & Refactor Campaign — Results
+
+**Date:** 2026-08-08 · **Branch:** `worktree-fable-repo-review` (76 commits over `main`/2c44d5f1) · **Status:** merge-ready pending user review; GUI smoke gate outstanding (needs interactive approval).
+
+Companion docs: spec `docs/superpowers/specs/2026-08-08-repo-review-refactor-design.md`, plan `docs/superpowers/plans/2026-08-08-repo-review-fix-campaign.md`, audit findings `docs/reports/2026-08-08-repo-audit-findings.md`, action-surface findings `docs/reports/2026-08-08-action-surface-findings.md`.
+
+## What shipped
+
+**Phase A — user-visible correctness (7 fixes).** A0 baseline guard violation (unsafe MainActor hop, ViewerViewController); F38 SQLite nil-destructor use-after-free (completed across all four AnnotationDatabase files in the final fix wave); F36 samtools pipe deadlock; F39 swallowed COMMIT failures in VCF import (propagates to GUI + CLI); F37 PBAA nextflow cancellation; F41 NAO-MGS miniBAM stale-write race; F34 interval-clustering transitive over-merge.
+
+**Phase B — responsiveness (11 fixes).** Sidebar scan off-main with surgical-update contract preserved (F5/F7, incl. the prior campaign's deferred design); NativeBundleBuilder (F17) and annotation import (F14) structurally off-main; viewer interaction reads async with generation guards (F4); tooltip hit-test indexing (F1/F2); provenance inspector async with rendered loading state (F6); FASTQ dialog scan async (F8); genotype matrix debounce (F21); concurrent plugin status checks (F15); extract-overlapping-reads error surfacing (F24); AI registry queries off-main (F12). Every off-main claim is guarded by a `!Thread.isMainThread` probe test and every race fix by a deterministic controlled-ordering regression test.
+
+**GB1 — user-reported GenBank merge failure (flagship).** Root cause: `ReferenceBundleMergeService` refused any bundle whose manifest carried annotations — which GenBank imports always do. The merge now builds through `NativeBundleBuilder` with annotation inputs, so GenBank+GenBank, GenBank+FASTA, and FASTA+FASTA merges succeed retaining every source's annotation tracks (collision-namespaced). Also closed: a fail-open hole for unreadable manifests (two-schema-aware), pre-build sequence-name collision detection, honest refusal copy for the still-unsupported payloads (variants/alignments — coordinate rebasing deferred as L), crash-recovery OperationMarker, structural off-main merge, and a manifest+Operations-log warning whenever an annotation track or record store cannot carry over. The user's mental model was right: `BundleManifest` is the generalized representation; the merge simply never used it.
+
+**Action-surface sweep (36 confirmed defects fixed via E2/E3/E4).** 104 user-triggerable actions traced; the defect family generalizing the GenBank bug (hardcoded bundle-kind lists) fixed via a `SidebarItemType.bundleCapabilities` capability map — MHC and five other bundle kinds now get their applicable context-menu actions; Export Sequences reports skipped items instead of silently dropping them; Extract Visible Region, zoom, export, drag-drop, wizard Run buttons, and 14 leaf-module actions gained correct enablement or feedback; the NAO-MGS accession-URL crash fixed.
+
+**Phase C — multi-bundle consistency.** Shared `MultiBundleRunMode`/`MultiBundleRunPolicy`/`MultiBundleRunModePicker`/`MultiBundleRunPlanner` in `LungfishKit`. Adoption set delivered: **Mapping** (per-bundle default with correct per-bundle @RG SM/ID/LB — fixing silent sample misattribution in pooled BAMs — pooled mode explicit with run-token naming and logged warning; sequential batch execution with race-safe cancellation); **short-read Assembly** (per-bundle via identity split with manifest-derived pairing, sequential fan-out, per-bundle operations; combined locked with documented reason); **MAFFT** (combine-locked, multi-input naming); **Workflow Builder** (explicit N−1-ignored disclosure); **Savont/pbaa** (per-bundle-locked, making existing iteration visible); **12S + Workflow Operations** (combine-locked, standardized summary); **ONT genotyping** (combine-locked with honest batch-semantics copy). CLI parity: `lungfish map`/`assemble` help now states multi-input semantics explicitly, pinned by CLIRegressionTests.
+
+**Documented exceptions (no picker, by design):** TaxTriage and Kraken2/EsViritu (already N-bundle-aware: pooled Nextflow run and per-sample batch respectively — picker retrofit is a round-2 item), long-read assembly (Flye/Hifiasm single-input by design), ViralRecon, BAM variant calling, Reassemble context action, IQ-TREE/primer-trim/BLAST drawer, import sheets (no bundle-selection input).
+
+**Phase D — structural.** Formatters consolidated in `LungfishKit` (F44/F45/F46); OperationCenter cancel hop per house rule (F54); conda-extract deprecation hint corrected + update-without-log sweep F26–F31 (F59); SRAService NCBI API-key resolution shared (F51).
+
+## Findings disposition
+
+- 56 audit findings confirmed → 41 fixed on this branch, 1 refuted post-acceptance, 14 deferred to round 2 (below).
+- **F32 refuted (deliberately not applied):** its 8 cited `update()`-without-`log()` sites are the VCF/BAM volatile-progress family; converting them would regress the intentional prior fix `cd79d8e1` ("Bound volatile import progress logging") and is pinned by `testAppDelegateVolatileImportProgressDoesNotUseUpdateWithLog`. The finder lacked that context.
+- 36 action-surface defects → all fixed; 4 stubs and 8 refuted claims recorded in the action-surface report.
+
+## Round-2 backlog (triaged safely-deferrable by the final whole-branch review)
+
+Structural: god-file splits (F47/F48/F55); `MultiBundleRunPlanner` adoption by the C2/C3 fan-outs (behavior shipped, shared helper unused — DRY debt) and consolidation of the two sequential-batch idioms; `presentWarning` dedup into LungfishKit; F53 shared SQLITE_TRANSIENT constant; F50 CSV parser dedup; remaining low-priority audit findings (F3, F9–F13, F16, F18, F20, F22, F23, F25, F33, F42, F43, F45 partial, F49, F52, F57, F58, F60).
+Behavioral: Kraken2/EsViritu picker retrofit; ONT genotyping per-sample execution split (product decision — picker currently honest about pooled batch); Go-to-Gene sync search (`AppDelegate+SequenceMenu.swift:135`, same class as F12); whole-batch cancel affordance for fan-outs; annotation-import cancel affordance (Task.detached severed the caller link; none existed before); GB1 follow-ups (GFF3 block-structure round-trip, no-manifest payload dirs, sanitizer sharing, record-store multi-value flattening, monotonic progress clamp).
+Test-tightening minors are itemized in the campaign ledger.
+
+## Verification
+
+- Per-task gates: every task passed an independent reviewer (Sonnet for routine, Opus for the five highest-risk diffs); 9 tasks required fix rounds, all converged ≤2 rounds. Reviewer catches that mattered: B1 incremental-scan race, B3 cosmetic off-main move, C2/C3 wrong-layer multi-bundle splits (bundle URLs vs resolved files — both redone), C6 dishonest picker copy, GB1 silent annotation-track drop, final-review F38 completion.
+- Final whole-branch review (Opus): READY-WITH-CONDITIONS; all conditions cleared by the final fix wave and this report.
+- Green bar: see final run record below. Campaign green-bar definition: XCTest failures ⊆ {`SRASearchIntegrationTests.testSingleAccessionViaENA` network flake}; 0 swift-testing failures.
+
+**Final full-suite run (commit 1608996a):** 12,602 XCTests executed, **0 failures**, 35 skipped (environmental gates); 561 swift-testing tests, **0 failures**; `swift test` exit 0. This exceeds the Phase 0 baseline (which itself carried the SRA network flake and the pre-existing guard-test failure fixed by A0). Two load-exposed flakes in campaign-new async tests surfaced during verification and were fixed (FSEvents watcher leaking into a race test's ordering; a 2s polling deadline too tight under full-suite load — 27 deadlines across 17 test files hardened to ≥10s). One pre-existing flake outside the campaign diff (`MappingViewportRoutingTests`, same short-deadline disease, also flaky on clean baseline) is filed as a follow-up, not touched.
+
+## Outstanding for the user
+
+1. **GUI smoke gate** — computer-use approval was auto-denied with nobody at the keyboard. The 10-step script (project create, dual GenBank-annotated bundle merge, sidebar/viewer/inspector/dialog/export checks) is in the campaign ledger; the final review confirmed nothing gates merge *safety* on it (all changes carry behavioral tests + threading probes), but it should be run before or shortly after merge. Note: the debug build is a bare executable at `.build/debug/Lungfish` (no `.app` wrapper).
+2. **Merge decision** — branch is left unmerged per campaign policy; `git merge worktree-fable-repo-review` from `main` when satisfied.
+3. Round 2/3 may run with remaining budget per the spec's Phase 5 (in progress at time of writing, if budget allowed).
