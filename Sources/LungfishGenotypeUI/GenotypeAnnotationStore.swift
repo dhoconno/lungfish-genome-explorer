@@ -386,19 +386,6 @@ public final class GenotypeAnnotationStore {
         try persist(action: "confirmCall")
     }
 
-    func undoLastOverride(author editAuthor: String? = nil) throws {
-        guard let last = sidecar.callOverrides.popLast() else { return }
-        let author = editAuthor ?? self.author
-        let timestamp = now()
-        sidecar.append(audit: .init(
-            action: "undoOverride", sample: last.sample, locus: last.locus, slot: last.slot,
-            before: last.overrideCall, after: last.originalCall,
-            color: nil, reason: nil, rationale: nil,
-            author: author, timestamp: timestamp
-        ))
-        try persist(action: "undoLastOverride")
-    }
-
     func setSampleStatus(
         _ value: GenotypeAnnotationSidecar.StatusValue,
         sample: String,
