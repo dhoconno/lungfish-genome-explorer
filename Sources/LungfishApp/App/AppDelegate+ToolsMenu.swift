@@ -1473,11 +1473,13 @@ extension AppDelegate {
 
         if let viewController = workflowBuilderWindowController?.window?.contentViewController as? WorkflowBuilderViewController {
             let sidebarController = sourceController?.mainSplitViewController?.sidebarController
+            let selectedFileURLs = sidebarController?.selectedFileURLs() ?? []
             viewController.configureRunContext(
                 projectURL: sidebarController?.currentProjectURL,
                 preferredSampleURL: sidebarController?.selectedFileURL,
                 windowStateScope: sourceController?.projectSession.windowStateScope,
-                isReadOnlyRecommended: sourceController?.projectSession.isReadOnlyRecommended == true
+                isReadOnlyRecommended: sourceController?.projectSession.isReadOnlyRecommended == true,
+                ignoredPreferredSampleSelectionCount: max(0, selectedFileURLs.count - 1)
             )
         }
 

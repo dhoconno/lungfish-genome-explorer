@@ -577,6 +577,50 @@ final class WorkflowBuilderAppIntegrationTests: XCTestCase {
         XCTAssertEqual(controller.graph.getNode(node.id)?.parameters["quality"], "30")
     }
 
+    // MARK: - MB-4: preferred-sample selection disclosure
+
+    func testPreferredSampleSelectionDisclosureIsNilWhenNoSelectionsWereIgnored() {
+        XCTAssertNil(
+            WorkflowBuilderViewController.preferredSampleSelectionDisclosure(
+                preferredSampleDisplayName: "SampleA",
+                ignoredSelectionCount: 0
+            )
+        )
+    }
+
+    func testPreferredSampleSelectionDisclosureNamesTheUsedSampleAndIgnoredCount() {
+        XCTAssertEqual(
+            WorkflowBuilderViewController.preferredSampleSelectionDisclosure(
+                preferredSampleDisplayName: "SampleA",
+                ignoredSelectionCount: 2
+            ),
+            "Using \"SampleA\"; 2 other selections ignored."
+        )
+    }
+
+    func testPreferredSampleSelectionDisclosureUsesSingularForOneIgnoredSelection() {
+        XCTAssertEqual(
+            WorkflowBuilderViewController.preferredSampleSelectionDisclosure(
+                preferredSampleDisplayName: "SampleA",
+                ignoredSelectionCount: 1
+            ),
+            "Using \"SampleA\"; 1 other selection ignored."
+        )
+    }
+
+    func testBuilderConfigureRunContextStoresIgnoredPreferredSampleSelectionCount() throws {
+        let controller = WorkflowBuilderViewController()
+        controller.loadViewIfNeeded()
+
+        controller.configureRunContext(
+            projectURL: try makeTemporaryDirectory().appendingPathComponent("Project.lungfish", isDirectory: true),
+            preferredSampleURL: nil,
+            ignoredPreferredSampleSelectionCount: 3
+        )
+
+        XCTAssertEqual(controller.ignoredPreferredSampleSelectionCount, 3)
+    }
+
     func testNodeViewLetsCanvasReceivePortClicksForConnectionsButHandlesCardClicks() throws {
         let nodeView = WorkflowNodeView(node: WorkflowNode(type: .fastqBundleInput, position: .zero))
         nodeView.frame = NSRect(origin: .zero, size: nodeView.intrinsicContentSize)

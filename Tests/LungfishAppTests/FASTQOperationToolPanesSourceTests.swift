@@ -70,6 +70,16 @@ final class FASTQOperationToolPanesSourceTests: XCTestCase {
         XCTAssertTrue(source.contains("MultiBundleRunModePicker(\n                    bundleCount: state.selectedInputURLs.count,\n                    policy: Self.mafftMultiBundleRunPolicy,\n                    selection: $mafftMultiBundleRunMode\n                )"))
     }
 
+    func testSavontAndPbaaPanesRenderPerBundleLockedMultiBundleRunModePicker() throws {
+        let source = try String(contentsOf: toolPanesSourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("clusteringMultiBundleRunPolicy = MultiBundleRunPolicy("))
+        XCTAssertTrue(source.contains("allowedModes: [.perBundle]"))
+        XCTAssertTrue(source.contains("lockReason: \"Runs once per bundle\""))
+        XCTAssertTrue(source.contains("policy: Self.clusteringMultiBundleRunPolicy,\n                    selection: $pbaaMultiBundleRunMode"))
+        XCTAssertTrue(source.contains("policy: Self.clusteringMultiBundleRunPolicy,\n                    selection: $savontMultiBundleRunMode"))
+    }
+
     func testSavontPaneExposesCuratedPrimaryAndAdvancedControlsWithoutRawArguments() throws {
         let source = try String(contentsOf: toolPanesSourceURL, encoding: .utf8)
 

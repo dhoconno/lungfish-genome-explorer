@@ -576,6 +576,68 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         )
     }
 
+    // MARK: - MB-4: standardized combine-locked multi-bundle picker
+
+    func testShowsMultiBundleRunModePickerForTwelveSAmpliconMatching() {
+        let state = WorkflowOperationDialogState(
+            projectURL: URL(fileURLWithPath: "/tmp/project", isDirectory: true),
+            selectedReadURLs: [
+                URL(fileURLWithPath: "/tmp/project/A.lungfishfastq", isDirectory: true),
+                URL(fileURLWithPath: "/tmp/project/B.lungfishfastq", isDirectory: true),
+            ]
+        )
+        state.testingReplaceTools([
+            WorkflowOperationTool(
+                id: "12s-test",
+                title: "12S Amplicon Matching",
+                subtitle: "Fixture",
+                kind: .twelveSAmpliconMatching,
+                availability: .available
+            ),
+        ])
+        state.selectTool("12s-test")
+
+        XCTAssertTrue(state.showsMultiBundleRunModePicker)
+    }
+
+    func testHidesMultiBundleRunModePickerForWorkflowPackageTools() {
+        let state = WorkflowOperationDialogState(
+            projectURL: URL(fileURLWithPath: "/tmp/project", isDirectory: true),
+            selectedReadURLs: [
+                URL(fileURLWithPath: "/tmp/project/A.lungfishfastq", isDirectory: true),
+                URL(fileURLWithPath: "/tmp/project/B.lungfishfastq", isDirectory: true),
+            ]
+        )
+        state.testingReplaceTools([
+            WorkflowOperationTool(
+                id: "package-test",
+                title: "Package Test",
+                subtitle: "Fixture package",
+                kind: .workflowPackage(makeRunnableWorkflowPackage()),
+                availability: .available
+            ),
+        ])
+        state.selectTool("package-test")
+
+        XCTAssertFalse(state.showsMultiBundleRunModePicker)
+    }
+
+    func testWorkflowOperationsDialogRendersCombineLockedMultiBundlePickerAdoptingBatchSummary() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationsDialog.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("import LungfishKit"))
+        XCTAssertTrue(source.contains("multiBundleRunPolicy = MultiBundleRunPolicy("))
+        XCTAssertTrue(source.contains("allowedModes: [.combined]"))
+        XCTAssertTrue(source.contains("defaultMode: .combined"))
+        XCTAssertTrue(source.contains("lockReason: \"They will run as one batch.\""))
+        XCTAssertTrue(source.contains("if state.showsMultiBundleRunModePicker {"))
+        XCTAssertTrue(source.contains("MultiBundleRunModePicker(\n                    bundleCount: state.selectedReadURLs.count,\n                    policy: Self.multiBundleRunPolicy,\n                    selection: $multiBundleRunMode\n                )"))
+    }
+
     func testONTGenotypingLaunchRequestUsesConfiguredSimpleOptions() throws {
         let defaults = try makeDefaults()
         let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)

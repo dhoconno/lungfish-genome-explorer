@@ -266,6 +266,8 @@ private struct FASTQOperationInputsSection: View {
 private struct FASTQOperationPrimarySettingsSection: View {
     @Bindable var state: FASTQOperationDialogState
     @State private var mafftMultiBundleRunMode: MultiBundleRunMode = .combined
+    @State private var pbaaMultiBundleRunMode: MultiBundleRunMode = .perBundle
+    @State private var savontMultiBundleRunMode: MultiBundleRunMode = .perBundle
 
     /// MAFFT always pools every selected input into one alignment run (MB-3):
     /// N-sequence MSA has no per-bundle interpretation.
@@ -273,6 +275,15 @@ private struct FASTQOperationPrimarySettingsSection: View {
         allowedModes: [.combined],
         defaultMode: .combined,
         lockReason: "Alignment requires all sequences in one run"
+    )
+
+    /// Savont and pbaa already iterate one clustering run per selected
+    /// bundle (.perInput output mode) -- this makes that existing behavior
+    /// visible instead of silently iterating (MB-4).
+    static let clusteringMultiBundleRunPolicy = MultiBundleRunPolicy(
+        allowedModes: [.perBundle],
+        defaultMode: .perBundle,
+        lockReason: "Runs once per bundle"
     )
 
     var body: some View {
@@ -434,6 +445,11 @@ private struct FASTQOperationPrimarySettingsSection: View {
                     .foregroundStyle(.secondary)
 
             case .pbaa:
+                MultiBundleRunModePicker(
+                    bundleCount: state.selectedInputURLs.count,
+                    policy: Self.clusteringMultiBundleRunPolicy,
+                    selection: $pbaaMultiBundleRunMode
+                )
                 labeledTextField("Output Name", text: $state.pbaaOutputName, help: LungfishHelpContent.fastqOutputName)
                 HStack(spacing: 12) {
                     labeledCompactTextField("Threads", text: Self.intBinding(state, \.pbaaThreads), help: LungfishHelpContent.fastqThreads)
@@ -444,6 +460,11 @@ private struct FASTQOperationPrimarySettingsSection: View {
                     .foregroundStyle(.secondary)
 
             case .savont:
+                MultiBundleRunModePicker(
+                    bundleCount: state.selectedInputURLs.count,
+                    policy: Self.clusteringMultiBundleRunPolicy,
+                    selection: $savontMultiBundleRunMode
+                )
                 if state.selectedInputURLs.count == 1 {
                     labeledTextField(
                         "Output Name",
