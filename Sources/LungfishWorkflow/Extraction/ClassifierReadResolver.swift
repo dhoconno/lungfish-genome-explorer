@@ -796,14 +796,28 @@ public actor ClassifierReadResolver {
     }
 
     /// Counts FASTQ records by dividing `wc -l` by 4. Fast and dependency-free.
+    ///
+    /// Tracks whether the file's final byte was a newline: a well-formed FASTQ file ends
+    /// each of its 4-line records (including the last) with `\n`, so counting only `\n`
+    /// bytes undercounts by one full record if the last quality line lacks a trailing
+    /// newline (e.g. an upstream tool omits the final LF, or a partial/truncated write) --
+    /// the last record is still fully present and usable, just not newline-terminated
+    /// (R3-R3ML-10).
     private func countFASTQRecords(in url: URL) async throws -> Int {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         var lineCount = 0
+        var sawAnyBytes = false
+        var lastByteWasNewline = false
         while true {
             let chunk = handle.readData(ofLength: 1 << 20)
             if chunk.isEmpty { break }
+            sawAnyBytes = true
             lineCount += chunk.reduce(0) { $0 + ($1 == 0x0A ? 1 : 0) }
+            lastByteWasNewline = chunk.last == 0x0A
+        }
+        if sawAnyBytes && !lastByteWasNewline {
+            lineCount += 1
         }
         return lineCount / 4
     }
@@ -1022,6 +1036,11 @@ public actor ClassifierReadResolver {
         resultPath: URL
     ) async throws -> URL {
         try await resolveBAMURL(tool: tool, sampleId: sampleId, resultPath: resultPath)
+    }
+
+    /// Test-only wrapper exposing `countFASTQRecords` for unit testing (R3-R3ML-10).
+    public func testingCountFASTQRecords(in url: URL) async throws -> Int {
+        try await countFASTQRecords(in: url)
     }
     #endif
 }
