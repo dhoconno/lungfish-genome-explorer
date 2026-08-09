@@ -706,7 +706,18 @@ final class OperationRoutingTests: XCTestCase {
     /// request rather than sharing a single operation/CLI-invocation loop --
     /// so one bundle's assembly failure never aborts or discards another
     /// bundle's already-completed work.
-    func testAssembleLaunchFansOutBeforeOperationRegistrationWithPerBundleAttribution() throws {
+    ///
+    /// MB-2 review round 2: unlike `.savont`'s fan-out (intentionally
+    /// concurrent -- Savont is a cheap per-sample op), the assembly fan-out
+    /// must dispatch children SEQUENTIALLY: child k+1 only starts after
+    /// child k's own operation reaches a terminal state. This asserts the
+    /// serialization gate (`Task { @MainActor ... await self
+    /// .awaitOperationTerminal(id: opID) }`) is present and precedes the
+    /// next loop iteration, while each child still goes through its own
+    /// independent `runFASTQOperationLaunchRequestValidated` call (own
+    /// opID, own Task.detached, own failure isolation -- unchanged from
+    /// round 1).
+    func testAssembleLaunchFansOutBeforeOperationRegistrationAndDispatchesChildrenSequentially() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -719,7 +730,7 @@ final class OperationRoutingTests: XCTestCase {
         )
         let body = try sourceFunctionBody(
             named: "func runFASTQOperationLaunchRequestValidated",
-            endingBefore: "    func outputDirectoryWritesIntoCurrentProject",
+            endingBefore: "    func awaitOperationTerminal",
             in: source
         )
         let savontFanout = try XCTUnwrap(body.range(of: "request.independentSavontLaunchRequests"))
@@ -729,16 +740,147 @@ final class OperationRoutingTests: XCTestCase {
         // Both fan-outs precede the shared single-operation path.
         XCTAssertLessThan(savontFanout.lowerBound, operationStart.lowerBound)
         XCTAssertLessThan(assembleFanout.lowerBound, operationStart.lowerBound)
-        // The assemble fan-out's own recursive call is present and gated on
-        // outputMode == .perInput (the wizard's `.perBundle` picker
-        // selection), not on pairedEnd or bundle-name inference.
+
+        // The assemble fan-out's own block: one recursive call per bundle,
+        // still gated on outputMode == .perInput (the wizard's `.perBundle`
+        // picker selection), not on pairedEnd or bundle-name inference --
+        // but now wrapped in exactly one `Task { @MainActor` driving a
+        // sequential loop that awaits each child's terminal state before
+        // the next iteration, matching the shape
+        // `testManagedMappingRunsSequentiallyWithOneOperationPerBundleAndLogsPooledWarning`
+        // asserts for the analogous C2/MB-1 mapping fan-out.
         let assembleFanoutBlock = try sourceFunctionBody(
             named: "request.independentAssembleLaunchRequests",
             endingBefore: "let workingDirectory: URL",
             in: String(body[assembleFanout.lowerBound...])
         )
+        XCTAssertTrue(assembleFanoutBlock.contains("Task { @MainActor [weak self] in"))
         XCTAssertTrue(assembleFanoutBlock.contains("for independentRequest in independentRequests"))
-        XCTAssertTrue(assembleFanoutBlock.contains("runFASTQOperationLaunchRequestValidated("))
+        XCTAssertTrue(assembleFanoutBlock.contains("if let opID = self.runFASTQOperationLaunchRequestValidated("))
+        XCTAssertTrue(assembleFanoutBlock.contains("await self.awaitOperationTerminal(id: opID)"))
+        // The await sits INSIDE the for loop's body (after the dispatch
+        // call), not after the loop -- i.e. it gates each iteration, not
+        // just a final join after firing all children concurrently.
+        let dispatchRange = try XCTUnwrap(assembleFanoutBlock.range(of: "self.runFASTQOperationLaunchRequestValidated("))
+        let awaitRange = try XCTUnwrap(assembleFanoutBlock.range(of: "await self.awaitOperationTerminal(id: opID)"))
+        let loopRange = try XCTUnwrap(assembleFanoutBlock.range(of: "for independentRequest in independentRequests"))
+        XCTAssertLessThan(loopRange.lowerBound, dispatchRange.lowerBound)
+        XCTAssertLessThan(dispatchRange.lowerBound, awaitRange.lowerBound)
+
+        // Only ONE Task.detached call site reachable from this fan-out block
+        // itself (the sequential driver's own `Task { @MainActor ... }` is
+        // not a `Task.detached`; each child's OWN `Task.detached` lives
+        // inside the shared single-op path further down in the function,
+        // outside this block, so it fires once per child dispatch --
+        // confirms the fan-out driver doesn't ALSO spawn its own detached
+        // work on top of what each child already spawns).
+        XCTAssertFalse(assembleFanoutBlock.contains("Task.detached"))
+    }
+
+    /// Behavioral (not source-inspection) coverage for the actual
+    /// serialization primitive `awaitOperationTerminal` uses (review round
+    /// 2's ordering-hook requirement): it must NOT resume while the target
+    /// operation is still `.running`, and MUST resume promptly once the
+    /// operation reaches a terminal state -- proven against a real,
+    /// isolated `OperationCenter` instance (not source text), driving
+    /// `start`/`fail` directly and observing an ordering hook that only the
+    /// awaiting `Task` can append to.
+    func testAwaitOperationTerminalDoesNotResumeUntilOperationReachesTerminalState() async throws {
+        let controller = MainSplitViewController()
+        let center = OperationCenter()
+        let opID = center.start(title: "Test Assembly", detail: "Running", operationType: .assembly)
+
+        var events: [String] = []
+        let waiter = Task { @MainActor in
+            await controller.awaitOperationTerminal(id: opID, center: center, pollInterval: .milliseconds(10))
+            events.append("resumed")
+        }
+
+        // Give the poller several intervals to (incorrectly) resume early
+        // if it were not actually checking `state.isActive`.
+        try await Task.sleep(for: .milliseconds(60))
+        events.append("stillRunningCheckpoint")
+        XCTAssertEqual(events, ["stillRunningCheckpoint"], "must not resume while the operation is still running")
+
+        XCTAssertTrue(center.fail(id: opID, detail: "Simulated failure"))
+        await waiter.value
+
+        XCTAssertEqual(events, ["stillRunningCheckpoint", "resumed"], "must resume once the operation reaches a terminal state")
+    }
+
+    /// The same primitive resumes for a SUCCESSFUL completion too (not only
+    /// failure), and resumes for an operation that has already been trimmed
+    /// out of `items` by the time it is checked (an absent item is
+    /// necessarily already finished -- see the doc comment on
+    /// `awaitOperationTerminal`).
+    func testAwaitOperationTerminalResumesOnCompletionAndOnAlreadyAbsentItem() async throws {
+        let controller = MainSplitViewController()
+        let center = OperationCenter()
+
+        let completingOpID = center.start(title: "Test Assembly A", detail: "Running", operationType: .assembly)
+        let completionWaiter = Task { @MainActor in
+            await controller.awaitOperationTerminal(id: completingOpID, center: center, pollInterval: .milliseconds(10))
+        }
+        XCTAssertTrue(center.complete(id: completingOpID, detail: "Done"))
+        await completionWaiter.value // Must not hang.
+
+        let neverRegisteredID = UUID()
+        let absentWaiter = Task { @MainActor in
+            await controller.awaitOperationTerminal(id: neverRegisteredID, center: center, pollInterval: .milliseconds(10))
+        }
+        await absentWaiter.value // Must not hang.
+    }
+
+    /// End-to-end ordering proof for the actual `.assemble` fan-out gate,
+    /// isolated from the real `runFASTQOperationLaunchRequestValidated`
+    /// dispatch machinery (which needs a fully wired window/project/CLI
+    /// environment): drives THREE simulated "children" through the same
+    /// `awaitOperationTerminal`-gated loop shape the production fan-out
+    /// uses, and asserts (a) each child only starts after the previous
+    /// child reached a terminal state (sequential, not concurrent
+    /// dispatch), and (b) a failing middle child does not prevent the third
+    /// child from starting and completing (failure isolation preserved).
+    func testSequentialFanoutGateOrdersChildrenWhileIsolatingAMiddleFailure() async throws {
+        let controller = MainSplitViewController()
+        let center = OperationCenter()
+        var startedOrder: [String] = []
+        var finishedOrder: [String] = []
+
+        let bundleNames = ["SampleA", "SampleB", "SampleC"]
+        for (index, name) in bundleNames.enumerated() {
+            startedOrder.append(name)
+            let opID = center.start(title: "Assembly: \(name)", detail: "Running", operationType: .assembly)
+
+            // Simulate each child's own independently-running pipeline: the
+            // middle bundle (index 1) fails; the others complete
+            // successfully. Dispatched as its own concurrently-scheduled
+            // `Task` (mirroring the production single-op path's own
+            // `Task.detached` body being independent of the fan-out loop),
+            // so this reproduces the same "child runs independently, gate
+            // only controls the NEXT dispatch" shape without crossing an
+            // actual background-executor boundary (unnecessary here and
+            // would require `@Sendable`-safe capture of the test's local
+            // ordering arrays).
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(5))
+                if index == 1 {
+                    _ = center.fail(id: opID, detail: "Simulated failure for \(name)")
+                } else {
+                    _ = center.complete(id: opID, detail: "Done")
+                }
+                finishedOrder.append(name)
+            }
+
+            // The gate: do not proceed to the next bundle in this loop
+            // until the just-started one reaches a terminal state.
+            await controller.awaitOperationTerminal(id: opID, center: center, pollInterval: .milliseconds(5))
+        }
+
+        XCTAssertEqual(startedOrder, bundleNames, "children must be dispatched in order")
+        XCTAssertEqual(finishedOrder, bundleNames, "each child must finish before the next one starts")
+        XCTAssertEqual(center.items.first { $0.title.hasSuffix("SampleB") }?.state, .failed)
+        XCTAssertEqual(center.items.first { $0.title.hasSuffix("SampleA") }?.state, .completed)
+        XCTAssertEqual(center.items.first { $0.title.hasSuffix("SampleC") }?.state, .completed)
     }
 
     func testManagedMappingRunsSequentiallyWithOneOperationPerBundleAndLogsPooledWarning() throws {

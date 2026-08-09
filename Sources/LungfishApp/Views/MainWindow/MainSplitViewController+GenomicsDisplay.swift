@@ -954,10 +954,23 @@ extension MainSplitViewController {
         runFASTQOperationLaunchRequestValidated(request, preferredOutputDirectory: preferredOutputDirectory)
     }
 
+    /// - Returns: the `OperationCenter` operation ID this call registered
+    ///   for the SINGLE request it actually dispatched, or `nil` when this
+    ///   call only fanned out into further recursive calls (`.savont`/
+    ///   `.assemble` batch splits) or returned early before registering any
+    ///   operation (a write-guard rejection or destination-directory
+    ///   creation failure). `@discardableResult` because every pre-existing
+    ///   call site (the two in `runFASTQOperationLaunchRequest`, and the
+    ///   `.savont` fan-out's own recursive call, which stays intentionally
+    ///   unserialized -- see the `.assemble` fan-out's comment below for why)
+    ///   ignores it; only the new sequential `.assemble` fan-out driver reads
+    ///   it, to poll the just-started child's terminal state before
+    ///   dispatching the next one.
+    @discardableResult
     func runFASTQOperationLaunchRequestValidated(
         _ request: FASTQOperationLaunchRequest,
         preferredOutputDirectory: URL? = nil
-    ) {
+    ) -> UUID? {
         let currentProjectURL = sidebarController.currentProjectURL?.standardizedFileURL
         let destinationRoot = preferredOutputDirectory?.standardizedFileURL
             ?? currentProjectURL?.appendingPathComponent("Analyses", isDirectory: true)
@@ -965,14 +978,14 @@ extension MainSplitViewController {
             ?? FileManager.default.temporaryDirectory
 
         if outputDirectoryWritesIntoCurrentProject(destinationRoot) {
-            guard canWriteProjectOutputs(workflowName: request.operationDisplayTitle) else { return }
+            guard canWriteProjectOutputs(workflowName: request.operationDisplayTitle) else { return nil }
         }
 
         do {
             try FileManager.default.createDirectory(at: destinationRoot, withIntermediateDirectories: true)
         } catch {
             mainSplitLogger.error("runFASTQOperationLaunchRequest: Failed to create destination root: \(error.localizedDescription, privacy: .public)")
-            return
+            return nil
         }
 
         if case .savont(let batchRequest) = request,
@@ -984,28 +997,52 @@ extension MainSplitViewController {
                 mainSplitLogger.error(
                     "runFASTQOperationLaunchRequest: Failed to prepare independent Savont operations"
                 )
-                return
+                return nil
             }
+            // Intentionally CONCURRENT (unlike the .assemble fan-out below):
+            // Savont clustering is a lightweight per-sample operation with a
+            // modest, fixed resource footprint, so N simultaneous Savont
+            // clusterings is an accepted resource profile -- unlike N
+            // simultaneous SPAdes/MEGAHIT assemblers, each of which can be
+            // configured with wizard-level threads/memoryGB approaching the
+            // whole machine's budget on its own.
             for independentRequest in independentRequests {
                 runFASTQOperationLaunchRequestValidated(
                     independentRequest,
                     preferredOutputDirectory: destinationRoot
                 )
             }
-            return
+            return nil
         }
 
         // Per-bundle short-read assembly (MB-2): a pooled `.assemble`
         // request selected via the wizard's `.perBundle` picker mode
         // (outputMode == .perInput) with N>1 bundle URLs is split into N
-        // independent requests here, mirroring the .savont fan-out above
-        // exactly -- each recursive call below creates its OWN analysis
-        // directory, starts its OWN OperationCenter operation, and runs its
-        // OWN Task.detached, so one bundle's assembly failure never aborts
-        // or discards another bundle's completed work (review round 1,
-        // point 4). `.combined` mode has no picker option this round (see
-        // AssemblyWizardSheet.multiBundleRunPolicy) and stays a single
-        // pooled request that falls through to the unsplit path below.
+        // independent requests here. Each recursive call below still gets
+        // its OWN analysis directory, its OWN OperationCenter operation, and
+        // its OWN Task.detached (unchanged from review round 1, point 4:
+        // one bundle's failure still never aborts or discards another
+        // bundle's completed work). `.combined` mode has no picker option
+        // this round (see AssemblyWizardSheet.multiBundleRunPolicy) and
+        // stays a single pooled request that falls through to the unsplit
+        // path below.
+        //
+        // UNLIKE the `.savont` fan-out immediately above, this dispatch is
+        // SEQUENTIAL (review round 2, Important finding): a full de novo
+        // assembler run is a heavyweight, long-running, resource-hungry
+        // operation whose thread/memory budget is set at the WHOLE-request
+        // level by the wizard (potentially most of the machine's cores/RAM
+        // for a single run) -- N of those running simultaneously is a much
+        // worse resource profile than N lightweight Savont clusterings, and
+        // was exactly the concurrency problem the C2/MB-1 mapping fix (F5)
+        // rejected for the analogous N-simultaneous-mappers case. Each
+        // child is still dispatched through the SAME single-op path below
+        // (own opID, own analysis directory, own Task.detached, so its
+        // success/failure/progress is independently tracked and one
+        // bundle's failure cannot abort or discard another's completed
+        // work) -- only the DISPATCH of child k+1 is gated on child k's
+        // operation reaching a terminal state, via `awaitOperationTerminal`
+        // polling `OperationCenter.shared.items`.
         if case .assemble(let batchAssemblyRequest, let assembleOutputMode) = request,
            assembleOutputMode == .perInput,
            batchAssemblyRequest.inputURLs.count > 1 {
@@ -1016,15 +1053,20 @@ extension MainSplitViewController {
                 mainSplitLogger.error(
                     "runFASTQOperationLaunchRequest: Failed to prepare independent Assembly operations"
                 )
-                return
+                return nil
             }
-            for independentRequest in independentRequests {
-                runFASTQOperationLaunchRequestValidated(
-                    independentRequest,
-                    preferredOutputDirectory: destinationRoot
-                )
+            Task { @MainActor [weak self] in
+                for independentRequest in independentRequests {
+                    guard let self else { return }
+                    if let opID = self.runFASTQOperationLaunchRequestValidated(
+                        independentRequest,
+                        preferredOutputDirectory: destinationRoot
+                    ) {
+                        await self.awaitOperationTerminal(id: opID)
+                    }
+                }
             }
-            return
+            return nil
         }
 
         let workingDirectory: URL
@@ -1037,7 +1079,7 @@ extension MainSplitViewController {
                 )
             } catch {
                 mainSplitLogger.error("runFASTQOperationLaunchRequest: Failed to create analysis directory: \(error.localizedDescription, privacy: .public)")
-                return
+                return nil
             }
         } else if request.outputMode == .groupedResult || request.isDemultiplexRequest {
             workingDirectory = uniqueFASTQOperationOutputDirectory(
@@ -1184,6 +1226,48 @@ extension MainSplitViewController {
             }
         }
         OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+        return opID
+    }
+
+    /// Polls `center.items` until the item with `id` reaches a terminal
+    /// (`!isActive`) state, or is no longer present at all (a finished item
+    /// can be trimmed out of the list by `OperationCenter`'s retention
+    /// limit; its absence is treated as terminal, since only
+    /// already-finished items are ever trimmed). Used exclusively to
+    /// serialize the `.assemble` per-bundle fan-out (review round 2):
+    /// dispatching child k+1 only after child k's own operation has
+    /// completed, cancelled, or failed, while still letting each child run
+    /// through its own independent `Task.detached` (so its failure is
+    /// isolated and does not abort the remaining children).
+    ///
+    /// `center` defaults to `OperationCenter.shared` for production call
+    /// sites; tests inject an isolated `OperationCenter()` instance
+    /// (matching this file's/`OperationRoutingTests`' existing pattern for
+    /// every other `OperationCenter`-touching behavioral test) so they can
+    /// drive `start`/`complete`/`fail` deterministically without touching
+    /// global state shared with other tests.
+    ///
+    /// Polling (rather than a Combine subscription on `center.changes`) is
+    /// deliberate: this gates between multi-minute assembler runs, not
+    /// fine-grained realtime UI updates, so a short fixed poll interval
+    /// adds negligible latency while avoiding any
+    /// subscription-lifetime/cancellable-management complexity for a
+    /// one-shot "wait until terminal" check.
+    func awaitOperationTerminal(
+        id: UUID,
+        center: OperationCenter = .shared,
+        pollInterval: Duration = .milliseconds(200)
+    ) async {
+        while true {
+            guard let item = center.items.first(where: { $0.id == id }) else {
+                return
+            }
+            if !item.state.isActive {
+                return
+            }
+            if Task.isCancelled { return }
+            try? await Task.sleep(for: pollInterval)
+        }
     }
 
     func outputDirectoryWritesIntoCurrentProject(_ outputDirectory: URL) -> Bool {
