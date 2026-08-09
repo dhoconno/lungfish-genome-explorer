@@ -890,6 +890,149 @@ final class BlastServiceTests: XCTestCase {
         }
     }
 
+    /// R3-R3ML-12: extractBalancedJSON's brace counter must not be desynchronized by a
+    /// literal '{' / '}' inside a quoted JSON string value (e.g. a BLAST hit title/
+    /// description, which NCBI titles can legitimately contain). Uses a title with an
+    /// *unmatched* '}' -- a title with a balanced {..} pair inside it happens to still
+    /// terminate correctly under a naive (string-unaware) counter by coincidence, since
+    /// its net depth change is zero; an unmatched brace is the case that actually
+    /// desynchronizes a naive counter (confirmed to truncate the JSON early pre-fix,
+    /// producing invalid/truncated JSON that JSONSerialization then rejects).
+    ///
+    /// Deliberately does NOT wrap the JSON in a clean `<PRE>...</PRE>` block starting
+    /// with '{': extractJSONFromResponse's <PRE>-unwrap step recurses and, if the
+    /// unwrapped content itself starts with '{', takes the direct-JSON fast path
+    /// instead of ever reaching extractBalancedJSON -- so a <PRE>-wrapped payload
+    /// would not actually exercise the brace-counting fallback this fix targets.
+    /// Using unstructured preamble text (no <PRE> tags, doesn't start with '{') forces
+    /// extractJSONFromResponse through to the marker-based extractBalancedJSON path.
+    func testParseBlastJSON2WithUnmatchedBraceInsideQuotedTitleDoesNotDesynchronizeBraceCounter() async throws {
+        let json = """
+        {
+          "BlastOutput2": [
+            {
+              "report": {
+                "program": "blastn",
+                "version": "BLASTN 2.16.0+",
+                "results": {
+                  "search": {
+                    "query_title": "read_001",
+                    "query_len": 150,
+                    "hits": [
+                      {
+                        "description": [
+                          {
+                            "title": "Oxbow virus segment }, complete sequence",
+                            "accession": "MN552435.1",
+                            "sciname": "Oxbow virus"
+                          }
+                        ],
+                        "hsps": [
+                          {
+                            "bit_score": 270.0,
+                            "evalue": 1e-70,
+                            "identity": 148,
+                            "align_len": 150,
+                            "query_from": 1,
+                            "query_to": 150,
+                            "hit_from": 1001,
+                            "hit_to": 1150,
+                            "qseq": "ATGCGATCGA",
+                            "hseq": "ATGCGATCGA",
+                            "midline": "||||||||||"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+        """
+        let htmlWrapped = "Your BLAST search has completed. Results below:\n\(json)\nEnd of report."
+        let data = htmlWrapped.data(using: .utf8)!
+
+        let results = try service.parseJSON2Results(data)
+
+        XCTAssertEqual(results.count, 1)
+        XCTAssertEqual(results[0].hits.count, 1)
+        guard let firstHit = results[0].hits.first else {
+            return XCTFail("Expected one hit")
+        }
+        XCTAssertEqual(firstHit.accession, "MN552435.1")
+        XCTAssertEqual(firstHit.title, "Oxbow virus segment }, complete sequence")
+    }
+
+    /// A hit title containing a single escaped quote followed by an unmatched brace
+    /// must not desynchronize the in-string tracking. This is the case that
+    /// discriminates an escape-aware scanner from one that toggles in-string state on
+    /// every literal '"' without skipping escaped characters: an odd number of
+    /// unescaped-looking quotes before the brace flips a naive toggle into the wrong
+    /// state right when it reaches the brace (confirmed to miscount pre-fix). As with
+    /// the sibling test above, uses unstructured preamble text (no <PRE>, doesn't
+    /// start with '{') so extractJSONFromResponse actually reaches extractBalancedJSON
+    /// instead of taking the direct-JSON fast path.
+    func testParseBlastJSON2WithEscapedQuoteAndUnmatchedBraceInTitle() async throws {
+        let json = #"""
+        {
+          "BlastOutput2": [
+            {
+              "report": {
+                "program": "blastn",
+                "version": "BLASTN 2.16.0+",
+                "results": {
+                  "search": {
+                    "query_title": "read_001",
+                    "query_len": 150,
+                    "hits": [
+                      {
+                        "description": [
+                          {
+                            "title": "Strain \"X} more",
+                            "accession": "MN552435.1",
+                            "sciname": "Oxbow virus"
+                          }
+                        ],
+                        "hsps": [
+                          {
+                            "bit_score": 270.0,
+                            "evalue": 1e-70,
+                            "identity": 148,
+                            "align_len": 150,
+                            "query_from": 1,
+                            "query_to": 150,
+                            "hit_from": 1001,
+                            "hit_to": 1150,
+                            "qseq": "ATGCGATCGA",
+                            "hseq": "ATGCGATCGA",
+                            "midline": "||||||||||"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+        """#
+        let htmlWrapped = "Your BLAST search has completed. Results below:\n\(json)\nEnd of report."
+        let data = htmlWrapped.data(using: .utf8)!
+
+        let results = try service.parseJSON2Results(data)
+
+        XCTAssertEqual(results.count, 1)
+        XCTAssertEqual(results[0].hits.count, 1)
+        guard let firstHit = results[0].hits.first else {
+            return XCTFail("Expected one hit")
+        }
+        XCTAssertEqual(firstHit.accession, "MN552435.1")
+        XCTAssertEqual(firstHit.title, "Strain \"X} more")
+    }
+
     func testGetResultsDoesNotPersistDebugArtifacts() async throws {
         let rid = "NODEBUG123"
         let debugDir = FileManager.default.temporaryDirectory

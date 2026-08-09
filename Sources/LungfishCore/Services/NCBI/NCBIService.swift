@@ -1740,7 +1740,8 @@ public actor NCBIService: DatabaseService {
         return nil
     }
 
-    /// Parses a simple range like "123..456" or "<123..>456"
+    /// Parses a simple range like "123..456", "<123..>456", a single position "123",
+    /// or an insertion-point site "123^124" (R3-R3ML-11).
     private func parseSimpleRange(_ range: String) -> (start: Int, end: Int)? {
         let cleaned = range.replacingOccurrences(of: "<", with: "")
             .replacingOccurrences(of: ">", with: "")
@@ -1754,11 +1755,41 @@ public actor NCBIService: DatabaseService {
             if let pos = Int(cleaned) {
                 return (start: pos, end: pos)
             }
+            // Try an insertion-point site (e.g. "123^124"), used by GenBank for
+            // features like primer-binding sites and some misc_features that mark
+            // the boundary between two adjacent bases rather than a range. Previously
+            // unrecognized by this parser, which silently dropped such features from
+            // createAnnotation's caller. Represented here as a single-base site at the
+            // lower position, matching the existing single-position representation
+            // above rather than introducing a new zero-width interval shape.
+            if let siteRange = parseInsertionPointSite(cleaned) {
+                return siteRange
+            }
             return nil
         }
 
         return (start: start, end: end)
     }
+
+    /// Parses GenBank's insertion-point operator "X^Y" (X and Y must be adjacent
+    /// integers, Y == X + 1) into a single-base site at position X.
+    private func parseInsertionPointSite(_ cleaned: String) -> (start: Int, end: Int)? {
+        let parts = cleaned.components(separatedBy: "^")
+        guard parts.count == 2,
+              let first = Int(parts[0]),
+              let second = Int(parts[1]),
+              second == first + 1 else {
+            return nil
+        }
+        return (start: first, end: first)
+    }
+
+    #if DEBUG
+    /// Test-only wrapper exposing `parseLocation` for unit testing (R3-R3ML-11).
+    func testingParseLocation(_ location: String) -> (start: Int, end: Int, strand: Strand)? {
+        parseLocation(location)
+    }
+    #endif
 }
 
 // MARK: - NCBI Database
