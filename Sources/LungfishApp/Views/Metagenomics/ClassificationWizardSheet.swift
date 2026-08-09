@@ -87,11 +87,20 @@ struct ClassificationWizardSheet: View {
     /// pbaa/ONT genotyping use, matching the honest-copy standard set by the
     /// C6/commit 7a5041c6 review fix: the lockReason describes what
     /// execution actually does today, not an aspirational combined mode.
+    ///
+    /// Round-3 revision (item 0): the earlier copy ("Each sample already
+    /// gets its own Kraken2/Bracken run") described only the per-sample
+    /// half of the truth and implied N independent runs. For N>1 samples,
+    /// `runClassificationBatch` (AppDelegate+Classification.swift) actually
+    /// registers exactly ONE OperationCenter entry and writes ONE merged
+    /// classification-batch-summary.tsv across all samples, while still
+    /// running one Kraken2/Bracken pass per sample inside that batch. The
+    /// lockReason now states both halves honestly.
     /// Display-only -- `performRun`'s per-sample fan-out is unchanged.
     static let classificationMultiBundleRunPolicy = MultiBundleRunPolicy(
         allowedModes: [.perBundle],
         defaultMode: .perBundle,
-        lockReason: "Each sample already gets its own Kraken2/Bracken run"
+        lockReason: "Selections run as one classification batch (one operations entry, merged summary); each sample is classified separately within the batch."
     )
 
     // Advanced settings
