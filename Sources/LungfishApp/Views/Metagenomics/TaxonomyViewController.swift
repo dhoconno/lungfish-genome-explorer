@@ -1567,15 +1567,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             return
         }
 
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = message
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "OK")
-
-        if let window = view.window ?? NSApp.keyWindow {
-            alert.beginSheetModal(for: window)
-        }
+        WarningPresenter.present(title: title, message: message, in: view.window)
     }
 
     /// Builds the delimited text content for export.

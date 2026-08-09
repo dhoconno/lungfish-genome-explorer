@@ -2313,25 +2313,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             return
         }
 
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = message
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "OK")
-
-        if let window = view.window ?? NSApp.keyWindow {
-            alert.beginSheetModal(for: window)
-        } else {
-            NSApp.presentError(NaoMgsResultWarning(title: title, message: message))
-        }
-    }
-
-    private struct NaoMgsResultWarning: LocalizedError {
-        let title: String
-        let message: String
-
-        var errorDescription: String? { title }
-        var recoverySuggestion: String? { message }
+        WarningPresenter.present(title: title, message: message, in: view.window)
     }
 
     /// Delivers BLAST hits to the verification callback.
