@@ -251,6 +251,53 @@ final class ReferenceBundleAnnotationImportServiceTests: XCTestCase {
         }
     }
 
+    /// Regression test for a round-2 fix: `attachAnnotationTrack`'s `Task.detached` hop
+    /// (added so the heavy parse/hash/provenance work runs off-main) removed the implicit
+    /// `@MainActor` serialization that used to protect a bundle's manifest.json against
+    /// concurrent read-modify-write. Two real call sites (e.g. the Import Center action and
+    /// a sidebar-drop handler) attaching to the SAME bundle at the same time could each
+    /// independently load/modify/save the manifest, with the second writer's save silently
+    /// discarding the first writer's track entry. Fires two concurrent attaches to one
+    /// bundle and asserts BOTH tracks land in the final manifest.
+    func testConcurrentAttachesToSameBundleBothLandInManifest() async throws {
+        let bundleURL = try makeBundle(named: "ConcurrentTarget")
+        let bedAURL = tempRoot.appendingPathComponent("track_a.bed")
+        try "chr1\t1\t12\tgeneA\t0\t+\n".write(to: bedAURL, atomically: true, encoding: .utf8)
+        let bedBURL = tempRoot.appendingPathComponent("track_b.bed")
+        try "chr1\t2\t14\tgeneB\t0\t+\n".write(to: bedBURL, atomically: true, encoding: .utf8)
+
+        async let resultA = ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+            sourceURL: bedAURL,
+            bundleURL: bundleURL,
+            trackID: "track_a",
+            trackName: "Track A"
+        )
+        async let resultB = ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+            sourceURL: bedBURL,
+            bundleURL: bundleURL,
+            trackID: "track_b",
+            trackName: "Track B"
+        )
+        let (a, b) = try await (resultA, resultB)
+
+        XCTAssertEqual(a.track.id, "track_a")
+        XCTAssertEqual(b.track.id, "track_b")
+
+        let manifest = try BundleManifest.load(from: bundleURL)
+        XCTAssertEqual(
+            Set(manifest.annotations.map(\.id)),
+            ["track_a", "track_b"],
+            "both concurrently-attached tracks must be present in the final manifest -- " +
+            "neither writer's save should silently drop the other's track entry"
+        )
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: bundleURL.appendingPathComponent("annotations/track_a.db").path
+        ))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: bundleURL.appendingPathComponent("annotations/track_b.db").path
+        ))
+    }
+
     func testDiscoverReferenceBundlesReturnsProjectRelativeDisplayPaths() throws {
         _ = try makeBundle(named: "M1", relativePath: "Reference Sequences/M1.lungfishref")
         _ = try makeBundle(named: "M1", relativePath: "Imported/Nested/M1.lungfishref")

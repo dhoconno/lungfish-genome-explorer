@@ -9,6 +9,80 @@ import os.log
 
 private let annotationImportLogger = Logger(subsystem: LogSubsystem.app, category: "ReferenceAnnotationImport")
 
+/// Serializes async work per bundle path so concurrent callers touching the
+/// SAME bundle never interleave a manifest read-modify-write.
+///
+/// Before the `Task.detached` hop was added to `attachAnnotationTrack`
+/// (round-2 review), this class was `@MainActor`, so every call --
+/// regardless of which bundle it targeted -- was implicitly serialized
+/// against every other. Moving the whole body off-main restored the
+/// off-main property this class's doc comment requires, but incidentally
+/// dropped that implicit serialization: two independent call sites (e.g.
+/// the Import Center action and the sidebar-drop handler) attaching to the
+/// same `bundleURL` at the same time could each independently
+/// `BundleManifest.load` -> `.addingAnnotationTrack` -> `.save`, with the
+/// second writer's `save` silently discarding the first writer's track
+/// entry (last write wins).
+///
+/// This actor restores per-bundle serialization -- but ONLY per bundle
+/// path, not globally -- so attaches to two different bundles still run
+/// fully concurrently off-main, preserving the performance intent of the
+/// `Task.detached` change. Each bundle path's queue is a chain of
+/// `Task<Void, Never>`s: a new caller for a path awaits the previous tail
+/// (if any) before running its own work, then installs itself as the new
+/// tail. A monotonically increasing generation number per key lets a
+/// caller tell whether it is still the newest entry once its work
+/// finishes, so the dictionary entry can be cleared instead of growing
+/// without bound across the app's lifetime.
+actor BundleManifestMutationSerializer {
+    static let shared = BundleManifestMutationSerializer()
+
+    private var tails: [String: (generation: Int, task: Task<Void, Never>)] = [:]
+
+    /// Internal (not private) so tests can construct isolated instances instead of
+    /// sharing the app-wide `.shared` singleton across test cases.
+    init() {}
+
+    /// Runs `work` after any already-queued work for `bundleURL` has
+    /// finished, and queues any later callers for the same `bundleURL`
+    /// behind this one. Callers for different bundle URLs never block each
+    /// other.
+    func run<T: Sendable>(
+        bundleURL: URL,
+        _ work: @Sendable @escaping () async throws -> T
+    ) async throws -> T {
+        let key = bundleURL.standardizedFileURL.path
+        let previousEntry = tails[key]
+        let generation = (previousEntry?.generation ?? 0) + 1
+
+        // `resultTask` both (a) awaits the PREVIOUS caller's own resultTask
+        // -- i.e. waits for that caller's `work` to have actually finished,
+        // not merely for it to have been scheduled -- and (b) runs this
+        // caller's `work`. Storing this exact task (erased to `Void, Never`
+        // via `waiterTask`) as the new tail is what makes a third caller
+        // correctly wait for BOTH of the first two to finish, in order.
+        let resultTask = Task<T, Error> {
+            await previousEntry?.task.value
+            return try await work()
+        }
+        let waiterTask = Task<Void, Never> {
+            _ = try? await resultTask.value
+        }
+        tails[key] = (generation, waiterTask)
+
+        defer {
+            // Clear our slot only if nothing newer has queued behind us
+            // since we installed it -- otherwise leave the later caller's
+            // entry alone.
+            if tails[key]?.generation == generation {
+                tails.removeValue(forKey: key)
+            }
+        }
+
+        return try await resultTask.value
+    }
+}
+
 public struct ReferenceBundleChoice: Sendable, Equatable, Identifiable {
     public let url: URL
     public let displayPath: String
@@ -188,6 +262,15 @@ public final class ReferenceBundleAnnotationImportService {
     /// guarantees the executor hop happens up front, for both the GFF3 and BED
     /// formats, independent of whatever suspension behavior `createFromGFF3`'s
     /// internal `for try await line in gffURL.lines` happens to have.
+    ///
+    /// The manifest read-modify-write inside `performAttach` is additionally
+    /// routed through `BundleManifestMutationSerializer`, keyed by
+    /// `bundleURL`, so two concurrent attaches to the SAME bundle (e.g. one
+    /// from the Import Center and one from a sidebar drop, landing at the
+    /// same moment) never interleave their `BundleManifest.load` ->
+    /// `.addingAnnotationTrack` -> `.save` sequences. Attaches to different
+    /// bundles are unaffected and continue to run fully concurrently
+    /// off-main.
     public func attachAnnotationTrack(
         sourceURL: URL,
         bundleURL: URL,
@@ -195,12 +278,14 @@ public final class ReferenceBundleAnnotationImportService {
         trackName requestedTrackName: String? = nil
     ) async throws -> ReferenceBundleAnnotationImportResult {
         let task = Task<ReferenceBundleAnnotationImportResult, Error>.detached(priority: .userInitiated) {
-            try await ReferenceBundleAnnotationImportService.performAttach(
-                sourceURL: sourceURL,
-                bundleURL: bundleURL,
-                requestedTrackID: requestedTrackID,
-                requestedTrackName: requestedTrackName
-            )
+            try await BundleManifestMutationSerializer.shared.run(bundleURL: bundleURL) {
+                try await ReferenceBundleAnnotationImportService.performAttach(
+                    sourceURL: sourceURL,
+                    bundleURL: bundleURL,
+                    requestedTrackID: requestedTrackID,
+                    requestedTrackName: requestedTrackName
+                )
+            }
         }
         return try await task.value
     }
