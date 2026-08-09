@@ -80,6 +80,14 @@ final class FASTQOperationToolPanesSourceTests: XCTestCase {
         XCTAssertTrue(source.contains("policy: Self.clusteringMultiBundleRunPolicy,\n                    selection: $savontMultiBundleRunMode"))
     }
 
+    func testONTGenotypingPaneRendersPerBundleLockedMultiBundleRunModePicker() throws {
+        let source = try String(contentsOf: toolPanesSourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("ontGenotypingMultiBundleRunPolicy = MultiBundleRunPolicy("))
+        XCTAssertTrue(source.contains("lockReason: \"Genotyping is per-sample; use a cohort after per-sample calls\""))
+        XCTAssertTrue(source.contains("policy: Self.ontGenotypingMultiBundleRunPolicy,\n                    selection: $ontGenotypingMultiBundleRunMode"))
+    }
+
     func testSavontPaneExposesCuratedPrimaryAndAdvancedControlsWithoutRawArguments() throws {
         let source = try String(contentsOf: toolPanesSourceURL, encoding: .utf8)
 

@@ -30,6 +30,9 @@ struct MapCommand: AsyncParsableCommand {
         read-mapping plugin pack (`lungfish conda install read-mapping`). BBMap is exposed
         from the required BBTools environment and is available once the managed toolchain
         is provisioned.
+
+        Multiple inputs are treated as one sample's reads (--paired binds exactly two
+        files as R1/R2 of that sample); invoke once per sample for per-sample results.
         """
     )
 

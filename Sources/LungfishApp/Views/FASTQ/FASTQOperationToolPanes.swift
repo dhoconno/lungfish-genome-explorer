@@ -268,6 +268,7 @@ private struct FASTQOperationPrimarySettingsSection: View {
     @State private var mafftMultiBundleRunMode: MultiBundleRunMode = .combined
     @State private var pbaaMultiBundleRunMode: MultiBundleRunMode = .perBundle
     @State private var savontMultiBundleRunMode: MultiBundleRunMode = .perBundle
+    @State private var ontGenotypingMultiBundleRunMode: MultiBundleRunMode = .perBundle
 
     /// MAFFT always pools every selected input into one alignment run (MB-3):
     /// N-sequence MSA has no per-bundle interpretation.
@@ -284,6 +285,16 @@ private struct FASTQOperationPrimarySettingsSection: View {
         allowedModes: [.perBundle],
         defaultMode: .perBundle,
         lockReason: "Runs once per bundle"
+    )
+
+    /// ONT/Illumina amplicon genotyping calls one sample at a time; a
+    /// cohort view is assembled afterward from the per-sample calls rather
+    /// than by pooling multiple samples' FASTQ bytes into a single run
+    /// (MB-5).
+    static let ontGenotypingMultiBundleRunPolicy = MultiBundleRunPolicy(
+        allowedModes: [.perBundle],
+        defaultMode: .perBundle,
+        lockReason: "Genotyping is per-sample; use a cohort after per-sample calls"
     )
 
     var body: some View {
@@ -479,6 +490,11 @@ private struct FASTQOperationPrimarySettingsSection: View {
                 }
 
             case .ontGenotyping:
+                MultiBundleRunModePicker(
+                    bundleCount: state.selectedInputURLs.count,
+                    policy: Self.ontGenotypingMultiBundleRunPolicy,
+                    selection: $ontGenotypingMultiBundleRunMode
+                )
                 workflowFormGroup("Report") {
                     labeledTextField("Report Name", text: $state.ontGenotypingOutputName, help: LungfishHelpContent.fastqReportName)
                     labeledTextField("Analysis Name", text: $state.ontGenotypingAnalysisName, help: LungfishHelpContent.fastqAnalysisName)
