@@ -1543,14 +1543,9 @@ extension OperationsPanelViewController: NSMenuDelegate {
 /// - 1 hour or more: `"1h 23m"`
 ///
 /// Negative intervals are clamped to zero and displayed as `"<1s"`.
+///
+/// Delegates to ``LungfishFormatters/formatDuration(_:)-`` (F46), the
+/// canonical duration formatter shared across the app.
 func formatElapsedTime(_ interval: TimeInterval) -> String {
-    let elapsed = max(0, interval)
-    if elapsed < 1 { return "<1s" }
-    let totalSeconds = Int(elapsed)
-    let hours = totalSeconds / 3600
-    let minutes = (totalSeconds % 3600) / 60
-    let seconds = totalSeconds % 60
-    if hours > 0 { return "\(hours)h \(minutes)m" }
-    if minutes > 0 { return "\(minutes)m \(seconds)s" }
-    return "\(seconds)s"
+    LungfishFormatters.formatDuration(interval)
 }

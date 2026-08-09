@@ -399,9 +399,7 @@ open class GenomicSummaryCardBar: NSView {
 
     /// Formats a count with K/M/G suffixes.
     public static func formatCount(_ count: Int) -> String {
-        if count >= 1_000_000 { return String(format: "%.1fM", Double(count) / 1_000_000) }
-        if count >= 1_000 { return String(format: "%.1fK", Double(count) / 1_000) }
-        return "\(count)"
+        LungfishFormatters.formatAbbreviatedCount(count)
     }
 
     /// Formats a base count with bp/Kb/Mb/Gb suffixes.

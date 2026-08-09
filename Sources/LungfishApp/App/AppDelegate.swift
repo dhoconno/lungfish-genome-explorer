@@ -1423,18 +1423,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
     }
 
-    /// Formats a byte count for display: <1 MB shows KB, <1 GB shows MB, else GB.
+    /// Formats a byte count for display.
+    ///
+    /// Delegates to ``LungfishFormatters/formatBytes(_:)-`` (F44) so file sizes
+    /// render consistently with the rest of the app.
     static func formatBytes(_ bytes: UInt64) -> String {
-        let kb = Double(bytes) / 1_024
-        let mb = kb / 1_024
-        let gb = mb / 1_024
-        if mb < 1 {
-            return String(format: "%.0f KB", kb)
-        } else if gb < 1 {
-            return String(format: "%.1f MB", mb)
-        } else {
-            return String(format: "%.2f GB", gb)
-        }
+        LungfishFormatters.formatBytes(bytes)
     }
 
     @objc private func windowWillClose(_ notification: Notification) {

@@ -4,6 +4,7 @@
 
 import Foundation
 import SwiftUI
+import LungfishKit
 import LungfishWorkflow
 
 enum PluginManagerAccessibilityID {
@@ -1153,12 +1154,11 @@ private struct DatabaseRow: View {
 
 /// Formats a byte count into a human-readable string.
 ///
-/// This is a free function to avoid `@MainActor` isolation issues
-/// when called from `@Sendable` view body closures.
+/// Delegates to ``LungfishFormatters/formatBytes(_:)-`` (F44), which is
+/// itself a plain free function safe to call from `@Sendable` view body
+/// closures without `@MainActor` isolation issues.
 private func formatBytes(_ bytes: Int64) -> String {
-    let formatter = ByteCountFormatter()
-    formatter.countStyle = .file
-    return formatter.string(fromByteCount: bytes)
+    LungfishFormatters.formatBytes(bytes)
 }
 
 /// Formats a megabyte estimate into a human-readable string.

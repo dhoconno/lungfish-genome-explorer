@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishKit
 import SwiftUI
 
 struct ProvenanceSection: View {
@@ -479,13 +480,7 @@ struct ProvenanceSection: View {
     }
 
     private func formatDuration(_ seconds: TimeInterval) -> String {
-        if seconds < 60 {
-            return String(format: "%.2f s", seconds)
-        }
-        if seconds < 3_600 {
-            return String(format: "%.1f min", seconds / 60)
-        }
-        return String(format: "%.2f hr", seconds / 3_600)
+        LungfishFormatters.formatDuration(seconds)
     }
 
     private func copyToPasteboard(_ text: String) {

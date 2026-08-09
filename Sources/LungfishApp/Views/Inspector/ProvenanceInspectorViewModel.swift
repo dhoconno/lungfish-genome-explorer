@@ -6,6 +6,7 @@ import Foundation
 import SwiftUI
 import LungfishCore
 import LungfishIO
+import LungfishKit
 import LungfishWorkflow
 
 struct ProvenanceInspectableItem {
@@ -947,7 +948,7 @@ final class ProvenanceInspectorViewModel {
     }
 
     static func formatBytes(_ bytes: UInt64) -> String {
-        ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+        LungfishFormatters.formatBytes(bytes)
     }
 }
 
@@ -972,7 +973,7 @@ private struct ProvenanceFASTQBundlePresentation {
         }
 
         private static func formatBytes(_ bytes: UInt64) -> String {
-            ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+            LungfishFormatters.formatBytes(bytes)
         }
     }
 

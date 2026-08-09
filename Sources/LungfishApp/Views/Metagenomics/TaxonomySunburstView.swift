@@ -545,9 +545,7 @@ public class TaxonomySunburstView: NSView {
 
     /// Formats a count with K/M suffixes.
     private func formatCount(_ count: Int) -> String {
-        if count >= 1_000_000 { return String(format: "%.1fM", Double(count) / 1_000_000) }
-        if count >= 1_000 { return String(format: "%.1fK", Double(count) / 1_000) }
-        return "\(count)"
+        LungfishFormatters.formatAbbreviatedCount(count)
     }
 
     // MARK: - Mouse Interaction

@@ -1278,10 +1278,7 @@ public struct DocumentSection: View {
     }
 
     private func formatDuration(_ seconds: Double) -> String {
-        if seconds < 60 { return String(format: "%.0fs", seconds) }
-        let m = Int(seconds / 60)
-        let s = Int(seconds) % 60
-        return "\(m)m\(s)s"
+        LungfishFormatters.formatDuration(seconds)
     }
 
     private func fastqDerivativeSection(_ manifest: FASTQDerivedBundleManifest) -> some View {
@@ -1503,9 +1500,7 @@ public struct DocumentSection: View {
 
     /// Formats a count with comma separators.
     private func formatCount(_ count: Int) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        return formatter.string(from: NSNumber(value: count)) ?? "\(count)"
+        LungfishFormatters.formatGroupedCount(count)
     }
 
     /// Formats a date for display.

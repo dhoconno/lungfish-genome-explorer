@@ -4,6 +4,7 @@
 
 import SwiftUI
 import LungfishCore
+import LungfishKit
 import AppKit
 
 /// Inspector section displaying file attachments with add/remove/reveal actions.
@@ -107,8 +108,6 @@ struct AttachmentsSection: View {
     }
 
     private func formatFileSize(_ bytes: Int64) -> String {
-        let formatter = ByteCountFormatter()
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: bytes)
+        LungfishFormatters.formatBytes(bytes)
     }
 }
