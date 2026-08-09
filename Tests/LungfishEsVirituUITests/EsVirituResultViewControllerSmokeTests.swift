@@ -710,7 +710,7 @@ final class EsVirituResultViewControllerSmokeTests: XCTestCase {
         )
 
         let methodRange = try XCTUnwrap(
-            source.range(of: "private func updateEsVirituBatchAggregatedManifestUniqueReads() {")
+            source.range(of: "private func updateEsVirituBatchAggregatedManifestUniqueReads() -> Task<Void, Never>? {")
         )
         let nextMethodRange = source.range(
             of: "nonisolated static func applyingUniqueReads",
@@ -725,6 +725,84 @@ final class EsVirituResultViewControllerSmokeTests: XCTestCase {
         XCTAssertFalse(
             methodBody.contains("MetagenomicsBatchResultStore.loadEsVirituBatchAggregatedManifest"),
             "the load/mutate/save calls must live in the off-main helper, not inline in the main-actor method"
+        )
+        // R3ML round-3 review fix: the detached task must route through the
+        // per-batchURL serializer, not call writeUpdatedBatchAggregatedManifestUniqueReads
+        // directly -- otherwise two concurrent per-sample completions can
+        // interleave their load-modify-save and lose an update.
+        XCTAssertTrue(
+            methodBody.contains("EsVirituBatchManifestMutationSerializer.shared.run"),
+            "the write must be serialized per batchURL via EsVirituBatchManifestMutationSerializer"
+        )
+    }
+
+    /// R3ML round-3 review fix: two per-sample completions racing to update the
+    /// same batch aggregated manifest must not lose either update. Before this
+    /// fix, `updateEsVirituBatchAggregatedManifestUniqueReads` spawned an
+    /// unserialized `Task.detached` per call; two calls for different samples
+    /// firing back-to-back could each load the manifest before either had
+    /// saved, so the second save would silently discard the first save's
+    /// unique-read update (last-write-wins lost update). Routing both calls
+    /// through `EsVirituBatchManifestMutationSerializer` (mirroring
+    /// `BundleManifestMutationSerializer`) must make both updates land.
+    @MainActor func testConcurrentBatchAggregatedManifestWritesDoNotLoseEitherSamplesUpdate() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("esviritu-batch-manifest-race-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let initialManifest = EsVirituBatchAggregatedManifest(
+            createdAt: Date(timeIntervalSince1970: 0),
+            sampleCount: 2,
+            sampleIds: ["sample-A", "sample-B"],
+            cachedRows: [
+                Self.cachedRow(sample: "sample-A", assembly: "GCF_A", uniqueReads: 0),
+                Self.cachedRow(sample: "sample-B", assembly: "GCF_B", uniqueReads: 0),
+            ]
+        )
+        try MetagenomicsBatchResultStore.saveEsVirituBatchAggregatedManifest(initialManifest, to: root)
+
+        let vc = EsVirituResultViewController()
+        _ = vc.view
+        vc.batchURL = root
+
+        // Writer 1: only sample-A's row is present, so its write must only
+        // touch sample-A's uniqueReads (matching applyingUniqueReads's
+        // "only matching rows change" contract).
+        vc.allBatchRows = [
+            BatchEsVirituRow(
+                sample: "sample-A", virusName: "Test virus", family: "Testviridae",
+                assembly: "GCF_A", readCount: 100, uniqueReads: 17,
+                rpkmf: 1.0, coverageBreadth: 0.5, coverageDepth: 2.0
+            ),
+        ]
+        let task1 = vc.testTriggerBatchAggregatedManifestWrite()
+
+        // Writer 2: only sample-B's row is present. Fired immediately after
+        // writer 1, before either has necessarily finished its load/save --
+        // this is the exact interleaving that used to lose an update.
+        vc.allBatchRows = [
+            BatchEsVirituRow(
+                sample: "sample-B", virusName: "Test virus", family: "Testviridae",
+                assembly: "GCF_B", readCount: 100, uniqueReads: 42,
+                rpkmf: 1.0, coverageBreadth: 0.5, coverageDepth: 2.0
+            ),
+        ]
+        let task2 = vc.testTriggerBatchAggregatedManifestWrite()
+
+        await task1?.value
+        await task2?.value
+
+        let finalManifest = try XCTUnwrap(
+            MetagenomicsBatchResultStore.loadEsVirituBatchAggregatedManifest(from: root)
+        )
+        XCTAssertEqual(
+            finalManifest.cachedRows.first { $0.sample == "sample-A" }?.uniqueReads, 17,
+            "writer 1's update must survive writer 2's concurrent write"
+        )
+        XCTAssertEqual(
+            finalManifest.cachedRows.first { $0.sample == "sample-B" }?.uniqueReads, 42,
+            "writer 2's update must survive writer 1's concurrent write"
         )
     }
 
