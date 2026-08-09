@@ -86,6 +86,26 @@ final class AssemblyContigCatalogTests: XCTestCase {
         XCTAssertEqual(summary.lengthWeightedGCPercent, 0.0, accuracy: 0.001)
     }
 
+    /// R3-R3ML-1: GC content must be computed via a streaming byte scan over the FASTA file
+    /// (shared with the header-parsing pass) rather than by fetching each contig's full
+    /// sequence through IndexedFASTAReader.fetchSequence -- this pins the streaming scan's
+    /// correctness against a mixed-case, multi-line-wrapped, multi-contig fixture (the
+    /// wrapping and casing this bug class is most likely to get wrong).
+    func testGCContentIsCorrectForMixedCaseMultiLineWrappedSequences() async throws {
+        let catalog = try await makeFixtureCatalog(contigs: [
+            // Wrapped across multiple 4-base lines (lineWidth: 4 in the fixture writer);
+            // mixed upper/lower case G/C/A/T plus an ambiguity code that must not count as GC.
+            ("mixed header", "GgCcAaTtRYSW"),
+        ])
+
+        let records = try await catalog.records()
+        let record = try XCTUnwrap(records.first)
+
+        // 4 GC bases (G,g,C,c) out of 12 total bases = 33.333...%
+        XCTAssertEqual(record.lengthBP, 12)
+        XCTAssertEqual(record.gcPercent, 33.333333, accuracy: 0.001)
+    }
+
     func testParseHeadersPreservesPrimaryMappingWhenTabCompatibilityAliasCollides() throws {
         let fastaURL = try writeFixtureFASTA([
             ("foo real description", "AAAAA"),
