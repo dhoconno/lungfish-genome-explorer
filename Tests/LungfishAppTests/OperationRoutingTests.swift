@@ -691,7 +691,18 @@ final class OperationRoutingTests: XCTestCase {
         let operationStart = try XCTUnwrap(body.range(of: "OperationCenter.shared.start"))
 
         XCTAssertLessThan(fanout.lowerBound, operationStart.lowerBound)
-        XCTAssertTrue(body.contains("for independentRequest in independentRequests"))
+        // BG5 (batch-results-grouping spec §4/§6): the fan-out loop now
+        // collects each recursive call's returned opID into `childOpIDs`
+        // (via `.compactMap`, still ONE call per independent request, still
+        // concurrent -- no `await` inside this collection step) so a
+        // completion barrier further down can wait for every child's
+        // terminal state before running empty-batch cleanup. The loop
+        // itself is no longer literally `for independentRequest in
+        // independentRequests` (still concurrent, per
+        // `SavontBatchOutputLayoutTests
+        // .testSavontDispatchLoopStaysConcurrentAndBarrierUsesStaticSelfFreePoll`'s
+        // behavioral proof).
+        XCTAssertTrue(body.contains("let childOpIDs: [UUID] = independentRequests.compactMap { independentRequest in"))
         XCTAssertTrue(body.contains("request.independentOperationInputDisplayName"))
         XCTAssertTrue(body.contains("progress: { [weak self] fraction, message in"))
         XCTAssertTrue(body.contains("OperationCenter.shared.updateWithLog("))
@@ -755,7 +766,19 @@ final class OperationRoutingTests: XCTestCase {
             in: String(body[assembleFanout.lowerBound...])
         )
         XCTAssertTrue(assembleFanoutBlock.contains("Task { @MainActor [weak self] in"))
-        XCTAssertTrue(assembleFanoutBlock.contains("for independentRequest in independentRequests"))
+        // BG4: the loop now zips each independent request with its
+        // precomputed batch sample directory (spec §3) rather than
+        // iterating `independentRequests` alone, but it is still exactly
+        // ONE `for` loop over `independentRequests`, still sequential.
+        XCTAssertTrue(assembleFanoutBlock.contains("for (independentRequest, precomputedSampleDirectory) in zip(independentRequests, precomputedSampleDirectories)"))
+        // BG4 review fix: `guard let self else { break }`, NOT `{ return }`
+        // -- `return` would exit the whole `Task` closure and skip the
+        // post-loop empty-batch cleanup if the controller deallocates
+        // mid-batch, orphaning the batch directory. `break` falls through
+        // to cleanup, matching BG3's mapping fan-out driver
+        // (`runManagedMapping` in `AppDelegate+ToolsMenu.swift`) exactly.
+        XCTAssertTrue(assembleFanoutBlock.contains("guard let self else { break }"))
+        XCTAssertFalse(assembleFanoutBlock.contains("guard let self else { return }"))
         XCTAssertTrue(assembleFanoutBlock.contains("if let opID = self.runFASTQOperationLaunchRequestValidated("))
         XCTAssertTrue(assembleFanoutBlock.contains("await self.awaitOperationTerminal(id: opID)"))
         // The await sits INSIDE the for loop's body (after the dispatch
@@ -763,9 +786,18 @@ final class OperationRoutingTests: XCTestCase {
         // just a final join after firing all children concurrently.
         let dispatchRange = try XCTUnwrap(assembleFanoutBlock.range(of: "self.runFASTQOperationLaunchRequestValidated("))
         let awaitRange = try XCTUnwrap(assembleFanoutBlock.range(of: "await self.awaitOperationTerminal(id: opID)"))
-        let loopRange = try XCTUnwrap(assembleFanoutBlock.range(of: "for independentRequest in independentRequests"))
+        let loopRange = try XCTUnwrap(assembleFanoutBlock.range(of: "for (independentRequest, precomputedSampleDirectory) in zip(independentRequests, precomputedSampleDirectories)"))
         XCTAssertLessThan(loopRange.lowerBound, dispatchRange.lowerBound)
         XCTAssertLessThan(dispatchRange.lowerBound, awaitRange.lowerBound)
+
+        // BG4 (spec §6): empty-batch cleanup runs after the sequential loop
+        // completes, using the shared hoisted helper -- NOT inside the loop
+        // (mid-flight), and only when a batch directory was actually
+        // precomputed.
+        XCTAssertTrue(assembleFanoutBlock.contains("AnalysesFolder.removeBatchDirectoryIfEffectivelyEmpty(batchDirectory)"))
+        let cleanupRange = try XCTUnwrap(assembleFanoutBlock.range(of: "AnalysesFolder.removeBatchDirectoryIfEffectivelyEmpty(batchDirectory)"))
+        let loopEndRange = try XCTUnwrap(assembleFanoutBlock.range(of: "}", range: awaitRange.upperBound..<assembleFanoutBlock.endIndex))
+        XCTAssertLessThan(loopEndRange.lowerBound, cleanupRange.lowerBound)
 
         // Only ONE Task.detached call site reachable from this fan-out block
         // itself (the sequential driver's own `Task { @MainActor ... }` is

@@ -730,9 +730,16 @@ extension AppDelegate {
         if let projectURL, let batchDir = try? AnalysesFolder.createAnalysisDirectory(tool: "kraken2", in: projectURL, isBatch: true) {
             ownsBatchRoot = true
             for i in configs.indices {
-                let sampleSubdir = batchDir.appendingPathComponent(configs[i].outputDirectory.lastPathComponent, isDirectory: true)
-                try? FileManager.default.createDirectory(at: sampleSubdir, withIntermediateDirectories: true)
-                configs[i].outputDirectory = sampleSubdir
+                // Try the centralized helper; on failure, fall back to the old semantics.
+                if let sampleSubdir = try? AnalysesFolder.batchSampleDirectory(named: configs[i].outputDirectory.lastPathComponent, in: batchDir) {
+                    configs[i].outputDirectory = sampleSubdir
+                } else {
+                    // Preserve pre-refactor failure semantics: compute path and best-effort create.
+                    let name = configs[i].outputDirectory.lastPathComponent
+                    let sampleSubdir = batchDir.appendingPathComponent(name, isDirectory: true)
+                    try? FileManager.default.createDirectory(at: sampleSubdir, withIntermediateDirectories: true)
+                    configs[i].outputDirectory = sampleSubdir
+                }
             }
         }
 
@@ -1101,9 +1108,16 @@ extension AppDelegate {
         ) else { return }
         if let projectURL, let batchDir = try? AnalysesFolder.createAnalysisDirectory(tool: "esviritu", in: projectURL, isBatch: true) {
             for i in configs.indices {
-                let sampleSubdir = batchDir.appendingPathComponent(configs[i].outputDirectory.lastPathComponent, isDirectory: true)
-                try? FileManager.default.createDirectory(at: sampleSubdir, withIntermediateDirectories: true)
-                configs[i].outputDirectory = sampleSubdir
+                // Try the centralized helper; on failure, fall back to the old semantics.
+                if let sampleSubdir = try? AnalysesFolder.batchSampleDirectory(named: configs[i].outputDirectory.lastPathComponent, in: batchDir) {
+                    configs[i].outputDirectory = sampleSubdir
+                } else {
+                    // Preserve pre-refactor failure semantics: compute path and best-effort create.
+                    let name = configs[i].outputDirectory.lastPathComponent
+                    let sampleSubdir = batchDir.appendingPathComponent(name, isDirectory: true)
+                    try? FileManager.default.createDirectory(at: sampleSubdir, withIntermediateDirectories: true)
+                    configs[i].outputDirectory = sampleSubdir
+                }
             }
         }
 

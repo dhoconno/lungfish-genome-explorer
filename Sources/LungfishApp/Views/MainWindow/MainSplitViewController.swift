@@ -24,8 +24,24 @@ internal func mainSplitPerformOnMainRunLoop(_ block: @escaping @MainActor @Senda
 }
 
 extension FASTQOperationLaunchRequest {
+    /// BG5 (batch-results-grouping spec §4): when `projectURL` is non-nil,
+    /// ONE `Analyses/savont-batch-<timestamp>/` directory is precomputed up
+    /// front, and every child's flat-file output name is precomputed (via
+    /// `AnalysesFolder.batchSampleFileURL(named:extension:in:)`, walking
+    /// `batchRequest.inputURLs` in that same fixed order -- spec §3's
+    /// ordering invariant) BEFORE any child request is built or dispatched,
+    /// mirroring `independentAssembleLaunchRequests` exactly. Per-input
+    /// naming uses the source bundle's display name (`URL
+    /// .lungfishDisplayName`, which already reduces to a loose file's own
+    /// stem for a non-bundle URL -- no separate bundle-vs-loose-file branch
+    /// needed). `projectURL == nil` (e.g. a non-project-backed run) or
+    /// batch-directory creation failure falls back to the pre-BG5 behavior:
+    /// each child's output name is planner-derived from its OWN input stem,
+    /// unchanged, and `outputDirectoryURL` stays the flat `outputDirectory`
+    /// passed in (unchanged pre-BG5 regression pin).
     func independentSavontLaunchRequests(
         outputDirectory: URL,
+        projectURL: URL? = nil,
         planner: FASTQOperationPlanner = FASTQOperationPlanner()
     ) -> [FASTQOperationLaunchRequest] {
         guard case .savont(let batchRequest) = self,
@@ -33,16 +49,66 @@ extension FASTQOperationLaunchRequest {
             return [self]
         }
 
-        return planner.makeExecutionPlans(
+        // Precomputed IN INPUT-URL ORDER, before any child request is built
+        // (spec §3 ordering invariant) -- `nil` when there is no project to
+        // root the batch directory in, or when batch-directory creation
+        // fails, so the caller's flat `outputDirectory` (the pre-BG5
+        // `Analyses/` root) keeps working unchanged.
+        //
+        // `batchSampleFileURL` itself dedups against DISK entries only (it
+        // deliberately does not create the file -- BG1's contract), so two
+        // precomputed candidates for the same sanitized name would both
+        // resolve to the identical un-suffixed URL here, since neither file
+        // exists on disk yet at precompute time (a real Savont CLI run
+        // hasn't written anything). Pre-creating empty placeholder files to
+        // reserve names would backfire: `FASTQOperationPlanner`'s
+        // `collisionSafeOutputURL` treats ANY pre-existing file at the
+        // target path as a collision and renames past it at actual dispatch
+        // time, silently drifting the real output name away from what was
+        // precomputed here. So collisions among THIS call's own candidates
+        // are deduped locally instead, reusing `batchSampleFileURL`'s own
+        // `-2`/`-3`... suffix format on top of its already-sanitized base
+        // name, tracked in `claimedNames` -- a purely in-memory reservation
+        // that never touches disk.
+        let batchLayout: (directory: URL, fileURLs: [URL])? = projectURL.flatMap { projectURL -> (URL, [URL])? in
+            guard let batchDirectory = try? AnalysesFolder.createAnalysisDirectory(
+                tool: "savont", in: projectURL, isBatch: true
+            ) else { return nil }
+            var fileURLs: [URL] = []
+            fileURLs.reserveCapacity(batchRequest.inputURLs.count)
+            var claimedNames = Set<String>()
+            for inputURL in batchRequest.inputURLs {
+                let diskCandidate = AnalysesFolder.batchSampleFileURL(
+                    named: inputURL.lungfishDisplayName, extension: "fasta", in: batchDirectory
+                )
+                let baseName = diskCandidate.deletingPathExtension().lastPathComponent
+                let ext = diskCandidate.pathExtension
+                var candidateName = diskCandidate.lastPathComponent
+                var suffix = 2
+                while claimedNames.contains(candidateName) {
+                    candidateName = "\(baseName)-\(suffix).\(ext)"
+                    suffix += 1
+                }
+                claimedNames.insert(candidateName)
+                fileURLs.append(batchDirectory.appendingPathComponent(candidateName))
+            }
+            return (batchDirectory, fileURLs)
+        }
+        let effectiveOutputDirectory = batchLayout?.directory ?? outputDirectory
+
+        let plans = planner.makeExecutionPlans(
             originalRequest: self,
             resolvedRequest: self,
             baseOutputDirectory: outputDirectory
-        ).compactMap { plan in
+        )
+        return plans.enumerated().compactMap { index, plan in
             guard case .savont(let singleRequest) = plan.originalRequest else { return nil }
+            let outputName = batchLayout?.fileURLs[index].lastPathComponent
+                ?? plan.outputTarget.lastPathComponent
             return .savont(request: FASTQSavontClusteringRequest(
                 inputURLs: singleRequest.inputURLs,
-                outputDirectoryURL: outputDirectory,
-                singleInputOutputName: plan.outputTarget.lastPathComponent,
+                outputDirectoryURL: effectiveOutputDirectory,
+                singleInputOutputName: outputName,
                 threads: singleRequest.threads,
                 qualityValueCutoff: singleRequest.qualityValueCutoff,
                 minimumClusterSize: singleRequest.minimumClusterSize,
@@ -60,13 +126,13 @@ extension FASTQOperationLaunchRequest {
     /// `independentSavontLaunchRequests`'s fan-out shape exactly: called
     /// from `runFASTQOperationLaunchRequestValidated`, which recurses once
     /// per element, each recursion getting its OWN `OperationCenter`
-    /// operation, its own `AnalysesFolder` analysis directory, and its own
-    /// `Task.detached` -- so one bundle's assembly failure never aborts or
-    /// discards another bundle's completed work (MB-2 review round 1, point
-    /// 4). Only fires when the wizard's picker selected `.perBundle`
-    /// (`outputMode == .perInput`); `.combined` mode has no picker option
-    /// this round (locked, see `AssemblyWizardSheet.multiBundleRunPolicy`),
-    /// so it never reaches here with N>1 pooled inputs.
+    /// operation and its own `Task.detached` -- so one bundle's assembly
+    /// failure never aborts or discards another bundle's completed work
+    /// (MB-2 review round 1, point 4). Only fires when the wizard's picker
+    /// selected `.perBundle` (`outputMode == .perInput`); `.combined` mode
+    /// has no picker option this round (locked, see
+    /// `AssemblyWizardSheet.multiBundleRunPolicy`), so it never reaches here
+    /// with N>1 pooled inputs.
     ///
     /// Each child's `pairedEnd`/`inputURLs` are corrected from that ONE
     /// bundle's own real content via
@@ -76,15 +142,57 @@ extension FASTQOperationLaunchRequest {
     /// returned (point 4's validation requirement) -- `resolvedAssemblyPairedEnd`
     /// only ever returns `pairedEnd: true` paired with a 2-element list by
     /// construction, but the check stays as a load-bearing regression guard.
-    func independentAssembleLaunchRequests(outputDirectory: URL) -> [FASTQOperationLaunchRequest] {
+    ///
+    /// BG4 (batch-results-grouping spec §3): when `projectURL` is non-nil,
+    /// ONE `Analyses/<tool>-batch-<timestamp>/` directory is precomputed up
+    /// front, and every child's `AssemblyRunRequest.outputDirectory` is set
+    /// (via `AnalysesFolder.batchSampleDirectory(named:in:)`) to its own
+    /// pre-created sample subdirectory inside that shared batch root --
+    /// walking `batchRequest.inputURLs` in the SAME fixed order
+    /// `uniqueAssemblyProjectName` consumes below, so a name colliding twice
+    /// gets the identical `-2`/`-3` suffix in both the folder name and the
+    /// `projectName`/op title (the spec §3 ordering invariant). `projectURL
+    /// == nil` (e.g. a non-project-backed run, or a caller that hasn't
+    /// resolved a project yet) or batch-directory creation failure falls
+    /// back to leaving each child's `outputDirectory` as the pooled
+    /// request's placeholder unchanged -- the dispatch site's own
+    /// `createAnalysisDirectory` fallback then applies per child exactly as
+    /// it did before this change.
+    func independentAssembleLaunchRequests(
+        outputDirectory: URL,
+        projectURL: URL? = nil
+    ) -> [FASTQOperationLaunchRequest] {
         guard case .assemble(let batchRequest, let outputMode) = self,
               outputMode == .perInput,
               batchRequest.inputURLs.count > 1 else {
             return [self]
         }
 
+        // Precomputed IN INPUT-URL ORDER, before any child request is built
+        // (spec §3 ordering invariant) -- `nil` when there is no project to
+        // root the batch directory in, or when batch-directory creation
+        // fails, so the caller's per-child `createAnalysisDirectory`
+        // fallback (the `workingDirectory` decision in
+        // `runFASTQOperationLaunchRequestValidated`,
+        // MainSplitViewController+GenomicsDisplay.swift) keeps working
+        // unchanged.
+        let batchSampleDirectories: [URL]? = projectURL.flatMap { projectURL -> [URL]? in
+            guard let batchDirectory = try? AnalysesFolder.createAnalysisDirectory(
+                tool: batchRequest.tool.rawValue, in: projectURL, isBatch: true
+            ) else { return nil }
+            var directories: [URL] = []
+            directories.reserveCapacity(batchRequest.inputURLs.count)
+            for bundleURL in batchRequest.inputURLs {
+                guard let sampleDirectory = try? AnalysesFolder.batchSampleDirectory(
+                    named: bundleURL.lungfishDisplayName, in: batchDirectory
+                ) else { return nil }
+                directories.append(sampleDirectory)
+            }
+            return directories
+        }
+
         var usedProjectNames = Set<String>()
-        return batchRequest.inputURLs.map { bundleURL in
+        return batchRequest.inputURLs.enumerated().map { index, bundleURL in
             let resolved = AppDelegate.resolvedAssemblyPairedEnd(for: bundleURL)
             precondition(
                 !resolved.pairedEnd || resolved.inputURLs.count == 2,
@@ -92,10 +200,13 @@ extension FASTQOperationLaunchRequest {
             )
             let bundleSampleName = MetagenomicsSampleGrouper.sanitizeSampleId(bundleURL.lungfishDisplayName)
             let childProjectName = Self.uniqueAssemblyProjectName(bundleSampleName, usedNames: &usedProjectNames)
-            let childRequest = batchRequest
+            var childRequest = batchRequest
                 .replacingInputURLs(with: resolved.inputURLs)
                 .replacingPairedEnd(with: resolved.pairedEnd)
                 .replacingProjectName(with: childProjectName)
+            if let batchSampleDirectories {
+                childRequest = childRequest.replacingOutputDirectory(with: batchSampleDirectories[index])
+            }
             return .assemble(request: childRequest, outputMode: outputMode)
         }
     }

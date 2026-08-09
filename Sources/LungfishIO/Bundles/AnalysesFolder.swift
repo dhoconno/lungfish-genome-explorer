@@ -174,6 +174,157 @@ public enum AnalysesFolder {
         )
     }
 
+    // MARK: - Batch Sample Naming
+
+    /// Returns a per-sample subdirectory inside a batch analysis directory,
+    /// creating it.
+    ///
+    /// `sampleName` is sanitized (see ``sanitizeBatchSampleName(_:)``) and
+    /// deduped against existing entries in `batchDirectory` by appending
+    /// `-2`, `-3`, ... on collision, following the same collision-loop idiom
+    /// as ``createAnalysisDirectory(tool:in:isBatch:date:)``.
+    ///
+    /// - Parameters:
+    ///   - sampleName: The source bundle's display name.
+    ///   - batchDirectory: The batch analysis directory (e.g. from
+    ///     `createAnalysisDirectory(tool:in:isBatch: true)`).
+    /// - Returns: URL of the newly created per-sample directory.
+    @discardableResult
+    public static func batchSampleDirectory(named sampleName: String, in batchDirectory: URL) throws -> URL {
+        let baseName = sanitizeBatchSampleName(sampleName)
+        let fileManager = FileManager.default
+
+        for attempt in 0..<1_000 {
+            let name = attempt == 0 ? baseName : "\(baseName)-\(attempt + 1)"
+            let sampleURL = batchDirectory.appendingPathComponent(name, isDirectory: true)
+            do {
+                try fileManager.createDirectory(at: sampleURL, withIntermediateDirectories: false)
+                return sampleURL
+            } catch {
+                let nsError = error as NSError
+                if nsError.domain == NSCocoaErrorDomain,
+                   nsError.code == CocoaError.Code.fileWriteFileExists.rawValue {
+                    continue
+                }
+                throw error
+            }
+        }
+
+        throw CocoaError(
+            .fileWriteFileExists,
+            userInfo: [
+                NSFilePathErrorKey: batchDirectory.appendingPathComponent(baseName, isDirectory: true).path,
+                NSLocalizedDescriptionKey: "Could not create a unique sample directory for \(baseName)"
+            ]
+        )
+    }
+
+    /// Returns a per-sample flat-file URL inside a batch analysis directory,
+    /// using the same sanitize+dedup policy as
+    /// ``batchSampleDirectory(named:in:)`` — does NOT create the file
+    /// (callers write it).
+    ///
+    /// - Parameters:
+    ///   - sampleName: The source bundle's display name (or input stem for
+    ///     loose files).
+    ///   - ext: The file extension, without a leading dot (e.g. `"fasta"`).
+    ///   - batchDirectory: The batch analysis directory.
+    /// - Returns: URL of the (not-yet-existing) per-sample file, unique
+    ///   among `batchDirectory`'s existing entries.
+    public static func batchSampleFileURL(named sampleName: String, extension ext: String, in batchDirectory: URL) -> URL {
+        let baseName = sanitizeBatchSampleName(sampleName)
+        let fileManager = FileManager.default
+
+        for attempt in 0..<1_000 {
+            let name = attempt == 0 ? baseName : "\(baseName)-\(attempt + 1)"
+            let fileURL = batchDirectory.appendingPathComponent(name).appendingPathExtension(ext)
+            if !fileManager.fileExists(atPath: fileURL.path) {
+                return fileURL
+            }
+        }
+
+        // Exhausted the collision range; return the last candidate rather than
+        // trap — callers write the file themselves and can surface a write error.
+        return batchDirectory.appendingPathComponent("\(baseName)-1000").appendingPathExtension(ext)
+    }
+
+    /// Sanitizes a source bundle's display name for use as a batch sample
+    /// directory/file name.
+    ///
+    /// Replicates the character policy of
+    /// `MetagenomicsSampleGrouper.sanitizeSampleId` in
+    /// `Sources/LungfishApp/Views/Metagenomics/MetagenomicsSampleInput.swift:105-114`
+    /// (LungfishIO cannot depend on LungfishApp, so this is a private copy,
+    /// not a shared extraction — keep the two policies in sync if either
+    /// changes). Falls back to `"sample"` for an empty/all-punctuation name.
+    private static func sanitizeBatchSampleName(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "sample" }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-"))
+        let mapped = trimmed.unicodeScalars.map { allowed.contains($0) ? Character($0) : "_" }
+        let collapsed = String(mapped)
+            .replacingOccurrences(of: "__+", with: "_", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "_-"))
+        return collapsed.isEmpty ? "sample" : collapsed
+    }
+
+    // MARK: - Batch Cleanup
+
+    /// Removes `batchDirectory` if, after all of its children have reached a
+    /// terminal state, it contains no sample entries beyond the
+    /// `analysis-metadata.json` sidecar written at creation time (spec §6:
+    /// empty-batch cleanup, run only once ALL children are terminal, never
+    /// mid-flight).
+    ///
+    /// The emptiness check is recursive by ONE level: batch orchestrators
+    /// (e.g. `precomputedMappingBatchOutputDirectories`) pre-create every
+    /// child's sample directory (empty) before any child runs, so a shallow
+    /// top-level listing would always see N directory entries -- even when
+    /// every child failed before writing anything, or a bundle was never
+    /// reached because the batch was cancelled mid-flight. A top-level entry
+    /// counts as "content" (and blocks removal) iff it is EITHER a
+    /// non-directory (any flat file some future producer might leave at the
+    /// batch root, `analysis-metadata.json` excluded) OR a directory that
+    /// itself has at least one entry. A pre-created-but-still-empty child
+    /// directory does not block removal; a child directory containing
+    /// partial output (from a child that failed AFTER writing something)
+    /// does. This deliberately does NOT remove individual empty child
+    /// directories on its own (that would be child-side cleanup, which the
+    /// design rules out -- a failed child's partial output must still block
+    /// the whole batch from being removed) -- it only decides whether the
+    /// WHOLE batch directory, including its still-empty children, is
+    /// removable as a unit.
+    ///
+    /// A missing directory (e.g. cleaned up by a previous call, or a
+    /// caller passing an already-nonexistent URL in a test) is a silent
+    /// no-op, not an error -- this is a best-effort tidy-up, not a
+    /// correctness-critical step.
+    public static func removeBatchDirectoryIfEffectivelyEmpty(_ batchDirectory: URL) {
+        let fileManager = FileManager.default
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: batchDirectory, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]
+        ) else { return }
+
+        let hasContent = entries.contains { entry in
+            guard entry.lastPathComponent != metadataFilename else { return false }
+            let isDirectory = (try? entry.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+            guard isDirectory else {
+                // A non-directory, non-metadata entry at the batch root is
+                // content in its own right.
+                return true
+            }
+            // A pre-created child sample directory only counts as content
+            // if it has something inside it.
+            let childEntries = (try? fileManager.contentsOfDirectory(
+                at: entry, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
+            )) ?? []
+            return !childEntries.isEmpty
+        }
+        guard !hasContent else { return }
+
+        try? fileManager.removeItem(at: batchDirectory)
+    }
+
     // MARK: - Listing
 
     /// Lists all analysis directories in `Analyses/`, sorted newest first.

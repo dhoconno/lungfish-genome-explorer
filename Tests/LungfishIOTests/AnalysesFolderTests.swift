@@ -342,4 +342,88 @@ final class AnalysesFolderTests: XCTestCase {
         XCTAssertEqual(analyses.count, 1)
         XCTAssertEqual(analyses.first?.tool, "kraken2")
     }
+
+    // MARK: - Batch Sample Naming Helpers
+
+    func testBatchSampleDirectorySanitizesSpacesAndPunctuation() throws {
+        let batchDir = try AnalysesFolder.createAnalysisDirectory(tool: "kraken2", in: tempDir, isBatch: true)
+        let url = try AnalysesFolder.batchSampleDirectory(named: "My Sample #1!", in: batchDir)
+        XCTAssertEqual(url.lastPathComponent, "My_Sample_1")
+    }
+
+    func testBatchSampleDirectoryEmptyNameFallsBackToSample() throws {
+        let batchDir = try AnalysesFolder.createAnalysisDirectory(tool: "kraken2", in: tempDir, isBatch: true)
+        let url = try AnalysesFolder.batchSampleDirectory(named: "   ", in: batchDir)
+        XCTAssertEqual(url.lastPathComponent, "sample")
+    }
+
+    func testBatchSampleDirectoryDedupsCollisions() throws {
+        let batchDir = try AnalysesFolder.createAnalysisDirectory(tool: "kraken2", in: tempDir, isBatch: true)
+        let first = try AnalysesFolder.batchSampleDirectory(named: "A", in: batchDir)
+        let second = try AnalysesFolder.batchSampleDirectory(named: "A", in: batchDir)
+
+        XCTAssertEqual(first.lastPathComponent, "A")
+        XCTAssertEqual(second.lastPathComponent, "A-2")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: first.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: second.path))
+    }
+
+    func testBatchSampleDirectoryDedupsThirdCollision() throws {
+        let batchDir = try AnalysesFolder.createAnalysisDirectory(tool: "kraken2", in: tempDir, isBatch: true)
+        _ = try AnalysesFolder.batchSampleDirectory(named: "A", in: batchDir)
+        _ = try AnalysesFolder.batchSampleDirectory(named: "A", in: batchDir)
+        let third = try AnalysesFolder.batchSampleDirectory(named: "A", in: batchDir)
+
+        XCTAssertEqual(third.lastPathComponent, "A-3")
+    }
+
+    func testBatchSampleDirectoryActuallyCreatesTheDirectory() throws {
+        let batchDir = try AnalysesFolder.createAnalysisDirectory(tool: "kraken2", in: tempDir, isBatch: true)
+        let url = try AnalysesFolder.batchSampleDirectory(named: "SampleX", in: batchDir)
+
+        var isDirectory: ObjCBool = false
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory))
+        XCTAssertTrue(isDirectory.boolValue)
+    }
+
+    func testBatchSampleFileURLSanitizesSpacesAndPunctuation() throws {
+        let batchDir = try AnalysesFolder.createAnalysisDirectory(tool: "esviritu", in: tempDir, isBatch: true)
+        let url = AnalysesFolder.batchSampleFileURL(named: "My Sample #1!", extension: "fasta", in: batchDir)
+        XCTAssertEqual(url.lastPathComponent, "My_Sample_1.fasta")
+    }
+
+    func testBatchSampleFileURLEmptyNameFallsBackToSample() throws {
+        let batchDir = try AnalysesFolder.createAnalysisDirectory(tool: "esviritu", in: tempDir, isBatch: true)
+        let url = AnalysesFolder.batchSampleFileURL(named: "   ", extension: "fasta", in: batchDir)
+        XCTAssertEqual(url.lastPathComponent, "sample.fasta")
+    }
+
+    func testBatchSampleFileURLDedupsCollisions() throws {
+        let batchDir = try AnalysesFolder.createAnalysisDirectory(tool: "esviritu", in: tempDir, isBatch: true)
+        let first = AnalysesFolder.batchSampleFileURL(named: "A", extension: "fasta", in: batchDir)
+        try Data().write(to: first)
+        let second = AnalysesFolder.batchSampleFileURL(named: "A", extension: "fasta", in: batchDir)
+
+        XCTAssertEqual(first.lastPathComponent, "A.fasta")
+        XCTAssertEqual(second.lastPathComponent, "A-2.fasta")
+    }
+
+    func testBatchSampleFileURLDoesNotCreateTheFile() throws {
+        let batchDir = try AnalysesFolder.createAnalysisDirectory(tool: "esviritu", in: tempDir, isBatch: true)
+        let url = AnalysesFolder.batchSampleFileURL(named: "SampleX", extension: "fasta", in: batchDir)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+    }
+
+    func testBatchSampleDirectoryThrowsWhenParentDoesNotExist() throws {
+        // Force failure: make a batch directory path that points to a non-existent parent.
+        let nonExistentBatchDir = tempDir.appendingPathComponent("does-not-exist/batch-dir", isDirectory: true)
+
+        // Attempting to create a sample directory in a non-existent batch dir should throw.
+        XCTAssertThrowsError(
+            try AnalysesFolder.batchSampleDirectory(named: "SampleA", in: nonExistentBatchDir)
+        ) { error in
+            let nsError = error as NSError
+            XCTAssertEqual(nsError.domain, NSCocoaErrorDomain)
+        }
+    }
 }

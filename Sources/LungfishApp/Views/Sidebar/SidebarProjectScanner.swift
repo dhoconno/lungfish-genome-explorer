@@ -790,7 +790,12 @@ enum SidebarProjectScanner {
         }
     }
 
-    /// Fallback: enumerate subdirectories when no batch manifest is available.
+    /// Fallback: enumerate batch children when no batch manifest is available.
+    ///
+    /// Most batch producers (mapping, assembly) write one subdirectory per
+    /// sample. Savont writes flat per-sample FILES directly inside the batch
+    /// directory instead. Both shapes are batch children; only the metadata
+    /// sidecar itself is excluded.
     static func appendBatchChildrenFromFilesystem(
         info: AnalysesFolder.AnalysisDirectoryInfo,
         groupNode: inout SidebarScanNode,
@@ -808,9 +813,8 @@ enum SidebarProjectScanner {
         for child in contents.sorted(by: {
             $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending
         }) {
-            var childIsDir: ObjCBool = false
-            guard fm.fileExists(atPath: child.path, isDirectory: &childIsDir),
-                  childIsDir.boolValue else { continue }
+            guard child.lastPathComponent != AnalysesFolder.metadataFilename else { continue }
+            guard fm.fileExists(atPath: child.path) else { continue }
             guard sidecarCheck(child) else { continue }
             var childNode = SidebarScanNode(
                 title: child.lastPathComponent,
