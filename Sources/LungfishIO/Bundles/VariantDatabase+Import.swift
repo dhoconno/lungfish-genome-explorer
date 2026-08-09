@@ -9,6 +9,24 @@ import os.log
 
 extension VariantDatabase {
 
+    #if DEBUG
+    /// Test-only injection seam (R3-R3H-3 regression coverage): when set, the Nth
+    /// COMMIT (1-indexed) issued by `materializeVariantInfo`'s batch loop reports a
+    /// synthetic SQLite failure instead of actually committing, so tests can prove a
+    /// failed COMMIT during materialization is propagated as a thrown error rather
+    /// than silently advancing the resume cursor past lost rows. Reset to `nil` after
+    /// firing once so it does not leak into later commits within the same call.
+    nonisolated(unsafe) static var debugFailMaterializeCommitAtCount: Int?
+    nonisolated(unsafe) private static var debugMaterializeCommitInvocationCount = 0
+
+    /// Resets the materialize-COMMIT-failure injection counter. Call from test
+    /// `setUp`/`tearDown` to avoid state leaking between tests.
+    static func resetDebugMaterializeCommitFailureInjection() {
+        debugFailMaterializeCommitAtCount = nil
+        debugMaterializeCommitInvocationCount = 0
+    }
+    #endif
+
     // MARK: - Resume Interrupted Import
 
     /// Read a metadata value from an existing variant database without opening
@@ -662,13 +680,54 @@ extension VariantDatabase {
         var distinctKeys = Set<String>()
         var infoValueSamples: [String: [String]] = [:]
 
+        // BEGIN/COMMIT wrappers that check SQLite's return code (R3-R3H-3): a
+        // failed BEGIN or COMMIT here used to be silently discarded (return value
+        // ignored), so `lastProcessedId`/`materialize_last_variant_id` could
+        // advance past a batch whose INSERTs were never actually committed --
+        // an uncommitted or partially-rolled-back transaction masquerading as
+        // "materialize_state = complete". Mirrors the fix already applied to
+        // commitImportTransaction() in VariantDatabase+CreateFromVCF.swift (F39).
+        func beginMaterializeTransaction() throws {
+            var beginErr: UnsafeMutablePointer<CChar>?
+            let rc = sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, &beginErr)
+            if rc != SQLITE_OK {
+                let msg = beginErr.map { String(cString: $0) } ?? String(cString: sqlite3_errmsg(db))
+                if let beginErr { sqlite3_free(beginErr) }
+                variantDBLogger.error("materializeVariantInfo: BEGIN TRANSACTION failed: \(msg)")
+                throw VariantDatabaseError.createFailed("materializeVariantInfo: BEGIN TRANSACTION failed: \(msg)")
+            }
+        }
+
+        func commitMaterializeTransaction() throws {
+            var commitErr: UnsafeMutablePointer<CChar>?
+            var rc = sqlite3_exec(db, "COMMIT", nil, nil, &commitErr)
+            #if DEBUG
+            if let failAt = Self.debugFailMaterializeCommitAtCount {
+                Self.debugMaterializeCommitInvocationCount += 1
+                if Self.debugMaterializeCommitInvocationCount == failAt {
+                    if let commitErr { sqlite3_free(commitErr) }
+                    commitErr = strdup("R3-R3H-3 test injection: simulated COMMIT failure")
+                    rc = SQLITE_IOERR
+                    Self.debugFailMaterializeCommitAtCount = nil
+                }
+            }
+            #endif
+            if rc != SQLITE_OK {
+                let msg = commitErr.map { String(cString: $0) } ?? String(cString: sqlite3_errmsg(db))
+                if let commitErr { sqlite3_free(commitErr) }
+                variantDBLogger.error("materializeVariantInfo: COMMIT failed: \(msg), issuing ROLLBACK")
+                sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+                throw VariantDatabaseError.createFailed("materializeVariantInfo: COMMIT failed, aborting to avoid silently losing INFO rows: \(msg)")
+            }
+        }
+
         // Batch loop.
         while true {
             if shouldCancel?() == true {
                 throw VariantDatabaseError.cancelled
             }
 
-            sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil)
+            try beginMaterializeTransaction()
 
             sqlite3_reset(selectStmt)
             sqlite3_bind_int64(selectStmt, 1, lastProcessedId)
@@ -687,7 +746,13 @@ extension VariantDatabase {
                     sqlite3_bind_int64(insertInfoStmt, 1, variantId)
                     variantDBBindText(insertInfoStmt, 2, key)
                     variantDBBindText(insertInfoStmt, 3, value)
-                    sqlite3_step(insertInfoStmt)
+                    let stepRC = sqlite3_step(insertInfoStmt)
+                    guard stepRC == SQLITE_DONE else {
+                        let msg = String(cString: sqlite3_errmsg(db))
+                        variantDBLogger.error("materializeVariantInfo: INSERT failed for variant \(variantId), key '\(key)': \(msg) (rc=\(stepRC))")
+                        sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+                        throw VariantDatabaseError.createFailed("materializeVariantInfo: INSERT into variant_info failed, aborting to avoid a partial batch: \(msg)")
+                    }
                     totalEAVRows += 1
                     distinctKeys.insert(key)
                     if infoValueSamples[key, default: []].count < 50 {
@@ -701,14 +766,14 @@ extension VariantDatabase {
 
             // No more rows — exit loop.
             if batchCount == 0 {
-                sqlite3_exec(db, "COMMIT", nil, nil, nil)
+                try commitMaterializeTransaction()
                 break
             }
 
             // Update cursor and commit.
             lastProcessedId = batchLastId
             Self.insertMetadataRow(db, key: "materialize_last_variant_id", value: "\(lastProcessedId)", replace: true)
-            sqlite3_exec(db, "COMMIT", nil, nil, nil)
+            try commitMaterializeTransaction()
 
             // Release memory.
             _ = sqlite3_db_release_memory(db)
@@ -729,14 +794,20 @@ extension VariantDatabase {
             throw VariantDatabaseError.createFailed("Failed to prepare info_defs INSERT for materialization")
         }
         defer { sqlite3_finalize(insertDefStmt) }
-        sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil)
+        try beginMaterializeTransaction()
         for key in distinctKeys.sorted() {
             sqlite3_reset(insertDefStmt)
             variantDBBindText(insertDefStmt, 1, key)
             variantDBBindText(insertDefStmt, 2, inferInfoType(from: infoValueSamples[key] ?? []))
-            sqlite3_step(insertDefStmt)
+            let stepRC = sqlite3_step(insertDefStmt)
+            guard stepRC == SQLITE_DONE else {
+                let msg = String(cString: sqlite3_errmsg(db))
+                variantDBLogger.error("materializeVariantInfo: INSERT into variant_info_defs failed for key '\(key)': \(msg) (rc=\(stepRC))")
+                sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+                throw VariantDatabaseError.createFailed("materializeVariantInfo: INSERT into variant_info_defs failed, aborting: \(msg)")
+            }
         }
-        sqlite3_exec(db, "COMMIT", nil, nil, nil)
+        try commitMaterializeTransaction()
 
         // Create variant_info indexes.
         progressHandler?(0.92, "Creating variant_info indexes...")

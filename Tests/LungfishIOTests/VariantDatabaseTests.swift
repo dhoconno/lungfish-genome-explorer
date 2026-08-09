@@ -1839,6 +1839,45 @@ final class VariantDatabaseTests: XCTestCase {
         XCTAssertFalse(keys.isEmpty)
     }
 
+    /// R3-R3H-3 regression: a failed COMMIT inside materializeVariantInfo's batch
+    /// loop must abort with a thrown error, not be silently swallowed while the
+    /// resume cursor (`materialize_last_variant_id`) advances past rows that were
+    /// never actually committed -- the same defect class already fixed for
+    /// commitImportTransaction() in VariantDatabase+CreateFromVCF.swift (F39).
+    func testMaterializeThrowsWhenCommitFails() throws {
+        VariantDatabase.resetDebugMaterializeCommitFailureInjection()
+        defer { VariantDatabase.resetDebugMaterializeCommitFailureInjection() }
+
+        let vcfURL = try createTempVCF(content: testVCF)
+        let dbURL = tempDir.appendingPathComponent("materialize_commit_failure.db")
+        try VariantDatabase.createFromVCF(
+            vcfURL: vcfURL, outputURL: dbURL,
+            parseGenotypes: true, importProfile: .ultraLowMemory
+        )
+
+        // testVCF has 7 variants, well under the 5000-row batch LIMIT, so the
+        // batch loop's first (and data-bearing) COMMIT is invocation #1.
+        VariantDatabase.debugFailMaterializeCommitAtCount = 1
+
+        XCTAssertThrowsError(
+            try VariantDatabase.materializeVariantInfo(existingDBURL: dbURL)
+        ) { error in
+            guard case VariantDatabaseError.createFailed(let message) = error else {
+                return XCTFail("Expected createFailed, got \(error)")
+            }
+            XCTAssertTrue(message.contains("COMMIT failed"), "Expected COMMIT-failure message, got: \(message)")
+        }
+
+        // Without the fix, materialize_last_variant_id would have advanced past
+        // the batch's rows despite the failed COMMIT, permanently hiding the gap.
+        // With the fix, the cursor must NOT be reported as having completed.
+        XCTAssertNotEqual(
+            VariantDatabase.metadataValue(at: dbURL, key: "materialize_state"),
+            "complete",
+            "A failed COMMIT must not leave materialize_state as 'complete'"
+        )
+    }
+
     func testMaterializeOnNonSkippedDB() throws {
         // Standard import (not ultraLowMemory) — materialize should be a no-op.
         let vcfURL = try createTempVCF(content: testVCF)
