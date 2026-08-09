@@ -181,15 +181,35 @@ public actor BatchProcessingEngine {
                     activeTasks += 1
 
                     group.addTask { [self] in
-                        let summary = try await self.processSource(
-                            source: source,
-                            sourceIndex: idx,
-                            batchDir: batchDir,
-                            recipe: recipe,
-                            totalSources: sources.count,
-                            progress: progress
-                        )
-                        return (idx, summary)
+                        do {
+                            let summary = try await self.processSource(
+                                source: source,
+                                sourceIndex: idx,
+                                batchDir: batchDir,
+                                recipe: recipe,
+                                totalSources: sources.count,
+                                progress: progress
+                            )
+                            return (idx, summary)
+                        } catch let error as BatchProcessingError {
+                            switch error {
+                            case .barcodeNotFound, .cancelled:
+                                // A missing source bundle or a cancellation observed
+                                // mid-step for this one barcode must not discard every
+                                // other barcode's already-completed work: convert it
+                                // into a degraded BarcodeSummary (matching the
+                                // internal-catch pattern processSource's step loop
+                                // already uses for ordinary recipe-step errors) rather
+                                // than letting it propagate out of the task group,
+                                // which previously aborted executeBatch entirely and
+                                // discarded collectedResults before
+                                // batchManifest.json/comparison.json were ever written
+                                // (R3-R3ML-20).
+                                return (idx, self.degradedSummary(for: source, error: error, stepCount: recipe.steps.count))
+                            default:
+                                throw error
+                            }
+                        }
                     }
                 }
 
@@ -522,6 +542,41 @@ public actor BatchProcessingEngine {
         return BarcodeSummary(
             label: source.displayName,
             inputMetrics: inputMetrics,
+            stepResults: stepResults
+        )
+    }
+
+    /// Builds a degraded `BarcodeSummary` for a source that failed before any recipe
+    /// step could run (e.g. a missing source bundle, or a cancellation observed before
+    /// the first step), so this one source's failure can be folded into the batch's
+    /// results rather than aborting the whole `executeBatch` call (R3-R3ML-20). Marks
+    /// every recipe step `.failed`/`.skipped` (step 0 carries the error message, the
+    /// rest are `.skipped`), matching the shape `processSource`'s own internal catch
+    /// produces for an ordinary step failure.
+    private nonisolated func degradedSummary(
+        for source: BatchSource,
+        error: BatchProcessingError,
+        stepCount: Int
+    ) -> BarcodeSummary {
+        var stepResults: [StepResult] = []
+        if stepCount > 0 {
+            stepResults.append(StepResult(
+                stepIndex: 0,
+                status: .failed,
+                metrics: .empty,
+                errorMessage: error.localizedDescription
+            ))
+            for remainingIndex in 1..<stepCount {
+                stepResults.append(StepResult(
+                    stepIndex: remainingIndex,
+                    status: .skipped,
+                    metrics: .empty
+                ))
+            }
+        }
+        return BarcodeSummary(
+            label: source.displayName,
+            inputMetrics: .empty,
             stepResults: stepResults
         )
     }
