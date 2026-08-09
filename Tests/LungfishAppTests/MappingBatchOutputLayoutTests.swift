@@ -124,42 +124,80 @@ final class MappingBatchOutputLayoutTests: XCTestCase {
     }
 
     // MARK: - Empty-batch cleanup (spec §6)
+    //
+    // These tests deliberately do NOT touch the sample directories that
+    // `precomputedMappingBatchOutputDirectories` pre-creates -- that
+    // precompute step creates every child's (empty) sample directory up
+    // front, in request order, BEFORE any child dispatch, so "every child
+    // failed before writing output" and "the batch was cancelled before any
+    // child ran" are both represented on disk as a batch directory full of
+    // still-empty sample directories, never as a batch directory with
+    // missing sample directories. A test that pre-deletes the sample dirs
+    // before calling cleanup exercises a state production never produces
+    // (review fix, BG3 round 1).
 
-    func testCleanupRemovesBatchDirectoryWhenOnlyMetadataSidecarRemains() throws {
+    func testCleanupRemovesBatchDirectoryWhenAllPrecreatedSampleDirsAreStillEmpty() throws {
         let requests = [request(sampleName: "SampleA"), request(sampleName: "SampleB")]
         let sampleDirs = try XCTUnwrap(
             AppDelegate.precomputedMappingBatchOutputDirectories(requests: requests, in: tempDir)
         )
         let batchDir = sampleDirs[0].deletingLastPathComponent()
 
-        // Simulate every child failing: remove the (empty) per-sample dirs
-        // it created, leaving only analysis-metadata.json behind, matching
-        // what a real all-failed batch looks like on disk.
-        for dir in sampleDirs {
-            try? FileManager.default.removeItem(at: dir)
-        }
+        // Simulates every child failing before it wrote any output: the
+        // precomputed sample directories exist (empty) exactly as the
+        // precompute step left them; nothing here removes or populates
+        // them.
 
         AppDelegate.cleanupBatchDirectoryIfEmpty(batchDir)
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: batchDir.path))
     }
 
-    func testCleanupKeepsBatchDirectoryWhenAnySampleEntryRemains() throws {
+    func testCleanupKeepsBatchDirectoryWhenOneSampleDirHasPartialOutput() throws {
         let requests = [request(sampleName: "SampleA"), request(sampleName: "SampleB")]
         let sampleDirs = try XCTUnwrap(
             AppDelegate.precomputedMappingBatchOutputDirectories(requests: requests, in: tempDir)
         )
         let batchDir = sampleDirs[0].deletingLastPathComponent()
 
-        // Only the first child failed (its directory got cleaned up
-        // upstream); the second child succeeded and left its directory
-        // (with contents) behind.
-        try? FileManager.default.removeItem(at: sampleDirs[0])
-        try Data("bam-bytes".utf8).write(to: sampleDirs[1].appendingPathComponent("result.bam"))
+        // SampleA failed before writing anything (its precomputed directory
+        // stays empty, exactly as precomputed). SampleB failed AFTER
+        // writing partial output -- its precomputed directory now has a
+        // file in it. The whole batch directory must survive: SampleB's
+        // partial output is real content that must not be silently
+        // deleted.
+        try Data("partial-bam-bytes".utf8).write(to: sampleDirs[1].appendingPathComponent("result.bam"))
 
         AppDelegate.cleanupBatchDirectoryIfEmpty(batchDir)
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: batchDir.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sampleDirs[0].path), "SampleA's empty dir must not be individually removed")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sampleDirs[1].appendingPathComponent("result.bam").path))
+    }
+
+    /// Cancellation shape (spec §6): the batch is cancelled after the first
+    /// child produces output but before the second child ever starts. The
+    /// first child's directory has content; the second's precomputed
+    /// directory was created up front but the child that would have
+    /// populated it never ran -- it stays empty. The batch directory must
+    /// survive because of the first child's real output, and the cleanup
+    /// must reach this conclusion without any child-side cleanup ever
+    /// having touched the second (empty) directory.
+    func testCleanupKeepsBatchDirectoryOnCancellationWithOneCompletedAndOneNeverStartedChild() throws {
+        let requests = [request(sampleName: "SampleA"), request(sampleName: "SampleB")]
+        let sampleDirs = try XCTUnwrap(
+            AppDelegate.precomputedMappingBatchOutputDirectories(requests: requests, in: tempDir)
+        )
+        let batchDir = sampleDirs[0].deletingLastPathComponent()
+
+        try Data("bam-bytes".utf8).write(to: sampleDirs[0].appendingPathComponent("result.bam"))
+        // sampleDirs[1] is left exactly as precomputed: created, empty --
+        // its child never ran before the batch was cancelled.
+
+        AppDelegate.cleanupBatchDirectoryIfEmpty(batchDir)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: batchDir.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sampleDirs[1].path), "unstarted child's empty dir must not be individually removed")
     }
 
     func testCleanupIsNoOpWhenBatchDirectoryDoesNotExist() {
