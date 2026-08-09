@@ -96,6 +96,75 @@ final class GenotypeWorkbookManagedRuntimeProbeTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(started), 3)
     }
 
+    // MARK: - R3-R3ML-17: probeAsync must not block the calling task
+
+    func testProbeAsyncReturnsSameIdentityAsProbe() async throws {
+        guard let python = openpyxlPythonURL() else {
+            throw XCTSkip("The managed test runtime must provide openpyxl")
+        }
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let wrapper = root.appendingPathComponent("plain-python")
+        try writeExecutable(
+            """
+            #!/bin/sh
+            exec "\(python.path)" "$@"
+            """,
+            to: wrapper
+        )
+
+        let identity = try await GenotypeWorkbookManagedRuntimeProbe.probeAsync(
+            pythonExecutableURL: wrapper,
+            timeout: 5
+        )
+
+        XCTAssertFalse(try XCTUnwrap(identity["pythonVersion"]).isEmpty)
+        XCTAssertFalse(try XCTUnwrap(identity["openpyxlVersion"]).isEmpty)
+    }
+
+    /// Proves probeAsync's busy-poll loop runs on a detached background task, not
+    /// the caller's own cooperative-pool thread: a concurrently-started sibling Task
+    /// (a simple counter incrementing on a tight async loop) must be able to make
+    /// substantial progress *while* probeAsync is still in flight against a
+    /// deliberately-hanging stub process. If probeAsync's usleep loop instead ran
+    /// synchronously on a thread the caller's own async work depended on, the
+    /// sibling task would be starved until probeAsync's cancellation/timeout fired.
+    func testProbeAsyncDoesNotStarveConcurrentTasks() async throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let wrapper = root.appendingPathComponent("hanging-python-async")
+        try writeExecutable(
+            """
+            #!/bin/sh
+            trap '' TERM
+            while true; do
+              printf 'still-running\\n' 1>&2
+            done
+            """,
+            to: wrapper
+        )
+
+        let progressCounter = LockedCounter()
+        let probeTask = Task {
+            try await GenotypeWorkbookManagedRuntimeProbe.probeAsync(
+                pythonExecutableURL: wrapper,
+                timeout: 3
+            )
+        }
+        let siblingTask = Task {
+            for _ in 0..<200 {
+                _ = progressCounter.incrementAndGet()
+                await Task.yield()
+            }
+        }
+
+        await siblingTask.value
+        XCTAssertEqual(progressCounter.incrementAndGet(), 201, "the sibling task must complete all 200 iterations while probeAsync is still polling in the background")
+
+        probeTask.cancel()
+        _ = try? await probeTask.value
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(
             "WorkbookRuntimeProbe-\(UUID().uuidString)",
