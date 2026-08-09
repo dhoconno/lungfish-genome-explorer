@@ -619,8 +619,20 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
                     throw error
                 }
                 let oldFailedPhase = failedState.phase
-                clearTerminalTransients(in: &failedState)
-                failedState.phase = .failed(Self.userFacingMessage(for: error))
+                if failedState.generation != generation {
+                    // A newer edit (markDirty/register, the .dirtyWhileUpdating path)
+                    // landed while this now-stale-generation update was in flight and
+                    // installed a superseding latestRequest. Discarding it here would
+                    // silently drop that edit -- surface .dirty with the superseding
+                    // request retained instead, so a future synchronize/markDirty call
+                    // retries it rather than losing it behind an unrelated .failed
+                    // phase (R3-R3ML-3).
+                    clearOperationTransientsPreservingRequest(in: &failedState)
+                    failedState.phase = .dirty
+                } else {
+                    clearTerminalTransients(in: &failedState)
+                    failedState.phase = .failed(Self.userFacingMessage(for: error))
+                }
                 states[key] = failedState
                 notifyPhaseIfChanged(
                     from: oldFailedPhase,
@@ -929,6 +941,12 @@ final class GenotypeCurrentWorkbookSyncCoordinator {
 
     func testingHasRetainedRequest(for bundleURL: URL) -> Bool {
         states[Self.bundleKey(for: bundleURL)]?.latestRequest != nil
+    }
+
+    func testingRetainedRequestFingerprint(
+        for bundleURL: URL
+    ) -> GenotypeCurrentWorkbookInputFingerprint? {
+        states[Self.bundleKey(for: bundleURL)]?.latestRequest?.fingerprint
     }
 
     func testingLatestRequestIsUpdateAuthorized(
