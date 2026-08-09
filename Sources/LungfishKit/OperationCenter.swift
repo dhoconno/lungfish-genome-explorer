@@ -706,10 +706,12 @@ public final class OperationCenter: ObservableObject {
         changes.send(.updated(id: id, index: index))
         postStateChangedNotification(id: id, state: .cancelling)
 
-        DispatchQueue.global(qos: .userInitiated).async {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             onCancel()
-            Task { @MainActor [weak self] in
-                self?.finishCancellation(id: id)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self?.finishCancellation(id: id)
+                }
             }
         }
     }
