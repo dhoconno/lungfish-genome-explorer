@@ -132,21 +132,28 @@ final class MappingSummaryBuilderTests: XCTestCase {
             )
         }
 
+        // The stub's `printf > file` write is non-atomic: the file can exist
+        // with partial (or as-yet-empty) contents before the PID is fully
+        // flushed. Poll until the contents actually parse as a PID rather
+        // than trusting a single read right after fileExists first succeeds
+        // -- mirrors the terminationDeadline retry loop below.
         let deadline = Date().addingTimeInterval(30)
-        while !FileManager.default.fileExists(atPath: pidFile.path), Date() < deadline {
-            try await Task.sleep(nanoseconds: 20_000_000)
+        var pid: Int32?
+        while pid == nil, Date() < deadline {
+            if FileManager.default.fileExists(atPath: pidFile.path),
+               let pidString = try? String(contentsOf: pidFile, encoding: .utf8) {
+                pid = Int32(pidString.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+            if pid == nil {
+                try await Task.sleep(nanoseconds: 20_000_000)
+            }
         }
-        guard FileManager.default.fileExists(atPath: pidFile.path) else {
+        guard let pid else {
             task.cancel()
             _ = try? await task.value
-            XCTFail("stub samtools view process never wrote its PID file within the deadline")
+            XCTFail("stub samtools view process never wrote a valid PID file within the deadline")
             return
         }
-        let pidString = try String(contentsOf: pidFile, encoding: .utf8)
-        let pid = try XCTUnwrap(
-            Int32(pidString.trimmingCharacters(in: .whitespacesAndNewlines)),
-            "pid file contents were not a valid PID: \(pidString)"
-        )
         XCTAssertTrue(ProcessTreeTerminator.processExists(pid: pid), "stub samtools view process should have started")
 
         task.cancel()

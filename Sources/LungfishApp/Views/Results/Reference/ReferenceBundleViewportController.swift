@@ -25,7 +25,8 @@ public class ReferenceBundleViewportController: NSViewController {
     private var recordStoreWarning: String?
     private typealias AlignmentTrackSummaryBuilder = (URL, Int) async throws -> [MappingContigSummary]
     private lazy var alignmentTrackSummaryBuilder: AlignmentTrackSummaryBuilder = { [weak self] bamURL, totalReads in
-        try await MappingSummaryBuilder.build(
+        let refreshID = await self?.alignmentTrackSummaryRefreshID
+        return try await MappingSummaryBuilder.build(
             sortedBAMURL: bamURL,
             totalReads: totalReads,
             reportWarning: { warning in
@@ -38,10 +39,15 @@ public class ReferenceBundleViewportController: NSViewController {
                 // isn't tied to a running OperationCenter operation id), so
                 // route it through the same summary-bar surface this
                 // controller already uses for non-fatal conditions
-                // (recordStoreWarning's directBundle sibling).
+                // (recordStoreWarning's directBundle sibling). Guarded by the
+                // same alignmentTrackSummaryRefreshID staleness check every
+                // sibling completion/error path in
+                // refreshMappingRowsForVisibleAlignmentTrack uses, so a
+                // superseded refresh can't clobber a newer one's summary bar.
                 DispatchQueue.main.async { MainActor.assumeIsolated {
-                    self?.alignmentTrackSummaryWarning = warning
-                    self?.updateSummaryBar()
+                    guard let self, self.alignmentTrackSummaryRefreshID == refreshID else { return }
+                    self.alignmentTrackSummaryWarning = warning
+                    self.updateSummaryBar()
                 }}
             }
         )
