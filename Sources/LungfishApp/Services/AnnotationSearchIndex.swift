@@ -107,6 +107,15 @@ public final class AnnotationSearchIndex {
     /// Variant SQLite database handle (for unified search).
     private(set) var variantDatabases: [(trackId: String, db: VariantDatabase)] = []
 
+    /// Bumped every time `variantDatabases` is replaced (`openVariantDatabases`,
+    /// `clearVariantDatabases`, `clear`). Lets a caller that read `hasVariantDatabase`
+    /// and then `await`ed an off-main variant query detect whether a bundle-switch/
+    /// teardown (`clearVariantDatabases`, fired from ordinary main-actor code such as
+    /// `ViewerViewController`'s viewport teardown) landed in between, rather than
+    /// silently treating a since-cleared, now-empty snapshot as "no variants here" --
+    /// see `hasVariantDatabaseGeneration` / `AIToolRegistry.executeGetGeneDetails`.
+    private(set) var variantDataGeneration = 0
+
     /// Human-readable display name per variant track (from VariantTrackInfo.name).
     private var variantTrackNames: [String: String] = [:]
 
@@ -259,6 +268,7 @@ public final class AnnotationSearchIndex {
         variantDatabases.removeAll()
         variantTrackNames.removeAll()
         variantTrackChromosomes.removeAll()
+        variantDataGeneration += 1
         rebuildBundleAliasMaps(from: bundle)
         for vTrackId in bundle.variantTrackIds {
             guard let trackInfo = bundle.variantTrack(id: vTrackId),
@@ -1166,6 +1176,15 @@ public final class AnnotationSearchIndex {
     /// Whether a variant database is available for unified queries.
     public var hasVariantDatabase: Bool { !variantDatabases.isEmpty }
 
+    /// Current variant-data generation. Bumped every time `variantDatabases` is
+    /// replaced (`openVariantDatabases`, `clearVariantDatabases`, `clear`). A caller
+    /// that checks `hasVariantDatabase` and then `await`s an off-main variant query
+    /// (`queryVariantsInRegionOffMain`/`queryVariantCountInRegionOffMain`) can capture
+    /// this value alongside the check and compare it again after the `await` to detect
+    /// whether a bundle-switch/teardown landed in the gap -- see
+    /// `AIToolRegistry.executeGetGeneDetails`.
+    public var variantDatabaseGeneration: Int { variantDataGeneration }
+
     /// All distinct variant types (separate from annotation types).
     public var variantTypes: [String] {
         var all: Set<String> = []
@@ -1285,6 +1304,7 @@ public final class AnnotationSearchIndex {
         variantDatabases = []
         variantTrackNames = [:]
         variantTrackChromosomes = [:]
+        variantDataGeneration += 1
         bundleAliasGroupsByExact = [:]
         bundleAliasGroupsByCanonical = [:]
         bundleIdentifier = nil
@@ -1299,6 +1319,7 @@ public final class AnnotationSearchIndex {
         variantDatabases.removeAll()
         variantTrackNames.removeAll()
         variantTrackChromosomes.removeAll()
+        variantDataGeneration += 1
     }
 
     // MARK: - Private Helpers

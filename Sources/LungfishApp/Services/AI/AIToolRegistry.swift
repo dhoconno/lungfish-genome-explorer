@@ -627,26 +627,43 @@ public final class AIToolRegistry {
         ]
 
         if searchIndex.hasVariantDatabase {
+            // Capture the generation alongside the `hasVariantDatabase` check: each
+            // `*OffMain` query below takes its OWN fresh snapshot at call time and
+            // `await`s across a real suspension point, so a bundle-switch/viewport
+            // teardown (`clearVariantDatabases`, ordinary main-actor code) can land in
+            // the gap and empty `variantDatabases` between the check and either query.
+            // Before the F12 off-main refactor this whole chain ran synchronously on
+            // @MainActor, so the check and the query were atomic; re-validating the
+            // generation after each `await` restores that guarantee by detecting (and
+            // reporting, rather than silently omitting) a stale read instead of
+            // trusting a since-cleared snapshot's "0 variants" as ground truth.
+            let generationAtCheck = searchIndex.variantDatabaseGeneration
             let count = await searchIndex.queryVariantCountInRegionOffMain(
                 chromosome: gene.chromosome,
                 start: gene.start,
                 end: gene.end
             )
-            if count > 0 {
+            if searchIndex.variantDatabaseGeneration != generationAtCheck {
+                lines.append("Variant data changed while this lookup was running; variant results were omitted. Try again.")
+            } else if count > 0 {
                 let variants = await searchIndex.queryVariantsInRegionOffMain(
                     chromosome: gene.chromosome,
                     start: gene.start,
                     end: gene.end,
                     limit: 5
                 )
-                lines.append("Variants in region: \(count)")
-                for v in variants {
-                    let ref = v.ref ?? "."
-                    let alt = v.alt ?? "."
-                    lines.append("  - \(v.name) pos:\(v.start + 1) \(ref)>\(alt) [\(v.type)]")
-                }
-                if count > 5 {
-                    lines.append("  ... and \(count - 5) more variants")
+                if searchIndex.variantDatabaseGeneration != generationAtCheck {
+                    lines.append("Variant data changed while this lookup was running; variant results were omitted. Try again.")
+                } else {
+                    lines.append("Variants in region: \(count)")
+                    for v in variants {
+                        let ref = v.ref ?? "."
+                        let alt = v.alt ?? "."
+                        lines.append("  - \(v.name) pos:\(v.start + 1) \(ref)>\(alt) [\(v.type)]")
+                    }
+                    if count > 5 {
+                        lines.append("  ... and \(count - 5) more variants")
+                    }
                 }
             }
         }

@@ -283,6 +283,66 @@ final class AnnotationSearchIndexOffMainTests: XCTestCase {
         XCTAssertTrue(result.content.contains("BRCA1"), "Expected gene match, got: \(result.content)")
     }
 
+    // MARK: - Stale-snapshot regression (round-2 review)
+    //
+    // `executeGetGeneDetails` reads `hasVariantDatabase` synchronously, then `await`s two
+    // off-main queries, each of which takes its OWN fresh snapshot at call time. Between
+    // the check and either `await`, ordinary main-actor code (e.g. `ViewerViewController`
+    // bundle-switch/viewport teardown) can call `clearVariantDatabases()` and empty
+    // `variantDatabases`. This forces that exact interleaving deterministically via the
+    // `threadingProbe` hook (fired from inside the off-main query's `Task.detached` body,
+    // after its snapshot has already been captured on the main actor but before the query
+    // result is produced) and asserts the AI tool reports the mid-flight change instead of
+    // silently claiming "no variants" for a gene that, at the moment `hasVariantDatabase`
+    // was checked, genuinely had some.
+
+    func testGetGeneDetailsReportsStaleDataInsteadOfSilentlyOmittingVariantsWhenClearedMidQuery() async throws {
+        let index = try makeIndex()
+        let registry = AIToolRegistry(searchIndex: index)
+        let generationAtStart = index.variantDatabaseGeneration
+
+        // threadingProbe fires from EVERY off-main query (searchOffMain first, for the
+        // gene-name lookup itself, then queryVariantCountInRegionOffMain). Only clear on
+        // the SECOND firing -- i.e. inside queryVariantCountInRegionOffMain's
+        // Task.detached body, after that call's own snapshot was already captured on the
+        // main actor (so the count query still sees the variant data), but before
+        // executeGetGeneDetails observes the count and moves on to
+        // queryVariantsInRegionOffMain. Blocks the detached task until
+        // clearVariantDatabases() has actually run and bumped the generation, so the
+        // interleaving is deterministic rather than a hopeful race.
+        let clearedGate = DispatchSemaphore(value: 0)
+        let fireCount = ThreadObservationBox()
+        AnnotationSearchIndex.threadingProbe = { [weak index] in
+            fireCount.record()
+            guard fireCount.fireCount == 2, let index else { return }
+            Task { @MainActor in
+                index.clearVariantDatabases()
+                clearedGate.signal()
+            }
+            clearedGate.wait()
+        }
+
+        let call = AIToolCall(id: "1", name: "get_gene_details", arguments: ["gene_name": .string("BRCA1")])
+        let result = await registry.execute(call)
+
+        XCTAssertGreaterThan(
+            index.variantDatabaseGeneration, generationAtStart,
+            "test setup did not actually clear variant data mid-query -- assertions below are not meaningful"
+        )
+        XCTAssertFalse(result.isError)
+        XCTAssertTrue(result.content.contains("BRCA1"), "Gene lookup itself must still succeed: \(result.content)")
+        XCTAssertTrue(
+            result.content.contains("Variant data changed while this lookup was running"),
+            "Expected an explicit stale-data notice instead of silently omitting variants: \(result.content)"
+        )
+        XCTAssertFalse(
+            result.content.contains("Variants in region: 0"),
+            "Must not report a since-cleared snapshot's zero count as if it were ground truth: \(result.content)"
+        )
+        XCTAssertFalse(result.content.contains("rs111"), "Stale variant rows must not appear in the response")
+        XCTAssertFalse(result.content.contains("rs222"), "Stale variant rows must not appear in the response")
+    }
+
     // MARK: - Concurrency
 
     /// Multiple concurrent off-main queries against the same index must not corrupt each
