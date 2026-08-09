@@ -65,6 +65,7 @@ public struct PreparedAlignmentAttachmentResult: Sendable {
 
 public enum PreparedAlignmentAttachmentError: Error, LocalizedError, Sendable, Equatable {
     case duplicateTrackID(String)
+    case duplicateTrackName(String)
     case invalidRelativeDirectory(String)
     case invalidOutputTrackID(String)
     case unsupportedFormat(AlignmentFormat)
@@ -75,6 +76,8 @@ public enum PreparedAlignmentAttachmentError: Error, LocalizedError, Sendable, E
         switch self {
         case .duplicateTrackID(let trackID):
             return "Alignment track ID already exists in bundle manifest: \(trackID)"
+        case .duplicateTrackName(let trackName):
+            return "An alignment track named '\(trackName)' already exists in this bundle."
         case .invalidRelativeDirectory(let path):
             return "Alignment attachment directory must be bundle-relative: \(path)"
         case .invalidOutputTrackID(let trackID):
@@ -184,9 +187,19 @@ public actor PreparedAlignmentAttachmentService {
         try validateSupportedFormat(request.format)
         let relativeDirectory = try normalizedRelativeDirectory(request.relativeDirectory)
         let outputTrackID = try PreparedAlignmentAttachmentPathPolicy.normalizedOutputTrackID(request.outputTrackID)
+        // Re-read the manifest from disk immediately before commit (rather than relying
+        // on any earlier in-memory snapshot a caller may have taken before a
+        // potentially-lengthy pipeline run) and re-validate both id and name
+        // uniqueness against it here. This closes the TOCTOU window where a
+        // concurrent process (GUI or another CLI invocation) could add a
+        // same-named track to the bundle between an upfront pre-pipeline check and
+        // this commit step (R3-R3ML-18).
         let manifest = try BundleManifest.load(from: request.bundleURL)
         guard !manifest.alignments.contains(where: { $0.id == outputTrackID }) else {
             throw PreparedAlignmentAttachmentError.duplicateTrackID(outputTrackID)
+        }
+        guard !manifest.alignments.contains(where: { $0.name == request.outputTrackName }) else {
+            throw PreparedAlignmentAttachmentError.duplicateTrackName(request.outputTrackName)
         }
 
         for artifactURL in [request.stagedBAMURL, request.stagedIndexURL] {
