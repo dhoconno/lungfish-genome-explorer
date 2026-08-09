@@ -1000,6 +1000,73 @@ extension AppDelegate {
         return (resolvedURLs, pairedEnd)
     }
 
+    /// Precomputes the on-disk output layout for a mapping fan-out batch
+    /// (BG3, batch-results-grouping spec §2/§3).
+    ///
+    /// Returns `nil` when `requests.count <= 1` -- the caller keeps the
+    /// existing single-run behavior unchanged (each child creates its own
+    /// flat `Analyses/<tool>-<timestamp>/` directory, exactly as before this
+    /// change).
+    ///
+    /// For `requests.count > 1`, creates ONE
+    /// `Analyses/<tool>-batch-<timestamp>/` directory up front, then walks
+    /// `requests` **in their given order** -- never reordered, never
+    /// computed inside a concurrently-running child -- creating one
+    /// `batchSampleDirectory(named:in:)` per request via the bundle display
+    /// name already used for that request's operation title/@RG SM tag
+    /// (`request.sampleName`). This satisfies the spec §3 ordering
+    /// invariant: sample directory names are fully determined before any
+    /// child dispatch begins.
+    ///
+    /// Returns `nil` (rather than throwing) if directory creation fails, so
+    /// callers can fall back to the pre-BG3 per-child behavior -- matching
+    /// the existing `try?`-based failure tolerance of
+    /// `createAnalysisDirectory` at the single-run call site.
+    static func precomputedMappingBatchOutputDirectories(
+        requests: [MappingRunRequest],
+        in projectURL: URL,
+        date: Date = Date()
+    ) -> [URL]? {
+        guard requests.count > 1,
+              let tool = requests.first?.tool.rawValue,
+              let batchDirectory = try? AnalysesFolder.createAnalysisDirectory(
+                  tool: tool, in: projectURL, isBatch: true, date: date
+              )
+        else { return nil }
+
+        var sampleDirectories: [URL] = []
+        sampleDirectories.reserveCapacity(requests.count)
+        for request in requests {
+            guard let sampleDirectory = try? AnalysesFolder.batchSampleDirectory(
+                named: request.sampleName, in: batchDirectory
+            ) else { return nil }
+            sampleDirectories.append(sampleDirectory)
+        }
+        return sampleDirectories
+    }
+
+    /// Removes `batchDirectory` if, after all of its children have reached a
+    /// terminal state, it contains no sample entries beyond the
+    /// `analysis-metadata.json` sidecar written at creation time (spec §6:
+    /// empty-batch cleanup, run only once ALL children are terminal, never
+    /// mid-flight).
+    ///
+    /// A missing directory (e.g. cleaned up by a previous call, or a
+    /// caller passing an already-nonexistent URL in a test) is a silent
+    /// no-op, not an error -- this is a best-effort tidy-up, not a
+    /// correctness-critical step.
+    static func cleanupBatchDirectoryIfEmpty(_ batchDirectory: URL) {
+        let fileManager = FileManager.default
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: batchDirectory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
+        ) else { return }
+
+        let hasSampleEntries = entries.contains { $0.lastPathComponent != AnalysesFolder.metadataFilename }
+        guard !hasSampleEntries else { return }
+
+        try? fileManager.removeItem(at: batchDirectory)
+    }
+
     /// Runs a planned mapping request for every bundle in `plan`,
     /// SEQUENTIALLY (matching `runClassificationBatch`'s precedent) rather
     /// than N concurrent `Task.detached` mappers -- an unbounded fan-out
@@ -1012,6 +1079,14 @@ extension AppDelegate {
     /// request, whose operation history gets `plan.warning` logged as a
     /// warning line before the run starts (MB-1: explicit pooled-naming +
     /// logged warning instead of silent @RG misattribution).
+    ///
+    /// BG3: when `plan.requests.count > 1`, all N children's results are
+    /// grouped under one `Analyses/<tool>-batch-<timestamp>/` directory
+    /// (`precomputedMappingBatchOutputDirectories`, computed once before the
+    /// loop starts) instead of each child creating its own sibling
+    /// `Analyses/<tool>-<timestamp>/` directory. If every child fails and
+    /// leaves nothing behind, the now-empty batch directory is removed after
+    /// the loop completes (spec §6).
     private func runManagedMapping(
         plan: MappingRunPlan,
         routeContext explicitRouteContext: OperationRouteContext? = nil
@@ -1026,21 +1101,42 @@ extension AppDelegate {
         let requests = plan.requests
         guard !requests.isEmpty else { return }
 
+        // Precomputed IN REQUEST ORDER, before any child dispatch (spec §3
+        // ordering invariant) -- `nil` for a single-request plan, which
+        // keeps the pre-BG3 per-child `createAnalysisDirectory` behavior
+        // unchanged.
+        let batchProjectURL = routeContext?.projectURL ?? requests.first?.projectURL
+        let preassignedDirectories: [URL]? = batchProjectURL.flatMap {
+            Self.precomputedMappingBatchOutputDirectories(requests: requests, in: $0)
+        }
+        let batchDirectory = preassignedDirectories?.first?.deletingLastPathComponent()
+
         // Declared before the Task literal (rather than `let task =
         // Task.detached { ... }`) so `registerCancel`'s closure, invoked
         // from inside the loop, can capture `taskHandle` by reference and
         // call `.cancel()` on whichever `Task` ends up assigned -- avoids
         // the "captures 'task' before it is declared" forward-reference
         // error a `let`-bound self-referential closure would hit here.
+        // Zipped with `requests` (rather than indexed inside the loop) so
+        // the loop body below can keep the exact `for request in requests`
+        // shape `OperationRoutingTests` pins as evidence of the single
+        // sequential `Task.detached` driver (F5) -- each element is either
+        // this request's precomputed batch sample directory, or `nil` for a
+        // single-request plan.
+        let perRequestDirectories: [URL?] = preassignedDirectories ?? Array(repeating: nil, count: requests.count)
         let taskHandle = MappingBatchTaskHandle()
         let task = Task.detached { [weak self] in
+            var anySucceeded = false
+            var preassignedIterator = perRequestDirectories.makeIterator()
             for request in requests {
+                let preassignedDirectory = preassignedIterator.next() ?? nil
                 if Task.isCancelled { break }
                 guard let self else { break }
-                await self.runSingleManagedMappingAwaitingCompletion(
+                let succeeded = await self.runSingleManagedMappingAwaitingCompletion(
                     request: request,
                     warning: plan.warning,
                     routeContext: routeContext,
+                    preassignedAnalysisDirectory: preassignedDirectory,
                     registerCancel: { @MainActor opID in
                         // Cancelling any one bundle's row cancels the whole
                         // remaining sequential batch, since they share one
@@ -1051,6 +1147,20 @@ extension AppDelegate {
                         OperationCenter.shared.setCancelCallback(for: opID) { taskHandle.cancel() }
                     }
                 )
+                anySucceeded = anySucceeded || succeeded
+            }
+
+            // Empty-batch cleanup (spec §6): only after every child has
+            // reached a terminal state (the sequential loop above has just
+            // finished, whether by completion or cancellation) and only when
+            // nothing succeeded -- a lone surviving sample directory (even
+            // from a bundle whose own row later shows "failed" for a
+            // post-output-write error) means the batch directory is not
+            // empty and must stay.
+            if !anySucceeded, let batchDirectory {
+                await MainActor.run {
+                    Self.cleanupBatchDirectoryIfEmpty(batchDirectory)
+                }
             }
         }
         taskHandle.assign(task)
@@ -1083,17 +1193,35 @@ extension AppDelegate {
     /// re-verification. `registerCancel` is invoked with the freshly-started
     /// operation's ID so the caller can wire cancellation before any
     /// awaiting begins.
+    ///
+    /// `preassignedAnalysisDirectory`, when non-nil, is used verbatim as the
+    /// request's output directory and the usual per-child
+    /// `createAnalysisDirectory` call is skipped entirely (BG3: batch fan-out
+    /// precomputes and passes one `batchSampleDirectory(named:in:)` per
+    /// request BEFORE this method is ever invoked, so every child's
+    /// directory already exists under a single shared batch root). `nil`
+    /// preserves the original single-run behavior unchanged.
+    ///
+    /// Returns `true` if the mapping completed successfully, `false` if it
+    /// failed -- callers use this to detect "every child in the batch
+    /// failed" for the empty-batch cleanup in `runManagedMapping`.
+    @discardableResult
     private func runSingleManagedMappingAwaitingCompletion(
         request initialRequest: MappingRunRequest,
         warning: String?,
         routeContext: OperationRouteContext?,
+        preassignedAnalysisDirectory: URL? = nil,
         registerCancel: @MainActor (UUID) -> Void
-    ) async {
+    ) async -> Bool {
         var request = initialRequest
-        let projectURL = routeContext?.projectURL ?? request.projectURL
-        if let projectURL,
-           let analysisDir = try? AnalysesFolder.createAnalysisDirectory(tool: request.tool.rawValue, in: projectURL) {
-            request = request.withOutputDirectory(analysisDir)
+        if let preassignedAnalysisDirectory {
+            request = request.withOutputDirectory(preassignedAnalysisDirectory)
+        } else {
+            let projectURL = routeContext?.projectURL ?? request.projectURL
+            if let projectURL,
+               let analysisDir = try? AnalysesFolder.createAnalysisDirectory(tool: request.tool.rawValue, in: projectURL) {
+                request = request.withOutputDirectory(analysisDir)
+            }
         }
 
         let opID = OperationCenter.shared.start(
@@ -1124,7 +1252,7 @@ extension AppDelegate {
                     outputDirectory: outputDirectory,
                     request: capturedRequest
                 )
-                return
+                return true
             }
 
             let materializeTempDir = try ProjectTempDirectory.createFromContext(
@@ -1210,8 +1338,10 @@ extension AppDelegate {
 
             targetMainWindowController(routeContext: routeContext)?.mainSplitViewController?
                 .sidebarController.requestReloadFromFilesystem()
+            return true
         } catch {
             _ = OperationCenter.shared.fail(id: opID, detail: "\(error)")
+            return false
         }
     }
 
