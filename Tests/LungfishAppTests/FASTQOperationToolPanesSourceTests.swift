@@ -60,6 +60,16 @@ final class FASTQOperationToolPanesSourceTests: XCTestCase {
         }
     }
 
+    func testMAFFTPaneRendersCombineLockedMultiBundleRunModePicker() throws {
+        let source = try String(contentsOf: toolPanesSourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("mafftMultiBundleRunPolicy = MultiBundleRunPolicy("))
+        XCTAssertTrue(source.contains("allowedModes: [.combined]"))
+        XCTAssertTrue(source.contains("defaultMode: .combined"))
+        XCTAssertTrue(source.contains("lockReason: \"Alignment requires all sequences in one run\""))
+        XCTAssertTrue(source.contains("MultiBundleRunModePicker(\n                    bundleCount: state.selectedInputURLs.count,\n                    policy: Self.mafftMultiBundleRunPolicy,\n                    selection: $mafftMultiBundleRunMode\n                )"))
+    }
+
     func testSavontPaneExposesCuratedPrimaryAndAdvancedControlsWithoutRawArguments() throws {
         let source = try String(contentsOf: toolPanesSourceURL, encoding: .utf8)
 

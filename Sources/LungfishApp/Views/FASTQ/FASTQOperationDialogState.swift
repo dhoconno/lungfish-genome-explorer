@@ -796,12 +796,24 @@ final class FASTQOperationDialogState {
         }
     }
 
+    /// Default output bundle name for a MAFFT run, reflecting all N inputs
+    /// rather than just the first (MB-3). A single input keeps the plain
+    /// stem name; N>1 inputs read "<first>+<n-1> more aligned" so the
+    /// project files/history view doesn't misrepresent the run's scope.
+    static func mafftDefaultSourceName(for inputURLs: [URL]) -> String {
+        guard let first = inputURLs.first else { return "MAFFT Alignment" }
+        let firstStem = first.deletingPathExtension().lastPathComponent
+        let remaining = inputURLs.count - 1
+        guard remaining > 0 else { return firstStem }
+        return "\(firstStem)+\(remaining) more aligned"
+    }
+
     private func makeMSAAlignmentRequest() -> MSAAlignmentRunRequest? {
         guard let projectURL else { return nil }
         guard let extraArguments = try? AdvancedCommandLineOptions.parse(mafftExtraOptionsText) else {
             return nil
         }
-        let sourceName = selectedInputURLs.first?.deletingPathExtension().lastPathComponent ?? "MAFFT Alignment"
+        let sourceName = Self.mafftDefaultSourceName(for: selectedInputURLs)
         let outputURL = MSAAlignmentRunRequest.uniqueDefaultOutputBundleURL(projectURL: projectURL, name: sourceName)
         let name = outputURL.deletingPathExtension().lastPathComponent
         return MSAAlignmentRunRequest(

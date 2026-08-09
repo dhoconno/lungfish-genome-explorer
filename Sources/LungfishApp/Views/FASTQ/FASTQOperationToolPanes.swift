@@ -265,6 +265,15 @@ private struct FASTQOperationInputsSection: View {
 
 private struct FASTQOperationPrimarySettingsSection: View {
     @Bindable var state: FASTQOperationDialogState
+    @State private var mafftMultiBundleRunMode: MultiBundleRunMode = .combined
+
+    /// MAFFT always pools every selected input into one alignment run (MB-3):
+    /// N-sequence MSA has no per-bundle interpretation.
+    static let mafftMultiBundleRunPolicy = MultiBundleRunPolicy(
+        allowedModes: [.combined],
+        defaultMode: .combined,
+        lockReason: "Alignment requires all sequences in one run"
+    )
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -504,6 +513,12 @@ private struct FASTQOperationPrimarySettingsSection: View {
                     .lungfishHelp(LungfishHelpContent.fastqSearchReverseComplement)
 
             case .mafft:
+                MultiBundleRunModePicker(
+                    bundleCount: state.selectedInputURLs.count,
+                    policy: Self.mafftMultiBundleRunPolicy,
+                    selection: $mafftMultiBundleRunMode
+                )
+
                 Picker("Strategy", selection: $state.mafftStrategy) {
                     ForEach(MAFFTAlignmentStrategy.allCases, id: \.self) { strategy in
                         Text(strategy.displayName).tag(strategy)
