@@ -17,6 +17,55 @@ final class ProjectLockTests: XCTestCase {
         }
     }
 
+    // MARK: - R3-R3ML-2: ProjectProcessInspector must not fork /bin/ps
+
+    func testProcessStartTimeReturnsNonEmptyStringForCurrentProcess() {
+        let pid = Int(ProcessInfo.processInfo.processIdentifier)
+
+        let startTime = ProjectProcessInspector.processStartTime(for: pid)
+
+        XCTAssertNotNil(startTime)
+        XCTAssertFalse(startTime?.isEmpty ?? true)
+    }
+
+    func testProcessStartTimeIsStableAcrossRepeatedCallsForSameProcess() {
+        let pid = Int(ProcessInfo.processInfo.processIdentifier)
+
+        let first = ProjectProcessInspector.processStartTime(for: pid)
+        let second = ProjectProcessInspector.processStartTime(for: pid)
+
+        XCTAssertNotNil(first)
+        XCTAssertEqual(first, second)
+    }
+
+    func testProcessStartTimeReturnsNilForNonexistentPID() {
+        // A PID astronomically unlikely to be assigned to a live process.
+        let unusedPID = 999_999
+
+        let startTime = ProjectProcessInspector.processStartTime(for: unusedPID)
+
+        XCTAssertNil(startTime)
+    }
+
+    /// R3-R3ML-2 regression guard: the previous implementation forked `/bin/ps` and
+    /// waited on it synchronously (Process().run() + waitUntilExit()), which is the
+    /// "main-thread sync subprocess spawn" pattern flagged in the campaign. A native
+    /// (no-subprocess) implementation should resolve near-instantly; this bounds
+    /// 200 repeated calls well under what 200 sequential `/bin/ps` forks would cost
+    /// (each fork+exec+wait is typically several milliseconds; 200 of them would push
+    /// this well past a second on a loaded CI machine).
+    func testProcessStartTimeResolvesQuicklyWithoutSpawningASubprocess() {
+        let pid = Int(ProcessInfo.processInfo.processIdentifier)
+
+        let start = Date()
+        for _ in 0..<200 {
+            _ = ProjectProcessInspector.processStartTime(for: pid)
+        }
+        let elapsed = Date().timeIntervalSince(start)
+
+        XCTAssertLessThan(elapsed, 1.0, "200 calls took \(elapsed)s -- suggests a subprocess is still being spawned per call")
+    }
+
     func testAcquireLockCreatesRecordWhenLockFileDoesNotExist() throws {
         let projectURL = tempDir.appendingPathComponent("Project.lungfish", isDirectory: true)
         try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
