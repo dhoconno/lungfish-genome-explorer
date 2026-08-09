@@ -83,6 +83,59 @@ final class BatchRunHistoryTests: XCTestCase {
         XCTAssertTrue(records.isEmpty)
     }
 
+    /// R3-R3ML-13: the load-mutate-save sequence (load full log -> mutate in memory ->
+    /// write full log back) must be serialized so concurrent writers do not clobber
+    /// each other's appended record via a read-modify-write race: if writer A reads
+    /// the log, then writer B reads the same pre-mutation log, appends its own entry,
+    /// and saves, then A's later save (built from A's earlier, now-stale read)
+    /// overwrites B's file and silently drops B's entry even though B's write already
+    /// "succeeded".
+    ///
+    /// recordRun's production entry point derives BatchRunRecord.runId from
+    /// result.outputDirectory's last path component, so every call targeting one
+    /// directory dedupes onto a single runId -- that makes the race hard to observe
+    /// through the public API alone (concurrent calls mostly overwrite the *same*
+    /// logical record, so lost writes aren't visible as lost *entries*). Uses the
+    /// #if DEBUG testingRecordRaw hook to fire many concurrent writes with genuinely
+    /// distinct runIds at the same directory (still going through the same locked
+    /// load-mutate-save critical section recordRun uses), which is what actually
+    /// exercises the read-modify-write race this lock closes.
+    func testConcurrentDistinctRecordsToSameDirectoryDoNotLoseEntries() {
+        let writerCount = 30
+        let directory = tempDir!
+        let records = (0..<writerCount).map { index in
+            BatchRunRecord(
+                runId: "run-\(index)",
+                startedAt: Date(),
+                completedAt: Date(),
+                sampleIds: ["S\(index)"],
+                negativeControlSampleIds: [],
+                platform: "ILLUMINA",
+                outputDirectory: directory.path,
+                exitCode: 0,
+                runtime: Double(index),
+                parameters: BatchRunParameters(
+                    classifiers: ["kraken2"],
+                    k2Confidence: 0.1,
+                    topHitsCount: 1,
+                    skipAssembly: false,
+                    kraken2DatabasePath: nil
+                )
+            )
+        }
+
+        DispatchQueue.concurrentPerform(iterations: writerCount) { index in
+            BatchRunHistory.testingRecordRaw(records[index], to: directory)
+        }
+
+        let finalRecords = BatchRunHistory.loadRecords(from: directory)
+        let finalRunIds = Set(finalRecords.map(\.runId))
+        let expectedRunIds = Set((0..<writerCount).map { "run-\($0)" })
+
+        XCTAssertEqual(finalRecords.count, writerCount, "expected exactly \(writerCount) records, no lost writes from concurrent recordRun calls")
+        XCTAssertEqual(finalRunIds, expectedRunIds, "every concurrently-written distinct runId must be present in the final history log, lost: \(expectedRunIds.subtracting(finalRunIds))")
+    }
+
     func testParametersPersisted() {
         let config = TaxTriageConfig(
             samples: [TaxTriageSample(sampleId: "S1", fastq1: URL(fileURLWithPath: "/data/R1.fq"))],

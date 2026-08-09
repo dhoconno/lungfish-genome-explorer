@@ -74,6 +74,15 @@ struct BatchRunHistoryLog: Codable, Sendable {
 /// users to track multiple runs in the same project area.
 enum BatchRunHistory {
 
+    /// Serializes the load-mutate-save critical section in `recordRun` so two batch
+    /// runs completing close together (plausible with the app's concurrent
+    /// multi-bundle run support) cannot both load the same pre-mutation log and have
+    /// one save() silently clobber the other's appended record (R3-R3ML-13). A single
+    /// process-wide lock (rather than a per-directory registry) is sufficient: history
+    /// writes are small, fast, and infrequent, so serializing across all directories
+    /// costs nothing observable while fully closing the race.
+    private static let recordRunLock = NSLock()
+
     /// Records a completed TaxTriage batch run in the history log.
     ///
     /// The history file is stored in the output directory itself.
@@ -101,6 +110,8 @@ enum BatchRunHistory {
             )
         )
 
+        recordRunLock.lock()
+        defer { recordRunLock.unlock() }
         do {
             var log = loadHistory(from: result.outputDirectory) ?? BatchRunHistoryLog()
             // Avoid duplicate entries for the same runId
@@ -140,4 +151,26 @@ enum BatchRunHistory {
         let url = directory.appendingPathComponent(BatchRunHistoryLog.filename)
         try data.write(to: url, options: .atomic)
     }
+
+    #if DEBUG
+    /// Test-only entry point that runs the same locked load-mutate-save critical
+    /// section as `recordRun`, but for an explicit, caller-supplied `BatchRunRecord`
+    /// rather than one derived from a `TaxTriageResult`/`TaxTriageConfig` pair. Lets
+    /// tests construct multiple distinct records targeting the *same* directory (which
+    /// `recordRun`'s runId-from-outputDirectory derivation cannot do, since every call
+    /// through the production API to one directory dedupes onto a single runId) so the
+    /// read-modify-write race this lock closes can be exercised directly (R3-R3ML-13).
+    static func testingRecordRaw(_ record: BatchRunRecord, to directory: URL) {
+        recordRunLock.lock()
+        defer { recordRunLock.unlock() }
+        do {
+            var log = loadHistory(from: directory) ?? BatchRunHistoryLog()
+            log.runs.removeAll { $0.runId == record.runId }
+            log.runs.append(record)
+            try saveHistory(log, to: directory)
+        } catch {
+            logger.error("testingRecordRaw failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+    #endif
 }
