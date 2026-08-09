@@ -929,6 +929,68 @@ final class OperationRoutingTests: XCTestCase {
         XCTAssertTrue(single.contains("request.withInputFASTQURLs(resolvedFiles, pairedEnd: resolvedPairedEnd)"))
     }
 
+    /// Regression test for a round-2 fix: the F2 pairedEnd-resolution change
+    /// added `resolvedRequest` (derived from the actually-resolved input
+    /// files) but the analysis-manifest recording code kept reading from
+    /// the pre-resolve `request`, whose `pairedEnd` is always the wizard's
+    /// `false` placeholder (see MappingWizardSheet.buildRunPlan). That made
+    /// every persisted manifest entry claim `isPairedEnd: false` regardless
+    /// of the actual run. The fix must:
+    ///  1. Still build `capturedRequest` (used by `findSourceBundle`) from
+    ///     the ORIGINAL `request`, since `resolveInputFiles` can materialize
+    ///     a virtual bundle's reads into a scratch temp directory that has
+    ///     no enclosing `.lungfishfastq` bundle of its own.
+    ///  2. Build the manifest `parameters` field from `resolvedRequest`
+    ///     (via `summaryParameters()`), so `isPairedEnd` reflects the
+    ///     actually-resolved value used by the pipeline run.
+    func testManagedMappingManifestRecordsResolvedPairedEndNotPlaceholder() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: root.appendingPathComponent(
+                "Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift"
+            ),
+            encoding: .utf8
+        )
+        let single = try sourceFunctionBody(
+            named: "private func runSingleManagedMappingAwaitingCompletion",
+            endingBefore: "    private func runMAFFTAlignment",
+            in: source
+        )
+
+        // findSourceBundle must still walk up from the ORIGINAL request's
+        // input URLs, not the resolved (possibly materialized-to-temp-dir)
+        // ones.
+        XCTAssertTrue(
+            single.contains("Self.findSourceBundle(for: capturedRequest.inputFASTQURLs)"),
+            "findSourceBundle must resolve from capturedRequest (built from the original request), " +
+            "not resolvedRequest, since resolved files may live in a scratch temp directory outside any bundle"
+        )
+        let capturedAssign = try XCTUnwrap(single.range(of: "let capturedRequest = request\n"))
+        XCTAssertFalse(
+            single[capturedAssign.upperBound...].range(of: "let capturedRequest = resolvedRequest") != nil,
+            "capturedRequest must be derived from the original request, not resolvedRequest"
+        )
+
+        // The manifest's persisted parameters (including isPairedEnd) must
+        // come from resolvedRequest.summaryParameters(), which carries the
+        // pairedEnd value actually used by the pipeline run -- not from
+        // capturedRequest/request, whose pairedEnd is always the wizard's
+        // pre-resolve `false` placeholder.
+        XCTAssertTrue(
+            single.contains("parameters: resolvedRequest.summaryParameters(),"),
+            "AnalysisManifestEntry.parameters must be built from resolvedRequest.summaryParameters() " +
+            "so the persisted manifest records the true isPairedEnd, not the wizard's placeholder"
+        )
+        XCTAssertFalse(
+            single.contains("parameters: capturedRequest.summaryParameters(),"),
+            "AnalysisManifestEntry.parameters must NOT be built from capturedRequest.summaryParameters() " +
+            "(that request's pairedEnd is always the pre-resolve wizard placeholder)"
+        )
+    }
+
     private func sourceFunctionBody(named startNeedle: String, endingBefore endNeedle: String, in source: String) throws -> String {
         let start = try XCTUnwrap(source.range(of: startNeedle))
         let end = try XCTUnwrap(source[start.lowerBound...].range(of: endNeedle))

@@ -1173,6 +1173,15 @@ extension AppDelegate {
                 )
             }
 
+            // capturedRequest carries the ORIGINAL (pre-resolve) input URLs
+            // so findSourceBundle can still walk up to the enclosing bundle
+            // even when resolveInputFiles() materialized a virtual bundle's
+            // reads into a scratch temp directory (which has no enclosing
+            // .lungfishfastq bundle of its own). But summaryParameters()
+            // must come from resolvedRequest -- the request actually run
+            // through the pipeline -- so the persisted manifest records the
+            // true isPairedEnd (and other resolved fields), not the
+            // wizard's pre-resolve pairedEnd:false placeholder.
             let capturedRequest = request
             _ = OperationCenter.shared.complete(
                 id: opID,
@@ -1188,7 +1197,7 @@ extension AppDelegate {
                         projectURL: routeContext?.projectURL ?? capturedRequest.projectURL
                     ),
                     displayName: "\(capturedRequest.tool.displayName) Mapping",
-                    parameters: capturedRequest.summaryParameters(),
+                    parameters: resolvedRequest.summaryParameters(),
                     summary: "\(finalResult.mappedReads)/\(finalResult.totalReads) reads mapped",
                     status: .completed
                 )
