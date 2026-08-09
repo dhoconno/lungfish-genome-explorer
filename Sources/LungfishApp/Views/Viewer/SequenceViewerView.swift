@@ -1855,9 +1855,8 @@ public class SequenceViewerView: NSView {
         for trackId in bundle.variantTrackIds {
             if let trackInfo = bundle.variantTrack(id: trackId),
                let dbPath = trackInfo.databasePath,
-               let dbURL = try? BundleManifest.validatedBundleMemberURL(
+               let dbURL = try? bundle.memberURL(
                    for: dbPath,
-                   in: bundle.url,
                    field: "variants[\(trackId)].databasePath"
                ) {
                 if let db = try? VariantDatabase(url: dbURL) {

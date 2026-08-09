@@ -640,17 +640,25 @@ public final class SequenceExtractionPipeline: @unchecked Sendable {
               let genome = manifest.genome else {
             return urls
         }
+        // Route through the escape-root-aware policy so consensus export from a
+        // symlinked mapping viewer bundle resolves its genome members too.
+        let allowedEscapeRoots = ReferenceBundleEscapeRoots.allowedRoots(
+            forBundleAt: sourceBundleURL,
+            manifest: manifest
+        )
         if let genomeURL = try? BundleManifest.validatedBundleMemberURL(
             for: genome.path,
             in: sourceBundleURL,
-            field: "genome.path"
+            field: "genome.path",
+            allowedEscapeRoots: allowedEscapeRoots
         ) {
             urls.append(genomeURL)
         }
         if let indexURL = try? BundleManifest.validatedBundleMemberURL(
             for: genome.indexPath,
             in: sourceBundleURL,
-            field: "genome.indexPath"
+            field: "genome.indexPath",
+            allowedEscapeRoots: allowedEscapeRoots
         ) {
             urls.append(indexURL)
         }
@@ -658,7 +666,8 @@ public final class SequenceExtractionPipeline: @unchecked Sendable {
             if let gzipIndexURL = try? BundleManifest.validatedBundleMemberURL(
                 for: gzipIndexPath,
                 in: sourceBundleURL,
-                field: "genome.gzipIndexPath"
+                field: "genome.gzipIndexPath",
+                allowedEscapeRoots: allowedEscapeRoots
             ) {
                 urls.append(gzipIndexURL)
             }

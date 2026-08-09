@@ -116,9 +116,8 @@ extension SequenceViewerView {
             for trackId in variantTrackIds {
                 guard let trackInfo = bundle.variantTrack(id: trackId),
                       let dbPath = trackInfo.databasePath else { continue }
-                guard let dbURL = try? BundleManifest.validatedBundleMemberURL(
+                guard let dbURL = try? bundle.memberURL(
                     for: dbPath,
-                    in: bundle.url,
                     field: "variants[\(trackId)].databasePath"
                 ) else { continue }
                 guard FileManager.default.fileExists(atPath: dbURL.path) else { continue }
@@ -754,9 +753,8 @@ extension SequenceViewerView {
             for trackId in variantTrackIds {
                 guard let trackInfo = bundle.variantTrack(id: trackId),
                       let dbPath = trackInfo.databasePath else { continue }
-                guard let dbURL = try? BundleManifest.validatedBundleMemberURL(
+                guard let dbURL = try? bundle.memberURL(
                     for: dbPath,
-                    in: bundleURL,
                     field: "variants[\(trackId)].databasePath"
                 ) else { continue }
                 guard FileManager.default.fileExists(atPath: dbURL.path) else { continue }

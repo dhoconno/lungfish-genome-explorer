@@ -353,9 +353,8 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
 
         for trackInfo in bundle.manifest.variants {
             guard let dbPath = trackInfo.databasePath else { continue }
-            guard let dbURL = try? BundleManifest.validatedBundleMemberURL(
+            guard let dbURL = try? bundle.memberURL(
                 for: dbPath,
-                in: bundle.url,
                 field: "variants[\(trackInfo.id)].databasePath"
             ) else { continue }
             guard FileManager.default.fileExists(atPath: dbURL.path),

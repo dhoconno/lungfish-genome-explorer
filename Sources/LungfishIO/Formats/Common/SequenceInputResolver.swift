@@ -203,10 +203,15 @@ public enum SequenceInputResolver {
             return nil
         }
 
+        let allowedEscapeRoots = ReferenceBundleEscapeRoots.allowedRoots(
+            forBundleAt: bundleURL,
+            manifest: manifest
+        )
         guard let sequenceURL = try? BundleManifest.validatedBundleMemberURL(
             for: genomePath,
             in: bundleURL,
-            field: "genome.path"
+            field: "genome.path",
+            allowedEscapeRoots: allowedEscapeRoots
         ), FileManager.default.fileExists(atPath: sequenceURL.path) else {
             return nil
         }

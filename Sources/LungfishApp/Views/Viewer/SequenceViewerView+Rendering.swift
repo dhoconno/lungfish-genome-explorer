@@ -658,9 +658,8 @@ extension SequenceViewerView {
                     continue
                 }
 
-                guard let dbURL = try? BundleManifest.validatedBundleMemberURL(
+                guard let dbURL = try? bundle.memberURL(
                     for: dbPath,
-                    in: bundle.url,
                     field: "annotations[\(trackId)].databasePath"
                 ) else {
                     sequenceViewerLogger.error("fetchAnnotationsAsync: Annotation database path is unsafe for \(trackId) at \(dbPath)")
@@ -845,9 +844,8 @@ extension SequenceViewerView {
             for trackId in bundle.variantTrackIds {
                 guard let trackInfo = bundle.variantTrack(id: trackId),
                       let dbPath = trackInfo.databasePath else { continue }
-                guard let dbURL = try? BundleManifest.validatedBundleMemberURL(
+                guard let dbURL = try? bundle.memberURL(
                     for: dbPath,
-                    in: bundle.url,
                     field: "variants[\(trackId)].databasePath"
                 ) else { continue }
                 guard let db = try? VariantDatabase(url: dbURL) else { continue }

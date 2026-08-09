@@ -110,8 +110,21 @@ enum MappingViewerBundlePreparer {
     }
 
     private static func originBundlePath(from viewerBundleURL: URL, to sourceBundleURL: URL) -> String {
-        FASTQBundle.projectRelativePath(for: sourceBundleURL, from: viewerBundleURL)
-            ?? filesystemRelativePath(from: viewerBundleURL, to: sourceBundleURL)
+        // Finding 2: only emit the `@/` project-relative origin when the VIEWER
+        // bundle itself lives inside a `.lungfish` project (so the recorded path
+        // is anchored at the viewer's own project root and always resolves when
+        // the viewer is reopened). Otherwise fall back to the filesystem-relative
+        // (viewer-anchored) form. `FASTQBundle.projectRelativePath` would
+        // otherwise fall back to the SOURCE's project root, producing a `@/`
+        // path the viewer cannot resolve when it has no project of its own.
+        if FASTQBundle.findProjectRoot(from: viewerBundleURL) != nil,
+           let projectRelative = FASTQBundle.projectRelativePath(
+               for: sourceBundleURL,
+               from: viewerBundleURL
+           ) {
+            return projectRelative
+        }
+        return filesystemRelativePath(from: viewerBundleURL, to: sourceBundleURL)
     }
 
     private static func filesystemRelativePath(from baseURL: URL, to targetURL: URL) -> String {

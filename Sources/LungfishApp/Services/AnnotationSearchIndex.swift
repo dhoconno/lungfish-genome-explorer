@@ -273,9 +273,8 @@ public final class AnnotationSearchIndex {
         for vTrackId in bundle.variantTrackIds {
             guard let trackInfo = bundle.variantTrack(id: vTrackId),
                   let dbPath = trackInfo.databasePath else { continue }
-            guard let dbURL = try? BundleManifest.validatedBundleMemberURL(
+            guard let dbURL = try? bundle.memberURL(
                 for: dbPath,
-                in: bundle.url,
                 field: "variants[\(vTrackId)].databasePath"
             ) else {
                 searchLogger.warning("AnnotationSearchIndex: Skipping unsafe variant database path '\(dbPath, privacy: .public)'")
@@ -318,9 +317,8 @@ public final class AnnotationSearchIndex {
         for trackId in bundle.annotationTrackIds {
             if let trackInfo = bundle.annotationTrack(id: trackId),
                let dbPath = trackInfo.databasePath {
-                guard let dbURL = try? BundleManifest.validatedBundleMemberURL(
+                guard let dbURL = try? bundle.memberURL(
                     for: dbPath,
-                    in: bundle.url,
                     field: "annotations[\(trackId)].databasePath"
                 ) else {
                     searchLogger.warning("AnnotationSearchIndex: Skipping unsafe annotation database path '\(dbPath, privacy: .public)'")

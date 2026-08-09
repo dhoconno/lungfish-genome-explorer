@@ -205,10 +205,15 @@ extension ProjectUniversalSearchIndex {
             )
 
             guard let dbPath = track.databasePath else { continue }
+            let allowedEscapeRoots = ReferenceBundleEscapeRoots.allowedRoots(
+                forBundleAt: bundleURL,
+                manifest: manifest
+            )
             guard let dbURL = try? BundleManifest.validatedBundleMemberURL(
                 for: dbPath,
                 in: bundleURL,
-                field: "variants[\(trackID)].databasePath"
+                field: "variants[\(trackID)].databasePath",
+                allowedEscapeRoots: allowedEscapeRoots
             ) else { continue }
             guard FileManager.default.fileExists(atPath: dbURL.path) else { continue }
             guard let variantDB = try? VariantDatabase(url: dbURL) else { continue }

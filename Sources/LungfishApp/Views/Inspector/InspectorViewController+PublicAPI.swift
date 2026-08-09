@@ -213,6 +213,14 @@ extension InspectorViewController {
             )
             if let embeddedManifest = try? BundleManifest.load(from: referenceBundleURL) {
                 for annotation in embeddedManifest.annotations {
+                    // TODO(Item 1): This resolves members of an MHC amplicon
+                    // *embedded* reference bundle (not a mapping viewer bundle),
+                    // and only a URL + freshly-loaded manifest are in scope here
+                    // — no `ReferenceBundle` instance to route through the
+                    // escape-root-aware accessor. Embedded MHC bundles are not
+                    // produced by `MappingViewerBundlePreparer` and do not carry
+                    // top-level symlinks into an external origin, so strict
+                    // validation is correct for them. Left strict deliberately.
                     guard let databasePath = annotation.databasePath,
                           let databaseURL = try? BundleManifest.validatedBundleMemberURL(
                             for: databasePath,

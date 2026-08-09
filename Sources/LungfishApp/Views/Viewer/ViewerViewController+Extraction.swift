@@ -414,9 +414,8 @@ extension SequenceViewerView {
             sourceAnnotationTracks = bundle.annotationTrackIds.compactMap { trackID in
                 guard let trackInfo = bundle.annotationTrack(id: trackID),
                       let dbPath = trackInfo.databasePath,
-                      let databaseURL = try? BundleManifest.validatedBundleMemberURL(
+                      let databaseURL = try? bundle.memberURL(
                           for: dbPath,
-                          in: bundle.url,
                           field: "annotations[\(trackID)].databasePath"
                       ) else {
                     return nil
@@ -433,9 +432,8 @@ extension SequenceViewerView {
             sourceVariantTracks = bundle.variantTrackIds.compactMap { trackID in
                 guard let trackInfo = bundle.variantTrack(id: trackID),
                       let dbPath = trackInfo.databasePath,
-                      let databaseURL = try? BundleManifest.validatedBundleMemberURL(
+                      let databaseURL = try? bundle.memberURL(
                           for: dbPath,
-                          in: bundle.url,
                           field: "variants[\(trackID)].databasePath"
                       ) else {
                     return nil
@@ -553,9 +551,8 @@ extension SequenceViewerView {
         for trackId in bundle.variantTrackIds {
             guard let trackInfo = bundle.variantTrack(id: trackId),
                   let dbPath = trackInfo.databasePath,
-                  let dbURL = try? BundleManifest.validatedBundleMemberURL(
+                  let dbURL = try? bundle.memberURL(
                       for: dbPath,
-                      in: bundle.url,
                       field: "variants[\(trackId)].databasePath"
                   ) else { continue }
             guard let db = try? VariantDatabase(url: dbURL) else { continue }

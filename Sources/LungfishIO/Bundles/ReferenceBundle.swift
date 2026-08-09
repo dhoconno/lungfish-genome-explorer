@@ -79,6 +79,15 @@ public final class ReferenceBundle: Sendable {
     /// Bundle manifest containing metadata and track definitions.
     public let manifest: BundleManifest
 
+    /// Trusted directories a bundle-owned TOP-LEVEL symlink may escape into.
+    ///
+    /// Derived once at init from `manifest.originBundlePath` under the hardened
+    /// origin-scoping constraints (see ``ReferenceBundleEscapeRoots``). Empty for
+    /// ordinary self-contained bundles, which preserves strict member-path
+    /// validation. `URL` is `Sendable`, so this stays `Sendable` with all-`let`
+    /// storage — do NOT convert to `lazy var`.
+    private let allowedEscapeRoots: [URL]
+
     private let bookmarkAccess: ReferenceBundleBookmarkAccess
     private let activeSecurityScopedAlignmentURLs = OSAllocatedUnfairLock(initialState: [String: URL]())
 
@@ -111,11 +120,20 @@ public final class ReferenceBundle: Sendable {
         }
 
         // Load manifest
+        let loadedManifest: BundleManifest
         do {
-            self.manifest = try BundleManifest.load(from: url)
+            loadedManifest = try BundleManifest.load(from: url)
         } catch {
             throw ReferenceBundleError.manifestLoadFailed(error)
         }
+        self.manifest = loadedManifest
+
+        // Derive escape roots BEFORE the member checks below so they see a
+        // consistent policy.
+        self.allowedEscapeRoots = ReferenceBundleEscapeRoots.allowedRoots(
+            forBundleAt: url,
+            manifest: loadedManifest
+        )
 
         // Validate manifest
         let validationErrors = manifest.validate()
@@ -138,7 +156,7 @@ public final class ReferenceBundle: Sendable {
 
         logger.info("Opened bundle: \(self.manifest.name) (\(self.manifest.identifier))")
     }
-    
+
     /// Creates a ReferenceBundle from a pre-loaded manifest.
     ///
     /// This synchronous initializer is useful when the manifest has already been loaded
@@ -150,6 +168,10 @@ public final class ReferenceBundle: Sendable {
     public init(url: URL, manifest: BundleManifest) {
         self.url = url
         self.manifest = manifest
+        self.allowedEscapeRoots = ReferenceBundleEscapeRoots.allowedRoots(
+            forBundleAt: url,
+            manifest: manifest
+        )
         self.bookmarkAccess = .live
         logger.info("Created bundle from pre-loaded manifest: \(manifest.name) (\(manifest.identifier))")
     }
@@ -161,6 +183,10 @@ public final class ReferenceBundle: Sendable {
     ) {
         self.url = url
         self.manifest = manifest
+        self.allowedEscapeRoots = ReferenceBundleEscapeRoots.allowedRoots(
+            forBundleAt: url,
+            manifest: manifest
+        )
         self.bookmarkAccess = bookmarkAccess
         logger.info("Created bundle from pre-loaded manifest: \(manifest.name) (\(manifest.identifier))")
     }
@@ -750,6 +776,24 @@ public final class ReferenceBundle: Sendable {
         return FileManager.default.fileExists(atPath: fastaURL.path) ? fastaURL.path : nil
     }
 
+    // MARK: - Public member resolution
+
+    /// Resolves a manifest-relative member path to a URL under this bundle's
+    /// escape-root-aware policy.
+    ///
+    /// This is the public choke point for display/pipeline call sites that must
+    /// resolve members through the bundle's (possibly symlinked) top-level
+    /// directories. For a mapping viewer bundle whose `genome/`, `annotations/`,
+    /// `variants/`, and `metadata/` are symlinks into the source bundle, this
+    /// permits the escape when the origin constraints hold; otherwise it stays
+    /// strict.
+    ///
+    /// - Throws: `ReferenceBundleError.validationFailed` if the path is unsafe or
+    ///   escapes the bundle outside the allowed origin.
+    public func memberURL(for relativePath: String, field: String = "path") throws -> URL {
+        try validatedBundleMemberURL(path: relativePath, field: field)
+    }
+
     private func resolveBundleRelativePath(_ path: String, field: String) throws -> String {
         if URL(fileURLWithPath: path).isFileURL && path.hasPrefix("/") {
             return path
@@ -759,7 +803,12 @@ public final class ReferenceBundle: Sendable {
 
     private func validatedBundleMemberURL(path: String, field: String) throws -> URL {
         do {
-            return try BundleManifest.validatedBundleMemberURL(for: path, in: url, field: field)
+            return try BundleManifest.validatedBundleMemberURL(
+                for: path,
+                in: url,
+                field: field,
+                allowedEscapeRoots: allowedEscapeRoots
+            )
         } catch let error as BundleValidationError {
             throw ReferenceBundleError.validationFailed([error])
         }
