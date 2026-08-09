@@ -24,9 +24,29 @@ public class ReferenceBundleViewportController: NSViewController {
     private var usesRecordStoreTable = false
     private var recordStoreWarning: String?
     private typealias AlignmentTrackSummaryBuilder = (URL, Int) async throws -> [MappingContigSummary]
-    private var alignmentTrackSummaryBuilder: AlignmentTrackSummaryBuilder = { bamURL, totalReads in
-        try await MappingSummaryBuilder.build(sortedBAMURL: bamURL, totalReads: totalReads)
+    private lazy var alignmentTrackSummaryBuilder: AlignmentTrackSummaryBuilder = { [weak self] bamURL, totalReads in
+        try await MappingSummaryBuilder.build(
+            sortedBAMURL: bamURL,
+            totalReads: totalReads,
+            reportWarning: { warning in
+                // MappingSummaryBuilder's own memory guard warning (see its
+                // sortedBAMMemoryGuardBytes doc comment) previously had no
+                // sink in this viewport: the pre-fix default builder passed
+                // no reportWarning at all, so it was constructed and
+                // discarded. This controller has no OperationCenter/Logger
+                // presence of its own (refreshMappingRowsForVisibleAlignmentTrack
+                // isn't tied to a running OperationCenter operation id), so
+                // route it through the same summary-bar surface this
+                // controller already uses for non-fatal conditions
+                // (recordStoreWarning's directBundle sibling).
+                DispatchQueue.main.async { MainActor.assumeIsolated {
+                    self?.alignmentTrackSummaryWarning = warning
+                    self?.updateSummaryBar()
+                }}
+            }
+        )
     }
+    private var alignmentTrackSummaryWarning: String?
     private var alignmentTrackSummaryRefreshID = UUID()
     private var visibleAlignmentSummaryOverride: VisibleAlignmentSummary?
 
@@ -392,7 +412,13 @@ public class ReferenceBundleViewportController: NSViewController {
                         / Double(visibleAlignmentSummaryOverride.totalReads) * 100
                 )
                 : "—"
-            summaryLabel.stringValue = "\(visibleAlignmentSummaryOverride.trackName) — \(visibleAlignmentSummaryOverride.mappedReads.formatted()) / \(visibleAlignmentSummaryOverride.totalReads.formatted()) reads mapped (\(pct))"
+            var text = "\(visibleAlignmentSummaryOverride.trackName) — \(visibleAlignmentSummaryOverride.mappedReads.formatted()) / \(visibleAlignmentSummaryOverride.totalReads.formatted()) reads mapped (\(pct))"
+            if let alignmentTrackSummaryWarning {
+                text += " — Warning: \(alignmentTrackSummaryWarning)"
+                summaryLabel.textColor = .systemOrange
+                summaryLabel.toolTip = alignmentTrackSummaryWarning
+            }
+            summaryLabel.stringValue = text
             return
         }
 
@@ -424,6 +450,7 @@ public class ReferenceBundleViewportController: NSViewController {
         loadedViewerBundleURL = nil
         visibleAlignmentSummaryOverride = nil
         recordStoreWarning = nil
+        alignmentTrackSummaryWarning = nil
         alignmentTrackSummaryRefreshID = UUID()
         presentationMode = .listDetail
         applyPresentationMode()
@@ -928,6 +955,7 @@ public class ReferenceBundleViewportController: NSViewController {
 
     private func applyOriginalMappingRows(preferredSelectionName: String?) {
         visibleAlignmentSummaryOverride = nil
+        alignmentTrackSummaryWarning = nil
         updateSummaryBar()
         contigTableView.configure(rows: currentResult?.contigs ?? [])
         refreshSelection(preferredSelectionName: preferredSelectionName)
@@ -939,6 +967,7 @@ public class ReferenceBundleViewportController: NSViewController {
     ) {
         guard currentInput?.kind == .mappingResult else { return }
 
+        alignmentTrackSummaryWarning = nil
         alignmentTrackSummaryRefreshID = UUID()
         let refreshID = alignmentTrackSummaryRefreshID
 
