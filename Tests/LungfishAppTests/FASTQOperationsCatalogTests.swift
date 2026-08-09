@@ -163,6 +163,18 @@ final class FASTQOperationsCatalogTests: XCTestCase {
         )
     }
 
+    func testMAFFTDefaultSourceNameForTwoInputsReflectsBothInputs() {
+        let inputs = [
+            URL(fileURLWithPath: "/tmp/SampleA.fasta"),
+            URL(fileURLWithPath: "/tmp/SampleB.fasta"),
+        ]
+
+        XCTAssertEqual(
+            FASTQOperationDialogState.mafftDefaultSourceName(for: inputs),
+            "SampleA+1 more aligned"
+        )
+    }
+
     func testMAFFTDefaultSourceNameForThreeInputsReflectsAllInputs() {
         let inputs = [
             URL(fileURLWithPath: "/tmp/SampleA.fasta"),

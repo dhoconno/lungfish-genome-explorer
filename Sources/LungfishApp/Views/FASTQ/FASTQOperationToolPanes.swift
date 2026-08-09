@@ -268,7 +268,7 @@ private struct FASTQOperationPrimarySettingsSection: View {
     @State private var mafftMultiBundleRunMode: MultiBundleRunMode = .combined
     @State private var pbaaMultiBundleRunMode: MultiBundleRunMode = .perBundle
     @State private var savontMultiBundleRunMode: MultiBundleRunMode = .perBundle
-    @State private var ontGenotypingMultiBundleRunMode: MultiBundleRunMode = .perBundle
+    @State private var ontGenotypingMultiBundleRunMode: MultiBundleRunMode = .combined
 
     /// MAFFT always pools every selected input into one alignment run (MB-3):
     /// N-sequence MSA has no per-bundle interpretation.
@@ -287,14 +287,19 @@ private struct FASTQOperationPrimarySettingsSection: View {
         lockReason: "Runs once per bundle"
     )
 
-    /// ONT/Illumina amplicon genotyping calls one sample at a time; a
-    /// cohort view is assembled afterward from the per-sample calls rather
-    /// than by pooling multiple samples' FASTQ bytes into a single run
-    /// (MB-5).
+    /// ONT/Illumina amplicon genotyping actually pools every selected
+    /// bundle into ONE .ontSampleBundles batch run (merged BAM, one
+    /// report) -- ontGenotypingUsesPreparedSampleInputs flips to that mode
+    /// automatically once N>1 inputs are selected. The picker must reflect
+    /// that real behavior (combine-locked), not an aspirational per-bundle
+    /// split the execution path doesn't perform (MB-5 review fix round 1).
+    /// Splitting N>1 selections into N separate per-sample genotyping runs
+    /// is filed as a round-2 product decision; this pane change is
+    /// display-only and does not touch that execution path.
     static let ontGenotypingMultiBundleRunPolicy = MultiBundleRunPolicy(
-        allowedModes: [.perBundle],
-        defaultMode: .perBundle,
-        lockReason: "Genotyping is per-sample; use a cohort after per-sample calls"
+        allowedModes: [.combined],
+        defaultMode: .combined,
+        lockReason: "Selections run as one genotyping batch producing a merged report. Run bundles individually for separate per-sample reports."
     )
 
     var body: some View {

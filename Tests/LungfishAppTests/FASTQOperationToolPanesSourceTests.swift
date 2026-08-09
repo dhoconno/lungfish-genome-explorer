@@ -80,12 +80,18 @@ final class FASTQOperationToolPanesSourceTests: XCTestCase {
         XCTAssertTrue(source.contains("policy: Self.clusteringMultiBundleRunPolicy,\n                    selection: $savontMultiBundleRunMode"))
     }
 
-    func testONTGenotypingPaneRendersPerBundleLockedMultiBundleRunModePicker() throws {
+    func testONTGenotypingPaneRendersCombineLockedMultiBundleRunModePickerReflectingActualPooledBatchExecution() throws {
+        // MB-5 review fix round 1: the runtime pools every selected bundle
+        // into ONE .ontSampleBundles batch run (merged BAM, one report),
+        // so the picker must be combine-locked, not per-bundle-locked --
+        // showing an enabled "Run separately per bundle" row would
+        // over-promise separate runs the execution path doesn't perform.
         let source = try String(contentsOf: toolPanesSourceURL, encoding: .utf8)
 
         XCTAssertTrue(source.contains("ontGenotypingMultiBundleRunPolicy = MultiBundleRunPolicy("))
-        XCTAssertTrue(source.contains("lockReason: \"Genotyping is per-sample; use a cohort after per-sample calls\""))
+        XCTAssertTrue(source.contains("allowedModes: [.combined],\n        defaultMode: .combined,\n        lockReason: \"Selections run as one genotyping batch producing a merged report. Run bundles individually for separate per-sample reports.\""))
         XCTAssertTrue(source.contains("policy: Self.ontGenotypingMultiBundleRunPolicy,\n                    selection: $ontGenotypingMultiBundleRunMode"))
+        XCTAssertFalse(source.contains("ontGenotypingMultiBundleRunMode: MultiBundleRunMode = .perBundle"))
     }
 
     func testSavontPaneExposesCuratedPrimaryAndAdvancedControlsWithoutRawArguments() throws {
