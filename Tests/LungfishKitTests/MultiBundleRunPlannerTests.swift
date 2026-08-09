@@ -169,11 +169,16 @@ final class MultiBundleRunPlannerTests: XCTestCase {
             // Expected: a single throwing child aborts the whole plan.
         }
 
-        // Only the children that ran before/independent of the failure
-        // should have "materialized" — no group silently swallowed the
-        // error or kept running after the failure was observed.
+        // `.perBundle` materializes sequentially in input order (see
+        // MultiBundleRunPlanner.plan's `for input in inputs` loop), so this
+        // is deterministic, not just bounded: input 1 materializes and
+        // increments the counter, input 2 throws and aborts the loop, input
+        // 3 is never reached. Tightened from `<= 2` to the exact value
+        // (round-2 C1 test-tightening item) now that the sequential
+        // execution model makes the count fully predictable rather than a
+        // race-dependent upper bound.
         let count = await cleanedUp.value
-        XCTAssertLessThanOrEqual(count, 2, "Materialization must not silently continue processing all children after one throws")
+        XCTAssertEqual(count, 1, "Materialization must stop immediately after the first failure, not continue to sibling children")
     }
 
     func testCombinedThrowingMaterializeNeverInvokesPool() async throws {

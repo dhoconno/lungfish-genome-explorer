@@ -18,11 +18,15 @@ public enum LungfishFormatters {
     /// Formats a byte count as a human-readable file-size string (e.g. "512 KB", "4.2 MB").
     ///
     /// This is the majority format used across the app: a thin wrapper around
-    /// `ByteCountFormatter` with `countStyle = .file`.
+    /// `ByteCountFormatter`'s `string(fromByteCount:countStyle:)` class method
+    /// with `countStyle = .file`. Uses the static convenience method (round-2
+    /// structural backlog, C1 test-tightening batch) rather than allocating
+    /// and caching an instance: `ByteCountFormatter` is not `Sendable`, so a
+    /// shared cached instance would need `nonisolated(unsafe)` (or actor
+    /// isolation) to pass strict-concurrency checking under Swift 6, while
+    /// the class method carries no shared mutable state and needs neither.
     public static func formatBytes(_ bytes: Int64) -> String {
-        let formatter = ByteCountFormatter()
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: bytes)
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 
     /// Formats a byte count as a human-readable file-size string.
