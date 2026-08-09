@@ -1224,7 +1224,16 @@ public actor CondaManager {
 
             nonisolated(unsafe) let stdoutBuffer = NSMutableData()
             nonisolated(unsafe) let stderrBuffer = NSMutableData()
-            nonisolated(unsafe) var continuationResumed = false
+            // Lock-protected single-resume guard (R3-R3ML-15), replacing an ad-hoc
+            // nonisolated(unsafe) var continuationResumed flag that was mutated from
+            // both the terminationHandler's asyncAfter closure and the synchronous
+            // catch block below with no synchronization. The two writer sites cannot
+            // literally race today (process.run() throwing means the termination
+            // handler never fires), so this was not an active bug, but it diverged
+            // from the mutex-protected NativeProcessRunState.resumeOnce idiom
+            // runTool (~30 lines above in this same file) and PBAAClusteringPipeline
+            // both already use for this exact continuation-double-resume hazard.
+            let runState = NativeProcessRunState()
 
             stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
                 let data = handle.availableData
@@ -1251,19 +1260,18 @@ public actor CondaManager {
                     stdoutPipe.fileHandleForReading.readabilityHandler = nil
                     stderrPipe.fileHandleForReading.readabilityHandler = nil
 
-                    guard !continuationResumed else { return }
-                    continuationResumed = true
+                    runState.resumeOnce { _ in
+                        let stdout = String(data: stdoutBuffer as Data, encoding: .utf8) ?? ""
+                        let stderr = String(data: stderrBuffer as Data, encoding: .utf8) ?? ""
 
-                    let stdout = String(data: stdoutBuffer as Data, encoding: .utf8) ?? ""
-                    let stderr = String(data: stderrBuffer as Data, encoding: .utf8) ?? ""
-
-                    if terminatedProcess.terminationStatus != 0 {
-                        logger.error("micromamba failed (exit \(terminatedProcess.terminationStatus)): \(stderr, privacy: .public)")
-                        continuation.resume(
-                            throwing: CondaError.packageInstallFailed(stderr.isEmpty ? stdout : stderr)
-                        )
-                    } else {
-                        continuation.resume(returning: stdout)
+                        if terminatedProcess.terminationStatus != 0 {
+                            logger.error("micromamba failed (exit \(terminatedProcess.terminationStatus)): \(stderr, privacy: .public)")
+                            continuation.resume(
+                                throwing: CondaError.packageInstallFailed(stderr.isEmpty ? stdout : stderr)
+                            )
+                        } else {
+                            continuation.resume(returning: stdout)
+                        }
                     }
                 }
             }
@@ -1273,9 +1281,9 @@ public actor CondaManager {
             } catch {
                 stdoutPipe.fileHandleForReading.readabilityHandler = nil
                 stderrPipe.fileHandleForReading.readabilityHandler = nil
-                guard !continuationResumed else { return }
-                continuationResumed = true
-                continuation.resume(throwing: error)
+                runState.resumeOnce { _ in
+                    continuation.resume(throwing: error)
+                }
             }
         }
     }
