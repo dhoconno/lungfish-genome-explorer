@@ -268,6 +268,63 @@ public enum AnalysesFolder {
         return collapsed.isEmpty ? "sample" : collapsed
     }
 
+    // MARK: - Batch Cleanup
+
+    /// Removes `batchDirectory` if, after all of its children have reached a
+    /// terminal state, it contains no sample entries beyond the
+    /// `analysis-metadata.json` sidecar written at creation time (spec §6:
+    /// empty-batch cleanup, run only once ALL children are terminal, never
+    /// mid-flight).
+    ///
+    /// The emptiness check is recursive by ONE level: batch orchestrators
+    /// (e.g. `precomputedMappingBatchOutputDirectories`) pre-create every
+    /// child's sample directory (empty) before any child runs, so a shallow
+    /// top-level listing would always see N directory entries -- even when
+    /// every child failed before writing anything, or a bundle was never
+    /// reached because the batch was cancelled mid-flight. A top-level entry
+    /// counts as "content" (and blocks removal) iff it is EITHER a
+    /// non-directory (any flat file some future producer might leave at the
+    /// batch root, `analysis-metadata.json` excluded) OR a directory that
+    /// itself has at least one entry. A pre-created-but-still-empty child
+    /// directory does not block removal; a child directory containing
+    /// partial output (from a child that failed AFTER writing something)
+    /// does. This deliberately does NOT remove individual empty child
+    /// directories on its own (that would be child-side cleanup, which the
+    /// design rules out -- a failed child's partial output must still block
+    /// the whole batch from being removed) -- it only decides whether the
+    /// WHOLE batch directory, including its still-empty children, is
+    /// removable as a unit.
+    ///
+    /// A missing directory (e.g. cleaned up by a previous call, or a
+    /// caller passing an already-nonexistent URL in a test) is a silent
+    /// no-op, not an error -- this is a best-effort tidy-up, not a
+    /// correctness-critical step.
+    public static func removeBatchDirectoryIfEffectivelyEmpty(_ batchDirectory: URL) {
+        let fileManager = FileManager.default
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: batchDirectory, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]
+        ) else { return }
+
+        let hasContent = entries.contains { entry in
+            guard entry.lastPathComponent != metadataFilename else { return false }
+            let isDirectory = (try? entry.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+            guard isDirectory else {
+                // A non-directory, non-metadata entry at the batch root is
+                // content in its own right.
+                return true
+            }
+            // A pre-created child sample directory only counts as content
+            // if it has something inside it.
+            let childEntries = (try? fileManager.contentsOfDirectory(
+                at: entry, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
+            )) ?? []
+            return !childEntries.isEmpty
+        }
+        guard !hasContent else { return }
+
+        try? fileManager.removeItem(at: batchDirectory)
+    }
+
     // MARK: - Listing
 
     /// Lists all analysis directories in `Analyses/`, sorted newest first.

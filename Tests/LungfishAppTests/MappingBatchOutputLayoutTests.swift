@@ -148,7 +148,7 @@ final class MappingBatchOutputLayoutTests: XCTestCase {
         // precompute step left them; nothing here removes or populates
         // them.
 
-        AppDelegate.cleanupBatchDirectoryIfEmpty(batchDir)
+        AnalysesFolder.removeBatchDirectoryIfEffectivelyEmpty(batchDir)
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: batchDir.path))
     }
@@ -168,7 +168,7 @@ final class MappingBatchOutputLayoutTests: XCTestCase {
         // deleted.
         try Data("partial-bam-bytes".utf8).write(to: sampleDirs[1].appendingPathComponent("result.bam"))
 
-        AppDelegate.cleanupBatchDirectoryIfEmpty(batchDir)
+        AnalysesFolder.removeBatchDirectoryIfEffectivelyEmpty(batchDir)
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: batchDir.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: sampleDirs[0].path), "SampleA's empty dir must not be individually removed")
@@ -194,7 +194,7 @@ final class MappingBatchOutputLayoutTests: XCTestCase {
         // sampleDirs[1] is left exactly as precomputed: created, empty --
         // its child never ran before the batch was cancelled.
 
-        AppDelegate.cleanupBatchDirectoryIfEmpty(batchDir)
+        AnalysesFolder.removeBatchDirectoryIfEffectivelyEmpty(batchDir)
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: batchDir.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: sampleDirs[1].path), "unstarted child's empty dir must not be individually removed")
@@ -203,6 +203,6 @@ final class MappingBatchOutputLayoutTests: XCTestCase {
     func testCleanupIsNoOpWhenBatchDirectoryDoesNotExist() {
         let missing = tempDir.appendingPathComponent("Analyses/minimap2-batch-does-not-exist", isDirectory: true)
         // Must not throw or crash.
-        AppDelegate.cleanupBatchDirectoryIfEmpty(missing)
+        AnalysesFolder.removeBatchDirectoryIfEffectivelyEmpty(missing)
     }
 }
