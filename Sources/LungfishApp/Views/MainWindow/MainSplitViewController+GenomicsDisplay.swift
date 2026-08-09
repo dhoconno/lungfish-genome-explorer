@@ -1008,8 +1008,15 @@ extension MainSplitViewController {
 
         if case .savont(let batchRequest) = request,
            batchRequest.inputURLs.count > 1 {
+            // BG5 (spec §4): precomputes ONE shared batch directory plus one
+            // sample FILE name per input, in `batchRequest.inputURLs` order,
+            // BEFORE any child below is dispatched -- see
+            // `independentSavontLaunchRequests`'s doc comment. `nil` when
+            // there is no current project (falls back to the pre-BG5 flat
+            // `destinationRoot` output, exactly as before this change).
             let independentRequests = request.independentSavontLaunchRequests(
-                outputDirectory: destinationRoot
+                outputDirectory: destinationRoot,
+                projectURL: currentProjectURL
             )
             guard independentRequests.count == batchRequest.inputURLs.count else {
                 mainSplitLogger.error(
@@ -1017,18 +1024,64 @@ extension MainSplitViewController {
                 )
                 return nil
             }
+            // Every child's precomputed flat-file output directory (if
+            // batching) is its own `FASTQSavontClusteringRequest
+            // .outputDirectoryURL`, set by `independentSavontLaunchRequests`
+            // above -- all children share the SAME batch directory (unlike
+            // assembly's per-child sample directories), so reading it once
+            // off the first child is sufficient. `nil` when there was no
+            // project to root a batch directory in, matching the pre-BG5
+            // behavior of dispatching straight into `destinationRoot` with
+            // no batch grouping or cleanup.
+            let batchDirectory: URL? = {
+                guard case .savont(let firstChildRequest) = independentRequests.first else { return nil }
+                let candidate = firstChildRequest.outputDirectoryURL.standardizedFileURL
+                guard candidate != destinationRoot else { return nil }
+                return candidate
+            }()
             // Intentionally CONCURRENT (unlike the .assemble fan-out below):
             // Savont clustering is a lightweight per-sample operation with a
             // modest, fixed resource footprint, so N simultaneous Savont
             // clusterings is an accepted resource profile -- unlike N
             // simultaneous SPAdes/MEGAHIT assemblers, each of which can be
             // configured with wizard-level threads/memoryGB approaching the
-            // whole machine's budget on its own.
-            for independentRequest in independentRequests {
+            // whole machine's budget on its own. Each child still gets its
+            // own opID/Task.detached via the same unserialized recursive
+            // call as before BG5 -- only the completion BARRIER (below) and
+            // the empty-batch cleanup it gates are new.
+            let childOpIDs: [UUID] = independentRequests.compactMap { independentRequest in
                 runFASTQOperationLaunchRequestValidated(
                     independentRequest,
-                    preferredOutputDirectory: destinationRoot
+                    preferredOutputDirectory: batchDirectory ?? destinationRoot
                 )
+            }
+
+            // Completion barrier (spec §6): only after EVERY child operation
+            // has reached a terminal state does empty-batch cleanup run.
+            // Deliberately captures only VALUES (`batchDirectory`,
+            // `childOpIDs`) and calls the `static`, `self`-free
+            // `pollUntilOperationTerminal` static helper -- the INSTANCE
+            // method of (almost) the same name that the `.assemble`
+            // fan-out's sequential loop uses is intentionally NOT called
+            // here -- so the barrier and the cleanup it gates still run
+            // correctly even if this controller deallocates while children
+            // are still in flight (mirroring BG3/BG4's "cleanup must
+            // survive `self` going away" shape, but here achieved by never
+            // capturing `self` in the first place, since the concurrent
+            // dispatch above -- unlike the `.assemble` fan-out's sequential
+            // loop -- has already finished firing every child before this
+            // `Task` is even created).
+            if let batchDirectory {
+                Task {
+                    await withTaskGroup(of: Void.self) { group in
+                        for opID in childOpIDs {
+                            group.addTask {
+                                await Self.pollUntilOperationTerminal(id: opID)
+                            }
+                        }
+                    }
+                    AnalysesFolder.removeBatchDirectoryIfEffectivelyEmpty(batchDirectory)
+                }
             }
             return nil
         }
@@ -1343,6 +1396,24 @@ extension MainSplitViewController {
     /// subscription-lifetime/cancellable-management complexity for a
     /// one-shot "wait until terminal" check.
     func awaitOperationTerminal(
+        id: UUID,
+        center: OperationCenter = .shared,
+        pollInterval: Duration = .milliseconds(200)
+    ) async {
+        await Self.pollUntilOperationTerminal(id: id, center: center, pollInterval: pollInterval)
+    }
+
+    /// The `static`, `self`-free polling body `awaitOperationTerminal`
+    /// delegates to (BG5, batch-results-grouping spec §6). Exists as a
+    /// separate `static` function -- not merely inlined into the instance
+    /// method above -- so the Savont fan-out's completion barrier (below,
+    /// intentionally CONCURRENT dispatch, unlike the `.assemble` fan-out's
+    /// sequential one) can await every child's terminal state from a
+    /// context that captures only VALUES (`OperationCenter.shared` and each
+    /// child's opID), with no dependency on `self` surviving until the
+    /// barrier resolves -- if the controller deallocates mid-batch, the
+    /// barrier and the empty-batch cleanup that follows it must still run.
+    static func pollUntilOperationTerminal(
         id: UUID,
         center: OperationCenter = .shared,
         pollInterval: Duration = .milliseconds(200)

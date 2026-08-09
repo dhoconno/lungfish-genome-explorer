@@ -24,8 +24,24 @@ internal func mainSplitPerformOnMainRunLoop(_ block: @escaping @MainActor @Senda
 }
 
 extension FASTQOperationLaunchRequest {
+    /// BG5 (batch-results-grouping spec §4): when `projectURL` is non-nil,
+    /// ONE `Analyses/savont-batch-<timestamp>/` directory is precomputed up
+    /// front, and every child's flat-file output name is precomputed (via
+    /// `AnalysesFolder.batchSampleFileURL(named:extension:in:)`, walking
+    /// `batchRequest.inputURLs` in that same fixed order -- spec §3's
+    /// ordering invariant) BEFORE any child request is built or dispatched,
+    /// mirroring `independentAssembleLaunchRequests` exactly. Per-input
+    /// naming uses the source bundle's display name (`URL
+    /// .lungfishDisplayName`, which already reduces to a loose file's own
+    /// stem for a non-bundle URL -- no separate bundle-vs-loose-file branch
+    /// needed). `projectURL == nil` (e.g. a non-project-backed run) or
+    /// batch-directory creation failure falls back to the pre-BG5 behavior:
+    /// each child's output name is planner-derived from its OWN input stem,
+    /// unchanged, and `outputDirectoryURL` stays the flat `outputDirectory`
+    /// passed in (unchanged pre-BG5 regression pin).
     func independentSavontLaunchRequests(
         outputDirectory: URL,
+        projectURL: URL? = nil,
         planner: FASTQOperationPlanner = FASTQOperationPlanner()
     ) -> [FASTQOperationLaunchRequest] {
         guard case .savont(let batchRequest) = self,
@@ -33,16 +49,66 @@ extension FASTQOperationLaunchRequest {
             return [self]
         }
 
-        return planner.makeExecutionPlans(
+        // Precomputed IN INPUT-URL ORDER, before any child request is built
+        // (spec §3 ordering invariant) -- `nil` when there is no project to
+        // root the batch directory in, or when batch-directory creation
+        // fails, so the caller's flat `outputDirectory` (the pre-BG5
+        // `Analyses/` root) keeps working unchanged.
+        //
+        // `batchSampleFileURL` itself dedups against DISK entries only (it
+        // deliberately does not create the file -- BG1's contract), so two
+        // precomputed candidates for the same sanitized name would both
+        // resolve to the identical un-suffixed URL here, since neither file
+        // exists on disk yet at precompute time (a real Savont CLI run
+        // hasn't written anything). Pre-creating empty placeholder files to
+        // reserve names would backfire: `FASTQOperationPlanner`'s
+        // `collisionSafeOutputURL` treats ANY pre-existing file at the
+        // target path as a collision and renames past it at actual dispatch
+        // time, silently drifting the real output name away from what was
+        // precomputed here. So collisions among THIS call's own candidates
+        // are deduped locally instead, reusing `batchSampleFileURL`'s own
+        // `-2`/`-3`... suffix format on top of its already-sanitized base
+        // name, tracked in `claimedNames` -- a purely in-memory reservation
+        // that never touches disk.
+        let batchLayout: (directory: URL, fileURLs: [URL])? = projectURL.flatMap { projectURL -> (URL, [URL])? in
+            guard let batchDirectory = try? AnalysesFolder.createAnalysisDirectory(
+                tool: "savont", in: projectURL, isBatch: true
+            ) else { return nil }
+            var fileURLs: [URL] = []
+            fileURLs.reserveCapacity(batchRequest.inputURLs.count)
+            var claimedNames = Set<String>()
+            for inputURL in batchRequest.inputURLs {
+                let diskCandidate = AnalysesFolder.batchSampleFileURL(
+                    named: inputURL.lungfishDisplayName, extension: "fasta", in: batchDirectory
+                )
+                let baseName = diskCandidate.deletingPathExtension().lastPathComponent
+                let ext = diskCandidate.pathExtension
+                var candidateName = diskCandidate.lastPathComponent
+                var suffix = 2
+                while claimedNames.contains(candidateName) {
+                    candidateName = "\(baseName)-\(suffix).\(ext)"
+                    suffix += 1
+                }
+                claimedNames.insert(candidateName)
+                fileURLs.append(batchDirectory.appendingPathComponent(candidateName))
+            }
+            return (batchDirectory, fileURLs)
+        }
+        let effectiveOutputDirectory = batchLayout?.directory ?? outputDirectory
+
+        let plans = planner.makeExecutionPlans(
             originalRequest: self,
             resolvedRequest: self,
             baseOutputDirectory: outputDirectory
-        ).compactMap { plan in
+        )
+        return plans.enumerated().compactMap { index, plan in
             guard case .savont(let singleRequest) = plan.originalRequest else { return nil }
+            let outputName = batchLayout?.fileURLs[index].lastPathComponent
+                ?? plan.outputTarget.lastPathComponent
             return .savont(request: FASTQSavontClusteringRequest(
                 inputURLs: singleRequest.inputURLs,
-                outputDirectoryURL: outputDirectory,
-                singleInputOutputName: plan.outputTarget.lastPathComponent,
+                outputDirectoryURL: effectiveOutputDirectory,
+                singleInputOutputName: outputName,
                 threads: singleRequest.threads,
                 qualityValueCutoff: singleRequest.qualityValueCutoff,
                 minimumClusterSize: singleRequest.minimumClusterSize,

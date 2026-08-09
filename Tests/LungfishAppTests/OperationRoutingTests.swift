@@ -691,7 +691,18 @@ final class OperationRoutingTests: XCTestCase {
         let operationStart = try XCTUnwrap(body.range(of: "OperationCenter.shared.start"))
 
         XCTAssertLessThan(fanout.lowerBound, operationStart.lowerBound)
-        XCTAssertTrue(body.contains("for independentRequest in independentRequests"))
+        // BG5 (batch-results-grouping spec §4/§6): the fan-out loop now
+        // collects each recursive call's returned opID into `childOpIDs`
+        // (via `.compactMap`, still ONE call per independent request, still
+        // concurrent -- no `await` inside this collection step) so a
+        // completion barrier further down can wait for every child's
+        // terminal state before running empty-batch cleanup. The loop
+        // itself is no longer literally `for independentRequest in
+        // independentRequests` (still concurrent, per
+        // `SavontBatchOutputLayoutTests
+        // .testSavontDispatchLoopStaysConcurrentAndBarrierUsesStaticSelfFreePoll`'s
+        // behavioral proof).
+        XCTAssertTrue(body.contains("let childOpIDs: [UUID] = independentRequests.compactMap { independentRequest in"))
         XCTAssertTrue(body.contains("request.independentOperationInputDisplayName"))
         XCTAssertTrue(body.contains("progress: { [weak self] fraction, message in"))
         XCTAssertTrue(body.contains("OperationCenter.shared.updateWithLog("))
