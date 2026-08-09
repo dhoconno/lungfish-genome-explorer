@@ -174,6 +174,100 @@ public enum AnalysesFolder {
         )
     }
 
+    // MARK: - Batch Sample Naming
+
+    /// Returns a per-sample subdirectory inside a batch analysis directory,
+    /// creating it.
+    ///
+    /// `sampleName` is sanitized (see ``sanitizeBatchSampleName(_:)``) and
+    /// deduped against existing entries in `batchDirectory` by appending
+    /// `-2`, `-3`, ... on collision, following the same collision-loop idiom
+    /// as ``createAnalysisDirectory(tool:in:isBatch:date:)``.
+    ///
+    /// - Parameters:
+    ///   - sampleName: The source bundle's display name.
+    ///   - batchDirectory: The batch analysis directory (e.g. from
+    ///     `createAnalysisDirectory(tool:in:isBatch: true)`).
+    /// - Returns: URL of the newly created per-sample directory.
+    @discardableResult
+    public static func batchSampleDirectory(named sampleName: String, in batchDirectory: URL) throws -> URL {
+        let baseName = sanitizeBatchSampleName(sampleName)
+        let fileManager = FileManager.default
+
+        for attempt in 0..<1_000 {
+            let name = attempt == 0 ? baseName : "\(baseName)-\(attempt + 1)"
+            let sampleURL = batchDirectory.appendingPathComponent(name, isDirectory: true)
+            do {
+                try fileManager.createDirectory(at: sampleURL, withIntermediateDirectories: false)
+                return sampleURL
+            } catch {
+                let nsError = error as NSError
+                if nsError.domain == NSCocoaErrorDomain,
+                   nsError.code == CocoaError.Code.fileWriteFileExists.rawValue {
+                    continue
+                }
+                throw error
+            }
+        }
+
+        throw CocoaError(
+            .fileWriteFileExists,
+            userInfo: [
+                NSFilePathErrorKey: batchDirectory.appendingPathComponent(baseName, isDirectory: true).path,
+                NSLocalizedDescriptionKey: "Could not create a unique sample directory for \(baseName)"
+            ]
+        )
+    }
+
+    /// Returns a per-sample flat-file URL inside a batch analysis directory,
+    /// using the same sanitize+dedup policy as
+    /// ``batchSampleDirectory(named:in:)`` — does NOT create the file
+    /// (callers write it).
+    ///
+    /// - Parameters:
+    ///   - sampleName: The source bundle's display name (or input stem for
+    ///     loose files).
+    ///   - ext: The file extension, without a leading dot (e.g. `"fasta"`).
+    ///   - batchDirectory: The batch analysis directory.
+    /// - Returns: URL of the (not-yet-existing) per-sample file, unique
+    ///   among `batchDirectory`'s existing entries.
+    public static func batchSampleFileURL(named sampleName: String, extension ext: String, in batchDirectory: URL) -> URL {
+        let baseName = sanitizeBatchSampleName(sampleName)
+        let fileManager = FileManager.default
+
+        for attempt in 0..<1_000 {
+            let name = attempt == 0 ? baseName : "\(baseName)-\(attempt + 1)"
+            let fileURL = batchDirectory.appendingPathComponent(name).appendingPathExtension(ext)
+            if !fileManager.fileExists(atPath: fileURL.path) {
+                return fileURL
+            }
+        }
+
+        // Exhausted the collision range; return the last candidate rather than
+        // trap — callers write the file themselves and can surface a write error.
+        return batchDirectory.appendingPathComponent("\(baseName)-1000").appendingPathExtension(ext)
+    }
+
+    /// Sanitizes a source bundle's display name for use as a batch sample
+    /// directory/file name.
+    ///
+    /// Replicates the character policy of
+    /// `MetagenomicsSampleGrouper.sanitizeSampleId` in
+    /// `Sources/LungfishApp/Views/Metagenomics/MetagenomicsSampleInput.swift:105-114`
+    /// (LungfishIO cannot depend on LungfishApp, so this is a private copy,
+    /// not a shared extraction — keep the two policies in sync if either
+    /// changes). Falls back to `"sample"` for an empty/all-punctuation name.
+    private static func sanitizeBatchSampleName(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "sample" }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-"))
+        let mapped = trimmed.unicodeScalars.map { allowed.contains($0) ? Character($0) : "_" }
+        let collapsed = String(mapped)
+            .replacingOccurrences(of: "__+", with: "_", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "_-"))
+        return collapsed.isEmpty ? "sample" : collapsed
+    }
+
     // MARK: - Listing
 
     /// Lists all analysis directories in `Analyses/`, sorted newest first.
