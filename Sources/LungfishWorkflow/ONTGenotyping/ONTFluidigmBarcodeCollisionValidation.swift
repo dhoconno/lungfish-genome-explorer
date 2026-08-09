@@ -57,7 +57,20 @@ enum ONTFluidigmBarcodeCollisionValidation {
         var seenBy: [String: String] = [:]
 
         for row in rows {
-            let effectiveBarcodes = Set([row.barcode, row.reverseComplementBarcode])
+            // Ordered array, not a Set: Set<String> iteration order depends
+            // on Swift's per-process hash seed (randomized unless
+            // SWIFT_DETERMINISTIC_HASHING is set), so a Set here made the
+            // *reported* collision barcode -- forward or reverse-complement
+            // -- nondeterministic across process launches, even though
+            // detection itself was always correct. Checking the row's own
+            // forward barcode before its reverse-complement guarantees the
+            // reported string is always the sheet's literal forward barcode
+            // when it's the one that collides, which is what callers (and
+            // their tests) expect to see in the thrown error.
+            var effectiveBarcodes = [row.barcode]
+            if row.reverseComplementBarcode != row.barcode {
+                effectiveBarcodes.append(row.reverseComplementBarcode)
+            }
             for barcode in effectiveBarcodes where !barcode.isEmpty {
                 if let firstSampleID = seenBy[barcode] {
                     guard firstSampleID != row.sampleID else { continue }
