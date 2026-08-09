@@ -104,6 +104,18 @@ extension SidebarViewController: NSOutlineViewDataSource {
             let hasLocalSource = sourceIdentifier.flatMap { findItem(byPath: $0) } != nil
 
             guard Self.internalDropDestinationURL(projectURL: projectURL, destinationItem: destinationItem) != nil else {
+                // AS35 (task E4): most commonly a cross-window drag into a
+                // sidebar with no project open (destinationItem nil,
+                // projectURL nil) -- there's no folder to resolve, so the
+                // drop is correctly refused, but previously with zero log
+                // trace at all. AppKit's validateDrop return value can't
+                // carry a user-facing message (it's polled continuously
+                // during hover), so this stays a silent drag-rejection
+                // cursor by design; the log line makes the cause
+                // discoverable rather than untraceable.
+                if destinationItem == nil && projectURL == nil {
+                    sidebarLogger.info("validateDrop: Rejecting drop - no project open in destination sidebar")
+                }
                 return []
             }
 
@@ -286,7 +298,7 @@ extension SidebarViewController: NSOutlineViewDataSource {
         case .fastq:
             return "Enter a name for the merged FASTQ bundle:"
         case .reference:
-            return "Enter a name for the merged sequence-only reference bundle. Bundles with annotations, variants, tracks, or alignments are rejected rather than partially merged."
+            return "Enter a name for the merged reference bundle. Sequences and annotation tracks are carried across; bundles with variant tracks, signal tracks, or alignments are rejected rather than partially merged."
         }
     }
 
@@ -309,12 +321,27 @@ extension SidebarViewController: NSOutlineViewDataSource {
         return result.standardizedFileURL
     }
 
+    /// Resolves where an internal sidebar drag-drop should land.
+    ///
+    /// - A folder/project destination is used directly.
+    /// - A non-container destination (a file or bundle item) retargets to
+    ///   its parent folder instead of hard-rejecting the drop (AS20 / task
+    ///   E4) -- this mirrors the external-file-drop path just below in
+    ///   `validateDrop`, which already retargets non-container drops to the
+    ///   project root rather than refusing them outright.
+    /// - No destination at all falls back to the project root; if there is
+    ///   also no project open, this returns nil (AS35 / task E4: the caller
+    ///   can distinguish "no project open" from "resolved a destination"
+    ///   and show an actionable message instead of a silent rejection).
     static func internalDropDestinationURL(projectURL: URL?, destinationItem: SidebarItem?) -> URL? {
         if let destinationItem {
-            guard destinationItem.type == .folder || destinationItem.type == .project else {
-                return nil
+            if destinationItem.type == .folder || destinationItem.type == .project {
+                return destinationItem.url?.standardizedFileURL
             }
-            return destinationItem.url?.standardizedFileURL
+            // Non-container item: retarget to its parent folder rather than
+            // rejecting the drop outright.
+            guard let itemURL = destinationItem.url else { return nil }
+            return itemURL.deletingLastPathComponent().standardizedFileURL
         }
 
         return projectURL?.standardizedFileURL
@@ -938,10 +965,12 @@ extension SidebarViewController: NSOutlineViewDataSource {
             return false
         }
 
+        var outcome = SidebarDragDropOutcome(kind: .move)
         var movedCount = 0
         for sourceItem in sourceItems {
             guard let sourceURL = sourceItem.url else {
                 sidebarLogger.warning("moveItems: Missing URL for source '\(sourceItem.title, privacy: .public)'")
+                outcome.recordSkip(title: sourceItem.title, reason: .missingURL)
                 continue
             }
 
@@ -951,12 +980,14 @@ extension SidebarViewController: NSOutlineViewDataSource {
             if standardizedDestinationFolderURL == standardizedSourceURL ||
                 standardizedDestinationFolderURL.path.hasPrefix(standardizedSourceURL.path + "/") {
                 sidebarLogger.warning("moveItems: Cannot move '\(sourceItem.title, privacy: .public)' into itself or a descendant")
+                outcome.recordSkip(title: sourceItem.title, reason: .moveIntoSelfOrDescendant)
                 continue
             }
 
             if standardizedSourceURL.deletingLastPathComponent() == standardizedDestinationFolderURL {
                 sidebarLogger.debug("moveItems: '\(sourceItem.title, privacy: .public)' is already in destination")
                 movedCount += 1
+                outcome.recordSuccess()
                 continue
             }
 
@@ -970,14 +1001,19 @@ extension SidebarViewController: NSOutlineViewDataSource {
                 rehydrateScientificProvenance(from: sourceURL, to: destURL)
                 rewriteAnalysisManifestReferencesIfNeeded(from: sourceURL, to: destURL)
                 movedCount += 1
+                outcome.recordSuccess()
                 sidebarLogger.info("moveItems: File moved from \(sourceURL.path, privacy: .public) to \(destURL.path, privacy: .public)")
             } catch {
                 sidebarLogger.error("moveItems: Failed to move \(sourceURL.lastPathComponent, privacy: .public) - \(error.localizedDescription, privacy: .public)")
+                outcome.recordSkip(title: sourceItem.title, reason: .fileSystemError(error.localizedDescription))
             }
         }
 
         if movedCount > 0 {
             requestReloadFromFilesystem()
+        }
+        if outcome.hasPartialFailure {
+            presentDragDropPartialFailureAlert(outcome, totalSelected: sourceItems.count)
         }
         return movedCount == sourceItems.count
     }
@@ -1013,10 +1049,12 @@ extension SidebarViewController: NSOutlineViewDataSource {
             return false
         }
 
+        var outcome = SidebarDragDropOutcome(kind: .copy)
         var copiedCount = 0
         for sourceItem in sourceItems {
             guard let sourceURL = sourceItem.url else {
                 sidebarLogger.warning("copyItems: Missing URL for source '\(sourceItem.title, privacy: .public)'")
+                outcome.recordSkip(title: sourceItem.title, reason: .missingURL)
                 continue
             }
 
@@ -1026,16 +1064,34 @@ extension SidebarViewController: NSOutlineViewDataSource {
                 try FileManager.default.copyItem(at: sourceURL, to: destURL)
                 rehydrateScientificProvenance(from: sourceURL, to: destURL)
                 copiedCount += 1
+                outcome.recordSuccess()
                 sidebarLogger.info("copyItems: File copied to \(destURL.path, privacy: .public)")
             } catch {
                 sidebarLogger.error("copyItems: Failed to copy \(sourceURL.lastPathComponent, privacy: .public) - \(error.localizedDescription, privacy: .public)")
+                outcome.recordSkip(title: sourceItem.title, reason: .fileSystemError(error.localizedDescription))
             }
         }
 
         if copiedCount > 0 {
             requestReloadFromFilesystem()
         }
+        if outcome.hasPartialFailure {
+            presentDragDropPartialFailureAlert(outcome, totalSelected: sourceItems.count)
+        }
         return copiedCount == sourceItems.count
+    }
+
+    private func presentDragDropPartialFailureAlert(_ outcome: SidebarDragDropOutcome, totalSelected: Int) {
+        guard let window = view.window ?? NSApp.keyWindow else {
+            sidebarLogger.warning("presentDragDropPartialFailureAlert: No window available to present alert")
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = outcome.alertTitle
+        alert.informativeText = outcome.alertInformativeText(totalSelected: totalSelected)
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.beginSheetModal(for: window)
     }
 
     private func uniqueDestinationURL(for sourceURL: URL, in destinationFolderURL: URL, copyStyle: Bool = false) -> URL {

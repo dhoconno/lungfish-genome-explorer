@@ -8,48 +8,193 @@ import XCTest
 @MainActor
 final class SidebarDirectoryScanSnapshotTests: XCTestCase {
 
+    /// The directory sort must use the directory-ness captured in the entry
+    /// snapshot, never re-probe the filesystem per comparator call.
+    ///
+    /// After F5/F7 the scan lives in `SidebarProjectScanner`, so both the root and
+    /// recursive scans share a single `sortedEntries` comparator; asserting on it
+    /// covers both call sites.
     func testRootAndRecursiveDirectorySortsDoNotProbeFileSystemInComparators() throws {
-        let source = combinedSidebarViewControllerSource()
+        let source = sidebarProjectScannerSource()
+        let sortHelper = try slice(
+            source,
+            from: "private static func sortedEntries(_ entries: [DirectoryEntry]) -> [DirectoryEntry]",
+            to: "// MARK: - Root scan"
+        )
+
+        let comparator = try sortedClosure(in: sortHelper)
+
+        XCTAssertFalse(
+            comparator.contains("fileExists(atPath:"),
+            "Sidebar directory sorting must use captured directory metadata instead of probing each comparator call."
+        )
+
         let rootScan = try slice(
             source,
-            from: "private func buildRootItems(from projectURL: URL) -> [SidebarItem]",
-            to: "private func buildSidebarTree(from url: URL, isRoot: Bool = false) -> SidebarItem"
+            from: "static func scanRootNodes(from projectURL: URL) -> [SidebarScanNode]",
+            to: "// MARK: - Recursive tree scan"
         )
         let recursiveScan = try slice(
             source,
-            from: "// If it's a directory, scan children (unless it's a bundle)",
-            to: "// Scan for NAO-MGS result bundles at this directory level."
+            from: "// Directories recurse, except bundles which show as single items.",
+            to: "// NAO-MGS and NVD result bundles are standalone"
         )
 
-        let rootComparator = try sortedClosure(in: rootScan)
-        let recursiveComparator = try sortedClosure(in: recursiveScan)
-
-        XCTAssertFalse(
-            rootComparator.contains("fileExists(atPath:"),
-            "Root sidebar directory sorting must use captured directory metadata instead of probing each comparator call."
+        XCTAssertTrue(
+            rootScan.contains("sortedEntries("),
+            "Root sidebar scan must sort through the shared metadata-based comparator."
         )
-        XCTAssertFalse(
-            recursiveComparator.contains("fileExists(atPath:"),
-            "Recursive sidebar directory sorting must use captured directory metadata instead of probing each comparator call."
+        XCTAssertTrue(
+            recursiveScan.contains("sortedEntries("),
+            "Recursive sidebar scan must sort through the shared metadata-based comparator."
         )
     }
 
     func testRootAndRecursiveDirectoryScansUseDirectoryEntrySnapshot() throws {
-        let source = combinedSidebarViewControllerSource()
+        let source = sidebarProjectScannerSource()
         let rootScan = try slice(
             source,
-            from: "private func buildRootItems(from projectURL: URL) -> [SidebarItem]",
-            to: "private func buildSidebarTree(from url: URL, isRoot: Bool = false) -> SidebarItem"
+            from: "static func scanRootNodes(from projectURL: URL) -> [SidebarScanNode]",
+            to: "// MARK: - Recursive tree scan"
         )
         let recursiveScan = try slice(
             source,
-            from: "// If it's a directory, scan children (unless it's a bundle)",
-            to: "// Scan for NAO-MGS result bundles at this directory level."
+            from: "// Directories recurse, except bundles which show as single items.",
+            to: "// NAO-MGS and NVD result bundles are standalone"
         )
 
-        XCTAssertTrue(source.contains("private struct SidebarDirectoryEntry"))
+        XCTAssertTrue(source.contains("struct DirectoryEntry: Sendable"))
         XCTAssertTrue(rootScan.contains("directoryEntries(in: projectURL"))
         XCTAssertTrue(recursiveScan.contains("directoryEntries(in: url"))
+    }
+
+    /// The scan that F5/F7 moved off the main actor must stay free of AppKit and
+    /// of main-actor isolation, or it silently migrates back onto the main thread.
+    func testProjectScannerStaysFreeOfAppKitAndMainActorIsolation() throws {
+        let source = sidebarProjectScannerSource()
+
+        XCTAssertFalse(
+            source.contains("import AppKit"),
+            "SidebarProjectScanner must not import AppKit; badge intent is materialized on the main actor."
+        )
+        XCTAssertFalse(
+            source.contains("@MainActor"),
+            "SidebarProjectScanner must stay nonisolated so the project walk can run off the main actor."
+        )
+        XCTAssertFalse(
+            source.contains("SidebarItem("),
+            "SidebarProjectScanner must produce Sendable SidebarScanNode values, not main-actor SidebarItems."
+        )
+        XCTAssertFalse(
+            source.contains("@unchecked Sendable"),
+            "SidebarProjectScanner must achieve Sendability structurally, not by suppressing the checker."
+        )
+    }
+
+    /// The incremental watcher path must keep applying a surgical subtree diff.
+    ///
+    /// Moving its rescan off the main actor (F7) must not tempt the apply step into
+    /// a blanket `reloadData()`, which would undo the targeted insert/remove/reload
+    /// contract the sidebar depends on.
+    func testIncrementalUpdatePathStillAppliesSurgicalSubtreeDiff() throws {
+        let source = combinedSidebarViewControllerSource()
+        let updateBody = try slice(
+            source,
+            from: "func updateSidebar(changedPaths: FileSystemWatcher.ChangedPaths)",
+            to: "private func notifySelectedItemsRefreshedIfNeeded(changedPaths: [URL])"
+        )
+
+        // The incremental path must bump the generation before capturing it, the
+        // same way the full-reload path does. Without the bump, two overlapping
+        // incremental scans capture the same token and neither invalidates the
+        // other. Behaviour is covered by
+        // SidebarScanSnapshotParityTests.testOverlappingIncrementalScansAreMutuallyOrdered.
+        let bumpRange = try XCTUnwrap(
+            updateBody.range(of: "sidebarScanGeneration &+= 1"),
+            "The incremental update must bump the scan generation."
+        )
+        let captureRange = try XCTUnwrap(
+            updateBody.range(of: "let generation = sidebarScanGeneration"),
+            "The incremental update must capture the scan generation."
+        )
+        XCTAssertTrue(
+            bumpRange.upperBound <= captureRange.lowerBound,
+            "The incremental update must bump the generation BEFORE capturing it."
+        )
+
+        XCTAssertTrue(
+            updateBody.contains("applySubtreeDiff("),
+            "The incremental sidebar update must apply a surgical subtree diff."
+        )
+        XCTAssertFalse(
+            updateBody.contains("outlineView.reloadData()"),
+            "The incremental sidebar update must not fall back to a blanket reloadData()."
+        )
+        XCTAssertTrue(
+            updateBody.contains("SidebarProjectScanner.scanTree"),
+            "The incremental rescan must go through the nonisolated scanner so it can run off-main."
+        )
+    }
+
+    /// Both background apply paths must re-check the scan generation before
+    /// mutating the tree, or a slow scan can clobber newer state.
+    func testBackgroundScanAppliesAreGenerationGuarded() throws {
+        let source = combinedSidebarViewControllerSource()
+
+        XCTAssertTrue(
+            source.contains("func reloadFromFilesystemAsync"),
+            "The background reload path must exist."
+        )
+        XCTAssertTrue(
+            source.contains("sidebarScanGeneration"),
+            "Background sidebar scans must carry a generation token."
+        )
+
+        let occurrences = source.components(separatedBy: "guard self.sidebarScanGeneration == generation").count - 1
+        XCTAssertEqual(
+            occurrences,
+            2,
+            "Both the full-reload and incremental background apply steps must re-check the scan generation."
+        )
+    }
+
+    /// Selection suppression must go through the nesting-aware scope, never a bare
+    /// `suppressSelectionCallbacks = ...` write.
+    ///
+    /// A direct write from a nested site (such as `applySidebarSelection`) can clear
+    /// suppression that an enclosing rebuild still owns, letting a synthetic
+    /// selection event escape mid-rebuild. Behaviour is covered by
+    /// SidebarScanSnapshotParityTests.testSelectionIsNotSuppressedDuringBackgroundScan.
+    func testSelectionSuppressionGoesThroughTheNestingAwareScope() throws {
+        let source = combinedSidebarViewControllerSource()
+
+        XCTAssertTrue(
+            source.contains("func withSelectionSuppressed"),
+            "A nesting-aware selection-suppression scope must exist."
+        )
+        XCTAssertTrue(
+            source.contains("selectionSuppressionDepth"),
+            "Selection suppression must be depth-counted so nesting is safe."
+        )
+
+        // The only permitted direct writes are the two counter primitives.
+        let directWrites = source.components(separatedBy: "suppressSelectionCallbacks = ").count - 1
+        XCTAssertEqual(
+            directWrites,
+            3,
+            """
+            Only the declaration and the two counter primitives \
+            (beginSelectionSuppression/endSelectionSuppression) may assign \
+            suppressSelectionCallbacks directly; everything else must use \
+            withSelectionSuppressed.
+            """
+        )
+    }
+
+    private func sidebarProjectScannerSource() -> String {
+        let url = sidebarViewControllerSourceDirectory()
+            .appendingPathComponent("SidebarProjectScanner.swift")
+        return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
     }
 
     func testSidebarMovePathsRewriteAnalysisManifestReferences() throws {

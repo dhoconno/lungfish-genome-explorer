@@ -4,6 +4,7 @@
 
 import AppKit
 import LungfishIO
+import LungfishKit
 
 /// Callback invoked when the user clicks "Proceed" with accepted barcodes.
 ///
@@ -43,13 +44,6 @@ public final class BarcodeScoutSheet: NSViewController, NSTableViewDataSource, N
     private let applyThresholdsButton = NSButton(title: "Apply", target: nil, action: nil)
     private let proceedButton = NSButton(title: "Proceed", target: nil, action: nil)
     private let cancelButton = NSButton(title: "Cancel", target: nil, action: nil)
-
-    private static let countFormatter: NumberFormatter = {
-        let f = NumberFormatter()
-        f.numberStyle = .decimal
-        f.groupingSeparator = ","
-        return f
-    }()
 
     // Column identifiers
     private enum Column: String {
@@ -390,7 +384,7 @@ public final class BarcodeScoutSheet: NSViewController, NSTableViewDataSource, N
     // MARK: - Formatting
 
     private func formatCount(_ n: Int) -> String {
-        Self.countFormatter.string(from: NSNumber(value: n)) ?? "\(n)"
+        LungfishFormatters.formatGroupedCount(n)
     }
 
     // MARK: - Presentation

@@ -438,4 +438,231 @@ final class AssemblyManagedInputMaterializationTests: XCTestCase {
         XCTAssertTrue(reloadedStep.inputs.contains { $0.path == derivedBundleURL.path })
         XCTAssertTrue(reloadedStep.outputs.contains { $0.path == materializedURL.path })
     }
+
+    // MARK: - MB-2 review round 1: per-bundle split operates on real bundle content
+
+    /// Builds a real `.lungfishfastq` bundle backed by a `source-files.json`
+    /// multi-file manifest listing two physical FASTQ files named with the
+    /// R1/R2 convention -- the on-disk shape of a genuine paired-end sample
+    /// imported as one bundle. This is the case
+    /// `AppDelegate.resolvedAssemblyPairedEnd` must detect as truly paired.
+    private func makeGenuinePairedBundle(
+        named bundleName: String,
+        in directory: URL
+    ) throws -> URL {
+        let bundleURL = directory.appendingPathComponent("\(bundleName).lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let r1Name = "\(bundleName)_R1.fastq"
+        let r2Name = "\(bundleName)_R2.fastq"
+        let r1URL = bundleURL.appendingPathComponent(r1Name)
+        let r2URL = bundleURL.appendingPathComponent(r2Name)
+        let r1Data = "@r1\nACGT\n+\nIIII\n"
+        let r2Data = "@r2\nTGCA\n+\nIIII\n"
+        try r1Data.write(to: r1URL, atomically: true, encoding: .utf8)
+        try r2Data.write(to: r2URL, atomically: true, encoding: .utf8)
+
+        let manifest = FASTQSourceFileManifest(files: [
+            .init(filename: r1Name, originalPath: r1URL.path, sizeBytes: Int64(r1Data.utf8.count), isSymlink: false),
+            .init(filename: r2Name, originalPath: r2URL.path, sizeBytes: Int64(r2Data.utf8.count), isSymlink: false),
+        ])
+        try manifest.save(to: bundleURL)
+
+        return bundleURL
+    }
+
+    /// Builds a real `.lungfishfastq` bundle containing exactly ONE physical
+    /// FASTQ file, named to look like one half of an R1/R2 pair purely by
+    /// bundle-directory naming convention. Two of these (named `X_R1` /
+    /// `X_R2`) must NEVER be treated as mates -- there is no source manifest
+    /// or derived-bundle payload connecting them; each is an independent
+    /// single-end sample that happens to share a naming pattern with another
+    /// bundle.
+    private func makeSingleFileBundleNamedLikeAnRHalf(
+        named bundleName: String,
+        in directory: URL
+    ) throws -> URL {
+        let bundleURL = directory.appendingPathComponent("\(bundleName).lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        try "@single\nACGTACGT\n+\nIIIIIIII\n".write(
+            to: bundleURL.appendingPathComponent("reads.fastq"),
+            atomically: true,
+            encoding: .utf8
+        )
+        return bundleURL
+    }
+
+    private func makePooledAssembleRequest(
+        inputURLs: [URL],
+        outputDirectory: URL,
+        projectName: String = "pooled-run"
+    ) -> FASTQOperationLaunchRequest {
+        .assemble(
+            request: AssemblyRunRequest(
+                tool: .spades,
+                readType: .illuminaShortReads,
+                inputURLs: inputURLs,
+                projectName: projectName,
+                outputDirectory: outputDirectory,
+                pairedEnd: false,
+                threads: 4
+            ),
+            outputMode: .perInput
+        )
+    }
+
+    func testIndependentAssembleLaunchRequestsSplitsGenuinePairedBundlesWithOwnR1R2Each() throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "AssemblyIndependentGenuinePairs")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let bundleA = try makeGenuinePairedBundle(named: "SampleA", in: tempDir)
+        let bundleB = try makeGenuinePairedBundle(named: "SampleB", in: tempDir)
+
+        let pooledRequest = makePooledAssembleRequest(inputURLs: [bundleA, bundleB], outputDirectory: tempDir)
+
+        let children = pooledRequest.independentAssembleLaunchRequests(outputDirectory: tempDir)
+
+        XCTAssertEqual(children.count, 2)
+        guard case .assemble(let firstRequest, let firstMode) = children[0],
+              case .assemble(let secondRequest, let secondMode) = children[1] else {
+            return XCTFail("Expected split .assemble requests")
+        }
+
+        XCTAssertEqual(firstMode, .perInput)
+        XCTAssertEqual(secondMode, .perInput)
+
+        XCTAssertTrue(firstRequest.pairedEnd, "SampleA's own R1/R2 manifest pair must be detected as paired")
+        XCTAssertEqual(firstRequest.inputURLs.count, 2)
+        XCTAssertEqual(Set(firstRequest.inputURLs.map(\.lastPathComponent)), ["SampleA_R1.fastq", "SampleA_R2.fastq"])
+
+        XCTAssertTrue(secondRequest.pairedEnd, "SampleB's own R1/R2 manifest pair must be detected as paired")
+        XCTAssertEqual(secondRequest.inputURLs.count, 2)
+        XCTAssertEqual(Set(secondRequest.inputURLs.map(\.lastPathComponent)), ["SampleB_R1.fastq", "SampleB_R2.fastq"])
+    }
+
+    func testIndependentAssembleLaunchRequestsNeverMatesTwoUnrelatedBundlesNamedLikeAnRPair() throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "AssemblyIndependentNoFalseMating")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        // Two DISTINCT bundles whose directory names look like an R1/R2 pair,
+        // but which are not: each is its own single-file bundle with no
+        // manifest connecting it to the other. This is exactly the
+        // regression the C2/MB-1 review caught: bundle-URL pattern matching
+        // must never be used to infer pairing.
+        let bundleR1 = try makeSingleFileBundleNamedLikeAnRHalf(named: "Run1_R1", in: tempDir)
+        let bundleR2 = try makeSingleFileBundleNamedLikeAnRHalf(named: "Run1_R2", in: tempDir)
+
+        let pooledRequest = makePooledAssembleRequest(inputURLs: [bundleR1, bundleR2], outputDirectory: tempDir)
+
+        let children = pooledRequest.independentAssembleLaunchRequests(outputDirectory: tempDir)
+
+        XCTAssertEqual(children.count, 2)
+        guard case .assemble(let firstRequest, _) = children[0],
+              case .assemble(let secondRequest, _) = children[1] else {
+            return XCTFail("Expected split .assemble requests")
+        }
+
+        XCTAssertFalse(firstRequest.pairedEnd, "Run1_R1 and Run1_R2 are unrelated bundles, never mates")
+        XCTAssertEqual(firstRequest.inputURLs.count, 1)
+        XCTAssertEqual(firstRequest.inputURLs.first?.lastPathComponent, "reads.fastq")
+
+        XCTAssertFalse(secondRequest.pairedEnd, "Run1_R1 and Run1_R2 are unrelated bundles, never mates")
+        XCTAssertEqual(secondRequest.inputURLs.count, 1)
+        XCTAssertEqual(secondRequest.inputURLs.first?.lastPathComponent, "reads.fastq")
+    }
+
+    func testIndependentAssembleLaunchRequestsAssignDistinctProjectNamesPerBundle() throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "AssemblyIndependentDistinctProjectNames")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let bundleA = try makeGenuinePairedBundle(named: "SampleA", in: tempDir)
+        let bundleB = try makeGenuinePairedBundle(named: "SampleB", in: tempDir)
+
+        let pooledRequest = makePooledAssembleRequest(
+            inputURLs: [bundleA, bundleB],
+            outputDirectory: tempDir,
+            projectName: "my-pooled-project"
+        )
+
+        let children = pooledRequest.independentAssembleLaunchRequests(outputDirectory: tempDir)
+
+        let projectNames = children.compactMap { child -> String? in
+            guard case .assemble(let request, _) = child else { return nil }
+            return request.projectName
+        }
+
+        XCTAssertEqual(projectNames.count, 2)
+        XCTAssertEqual(Set(projectNames).count, 2, "Each split child must have a distinct project name")
+        XCTAssertFalse(projectNames.contains("my-pooled-project"), "Children must not repeat the pooled request's single name")
+    }
+
+    func testIndependentAssembleLaunchRequestsDeduplicatesProjectNamesForIdenticalBundleNames() throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "AssemblyIndependentDedupProjectNames")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        // Two different bundles that both happen to sanitize to the same
+        // display/project name (distinct parent folders, identical leaf name).
+        let subdirA = tempDir.appendingPathComponent("groupA", isDirectory: true)
+        let subdirB = tempDir.appendingPathComponent("groupB", isDirectory: true)
+        try FileManager.default.createDirectory(at: subdirA, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: subdirB, withIntermediateDirectories: true)
+        let bundleA = try makeSingleFileBundleNamedLikeAnRHalf(named: "sample", in: subdirA)
+        let bundleB = try makeSingleFileBundleNamedLikeAnRHalf(named: "sample", in: subdirB)
+
+        let pooledRequest = makePooledAssembleRequest(inputURLs: [bundleA, bundleB], outputDirectory: tempDir)
+
+        let children = pooledRequest.independentAssembleLaunchRequests(outputDirectory: tempDir)
+        let projectNames = children.compactMap { child -> String? in
+            guard case .assemble(let request, _) = child else { return nil }
+            return request.projectName
+        }
+
+        XCTAssertEqual(projectNames, ["sample", "sample-2"])
+    }
+
+    func testIndependentAssembleLaunchRequestsSinglePairedEndInputIsUnaffected() throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "AssemblyIndependentSingleBundleUnaffected")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let bundleA = try makeGenuinePairedBundle(named: "SampleA", in: tempDir)
+        let pooledRequest = makePooledAssembleRequest(inputURLs: [bundleA], outputDirectory: tempDir)
+
+        let children = pooledRequest.independentAssembleLaunchRequests(outputDirectory: tempDir)
+
+        XCTAssertEqual(children.count, 1)
+        guard case .assemble(let request, _) = children[0] else {
+            return XCTFail("Expected the original single-bundle request unchanged")
+        }
+        XCTAssertEqual(request.inputURLs, [bundleA])
+    }
+
+    func testIndependentAssembleLaunchRequestsCombinedModeIsNotSplit() throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "AssemblyIndependentCombinedUnsplit")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let bundleA = try makeGenuinePairedBundle(named: "SampleA", in: tempDir)
+        let bundleB = try makeGenuinePairedBundle(named: "SampleB", in: tempDir)
+
+        let pooledRequest = FASTQOperationLaunchRequest.assemble(
+            request: AssemblyRunRequest(
+                tool: .spades,
+                readType: .illuminaShortReads,
+                inputURLs: [bundleA, bundleB],
+                projectName: "pooled-run",
+                outputDirectory: tempDir,
+                pairedEnd: false,
+                threads: 4
+            ),
+            outputMode: .groupedResult
+        )
+
+        let children = pooledRequest.independentAssembleLaunchRequests(outputDirectory: tempDir)
+
+        XCTAssertEqual(children.count, 1)
+        guard case .assemble(let request, let mode) = children[0] else {
+            return XCTFail("Expected the pooled request unchanged")
+        }
+        XCTAssertEqual(mode, .groupedResult)
+        XCTAssertEqual(request.inputURLs, [bundleA, bundleB])
+    }
 }

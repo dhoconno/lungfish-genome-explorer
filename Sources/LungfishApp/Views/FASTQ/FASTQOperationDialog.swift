@@ -64,6 +64,9 @@ struct FASTQOperationDialog: View {
         .task(id: state.selectedToolID) {
             await state.refreshSavontRuntimeReadiness()
         }
+        .task {
+            await state.refreshProjectBarcodeDefinitionCandidates()
+        }
     }
 
     private var statusText: String {

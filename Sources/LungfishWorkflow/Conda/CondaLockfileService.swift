@@ -204,7 +204,13 @@ public struct CondaLockfileService {
     private func parsePackageSpec(_ spec: String) -> (name: String, version: String?) {
         let withoutChannel = spec.split(separator: "::").last.map(String.init) ?? spec
         let parts = withoutChannel.split(separator: "=", maxSplits: 1).map(String.init)
-        return (parts[0], parts.count > 1 ? parts[1] : nil)
+        // String.split on an empty string returns [], not [""], so an empty spec
+        // (or an empty requirement.id fallback) would trap on parts[0] without this
+        // guard (R3-R3ML-16).
+        guard let name = parts.first, !name.isEmpty else {
+            return (spec, nil)
+        }
+        return (name, parts.count > 1 ? parts[1] : nil)
     }
 
     private func writeProvenance(

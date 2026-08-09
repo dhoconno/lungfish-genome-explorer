@@ -62,6 +62,11 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
     /// Preferred sample context used to preselect the pinned sample input anchor.
     public var preferredSampleURL: URL?
 
+    /// Number of additional sidebar items that were selected alongside
+    /// `preferredSampleURL` but collapsed out when seeding the preferred
+    /// sample (MB-4). `0` when the seeding selection had 0 or 1 items.
+    public var ignoredPreferredSampleSelectionCount: Int = 0
+
     /// Owning main window scope used to route run completions back to the invoking workspace.
     private var activeWindowStateScope: WindowStateScope?
 
@@ -403,10 +408,12 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
         projectURL: URL?,
         preferredSampleURL: URL?,
         windowStateScope: WindowStateScope? = nil,
-        isReadOnlyRecommended: Bool = false
+        isReadOnlyRecommended: Bool = false,
+        ignoredPreferredSampleSelectionCount: Int = 0
     ) {
         activeProjectURL = projectURL?.standardizedFileURL
         self.preferredSampleURL = preferredSampleURL?.standardizedFileURL
+        self.ignoredPreferredSampleSelectionCount = ignoredPreferredSampleSelectionCount
         activeWindowStateScope = windowStateScope
         self.isReadOnlyRecommended = isReadOnlyRecommended
         reloadWorkflowLibrary()
@@ -414,6 +421,19 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
             node: canvasViewController?.canvasView.selectedNodeForInspection,
             activeProjectURL: activeProjectURL
         )
+    }
+
+    /// Disclosure line shown when N>1 sidebar items were selected but only
+    /// one seeded the preferred-sample anchor (MB-4). Workflow Builder has
+    /// no per-bundle execution mode to fall back on -- the run always binds
+    /// to exactly one sample via the run-binding picker -- so silently
+    /// dropping the other selections is made explicit instead.
+    public static func preferredSampleSelectionDisclosure(
+        preferredSampleDisplayName: String?,
+        ignoredSelectionCount: Int
+    ) -> String? {
+        guard ignoredSelectionCount > 0, let preferredSampleDisplayName else { return nil }
+        return "Using \"\(preferredSampleDisplayName)\"; \(ignoredSelectionCount) other selection\(ignoredSelectionCount == 1 ? "" : "s") ignored."
     }
 
     public func createWorkflowInLibraryForTesting(named name: String) throws -> URL {
@@ -695,9 +715,17 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
         accessoryView.addSubview(projectLabel)
         accessoryView.addSubview(projectValue)
 
+        var informativeText = "Bind the pinned Sample input and Project output anchors before dispatching this workflow."
+        if let disclosure = Self.preferredSampleSelectionDisclosure(
+            preferredSampleDisplayName: samples.first(where: { $0.url == preferredSampleURL })?.displayName,
+            ignoredSelectionCount: ignoredPreferredSampleSelectionCount
+        ) {
+            informativeText += " \(disclosure)"
+        }
+
         let alert = NSAlert()
         alert.messageText = "Run Workflow"
-        alert.informativeText = "Bind the pinned Sample input and Project output anchors before dispatching this workflow."
+        alert.informativeText = informativeText
         alert.accessoryView = accessoryView
         alert.addButton(withTitle: "Run")
         alert.addButton(withTitle: "Cancel")

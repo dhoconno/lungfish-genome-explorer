@@ -73,6 +73,7 @@ struct AssemblyWizardSheet: View {
     @State private var projectName: String = ""
     @State private var advancedOptionsText: String = ""
     @State private var hasConfirmedManualReadType: Bool
+    @State private var multiBundleRunMode: MultiBundleRunMode = .perBundle
     @State private var showAdvanced = false
     @State private var spadesCareful = false
     @State private var spadesSkipErrorCorrection = false
@@ -80,7 +81,11 @@ struct AssemblyWizardSheet: View {
     @State private var hifiasmPrimaryOnly = false
     @State private var packStatus: PluginPackStatus?
 
-    var onRun: ((AssemblyRunRequest) -> Void)?
+    /// Called with the built request and the multi-bundle run mode the user
+    /// selected (or `.perBundle` when the picker wasn't shown, e.g. a single
+    /// bundle or a long-read tool). Callers that don't care about multiple
+    /// bundles (e.g. the single-bundle Reassemble sheet) can ignore the mode.
+    var onRun: ((AssemblyRunRequest, MultiBundleRunMode) -> Void)?
     var onCancel: (() -> Void)?
     var onRunnerAvailabilityChange: ((Bool) -> Void)?
 
@@ -90,7 +95,7 @@ struct AssemblyWizardSheet: View {
         initialTool: AssemblyTool = .spades,
         embeddedInOperationsDialog: Bool = false,
         embeddedRunTrigger: Int = 0,
-        onRun: ((AssemblyRunRequest) -> Void)? = nil,
+        onRun: ((AssemblyRunRequest, MultiBundleRunMode) -> Void)? = nil,
         onCancel: (() -> Void)? = nil,
         onRunnerAvailabilityChange: ((Bool) -> Void)? = nil
     ) {
@@ -135,6 +140,51 @@ struct AssemblyWizardSheet: View {
     private var pairedEndInfo: (forward: [URL], reverse: [URL], unpaired: [URL]) {
         detectPairedEndFiles(inputFiles)
     }
+
+    /// Each element of `inputFiles` IS already one bundle: the sidebar
+    /// selection -> `resolveFASTQOperationInputURL` pipeline collapses a
+    /// selection down to one `.lungfishfastq`/`.lungfishref` bundle URL (or
+    /// one loose sequence file) per selected item before the wizard ever
+    /// sees it (`AppDelegate+ToolsMenu.resolveFASTQOperationInputURL`,
+    /// mirrored in `MappingWizardSheet`'s C2-review-fix doc comment). A
+    /// bundle's *contents* (how many physical FASTQ files it resolves to,
+    /// whether they're a genuine R1/R2 pair) are not knowable here -- do NOT
+    /// re-derive bundle boundaries or paired-ness by pattern-matching
+    /// `_R1`/`_R2` etc. against these URLs' filenames: two distinct bundles
+    /// can legitimately be named e.g. `Run1_R1.lungfishfastq` /
+    /// `Run1_R2.lungfishfastq`, and matching on that would silently merge
+    /// two different samples into one fabricated "pair". Per-bundle
+    /// resolution and true pairedEnd detection happen later, one bundle at a
+    /// time, in `AppDelegate.resolvedAssemblyPairedEnd(for:)`.
+    private var bundleCount: Int { inputFiles.count }
+
+    /// This round locks the picker to `.perBundle` only: implementing true
+    /// `.combined` pooling (materializing each bundle then merging via
+    /// `FASTQBundleMergeService` before one assembler invocation) is a
+    /// meaningfully larger change than this fix warrants, so it is deferred
+    /// rather than shipped as the same silent-pooling hazard this task exists
+    /// to close. See the fix-round-1 report for the explicit call-out.
+    private static let multiBundleRunPolicy = MultiBundleRunPolicy(
+        allowedModes: [.perBundle],
+        defaultMode: .perBundle,
+        lockReason: "Combining multiple bundles into one assembly run is not yet supported; each bundle assembles separately."
+    )
+
+    /// Short-read assembly tools (SPAdes/MEGAHIT/SKESA) support running N>1
+    /// selected bundles independently. Gated on the selected tool, NOT on
+    /// detected read type: an unclassifiable/mixed selection must still show
+    /// the picker for these three tools (the read-type gate previously used
+    /// here hid the picker exactly when the user most needed to see how
+    /// their multi-bundle selection would be split). Long-read tools (Flye/
+    /// Hifiasm) are exceptions per the multi-bundle adoption set: they
+    /// already reject N>1 selections outright via `readTopologyMessage`, so
+    /// no picker is shown for them and current single-input behavior is
+    /// preserved.
+    private var showsMultiBundleRunModePicker: Bool {
+        Self.shortReadTools.contains(selectedTool) && bundleCount > 1
+    }
+
+    private static let shortReadTools: Set<AssemblyTool> = [.spades, .megahit, .skesa]
 
     private var detectedReadTypes: [AssemblyReadType] {
         inputFiles.compactMap(AssemblyReadType.detect(fromInputURL:))
@@ -349,6 +399,14 @@ struct AssemblyWizardSheet: View {
     private var configurationContent: some View {
         VStack(alignment: .leading, spacing: 18) {
             inputSection
+            if showsMultiBundleRunModePicker {
+                Divider()
+                MultiBundleRunModePicker(
+                    bundleCount: bundleCount,
+                    policy: Self.multiBundleRunPolicy,
+                    selection: $multiBundleRunMode
+                )
+            }
             Divider()
             primarySettingsSection
             Divider()
@@ -698,7 +756,8 @@ struct AssemblyWizardSheet: View {
 
     private func performRun() {
         guard canRun, let request = buildRequest() else { return }
-        onRun?(request)
+        let effectiveMode = showsMultiBundleRunModePicker ? multiBundleRunMode : .perBundle
+        onRun?(request, effectiveMode)
     }
 
     private func buildRequest() -> AssemblyRunRequest? {

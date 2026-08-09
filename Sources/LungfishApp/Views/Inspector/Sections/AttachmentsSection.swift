@@ -4,6 +4,7 @@
 
 import SwiftUI
 import LungfishCore
+import LungfishKit
 import AppKit
 
 /// Inspector section displaying file attachments with add/remove/reveal actions.
@@ -69,8 +70,25 @@ struct AttachmentsSection: View {
             }
             Divider()
             Button("Remove Attachment") {
-                try? store.remove(filename: attachment.filename)
+                removeAttachment(attachment)
             }
+        }
+    }
+
+    private func removeAttachment(_ attachment: BundleAttachment) {
+        do {
+            try store.remove(filename: attachment.filename)
+            attachmentErrorMessage = nil
+        } catch {
+            // AS21 (task E4): `try? store.remove(filename:)` used to
+            // discard the thrown error entirely. FileManager.trashItem(at:)
+            // can throw for reachable reasons (file locked/in use, TCC/
+            // permission denial, a race where the file was already moved
+            // or deleted) -- surface it the same way "Attach File..." does
+            // (attachmentErrorMessage) instead of silently leaving the
+            // attachment in the list with zero visible indication.
+            NSSound.beep()
+            attachmentErrorMessage = GenericAttachmentPolicy.userFacingMessage(for: error)
         }
     }
 
@@ -90,8 +108,6 @@ struct AttachmentsSection: View {
     }
 
     private func formatFileSize(_ bytes: Int64) -> String {
-        let formatter = ByteCountFormatter()
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: bytes)
+        LungfishFormatters.formatBytes(bytes)
     }
 }

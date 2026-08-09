@@ -171,4 +171,32 @@ final class ExtractSubcommandParsingTests: XCTestCase {
                           "Error should mention source/output mismatch: \(desc)")
         }
     }
+
+    // MARK: - Deprecation Message (F59)
+
+    /// The deprecation hint must point users at the actual functional
+    /// replacement (`--by-classifier --tool kraken2`), not `--by-id`, which
+    /// has no taxonomy/kraken concept and would fail validation or silently
+    /// misbehave if used with a taxonomy ID.
+    func testDeprecationMessagePointsToByClassifierNotById() {
+        let message = ExtractSubcommand.deprecationMessage
+        XCTAssertTrue(
+            message.contains("--by-classifier --tool kraken2"),
+            "Deprecation message should point to --by-classifier --tool kraken2: \(message)"
+        )
+        XCTAssertFalse(
+            message.contains("--by-id"),
+            "Deprecation message must not suggest --by-id (no taxonomy concept): \(message)"
+        )
+    }
+
+    /// The message should map the old flag names to their new equivalents so
+    /// users can mechanically translate an existing invocation.
+    func testDeprecationMessageMapsOldFlagsToNewFlags() {
+        let message = ExtractSubcommand.deprecationMessage
+        XCTAssertTrue(message.contains("--taxid"), "Should mention old --taxid flag: \(message)")
+        XCTAssertTrue(message.contains("--taxon"), "Should mention new --taxon flag: \(message)")
+        XCTAssertTrue(message.contains("--kraken-output"), "Should mention old --kraken-output flag: \(message)")
+        XCTAssertTrue(message.contains("--result"), "Should mention new --result flag: \(message)")
+    }
 }

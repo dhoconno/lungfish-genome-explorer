@@ -1530,6 +1530,57 @@ final class GenotypeCurrentWorkbookSyncCoordinatorTests: XCTestCase {
         XCTAssertFalse(coordinator.testingHasRetainedRequest(for: bundle))
     }
 
+    /// R3-R3ML-3: a markDirty/register call that lands *while* the update runner is
+    /// actively executing (after admission, before completion) installs a newer
+    /// latestRequest and bumps state.generation -- the .dirtyWhileUpdating path exists
+    /// specifically to track this. If the in-flight update then fails, that edit must
+    /// not be silently discarded: the coordinator should surface .dirty with the newer
+    /// request retained (so a future synchronize/markDirty picks it back up), not
+    /// .failed with latestRequest cleared to nil.
+    func testFailureDuringSupersedingEditRetriesRatherThanDiscardingNewerRequest() async throws {
+        let bundle = bundleURL("supersede-during-failure")
+        let original = try makeFingerprint("a")
+        let superseding = try makeFingerprint("b")
+        let runner = ControlledRunner()
+        let coordinator = makeCoordinator(recorded: nil, runner: runner)
+        let originalRequest = makeRequest(bundle: bundle, fingerprint: original)
+        let supersedingRequest = makeRequest(bundle: bundle, fingerprint: superseding)
+
+        let waiter = Task {
+            try await coordinator.synchronize(originalRequest, intent: .automaticIdle)
+        }
+        try await waitUntil { runner.invocations.count == 1 }
+        XCTAssertEqual(coordinator.phase(for: bundle), .updating)
+
+        // A user edit arrives while the update is in flight -- this must bump
+        // state.generation and install `supersedingRequest` as latestRequest via the
+        // .dirtyWhileUpdating path (markDirty when state.operation != nil).
+        coordinator.markDirty(supersedingRequest)
+
+        // Now the in-flight update (for the *original*, now-stale generation) fails.
+        runner.failInvocation(at: 0, with: TestError.expected)
+
+        do {
+            _ = try await waiter.value
+            XCTFail("Expected the original waiter to observe a failure")
+        } catch {}
+
+        // The superseding edit must not be discarded: the coordinator should be
+        // .dirty (retryable) with the superseding request retained, not .failed with
+        // the request cleared to nil.
+        XCTAssertEqual(coordinator.phase(for: bundle), .dirty)
+        XCTAssertTrue(coordinator.testingHasRetainedRequest(for: bundle))
+        XCTAssertEqual(
+            coordinator.testingRetainedRequestFingerprint(for: bundle),
+            superseding
+        )
+
+        // The retained edit can still be picked up and successfully applied later.
+        runner.automaticallySucceed = true
+        _ = try await coordinator.synchronize(supersedingRequest, intent: .automaticIdle)
+        XCTAssertEqual(coordinator.phase(for: bundle), .current)
+    }
+
     func testObserverReceivesOnlyPhaseTransitionsAndDoesNotRetainOwner() async throws {
         let bundle = bundleURL("observer")
         let runner = ControlledRunner()
@@ -1772,6 +1823,15 @@ private final class ControlledRunner {
         }
         activeCount -= 1
         continuation.resume(returning: url ?? defaultWorkbookURL(for: invocations[index].request))
+    }
+
+    func failInvocation(at index: Int, with error: Error) {
+        guard let continuation = continuations.removeValue(forKey: index) else {
+            XCTFail("No suspended invocation at index \(index)")
+            return
+        }
+        activeCount -= 1
+        continuation.resume(throwing: error)
     }
 
     private func defaultWorkbookURL(

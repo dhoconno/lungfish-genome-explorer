@@ -21,12 +21,22 @@ public enum MappingSummaryBuilderError: Error, LocalizedError, Sendable {
 }
 
 public enum MappingSummaryBuilder {
+    /// Above this sortedBAM size, `streamSAMView`'s `samtools view` output (roughly
+    /// proportional to file size, and buffered entirely into a single in-memory `String`
+    /// by `runProcessCapturingOutput`) is skipped rather than materialized, to avoid an
+    /// unbounded memory spike while building what is ultimately a summary/display artifact.
+    /// TODO: replace this guard with a streaming parse of `samtools view` output (accumulate
+    /// per-contig `ViewMetrics` incrementally instead of buffering the full text) so summaries
+    /// for large BAMs can still be computed instead of skipped.
+    public static let sortedBAMMemoryGuardBytes: UInt64 = 2_147_483_648 // 2 GiB
+
     public static func build(
         sortedBAMURL: URL,
         totalReads: Int,
         runner: NativeToolRunner = .shared,
         timeout: TimeInterval = 3_600,
-        includeUnmappedReferenceRows: Bool = true
+        includeUnmappedReferenceRows: Bool = true,
+        reportWarning: (@Sendable (String) -> Void)? = nil
     ) async throws -> [MappingContigSummary] {
         let coverageResult = try await runner.run(
             .samtools,
@@ -36,6 +46,22 @@ public enum MappingSummaryBuilder {
         )
         guard coverageResult.isSuccess else {
             throw MappingSummaryBuilderError.samtoolsCoverageFailed(coverageResult.stderr)
+        }
+
+        let sortedBAMSizeBytes = (try? ProvenanceFileHasher.fileSize(of: sortedBAMURL)) ?? 0
+        guard sortedBAMSizeBytes <= sortedBAMMemoryGuardBytes else {
+            reportWarning?(
+                "Skipping per-contig identity/MAPQ summary for \(sortedBAMURL.lastPathComponent): " +
+                "sorted BAM is \(sortedBAMSizeBytes) bytes, over the \(sortedBAMMemoryGuardBytes)-byte " +
+                "(2 GB) in-memory samtools-view guard. Coverage/depth rows are still reported below; " +
+                "identity and MAPQ columns are omitted for this file."
+            )
+            return try buildSummaries(
+                coverageOutput: coverageResult.stdout,
+                viewOutput: "",
+                totalReads: totalReads,
+                includeUnmappedReferenceRows: includeUnmappedReferenceRows
+            )
         }
 
         let viewOutput = try await streamSAMView(
@@ -137,45 +163,125 @@ public enum MappingSummaryBuilder {
         let samtoolsPath = try await runner.findTool(.samtools)
         let workingDirectory = sortedBAMURL.deletingLastPathComponent()
 
-        return try await withCheckedThrowingContinuation { continuation in
-            let process = Process()
-            process.executableURL = samtoolsPath
-            process.arguments = ["view", sortedBAMURL.path]
-            process.currentDirectoryURL = workingDirectory
+        return try await runProcessCapturingOutput(
+            executableURL: samtoolsPath,
+            arguments: ["view", sortedBAMURL.path],
+            workingDirectory: workingDirectory,
+            timeout: timeout
+        )
+    }
 
-            let stdoutPipe = Pipe()
-            let stderrPipe = Pipe()
-            process.standardOutput = stdoutPipe
-            process.standardError = stderrPipe
+    /// Runs a process and captures stdout, draining stdout and stderr concurrently on
+    /// background queues so that a child process which fills the ~64KB stderr pipe buffer
+    /// while stdout is still being read cannot deadlock against this caller (F36).
+    ///
+    /// Wired to `withTaskCancellationHandler` + `NativeProcessCancellationHandle` /
+    /// `NativeProcessRunState` (matching `PBAAClusteringPipeline.runProcess`) so that
+    /// cancelling the enclosing Task terminates the underlying `samtools view` process tree
+    /// instead of leaking it to run to completion (or to the timeout) unattended.
+    static func runProcessCapturingOutput(
+        executableURL: URL,
+        arguments: [String],
+        workingDirectory: URL?,
+        timeout: TimeInterval
+    ) async throws -> String {
+        let cancellationHandle = NativeProcessCancellationHandle()
+        let runState = NativeProcessRunState()
 
-            let timeoutWorkItem = DispatchWorkItem {
-                if process.isRunning {
-                    process.terminate()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let process = Process()
+                process.executableURL = executableURL
+                process.arguments = arguments
+                process.currentDirectoryURL = workingDirectory
+
+                let stdoutPipe = Pipe()
+                let stderrPipe = Pipe()
+                process.standardOutput = stdoutPipe
+                process.standardError = stderrPipe
+
+                let stdoutBox = MappingSummaryDataBox()
+                let stderrBox = MappingSummaryDataBox()
+                let group = DispatchGroup()
+                let startOutputDrain: @Sendable () -> Void = {
+                    group.enter()
+                    DispatchQueue.global().async {
+                        stdoutBox.value = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                        group.leave()
+                    }
+                    group.enter()
+                    DispatchQueue.global().async {
+                        stderrBox.value = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                        group.leave()
+                    }
+                }
+                cancellationHandle.store(process)
+
+                // DispatchWorkItem is not Sendable, but it is only ever cancelled from
+                // process.terminationHandler/the process.run() catch block below, never
+                // concurrently with its own execution (mirrors CondaManager.runTool's
+                // timeoutItem, same rationale).
+                nonisolated(unsafe) let timeoutWorkItem = DispatchWorkItem {
+                    runState.markTimedOut()
+                    cancellationHandle.requestProcessTreeTermination()
+                }
+                DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutWorkItem)
+
+                process.terminationHandler = { terminatedProcess in
+                    group.notify(queue: .global(qos: .userInitiated)) {
+                        timeoutWorkItem.cancel()
+                        cancellationHandle.clear(terminatedProcess)
+                        runState.resumeOnce { reason in
+                            switch reason {
+                            case .cancelled, .timedOut:
+                                continuation.resume(throwing: CancellationError())
+                            case .completed:
+                                let stdout = String(data: stdoutBox.value, encoding: .utf8) ?? ""
+                                let stderr = String(data: stderrBox.value, encoding: .utf8) ?? ""
+                                guard terminatedProcess.terminationStatus == 0 else {
+                                    continuation.resume(throwing: MappingSummaryBuilderError.samtoolsViewFailed(stderr))
+                                    return
+                                }
+                                continuation.resume(returning: stdout)
+                            }
+                        }
+                    }
+                }
+
+                do {
+                    startOutputDrain()
+                    try process.run()
+                    cancellationHandle.terminateIfRequested()
+                    if runState.isCancelled {
+                        cancellationHandle.requestProcessTreeTermination()
+                    }
+                } catch {
+                    timeoutWorkItem.cancel()
+                    cancellationHandle.clear(process)
+                    stdoutPipe.fileHandleForWriting.closeFile()
+                    stderrPipe.fileHandleForWriting.closeFile()
+                    runState.resumeOnce { reason in
+                        switch reason {
+                        case .cancelled, .timedOut:
+                            continuation.resume(throwing: CancellationError())
+                        case .completed:
+                            continuation.resume(throwing: error)
+                        }
+                    }
                 }
             }
-            DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutWorkItem)
-
-            do {
-                try process.run()
-
-                let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-                let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-                process.waitUntilExit()
-                timeoutWorkItem.cancel()
-
-                let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
-                let stderr = String(data: stderrData, encoding: .utf8) ?? ""
-                guard process.terminationStatus == 0 else {
-                    continuation.resume(throwing: MappingSummaryBuilderError.samtoolsViewFailed(stderr))
-                    return
-                }
-                continuation.resume(returning: stdout)
-            } catch {
-                timeoutWorkItem.cancel()
-                continuation.resume(throwing: error)
-            }
+        } onCancel: {
+            runState.markCancelled()
+            cancellationHandle.requestProcessTreeTermination()
         }
     }
+}
+
+/// Mutable box used to hand pipe-read results back from a background `DispatchQueue.global()`
+/// block. Access is synchronized externally via `DispatchGroup.wait()` before the value is read,
+/// so no two threads ever touch `value` concurrently.
+private final class MappingSummaryDataBox: @unchecked Sendable {
+    var value = Data()
 }
 
 private struct CoverageRow: Sendable, Equatable {

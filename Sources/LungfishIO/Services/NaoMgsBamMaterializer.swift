@@ -9,9 +9,6 @@ import os.log
 
 private let logger = Logger(subsystem: LogSubsystem.io, category: "NaoMgsBamMaterializer")
 
-/// The SQLITE_TRANSIENT destructor value, telling SQLite to copy the string immediately.
-private let SQLITE_TRANSIENT_DESTRUCTOR = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-
 public struct NaoMgsBamMaterializationResult: Sendable {
     public let bamURLs: [URL]
     public let steps: [NaoMgsBamMaterializationStep]
@@ -323,7 +320,7 @@ public enum NaoMgsBamMaterializer {
         let accSQL = "SELECT DISTINCT accession FROM accession_summaries WHERE sample = ?"
         if sqlite3_prepare_v2(db, accSQL, -1, &accStmt, nil) == SQLITE_OK {
             _ = sample.withCString { cStr in
-                sqlite3_bind_text(accStmt, 1, cStr, -1, SQLITE_TRANSIENT_DESTRUCTOR)
+                sqlite3_bind_text(accStmt, 1, cStr, -1, sqliteTransientDestructor)
             }
             while sqlite3_step(accStmt) == SQLITE_ROW {
                 if let ptr = sqlite3_column_text(accStmt, 0) {
@@ -342,7 +339,7 @@ public enum NaoMgsBamMaterializer {
                               userInfo: [NSLocalizedDescriptionKey: "Could not prepare accession query"])
             }
             _ = sample.withCString { cStr in
-                sqlite3_bind_text(fallbackStmt, 1, cStr, -1, SQLITE_TRANSIENT_DESTRUCTOR)
+                sqlite3_bind_text(fallbackStmt, 1, cStr, -1, sqliteTransientDestructor)
             }
             while sqlite3_step(fallbackStmt) == SQLITE_ROW {
                 if let ptr = sqlite3_column_text(fallbackStmt, 0) {
@@ -461,7 +458,7 @@ public enum NaoMgsBamMaterializer {
             }
             defer { sqlite3_finalize(rowStmt) }
             _ = sample.withCString { cStr in
-                sqlite3_bind_text(rowStmt, 1, cStr, -1, SQLITE_TRANSIENT_DESTRUCTOR)
+                sqlite3_bind_text(rowStmt, 1, cStr, -1, sqliteTransientDestructor)
             }
 
             while sqlite3_step(rowStmt) == SQLITE_ROW {

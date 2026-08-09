@@ -209,20 +209,47 @@ extension BlastService {
         }
         guard found else { return nil }
 
-        // Walk forward from the opening brace to find the balanced closing brace
+        // Walk forward from the opening brace to find the balanced closing brace.
+        // Tracks whether the scan is inside a quoted JSON string literal (toggling on
+        // an unescaped '"', skipping the character after a backslash) so that a brace
+        // character appearing inside a BLAST hit description/title/organism name
+        // (NCBI titles can legitimately contain '{' or '}') does not desynchronize the
+        // depth counter -- matching the quote/escape handling DelimitedLineParser.fields
+        // uses for the analogous CSV-quoting problem, though JSON's backslash-escape
+        // convention (not CSV's doubled-quote convention) is the correct one here
+        // (R3-R3ML-12).
         let substring = body[openBraceIndex...]
         var depth = 0
         var endIndex = substring.startIndex
-        for idx in substring.indices {
-            let ch = substring[idx]
-            if ch == "{" { depth += 1 }
-            else if ch == "}" {
+        var insideString = false
+        var index = substring.startIndex
+        while index < substring.endIndex {
+            let ch = substring[index]
+            if insideString {
+                if ch == "\\" {
+                    // Skip the escaped character entirely (handles \" and \\ alike);
+                    // if this is the last character, the loop's increment below ends
+                    // iteration safely.
+                    index = substring.index(after: index)
+                    if index < substring.endIndex {
+                        index = substring.index(after: index)
+                    }
+                    continue
+                } else if ch == "\"" {
+                    insideString = false
+                }
+            } else if ch == "\"" {
+                insideString = true
+            } else if ch == "{" {
+                depth += 1
+            } else if ch == "}" {
                 depth -= 1
                 if depth == 0 {
-                    endIndex = substring.index(after: idx)
+                    endIndex = substring.index(after: index)
                     break
                 }
             }
+            index = substring.index(after: index)
         }
         let jsonString = String(substring[substring.startIndex..<endIndex])
         return jsonString.data(using: .utf8)

@@ -132,7 +132,7 @@ extension AppDelegate {
                     return
                 }
 
-                let results = searchIndex.search(query: query, limit: 50)
+                let results = await searchIndex.searchOffMain(query: query, limit: 50)
                 guard let match = preferredGeneSearchResult(
                     from: results,
                     query: query,

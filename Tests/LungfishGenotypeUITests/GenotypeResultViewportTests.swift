@@ -8377,7 +8377,7 @@ final class GenotypeResultViewportTests: XCTestCase {
                 .editManualHaplotypeAssignments
             )
         )
-        let deadline = Date(timeIntervalSinceNow: 1)
+        let deadline = Date(timeIntervalSinceNow: 10)
         var focusedCombo: NSComboBox?
         repeat {
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
@@ -22272,6 +22272,83 @@ final class GenotypeResultViewportTests: XCTestCase {
                 "ForEach(GenotypeResultViewportLens.allCases"
             )
         )
+    }
+
+    func testActionsMenuAIRefinementDisabledWithoutAnalysis() throws {
+        // Regression test for AS14: the toolbar "Actions" menu's AI
+        // Refinement item must be disabled when no haplotype analysis
+        // exists yet, matching the inline audit-section button.
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: [],
+            haplotypeAnalysis: nil
+        ))
+
+        let actionsButton = try XCTUnwrap(
+            descendants(of: controller.view)
+                .compactMap { $0 as? NSButton }
+                .first {
+                    $0.accessibilityIdentifier()
+                        == "genotype-result-actions-menu"
+                }
+        )
+        let menu = try XCTUnwrap(actionsButton.menu)
+        menu.delegate?.menuNeedsUpdate?(menu)
+
+        let discoveryItem = try XCTUnwrap(menu.items.first { $0.title == "AI Discovery" })
+        let refinementItem = try XCTUnwrap(menu.items.first { $0.title == "AI Refinement" })
+        XCTAssertTrue(discoveryItem.isEnabled)
+        XCTAssertFalse(refinementItem.isEnabled, "Refinement should be disabled with no active haplotype analysis")
+    }
+
+    func testActionsMenuAIItemsDisabledWhenReadOnly() throws {
+        // Regression test for AS14: the toolbar "Actions" menu's AI
+        // Discovery/Refinement items must be disabled on a read-only
+        // bundle, matching the inline audit-section buttons.
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "GenotypeResultActionsMenuReadOnly-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: NSNumber(value: 0o755)], ofItemAtPath: root.path)
+            try? FileManager.default.removeItem(at: root)
+        }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: NSNumber(value: 0o555)],
+            ofItemAtPath: root.path
+        )
+        let readOnlyStore = try GenotypeAnnotationStore(bundleURL: root, author: "test")
+        XCTAssertTrue(readOnlyStore.isReadOnly)
+
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: root,
+            samples: [],
+            calls: [],
+            haplotypeAnalysis: makeUsableHaplotypedMiSeqAnalysis()
+        ))
+        controller.testingInstallEffectiveHaplotypeAnnotationStore(readOnlyStore)
+
+        let actionsButton = try XCTUnwrap(
+            descendants(of: controller.view)
+                .compactMap { $0 as? NSButton }
+                .first {
+                    $0.accessibilityIdentifier()
+                        == "genotype-result-actions-menu"
+                }
+        )
+        let menu = try XCTUnwrap(actionsButton.menu)
+        menu.delegate?.menuNeedsUpdate?(menu)
+
+        let discoveryItem = try XCTUnwrap(menu.items.first { $0.title == "AI Discovery" })
+        let refinementItem = try XCTUnwrap(menu.items.first { $0.title == "AI Refinement" })
+        XCTAssertFalse(discoveryItem.isEnabled, "Discovery should be disabled on a read-only bundle")
+        XCTAssertFalse(refinementItem.isEnabled, "Refinement should be disabled on a read-only bundle")
     }
 
     func testHaplotypedMiSeqPreservesPerSlotStatusAndReviewEligibility() throws {

@@ -903,4 +903,49 @@ final class ClassifierReadResolverTests: XCTestCase {
         XCTAssertEqual(url.standardizedFileURL.path, tempOut.standardizedFileURL.path)
         XCTAssertGreaterThan(n, 0, "Expected non-zero reads for taxon \(taxon.taxId)")
     }
+
+    // MARK: - R3-R3ML-10: countFASTQRecords trailing-newline undercounting
+
+    func testCountFASTQRecordsCountsLastRecordWithoutTrailingNewline() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("countFASTQRecords-no-trailing-newline-\(UUID().uuidString).fastq")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        // Two complete 4-line records; the second (last) record's quality line has no
+        // trailing "\n" -- simulating an upstream tool that omits the final LF.
+        let content = "@r1\nACGT\n+\nIIII\n@r2\nACGT\n+\nIIII"
+        try content.write(to: url, atomically: true, encoding: .utf8)
+
+        let resolver = ClassifierReadResolver()
+        let count = try await resolver.testingCountFASTQRecords(in: url)
+
+        XCTAssertEqual(count, 2, "the last record must still be counted even without a trailing newline")
+    }
+
+    func testCountFASTQRecordsCountsCorrectlyWithTrailingNewline() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("countFASTQRecords-trailing-newline-\(UUID().uuidString).fastq")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let content = "@r1\nACGT\n+\nIIII\n@r2\nACGT\n+\nIIII\n"
+        try content.write(to: url, atomically: true, encoding: .utf8)
+
+        let resolver = ClassifierReadResolver()
+        let count = try await resolver.testingCountFASTQRecords(in: url)
+
+        XCTAssertEqual(count, 2, "well-formed newline-terminated FASTQ must still count correctly")
+    }
+
+    func testCountFASTQRecordsReturnsZeroForEmptyFile() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("countFASTQRecords-empty-\(UUID().uuidString).fastq")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        FileManager.default.createFile(atPath: url.path, contents: nil)
+
+        let resolver = ClassifierReadResolver()
+        let count = try await resolver.testingCountFASTQRecords(in: url)
+
+        XCTAssertEqual(count, 0, "an empty file must not be counted as a phantom trailing record")
+    }
 }

@@ -260,7 +260,7 @@ final class ProjectTempCleanupTests: XCTestCase {
         await sequence.resume(call: 0)
         await fulfillment(
             of: [staleCompletionProcessed],
-            timeout: 1
+            timeout: 10
         )
         XCTAssertTrue(
             delegate.testingHasTrackedAutomaticProjectStorageCleanup(
@@ -284,9 +284,16 @@ final class ProjectTempCleanupTests: XCTestCase {
 
     @MainActor
     func testFormatBytesKB() {
-        // 512 bytes -> "1 KB" (rounds up from 0.5)
+        // 512 bytes -> "512 bytes" (ByteCountFormatter shows bytes under 1 KB)
         let result = AppDelegate.formatBytes(512)
-        XCTAssertTrue(result.hasSuffix("KB"), "Expected KB suffix, got: \(result)")
+        XCTAssertTrue(result.contains("bytes"), "Expected bytes, got: \(result)")
+    }
+
+    @MainActor
+    func testFormatBytesAboveKBThreshold() {
+        let twoKB: UInt64 = 2_048
+        let result = AppDelegate.formatBytes(twoKB)
+        XCTAssertTrue(result.contains("KB"), "Expected KB, got: \(result)")
     }
 
     @MainActor

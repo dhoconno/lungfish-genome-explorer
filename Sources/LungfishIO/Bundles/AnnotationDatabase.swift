@@ -10,6 +10,14 @@ import os.log
 /// Logger for annotation database operations
 let dbLogger = Logger(subsystem: LogSubsystem.io, category: "AnnotationDatabase")
 
+/// Tells SQLite to copy bound bytes immediately, rather than trusting the caller to
+/// keep the pointer valid until sqlite3_step()/sqlite3_reset() (F38). Shared across all
+/// AnnotationDatabase+*.swift files so every `sqlite3_bind_text` call in this file family
+/// uses the same non-nil, copying destructor. Now an alias for the single
+/// module-wide `sqliteTransientDestructor` (F53, round-2) -- kept under its original
+/// name here rather than mass-renaming every AnnotationDatabase+*.swift call site.
+let annotationDatabaseSQLiteTransient = sqliteTransientDestructor
+
 // MARK: - AnnotationDatabase (Reader)
 
 /// Reads annotation metadata from a SQLite database embedded in a .lungfishref bundle.
@@ -136,7 +144,7 @@ public final class AnnotationDatabase: @unchecked Sendable {
         defer { sqlite3_finalize(stmt) }
         let sql = "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1"
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return false }
-        sqlite3_bind_text(stmt, 1, (name as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 1, (name as NSString).utf8String, -1, annotationDatabaseSQLiteTransient)
         return sqlite3_step(stmt) == SQLITE_ROW
     }
 

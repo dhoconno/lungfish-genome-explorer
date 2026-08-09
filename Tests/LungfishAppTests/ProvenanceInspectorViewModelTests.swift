@@ -109,7 +109,7 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         XCTAssertTrue(monitor.requirement(for: item).isNotRequired)
     }
 
-    func testMissingRequiredProvenanceIsBlockingAndBrowsable() throws {
+    func testMissingRequiredProvenanceIsBlockingAndBrowsable() async throws {
         let dir = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
 
@@ -122,6 +122,7 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
                 displayName: "Reads"
             )
         )
+        try await waitUntilLoadCompletes(viewModel)
 
         XCTAssertEqual(viewModel.audit.status, .missing)
         XCTAssertTrue(viewModel.audit.isBlocking)
@@ -129,7 +130,7 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.warnings.contains { $0.title == "Missing provenance" })
     }
 
-    func testCompleteEnvelopeBuildsSummaryLineageAndFiles() throws {
+    func testCompleteEnvelopeBuildsSummaryLineageAndFiles() async throws {
         let dir = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
 
@@ -190,6 +191,7 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
                 displayName: "Reads"
             )
         )
+        try await waitUntilLoadCompletes(viewModel)
 
         XCTAssertEqual(viewModel.audit.status, .present)
         XCTAssertEqual(viewModel.summary.workflowName, "FASTQ Import")
@@ -206,7 +208,7 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.copyableText.contains(output.path))
     }
 
-    func testIncompleteEnvelopeIsBlockingForRequiredScientificTarget() throws {
+    func testIncompleteEnvelopeIsBlockingForRequiredScientificTarget() async throws {
         let dir = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
 
@@ -236,13 +238,14 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
                 displayName: "Analysis"
             )
         )
+        try await waitUntilLoadCompletes(viewModel)
 
         XCTAssertEqual(viewModel.audit.status, .incomplete)
         XCTAssertTrue(viewModel.audit.isBlocking)
         XCTAssertTrue(viewModel.warnings.contains { $0.title == "Incomplete provenance" })
     }
 
-    func testSuccessfulEnvelopeWithoutStderrIsComplete() throws {
+    func testSuccessfulEnvelopeWithoutStderrIsComplete() async throws {
         let dir = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
 
@@ -288,12 +291,13 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
                 displayName: "MEGAHIT Assembly"
             )
         )
+        try await waitUntilLoadCompletes(viewModel)
 
         XCTAssertEqual(viewModel.audit.status, .present)
         XCTAssertFalse(viewModel.warnings.contains { $0.message.localizedCaseInsensitiveContains("stderr") })
     }
 
-    func testLineageStderrStripsANSIEscapeSequencesForDisplayAndCopy() throws {
+    func testLineageStderrStripsANSIEscapeSequencesForDisplayAndCopy() async throws {
         let dir = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
 
@@ -344,6 +348,7 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
                 displayName: "EsViritu"
             )
         )
+        try await waitUntilLoadCompletes(viewModel)
 
         let displayedStderr = try XCTUnwrap(viewModel.lineageRuns.first?.steps.first?.stderr)
         XCTAssertTrue(displayedStderr.contains("2026-05-17 20:03:29,901 - INFO - DB: /tmp/esviritu"))
@@ -359,7 +364,7 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.copyableText.contains("[0m"))
     }
 
-    func testEsVirituInspectorBackfillsRootProvenanceFromSampleSidecar() throws {
+    func testEsVirituInspectorBackfillsRootProvenanceFromSampleSidecar() async throws {
         let root = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let batchRoot = root.appendingPathComponent("esviritu-batch-test", isDirectory: true)
@@ -408,13 +413,14 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
                 displayName: "EsViritu"
             )
         )
+        try await waitUntilLoadCompletes(viewModel)
 
         XCTAssertEqual(viewModel.audit.status, .present)
         XCTAssertEqual(viewModel.summary.workflowName, "EsViritu Batch")
         XCTAssertNotNil(ProvenanceRecorder.findProvenanceEnvelope(for: batchRoot))
     }
 
-    func testTaxTriageInspectorBackfillsRootProvenanceFromResultSidecar() throws {
+    func testTaxTriageInspectorBackfillsRootProvenanceFromResultSidecar() async throws {
         let resultDirectory = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: resultDirectory) }
 
@@ -448,13 +454,14 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
                 displayName: "TaxTriage"
             )
         )
+        try await waitUntilLoadCompletes(viewModel)
 
         XCTAssertEqual(viewModel.audit.status, .present)
         XCTAssertEqual(viewModel.summary.workflowName, "TaxTriage")
         XCTAssertNotNil(ProvenanceRecorder.findProvenanceEnvelope(for: resultDirectory))
     }
 
-    func testMissingFileMetadataWarningsAreAggregated() throws {
+    func testMissingFileMetadataWarningsAreAggregated() async throws {
         let dir = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
 
@@ -509,6 +516,7 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
                 displayName: "Kraken2"
             )
         )
+        try await waitUntilLoadCompletes(viewModel)
 
         XCTAssertEqual(viewModel.audit.status, .incomplete)
         XCTAssertEqual(viewModel.warnings.filter { $0.title == "File metadata incomplete" }.count, 1)
@@ -519,7 +527,7 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         }, "\(viewModel.warnings)")
     }
 
-    func testLargeEnvelopePresentationIsBounded() throws {
+    func testLargeEnvelopePresentationIsBounded() async throws {
         let dir = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
 
@@ -575,6 +583,7 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
                 displayName: "Large Import"
             )
         )
+        try await waitUntilLoadCompletes(viewModel)
 
         XCTAssertEqual(viewModel.audit.status, .present)
         XCTAssertEqual(viewModel.summary.inputCount, 650)
@@ -588,7 +597,7 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         XCTAssertLessThan(viewModel.copyableText.count, 200_000)
     }
 
-    func testONTFASTQBundleChunkInputsCollapseForInspectorDisplay() throws {
+    func testONTFASTQBundleChunkInputsCollapseForInspectorDisplay() async throws {
         let root = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -698,6 +707,7 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
                 displayName: "barcode08-mcm-mhc"
             )
         )
+        try await waitUntilLoadCompletes(viewModel)
 
         XCTAssertEqual(viewModel.audit.status, .present)
         XCTAssertEqual(viewModel.summary.inputCount, 3)
@@ -719,7 +729,7 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         XCTAssertLessThan(viewModel.copyableText.count, 20_000)
     }
 
-    func testONTFASTQBundleChunkCollapseKeepsLargeInspectorPresentationBounded() throws {
+    func testONTFASTQBundleChunkCollapseKeepsLargeInspectorPresentationBounded() async throws {
         let root = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -798,6 +808,7 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
                 displayName: "barcode08-large"
             )
         )
+        try await waitUntilLoadCompletes(viewModel)
 
         XCTAssertEqual(viewModel.fileRows.filter { $0.role == "Input" }.count, 1)
         XCTAssertEqual(viewModel.lineageRuns.first?.steps.first?.inputPaths.count, 1)
@@ -806,7 +817,7 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         XCTAssertLessThan(viewModel.copyableText.count, 25_000)
     }
 
-    func testFullLengthGenotypeBundleLoadsWorkflowNamedRootProvenanceSidecar() throws {
+    func testFullLengthGenotypeBundleLoadsWorkflowNamedRootProvenanceSidecar() async throws {
         let dir = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
 
@@ -872,6 +883,7 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
                 displayName: "CP2656"
             )
         )
+        try await waitUntilLoadCompletes(viewModel)
 
         XCTAssertEqual(viewModel.audit.status, .present)
         XCTAssertEqual(viewModel.summary.workflowName, "lungfish fastq full-length-ont-mhc-genotype")
@@ -885,5 +897,23 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
             .appendingPathComponent("provenance-inspector-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    /// `load(item:)` is synchronous but resolves the sidecar lookup on a detached background
+    /// task (see F6); this polls `isLoading` until that task has applied its result back on
+    /// the main actor. Idiom: `waitUntil` in `SequenceViewerInteractionAsyncBundleReadTests`.
+    private func waitUntilLoadCompletes(
+        _ viewModel: ProvenanceInspectorViewModel,
+        timeout: TimeInterval = 10
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while viewModel.isLoading {
+            if Date() >= deadline {
+                XCTFail("Timed out waiting for provenance load to complete")
+                return
+            }
+            await Task.yield()
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
     }
 }

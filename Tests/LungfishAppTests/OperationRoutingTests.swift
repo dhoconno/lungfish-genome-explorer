@@ -698,6 +698,299 @@ final class OperationRoutingTests: XCTestCase {
         XCTAssertTrue(body.contains("outputURLs: result.importedURLs"))
     }
 
+    /// MB-2 review round 1, point 4: a pooled `.perBundle`-mode `.assemble`
+    /// request with N>1 bundle URLs must fan out BEFORE any
+    /// `OperationCenter.shared.start` call (matching the pre-existing
+    /// `.savont` fan-out exactly), recursing into
+    /// `runFASTQOperationLaunchRequestValidated` once per independent
+    /// request rather than sharing a single operation/CLI-invocation loop --
+    /// so one bundle's assembly failure never aborts or discards another
+    /// bundle's already-completed work.
+    ///
+    /// MB-2 review round 2: unlike `.savont`'s fan-out (intentionally
+    /// concurrent -- Savont is a cheap per-sample op), the assembly fan-out
+    /// must dispatch children SEQUENTIALLY: child k+1 only starts after
+    /// child k's own operation reaches a terminal state. This asserts the
+    /// serialization gate (`Task { @MainActor ... await self
+    /// .awaitOperationTerminal(id: opID) }`) is present and precedes the
+    /// next loop iteration, while each child still goes through its own
+    /// independent `runFASTQOperationLaunchRequestValidated` call (own
+    /// opID, own Task.detached, own failure isolation -- unchanged from
+    /// round 1).
+    func testAssembleLaunchFansOutBeforeOperationRegistrationAndDispatchesChildrenSequentially() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: root.appendingPathComponent(
+                "Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplay.swift"
+            ),
+            encoding: .utf8
+        )
+        let body = try sourceFunctionBody(
+            named: "func runFASTQOperationLaunchRequestValidated",
+            endingBefore: "    func awaitOperationTerminal",
+            in: source
+        )
+        let savontFanout = try XCTUnwrap(body.range(of: "request.independentSavontLaunchRequests"))
+        let assembleFanout = try XCTUnwrap(body.range(of: "request.independentAssembleLaunchRequests"))
+        let operationStart = try XCTUnwrap(body.range(of: "OperationCenter.shared.start"))
+
+        // Both fan-outs precede the shared single-operation path.
+        XCTAssertLessThan(savontFanout.lowerBound, operationStart.lowerBound)
+        XCTAssertLessThan(assembleFanout.lowerBound, operationStart.lowerBound)
+
+        // The assemble fan-out's own block: one recursive call per bundle,
+        // still gated on outputMode == .perInput (the wizard's `.perBundle`
+        // picker selection), not on pairedEnd or bundle-name inference --
+        // but now wrapped in exactly one `Task { @MainActor` driving a
+        // sequential loop that awaits each child's terminal state before
+        // the next iteration, matching the shape
+        // `testManagedMappingRunsSequentiallyWithOneOperationPerBundleAndLogsPooledWarning`
+        // asserts for the analogous C2/MB-1 mapping fan-out.
+        let assembleFanoutBlock = try sourceFunctionBody(
+            named: "request.independentAssembleLaunchRequests",
+            endingBefore: "let workingDirectory: URL",
+            in: String(body[assembleFanout.lowerBound...])
+        )
+        XCTAssertTrue(assembleFanoutBlock.contains("Task { @MainActor [weak self] in"))
+        XCTAssertTrue(assembleFanoutBlock.contains("for independentRequest in independentRequests"))
+        XCTAssertTrue(assembleFanoutBlock.contains("if let opID = self.runFASTQOperationLaunchRequestValidated("))
+        XCTAssertTrue(assembleFanoutBlock.contains("await self.awaitOperationTerminal(id: opID)"))
+        // The await sits INSIDE the for loop's body (after the dispatch
+        // call), not after the loop -- i.e. it gates each iteration, not
+        // just a final join after firing all children concurrently.
+        let dispatchRange = try XCTUnwrap(assembleFanoutBlock.range(of: "self.runFASTQOperationLaunchRequestValidated("))
+        let awaitRange = try XCTUnwrap(assembleFanoutBlock.range(of: "await self.awaitOperationTerminal(id: opID)"))
+        let loopRange = try XCTUnwrap(assembleFanoutBlock.range(of: "for independentRequest in independentRequests"))
+        XCTAssertLessThan(loopRange.lowerBound, dispatchRange.lowerBound)
+        XCTAssertLessThan(dispatchRange.lowerBound, awaitRange.lowerBound)
+
+        // Only ONE Task.detached call site reachable from this fan-out block
+        // itself (the sequential driver's own `Task { @MainActor ... }` is
+        // not a `Task.detached`; each child's OWN `Task.detached` lives
+        // inside the shared single-op path further down in the function,
+        // outside this block, so it fires once per child dispatch --
+        // confirms the fan-out driver doesn't ALSO spawn its own detached
+        // work on top of what each child already spawns).
+        XCTAssertFalse(assembleFanoutBlock.contains("Task.detached"))
+    }
+
+    /// Behavioral (not source-inspection) coverage for the actual
+    /// serialization primitive `awaitOperationTerminal` uses (review round
+    /// 2's ordering-hook requirement): it must NOT resume while the target
+    /// operation is still `.running`, and MUST resume promptly once the
+    /// operation reaches a terminal state -- proven against a real,
+    /// isolated `OperationCenter` instance (not source text), driving
+    /// `start`/`fail` directly and observing an ordering hook that only the
+    /// awaiting `Task` can append to.
+    func testAwaitOperationTerminalDoesNotResumeUntilOperationReachesTerminalState() async throws {
+        let controller = MainSplitViewController()
+        let center = OperationCenter()
+        let opID = center.start(title: "Test Assembly", detail: "Running", operationType: .assembly)
+
+        var events: [String] = []
+        let waiter = Task { @MainActor in
+            await controller.awaitOperationTerminal(id: opID, center: center, pollInterval: .milliseconds(10))
+            events.append("resumed")
+        }
+
+        // Give the poller several intervals to (incorrectly) resume early
+        // if it were not actually checking `state.isActive`.
+        try await Task.sleep(for: .milliseconds(60))
+        events.append("stillRunningCheckpoint")
+        XCTAssertEqual(events, ["stillRunningCheckpoint"], "must not resume while the operation is still running")
+
+        XCTAssertTrue(center.fail(id: opID, detail: "Simulated failure"))
+        await waiter.value
+
+        XCTAssertEqual(events, ["stillRunningCheckpoint", "resumed"], "must resume once the operation reaches a terminal state")
+    }
+
+    /// The same primitive resumes for a SUCCESSFUL completion too (not only
+    /// failure), and resumes for an operation that has already been trimmed
+    /// out of `items` by the time it is checked (an absent item is
+    /// necessarily already finished -- see the doc comment on
+    /// `awaitOperationTerminal`).
+    func testAwaitOperationTerminalResumesOnCompletionAndOnAlreadyAbsentItem() async throws {
+        let controller = MainSplitViewController()
+        let center = OperationCenter()
+
+        let completingOpID = center.start(title: "Test Assembly A", detail: "Running", operationType: .assembly)
+        let completionWaiter = Task { @MainActor in
+            await controller.awaitOperationTerminal(id: completingOpID, center: center, pollInterval: .milliseconds(10))
+        }
+        XCTAssertTrue(center.complete(id: completingOpID, detail: "Done"))
+        await completionWaiter.value // Must not hang.
+
+        let neverRegisteredID = UUID()
+        let absentWaiter = Task { @MainActor in
+            await controller.awaitOperationTerminal(id: neverRegisteredID, center: center, pollInterval: .milliseconds(10))
+        }
+        await absentWaiter.value // Must not hang.
+    }
+
+    /// End-to-end ordering proof for the actual `.assemble` fan-out gate,
+    /// isolated from the real `runFASTQOperationLaunchRequestValidated`
+    /// dispatch machinery (which needs a fully wired window/project/CLI
+    /// environment): drives THREE simulated "children" through the same
+    /// `awaitOperationTerminal`-gated loop shape the production fan-out
+    /// uses, and asserts (a) each child only starts after the previous
+    /// child reached a terminal state (sequential, not concurrent
+    /// dispatch), and (b) a failing middle child does not prevent the third
+    /// child from starting and completing (failure isolation preserved).
+    func testSequentialFanoutGateOrdersChildrenWhileIsolatingAMiddleFailure() async throws {
+        let controller = MainSplitViewController()
+        let center = OperationCenter()
+        var startedOrder: [String] = []
+        var finishedOrder: [String] = []
+
+        let bundleNames = ["SampleA", "SampleB", "SampleC"]
+        for (index, name) in bundleNames.enumerated() {
+            startedOrder.append(name)
+            let opID = center.start(title: "Assembly: \(name)", detail: "Running", operationType: .assembly)
+
+            // Simulate each child's own independently-running pipeline: the
+            // middle bundle (index 1) fails; the others complete
+            // successfully. Dispatched as its own concurrently-scheduled
+            // `Task` (mirroring the production single-op path's own
+            // `Task.detached` body being independent of the fan-out loop),
+            // so this reproduces the same "child runs independently, gate
+            // only controls the NEXT dispatch" shape without crossing an
+            // actual background-executor boundary (unnecessary here and
+            // would require `@Sendable`-safe capture of the test's local
+            // ordering arrays).
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(5))
+                if index == 1 {
+                    _ = center.fail(id: opID, detail: "Simulated failure for \(name)")
+                } else {
+                    _ = center.complete(id: opID, detail: "Done")
+                }
+                finishedOrder.append(name)
+            }
+
+            // The gate: do not proceed to the next bundle in this loop
+            // until the just-started one reaches a terminal state.
+            await controller.awaitOperationTerminal(id: opID, center: center, pollInterval: .milliseconds(5))
+        }
+
+        XCTAssertEqual(startedOrder, bundleNames, "children must be dispatched in order")
+        XCTAssertEqual(finishedOrder, bundleNames, "each child must finish before the next one starts")
+        XCTAssertEqual(center.items.first { $0.title.hasSuffix("SampleB") }?.state, .failed)
+        XCTAssertEqual(center.items.first { $0.title.hasSuffix("SampleA") }?.state, .completed)
+        XCTAssertEqual(center.items.first { $0.title.hasSuffix("SampleC") }?.state, .completed)
+    }
+
+    func testManagedMappingRunsSequentiallyWithOneOperationPerBundleAndLogsPooledWarning() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: root.appendingPathComponent(
+                "Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift"
+            ),
+            encoding: .utf8
+        )
+        let fanout = try sourceFunctionBody(
+            named: "private func runManagedMapping(\n        plan: MappingRunPlan",
+            endingBefore: "    private func runSingleManagedMappingAwaitingCompletion",
+            in: source
+        )
+        // F5: one `Task.detached` driving a sequential `for` loop over
+        // `requests`, awaiting each bundle's mapping to completion before
+        // starting the next -- NOT N concurrent Task.detached mappers.
+        XCTAssertTrue(fanout.contains("let task = Task.detached"))
+        XCTAssertTrue(fanout.contains("for request in requests"))
+        XCTAssertTrue(fanout.contains("await self.runSingleManagedMappingAwaitingCompletion("))
+        XCTAssertTrue(fanout.contains("warning: plan.warning"))
+        // Only one Task.detached CALL SITE (`let task = Task.detached`) in
+        // the fan-out function -- per-bundle work is awaited inline inside
+        // that one sequential loop, never spawned as its own detached task
+        // per bundle. (Doc comments elsewhere in the function mention
+        // "Task.detached" in prose, so this counts call sites specifically.)
+        let detachedCallSites = fanout.components(separatedBy: "let task = Task.detached").count - 1
+        XCTAssertEqual(detachedCallSites, 1, "Expected exactly one `let task = Task.detached` (sequential driver), found \(detachedCallSites)")
+
+        let single = try sourceFunctionBody(
+            named: "private func runSingleManagedMappingAwaitingCompletion",
+            endingBefore: "    private func runMAFFTAlignment",
+            in: source
+        )
+        let opStart = try XCTUnwrap(single.range(of: "OperationCenter.shared.start"))
+        let warningLog = try XCTUnwrap(single.range(of: "OperationCenter.shared.log(id: opID, level: .warning, message: warning)"))
+        XCTAssertLessThan(opStart.lowerBound, warningLog.lowerBound)
+        XCTAssertTrue(single.contains("if let warning {"))
+        // F2: pairedEnd must be recomputed from the resolved file list,
+        // never taken from the pre-resolve request as-is.
+        XCTAssertTrue(single.contains("Self.resolvedPairedEnd(for: resolvedFiles)"))
+        XCTAssertTrue(single.contains("request.withInputFASTQURLs(resolvedFiles, pairedEnd: resolvedPairedEnd)"))
+    }
+
+    /// Regression test for a round-2 fix: the F2 pairedEnd-resolution change
+    /// added `resolvedRequest` (derived from the actually-resolved input
+    /// files) but the analysis-manifest recording code kept reading from
+    /// the pre-resolve `request`, whose `pairedEnd` is always the wizard's
+    /// `false` placeholder (see MappingWizardSheet.buildRunPlan). That made
+    /// every persisted manifest entry claim `isPairedEnd: false` regardless
+    /// of the actual run. The fix must:
+    ///  1. Still build `capturedRequest` (used by `findSourceBundle`) from
+    ///     the ORIGINAL `request`, since `resolveInputFiles` can materialize
+    ///     a virtual bundle's reads into a scratch temp directory that has
+    ///     no enclosing `.lungfishfastq` bundle of its own.
+    ///  2. Build the manifest `parameters` field from `resolvedRequest`
+    ///     (via `summaryParameters()`), so `isPairedEnd` reflects the
+    ///     actually-resolved value used by the pipeline run.
+    func testManagedMappingManifestRecordsResolvedPairedEndNotPlaceholder() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: root.appendingPathComponent(
+                "Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift"
+            ),
+            encoding: .utf8
+        )
+        let single = try sourceFunctionBody(
+            named: "private func runSingleManagedMappingAwaitingCompletion",
+            endingBefore: "    private func runMAFFTAlignment",
+            in: source
+        )
+
+        // findSourceBundle must still walk up from the ORIGINAL request's
+        // input URLs, not the resolved (possibly materialized-to-temp-dir)
+        // ones.
+        XCTAssertTrue(
+            single.contains("Self.findSourceBundle(for: capturedRequest.inputFASTQURLs)"),
+            "findSourceBundle must resolve from capturedRequest (built from the original request), " +
+            "not resolvedRequest, since resolved files may live in a scratch temp directory outside any bundle"
+        )
+        let capturedAssign = try XCTUnwrap(single.range(of: "let capturedRequest = request\n"))
+        XCTAssertFalse(
+            single[capturedAssign.upperBound...].range(of: "let capturedRequest = resolvedRequest") != nil,
+            "capturedRequest must be derived from the original request, not resolvedRequest"
+        )
+
+        // The manifest's persisted parameters (including isPairedEnd) must
+        // come from resolvedRequest.summaryParameters(), which carries the
+        // pairedEnd value actually used by the pipeline run -- not from
+        // capturedRequest/request, whose pairedEnd is always the wizard's
+        // pre-resolve `false` placeholder.
+        XCTAssertTrue(
+            single.contains("parameters: resolvedRequest.summaryParameters(),"),
+            "AnalysisManifestEntry.parameters must be built from resolvedRequest.summaryParameters() " +
+            "so the persisted manifest records the true isPairedEnd, not the wizard's placeholder"
+        )
+        XCTAssertFalse(
+            single.contains("parameters: capturedRequest.summaryParameters(),"),
+            "AnalysisManifestEntry.parameters must NOT be built from capturedRequest.summaryParameters() " +
+            "(that request's pairedEnd is always the pre-resolve wizard placeholder)"
+        )
+    }
+
     private func sourceFunctionBody(named startNeedle: String, endingBefore endNeedle: String, in source: String) throws -> String {
         let start = try XCTUnwrap(source.range(of: startNeedle))
         let end = try XCTUnwrap(source[start.lowerBound...].range(of: endNeedle))

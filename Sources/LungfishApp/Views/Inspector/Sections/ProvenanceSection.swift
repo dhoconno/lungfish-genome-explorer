@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishKit
 import SwiftUI
 
 struct ProvenanceSection: View {
@@ -124,6 +125,17 @@ struct ProvenanceSection: View {
                 .foregroundStyle(statusForegroundStyle)
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
+
+            if viewModel.isLoading {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .scaleEffect(0.7)
+                    Text("Loading provenance...")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityIdentifier("provenance-loading-indicator")
+            }
         }
     }
 
@@ -468,13 +480,7 @@ struct ProvenanceSection: View {
     }
 
     private func formatDuration(_ seconds: TimeInterval) -> String {
-        if seconds < 60 {
-            return String(format: "%.2f s", seconds)
-        }
-        if seconds < 3_600 {
-            return String(format: "%.1f min", seconds / 60)
-        }
-        return String(format: "%.2f hr", seconds / 3_600)
+        LungfishFormatters.formatDuration(seconds)
     }
 
     private func copyToPasteboard(_ text: String) {

@@ -308,6 +308,45 @@ final class TaxonomyViewControllerTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: outputURL).path))
     }
 
+    func testDelimitedExportWriteFailureIsDetected() throws {
+        // Regression test for AS27: the CSV/TSV kebab-menu export's
+        // NSSavePanel write-failure catch block used to only log.error(),
+        // leaving the user believing the export succeeded. The catch block
+        // now beeps and calls presentWarning(); this verifies the write
+        // failure the catch block guards against actually occurs and is
+        // surfaced as a thrown error rather than swallowed.
+        let vc = TaxonomyViewController()
+        _ = vc.view
+
+        let result = makeTestResult()
+        vc.configure(result: result)
+
+        // A path inside a non-existent directory always fails to write.
+        let unwritableURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("nonexistent-dir-\(UUID().uuidString)")
+            .appendingPathComponent("export.csv")
+
+        XCTAssertThrowsError(try vc.writeDelimitedExport(tree: result.tree, separator: ",", to: unwritableURL))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: unwritableURL.path))
+    }
+
+    func testDelimitedExportWarningPresenterSeamIsInvoked() throws {
+        // Verifies the warningPresenter test seam used by the export
+        // write-failure path actually fires when invoked.
+        let vc = TaxonomyViewController()
+        _ = vc.view
+
+        var warning: (title: String, message: String)?
+        vc.warningPresenter = { title, message in
+            warning = (title, message)
+        }
+
+        vc.testPresentWarning(title: "Export Failed", message: "disk full")
+
+        XCTAssertEqual(warning?.title, "Export Failed")
+        XCTAssertEqual(warning?.message, "disk full")
+    }
+
     // MARK: - Summary Bar
 
     func testSummaryBarCards() throws {
@@ -1225,6 +1264,51 @@ final class ViewerViewControllerTaxonomyTests: XCTestCase {
             captured?.selections.first?.sampleId,
             "Single-sample DB-backed Kraken2 extraction must not synthesize a sampleId"
         )
+    }
+
+    func testConfigureFromDatabaseWithoutExplicitBatchURLStillAllowsExtraction() throws {
+        // Regression test for AS12: configureFromDatabase() must be able to
+        // resolve a Kraken2 result path on its own, without relying on a
+        // caller having set batchURL beforehand. Previously
+        // resolveKraken2ResultPath() returned nil in this state, so
+        // presentUnifiedExtractionDialog() silently no-opped.
+        let resultDir = try makeTempDir(prefix: "KrakenNoExplicitBatchURL")
+        defer { try? FileManager.default.removeItem(at: resultDir) }
+
+        let db = try makeSingleSampleKrakenDatabase(in: resultDir)
+        let vc = TaxonomyViewController()
+        _ = vc.view
+
+        let host = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        host.contentView = NSView(frame: host.frame)
+        host.contentView?.addSubview(vc.view)
+
+        TaxonomyReadExtractionAction.shared.testingCaptureOnly = true
+        TaxonomyReadExtractionAction.shared.testingCapture = .init()
+        defer {
+            TaxonomyReadExtractionAction.shared.testingCaptureOnly = false
+            TaxonomyReadExtractionAction.shared.testingCapture = .init()
+        }
+
+        // Deliberately do NOT set vc.batchURL before calling in.
+        XCTAssertNil(vc.batchURL)
+        vc.configureFromDatabase(db)
+        XCTAssertNotNil(vc.batchURL, "configureFromDatabase should populate batchURL on its own")
+
+        let node = try XCTUnwrap(vc.testTableView.tree?.node(taxId: 562))
+        let extractItem = try XCTUnwrap(
+            vc.contextMenuItems(for: node).first(where: { $0.title == "Extract Reads…" })
+        )
+        _ = vc.perform(extractItem.action, with: extractItem)
+
+        let captured = TaxonomyReadExtractionAction.shared.testingCapture.lastContext
+        XCTAssertNotNil(captured, "Extract Reads should reach the extraction action even without a pre-set batchURL")
+        XCTAssertEqual(captured?.tool, .kraken2)
     }
 
     func testDisplayTaxTriageFromDatabase_wiresBlastCallback() throws {

@@ -96,7 +96,17 @@ public struct BEDFeature: Sendable, Identifiable {
 
         if let blockCount = blockCount, blockCount > 0,
            let blockSizes = blockSizes,
-           let blockStarts = blockStarts {
+           let blockStarts = blockStarts,
+           blockSizes.count >= blockCount,
+           blockStarts.count >= blockCount {
+            // Only build per-block intervals when both arrays actually have
+            // at least blockCount entries. A truncated/hand-edited BED12
+            // file, or a comma-separated block list containing an
+            // unparseable entry (silently dropped by parseIntList's
+            // compactMap), can otherwise leave these arrays shorter than
+            // blockCount, which used to index out of bounds and trap the
+            // process (R3-R3H-2). Fall back to the single whole-feature
+            // interval in that case.
             intervals = (0..<blockCount).map { i in
                 let start = chromStart + blockStarts[i]
                 let end = start + blockSizes[i]

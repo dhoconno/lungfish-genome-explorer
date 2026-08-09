@@ -62,6 +62,9 @@ struct AssembleCommand: AsyncParsableCommand {
         discussion: """
             Assemble sequence reads with a managed assembler from the Genome Assembly pack.
             The CLI uses the same tool/read-type compatibility model as the app.
+
+            Multiple inputs are treated as one sample's reads (--paired binds exactly
+            two files as paired-end mates of that sample); invoke once per sample for per-sample results.
             """
     )
 

@@ -35,6 +35,30 @@ final class UnifiedClassifierRunnerTests: XCTestCase {
         ))
     }
 
+    func testEsVirituReadinessRejectsUnparseableExtraArguments() {
+        // Regression test for AS30: performRun() silently no-ops when
+        // extraArgumentsText fails to parse (e.g. an unterminated quote),
+        // but canRun previously never checked parseability, leaving Run
+        // enabled with zero feedback.
+        XCTAssertTrue(EsVirituRunReadiness.canRun(
+            groupedSampleCount: 1,
+            isBatchMode: false,
+            sampleName: "sample-1",
+            isDatabaseInstalled: true,
+            databasePath: URL(fileURLWithPath: "/tmp/esviritu-db"),
+            extraArgumentsText: "--flag value"
+        ))
+
+        XCTAssertFalse(EsVirituRunReadiness.canRun(
+            groupedSampleCount: 1,
+            isBatchMode: false,
+            sampleName: "sample-1",
+            isDatabaseInstalled: true,
+            databasePath: URL(fileURLWithPath: "/tmp/esviritu-db"),
+            extraArgumentsText: "--flag 'unterminated"
+        ))
+    }
+
     func testAnalysisTypeTitlesMatchSharedRunnerContract() {
         XCTAssertEqual(UnifiedMetagenomicsWizard.AnalysisType.classification.sidebarTitle, "Kraken2")
         XCTAssertEqual(UnifiedMetagenomicsWizard.AnalysisType.viralDetection.sidebarTitle, "EsViritu")

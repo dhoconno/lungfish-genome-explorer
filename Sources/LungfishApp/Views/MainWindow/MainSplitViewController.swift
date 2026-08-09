@@ -53,12 +53,82 @@ extension FASTQOperationLaunchRequest {
         }
     }
 
-    var independentOperationInputDisplayName: String? {
-        guard case .savont(let request) = self,
-              request.inputURLs.count == 1 else {
-            return nil
+    /// Splits a pooled `.assemble` launch request whose `AssemblyRunRequest
+    /// .inputURLs` still holds N>1 UNRESOLVED bundle URLs (one URL == one
+    /// bundle, see `AssemblyWizardSheet.bundleCount`'s doc comment) into N
+    /// independent `.assemble` requests, one per bundle, mirroring
+    /// `independentSavontLaunchRequests`'s fan-out shape exactly: called
+    /// from `runFASTQOperationLaunchRequestValidated`, which recurses once
+    /// per element, each recursion getting its OWN `OperationCenter`
+    /// operation, its own `AnalysesFolder` analysis directory, and its own
+    /// `Task.detached` -- so one bundle's assembly failure never aborts or
+    /// discards another bundle's completed work (MB-2 review round 1, point
+    /// 4). Only fires when the wizard's picker selected `.perBundle`
+    /// (`outputMode == .perInput`); `.combined` mode has no picker option
+    /// this round (locked, see `AssemblyWizardSheet.multiBundleRunPolicy`),
+    /// so it never reaches here with N>1 pooled inputs.
+    ///
+    /// Each child's `pairedEnd`/`inputURLs` are corrected from that ONE
+    /// bundle's own real content via
+    /// `AppDelegate.resolvedAssemblyPairedEnd(for:)` (point 2: never
+    /// inferred from group size), and the topology invariant `pairedEnd
+    /// implies inputURLs.count == 2` is asserted on every child before it is
+    /// returned (point 4's validation requirement) -- `resolvedAssemblyPairedEnd`
+    /// only ever returns `pairedEnd: true` paired with a 2-element list by
+    /// construction, but the check stays as a load-bearing regression guard.
+    func independentAssembleLaunchRequests(outputDirectory: URL) -> [FASTQOperationLaunchRequest] {
+        guard case .assemble(let batchRequest, let outputMode) = self,
+              outputMode == .perInput,
+              batchRequest.inputURLs.count > 1 else {
+            return [self]
         }
-        return request.inputURLs[0].lastPathComponent
+
+        var usedProjectNames = Set<String>()
+        return batchRequest.inputURLs.map { bundleURL in
+            let resolved = AppDelegate.resolvedAssemblyPairedEnd(for: bundleURL)
+            precondition(
+                !resolved.pairedEnd || resolved.inputURLs.count == 2,
+                "resolvedAssemblyPairedEnd must never report pairedEnd for a non-2-element input list"
+            )
+            let bundleSampleName = MetagenomicsSampleGrouper.sanitizeSampleId(bundleURL.lungfishDisplayName)
+            let childProjectName = Self.uniqueAssemblyProjectName(bundleSampleName, usedNames: &usedProjectNames)
+            let childRequest = batchRequest
+                .replacingInputURLs(with: resolved.inputURLs)
+                .replacingPairedEnd(with: resolved.pairedEnd)
+                .replacingProjectName(with: childProjectName)
+            return .assemble(request: childRequest, outputMode: outputMode)
+        }
+    }
+
+    /// De-duplicates per-bundle project names across an assembly fan-out:
+    /// two bundles with the same sanitized display name (e.g. two different
+    /// project folders both containing a bundle literally named `sample`)
+    /// would otherwise produce two requests with an identical `projectName`.
+    /// Appends `-2`, `-3`, ... to later collisions, mirroring
+    /// `MappingWizardSheet.uniqueReadGroupID`'s dedup shape.
+    private static func uniqueAssemblyProjectName(_ candidate: String, usedNames: inout Set<String>) -> String {
+        guard usedNames.contains(candidate) else {
+            usedNames.insert(candidate)
+            return candidate
+        }
+        var suffix = 2
+        var deduped = "\(candidate)-\(suffix)"
+        while usedNames.contains(deduped) {
+            suffix += 1
+            deduped = "\(candidate)-\(suffix)"
+        }
+        usedNames.insert(deduped)
+        return deduped
+    }
+
+    var independentOperationInputDisplayName: String? {
+        if case .savont(let request) = self, request.inputURLs.count == 1 {
+            return request.inputURLs[0].lastPathComponent
+        }
+        if case .assemble(let request, _) = self, request.inputURLs.count == 1 {
+            return request.inputURLs[0].lastPathComponent
+        }
+        return nil
     }
 
     var primaryInputURL: URL? {

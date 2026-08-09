@@ -37,7 +37,7 @@ struct FASTQOperationToolPanes: View {
                 initialTool: state.selectedToolID.assemblyTool ?? .spades,
                 embeddedInOperationsDialog: true,
                 embeddedRunTrigger: state.embeddedRunTrigger,
-                onRun: state.captureAssemblyRequest(_:),
+                onRun: state.captureAssemblyRequest(_:runMode:),
                 onRunnerAvailabilityChange: readinessHandler(for: state.selectedToolID)
             )
             .id(state.selectedToolID.rawValue)
@@ -265,6 +265,42 @@ private struct FASTQOperationInputsSection: View {
 
 private struct FASTQOperationPrimarySettingsSection: View {
     @Bindable var state: FASTQOperationDialogState
+    @State private var mafftMultiBundleRunMode: MultiBundleRunMode = .combined
+    @State private var pbaaMultiBundleRunMode: MultiBundleRunMode = .perBundle
+    @State private var savontMultiBundleRunMode: MultiBundleRunMode = .perBundle
+    @State private var ontGenotypingMultiBundleRunMode: MultiBundleRunMode = .combined
+
+    /// MAFFT always pools every selected input into one alignment run (MB-3):
+    /// N-sequence MSA has no per-bundle interpretation.
+    static let mafftMultiBundleRunPolicy = MultiBundleRunPolicy(
+        allowedModes: [.combined],
+        defaultMode: .combined,
+        lockReason: "Alignment requires all sequences in one run"
+    )
+
+    /// Savont and pbaa already iterate one clustering run per selected
+    /// bundle (.perInput output mode) -- this makes that existing behavior
+    /// visible instead of silently iterating (MB-4).
+    static let clusteringMultiBundleRunPolicy = MultiBundleRunPolicy(
+        allowedModes: [.perBundle],
+        defaultMode: .perBundle,
+        lockReason: "Runs once per bundle"
+    )
+
+    /// ONT/Illumina amplicon genotyping actually pools every selected
+    /// bundle into ONE .ontSampleBundles batch run (merged BAM, one
+    /// report) -- ontGenotypingUsesPreparedSampleInputs flips to that mode
+    /// automatically once N>1 inputs are selected. The picker must reflect
+    /// that real behavior (combine-locked), not an aspirational per-bundle
+    /// split the execution path doesn't perform (MB-5 review fix round 1).
+    /// Splitting N>1 selections into N separate per-sample genotyping runs
+    /// is filed as a round-2 product decision; this pane change is
+    /// display-only and does not touch that execution path.
+    static let ontGenotypingMultiBundleRunPolicy = MultiBundleRunPolicy(
+        allowedModes: [.combined],
+        defaultMode: .combined,
+        lockReason: "Selections run as one genotyping batch producing a merged report. Run bundles individually for separate per-sample reports."
+    )
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -425,6 +461,11 @@ private struct FASTQOperationPrimarySettingsSection: View {
                     .foregroundStyle(.secondary)
 
             case .pbaa:
+                MultiBundleRunModePicker(
+                    bundleCount: state.selectedInputURLs.count,
+                    policy: Self.clusteringMultiBundleRunPolicy,
+                    selection: $pbaaMultiBundleRunMode
+                )
                 labeledTextField("Output Name", text: $state.pbaaOutputName, help: LungfishHelpContent.fastqOutputName)
                 HStack(spacing: 12) {
                     labeledCompactTextField("Threads", text: Self.intBinding(state, \.pbaaThreads), help: LungfishHelpContent.fastqThreads)
@@ -435,6 +476,11 @@ private struct FASTQOperationPrimarySettingsSection: View {
                     .foregroundStyle(.secondary)
 
             case .savont:
+                MultiBundleRunModePicker(
+                    bundleCount: state.selectedInputURLs.count,
+                    policy: Self.clusteringMultiBundleRunPolicy,
+                    selection: $savontMultiBundleRunMode
+                )
                 if state.selectedInputURLs.count == 1 {
                     labeledTextField(
                         "Output Name",
@@ -449,6 +495,11 @@ private struct FASTQOperationPrimarySettingsSection: View {
                 }
 
             case .ontGenotyping:
+                MultiBundleRunModePicker(
+                    bundleCount: state.selectedInputURLs.count,
+                    policy: Self.ontGenotypingMultiBundleRunPolicy,
+                    selection: $ontGenotypingMultiBundleRunMode
+                )
                 workflowFormGroup("Report") {
                     labeledTextField("Report Name", text: $state.ontGenotypingOutputName, help: LungfishHelpContent.fastqReportName)
                     labeledTextField("Analysis Name", text: $state.ontGenotypingAnalysisName, help: LungfishHelpContent.fastqAnalysisName)
@@ -504,6 +555,12 @@ private struct FASTQOperationPrimarySettingsSection: View {
                     .lungfishHelp(LungfishHelpContent.fastqSearchReverseComplement)
 
             case .mafft:
+                MultiBundleRunModePicker(
+                    bundleCount: state.selectedInputURLs.count,
+                    policy: Self.mafftMultiBundleRunPolicy,
+                    selection: $mafftMultiBundleRunMode
+                )
+
                 Picker("Strategy", selection: $state.mafftStrategy) {
                     ForEach(MAFFTAlignmentStrategy.allCases, id: \.self) { strategy in
                         Text(strategy.displayName).tag(strategy)

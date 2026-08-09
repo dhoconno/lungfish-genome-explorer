@@ -445,6 +445,16 @@ final class WorkflowOperationDialogState {
         return Self.displayPath(for: selectedGuideURL, relativeTo: projectURL)
     }
 
+    /// Whether the standardized combine-locked multi-bundle picker should
+    /// render for the selected tool (MB-4). Imported workflow packages are
+    /// excluded: they reject N>1 bundles outright (see
+    /// validation above) rather than pooling them, so "combine" would
+    /// misrepresent that tool's actual behavior.
+    var showsMultiBundleRunModePicker: Bool {
+        if case .workflowPackage = selectedTool?.kind { return false }
+        return true
+    }
+
     var selectedReadsDisplay: String {
         if let sidebarInputSelection {
             return sidebarInputSelection.summaryText(includeSubfolders: includeSubfolderBundles)

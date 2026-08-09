@@ -39,14 +39,14 @@ extension AnnotationDatabase {
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
             throw AnnotationDatabaseError.createFailed(String(cString: sqlite3_errmsg(db)))
         }
-        sqlite3_bind_text(stmt, 1, (name as NSString).utf8String, -1, nil)
-        sqlite3_bind_text(stmt, 2, (type as NSString).utf8String, -1, nil)
-        sqlite3_bind_text(stmt, 3, (chromosome as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 1, (name as NSString).utf8String, -1, annotationDatabaseSQLiteTransient)
+        sqlite3_bind_text(stmt, 2, (type as NSString).utf8String, -1, annotationDatabaseSQLiteTransient)
+        sqlite3_bind_text(stmt, 3, (chromosome as NSString).utf8String, -1, annotationDatabaseSQLiteTransient)
         sqlite3_bind_int64(stmt, 4, Int64(start))
         sqlite3_bind_int64(stmt, 5, Int64(end))
-        sqlite3_bind_text(stmt, 6, (strand as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 6, (strand as NSString).utf8String, -1, annotationDatabaseSQLiteTransient)
         if let attributes {
-            sqlite3_bind_text(stmt, 7, (attributes as NSString).utf8String, -1, nil)
+            sqlite3_bind_text(stmt, 7, (attributes as NSString).utf8String, -1, annotationDatabaseSQLiteTransient)
         } else {
             sqlite3_bind_null(stmt, 7)
         }
@@ -56,17 +56,17 @@ extension AnnotationDatabase {
             sqlite3_bind_null(stmt, 8)
         }
         if let blockSizes {
-            sqlite3_bind_text(stmt, 9, (blockSizes as NSString).utf8String, -1, nil)
+            sqlite3_bind_text(stmt, 9, (blockSizes as NSString).utf8String, -1, annotationDatabaseSQLiteTransient)
         } else {
             sqlite3_bind_null(stmt, 9)
         }
         if let blockStarts {
-            sqlite3_bind_text(stmt, 10, (blockStarts as NSString).utf8String, -1, nil)
+            sqlite3_bind_text(stmt, 10, (blockStarts as NSString).utf8String, -1, annotationDatabaseSQLiteTransient)
         } else {
             sqlite3_bind_null(stmt, 10)
         }
         if let geneName {
-            sqlite3_bind_text(stmt, 11, (geneName as NSString).utf8String, -1, nil)
+            sqlite3_bind_text(stmt, 11, (geneName as NSString).utf8String, -1, annotationDatabaseSQLiteTransient)
         } else {
             sqlite3_bind_null(stmt, 11)
         }
@@ -102,19 +102,19 @@ extension AnnotationDatabase {
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
             throw AnnotationDatabaseError.createFailed(String(cString: sqlite3_errmsg(db)))
         }
-        sqlite3_bind_text(stmt, 1, (name as NSString).utf8String, -1, nil)
-        sqlite3_bind_text(stmt, 2, (type as NSString).utf8String, -1, nil)
-        sqlite3_bind_text(stmt, 3, (chromosome as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 1, (name as NSString).utf8String, -1, annotationDatabaseSQLiteTransient)
+        sqlite3_bind_text(stmt, 2, (type as NSString).utf8String, -1, annotationDatabaseSQLiteTransient)
+        sqlite3_bind_text(stmt, 3, (chromosome as NSString).utf8String, -1, annotationDatabaseSQLiteTransient)
         sqlite3_bind_int64(stmt, 4, Int64(start))
         sqlite3_bind_int64(stmt, 5, Int64(end))
-        sqlite3_bind_text(stmt, 6, (strand as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 6, (strand as NSString).utf8String, -1, annotationDatabaseSQLiteTransient)
         if let attributes {
-            sqlite3_bind_text(stmt, 7, (attributes as NSString).utf8String, -1, nil)
+            sqlite3_bind_text(stmt, 7, (attributes as NSString).utf8String, -1, annotationDatabaseSQLiteTransient)
         } else {
             sqlite3_bind_null(stmt, 7)
         }
         if let geneName {
-            sqlite3_bind_text(stmt, 8, (geneName as NSString).utf8String, -1, nil)
+            sqlite3_bind_text(stmt, 8, (geneName as NSString).utf8String, -1, annotationDatabaseSQLiteTransient)
         } else {
             sqlite3_bind_null(stmt, 8)
         }

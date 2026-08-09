@@ -483,4 +483,15 @@ final class ClassificationWizardTests: XCTestCase {
         XCTAssertTrue(FASTQBundle.isBundleURL(bundleURL))
         XCTAssertFalse(FASTQBundle.isBundleURL(tempDir.appendingPathComponent("test.fastq")))
     }
+
+    /// Regression test for AS29: performRun() silently no-ops when
+    /// extraArgumentsText fails to parse (e.g. an unterminated quote), but
+    /// canRun previously never checked parseability, leaving Run enabled
+    /// with zero feedback. Mirrors TaxTriageWizardSheet.advancedArgumentsParseError
+    /// (task E3/AS31).
+    func testAdvancedArgumentsParseErrorDetectsUnterminatedQuote() {
+        XCTAssertNil(ClassificationWizardSheet.advancedArgumentsParseError("--flag value"))
+        XCTAssertNil(ClassificationWizardSheet.advancedArgumentsParseError(""))
+        XCTAssertNotNil(ClassificationWizardSheet.advancedArgumentsParseError("--flag 'unterminated"))
+    }
 }

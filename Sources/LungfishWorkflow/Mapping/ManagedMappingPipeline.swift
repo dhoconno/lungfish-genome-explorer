@@ -151,10 +151,10 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         )
 
         progress?(0.9, "Summarizing mapped contigs...")
-        let contigs = try await MappingSummaryBuilder.build(
+        let contigs = try await summarizeMappedContigs(
             sortedBAMURL: normalized.bamURL,
             totalReads: normalized.totalReads,
-            runner: nativeToolRunner
+            progress: progress
         )
 
         let result = MappingResult(
@@ -214,6 +214,43 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         try provenance.saveCanonicalEnvelope(to: prepared.request.outputDirectory)
         progress?(1.0, "Mapping complete.")
         return result
+    }
+
+    /// Builds the per-contig mapping summary and, per MappingSummaryBuilder's
+    /// sortedBAMMemoryGuardBytes guard, forwards any skip-warning it reports
+    /// to the caller's progress closure (which every `run(request:progress:)`
+    /// caller routes to `OperationCenter.shared.log`) so the memory-guard
+    /// warning actually reaches a production sink instead of being
+    /// constructed and discarded (round-3 review fix). ProgressHandler is
+    /// `(Double, String) -> Void` with no severity channel, so a real
+    /// `.warning`-level log isn't reachable from here; this prefixes the
+    /// message with "WARNING:" instead, per the pipeline's convention for
+    /// surfacing non-fatal conditions through an .info-only channel.
+    private func summarizeMappedContigs(
+        sortedBAMURL: URL,
+        totalReads: Int,
+        progress: ProgressHandler?
+    ) async throws -> [MappingContigSummary] {
+        try await MappingSummaryBuilder.build(
+            sortedBAMURL: sortedBAMURL,
+            totalReads: totalReads,
+            runner: nativeToolRunner,
+            reportWarning: { warning in
+                progress?(0.9, "WARNING: \(warning)")
+            }
+        )
+    }
+
+    func summarizeMappedContigsForTesting(
+        sortedBAMURL: URL,
+        totalReads: Int,
+        progress: ProgressHandler?
+    ) async throws -> [MappingContigSummary] {
+        try await summarizeMappedContigs(
+            sortedBAMURL: sortedBAMURL,
+            totalReads: totalReads,
+            progress: progress
+        )
     }
 
     public func normalizeAlignment(

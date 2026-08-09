@@ -233,7 +233,20 @@ public final class SampleMetadataStore: @unchecked Sendable {
         )
     }
 
+    /// Applies an edit to a sample's metadata value and journals it.
+    ///
+    /// No-ops (without journaling) if `sampleId` has no records entry -- previously
+    /// the optional-chained assignment `records[sampleId]?[column] = newValue` would
+    /// silently no-op for an unknown sampleId while the edit was still unconditionally
+    /// appended to the journal, diverging in-memory state from the persisted edit log
+    /// (a replayed edit on next load would also silently no-op, so the journal kept
+    /// claiming an edit that never actually applied). The current UI call site
+    /// (LungfishKit/SampleMetadataSection.swift) only iterates matchedSampleIds, which
+    /// always have a records entry, so this guard is currently a no-op there; it closes
+    /// the footgun for any future/CLI caller that edits an unmatched or newly-added
+    /// sample id (R3-R3ML-19).
     public func applyEdit(sampleId: String, column: String, newValue: String) {
+        guard records[sampleId] != nil else { return }
         let oldValue = records[sampleId]?[column]
         records[sampleId]?[column] = newValue
         edits.append(MetadataEdit(

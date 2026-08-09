@@ -654,6 +654,187 @@ final class EsVirituResultViewControllerSmokeTests: XCTestCase {
         XCTAssertEqual(envelope.options.resolvedDefaults["searchText"]?.stringValue, "")
     }
 
+    // MARK: - R3-R3ML-5: off-main batch aggregated manifest unique-reads update
+
+    func testApplyingUniqueReadsMergesOnlyMatchingSampleAssemblyRows() {
+        let manifest = EsVirituBatchAggregatedManifest(
+            createdAt: Date(timeIntervalSince1970: 0),
+            sampleCount: 2,
+            sampleIds: ["sample-A", "sample-B"],
+            cachedRows: [
+                Self.cachedRow(sample: "sample-A", assembly: "GCF_A", uniqueReads: 0),
+                Self.cachedRow(sample: "sample-B", assembly: "GCF_B", uniqueReads: 0),
+            ]
+        )
+
+        let updated = EsVirituResultViewController.applyingUniqueReads(
+            byAssemblyAndSample: ["sample-A\tGCF_A": 17],
+            to: manifest
+        )
+
+        XCTAssertEqual(updated.cachedRows.first { $0.sample == "sample-A" }?.uniqueReads, 17)
+        // sample-B has no matching entry in byAssemblyAndSample -- must be left unchanged.
+        XCTAssertEqual(updated.cachedRows.first { $0.sample == "sample-B" }?.uniqueReads, 0)
+        // Non-uniqueReads fields must be preserved untouched.
+        XCTAssertEqual(updated.cachedRows.first { $0.sample == "sample-A" }?.readCount, 100)
+        XCTAssertEqual(updated.sampleIds, manifest.sampleIds)
+        XCTAssertEqual(updated.sampleCount, manifest.sampleCount)
+    }
+
+    func testApplyingUniqueReadsIsAPureFunctionThatDoesNotMutateItsInput() {
+        let original = EsVirituBatchAggregatedManifest(
+            createdAt: Date(timeIntervalSince1970: 0),
+            sampleCount: 1,
+            sampleIds: ["sample-A"],
+            cachedRows: [Self.cachedRow(sample: "sample-A", assembly: "GCF_A", uniqueReads: 5)]
+        )
+
+        _ = EsVirituResultViewController.applyingUniqueReads(
+            byAssemblyAndSample: ["sample-A\tGCF_A": 99],
+            to: original
+        )
+
+        XCTAssertEqual(original.cachedRows.first?.uniqueReads, 5, "the input manifest value must not be mutated")
+    }
+
+    /// Regression guard for R3-R3ML-5: the manifest read/mutate/write must run off the main
+    /// actor (via Task.detached), not synchronously inside the per-sample completion handler.
+    /// Asserts the source wiring rather than measuring wall-clock UI blocking, matching the
+    /// existing testImportWritesCanonicalProvenanceBeforeManifestUpdate-style ordering guard
+    /// used elsewhere in this codebase for changes that aren't practical to fixture end-to-end.
+    func testUpdateBatchAggregatedManifestDispatchesToDetachedTaskRatherThanRunningSynchronously() throws {
+        let source = try String(
+            contentsOf: packageRoot()
+                .appendingPathComponent("Sources/LungfishEsVirituUI/EsVirituResultViewController.swift"),
+            encoding: .utf8
+        )
+
+        let methodRange = try XCTUnwrap(
+            source.range(of: "private func updateEsVirituBatchAggregatedManifestUniqueReads() -> Task<Void, Never>? {")
+        )
+        let nextMethodRange = source.range(
+            of: "nonisolated static func applyingUniqueReads",
+            range: methodRange.upperBound..<source.endIndex
+        )
+        let methodBody = String(source[methodRange.upperBound..<(nextMethodRange?.lowerBound ?? source.endIndex)])
+
+        XCTAssertTrue(
+            methodBody.contains("Task.detached"),
+            "updateEsVirituBatchAggregatedManifestUniqueReads must dispatch its file I/O to a detached background task, not run synchronously on the main actor"
+        )
+        XCTAssertFalse(
+            methodBody.contains("MetagenomicsBatchResultStore.loadEsVirituBatchAggregatedManifest"),
+            "the load/mutate/save calls must live in the off-main helper, not inline in the main-actor method"
+        )
+        // R3ML round-3 review fix: the detached task must route through the
+        // per-batchURL serializer, not call writeUpdatedBatchAggregatedManifestUniqueReads
+        // directly -- otherwise two concurrent per-sample completions can
+        // interleave their load-modify-save and lose an update.
+        XCTAssertTrue(
+            methodBody.contains("EsVirituBatchManifestMutationSerializer.shared.run"),
+            "the write must be serialized per batchURL via EsVirituBatchManifestMutationSerializer"
+        )
+    }
+
+    /// R3ML round-3 review fix: two per-sample completions racing to update the
+    /// same batch aggregated manifest must not lose either update. Before this
+    /// fix, `updateEsVirituBatchAggregatedManifestUniqueReads` spawned an
+    /// unserialized `Task.detached` per call; two calls for different samples
+    /// firing back-to-back could each load the manifest before either had
+    /// saved, so the second save would silently discard the first save's
+    /// unique-read update (last-write-wins lost update). Routing both calls
+    /// through `EsVirituBatchManifestMutationSerializer` (mirroring
+    /// `BundleManifestMutationSerializer`) must make both updates land.
+    @MainActor func testConcurrentBatchAggregatedManifestWritesDoNotLoseEitherSamplesUpdate() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("esviritu-batch-manifest-race-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let initialManifest = EsVirituBatchAggregatedManifest(
+            createdAt: Date(timeIntervalSince1970: 0),
+            sampleCount: 2,
+            sampleIds: ["sample-A", "sample-B"],
+            cachedRows: [
+                Self.cachedRow(sample: "sample-A", assembly: "GCF_A", uniqueReads: 0),
+                Self.cachedRow(sample: "sample-B", assembly: "GCF_B", uniqueReads: 0),
+            ]
+        )
+        try MetagenomicsBatchResultStore.saveEsVirituBatchAggregatedManifest(initialManifest, to: root)
+
+        let vc = EsVirituResultViewController()
+        _ = vc.view
+        vc.batchURL = root
+
+        // Writer 1: only sample-A's row is present, so its write must only
+        // touch sample-A's uniqueReads (matching applyingUniqueReads's
+        // "only matching rows change" contract).
+        vc.allBatchRows = [
+            BatchEsVirituRow(
+                sample: "sample-A", virusName: "Test virus", family: "Testviridae",
+                assembly: "GCF_A", readCount: 100, uniqueReads: 17,
+                rpkmf: 1.0, coverageBreadth: 0.5, coverageDepth: 2.0
+            ),
+        ]
+        let task1 = vc.testTriggerBatchAggregatedManifestWrite()
+
+        // Writer 2: only sample-B's row is present. Fired immediately after
+        // writer 1, before either has necessarily finished its load/save --
+        // this is the exact interleaving that used to lose an update.
+        vc.allBatchRows = [
+            BatchEsVirituRow(
+                sample: "sample-B", virusName: "Test virus", family: "Testviridae",
+                assembly: "GCF_B", readCount: 100, uniqueReads: 42,
+                rpkmf: 1.0, coverageBreadth: 0.5, coverageDepth: 2.0
+            ),
+        ]
+        let task2 = vc.testTriggerBatchAggregatedManifestWrite()
+
+        await task1?.value
+        await task2?.value
+
+        let finalManifest = try XCTUnwrap(
+            MetagenomicsBatchResultStore.loadEsVirituBatchAggregatedManifest(from: root)
+        )
+        XCTAssertEqual(
+            finalManifest.cachedRows.first { $0.sample == "sample-A" }?.uniqueReads, 17,
+            "writer 1's update must survive writer 2's concurrent write"
+        )
+        XCTAssertEqual(
+            finalManifest.cachedRows.first { $0.sample == "sample-B" }?.uniqueReads, 42,
+            "writer 2's update must survive writer 1's concurrent write"
+        )
+    }
+
+    private static func cachedRow(
+        sample: String,
+        assembly: String,
+        uniqueReads: Int
+    ) -> EsVirituBatchAggregatedManifest.CachedRow {
+        EsVirituBatchAggregatedManifest.CachedRow(
+            sample: sample,
+            virusName: "Test virus",
+            family: "Testviridae",
+            assembly: assembly,
+            readCount: 100,
+            uniqueReads: uniqueReads,
+            rpkmf: 1.0,
+            coverageBreadth: 0.5,
+            coverageDepth: 2.0
+        )
+    }
+
+    private func packageRoot() -> URL {
+        var url = URL(fileURLWithPath: #filePath)
+        while url.pathComponents.count > 1 {
+            url.deleteLastPathComponent()
+            if FileManager.default.fileExists(atPath: url.appendingPathComponent("Package.swift").path) {
+                return url
+            }
+        }
+        fatalError("Could not locate package root from #filePath")
+    }
+
     private static func esvirituResult(_ assemblies: [ViralAssembly]) -> LungfishIO.EsVirituResult {
         LungfishIO.EsVirituResult(
             sampleId: "esviritu-ui",

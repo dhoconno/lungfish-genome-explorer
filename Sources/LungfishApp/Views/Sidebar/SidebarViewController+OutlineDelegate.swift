@@ -247,16 +247,19 @@ extension SidebarViewController: NSOutlineViewDelegate {
                 return row >= 0 ? row : nil
             }
         )
-        suppressSelectionCallbacks = true
-        if rows.isEmpty {
-            outlineView.deselectAll(nil)
-        } else {
-            outlineView.selectRowIndexes(
-                rows,
-                byExtendingSelection: false
-            )
+        // Goes through the nesting-aware suppression scope rather than writing the
+        // flag directly: this can run inside a reload's own suppressed section, and
+        // a direct `= false` here would clear suppression the reload still owns.
+        withSelectionSuppressed {
+            if rows.isEmpty {
+                outlineView.deselectAll(nil)
+            } else {
+                outlineView.selectRowIndexes(
+                    rows,
+                    byExtendingSelection: false
+                )
+            }
         }
-        suppressSelectionCallbacks = false
     }
 
     private func resolveVisibleSelectionItems(

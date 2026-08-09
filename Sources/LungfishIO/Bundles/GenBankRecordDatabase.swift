@@ -92,7 +92,6 @@ public final class GenBankRecordDatabase: @unchecked Sendable {
         "field_values": ["record_id", "field_key", "value_ordinal", "value"]
     ]
     private static let requiredIndexes = ["idx_field_values_key_value", "idx_field_values_record_key"]
-    private static let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
     public let databaseURL: URL
     private var database: OpaquePointer?
@@ -177,6 +176,108 @@ public final class GenBankRecordDatabase: @unchecked Sendable {
         }
 
         return CreateResult(recordCount: records.count, fieldCount: definitions.count)
+    }
+
+    /// Creates a new database at `url` containing every record from `sourceURLs`, in order.
+    ///
+    /// Source ordinals are renumbered across the concatenation so the result lines up with a
+    /// FASTA produced by concatenating the same sources in the same order. Field definitions
+    /// are unioned; a key that appears in more than one source keeps its first-seen display
+    /// title and value type. Duplicate `sequence_name` values across sources are rejected
+    /// rather than silently collapsed, because the `records.sequence_name` column is UNIQUE
+    /// and a collision would mean the merged FASTA is ambiguous too.
+    @discardableResult
+    public static func createByMerging(sourceURLs: [URL], at url: URL) throws -> CreateResult {
+        var mergedDefinitions: [FieldDefinition] = []
+        var seenDefinitionKeys: Set<String> = []
+        var mergedRows: [RecordRow] = []
+        var seenSequenceNames: Set<String> = []
+
+        for sourceURL in sourceURLs {
+            let source = try GenBankRecordDatabase(url: sourceURL)
+            for definition in try source.fieldDefinitions() where seenDefinitionKeys.insert(definition.key).inserted {
+                mergedDefinitions.append(definition)
+            }
+            for row in try source.records() {
+                guard seenSequenceNames.insert(row.sequenceName).inserted else {
+                    throw Error.operationFailed(
+                        "Duplicate record-store sequence name '\(row.sequenceName)' across merged sources"
+                    )
+                }
+                mergedRows.append(RecordRow(
+                    id: Int64(mergedRows.count + 1),
+                    sequenceName: row.sequenceName,
+                    sequenceLength: row.sequenceLength,
+                    sourceOrdinal: mergedRows.count,
+                    values: row.values
+                ))
+            }
+        }
+
+        // Renumber preferredOrder so the unioned definition list stays densely ordered.
+        let renumberedDefinitions = mergedDefinitions.enumerated().map { index, definition in
+            FieldDefinition(
+                key: definition.key,
+                displayTitle: definition.displayTitle,
+                valueType: definition.valueType,
+                sourceCategory: definition.sourceCategory,
+                preferredOrder: index
+            )
+        }
+
+        let stagingURL = SQLiteDatabasePublication.stagingURL(for: url)
+        defer { SQLiteDatabasePublication.removeDatabase(at: stagingURL) }
+
+        do {
+            try FileManager.default.createDirectory(
+                at: stagingURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+        } catch {
+            throw Error.operationFailed("Create database directory: \(error.localizedDescription)")
+        }
+
+        var database: OpaquePointer?
+        let openResult = sqlite3_open_v2(
+            stagingURL.path,
+            &database,
+            SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX,
+            nil
+        )
+        guard openResult == SQLITE_OK, let database else {
+            let message = database.map { String(cString: sqlite3_errmsg($0)) } ?? "Unknown SQLite error"
+            sqlite3_close(database)
+            throw Error.openFailed(message)
+        }
+
+        do {
+            try execute(database, sql: "PRAGMA foreign_keys = ON")
+            try execute(database, sql: schemaSQL)
+            try execute(database, sql: "BEGIN IMMEDIATE TRANSACTION")
+            do {
+                try insertMetadata(database)
+                try insertDefinitions(renumberedDefinitions, database: database)
+                try insertMergedRows(mergedRows, database: database)
+                try execute(database, sql: "COMMIT")
+            } catch {
+                try? execute(database, sql: "ROLLBACK")
+                throw error
+            }
+        } catch {
+            sqlite3_close(database)
+            throw error
+        }
+
+        guard sqlite3_close(database) == SQLITE_OK else {
+            throw Error.operationFailed("Close staged database before publication")
+        }
+        do {
+            try SQLiteDatabasePublication.publish(stagingURL: stagingURL, to: url)
+        } catch {
+            throw Error.operationFailed("Publish database: \(error.localizedDescription)")
+        }
+
+        return CreateResult(recordCount: mergedRows.count, fieldCount: renumberedDefinitions.count)
     }
 
     public func fieldDefinitions() throws -> [FieldDefinition] {
@@ -460,6 +561,43 @@ public final class GenBankRecordDatabase: @unchecked Sendable {
         }
     }
 
+    /// Inserts already-flattened rows (as produced by ``records()``) into a fresh schema.
+    ///
+    /// `records()` joins each key's distinct values with `"; "`, so the round-tripped row
+    /// carries a single value per key. That is the same string the reader would rebuild
+    /// for display, so merged bundles show identical record metadata to their sources.
+    private static func insertMergedRows(_ rows: [RecordRow], database: OpaquePointer) throws {
+        var recordStatement: OpaquePointer?
+        var valueStatement: OpaquePointer?
+        try prepare(database, sql: "INSERT INTO records(sequence_name, sequence_length, source_ordinal) VALUES (?, ?, ?)", statement: &recordStatement)
+        try prepare(database, sql: "INSERT INTO field_values(record_id, field_key, value_ordinal, value) VALUES (?, ?, ?, ?)", statement: &valueStatement)
+        defer {
+            sqlite3_finalize(recordStatement)
+            sqlite3_finalize(valueStatement)
+        }
+
+        for row in rows {
+            sqlite3_reset(recordStatement)
+            sqlite3_clear_bindings(recordStatement)
+            try bind(row.sequenceName, to: recordStatement, index: 1, database: database)
+            sqlite3_bind_int64(recordStatement, 2, Int64(row.sequenceLength))
+            sqlite3_bind_int64(recordStatement, 3, Int64(row.sourceOrdinal))
+            try stepDone(recordStatement, database: database)
+            let recordID = sqlite3_last_insert_rowid(database)
+
+            for key in row.values.keys.sorted(by: caseInsensitiveLessThan) {
+                guard let value = row.values[key] else { continue }
+                sqlite3_reset(valueStatement)
+                sqlite3_clear_bindings(valueStatement)
+                sqlite3_bind_int64(valueStatement, 1, recordID)
+                try bind(key, to: valueStatement, index: 2, database: database)
+                sqlite3_bind_int64(valueStatement, 3, 0)
+                try bind(value, to: valueStatement, index: 4, database: database)
+                try stepDone(valueStatement, database: database)
+            }
+        }
+    }
+
     private static func validateSchema(_ database: OpaquePointer) throws {
         for table in requiredTables where !tableExists(database, name: table) {
             throw Error.invalidSchema("Missing required table: \(table)")
@@ -498,7 +636,7 @@ public final class GenBankRecordDatabase: @unchecked Sendable {
         guard sqlite3_prepare_v2(database, "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1", -1, &statement, nil) == SQLITE_OK else {
             return false
         }
-        guard sqlite3_bind_text(statement, 1, name, -1, sqliteTransient) == SQLITE_OK else { return false }
+        guard sqlite3_bind_text(statement, 1, name, -1, sqliteTransientDestructor) == SQLITE_OK else { return false }
         return sqlite3_step(statement) == SQLITE_ROW
     }
 
@@ -522,7 +660,7 @@ public final class GenBankRecordDatabase: @unchecked Sendable {
         guard sqlite3_prepare_v2(database, "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ? LIMIT 1", -1, &statement, nil) == SQLITE_OK else {
             return false
         }
-        guard sqlite3_bind_text(statement, 1, name, -1, sqliteTransient) == SQLITE_OK else { return false }
+        guard sqlite3_bind_text(statement, 1, name, -1, sqliteTransientDestructor) == SQLITE_OK else { return false }
         return sqlite3_step(statement) == SQLITE_ROW
     }
 
@@ -542,7 +680,7 @@ public final class GenBankRecordDatabase: @unchecked Sendable {
     }
 
     private static func bind(_ value: String, to statement: OpaquePointer?, index: Int32, database: OpaquePointer) throws {
-        guard sqlite3_bind_text(statement, index, value, -1, sqliteTransient) == SQLITE_OK else {
+        guard sqlite3_bind_text(statement, index, value, -1, sqliteTransientDestructor) == SQLITE_OK else {
             throw Error.operationFailed(String(cString: sqlite3_errmsg(database)))
         }
     }

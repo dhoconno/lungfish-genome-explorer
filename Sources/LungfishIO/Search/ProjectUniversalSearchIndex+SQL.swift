@@ -256,7 +256,7 @@ extension ProjectUniversalSearchIndex {
             result = sqlite3_bind_null(statement, index)
 
         case let text as String:
-            result = sqlite3_bind_text(statement, index, text, -1, SQLITE_TRANSIENT)
+            result = sqlite3_bind_text(statement, index, text, -1, sqliteTransientDestructor)
 
         case let int as Int:
             result = sqlite3_bind_int64(statement, index, Int64(int))
@@ -280,10 +280,6 @@ extension ProjectUniversalSearchIndex {
         guard result == SQLITE_OK else {
             throw databaseError()
         }
-    }
-
-    private var SQLITE_TRANSIENT: sqlite3_destructor_type {
-        unsafeBitCast(-1, to: sqlite3_destructor_type.self)
     }
 
     private func unwrapOptional(_ value: Any) -> Any? {

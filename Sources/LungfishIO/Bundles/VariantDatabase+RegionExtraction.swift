@@ -561,7 +561,7 @@ extension VariantDatabase {
         totalFileSize: Int64 = 0,
         shouldCancel: (() -> Bool)? = nil,
         onProgress: ((Double) -> Void)? = nil,
-        _ handler: (Substring) -> Void
+        _ handler: (Substring) throws -> Void
     ) throws -> Bool {
         guard let fh = FileHandle(forReadingAtPath: url.path) else {
             throw VariantDatabaseError.createFailed("Cannot open VCF file: \(url.lastPathComponent)")
@@ -596,10 +596,10 @@ extension VariantDatabase {
             // Parse all complete lines in-buffer, then drop the consumed prefix once.
             var lineStart = buffer.startIndex
             while let newlineIdx = buffer[lineStart...].firstIndex(of: 0x0A) {
-                autoreleasepool {
+                try autoreleasepool {
                     let lineData = buffer[lineStart..<newlineIdx]
                     let line = String(decoding: lineData, as: UTF8.self)
-                    handler(Substring(line))
+                    try handler(Substring(line))
                 }
                 lineStart = buffer.index(after: newlineIdx)
             }
@@ -609,9 +609,9 @@ extension VariantDatabase {
         }
 
         if !cancelled, !buffer.isEmpty {
-            autoreleasepool {
+            try autoreleasepool {
                 let tail = String(decoding: buffer, as: UTF8.self)
-                handler(Substring(tail))
+                try handler(Substring(tail))
             }
         }
 
@@ -634,7 +634,7 @@ extension VariantDatabase {
         estimatedUncompressedSize: Int64 = 0,
         shouldCancel: (() -> Bool)? = nil,
         onProgress: ((Double) -> Void)? = nil,
-        _ handler: (Substring) -> Void
+        _ handler: (Substring) throws -> Void
     ) throws -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
@@ -645,6 +645,13 @@ extension VariantDatabase {
         process.standardError = FileHandle.nullDevice
 
         try process.run()
+        // If `handler` throws (e.g. a COMMIT failure aborting the import), make sure the
+        // still-running gzip child process is torn down instead of leaking.
+        defer {
+            if process.isRunning {
+                process.terminate()
+            }
+        }
 
         let fileHandle = pipe.fileHandleForReading
         var buffer = Data()
@@ -674,10 +681,10 @@ extension VariantDatabase {
 
             var lineStart = buffer.startIndex
             while let newlineIdx = buffer[lineStart...].firstIndex(of: 0x0A) { // "\n"
-                autoreleasepool {
+                try autoreleasepool {
                     let lineData = buffer[lineStart..<newlineIdx]
                     let line = String(decoding: lineData, as: UTF8.self)
-                    handler(Substring(line))
+                    try handler(Substring(line))
                 }
                 lineStart = buffer.index(after: newlineIdx)
             }
@@ -687,9 +694,9 @@ extension VariantDatabase {
         }
 
         if !cancelled, !buffer.isEmpty {
-            autoreleasepool {
+            try autoreleasepool {
                 let tail = String(decoding: buffer, as: UTF8.self)
-                handler(Substring(tail))
+                try handler(Substring(tail))
             }
         }
 

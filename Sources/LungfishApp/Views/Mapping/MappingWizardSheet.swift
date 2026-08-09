@@ -5,6 +5,7 @@
 import SwiftUI
 import LungfishIO
 import LungfishWorkflow
+import LungfishKit
 
 struct MappingReadGroupFields: Equatable, Sendable {
     var id: String
@@ -56,6 +57,16 @@ struct MappingReadGroupFields: Equatable, Sendable {
     }
 }
 
+/// The outcome of planning a mapping run across one or more selected
+/// bundles: either N per-bundle requests (each with its own correct @RG
+/// SM/ID/LB/PU) or a single pooled request, plus an optional warning to
+/// surface in the operation history when bundles were pooled.
+struct MappingRunPlan: Equatable, Sendable {
+    let requests: [MappingRunRequest]
+    let mode: MultiBundleRunMode
+    let warning: String?
+}
+
 struct MappingWizardSheet: View {
     let inputFiles: [URL]
     let projectURL: URL?
@@ -90,8 +101,9 @@ struct MappingWizardSheet: View {
     @State private var hasUnclassifiedFASTQInputs = false
     @State private var mixedSequenceFormats = false
     @State private var isInspectingInputs = false
+    @State private var multiBundleRunMode: MultiBundleRunMode = .perBundle
 
-    var onRun: ((MappingRunRequest) -> Void)?
+    var onRun: ((MappingRunPlan) -> Void)?
     var onCancel: (() -> Void)?
     var onRunnerAvailabilityChange: ((Bool) -> Void)?
 
@@ -101,7 +113,7 @@ struct MappingWizardSheet: View {
         initialTool: MappingTool,
         embeddedInOperationsDialog: Bool = false,
         embeddedRunTrigger: Int = 0,
-        onRun: ((MappingRunRequest) -> Void)? = nil,
+        onRun: ((MappingRunPlan) -> Void)? = nil,
         onCancel: (() -> Void)? = nil,
         onRunnerAvailabilityChange: ((Bool) -> Void)? = nil
     ) {
@@ -129,9 +141,26 @@ struct MappingWizardSheet: View {
         inputFiles.first?.lungfishDisplayName ?? ""
     }
 
-    private var isPairedEnd: Bool {
-        inputFiles.count == 2
-    }
+    /// Each element of `inputFiles` IS already one bundle: the sidebar
+    /// selection -> `resolveFASTQOperationInputURL` pipeline collapses a
+    /// selection down to one `.lungfishfastq`/`.lungfishref` bundle URL (or
+    /// one loose sequence file) per selected item before the wizard ever
+    /// sees it (`AppDelegate+ToolsMenu.resolveFASTQOperationInputURL`). A
+    /// bundle's *contents* (e.g. how many physical FASTQ files, whether
+    /// they're an R1/R2 pair) are not knowable here -- they only become
+    /// knowable after `FASTQSourceResolver.resolve` expands the bundle URL
+    /// into its files, which happens later in `AppDelegate.
+    /// runSingleManagedMappingAwaitingCompletion`, one bundle at a time. Do NOT re-derive
+    /// bundle boundaries by pattern-matching `_R1`/`_R2` etc. against these
+    /// URLs' filenames: two distinct bundles can legitimately be named e.g.
+    /// `Run1_R1.lungfishfastq` / `Run1_R2.lungfishfastq`, and matching on
+    /// that would silently merge two different samples into one "pair".
+    private var bundleCount: Int { inputFiles.count }
+
+    private static let multiBundleRunPolicy = MultiBundleRunPolicy(
+        allowedModes: [.perBundle, .combined],
+        defaultMode: .perBundle
+    )
 
     private var selectedReferenceCandidate: ReferenceCandidate? {
         referenceCandidates.first(where: { $0.id == selectedReferenceID })
@@ -208,6 +237,162 @@ struct MappingWizardSheet: View {
             platformUnit: platformUnitText
         )
         .resolvedReadGroup(sampleName: sampleName, modeID: modeID)
+    }
+
+    /// Builds the request(s) for a mapping run given the selected bundle
+    /// URLs (one URL per bundle, UNRESOLVED -- see `bundleCount`'s doc
+    /// comment) and run mode.
+    ///
+    /// `.perBundle` yields one `MappingRunRequest` per bundle, each with its
+    /// own @RG SM/ID/LB derived from that bundle's own sample name
+    /// (sanitized via `MetagenomicsSampleGrouper.sanitizeSampleId` and
+    /// de-duplicated across the fan-out so two bundles with the same leaf
+    /// name never collide on @RG ID). `.combined` yields a single pooled
+    /// request whose `inputFASTQURLs` are still the raw bundle URLs (still
+    /// unresolved -- resolution and pooling of the underlying files happens
+    /// later, in `AppDelegate.resolveInputFiles`), with an explicit
+    /// `"pooled-<n>-bundles-<runToken>"` sample name (unique per run to
+    /// avoid collisions across repeated combined runs) and a non-nil warning
+    /// describing the pooling for the operation history.
+    ///
+    /// IMPORTANT: `pairedEnd` is intentionally left `false` on every request
+    /// this function returns -- it CANNOT be correctly determined from
+    /// unresolved bundle URLs, only from the files a bundle actually
+    /// resolves to. `AppDelegate.runSingleManagedMappingAwaitingCompletion`
+    /// recomputes it after `resolveInputFiles`, using
+    /// `AppDelegate.resolvedPairedEnd(for:)` (backed by
+    /// `MetagenomicsSampleGrouper`) on the actually-resolved file list --
+    /// see F2 in the C2 fix-round-1 review.
+    static func buildRunPlan(
+        bundleURLs: [URL],
+        mode: MultiBundleRunMode,
+        tool: MappingTool,
+        modeID: String,
+        referenceFASTAURL: URL,
+        sourceReferenceBundleURL: URL?,
+        projectURL: URL?,
+        outputDirectory: URL,
+        runToken: String,
+        readGroupIDText: String,
+        readGroupSampleText: String,
+        readGroupLibraryText: String,
+        readGroupPlatformText: String,
+        readGroupPlatformUnitText: String,
+        threads: Int,
+        includeSecondary: Bool,
+        includeSupplementary: Bool,
+        minimumMappingQuality: Int,
+        advancedArguments: [String]
+    ) -> MappingRunPlan {
+        func request(
+            inputFASTQURLs: [URL],
+            sampleName: String,
+            readGroup: MappingReadGroup,
+            outputDirectory: URL
+        ) -> MappingRunRequest {
+            MappingRunRequest(
+                tool: tool,
+                modeID: modeID,
+                inputFASTQURLs: inputFASTQURLs,
+                referenceFASTAURL: referenceFASTAURL,
+                sourceReferenceBundleURL: sourceReferenceBundleURL,
+                projectURL: projectURL,
+                outputDirectory: outputDirectory,
+                sampleName: sampleName,
+                readGroup: readGroup,
+                // Placeholder; AppDelegate.
+                // runSingleManagedMappingAwaitingCompletion recomputes this
+                // from the resolved file list before mapping runs.
+                pairedEnd: false,
+                threads: threads,
+                includeSecondary: includeSecondary,
+                includeSupplementary: includeSupplementary,
+                minimumMappingQuality: minimumMappingQuality,
+                advancedArguments: advancedArguments
+            )
+        }
+
+        // Single bundle (or nothing selected): one request, no pooling, no warning.
+        guard bundleURLs.count > 1, mode == .combined else {
+            var usedReadGroupIDs = Set<String>()
+            var requests: [MappingRunRequest] = []
+            for bundleURL in bundleURLs {
+                let rawSampleName = bundleURL.lungfishDisplayName
+                let sampleName = bundleURLs.count > 1
+                    ? MetagenomicsSampleGrouper.sanitizeSampleId(rawSampleName)
+                    : rawSampleName
+                let readGroupID = bundleURLs.count > 1
+                    ? Self.uniqueReadGroupID(sampleName, usedIDs: &usedReadGroupIDs)
+                    : (readGroupIDText.isEmpty ? sampleName : readGroupIDText)
+                let readGroup = makeReadGroup(
+                    sampleName: sampleName,
+                    modeID: modeID,
+                    idText: bundleURLs.count > 1 ? readGroupID : readGroupIDText,
+                    sampleText: bundleURLs.count > 1 ? "" : readGroupSampleText,
+                    libraryText: bundleURLs.count > 1 ? "" : readGroupLibraryText,
+                    platformText: readGroupPlatformText,
+                    // Per-bundle fan-out deliberately does not carry a
+                    // meaningful platform-unit value (no real flowcell/lane
+                    // metadata is available per bundle here); it falls back
+                    // to the sample name like the single-bundle default
+                    // path already does, rather than inventing one.
+                    platformUnitText: bundleURLs.count > 1 ? "" : readGroupPlatformUnitText
+                )
+                let bundleOutputDirectory = bundleURLs.count > 1
+                    ? outputDirectory.appendingPathComponent(sampleName, isDirectory: true)
+                    : outputDirectory
+                requests.append(request(
+                    inputFASTQURLs: [bundleURL],
+                    sampleName: sampleName,
+                    readGroup: readGroup,
+                    outputDirectory: bundleOutputDirectory
+                ))
+            }
+            return MappingRunPlan(requests: requests, mode: .perBundle, warning: nil)
+        }
+
+        // Combined: pool every bundle's (still-unresolved) URL into one
+        // request with explicit pooled naming. Resolution + concatenation
+        // of the underlying files happens later in AppDelegate.
+        let pooledSampleName = "pooled-\(bundleURLs.count)-bundles-\(runToken)"
+        let readGroup = makeReadGroup(
+            sampleName: pooledSampleName,
+            modeID: modeID,
+            idText: readGroupIDText,
+            sampleText: readGroupSampleText,
+            libraryText: readGroupLibraryText,
+            platformText: readGroupPlatformText,
+            platformUnitText: readGroupPlatformUnitText
+        )
+        let pooledRequest = request(
+            inputFASTQURLs: bundleURLs,
+            sampleName: pooledSampleName,
+            readGroup: readGroup,
+            outputDirectory: outputDirectory
+        )
+        let warning = "Combined \(bundleURLs.count) bundles into one pooled mapping run (\(pooledSampleName)). "
+            + "All reads share a single @RG SM tag; per-sample attribution is lost in this BAM."
+        return MappingRunPlan(requests: [pooledRequest], mode: .combined, warning: warning)
+    }
+
+    /// De-duplicates @RG IDs across a per-bundle fan-out: two bundles with
+    /// the same sanitized leaf name (e.g. two different project folders
+    /// both containing a bundle literally named `sample`) would otherwise
+    /// produce two `MappingRunRequest`s with identical `readGroup.id`.
+    /// Appends `-2`, `-3`, ... to later collisions.
+    private static func uniqueReadGroupID(_ candidate: String, usedIDs: inout Set<String>) -> String {
+        guard usedIDs.contains(candidate) else {
+            usedIDs.insert(candidate)
+            return candidate
+        }
+        var suffix = 2
+        var deduped = "\(candidate)-\(suffix)"
+        while usedIDs.contains(deduped) {
+            suffix += 1
+            deduped = "\(candidate)-\(suffix)"
+        }
+        usedIDs.insert(deduped)
+        return deduped
     }
 
     private var selectedModeBinding: Binding<String> {
@@ -321,8 +506,29 @@ struct MappingWizardSheet: View {
             referenceSection
             Divider()
             modeSection
+            if bundleCount > 1 {
+                Divider()
+                MultiBundleRunModePicker(
+                    bundleCount: bundleCount,
+                    policy: Self.multiBundleRunPolicy,
+                    selection: $multiBundleRunMode
+                )
+            }
             Divider()
-            readGroupSection
+            if bundleCount > 1 && multiBundleRunMode == .perBundle {
+                // .perBundle: typed Read Group values cannot apply
+                // meaningfully to N distinct bundles at once -- each
+                // bundle needs its own @RG SM/ID derived from its own
+                // sample name -- so the editable section is replaced with
+                // an explanatory notice instead of silently discarding
+                // whatever the user types into a still-editable field (F4).
+                perBundleReadGroupNotice
+            } else {
+                // Single bundle, or N>1 bundles in .combined mode: exactly
+                // one MappingRunRequest will be produced, so the typed
+                // fields apply to it directly and stay editable.
+                readGroupSection
+            }
             Divider()
             compatibilitySection
             Divider()
@@ -330,6 +536,16 @@ struct MappingWizardSheet: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
+    }
+
+    private var perBundleReadGroupNotice: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(Self.readGroupSectionTitle)
+                .font(.system(size: 12, weight: .medium))
+            Text("Each bundle gets its own read group, derived automatically from its sample name.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 
     private var headerSection: some View {
@@ -696,25 +912,21 @@ struct MappingWizardSheet: View {
         let runToken = String(UUID().uuidString.prefix(8))
         let outputDir = baseDir.appendingPathComponent("mapping-\(runToken)")
 
-        let request = MappingRunRequest(
+        let plan = Self.buildRunPlan(
+            bundleURLs: inputFiles,
+            mode: multiBundleRunMode,
             tool: initialTool,
             modeID: selectedMode.id,
-            inputFASTQURLs: inputFiles,
             referenceFASTAURL: referenceURL,
             sourceReferenceBundleURL: sourceReferenceBundleURL,
             projectURL: projectURL,
             outputDirectory: outputDir,
-            sampleName: inputDisplayName,
-            readGroup: Self.makeReadGroup(
-                sampleName: inputDisplayName,
-                modeID: selectedMode.id,
-                idText: readGroupIDText,
-                sampleText: readGroupSampleText,
-                libraryText: readGroupLibraryText,
-                platformText: readGroupPlatformText,
-                platformUnitText: readGroupPlatformUnitText
-            ),
-            pairedEnd: isPairedEnd,
+            runToken: runToken,
+            readGroupIDText: readGroupIDText,
+            readGroupSampleText: readGroupSampleText,
+            readGroupLibraryText: readGroupLibraryText,
+            readGroupPlatformText: readGroupPlatformText,
+            readGroupPlatformUnitText: readGroupPlatformUnitText,
             threads: threads,
             includeSecondary: includeSecondary,
             includeSupplementary: includeSupplementary,
@@ -722,7 +934,7 @@ struct MappingWizardSheet: View {
             advancedArguments: advancedArguments()
         )
 
-        onRun?(request)
+        onRun?(plan)
     }
 
     private func advancedArguments() -> [String] {

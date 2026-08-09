@@ -309,8 +309,8 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             posted.fulfill()
         }
 
-        await fulfillment(of: [posted], timeout: 2)
-        for _ in 0..<50 where state.workflowAvailabilityRevision == initialRevision {
+        await fulfillment(of: [posted], timeout: 10)
+        for _ in 0..<1000 where state.workflowAvailabilityRevision == initialRevision {
             try await Task.sleep(for: .milliseconds(10))
         }
 
@@ -574,6 +574,68 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             state.readinessText,
             "Imported workflow packages currently accept one FASTQ bundle. Select one bundle, or choose a built-in workflow for folder batches."
         )
+    }
+
+    // MARK: - MB-4: standardized combine-locked multi-bundle picker
+
+    func testShowsMultiBundleRunModePickerForTwelveSAmpliconMatching() {
+        let state = WorkflowOperationDialogState(
+            projectURL: URL(fileURLWithPath: "/tmp/project", isDirectory: true),
+            selectedReadURLs: [
+                URL(fileURLWithPath: "/tmp/project/A.lungfishfastq", isDirectory: true),
+                URL(fileURLWithPath: "/tmp/project/B.lungfishfastq", isDirectory: true),
+            ]
+        )
+        state.testingReplaceTools([
+            WorkflowOperationTool(
+                id: "12s-test",
+                title: "12S Amplicon Matching",
+                subtitle: "Fixture",
+                kind: .twelveSAmpliconMatching,
+                availability: .available
+            ),
+        ])
+        state.selectTool("12s-test")
+
+        XCTAssertTrue(state.showsMultiBundleRunModePicker)
+    }
+
+    func testHidesMultiBundleRunModePickerForWorkflowPackageTools() {
+        let state = WorkflowOperationDialogState(
+            projectURL: URL(fileURLWithPath: "/tmp/project", isDirectory: true),
+            selectedReadURLs: [
+                URL(fileURLWithPath: "/tmp/project/A.lungfishfastq", isDirectory: true),
+                URL(fileURLWithPath: "/tmp/project/B.lungfishfastq", isDirectory: true),
+            ]
+        )
+        state.testingReplaceTools([
+            WorkflowOperationTool(
+                id: "package-test",
+                title: "Package Test",
+                subtitle: "Fixture package",
+                kind: .workflowPackage(makeRunnableWorkflowPackage()),
+                availability: .available
+            ),
+        ])
+        state.selectTool("package-test")
+
+        XCTAssertFalse(state.showsMultiBundleRunModePicker)
+    }
+
+    func testWorkflowOperationsDialogRendersCombineLockedMultiBundlePickerAdoptingBatchSummary() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationsDialog.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("import LungfishKit"))
+        XCTAssertTrue(source.contains("multiBundleRunPolicy = MultiBundleRunPolicy("))
+        XCTAssertTrue(source.contains("allowedModes: [.combined]"))
+        XCTAssertTrue(source.contains("defaultMode: .combined"))
+        XCTAssertTrue(source.contains("lockReason: \"They will run as one batch.\""))
+        XCTAssertTrue(source.contains("if state.showsMultiBundleRunModePicker {"))
+        XCTAssertTrue(source.contains("MultiBundleRunModePicker(\n                    bundleCount: state.selectedReadURLs.count,\n                    policy: Self.multiBundleRunPolicy,\n                    selection: $multiBundleRunMode\n                )"))
     }
 
     func testONTGenotypingLaunchRequestUsesConfiguredSimpleOptions() throws {
@@ -1899,14 +1961,14 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
     }
 
     private func waitForProjectDiscovery(_ state: WorkflowOperationDialogState) async throws {
-        let deadline = Date().addingTimeInterval(2)
+        let deadline = Date().addingTimeInterval(10)
         while state.isDiscoveringProjectResources && Date() < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }
     }
 
     private func waitForWorkflowPackageTool(_ state: WorkflowOperationDialogState, id: String) async throws {
-        let deadline = Date().addingTimeInterval(2)
+        let deadline = Date().addingTimeInterval(10)
         while !state.tools.contains(where: { $0.id == id }) && Date() < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }

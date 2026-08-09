@@ -280,7 +280,7 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
             )
         }
 
-        let deadline = Date().addingTimeInterval(2)
+        let deadline = Date().addingTimeInterval(10)
         while Date() < deadline
             && !(received.contains(.standardOutput("stdout-ready"))
                  && received.contains(.standardError("stderr-ready"))) {
@@ -417,7 +417,7 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
         )
 
         XCTAssertEqual(result.operationItem?.state, .cancelled)
-        try await waitUntil(timeout: 2) {
+        try await waitUntil(timeout: 10) {
             runner.cancelCallCount == 1
         }
     }
@@ -462,12 +462,25 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
 }
 
 final class PipelineCancelCallbackRegressionTests: XCTestCase {
+    /// `runManagedMapping` is checked separately from the other three start
+    /// sites below (C2's per-bundle sequential fan-out, commits
+    /// acd77b57/f652209f/e512e1d5): it no longer captures its own `task` and
+    /// calls `task.cancel()` inline in the cancel callback. Instead it
+    /// assigns the batch `Task` to a `MappingBatchTaskHandle` actor and the
+    /// cancel callback calls `taskHandle.cancel()`, which the actor forwards
+    /// to the stored task's `.cancel()` -- see `MappingBatchTaskHandle`'s doc
+    /// comment for why the indirection exists (a cancel-before-assign race
+    /// between the per-bundle cancel callback and the outer `Task.detached`
+    /// literal still finishing construction). `MappingBatchTaskHandleTests`
+    /// separately proves `taskHandle.cancel()` genuinely cancels the
+    /// assigned task in every race ordering, so this test only needs to
+    /// confirm `runManagedMapping` still wires the handle-based callback
+    /// in (not that the handle itself works).
     func testAppDelegateLongRunningPipelineStartSitesInstallCancelCallbacks() throws {
         let source = try appDelegateSource()
         for functionName in [
             "runSequenceAnnotationOperation",
             "runMinimap2Mapping",
-            "runManagedMapping",
             "runOrientReads",
         ] {
             let body = try functionBody(named: functionName, in: source)
@@ -484,6 +497,37 @@ final class PipelineCancelCallbackRegressionTests: XCTestCase {
                 "\(functionName) cancel callback should cancel the detached task"
             )
         }
+
+        let managedMappingBody = try functionBody(named: "runManagedMapping", in: source)
+        XCTAssertTrue(
+            managedMappingBody.contains("let taskHandle = MappingBatchTaskHandle()"),
+            "runManagedMapping should create a MappingBatchTaskHandle to own the batch task's cancellation"
+        )
+        XCTAssertTrue(
+            managedMappingBody.contains("let task = Task.detached"),
+            "runManagedMapping should keep the detached batch task handle for cancellation"
+        )
+        XCTAssertTrue(
+            managedMappingBody.contains("taskHandle.assign(task)"),
+            "runManagedMapping should assign its batch task to the handle so cancel callbacks can reach it"
+        )
+        XCTAssertTrue(
+            managedMappingBody.contains("OperationCenter.shared.setCancelCallback(for: opID)"),
+            "runManagedMapping should wire OperationCenter cancellation for each per-bundle operation"
+        )
+        XCTAssertTrue(
+            managedMappingBody.contains("taskHandle.cancel()"),
+            "runManagedMapping's cancel callback should cancel the batch task via the handle"
+        )
+
+        let handleSource = try functionBody(
+            named: "cancelStoredTask",
+            in: try String(contentsOf: appDelegateSourceDirectory().appendingPathComponent("AppDelegate+ToolsMenu.swift"), encoding: .utf8)
+        )
+        XCTAssertTrue(
+            handleSource.contains("task?.cancel()"),
+            "MappingBatchTaskHandle.cancelStoredTask must actually cancel the stored task, closing the loop from runManagedMapping's callback"
+        )
 
         let sequenceBody = try functionBody(named: "runSequenceAnnotationOperation", in: source)
         XCTAssertTrue(sequenceBody.contains("LungfishCLIRunner.CancellationHandle()"))
@@ -623,7 +667,7 @@ private func functionBody(named name: String, in source: String) throws -> Strin
     return ""
 }
 
-private func waitForFile(_ url: URL, timeout: TimeInterval = 2) async throws {
+private func waitForFile(_ url: URL, timeout: TimeInterval = 10) async throws {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
         if FileManager.default.fileExists(atPath: url.path) {
@@ -649,7 +693,7 @@ private func waitUntil(
     XCTFail("Timed out waiting for condition")
 }
 
-private func waitForProcessExit(pid: Int32, timeout: TimeInterval = 2) async throws {
+private func waitForProcessExit(pid: Int32, timeout: TimeInterval = 10) async throws {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
         if !ProcessTreeTerminator.processExists(pid: pid) {

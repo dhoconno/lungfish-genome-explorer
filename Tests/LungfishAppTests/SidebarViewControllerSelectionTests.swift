@@ -340,7 +340,7 @@ final class SidebarViewControllerSelectionTests: XCTestCase {
         )
         XCTAssertTrue(
             SidebarViewController.mergeDialogInformativeText(for: .reference)
-                .contains("sequence-only reference bundle")
+                .contains("Sequences and annotation tracks are carried across")
         )
         XCTAssertTrue(
             SidebarViewController.mergeDialogInformativeText(for: .reference)
@@ -395,6 +395,46 @@ final class SidebarViewControllerSelectionTests: XCTestCase {
         XCTAssertEqual(
             SidebarViewController.internalDropDestinationURL(projectURL: projectURL, destinationItem: nil),
             projectURL.standardizedFileURL
+        )
+    }
+
+    /// AS20 (task E4): dropping directly onto a non-container item (a
+    /// sequence file, classification result row, etc.) previously hard-
+    /// rejected the drop (returned nil), unlike the external-file-drop path
+    /// which explicitly retargets to the parent folder. Internal drags
+    /// should retarget the same way instead of refusing the drop outright.
+    func testInternalDropOntoNonContainerItemRetargetsToParentFolder() {
+        let projectURL = URL(fileURLWithPath: "/tmp/project.lungfish", isDirectory: true)
+        let readsURL = projectURL.appendingPathComponent("Reads", isDirectory: true)
+        let sequenceURL = readsURL.appendingPathComponent("sample.fasta", isDirectory: false)
+        let sequenceItem = SidebarItem(title: "sample", type: .sequence, url: sequenceURL)
+
+        XCTAssertEqual(
+            SidebarViewController.internalDropDestinationURL(projectURL: projectURL, destinationItem: sequenceItem),
+            readsURL.standardizedFileURL
+        )
+    }
+
+    /// A non-container item with no URL at all cannot be retargeted (there
+    /// is no parent folder to derive) and must still return nil.
+    func testInternalDropOntoNonContainerItemWithoutURLReturnsNil() {
+        let projectURL = URL(fileURLWithPath: "/tmp/project.lungfish", isDirectory: true)
+        let orphanItem = SidebarItem(title: "orphan", type: .sequence, url: nil)
+
+        XCTAssertNil(
+            SidebarViewController.internalDropDestinationURL(projectURL: projectURL, destinationItem: orphanItem)
+        )
+    }
+
+    /// AS35 (task E4): a cross-window drag into a sidebar with no project
+    /// open (destinationItem nil, projectURL nil) has no resolvable
+    /// destination and must stay nil -- verifies the no-project case is
+    /// still distinguishable from the has-project-root case above so the
+    /// caller can show an actionable "open a project first" message
+    /// instead of a bare rejection.
+    func testInternalDropWithNoDestinationAndNoProjectReturnsNil() {
+        XCTAssertNil(
+            SidebarViewController.internalDropDestinationURL(projectURL: nil, destinationItem: nil)
         )
     }
 

@@ -559,18 +559,13 @@ public final class AlignmentMetadataDatabase: @unchecked Sendable {
 
     // MARK: - Helpers
 
-    /// SQLITE_TRANSIENT tells SQLite to copy the string data immediately,
-    /// preventing use-after-free when the NSString temporary is deallocated
-    /// before sqlite3_step executes.
-    private static let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-
     private func bindText(_ stmt: OpaquePointer?, _ index: Int32, _ value: String) {
-        sqlite3_bind_text(stmt, index, (value as NSString).utf8String, -1, AlignmentMetadataDatabase.sqliteTransient)
+        sqlite3_bind_text(stmt, index, (value as NSString).utf8String, -1, sqliteTransientDestructor)
     }
 
     private func bindOptionalText(_ stmt: OpaquePointer?, _ index: Int32, _ value: String?) {
         if let value {
-            sqlite3_bind_text(stmt, index, (value as NSString).utf8String, -1, AlignmentMetadataDatabase.sqliteTransient)
+            sqlite3_bind_text(stmt, index, (value as NSString).utf8String, -1, sqliteTransientDestructor)
         } else {
             sqlite3_bind_null(stmt, index)
         }

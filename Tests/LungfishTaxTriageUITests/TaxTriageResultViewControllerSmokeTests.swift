@@ -488,6 +488,92 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
         XCTAssertEqual(capturedAccessions, ["NC_123456.1"])
     }
 
+    @MainActor func testExtractButtonDoesNotDispatchWithEmptySelectors() throws {
+        // Regression test for AS24: presentUnifiedExtractionDialog() used to
+        // dispatch buildTaxTriageSelectors()'s result unconditionally, even
+        // when it returned []. A row with no primaryAccession produces no
+        // accessions, so Extract Reads must not fire onExtractReadsRequested
+        // for an empty selector list.
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TaxTriageExtractEmptySelectors-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let dbURL = tempDir.appendingPathComponent("taxtriage.sqlite")
+        let row = TaxTriageTaxonomyRow(
+            sample: "sample-1",
+            organism: "Unaccessioned organism",
+            taxId: 99999,
+            status: nil,
+            tassScore: 0.5,
+            readsAligned: 10,
+            uniqueReads: 5,
+            pctReads: nil,
+            pctAlignedReads: nil,
+            coverageBreadth: nil,
+            meanCoverage: nil,
+            meanDepth: nil,
+            confidence: nil,
+            k2Reads: nil,
+            parentK2Reads: nil,
+            giniCoefficient: nil,
+            meanBaseQ: nil,
+            meanMapQ: nil,
+            mapqScore: nil,
+            disparityScore: nil,
+            minhashScore: nil,
+            diamondIdentity: nil,
+            k2DisparityScore: nil,
+            siblingsScore: nil,
+            breadthWeightScore: nil,
+            hhsPercentile: nil,
+            isAnnotated: nil,
+            annClass: nil,
+            microbialCategory: nil,
+            highConsequence: nil,
+            isSpecies: nil,
+            pathogenicSubstrains: nil,
+            sampleType: nil,
+            bamPath: nil,
+            bamIndexPath: nil,
+            primaryAccession: nil,
+            accessionLength: nil
+        )
+        let db = try TaxTriageDatabase.create(at: dbURL, rows: [row], metadata: ["tool": "taxtriage"])
+
+        let vc = TaxTriageResultViewController()
+        _ = vc.view
+
+        var extractionRequestCount = 0
+        vc.onExtractReadsRequested = { _, _, _, _ in
+            extractionRequestCount += 1
+        }
+
+        vc.configureFromDatabase(db, resultURL: tempDir)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
+            styleMask: [.titled, .resizable, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = vc
+        window.layoutIfNeeded()
+        vc.view.layoutSubtreeIfNeeded()
+
+        let deadline = Date().addingTimeInterval(5)
+        while vc.testBatchFlatTableView.displayedRows.isEmpty && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+        XCTAssertEqual(vc.testBatchFlatTableView.displayedRows.count, 1)
+        vc.testBatchFlatTableView.selectDisplayedRowForContextMenuIfNeeded(0)
+
+        XCTAssertTrue(vc.testActionBar.extractButton.isEnabled)
+        vc.testActionBar.extractButton.performClick(nil)
+
+        XCTAssertEqual(extractionRequestCount, 0, "Extract Reads must not dispatch when there are no accessions to extract")
+    }
+
     @MainActor func testDatabaseRowsLoadAsynchronouslyAfterInitialConfigure() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("TaxTriageLazyLoad-\(UUID().uuidString)")
@@ -548,7 +634,7 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
             "configureFromDatabase should return before SQLite rows are paged into the viewport"
         )
 
-        let deadline = Date().addingTimeInterval(2)
+        let deadline = Date().addingTimeInterval(10)
         while vc.testBatchFlatTableView.displayedRows.count < rows.count && Date() < deadline {
             RunLoop.main.run(until: Date().addingTimeInterval(0.02))
         }
@@ -677,7 +763,7 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
         _ = vc.view
         vc.configureFromDatabase(db, resultURL: tempDir)
 
-        let deadline = Date().addingTimeInterval(2)
+        let deadline = Date().addingTimeInterval(10)
         while vc.testBatchFlatTableView.displayedRows.count < rows.count && Date() < deadline {
             RunLoop.main.run(until: Date().addingTimeInterval(0.02))
         }

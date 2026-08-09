@@ -1423,18 +1423,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
     }
 
-    /// Formats a byte count for display: <1 MB shows KB, <1 GB shows MB, else GB.
+    /// Formats a byte count for display.
+    ///
+    /// Delegates to ``LungfishFormatters/formatBytes(_:)-`` (F44) so file sizes
+    /// render consistently with the rest of the app.
     static func formatBytes(_ bytes: UInt64) -> String {
-        let kb = Double(bytes) / 1_024
-        let mb = kb / 1_024
-        let gb = mb / 1_024
-        if mb < 1 {
-            return String(format: "%.0f KB", kb)
-        } else if gb < 1 {
-            return String(format: "%.1f MB", mb)
-        } else {
-            return String(format: "%.2f GB", gb)
-        }
+        LungfishFormatters.formatBytes(bytes)
     }
 
     @objc private func windowWillClose(_ notification: Notification) {
@@ -1809,14 +1803,25 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return activeSequenceViewer.viewerView.canRunSelectedSequenceFASTAOperation()
         }
 
-        // Extract can bootstrap from the currently visible region.
+        // Extract can bootstrap from the currently visible region, which
+        // requires an active reference frame (not just a viewer instance).
         if menuItem.action == #selector(extractSelection(_:)) {
-            let hasViewer = activeMainWindowController()?
+            let viewerController = activeMainWindowController()?
                 .mainSplitViewController?
                 .viewerController?
                 .activeSequenceViewerController
-                .viewerView != nil
-            return hasViewer
+            return canExtractSelection(viewerController: viewerController)
+        }
+
+        // Zoom actions require an active reference frame or MSA viewer.
+        if menuItem.action == #selector(zoomIn(_:))
+            || menuItem.action == #selector(zoomOut(_:))
+            || menuItem.action == #selector(zoomToFit(_:))
+            || menuItem.action == #selector(zoomReset(_:)) {
+            let viewerController = activeMainWindowController()?
+                .mainSplitViewController?
+                .viewerController
+            return canZoom(viewerController: viewerController)
         }
 
         // "Cancel All Operations" needs running operations
@@ -1850,7 +1855,41 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 || controller?.mainSplitViewController?.sidebarController?.currentProjectURL != nil
         }
 
+        // Export Sequences (FASTA/GenBank) — task E2 / AS1, AS32: disable
+        // proactively rather than round-tripping to a runtime alert when
+        // the sidebar selection has items but none of them are exportable
+        // as sequences and no document is open in the viewer.
+        if menuItem.action == #selector(exportFASTA(_:)) || menuItem.action == #selector(exportGenBank(_:)) {
+            return canExportSequences()
+        }
+
+        // Export FASTQ — task E4 / AS15, AS32: disable proactively when the
+        // sidebar selection has nothing exportable as a FASTQ bundle.
+        if menuItem.action == #selector(exportFASTQ(_:)) {
+            let rawSidebarSelection = mainWindowController?.mainSplitViewController?.sidebarController?.selectedItems() ?? []
+            return FASTQExportSelection.partition(rawSidebarSelection).hasExportableItems
+        }
+
+        // Export Annotations (GFF3) — task E4 / AS16, AS32: disable
+        // proactively when there is no open document AND no sidebar
+        // selection with annotation-exportable bundles.
+        if menuItem.action == #selector(exportGFF3(_:)) {
+            return canExportGFF3()
+        }
+
         return true
+    }
+
+    /// Whether File > Export > Sequences (FASTA/GenBank) has anything to act
+    /// on: either an exportable sidebar selection, or (with no sidebar
+    /// selection at all) a currently open document with sequences.
+    private func canExportSequences() -> Bool {
+        let rawSidebarSelection = mainWindowController?.mainSplitViewController?.sidebarController?.selectedItems() ?? []
+        if !rawSidebarSelection.isEmpty {
+            return SequenceExportSelection.partition(rawSidebarSelection).hasExportableItems
+        }
+        let currentDocument = mainWindowController?.mainSplitViewController?.viewerController?.currentDocument
+        return !(currentDocument?.sequences.isEmpty ?? true)
     }
 
     private func projectStorageOriginController(
@@ -1896,6 +1935,21 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     func canNavigateToGene(viewerController: ViewerViewController?) -> Bool {
         canNavigateToPosition(viewerController: viewerController)
             && viewerController?.annotationSearchIndex != nil
+    }
+
+    /// Extract Visible Region… needs an active reference frame to bootstrap
+    /// its region from (mirrors currentVisibleViewportRegion()'s own guard
+    /// in ViewerViewController+Extraction.swift).
+    func canExtractSelection(viewerController: ViewerViewController?) -> Bool {
+        viewerController?.referenceFrame != nil
+    }
+
+    /// Zoom In/Out/To Fit/Reset need either an active reference frame or an
+    /// active MSA viewer to operate on (mirrors the guards in each
+    /// ViewerViewController.zoom*() implementation).
+    func canZoom(viewerController: ViewerViewController?) -> Bool {
+        viewerController?.referenceFrame != nil
+            || viewerController?.multipleSequenceAlignmentViewController != nil
     }
 
     @objc public func showWindowSizeDialog(_ sender: Any?) {

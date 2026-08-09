@@ -84,6 +84,7 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
             "Sources/LungfishKit/MetadataColumnController.swift",
             "Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift",
             "Sources/LungfishKit/MiniBAMViewController.swift",
+            "Sources/LungfishKit/OperationCenter.swift",
         ]
         let mainActorRunForbiddenPaths: Set<String> = [
             "Sources/LungfishApp/Views/Settings/StorageSettingsTab.swift",
@@ -247,6 +248,96 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
         XCTAssertTrue(
             violations.isEmpty,
             "Volatile VCF/BAM progress handlers must update visible progress without appending every ETA/progress detail to OperationCenter history:\n"
+                + violations.joined(separator: "\n")
+        )
+    }
+
+    /// Non-volatile, non-ETA-suffixed progress streams (mapped-reads annotation,
+    /// filtered-alignment derivation, GATK variant attach, reference import,
+    /// metagenomics import) must pair progress updates with `.log()` so the
+    /// Operations Panel's expanded history captures intermediate messages
+    /// (F26, F27, F28, F29, F31). Unlike the VCF/BAM volatile-import family
+    /// guarded by `testAppDelegateVolatileImportProgressDoesNotUseUpdateWithLog`,
+    /// these streams do not append a changing ETA suffix on every tick, so
+    /// logging every message does not flood the history.
+    func testNonVolatileProgressHandlersPairUpdateWithLog() throws {
+        let root = repositoryRoot()
+        var violations: [String] = []
+
+        func assertLogged(path: String, marker: String, source: String) {
+            let lines = source.components(separatedBy: .newlines)
+            let markerLines = lines.indices.filter { lines[$0].contains(marker) }
+            guard !markerLines.isEmpty else {
+                violations.append("\(path): missing marker \(marker)")
+                return
+            }
+            for markerLine in markerLines {
+                let lowerBound = max(0, markerLine - 10)
+                let upperBound = min(lines.endIndex, markerLine + 20)
+                let context = lines[lowerBound..<upperBound].joined(separator: "\n")
+                if !context.contains("updateWithLog") {
+                    violations.append("\(path):\(markerLine + 1) \(marker) does not pair with updateWithLog")
+                }
+            }
+        }
+
+        let trimDuplicateWorkflowsPath = "Sources/LungfishApp/Views/Inspector/InspectorViewController+TrimDuplicateWorkflows.swift"
+        let trimDuplicateWorkflowsSource = try String(
+            contentsOf: root.appendingPathComponent(trimDuplicateWorkflowsPath),
+            encoding: .utf8
+        )
+        assertLogged(
+            path: trimDuplicateWorkflowsPath,
+            marker: "convertMappedReads(",
+            source: trimDuplicateWorkflowsSource
+        )
+        assertLogged(
+            path: trimDuplicateWorkflowsPath,
+            marker: "deriveFilteredAlignment(",
+            source: trimDuplicateWorkflowsSource
+        )
+
+        let variantWorkflowPath = "Sources/LungfishApp/Views/Inspector/InspectorViewController+VariantWorkflow.swift"
+        let variantWorkflowSource = try String(
+            contentsOf: root.appendingPathComponent(variantWorkflowPath),
+            encoding: .utf8
+        )
+        assertLogged(
+            path: variantWorkflowPath,
+            marker: "Attaching GATK variants to bundle...",
+            source: variantWorkflowSource
+        )
+
+        let fastqImportPath = "Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImport.swift"
+        let fastqImportSource = try String(
+            contentsOf: root.appendingPathComponent(fastqImportPath),
+            encoding: .utf8
+        )
+        assertLogged(
+            path: fastqImportPath,
+            marker: "importAsReferenceBundleViaAppHelper(",
+            source: fastqImportSource
+        )
+
+        let importCenterPath = "Sources/LungfishApp/App/AppDelegate+ImportCenter.swift"
+        let importCenterSource = try String(
+            contentsOf: root.appendingPathComponent(importCenterPath),
+            encoding: .utf8
+        )
+        assertLogged(
+            path: importCenterPath,
+            marker: "importAsReferenceBundleViaAppHelper(",
+            source: importCenterSource
+        )
+        assertLogged(
+            path: importCenterPath,
+            marker: "MetagenomicsImportHelperClient.importViaCLI(",
+            source: importCenterSource
+        )
+
+        XCTAssertTrue(
+            violations.isEmpty,
+            "Non-volatile progress handlers must pair OperationCenter.update() with .log() (or use updateWithLog):\n"
                 + violations.joined(separator: "\n")
         )
     }

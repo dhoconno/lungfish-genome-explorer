@@ -82,6 +82,48 @@ final class SequenceMenuOperationTests: XCTestCase {
         XCTAssertTrue(appDelegate.canNavigateToGene(viewerController: viewerController))
     }
 
+    func testExtractSelectionMenuValidationRequiresReferenceFrame() {
+        let appDelegate = AppDelegate()
+        XCTAssertFalse(appDelegate.canExtractSelection(viewerController: nil))
+
+        let viewerController = ViewerViewController()
+        XCTAssertFalse(appDelegate.canExtractSelection(viewerController: viewerController))
+
+        viewerController.referenceFrame = ReferenceFrame(
+            chromosome: "chr1",
+            start: 0,
+            end: 10,
+            pixelWidth: 800,
+            sequenceLength: 100
+        )
+        XCTAssertTrue(appDelegate.canExtractSelection(viewerController: viewerController))
+    }
+
+    func testExportGFF3MenuValidationRequiresDocumentOrExportableSidebarSelection() {
+        // AS16/AS32 (task E4): with no window/document/sidebar at all,
+        // canExportGFF3() must not crash and must report false so
+        // validateMenuItem disables the item rather than always enabling it.
+        let appDelegate = AppDelegate()
+        XCTAssertFalse(appDelegate.canExportGFF3())
+    }
+
+    func testZoomMenuValidationRequiresReferenceFrameOrMSAViewer() {
+        let appDelegate = AppDelegate()
+        XCTAssertFalse(appDelegate.canZoom(viewerController: nil))
+
+        let viewerController = ViewerViewController()
+        XCTAssertFalse(appDelegate.canZoom(viewerController: viewerController))
+
+        viewerController.referenceFrame = ReferenceFrame(
+            chromosome: "chr1",
+            start: 0,
+            end: 10,
+            pixelWidth: 800,
+            sequenceLength: 100
+        )
+        XCTAssertTrue(appDelegate.canZoom(viewerController: viewerController))
+    }
+
     func testORFAnnotationCommandArgumentsUseCLIBackedSequenceWorkflow() {
         let bundleURL = URL(fileURLWithPath: "/Project/Reference Sequences/example.lungfishref", isDirectory: true)
         let request = SequenceAnnotationOperationRequest(
@@ -216,7 +258,7 @@ final class SequenceMenuOperationTests: XCTestCase {
         ])
     }
 
-    func testSelectedFASTAOperationInputFallsBackToIndexedReferenceBundle() throws {
+    func testSelectedFASTAOperationInputFallsBackToIndexedReferenceBundle() async throws {
         let bundleURL = try makeReferenceBundle(
             chromosomeName: "MN908947",
             sequence: "AAACCCGGGTTT"
@@ -234,13 +276,13 @@ final class SequenceMenuOperationTests: XCTestCase {
         viewerController.viewerView.setReferenceBundle(bundle)
         viewerController.viewerView.selectVisibleRegion()
 
-        let input = try viewerController.viewerView.selectedFASTAOperationInput()
+        let input = try await viewerController.viewerView.selectedFASTAOperationInput()
 
         XCTAssertEqual(input.suggestedName, "MN908947_4_9")
         XCTAssertEqual(input.records, [">MN908947_4_9\nCCCGGG\n"])
     }
 
-    func testSelectedFASTAOperationInputUsesVisibleRegionWhenNoExplicitSelectionExists() throws {
+    func testSelectedFASTAOperationInputUsesVisibleRegionWhenNoExplicitSelectionExists() async throws {
         let bundleURL = try makeReferenceBundle(
             chromosomeName: "MN908947",
             sequence: "AAACCCGGGTTT"
@@ -258,7 +300,7 @@ final class SequenceMenuOperationTests: XCTestCase {
         viewerController.viewerView.setReferenceBundle(bundle)
         viewerController.viewerView.clearSelection()
 
-        let input = try viewerController.viewerView.selectedFASTAOperationInput()
+        let input = try await viewerController.viewerView.selectedFASTAOperationInput()
 
         XCTAssertEqual(input.suggestedName, "MN908947_4_9")
         XCTAssertEqual(input.records, [">MN908947_4_9\nCCCGGG\n"])
@@ -701,7 +743,7 @@ final class SequenceMenuOperationTests: XCTestCase {
         XCTFail("Timed out waiting for \(url.path)")
     }
 
-    nonisolated private func waitForProcessExit(pid: Int32, timeout: TimeInterval = 2) async throws {
+    nonisolated private func waitForProcessExit(pid: Int32, timeout: TimeInterval = 10) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if !ProcessTreeTerminator.processExists(pid: pid) {

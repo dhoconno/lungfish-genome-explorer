@@ -4,6 +4,7 @@
 
 import AppKit
 import LungfishIO
+import LungfishKit
 import os.log
 
 private let logger = Logger(subsystem: LogSubsystem.app, category: "VCFDataset")
@@ -349,14 +350,8 @@ public final class VCFDatasetViewController: NSViewController,
         }
     }
 
-    private static let countFormatter: NumberFormatter = {
-        let f = NumberFormatter()
-        f.numberStyle = .decimal
-        return f
-    }()
-
     private func formatCount(_ count: Int) -> String {
-        Self.countFormatter.string(from: NSNumber(value: count)) ?? "\(count)"
+        LungfishFormatters.formatGroupedCount(count)
     }
 
     // MARK: - Sorting

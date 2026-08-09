@@ -251,6 +251,53 @@ final class BEDReaderTests: XCTestCase {
         XCTAssertEqual(annotation.intervals[0].end, 150)
     }
 
+    /// R3-R3H-2: toAnnotation() must not trap when blockSizes/blockStarts
+    /// are shorter than blockCount claims -- e.g. a truncated/hand-edited
+    /// BED12 line, or a comma-separated list containing an unparseable
+    /// entry that parseIntList's compactMap silently drops. Previously
+    /// `blockStarts[i]`/`blockSizes[i]` indexed out of bounds and crashed
+    /// the process; the fix falls back to the single (chromStart, chromEnd)
+    /// interval when the arrays don't have at least blockCount entries.
+    func testConvertBED12ToAnnotationFallsBackWhenBlockArraysShorterThanBlockCount() throws {
+        // blockCount claims 3 blocks, but only 2 sizes/starts are present.
+        let feature = BEDFeature(
+            chrom: "chr1",
+            chromStart: 100,
+            chromEnd: 500,
+            name: "truncated",
+            blockCount: 3,
+            blockSizes: [50, 50],
+            blockStarts: [0, 150]
+        )
+
+        let annotation = feature.toAnnotation()
+
+        // Falls back to the single whole-feature interval rather than
+        // indexing out of bounds.
+        XCTAssertEqual(annotation.intervals.count, 1)
+        XCTAssertEqual(annotation.intervals[0].start, 100)
+        XCTAssertEqual(annotation.intervals[0].end, 500)
+    }
+
+    /// Same defect, but reached via the file-parsing path: field 11
+    /// (blockStarts) has one fewer comma-separated entry than blockCount
+    /// declares. Exercises parseLine -> parseIntList -> toAnnotation.
+    func testReadBED12WithMismatchedBlockStartsCountDoesNotCrash() async throws {
+        // blockCount=3 but blockStarts only lists 2 values.
+        let bed = "chr1\t100\t500\tgene1\t900\t+\t150\t450\t255,0,0\t3\t50,50,50,\t0,150,"
+        let url = try createTempFile(content: bed)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let reader = BEDReader()
+        let annotations = try await reader.readAsAnnotations(from: url)
+
+        XCTAssertEqual(annotations.count, 1)
+        // Falls back to the single whole-feature interval.
+        XCTAssertEqual(annotations[0].intervals.count, 1)
+        XCTAssertEqual(annotations[0].intervals[0].start, 100)
+        XCTAssertEqual(annotations[0].intervals[0].end, 500)
+    }
+
     // MARK: - Feature Length Test
 
     func testFeatureLength() async throws {

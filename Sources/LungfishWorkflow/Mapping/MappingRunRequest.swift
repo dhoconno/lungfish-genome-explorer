@@ -130,7 +130,7 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
         self.compatibilityReadClassOverride = compatibilityReadClassOverride
     }
 
-    public func withInputFASTQURLs(_ inputFASTQURLs: [URL]) -> MappingRunRequest {
+    public func withInputFASTQURLs(_ inputFASTQURLs: [URL], pairedEnd: Bool? = nil) -> MappingRunRequest {
         MappingRunRequest(
             tool: tool,
             modeID: modeID,
@@ -144,7 +144,7 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
             outputDirectory: outputDirectory,
             sampleName: sampleName,
             readGroup: readGroup,
-            pairedEnd: pairedEnd,
+            pairedEnd: pairedEnd ?? self.pairedEnd,
             threads: threads,
             includeSecondary: includeSecondary,
             includeSupplementary: includeSupplementary,

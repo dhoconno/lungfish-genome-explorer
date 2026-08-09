@@ -274,30 +274,50 @@ public struct ProjectLockManager {
 }
 
 enum ProjectProcessInspector {
+    /// Returns the target process's start time, formatted identically to `ps -o lstart=`
+    /// (e.g. "Tue Aug  8 23:50:57 2026", matching C's `ctime`/`asctime` layout) for
+    /// on-disk lock-file compatibility with any records written by an earlier version of
+    /// this function.
+    ///
+    /// Resolved via `proc_pidinfo(PROC_PIDTBSDINFO)`, a direct kernel query, rather than
+    /// forking and waiting on `/bin/ps` -- this function is called synchronously from the
+    /// main-actor project-open path (ProjectOpenWarningState.evaluate ->
+    /// ProjectLockManager.status(of:) / ProjectLockRecord.current), so avoiding a
+    /// subprocess spawn/wait here removes a fork+exec+wait round trip from that hot path
+    /// (R3-R3ML-2).
     static func processStartTime(for pid: Int) -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/ps")
-        process.arguments = ["-p", "\(pid)", "-o", "lstart="]
+        guard pid > 0, pid <= Int(Int32.max) else { return nil }
 
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
+        var processInfo = proc_bsdinfo()
+        errno = 0
+        let result = withUnsafeMutablePointer(to: &processInfo) { pointer in
+            proc_pidinfo(
+                Int32(pid),
+                PROC_PIDTBSDINFO,
+                0,
+                pointer,
+                Int32(MemoryLayout<proc_bsdinfo>.size)
+            )
+        }
+        guard result == Int32(MemoryLayout<proc_bsdinfo>.size) else {
             return nil
         }
 
-        guard process.terminationStatus == 0 else {
-            return nil
+        var startSeconds = time_t(processInfo.pbi_start_tvsec)
+        var timeStruct = tm()
+        localtime_r(&startSeconds, &timeStruct)
+
+        var buffer = [Int8](repeating: 0, count: 64)
+        let formatted = buffer.withUnsafeMutableBufferPointer { pointer -> String? in
+            // Matches ps(1)'s lstart format: "%a %b %e %H:%M:%S %Y" (e.g.
+            // "Tue Aug  8 23:50:57 2026"), the same layout ctime_r/asctime_r produce.
+            let written = strftime(pointer.baseAddress, pointer.count, "%a %b %e %H:%M:%S %Y", &timeStruct)
+            guard written > 0, let baseAddress = pointer.baseAddress else { return nil }
+            return String(cString: baseAddress)
         }
 
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        let output = String(data: data, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return output?.isEmpty == false ? output : nil
+        guard let formatted, !formatted.isEmpty else { return nil }
+        return formatted
     }
 }
 

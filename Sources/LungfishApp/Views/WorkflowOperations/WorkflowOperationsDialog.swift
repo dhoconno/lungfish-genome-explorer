@@ -1,5 +1,6 @@
 import AppKit
 import LungfishIO
+import LungfishKit
 import LungfishWorkflow
 import SwiftUI
 import UniformTypeIdentifiers
@@ -54,6 +55,18 @@ private struct WorkflowOperationsDetailPane: View {
     let onCreateTwelveSReferenceBundle: (TwelveSReferenceBundleBuildConfiguration) -> Void
     @State private var showingTwelveSReferenceBuilder = false
     @State private var twelveSReferenceDraft = TwelveSReferenceBundleDraft()
+    @State private var multiBundleRunMode: MultiBundleRunMode = .combined
+
+    /// Workflow Operations (including the 12S Amplicon Matching workflow)
+    /// already pools every selected FASTQ bundle into one batch run -- the
+    /// existing "They will run as one batch." summary text documents this.
+    /// The picker makes that policy visible and standardizes the summary
+    /// copy alongside it (MB-4).
+    private static let multiBundleRunPolicy = MultiBundleRunPolicy(
+        allowedModes: [.combined],
+        defaultMode: .combined,
+        lockReason: "They will run as one batch."
+    )
 
     var body: some View {
         ScrollView {
@@ -171,6 +184,13 @@ private struct WorkflowOperationsDetailPane: View {
     private var readPicker: some View {
         VStack(alignment: .leading, spacing: 8) {
             groupLabel("FASTQ Bundles")
+            if state.showsMultiBundleRunModePicker {
+                MultiBundleRunModePicker(
+                    bundleCount: state.selectedReadURLs.count,
+                    policy: Self.multiBundleRunPolicy,
+                    selection: $multiBundleRunMode
+                )
+            }
             Text(state.selectedReadsDisplay)
                 .font(.caption)
                 .foregroundStyle(state.selectedReadURLs.isEmpty ? Color.lungfishOrangeFallback : Color.lungfishSecondaryText)

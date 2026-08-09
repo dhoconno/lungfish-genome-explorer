@@ -152,6 +152,66 @@ final class FASTQOperationsCatalogTests: XCTestCase {
         XCTAssertNil(state.pendingLaunchRequest)
     }
 
+    // MARK: - MB-3: multi-input output naming
+
+    func testMAFFTDefaultSourceNameForSingleInputUsesPlainStem() {
+        let input = URL(fileURLWithPath: "/tmp/SampleA.fasta")
+
+        XCTAssertEqual(
+            FASTQOperationDialogState.mafftDefaultSourceName(for: [input]),
+            "SampleA"
+        )
+    }
+
+    func testMAFFTDefaultSourceNameForTwoInputsReflectsBothInputs() {
+        let inputs = [
+            URL(fileURLWithPath: "/tmp/SampleA.fasta"),
+            URL(fileURLWithPath: "/tmp/SampleB.fasta"),
+        ]
+
+        XCTAssertEqual(
+            FASTQOperationDialogState.mafftDefaultSourceName(for: inputs),
+            "SampleA+1 more aligned"
+        )
+    }
+
+    func testMAFFTDefaultSourceNameForThreeInputsReflectsAllInputs() {
+        let inputs = [
+            URL(fileURLWithPath: "/tmp/SampleA.fasta"),
+            URL(fileURLWithPath: "/tmp/SampleB.fasta"),
+            URL(fileURLWithPath: "/tmp/SampleC.fasta"),
+        ]
+
+        XCTAssertEqual(
+            FASTQOperationDialogState.mafftDefaultSourceName(for: inputs),
+            "SampleA+2 more aligned"
+        )
+    }
+
+    func testMAFFTToolBuildsPendingMSARequestNamedForAllSelectedInputs() throws {
+        let project = repositoryRoot()
+            .appendingPathComponent(".build", isDirectory: true)
+            .appendingPathComponent("Project.lungfish", isDirectory: true)
+        let inputs = [
+            project.appendingPathComponent("SampleA.fasta"),
+            project.appendingPathComponent("SampleB.fasta"),
+            project.appendingPathComponent("SampleC.fasta"),
+        ]
+        let state = FASTQOperationDialogState(
+            initialCategory: .alignment,
+            selectedInputURLs: inputs,
+            projectURL: project
+        )
+
+        state.prepareForRun()
+
+        let request = try XCTUnwrap(state.pendingMSAAlignmentRequest)
+        XCTAssertEqual(request.inputSequenceURLs, inputs)
+        // The bundle stem is filesystem-sanitized ("+" -> "-"), but must
+        // still trace back to all 3 inputs, not just the first.
+        XCTAssertTrue(request.name.hasPrefix("SampleA-2-more-aligned"), request.name)
+    }
+
     func testMAFFTToolPassesCuratedOptionsIntoPendingMSARequest() throws {
         let project = repositoryRoot()
             .appendingPathComponent(".build", isDirectory: true)

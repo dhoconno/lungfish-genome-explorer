@@ -1,5 +1,6 @@
 @preconcurrency import Foundation
 import LungfishCore
+import os
 
 public struct CondaOfflinePackFile: Sendable, Codable, Hashable {
     public let relativePath: String
@@ -464,19 +465,57 @@ public struct CondaOfflinePackService {
     }
 
     private func runTar(arguments: [String], operation: String) throws {
+        try Self.runTar(
+            executableURL: URL(fileURLWithPath: "/usr/bin/tar"),
+            arguments: arguments,
+            operation: operation
+        )
+    }
+
+    /// Runs `tar` (or, in tests, a stand-in executable) with stderr drained
+    /// concurrently on a background thread rather than after `waitUntilExit()`.
+    ///
+    /// macOS pipe buffers are ~64KB. `tar` routinely writes more than that to
+    /// stderr while archiving/extracting a conda environment (permission
+    /// warnings, "Ignoring unknown extended header keyword" notices, symlink
+    /// warnings -- each can be its own line across thousands of files). The
+    /// previous implementation called `waitUntilExit()` before reading stderr
+    /// at all, so a full pipe buffer would block `tar` writing to stderr while
+    /// this thread was blocked inside `waitUntilExit()` with nobody draining
+    /// it -- a deadlock with no timeout (R3-R3H-4). This mirrors the
+    /// concurrent-drain-before-wait pattern used by every other
+    /// process-spawning helper in this source tree (NativeToolRunner.runProcess,
+    /// ManagedMappingPipeline, CondaManager.runTool, PBAAClusteringPipeline.runProcess).
+    ///
+    /// Internal (not private) so CondaOfflinePackServiceTests can inject a
+    /// fake executable that deliberately writes more than the pipe buffer
+    /// size to stderr, proving the drain no longer deadlocks.
+    static func runTar(executableURL: URL, arguments: [String], operation: String) throws {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+        process.executableURL = executableURL
         process.arguments = arguments
 
-        let stderr = Pipe()
-        process.standardError = stderr
+        let stderrPipe = Pipe()
+        process.standardError = stderrPipe
+
+        let drainGroup = DispatchGroup()
+        let stderrLock = OSAllocatedUnfairLock<Data>(initialState: Data())
+        drainGroup.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            let drained = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            stderrLock.withLock { $0 = drained }
+            drainGroup.leave()
+        }
+
         try process.run()
+        // Drain concurrently with the process running, THEN wait for exit --
+        // waiting first (the original bug) can deadlock once tar fills the
+        // pipe buffer and blocks on a write nobody is reading.
+        drainGroup.wait()
         process.waitUntilExit()
 
-        let stderrText = String(
-            data: stderr.fileHandleForReading.readDataToEndOfFile(),
-            encoding: .utf8
-        ) ?? ""
+        let stderrData = stderrLock.withLock { $0 }
+        let stderrText = String(data: stderrData, encoding: .utf8) ?? ""
         guard process.terminationStatus == 0 else {
             throw CondaOfflinePackError.archiveFailed(operation: operation, stderr: stderrText)
         }

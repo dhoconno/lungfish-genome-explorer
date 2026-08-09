@@ -88,7 +88,7 @@ enum TreeIndexWriter {
     }
 
     private static func bindText(_ stmt: OpaquePointer, _ index: Int32, _ value: String) {
-        sqlite3_bind_text(stmt, index, (value as NSString).utf8String, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_text(stmt, index, (value as NSString).utf8String, -1, sqliteTransientDestructor)
     }
 
     private static func bindOptionalText(_ stmt: OpaquePointer, _ index: Int32, _ value: String?) {
@@ -107,5 +107,3 @@ enum TreeIndexWriter {
         }
     }
 }
-
-private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)

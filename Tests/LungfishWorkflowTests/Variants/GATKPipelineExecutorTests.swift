@@ -421,6 +421,71 @@ final class GATKPipelineExecutorTests: XCTestCase {
         XCTAssertTrue(result.stderr.contains("stderr-19999"))
     }
 
+    /// R3-R3ML-14: ProcessGATKCommandRunner previously ran inside a plain
+    /// Task.detached with a synchronous process.waitUntilExit() and no cancellation
+    /// or timeout enforcement -- if the underlying process hung or the enclosing Task
+    /// was cancelled, there was no code path to terminate the child. Uses the same
+    /// stub-executable idiom as PBAAClusteringPipelineTests'
+    /// testProcessRunnerTerminatesNextflowProcessPromptlyWhenTaskIsCancelled: a stub
+    /// process reports its own PID then sleeps far longer than the test should ever
+    /// have to wait, so prompt termination after Task cancellation (rather than the
+    /// test blocking until the sleep completes) proves the cancellation wiring works.
+    func testProcessRunnerTerminatesProcessPromptlyWhenTaskIsCancelled() async throws {
+        let pidFile = tempDir.appendingPathComponent("gatk-stub.pid")
+        let scriptURL = tempDir.appendingPathComponent("fake_gatk.sh")
+        try """
+        #!/bin/bash
+        /usr/bin/printf "%s" "$$" > "\(pidFile.path)"
+        exec /bin/sleep 300
+        """.write(to: scriptURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+
+        let runner = ProcessGATKCommandRunner()
+        let command = GATKCommand(executable: scriptURL.path, arguments: [])
+
+        let task = Task {
+            try await runner.run(command)
+        }
+
+        let deadline = Date().addingTimeInterval(30)
+        while !FileManager.default.fileExists(atPath: pidFile.path), Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        guard FileManager.default.fileExists(atPath: pidFile.path) else {
+            task.cancel()
+            _ = try? await task.value
+            XCTFail("stub GATK process never wrote its PID file within the deadline")
+            return
+        }
+        let pidString = try String(contentsOf: pidFile, encoding: .utf8)
+        let pid = try XCTUnwrap(
+            Int32(pidString.trimmingCharacters(in: .whitespacesAndNewlines)),
+            "pid file contents were not a valid PID: \(pidString)"
+        )
+        XCTAssertTrue(ProcessTreeTerminator.processExists(pid: pid), "stub GATK process should have started")
+
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            XCTFail("Expected cancellation to propagate as an error")
+        } catch is CancellationError {
+            // expected
+        } catch {
+            // Some paths surface CancellationError wrapped differently; accept
+            // any thrown error here since the real assertion is prompt process
+            // termination below.
+        }
+
+        let terminationDeadline = Date().addingTimeInterval(5)
+        var stillRunning = ProcessTreeTerminator.processExists(pid: pid)
+        while stillRunning, Date() < terminationDeadline {
+            try await Task.sleep(nanoseconds: 50_000_000)
+            stillRunning = ProcessTreeTerminator.processExists(pid: pid)
+        }
+        XCTAssertFalse(stillRunning, "GATK process (pid \(pid)) should be terminated promptly after Task cancellation")
+    }
+
     private func write(_ name: String, contents: String) throws -> URL {
         let url = tempDir.appendingPathComponent(name)
         try contents.write(to: url, atomically: true, encoding: .utf8)

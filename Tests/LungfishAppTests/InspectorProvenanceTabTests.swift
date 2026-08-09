@@ -25,7 +25,7 @@ final class InspectorProvenanceTabTests: XCTestCase {
         XCTAssertFalse(viewModel.availableTabs.contains(.provenance))
     }
 
-    func testSidebarSelectionLoadsProvenanceItem() throws {
+    func testSidebarSelectionLoadsProvenanceItem() async throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("inspector-provenance-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -44,12 +44,14 @@ final class InspectorProvenanceTabTests: XCTestCase {
             )
         )
 
+        // currentItem updates synchronously; audit resolves on a detached background task (F6).
         XCTAssertEqual(vc.viewModel.provenanceSectionViewModel.currentItem?.url, dir)
         XCTAssertEqual(vc.viewModel.provenanceSectionViewModel.currentItem?.sidebarType, .fastqBundle)
+        try await waitUntilLoadCompletes(vc.viewModel.provenanceSectionViewModel)
         XCTAssertEqual(vc.viewModel.provenanceSectionViewModel.audit.status, .missing)
     }
 
-    func testClearSelectionClearsProvenanceState() throws {
+    func testClearSelectionClearsProvenanceState() async throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("inspector-provenance-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -67,6 +69,7 @@ final class InspectorProvenanceTabTests: XCTestCase {
                 displayName: "Reads"
             )
         )
+        try await waitUntilLoadCompletes(vc.viewModel.provenanceSectionViewModel)
         vc.clearSelection()
 
         XCTAssertNil(vc.viewModel.provenanceSectionViewModel.currentItem)
@@ -475,5 +478,23 @@ final class InspectorProvenanceTabTests: XCTestCase {
             provisionalExon2SequencesByGenotype: [:],
             provisionalExon2ArtifactURLs: provisionalExon2ArtifactURLs
         )
+    }
+
+    /// `load(item:)` is synchronous but resolves the sidecar lookup on a detached background
+    /// task (see F6); this polls `isLoading` until that task has applied its result back on
+    /// the main actor. Idiom: `waitUntil` in `SequenceViewerInteractionAsyncBundleReadTests`.
+    private func waitUntilLoadCompletes(
+        _ viewModel: ProvenanceInspectorViewModel,
+        timeout: TimeInterval = 10
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while viewModel.isLoading {
+            if Date() >= deadline {
+                XCTFail("Timed out waiting for provenance load to complete")
+                return
+            }
+            await Task.yield()
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
     }
 }

@@ -16,13 +16,44 @@ extension MainSplitViewController {
     ///
     /// - Parameter items: Array of selected sidebar items
     func handleMultipleItemsSelected(_ items: [SidebarItem]) {
-        // Filter to only sequence-type items that can be displayed
+        // Filter to only sequence-type items that can be displayed together
+        // in the collection view.
         let displayableItems = items.filter { item in
             item.type == .sequence || item.type == .annotation || item.type == .alignment
         }
 
+        // Disclosure (task E2 / AS5): a mixed-type selection silently drops
+        // every non-displayable item with zero indication of what was
+        // excluded. We can't put a modal alert on every selection change —
+        // that would fire on every arrow-key/click multi-select — so this
+        // logs the excluded items at .info (not .debug) with their types and
+        // count, giving support/QA an audit trail, and (see below) makes
+        // sure an empty surviving subset clears the viewport instead of
+        // leaving stale content on screen.
+        if displayableItems.count != items.count {
+            let excludedItems = items.filter { item in
+                !(item.type == .sequence || item.type == .annotation || item.type == .alignment)
+            }
+            let excludedDescription = excludedItems
+                .map { "\($0.title) (\($0.type))" }
+                .joined(separator: ", ")
+            mainSplitLogger.info(
+                "handleMultipleItemsSelected: Excluded \(excludedItems.count) non-displayable item(s) from a \(items.count)-item selection: [\(excludedDescription, privacy: .public)]"
+            )
+        }
+
         guard !displayableItems.isEmpty else {
-            mainSplitLogger.debug("handleMultipleItemsSelected: No displayable items in selection")
+            mainSplitLogger.info(
+                "handleMultipleItemsSelected: No displayable items in a \(items.count)-item selection; clearing viewport"
+            )
+            // Previously this left the viewer showing whatever was
+            // displayed before the selection changed — a stale, misleading
+            // state. Explicitly clear to "No sequence selected" instead.
+            cancelFASTQLoadIfNeeded(hideProgress: true, reason: "multi-select with no displayable items")
+            viewerController.clearBundleDisplay()
+            viewerController.hideFASTACollectionView()
+            viewerController.hideCollectionBackButton()
+            viewerController.showNoSequenceSelected()
             return
         }
 
@@ -51,9 +82,20 @@ extension MainSplitViewController {
                         fullyLoadedDocuments.append(existingDoc)
                     } else if let docType = DocumentType.detect(from: url) {
                         placeholderDocuments.append((existingDoc, url, docType))
+                    } else {
+                        // AS36 (task E4): DocumentType.detect returning nil
+                        // (unrecognized/renamed/corrupted extension) used to
+                        // drop the item with zero trace, even in debug logs.
+                        mainSplitLogger.info(
+                            "handleMultipleItemsSelected: Dropped '\(item.title, privacy: .public)' - DocumentType.detect returned nil for \(url.lastPathComponent, privacy: .public)"
+                        )
                     }
                 } else if let docType = DocumentType.detect(from: url) {
                     unregisteredURLs.append((url, docType))
+                } else {
+                    mainSplitLogger.info(
+                        "handleMultipleItemsSelected: Dropped '\(item.title, privacy: .public)' - DocumentType.detect returned nil for \(url.lastPathComponent, privacy: .public)"
+                    )
                 }
             } else if let doc = DocumentManager.shared.documents.first(where: { $0.name == item.title }) {
                 fullyLoadedDocuments.append(doc)

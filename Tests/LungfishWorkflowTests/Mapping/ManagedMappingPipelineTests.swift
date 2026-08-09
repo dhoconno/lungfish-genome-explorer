@@ -1,4 +1,5 @@
 import XCTest
+import os
 @testable import LungfishIO
 @testable import LungfishCore
 @testable import LungfishWorkflow
@@ -337,6 +338,54 @@ final class ManagedMappingPipelineTests: XCTestCase {
 
         XCTAssertEqual(result.bamURL.lastPathComponent, "sample.sorted.bam")
         XCTAssertEqual(Array(try fixture.recordedSubcommands().prefix(1)), ["index"])
+    }
+
+    // MARK: - R3ML round-3 review: memory-guard warning delivery
+
+    /// R3ML round-3 review: MappingSummaryBuilder's >2GB memory-guard
+    /// warning was constructed via `reportWarning` but `run(request:progress:)`
+    /// never passed a `reportWarning` closure at all, so the warning was
+    /// built and discarded -- it never reached the `progress` closure every
+    /// caller routes to `OperationCenter.shared.log`. This exercises the
+    /// pipeline's actual summary-stage wiring (not just MappingSummaryBuilder
+    /// in isolation) and asserts the warning is forwarded to `progress` with
+    /// the "WARNING:" prefix documented on `summarizeMappedContigs`, since
+    /// ProgressHandler has no severity channel to carry a real `.warning`
+    /// level through.
+    func testSummarizeMappedContigsForwardsMemoryGuardWarningToProgress() async throws {
+        let fixture = try SamtoolsFixture()
+        defer { fixture.cleanup() }
+
+        let oversizedBAM = fixture.tempRoot.appendingPathComponent("oversized.sorted.bam")
+        FileManager.default.createFile(atPath: oversizedBAM.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: oversizedBAM)
+        try handle.truncate(atOffset: MappingSummaryBuilder.sortedBAMMemoryGuardBytes + 1)
+        try handle.close()
+
+        let pipeline = ManagedMappingPipeline(
+            condaManager: .shared,
+            nativeToolRunner: fixture.runner
+        )
+
+        let progressBox = ProgressMessageBox()
+        let contigs = try await pipeline.summarizeMappedContigsForTesting(
+            sortedBAMURL: oversizedBAM,
+            totalReads: 10,
+            progress: { fraction, message in progressBox.append((fraction, message)) }
+        )
+
+        XCTAssertEqual(contigs.map(\.contigName), ["chr1"], "coverage/depth rows should still be reported")
+        XCTAssertEqual(
+            Array(try fixture.recordedSubcommands()),
+            ["coverage"],
+            "the oversized-BAM memory guard must skip `samtools view` entirely"
+        )
+
+        let warningMessages = progressBox.messages.map(\.message)
+        XCTAssertTrue(
+            warningMessages.contains { $0.hasPrefix("WARNING:") && $0.localizedCaseInsensitiveContains("2") },
+            "expected a WARNING:-prefixed progress message describing the skipped summary, got: \(warningMessages)"
+        )
     }
 
     func testValidateCompatibilityRejectsMixedReadClasses() throws {
@@ -973,10 +1022,26 @@ private struct SamtoolsFixture {
             printf '%s\\n' '10 + 0 in total (QC-passed reads + QC-failed reads)'
             printf '%s\\n' '8 + 0 mapped (80.00% : N/A)'
             ;;
+          coverage)
+            printf '#rname\\tstartpos\\tendpos\\tnumreads\\tcovbases\\tcoverage\\tmeandepth\\tmeanbaseq\\tmeanmapq\\n'
+            printf 'chr1\\t1\\t1000\\t3\\t800\\t80.0\\t6.5\\t30.0\\t43.3\\n'
+            ;;
         esac
 
         exit 0
         """
+    }
+}
+
+private final class ProgressMessageBox: Sendable {
+    private let state = OSAllocatedUnfairLock<[(fraction: Double, message: String)]>(initialState: [])
+
+    func append(_ entry: (fraction: Double, message: String)) {
+        state.withLock { $0.append(entry) }
+    }
+
+    var messages: [(fraction: Double, message: String)] {
+        state.withLock { $0 }
     }
 }
 

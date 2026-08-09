@@ -108,6 +108,12 @@ public class SequenceViewerView: NSView {
     /// Generation counter for variant fetches — prevents stale results from overwriting newer ones
     var variantFetchGeneration: Int = 0
 
+    /// Generation counter for interaction-triggered bundle-sequence fetches (annotation
+    /// copy/complement/reverse-complement, FASTA operation dialog input). Prevents a stale
+    /// async fetch started by an earlier menu action from applying its result (clipboard
+    /// write / dialog presentation) after a newer request has superseded it.
+    var fastaOperationFetchGeneration: Int = 0
+
     // MARK: - Read Alignment State
 
     /// Cached aligned reads for the current visible region
@@ -308,8 +314,30 @@ public class SequenceViewerView: NSView {
         return cachedPackedReads.first(where: { $0.read.id == firstID })?.read
     }
 
-    /// Cached packed reads for hit-testing (updated during draw)
-    var cachedPackedReads: [(row: Int, read: AlignedRead)] = []
+    /// Cached packed reads for hit-testing (updated during draw).
+    ///
+    /// Whenever this is reassigned, `cachedPackedReadsByRow` is rebuilt to bucket
+    /// entries by row so hit-testing (`readAtPoint`) can index directly into a row's
+    /// reads instead of linearly scanning the full array (F1).
+    var cachedPackedReads: [(row: Int, read: AlignedRead)] = [] {
+        didSet {
+            cachedPackedReadsByRow = SequenceViewerView.bucketPackedReadsByRow(cachedPackedReads)
+        }
+    }
+
+    /// Reads bucketed by row, kept in sync with `cachedPackedReads` via `didSet`.
+    /// Used by `readAtPoint` for O(row bucket) hit-testing instead of an O(N) linear scan.
+    private(set) var cachedPackedReadsByRow: [Int: [AlignedRead]] = [:]
+
+    /// Buckets packed reads by row index. Pure function, exposed for testing hit-test parity.
+    static func bucketPackedReadsByRow(_ packedReads: [(row: Int, read: AlignedRead)]) -> [Int: [AlignedRead]] {
+        var buckets: [Int: [AlignedRead]] = [:]
+        buckets.reserveCapacity(packedReads.count)
+        for (row, read) in packedReads {
+            buckets[row, default: []].append(read)
+        }
+        return buckets
+    }
 
     /// Cached packed layout overflow count (from last pack operation)
     var cachedPackOverflow: Int = 0

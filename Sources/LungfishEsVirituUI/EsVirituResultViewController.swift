@@ -12,6 +12,63 @@ import LungfishKit
 
 private let logger = Logger(subsystem: LogSubsystem.app, category: "EsVirituResultVC")
 
+/// Serializes async load-modify-save work per batch manifest path so
+/// concurrent per-sample completions never interleave a manifest
+/// read-modify-write. Mirrors `BundleManifestMutationSerializer`
+/// (Sources/LungfishWorkflow/Bundles/ReferenceBundleAnnotationImportService.swift)
+/// -- that type is `internal` to `LungfishWorkflow`, not `public`, so it
+/// isn't importable from this leaf module; this is a local copy of the same
+/// per-key task-chaining design rather than a shared import (round-3 review
+/// fix, R3ML EsViritu batch manifest write race).
+///
+/// `scheduleBatchUniqueReadComputation` (below) processes batch samples one
+/// at a time in a single `Task`, but each sample's completion previously
+/// kicked off its OWN unserialized `Task.detached` to update the shared
+/// `EsVirituBatchAggregatedManifest` on disk (R3-R3ML-5). Those detached
+/// tasks could run concurrently -- each independently loading the manifest,
+/// applying its own sample's unique-read counts, and saving -- so a later
+/// writer's save could silently discard an earlier writer's still-in-flight
+/// update (last-write-wins lost update). Routing every write for the same
+/// `batchURL` through this serializer restores strict ordering without
+/// blocking writes to a different batch's manifest.
+private actor EsVirituBatchManifestMutationSerializer {
+    static let shared = EsVirituBatchManifestMutationSerializer()
+
+    private var tails: [String: (generation: Int, task: Task<Void, Never>)] = [:]
+
+    init() {}
+
+    /// Runs `work` after any already-queued work for `batchURL` has
+    /// finished, and queues any later callers for the same `batchURL`
+    /// behind this one. Callers for different batch URLs never block each
+    /// other.
+    ///
+    /// Not reentrant for the same `batchURL` -- see the identical caveat on
+    /// `BundleManifestMutationSerializer.run`.
+    func run(
+        batchURL: URL,
+        _ work: @Sendable @escaping () async -> Void
+    ) async {
+        let key = batchURL.resolvingSymlinksInPath().standardizedFileURL.path
+        let previousEntry = tails[key]
+        let generation = (previousEntry?.generation ?? 0) + 1
+
+        let resultTask = Task<Void, Never> {
+            await previousEntry?.task.value
+            await work()
+        }
+        tails[key] = (generation, resultTask)
+
+        defer {
+            if tails[key]?.generation == generation {
+                tails.removeValue(forKey: key)
+            }
+        }
+
+        await resultTask.value
+    }
+}
+
 // MARK: - BatchEsVirituRow
 
 /// A flat row representing a single viral assembly from a single sample, used
@@ -600,22 +657,48 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     /// Updates the persisted `EsVirituBatchAggregatedManifest` with newly computed unique reads.
     ///
     /// Called after background unique-reads computation so that future opens get
-    /// fully-populated rows from the manifest cache.
-    private func updateEsVirituBatchAggregatedManifestUniqueReads() {
-        guard let batchURL,
-              var aggregated = MetagenomicsBatchResultStore.loadEsVirituBatchAggregatedManifest(from: batchURL)
-        else { return }
+    /// fully-populated rows from the manifest cache. Dispatches the manifest
+    /// read/mutate/write to a background task (R3-R3ML-5): for a batch of N samples
+    /// needing computation, this decode+encode+write of the *entire* aggregated manifest
+    /// (all samples x all assemblies) previously happened synchronously on the main actor
+    /// once per completed sample, each call blocking the UI for the full manifest I/O
+    /// duration. The main actor is only touched to read the current `batchURL`/
+    /// `allBatchRows` snapshot up front; the actual file I/O runs off-main.
+    @discardableResult
+    private func updateEsVirituBatchAggregatedManifestUniqueReads() -> Task<Void, Never>? {
+        guard let batchURL else { return nil }
 
-        let updatedRows = allBatchRows
         let byAssemblyAndSample = Dictionary(
-            uniqueKeysWithValues: updatedRows.map { ("\($0.sample)\t\($0.assembly)", $0.uniqueReads) }
+            uniqueKeysWithValues: allBatchRows.map { ("\($0.sample)\t\($0.assembly)", $0.uniqueReads) }
         )
 
-        for i in aggregated.cachedRows.indices {
-            let row = aggregated.cachedRows[i]
+        // R3-R3ML-5 fixup (round-3 review): route every write for this
+        // batchURL through EsVirituBatchManifestMutationSerializer instead
+        // of a bare Task.detached, so per-sample completions serialize their
+        // load-modify-save of the shared manifest instead of racing.
+        return Task.detached(priority: .utility) {
+            await EsVirituBatchManifestMutationSerializer.shared.run(batchURL: batchURL) {
+                Self.writeUpdatedBatchAggregatedManifestUniqueReads(
+                    batchURL: batchURL,
+                    byAssemblyAndSample: byAssemblyAndSample
+                )
+            }
+        }
+    }
+
+    /// Pure merge step: applies newly computed unique-read counts onto a loaded
+    /// `EsVirituBatchAggregatedManifest`'s cached rows, keyed by "sample\tassembly".
+    /// Rows with no matching entry in `byAssemblyAndSample` are left unchanged.
+    nonisolated static func applyingUniqueReads(
+        byAssemblyAndSample: [String: Int],
+        to manifest: EsVirituBatchAggregatedManifest
+    ) -> EsVirituBatchAggregatedManifest {
+        var updated = manifest
+        for i in updated.cachedRows.indices {
+            let row = updated.cachedRows[i]
             let key = "\(row.sample)\t\(row.assembly)"
             if let uniqueReads = byAssemblyAndSample[key] {
-                aggregated.cachedRows[i] = EsVirituBatchAggregatedManifest.CachedRow(
+                updated.cachedRows[i] = EsVirituBatchAggregatedManifest.CachedRow(
                     sample: row.sample,
                     virusName: row.virusName,
                     family: row.family,
@@ -628,9 +711,22 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
                 )
             }
         }
+        return updated
+    }
 
+    /// Off-main-actor load/merge/save of the batch aggregated manifest. Safe to call from a
+    /// detached background task: touches only the filesystem and `Sendable` values, no
+    /// `self`/UI state.
+    nonisolated private static func writeUpdatedBatchAggregatedManifestUniqueReads(
+        batchURL: URL,
+        byAssemblyAndSample: [String: Int]
+    ) {
+        guard let aggregated = MetagenomicsBatchResultStore.loadEsVirituBatchAggregatedManifest(from: batchURL) else {
+            return
+        }
+        let updated = applyingUniqueReads(byAssemblyAndSample: byAssemblyAndSample, to: aggregated)
         do {
-            try MetagenomicsBatchResultStore.saveEsVirituBatchAggregatedManifest(aggregated, to: batchURL)
+            try MetagenomicsBatchResultStore.saveEsVirituBatchAggregatedManifest(updated, to: batchURL)
             logger.info("Updated EsViritu batch aggregated manifest with unique reads")
         } catch {
             logger.warning("Failed to update EsViritu batch aggregated manifest: \(error.localizedDescription, privacy: .public)")
@@ -1895,6 +1991,18 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
 
     /// Returns the current EsViritu result for testing.
     var testResult: LungfishIO.EsVirituResult? { esVirituResult }
+
+    /// Triggers the same batch-aggregated-manifest write path a real
+    /// per-sample completion uses (`allBatchRows` snapshot -> serialized
+    /// load-modify-save), returning the underlying `Task` so a test can await
+    /// completion before asserting the resulting file on disk. Exists so
+    /// concurrent-writer races (R3-R3ML-5 / round-3 review fix) can be
+    /// reproduced deterministically without standing up the full batch
+    /// unique-read computation pipeline.
+    @discardableResult
+    func testTriggerBatchAggregatedManifestWrite() -> Task<Void, Never>? {
+        updateEsVirituBatchAggregatedManifestUniqueReads()
+    }
 
     /// Returns the batch table view for testing.
     var testBatchTableView: BatchEsVirituTableView { batchTableView }

@@ -70,4 +70,20 @@ final class ProvenanceSectionSourceTests: XCTestCase {
         XCTAssertTrue(source.contains("summaryRow(label, value: paths.joined(separator: \"\\n\")"))
         XCTAssertFalse(source.contains("font: .monospacedSystemFont(ofSize: 10, weight: .regular),\n                    maximumNumberOfLines: 2,\n                    accessibilityIdentifier: \"provenance-path-list-value\""))
     }
+
+    /// F6 review round 1: `viewModel.isLoading` was write-only -- ProvenanceSection never
+    /// rendered it, so a slow off-main sidecar walk silently kept showing the previous
+    /// selection's provenance with no affordance. Asserts the section actually observes
+    /// `isLoading` and renders a lightweight loading affordance from it, using the same
+    /// ProgressView idiom as the surrounding Inspector (ReadStyleSection.swift /
+    /// InspectorView.swift's `isDuplicateWorkflowRunning`/`isAlignmentFilterWorkflowRunning`
+    /// rows: `ProgressView().scaleEffect(0.7)` + secondary-styled caption `Text`).
+    func testProvenanceSectionRendersLoadingIndicatorFromViewModel() throws {
+        let source = try String(contentsOf: sectionSourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("if viewModel.isLoading {"))
+        XCTAssertTrue(source.contains("ProgressView()"))
+        XCTAssertTrue(source.contains(".scaleEffect(0.7)"))
+        XCTAssertTrue(source.contains(".accessibilityIdentifier(\"provenance-loading-indicator\")"))
+    }
 }

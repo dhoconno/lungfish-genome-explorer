@@ -341,6 +341,29 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
                   !resolvedAssemblyRequest.pairedEnd &&
                   originalAssemblyRequest.inputURLs.count > 1 &&
                   originalAssemblyRequest.inputURLs.count == resolvedAssemblyRequest.inputURLs.count:
+            // `pairedEnd` gates this split (unchanged from the original
+            // implementation) because by the time a request reaches this
+            // planner, `inputURLs` may equally be N independent single-end
+            // files (safe to split, one CLI run per file) OR the two files
+            // of one genuine paired-end sample already resolved to raw R1/R2
+            // paths (MUST stay together as one `--paired` run -- see
+            // `testExecuteKeepsPairedAssemblyAsSinglePerInputPlan`). The
+            // planner cannot tell those two shapes apart from file count
+            // alone, so `pairedEnd` -- set correctly upstream -- remains the
+            // authoritative signal here.
+            //
+            // The MB-2 multi-bundle fix does NOT touch this predicate: real
+            // per-bundle splitting for a wizard-driven N>1 BUNDLE selection
+            // happens earlier and separately, in `FASTQOperationLaunchRequest
+            // .independentAssembleLaunchRequests` (driven by the user's
+            // explicit `.perBundle` picker choice, with each child's
+            // `pairedEnd` derived from that ONE bundle's own real content via
+            // `AppDelegate.resolvedAssemblyPairedEnd(for:)`) -- by the time
+            // any request reaches this planner, that fan-out has already
+            // reduced it to a single bundle's worth of input, so this branch
+            // is effectively dead for the GUI dialog flow and exists only for
+            // direct/API callers of `FASTQOperationExecutionService` with a
+            // pre-resolved multi-file, non-paired input list.
             return zip(originalAssemblyRequest.inputURLs, resolvedAssemblyRequest.inputURLs).map { originalInputURL, resolvedInputURL in
                 (
                     .assemble(
@@ -1044,6 +1067,49 @@ extension FASTQOperationLaunchRequest {
 
 extension AssemblyRunRequest {
     func replacingInputURLs(with inputURLs: [URL]) -> AssemblyRunRequest {
+        AssemblyRunRequest(
+            tool: tool,
+            readType: readType,
+            inputURLs: inputURLs,
+            projectName: projectName,
+            outputDirectory: outputDirectory,
+            pairedEnd: pairedEnd,
+            threads: threads,
+            memoryGB: memoryGB,
+            minContigLength: minContigLength,
+            selectedProfileID: selectedProfileID,
+            extraArguments: extraArguments
+        )
+    }
+
+    /// Returns a copy with `pairedEnd` set explicitly, independent of the
+    /// current input list. Used by the per-bundle assembly split to mark each
+    /// resulting single-bundle request's true topology (its OWN R1/R2 pair,
+    /// not an inference over the original pooled multi-bundle selection).
+    func replacingPairedEnd(with pairedEnd: Bool) -> AssemblyRunRequest {
+        AssemblyRunRequest(
+            tool: tool,
+            readType: readType,
+            inputURLs: inputURLs,
+            projectName: projectName,
+            outputDirectory: outputDirectory,
+            pairedEnd: pairedEnd,
+            threads: threads,
+            memoryGB: memoryGB,
+            minContigLength: minContigLength,
+            selectedProfileID: selectedProfileID,
+            extraArguments: extraArguments
+        )
+    }
+
+    /// Returns a copy with `projectName` set explicitly. Used by the
+    /// per-bundle assembly split so each of the N independent requests gets
+    /// its OWN distinct, bundle-derived project name instead of repeating
+    /// the pooled request's single user-typed name N times -- the same
+    /// pooled name across N Operations Panel rows would be indistinguishable
+    /// at a glance even though each row is a different bundle (MB-2 review
+    /// round 1, point 6).
+    func replacingProjectName(with projectName: String) -> AssemblyRunRequest {
         AssemblyRunRequest(
             tool: tool,
             readType: readType,

@@ -63,15 +63,21 @@ struct ConvertCommand: AsyncParsableCommand {
 
         let inputURL = URL(fileURLWithPath: input)
         let outputURL = URL(fileURLWithPath: outputFile)
-        if FileManager.default.fileExists(atPath: outputFile) {
-            guard force else {
-                throw CLIError.outputWriteFailed(
-                    path: outputFile,
-                    reason: "File already exists. Use --force to overwrite."
-                )
-            }
-            try FileManager.default.removeItem(at: outputURL)
+        let outputAlreadyExists = FileManager.default.fileExists(atPath: outputFile)
+        if outputAlreadyExists, !force {
+            throw CLIError.outputWriteFailed(
+                path: outputFile,
+                reason: "File already exists. Use --force to overwrite."
+            )
         }
+        // R3-R3H-7: do NOT remove the existing --to file here. Input-format
+        // detection and output-format validation both happen after this
+        // point and can still throw (unrecognized input extension,
+        // unsupported --to-format, "No annotations to write to GFF3"), and
+        // until this function reaches an actual write call, the user's
+        // pre-existing output must survive a failed conversion. The
+        // existing file is instead removed immediately before each writer
+        // call below, mirroring TreeCommand's validate-first pattern.
 
         // Show progress
         if !globalOptions.quiet {
@@ -123,8 +129,32 @@ struct ConvertCommand: AsyncParsableCommand {
             throw CLIError.formatDetectionFailed(path: input)
         }
 
+        // Validate the output format (and any format-specific preconditions,
+        // e.g. GFF3 needing non-empty annotations) BEFORE touching the
+        // existing --to file. This is the validation half of the
+        // R3-R3H-7 fix: everything that can still fail must fail before any
+        // destructive removeItem happens.
+        let normalizedToFormat = toFormat.lowercased()
+        switch normalizedToFormat {
+        case "fasta", "fa", "genbank", "gb", "fastq", "fq":
+            break
+        case "gff3", "gff":
+            guard !annotations.isEmpty else {
+                throw CLIError.conversionFailed(reason: "No annotations to write to GFF3")
+            }
+        default:
+            throw CLIError.unsupportedFormat(format: toFormat)
+        }
+
+        // Only now -- after input-format detection and output-format
+        // validation have both succeeded -- remove any pre-existing --to
+        // file, immediately before writing the new content.
+        if outputAlreadyExists {
+            try FileManager.default.removeItem(at: outputURL)
+        }
+
         // Write output
-        switch toFormat.lowercased() {
+        switch normalizedToFormat {
         case "fasta", "fa":
             let writer = FASTAWriter(url: outputURL)
             try writer.write(sequences)
@@ -164,12 +194,10 @@ struct ConvertCommand: AsyncParsableCommand {
             try FASTQWriter.write(fastqRecords, to: outputURL)
 
         case "gff3", "gff":
-            guard !annotations.isEmpty else {
-                throw CLIError.conversionFailed(reason: "No annotations to write to GFF3")
-            }
             try await GFF3Writer.write(annotations, to: outputURL)
 
         default:
+            // Unreachable: normalizedToFormat was already validated above.
             throw CLIError.unsupportedFormat(format: toFormat)
         }
         let completedAt = Date()

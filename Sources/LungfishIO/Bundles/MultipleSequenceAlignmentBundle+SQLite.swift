@@ -300,7 +300,7 @@ extension MultipleSequenceAlignmentBundle {
             let position = Int32(index + 1)
             switch value {
             case let text as String:
-                sqlite3_bind_text(statement, position, text, -1, SQLITE_TRANSIENT)
+                sqlite3_bind_text(statement, position, text, -1, sqliteTransientDestructor)
             case let int as Int:
                 sqlite3_bind_int64(statement, position, Int64(int))
             case let double as Double:
@@ -351,5 +351,4 @@ extension MultipleSequenceAlignmentBundle {
         return try valueFromJSONString(type, text)
     }
 
-    private static let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 }

@@ -361,8 +361,17 @@ public final class AssemblyResultViewController: NSViewController {
     private func performCopySelectedFASTA() {
         guard let result = currentResult, !selectedContigNames.isEmpty else { return }
         let selectedContigs = selectedContigNames
-        Task {
-            try? await materializationAction.copyFASTA(result: result, selectedContigs: selectedContigs)
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await self.materializationAction.copyFASTA(result: result, selectedContigs: selectedContigs)
+            } catch {
+                NSSound.beep()
+                self.presentWarning(
+                    title: "Copy FASTA Failed",
+                    message: "Could not copy the selected contig FASTA: \(error.localizedDescription)"
+                )
+            }
         }
     }
 
@@ -596,6 +605,9 @@ public final class AssemblyResultViewController: NSViewController {
         container.onDragEnd = { [weak self] in
             self?.view.layoutSubtreeIfNeeded()
         }
+        container.blastResultsTab.onRerunBlast = { [weak self] in
+            self?.performBlastSelected()
+        }
         view.layoutSubtreeIfNeeded()
         container.blastResultsTab.presentationStyle = .contigBlast
         return container.blastResultsTab
@@ -620,28 +632,10 @@ public final class AssemblyResultViewController: NSViewController {
             return
         }
 
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = message
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "OK")
         // Leaf modules use the system default alert icon (the running app icon),
         // matching the LungfishTwelveSUI leaf precedent. App-internal branding
         // helpers stay in LungfishApp.
-
-        if let window = view.window ?? NSApp.keyWindow {
-            alert.beginSheetModal(for: window)
-        } else {
-            NSApp.presentError(AssemblyResultWarning(title: title, message: message))
-        }
-    }
-
-    private struct AssemblyResultWarning: LocalizedError {
-        let title: String
-        let message: String
-
-        var errorDescription: String? { title }
-        var recoverySuggestion: String? { message }
+        WarningPresenter.present(title: title, message: message, in: view.window)
     }
 }
 
@@ -706,6 +700,7 @@ extension AssemblyResultViewController {
     var testDetailPane: AssemblyContigDetailPane { detailPane }
     var testActionBar: AssemblyActionBar { actionBar }
     var testContextMenuTitles: [String] { contextMenu.items.map(\.title) }
+    var testBlastDrawerContainer: BlastResultsDrawerContainerView? { blastDrawerContainer }
     var testEmptyStateView: NSView { emptyStateView }
     var testEmptyStateMessage: String { emptyStateLabel.stringValue }
     var testEmptyStateFontPointSize: CGFloat { emptyStateLabel.font?.pointSize ?? 0 }

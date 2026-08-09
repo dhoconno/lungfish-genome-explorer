@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import LungfishIO
+import LungfishKit
 import LungfishWorkflow
 
 @MainActor
@@ -47,7 +48,7 @@ final class FASTQOperationDialogState {
     var projectBarcodeDefinitionCandidates: [URL]
     var pendingLaunchRequest: FASTQOperationLaunchRequest?
     var pendingMinimap2Config: Minimap2Config?
-    var pendingMappingRequest: MappingRunRequest?
+    var pendingMappingRequest: MappingRunPlan?
     var pendingMSAAlignmentRequest: MSAAlignmentRunRequest?
     var pendingAssemblyRequest: AssemblyRunRequest?
     var pendingClassificationConfigs: [ClassificationConfig]
@@ -164,6 +165,7 @@ final class FASTQOperationDialogState {
     private var embeddedToolReady: Bool
     private var savontRuntimeReadiness: SavontRuntimeReadiness
     private var savontRuntimeCheckGeneration: UInt = 0
+    private var barcodeDefinitionScanGeneration: UInt = 0
 
     init(
         initialCategory: FASTQOperationCategoryID,
@@ -192,7 +194,13 @@ final class FASTQOperationDialogState {
             projectURL: projectURL,
             selectedInputURLs: selectedInputURLs
         )
-        self.projectBarcodeDefinitionCandidates = Self.projectBarcodeDefinitionCandidates(in: projectURL)
+        // The recursive project directory scan behind `projectBarcodeDefinitionCandidates(in:)`
+        // used to run synchronously here, on the main actor, every time the dialog was
+        // constructed (F8). It now starts empty and is populated asynchronously by
+        // `refreshProjectBarcodeDefinitionCandidates()`, called once the dialog view appears
+        // (see `FASTQOperationDialog`'s `.task`), so dialog construction never blocks on
+        // filesystem enumeration.
+        self.projectBarcodeDefinitionCandidates = []
         self.pendingLaunchRequest = nil
         self.pendingMinimap2Config = nil
         self.pendingMappingRequest = nil
@@ -348,6 +356,45 @@ final class FASTQOperationDialogState {
               !Task.isCancelled else { return }
         savontRuntimeReadiness = readiness
     }
+
+    /// Performs the recursive project directory scan for barcode-definition candidates
+    /// off the main actor and applies the result if this is still the most recent request.
+    ///
+    /// `projectBarcodeDefinitionCandidates(in:)` uses `FileManager.enumerator` to walk the
+    /// entire project directory tree, so it must never run inline on `@MainActor` during
+    /// dialog construction (F8). The scan takes a `Sendable` snapshot of `projectURL` and
+    /// runs inside `Task.detached`, which unconditionally hops to the cooperative thread
+    /// pool regardless of the caller's actor -- mirroring
+    /// `ReferenceBundleAnnotationImportService.attachAnnotationTrack`'s structural hop, since
+    /// `projectBarcodeDefinitionCandidates(in:)` itself has no internal `await` and would
+    /// otherwise simply inherit this (`@MainActor`) caller's thread. A monotonically
+    /// increasing generation counter discards stale results the same way
+    /// `refreshSavontRuntimeReadiness` already does above, so a dialog reconfigured (or
+    /// dismissed and reopened) while a scan is in flight never has an older scan clobber a
+    /// newer one.
+    func refreshProjectBarcodeDefinitionCandidates() async {
+        barcodeDefinitionScanGeneration &+= 1
+        let generation = barcodeDefinitionScanGeneration
+        let scanProjectURL = projectURL
+
+        let candidates = await Task.detached(priority: .userInitiated) {
+            #if DEBUG
+            FASTQOperationDialogState.barcodeDefinitionScanThreadingProbe?()
+            #endif
+            return Self.projectBarcodeDefinitionCandidates(in: scanProjectURL)
+        }.value
+
+        guard generation == barcodeDefinitionScanGeneration, !Task.isCancelled else { return }
+        projectBarcodeDefinitionCandidates = candidates
+    }
+
+    #if DEBUG
+    /// Test-only threading probe. Fires once inside the `Task.detached` body of
+    /// `refreshProjectBarcodeDefinitionCandidates()`, after the executor hop, so tests can
+    /// assert `!Thread.isMainThread` from the real call path. Not compiled into release
+    /// builds.
+    nonisolated(unsafe) static var barcodeDefinitionScanThreadingProbe: (@Sendable () -> Void)?
+    #endif
 
     func prepareForRun() {
         if selectedToolID.usesEmbeddedConfiguration {
@@ -749,12 +796,24 @@ final class FASTQOperationDialogState {
         }
     }
 
+    /// Default output bundle name for a MAFFT run, reflecting all N inputs
+    /// rather than just the first (MB-3). A single input keeps the plain
+    /// stem name; N>1 inputs read "<first>+<n-1> more aligned" so the
+    /// project files/history view doesn't misrepresent the run's scope.
+    static func mafftDefaultSourceName(for inputURLs: [URL]) -> String {
+        guard let first = inputURLs.first else { return "MAFFT Alignment" }
+        let firstStem = first.deletingPathExtension().lastPathComponent
+        let remaining = inputURLs.count - 1
+        guard remaining > 0 else { return firstStem }
+        return "\(firstStem)+\(remaining) more aligned"
+    }
+
     private func makeMSAAlignmentRequest() -> MSAAlignmentRunRequest? {
         guard let projectURL else { return nil }
         guard let extraArguments = try? AdvancedCommandLineOptions.parse(mafftExtraOptionsText) else {
             return nil
         }
-        let sourceName = selectedInputURLs.first?.deletingPathExtension().lastPathComponent ?? "MAFFT Alignment"
+        let sourceName = Self.mafftDefaultSourceName(for: selectedInputURLs)
         let outputURL = MSAAlignmentRunRequest.uniqueDefaultOutputBundleURL(projectURL: projectURL, name: sourceName)
         let name = outputURL.deletingPathExtension().lastPathComponent
         return MSAAlignmentRunRequest(
@@ -793,10 +852,11 @@ final class FASTQOperationDialogState {
         embeddedToolReady = true
     }
 
-    func captureMappingRequest(_ request: MappingRunRequest) {
-        setAuxiliaryInput(request.referenceFASTAURL, for: .referenceSequence)
+    func captureMappingRequest(_ plan: MappingRunPlan) {
+        guard let firstRequest = plan.requests.first else { return }
+        setAuxiliaryInput(firstRequest.referenceFASTAURL, for: .referenceSequence)
         pendingMinimap2Config = nil
-        pendingMappingRequest = request
+        pendingMappingRequest = plan
         pendingMSAAlignmentRequest = nil
         pendingAssemblyRequest = nil
         pendingClassificationConfigs = []
@@ -804,14 +864,22 @@ final class FASTQOperationDialogState {
         pendingTaxTriageConfig = nil
         pendingViralReconRequest = nil
         pendingLaunchRequest = .map(
-            inputURLs: request.inputFASTQURLs,
-            referenceURL: request.referenceFASTAURL,
+            inputURLs: plan.requests.flatMap(\.inputFASTQURLs),
+            referenceURL: firstRequest.referenceFASTAURL,
             outputMode: outputMode
         )
         embeddedToolReady = true
     }
 
-    func captureAssemblyRequest(_ request: AssemblyRunRequest) {
+    /// Captures the assembly request built by `AssemblyWizardSheet`, along
+    /// with the multi-bundle run mode the user selected. `runMode` maps onto
+    /// the existing `.perInput`/`.groupedResult` output-mode vocabulary that
+    /// already drives every other operation's split-vs-pool behavior:
+    /// `.perBundle` -> `.perInput` (FASTQOperationPlanner splits the pooled
+    /// request back into one per-bundle request), `.combined` ->
+    /// `.groupedResult` (single pooled request, no split). This is an
+    /// explicit user choice, not an inference from `request.pairedEnd`.
+    func captureAssemblyRequest(_ request: AssemblyRunRequest, runMode: MultiBundleRunMode = .perBundle) {
         outputDirectoryURL = request.outputDirectory
         pendingMinimap2Config = nil
         pendingMappingRequest = nil
@@ -821,9 +889,10 @@ final class FASTQOperationDialogState {
         pendingEsVirituConfigs = []
         pendingTaxTriageConfig = nil
         pendingViralReconRequest = nil
+        let assemblyOutputMode: FASTQOperationOutputMode = runMode == .combined ? .groupedResult : .perInput
         pendingLaunchRequest = .assemble(
             request: request,
-            outputMode: outputMode
+            outputMode: assemblyOutputMode
         )
         embeddedToolReady = true
     }
@@ -1025,7 +1094,7 @@ final class FASTQOperationDialogState {
         }
     }
 
-    static func displayPath(for url: URL, relativeTo projectURL: URL?) -> String {
+    nonisolated static func displayPath(for url: URL, relativeTo projectURL: URL?) -> String {
         let standardizedTarget = url.standardizedFileURL.path
         guard let projectURL else { return standardizedTarget }
 
@@ -1423,10 +1492,17 @@ final class FASTQOperationDialogState {
             }
             do {
                 _ = try AdvancedCommandLineOptions.parse(mafftExtraOptionsText)
-                return nil
             } catch {
                 return "Advanced options are not valid: \(error.localizedDescription)"
             }
+            // AS22 (task E4): makeMSAAlignmentRequest() requires a non-nil
+            // projectURL and silently returns nil without one. Readiness
+            // must reflect that so Run doesn't report "ready" while
+            // producing no pending request at all.
+            if projectURL == nil {
+                return "Open or create a project before aligning with MAFFT."
+            }
+            return nil
 
         case .refreshQCSummary, .minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon, .kraken2, .esViritu, .taxTriage, .removeHumanReads:
             return nil
@@ -1531,7 +1607,7 @@ final class FASTQOperationDialogState {
         }
     }
 
-    private static func projectBarcodeDefinitionCandidates(in projectURL: URL?) -> [URL] {
+    private nonisolated static func projectBarcodeDefinitionCandidates(in projectURL: URL?) -> [URL] {
         guard let projectURL else { return [] }
         let fm = FileManager.default
         let allowedExtensions = Set(["csv", "tsv", "txt"])
@@ -1567,6 +1643,15 @@ final class FASTQOperationDialogState {
                 .localizedStandardCompare(displayPath(for: $1, relativeTo: projectURL)) == .orderedAscending
         }
     }
+
+    #if DEBUG
+    /// Test-only passthrough to the private, nonisolated recursive scan, so tests can compare
+    /// the async scan's result against a direct call to the same underlying implementation
+    /// without duplicating its logic. Not compiled into release builds.
+    nonisolated static func directScanForTesting(in projectURL: URL?) -> [URL] {
+        projectBarcodeDefinitionCandidates(in: projectURL)
+    }
+    #endif
 
     private func trimmedNonEmpty(_ value: String) -> String? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)

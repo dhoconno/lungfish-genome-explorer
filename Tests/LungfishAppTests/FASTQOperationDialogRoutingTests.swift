@@ -292,6 +292,46 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertEqual(state.readinessText, "Ready to configure output.")
     }
 
+    /// Regression test for AS22: prepareForRun()'s mafft branch checked
+    /// selectedToolConfigurationIsReady (FASTQ-input confirmation, thread
+    /// count, advanced-options parseability) but never checked for a
+    /// non-nil projectURL, while makeMSAAlignmentRequest() does
+    /// `guard let projectURL else { return nil }`. With no project open,
+    /// isRunEnabled/readinessText previously reported "ready" while Run
+    /// silently produced no pending request at all.
+    func testMAFFTRequiresProjectBeforeRunCanProceed() {
+        let inputURL = URL(fileURLWithPath: "/tmp/sample.fasta")
+        let state = FASTQOperationDialogState(
+            initialCategory: .alignment,
+            selectedInputURLs: [inputURL],
+            projectURL: nil
+        )
+
+        state.selectTool(.mafft)
+
+        XCTAssertFalse(state.isRunEnabled, "MAFFT must not report ready with no project open")
+        XCTAssertNotEqual(state.readinessText, "Ready to configure output.")
+
+        state.prepareForRun()
+        XCTAssertNil(state.pendingMSAAlignmentRequest, "Run must not silently no-op with a stale/absent pending request")
+    }
+
+    func testMAFFTBuildsAlignmentRequestOnceProjectIsSet() {
+        let inputURL = URL(fileURLWithPath: "/tmp/sample.fasta")
+        let projectURL = URL(fileURLWithPath: "/tmp/Fixture.lungfish", isDirectory: true)
+        let state = FASTQOperationDialogState(
+            initialCategory: .alignment,
+            selectedInputURLs: [inputURL],
+            projectURL: projectURL
+        )
+
+        state.selectTool(.mafft)
+
+        XCTAssertTrue(state.isRunEnabled)
+        state.prepareForRun()
+        XCTAssertNotNil(state.pendingMSAAlignmentRequest)
+    }
+
     func testQualityTrimRoutesExtraArgumentsIntoLaunchRequest() {
         let state = FASTQOperationDialogState(
             initialCategory: .trimmingFiltering,
@@ -891,7 +931,14 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         )
     }
 
-    func testProjectBarcodeDefinitionCandidatesIncludeTextBarcodeFiles() throws {
+    // The recursive barcode-definition-candidate scan (F8) no longer runs synchronously
+    // during `init` -- it starts as an empty array and is populated by
+    // `refreshProjectBarcodeDefinitionCandidates()`, which the dialog's `.task` awaits once
+    // the view appears. These two tests were written against the old synchronous contract;
+    // they now explicitly await that same call to drive the (now-async) scan before asserting
+    // on its result, exercising the exact API the dialog itself uses.
+
+    func testProjectBarcodeDefinitionCandidatesIncludeTextBarcodeFiles() async throws {
         let projectURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("FASTQOperationDialogRouting-\(UUID().uuidString).lungfish", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: projectURL) }
@@ -921,6 +968,8 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
             selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")],
             projectURL: projectURL
         )
+        XCTAssertEqual(state.projectBarcodeDefinitionCandidates, [], "scan must not run synchronously during init")
+        await state.refreshProjectBarcodeDefinitionCandidates()
 
         XCTAssertEqual(
             state.projectBarcodeDefinitionCandidates.map { FASTQOperationDialogState.displayPath(for: $0, relativeTo: projectURL) },
@@ -928,7 +977,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         )
     }
 
-    func testProjectBarcodeDefinitionCandidatesDoNotRefreshDuringUnrelatedTextEdits() throws {
+    func testProjectBarcodeDefinitionCandidatesDoNotRefreshDuringUnrelatedTextEdits() async throws {
         let projectURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("FASTQOperationDialogRouting-\(UUID().uuidString).lungfish", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: projectURL) }
@@ -943,6 +992,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
             projectURL: projectURL
         )
         state.selectTool(.ontGenotyping)
+        await state.refreshProjectBarcodeDefinitionCandidates()
 
         XCTAssertEqual(state.projectBarcodeDefinitionCandidates, [firstBarcodeURL.standardizedFileURL])
 
@@ -1441,15 +1491,17 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
             pairedEnd: false,
             threads: 8
         )
+        let plan = MappingRunPlan(requests: [request], mode: .perBundle, warning: nil)
 
-        state.captureMappingRequest(request)
+        state.captureMappingRequest(plan)
 
-        XCTAssertEqual(state.pendingMappingRequest, request)
-        XCTAssertEqual(state.pendingMappingRequest?.readGroup?.id, "rg-custom")
-        XCTAssertEqual(state.pendingMappingRequest?.readGroup?.sampleName, "sample-custom")
-        XCTAssertEqual(state.pendingMappingRequest?.readGroup?.library, "library-custom")
-        XCTAssertEqual(state.pendingMappingRequest?.readGroup?.platform, "ILLUMINA")
-        XCTAssertEqual(state.pendingMappingRequest?.readGroup?.platformUnit, "unit-custom")
+        XCTAssertEqual(state.pendingMappingRequest?.requests, [request])
+        XCTAssertNil(state.pendingMappingRequest?.warning)
+        XCTAssertEqual(state.pendingMappingRequest?.requests.first?.readGroup?.id, "rg-custom")
+        XCTAssertEqual(state.pendingMappingRequest?.requests.first?.readGroup?.sampleName, "sample-custom")
+        XCTAssertEqual(state.pendingMappingRequest?.requests.first?.readGroup?.library, "library-custom")
+        XCTAssertEqual(state.pendingMappingRequest?.requests.first?.readGroup?.platform, "ILLUMINA")
+        XCTAssertEqual(state.pendingMappingRequest?.requests.first?.readGroup?.platformUnit, "unit-custom")
         guard case .map(let inputURLs, let referenceURL, let outputMode) = state.pendingLaunchRequest else {
             return XCTFail("Expected mapping launch request")
         }

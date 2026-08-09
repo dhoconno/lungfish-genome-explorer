@@ -38,6 +38,38 @@ public enum GenotypeWorkbookManagedRuntimeProbe {
     private static let stdoutLimit = 16_384
     private static let stderrLimit = 65_536
 
+    /// Async wrapper around `probe(pythonExecutableURL:timeout:cancellationCheck:)`
+    /// that runs the underlying synchronous busy-poll on a detached background task
+    /// (R3-R3ML-17). `probe` itself is fully synchronous and spins in a `usleep`
+    /// polling loop for up to `timeout` seconds (15s default) -- calling it directly
+    /// from the main actor or any async context would freeze that thread/task for the
+    /// duration. This is the entry point any GUI call path should use; CLI callers
+    /// that are already comfortable blocking their own dedicated thread may continue
+    /// to call `probe` directly.
+    public static func probeAsync(
+        pythonExecutableURL: URL,
+        timeout: TimeInterval = 15,
+        cancellationCheck:
+            @escaping @Sendable () -> Bool = {
+                withUnsafeCurrentTask { $0?.isCancelled ?? false }
+            }
+    ) async throws -> [String: String] {
+        try await Task.detached(priority: .utility) {
+            try probe(
+                pythonExecutableURL: pythonExecutableURL,
+                timeout: timeout,
+                cancellationCheck: cancellationCheck
+            )
+        }.value
+    }
+
+    /// Blocking; spins in a `usleep` polling loop (checking `cancellationCheck` and
+    /// the process's live state every 20ms) for up to `timeout` seconds. Must be
+    /// called off the main thread / from a background Task -- never directly from
+    /// `@MainActor` or any other async context expected to stay responsive. Prefer
+    /// `probeAsync`, which wraps this in a detached background task, unless the
+    /// caller already owns a dedicated thread it is fine to block (e.g. a CLI
+    /// subcommand's synchronous `run()`) (R3-R3ML-17).
     public static func probe(
         pythonExecutableURL: URL,
         timeout: TimeInterval = 15,

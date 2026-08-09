@@ -63,6 +63,9 @@ public struct AssemblyContigCatalog: Sendable {
         try Self.validateUniqueSequenceNames(reader.sequenceNames)
 
         let headersByName = try Self.parseHeaders(from: result.contigsPath)
+        let fileHandle = try FileHandle(forReadingFrom: result.contigsPath)
+        defer { try? fileHandle.close() }
+
         var contigs: [ContigMetadata] = []
         contigs.reserveCapacity(reader.sequenceNames.count)
 
@@ -80,8 +83,12 @@ public struct AssemblyContigCatalog: Sendable {
                 gcBases = 0
                 previewSequence = ""
             } else {
-                let sequence = try await reader.fetchSequence(name: name)
-                gcBases = Int64(Self.gcBaseCount(in: sequence.asString()))
+                // Stream the contig's sequence bytes directly from the FASTA index's known
+                // byte range (skipping line-wrap newlines) to count G/C bases, rather than
+                // materializing the full contig sequence as a String via
+                // IndexedFASTAReader.fetchSequence. Avoids buffering megabase-scale contigs
+                // in memory just to compute a summary-catalog GC percentage (R3-R3ML-1).
+                gcBases = try Self.gcBaseCount(for: entry, fileHandle: fileHandle)
                 previewSequence = try await Self.previewSequence(
                     reader: reader,
                     name: name,
@@ -297,16 +304,46 @@ public struct AssemblyContigCatalog: Sendable {
         return (Double(gcBases) / Double(totalBases)) * 100.0
     }
 
-    private static func gcBaseCount(in bases: String) -> Int {
-        var gcBases = 0
-        for character in bases {
-            switch character {
-            case "G", "g", "C", "c":
-                gcBases += 1
-            default:
-                break
+    /// Counts G/C bases for a single FASTA index entry by seeking directly to its known byte
+    /// range and streaming the sequence bytes in bounded chunks, skipping the line-wrap
+    /// newline bytes the .fai `lineBases`/`lineWidth` fields describe. Never materializes the
+    /// contig's full base sequence as a `String` (see the call site's R3-R3ML-1 note).
+    private static func gcBaseCount(for entry: FASTAIndex.Entry, fileHandle: FileHandle) throws -> Int64 {
+        guard entry.length > 0, entry.lineBases > 0 else { return 0 }
+
+        // Matches FASTAIndex.byteOffset(for:in:)'s addressing exactly: the byte span from the
+        // entry's start offset up to (but not including) one past the last base's byte -- i.e.
+        // the same [startOffset, endOffset) range fetch(region:) reads, computed without going
+        // through fetch/fetchSequence so no base String is ever materialized here.
+        let lastBasePosition = entry.length - 1
+        let lastBaseLineNumber = lastBasePosition / entry.lineBases
+        let lastBaseLineOffset = lastBasePosition % entry.lineBases
+        let totalByteSpan = (lastBaseLineNumber * entry.lineWidth) + lastBaseLineOffset + 1
+
+        try fileHandle.seek(toOffset: UInt64(entry.offset))
+
+        let chunkSize = 256 * 1024
+        var remainingBytes = totalByteSpan
+        var gcBases: Int64 = 0
+
+        while remainingBytes > 0 {
+            let readSize = min(chunkSize, remainingBytes)
+            guard let chunk = try fileHandle.read(upToCount: readSize), !chunk.isEmpty else { break }
+            remainingBytes -= chunk.count
+
+            for byte in chunk {
+                // Newline/CR bytes are line-wrap formatting, not sequence data -- the entry's
+                // byte span includes them (lineWidth > lineBases), so skip without counting
+                // them toward GC content.
+                switch byte {
+                case UInt8(ascii: "G"), UInt8(ascii: "g"), UInt8(ascii: "C"), UInt8(ascii: "c"):
+                    gcBases += 1
+                default:
+                    break
+                }
             }
         }
+
         return gcBases
     }
 

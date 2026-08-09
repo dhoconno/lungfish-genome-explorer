@@ -817,6 +817,41 @@ final class NCBIServiceTests: XCTestCase {
         }
     }
 
+    // MARK: - R3-R3ML-11: GenBank location parsing '^' insertion-point sites
+
+    func testParseLocationParsesInsertionPointSite() async throws {
+        let result = await service.testingParseLocation("123^124")
+        let parsed = try XCTUnwrap(result)
+
+        XCTAssertEqual(parsed.start, 123)
+        XCTAssertEqual(parsed.end, 123)
+        XCTAssertEqual(parsed.strand, .forward)
+    }
+
+    func testParseLocationParsesComplementedInsertionPointSite() async throws {
+        let result = await service.testingParseLocation("complement(123^124)")
+        let parsed = try XCTUnwrap(result)
+
+        XCTAssertEqual(parsed.start, 123)
+        XCTAssertEqual(parsed.end, 123)
+        XCTAssertEqual(parsed.strand, .reverse)
+    }
+
+    func testParseLocationRejectsNonAdjacentCaretOperands() async {
+        // The '^' operator is only valid for adjacent integers (Y == X + 1); GenBank
+        // never emits e.g. "123^200", so this must not be silently accepted as a range.
+        let parsed = await service.testingParseLocation("123^200")
+        XCTAssertNil(parsed)
+    }
+
+    func testParseLocationStillParsesOrdinarySimpleRange() async throws {
+        let result = await service.testingParseLocation("100..200")
+        let parsed = try XCTUnwrap(result)
+
+        XCTAssertEqual(parsed.start, 100)
+        XCTAssertEqual(parsed.end, 200)
+    }
+
     // MARK: - NCBISearchType Tests
 
     func testNCBISearchTypeHasAllCases() {

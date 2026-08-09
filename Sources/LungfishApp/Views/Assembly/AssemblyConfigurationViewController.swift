@@ -70,7 +70,7 @@ public struct AssemblySheetPresenter {
             inputFiles: inputFiles,
             outputDirectory: outputDirectory,
             initialTool: initialTool,
-            onRun: { config in
+            onRun: { config, _ in
                 Task { @MainActor in
                     if let warning = await AssemblyRuntimePreflight.warningMessage(for: config) {
                         AssemblyRuntimePreflight.presentWarning(

@@ -67,6 +67,20 @@ struct ExtractSubcommand: AsyncParsableCommand {
 
     @OptionGroup var globalOptions: GlobalOptions
 
+    /// Deprecation notice printed to stderr on every invocation, pointing users
+    /// at the true functional replacement in `extract reads --by-classifier`.
+    ///
+    /// `conda extract` performs Kraken2-taxonomy-based extraction; the
+    /// replacement is `--by-classifier --tool kraken2`, not `--by-id` (which
+    /// extracts by literal read-ID list and has no taxonomy concept). See F59.
+    static let deprecationMessage = """
+        WARNING: 'lungfish conda extract' is deprecated. Use 'lungfish extract reads --by-classifier --tool kraken2' instead.
+          Old: --taxid <id> --kraken-output <file>
+          New: --taxon <id> --result <file>
+          Example: lungfish extract reads --by-classifier --tool kraken2 --taxon 562 --result class.kraken --source reads.fastq --output ecoli.fastq
+
+        """
+
     // MARK: - Validation
 
     func validate() throws {
@@ -87,7 +101,7 @@ struct ExtractSubcommand: AsyncParsableCommand {
     // MARK: - Execution
 
     func run() async throws {
-        FileHandle.standardError.write(Data("WARNING: 'lungfish conda extract' is deprecated. Use 'lungfish extract reads --by-id' instead.\n".utf8))
+        FileHandle.standardError.write(Data(Self.deprecationMessage.utf8))
 
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
 

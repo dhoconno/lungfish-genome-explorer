@@ -4,6 +4,7 @@
 
 import SwiftUI
 import LungfishWorkflow
+import LungfishKit
 
 // MARK: - ClassificationWizardSheet
 
@@ -72,6 +73,35 @@ struct ClassificationWizardSheet: View {
     @State private var selectedDatabaseName: String = ""
     @State private var preset: ClassificationConfig.Preset = .balanced
     @State private var showAdvanced: Bool = false
+    @State private var classificationMultiBundleRunMode: MultiBundleRunMode = .perBundle
+
+    /// Kraken2/Bracken classification already runs one classify+profile pass
+    /// per sample (MetagenomicsSampleGrouper groups the selected FASTQ
+    /// bundles into samples, and `performRun` maps each sample to its own
+    /// `ClassificationConfig` -- see the "Batch Samples" summary below).
+    /// There is no combined/pooled mode: pooling reads across samples before
+    /// classification would conflate per-sample abundance estimates, which
+    /// is scientifically wrong for this tool. Locked per-bundle (round-2
+    /// picker retrofit) purely to make that existing, already-correct batch
+    /// behavior visible via the same shared picker component MAFFT/Savont/
+    /// pbaa/ONT genotyping use, matching the honest-copy standard set by the
+    /// C6/commit 7a5041c6 review fix: the lockReason describes what
+    /// execution actually does today, not an aspirational combined mode.
+    ///
+    /// Round-3 revision (item 0): the earlier copy ("Each sample already
+    /// gets its own Kraken2/Bracken run") described only the per-sample
+    /// half of the truth and implied N independent runs. For N>1 samples,
+    /// `runClassificationBatch` (AppDelegate+Classification.swift) actually
+    /// registers exactly ONE OperationCenter entry and writes ONE merged
+    /// classification-batch-summary.tsv across all samples, while still
+    /// running one Kraken2/Bracken pass per sample inside that batch. The
+    /// lockReason now states both halves honestly.
+    /// Display-only -- `performRun`'s per-sample fan-out is unchanged.
+    static let classificationMultiBundleRunPolicy = MultiBundleRunPolicy(
+        allowedModes: [.perBundle],
+        defaultMode: .perBundle,
+        lockReason: "Selections run as one classification batch (one operations entry, merged summary); each sample is classified separately within the batch."
+    )
 
     // Advanced settings
     @State private var confidence: Double = 0.2
@@ -167,7 +197,28 @@ struct ClassificationWizardSheet: View {
 
     /// Whether the Run button should be enabled.
     private var canRun: Bool {
-        !groupedSamples.isEmpty && selectedDatabase != nil && selectedDatabase?.status == .ready
+        !groupedSamples.isEmpty
+            && selectedDatabase != nil
+            && selectedDatabase?.status == .ready
+            && advancedArgumentsParseError == nil
+    }
+
+    /// Non-nil when the Extra Arguments field contains text that can't be
+    /// parsed as shell-style arguments (e.g. an unterminated quote).
+    private var advancedArgumentsParseError: String? {
+        Self.advancedArgumentsParseError(extraArgumentsText)
+    }
+
+    /// Pure, testable helper: non-nil when `text` can't be parsed as
+    /// shell-style arguments (e.g. an unterminated quote). Mirrors
+    /// TaxTriageWizardSheet.advancedArgumentsParseError (task E3/AS31).
+    static func advancedArgumentsParseError(_ text: String) -> String? {
+        do {
+            _ = try AdvancedCommandLineOptions.parse(text)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
     }
 
     /// Description text for the current preset.
@@ -299,6 +350,10 @@ struct ClassificationWizardSheet: View {
                 Text("No databases installed")
                     .font(.caption)
                     .foregroundStyle(Color.lungfishOrangeFallback)
+            } else if !canRun, let advancedArgumentsParseError {
+                Text(advancedArgumentsParseError)
+                    .font(.caption)
+                    .foregroundStyle(Color.lungfishOrangeFallback)
             }
 
             Spacer()
@@ -352,6 +407,12 @@ struct ClassificationWizardSheet: View {
             Text("One Kraken2/Bracken run will be executed per sample.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            MultiBundleRunModePicker(
+                bundleCount: groupedSamples.count,
+                policy: Self.classificationMultiBundleRunPolicy,
+                selection: $classificationMultiBundleRunMode
+            )
 
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(groupedSamples.prefix(8)) { sample in

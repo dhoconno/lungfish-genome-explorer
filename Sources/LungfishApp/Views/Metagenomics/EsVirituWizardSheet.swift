@@ -4,6 +4,7 @@
 
 import SwiftUI
 import LungfishWorkflow
+import LungfishKit
 
 struct EsVirituRunReadiness {
     static func canRun(
@@ -11,12 +12,14 @@ struct EsVirituRunReadiness {
         isBatchMode: Bool,
         sampleName: String,
         isDatabaseInstalled: Bool,
-        databasePath: URL?
+        databasePath: URL?,
+        extraArgumentsText: String = ""
     ) -> Bool {
         groupedSampleCount > 0
             && isDatabaseInstalled
             && databasePath != nil
             && (isBatchMode || !sampleName.trimmingCharacters(in: .whitespaces).isEmpty)
+            && ((try? AdvancedCommandLineOptions.parse(extraArgumentsText)) != nil)
     }
 }
 
@@ -87,6 +90,35 @@ struct EsVirituWizardSheet: View {
     @State private var sampleName: String = ""
     @State private var qualityFilter: Bool = true
     @State private var showAdvanced: Bool = false
+    @State private var esVirituMultiBundleRunMode: MultiBundleRunMode = .perBundle
+
+    /// EsViritu already runs one detection pass per sample
+    /// (MetagenomicsSampleGrouper groups the selected FASTQ bundles into
+    /// samples, and `performRun` maps each sample to its own
+    /// `EsVirituConfig` -- see the "Batch Samples" section below). There is
+    /// no combined/pooled mode: pooling reads across samples before viral
+    /// detection would conflate per-sample abundance/coverage metrics.
+    /// Locked per-bundle (round-2 picker retrofit) purely to make that
+    /// existing, already-correct batch behavior visible via the same shared
+    /// picker component MAFFT/Savont/pbaa/ONT genotyping use, matching the
+    /// honest-copy standard set by the C6/commit 7a5041c6 review fix: the
+    /// lockReason describes what execution actually does today, not an
+    /// aspirational combined mode.
+    ///
+    /// Round-3 revision (item 0): the earlier copy ("Each sample already
+    /// gets its own EsViritu run") described only the per-sample half of
+    /// the truth and implied N independent runs. For N>1 samples,
+    /// `runEsVirituBatch` (AppDelegate+Classification.swift) actually
+    /// registers exactly ONE OperationCenter entry and writes ONE merged
+    /// esviritu-batch-summary.tsv across all samples, while still running
+    /// one EsViritu pass per sample inside that batch. The lockReason now
+    /// states both halves honestly.
+    /// Display-only -- `performRun`'s per-sample fan-out is unchanged.
+    static let esVirituMultiBundleRunPolicy = MultiBundleRunPolicy(
+        allowedModes: [.perBundle],
+        defaultMode: .perBundle,
+        lockReason: "Selections run as one classification batch (one operations entry, merged summary); each sample is classified separately within the batch."
+    )
 
     // Advanced settings
     @State private var minReadLength: Int = 100
@@ -154,8 +186,20 @@ struct EsVirituWizardSheet: View {
             isBatchMode: isBatchMode,
             sampleName: sampleName,
             isDatabaseInstalled: isDatabaseInstalled,
-            databasePath: databasePath
+            databasePath: databasePath,
+            extraArgumentsText: extraArgumentsText
         )
+    }
+
+    /// Non-nil when the Extra Arguments field contains text that can't be
+    /// parsed as shell-style arguments (e.g. an unterminated quote).
+    private var advancedArgumentsParseError: String? {
+        do {
+            _ = try AdvancedCommandLineOptions.parse(extraArgumentsText)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
     }
 
     /// The system's physical memory in bytes.
@@ -221,7 +265,7 @@ struct EsVirituWizardSheet: View {
             subtitle: "Identify viral sequences using the EsViritu pipeline",
             accessoryText: standaloneAccessoryText,
             size: WizardSheetSize(width: 520, height: 500),
-            statusText: canRun ? nil : "Finish the settings above to continue",
+            statusText: canRun ? nil : (advancedArgumentsParseError ?? "Finish the settings above to continue"),
             statusColor: Color.lungfishOrangeFallback,
             isPrimaryEnabled: canRun,
             onCancel: { onCancel?() },
@@ -292,6 +336,12 @@ struct EsVirituWizardSheet: View {
                 Text("One EsViritu run will be executed per sample.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                MultiBundleRunModePicker(
+                    bundleCount: groupedSamples.count,
+                    policy: Self.esVirituMultiBundleRunPolicy,
+                    selection: $esVirituMultiBundleRunMode
+                )
 
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(groupedSamples.prefix(8)) { sample in

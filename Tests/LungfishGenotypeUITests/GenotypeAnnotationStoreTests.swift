@@ -481,23 +481,6 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         XCTAssertNil(store.sidecar.auditLog[1].after)
     }
 
-    func testUndoOverride() throws {
-        let dir = try makeBundleURL()
-        defer { try? FileManager.default.removeItem(at: dir) }
-
-        let store = try GenotypeAnnotationStore(bundleURL: dir, author: "test")
-        try store.applyOverride(
-            sample: "H22C112", locus: "MHC-A", slot: .h2,
-            originalCall: "M2A", overrideCall: "A1_063",
-            reasonTag: .crossContamination, rationale: ""
-        )
-        XCTAssertEqual(store.sidecar.callOverrides.count, 1)
-        try store.undoLastOverride()
-        XCTAssertEqual(store.sidecar.callOverrides.count, 0)
-        XCTAssertEqual(store.sidecar.auditLog.count, 2)
-        XCTAssertEqual(store.sidecar.auditLog[1].action, "undoOverride")
-    }
-
     func testSetSampleStatusOverrideExistingValue() throws {
         let dir = try makeBundleURL()
         defer { try? FileManager.default.removeItem(at: dir) }

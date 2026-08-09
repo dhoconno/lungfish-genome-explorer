@@ -1839,6 +1839,21 @@ final class AssembleCommandRegressionTests: XCTestCase {
         XCTAssertFalse(AssembleCommand.configuration.abstract.isEmpty)
     }
 
+    // MB-5: multi-input semantics must be stated explicitly so CLI users
+    // don't discover "pools into one sample" only after a multi-sample run.
+    func testDiscussionStatesMultiInputIsOneSampleNotBatch() {
+        XCTAssertTrue(
+            AssembleCommand.configuration.discussion.contains(
+                "Multiple inputs are treated as one sample's reads"
+            )
+        )
+        XCTAssertTrue(
+            AssembleCommand.configuration.discussion.contains(
+                "invoke once per sample for per-sample results"
+            )
+        )
+    }
+
     func testHelpMessageUsesManagedAssemblySurface() {
         let help = AssembleCommand.helpMessage()
         XCTAssertTrue(help.contains("--assembler"))
@@ -2705,6 +2720,21 @@ final class MapCommandRegressionTests: XCTestCase {
 
     func testAbstractIsNonEmpty() {
         XCTAssertFalse(MapCommand.configuration.abstract.isEmpty)
+    }
+
+    // MB-5: multi-input semantics must be stated explicitly so CLI users
+    // don't discover "pools into one sample" only after a multi-sample run.
+    func testDiscussionStatesMultiInputIsOneSampleNotBatch() {
+        XCTAssertTrue(
+            MapCommand.configuration.discussion.contains(
+                "Multiple inputs are treated as one sample's reads"
+            )
+        )
+        XCTAssertTrue(
+            MapCommand.configuration.discussion.contains(
+                "invoke once per sample for per-sample results"
+            )
+        )
     }
 
     func testHelpMentionsMapperAndReadMappingPack() {

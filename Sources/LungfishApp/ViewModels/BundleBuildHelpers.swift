@@ -197,7 +197,7 @@ enum BundleBuildHelpers {
 
     /// Formats a byte count as a human-readable string.
     static func formatBytes(_ bytes: Int64) -> String {
-        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+        LungfishFormatters.formatBytes(bytes)
     }
 
     // MARK: - Assembly Report Parsing

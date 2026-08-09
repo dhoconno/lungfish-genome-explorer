@@ -591,48 +591,83 @@ public struct ProcessPBAANextflowRunner: PBAANextflowRunning {
         workingDirectory: URL?,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) async throws -> PBAAProcessResult {
-        try await withCheckedThrowingContinuation { continuation in
-            let process = Process()
-            process.executableURL = executableURL
-            process.arguments = arguments
-            process.currentDirectoryURL = workingDirectory
-            process.environment = environment
+        let cancellationHandle = NativeProcessCancellationHandle()
+        let runState = NativeProcessRunState()
 
-            let stdoutPipe = Pipe()
-            let stderrPipe = Pipe()
-            process.standardOutput = stdoutPipe
-            process.standardError = stderrPipe
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let process = Process()
+                process.executableURL = executableURL
+                process.arguments = arguments
+                process.currentDirectoryURL = workingDirectory
+                process.environment = environment
 
-            do {
-                try process.run()
-            } catch {
-                continuation.resume(throwing: PBAAClusteringError.nextflowUnavailable)
-                return
+                let stdoutPipe = Pipe()
+                let stderrPipe = Pipe()
+                process.standardOutput = stdoutPipe
+                process.standardError = stderrPipe
+
+                let stdoutBox = PBAADataBox()
+                let stderrBox = PBAADataBox()
+                let group = DispatchGroup()
+                let startOutputDrain: @Sendable () -> Void = {
+                    group.enter()
+                    DispatchQueue.global().async {
+                        stdoutBox.value = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                        group.leave()
+                    }
+                    group.enter()
+                    DispatchQueue.global().async {
+                        stderrBox.value = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                        group.leave()
+                    }
+                }
+                cancellationHandle.store(process)
+
+                process.terminationHandler = { terminatedProcess in
+                    group.notify(queue: .global(qos: .userInitiated)) {
+                        cancellationHandle.clear(terminatedProcess)
+                        runState.resumeOnce { reason in
+                            switch reason {
+                            case .cancelled:
+                                continuation.resume(throwing: CancellationError())
+                            case .timedOut:
+                                continuation.resume(throwing: CancellationError())
+                            case .completed:
+                                continuation.resume(returning: PBAAProcessResult(
+                                    exitCode: terminatedProcess.terminationStatus,
+                                    stdout: String(data: stdoutBox.value, encoding: .utf8) ?? "",
+                                    stderr: String(data: stderrBox.value, encoding: .utf8) ?? ""
+                                ))
+                            }
+                        }
+                    }
+                }
+
+                do {
+                    startOutputDrain()
+                    try process.run()
+                    cancellationHandle.terminateIfRequested()
+                    if runState.isCancelled {
+                        cancellationHandle.requestProcessTreeTermination()
+                    }
+                } catch {
+                    cancellationHandle.clear(process)
+                    stdoutPipe.fileHandleForWriting.closeFile()
+                    stderrPipe.fileHandleForWriting.closeFile()
+                    runState.resumeOnce { reason in
+                        switch reason {
+                        case .cancelled, .timedOut:
+                            continuation.resume(throwing: CancellationError())
+                        case .completed:
+                            continuation.resume(throwing: PBAAClusteringError.nextflowUnavailable)
+                        }
+                    }
+                }
             }
-
-            let stdoutBox = PBAADataBox()
-            let stderrBox = PBAADataBox()
-            let group = DispatchGroup()
-
-            group.enter()
-            DispatchQueue.global().async {
-                stdoutBox.value = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-                group.leave()
-            }
-            group.enter()
-            DispatchQueue.global().async {
-                stderrBox.value = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-                group.leave()
-            }
-
-            process.waitUntilExit()
-            group.wait()
-
-            continuation.resume(returning: PBAAProcessResult(
-                exitCode: process.terminationStatus,
-                stdout: String(data: stdoutBox.value, encoding: .utf8) ?? "",
-                stderr: String(data: stderrBox.value, encoding: .utf8) ?? ""
-            ))
+        } onCancel: {
+            runState.markCancelled()
+            cancellationHandle.requestProcessTreeTermination()
         }
     }
 }

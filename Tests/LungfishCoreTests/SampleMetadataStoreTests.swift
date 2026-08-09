@@ -58,6 +58,33 @@ struct SampleMetadataStoreTests {
         #expect(store.edits[0].newValue == "clinical")
     }
 
+    // R3-R3ML-19: applyEdit on a sampleId absent from records must not journal an
+    // edit that didn't actually apply -- diverging in-memory state from the
+    // persisted edit log otherwise.
+    @Test("Apply edit on unknown sampleId does not journal a no-op edit")
+    func applyEditOnUnknownSampleIdDoesNotJournal() throws {
+        let tsv = "Sample\tType\nS1\tww\n"
+        let data = Data(tsv.utf8)
+        let store = try SampleMetadataStore(csvData: data, knownSampleIds: Set(["S1"]))
+
+        store.applyEdit(sampleId: "S99-unmatched", column: "Type", newValue: "clinical")
+
+        #expect(store.edits.isEmpty, "no records entry for S99-unmatched, so no edit should have been journaled")
+        #expect(store.records["S99-unmatched"] == nil)
+    }
+
+    @Test("Apply edit on a known sampleId still journals normally")
+    func applyEditOnKnownSampleIdStillJournals() throws {
+        let tsv = "Sample\tType\nS1\tww\nS2\tclinical\n"
+        let data = Data(tsv.utf8)
+        let store = try SampleMetadataStore(csvData: data, knownSampleIds: Set(["S1", "S2"]))
+
+        store.applyEdit(sampleId: "S2", column: "Type", newValue: "env")
+
+        #expect(store.edits.count == 1)
+        #expect(store.records["S2"]?["Type"] == "env")
+    }
+
     @Test("Serialize and deserialize edits JSON")
     func editsPersistence() throws {
         let tsv = "Sample\tType\nS1\tww\n"

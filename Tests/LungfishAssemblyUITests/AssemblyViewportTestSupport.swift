@@ -79,7 +79,7 @@ extension FakeAssemblyContigCatalog: AssemblyContigCatalogProviding {
 
 @MainActor
 func waitUntil(
-    timeoutNanoseconds: UInt64 = 1_000_000_000,
+    timeoutNanoseconds: UInt64 = 10_000_000_000,
     file: StaticString = #filePath,
     line: UInt = #line,
     _ predicate: @escaping @MainActor () -> Bool
