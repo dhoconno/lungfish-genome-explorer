@@ -13,9 +13,6 @@ private let logger = Logger(subsystem: LogSubsystem.io, category: "KrakenIndex")
 
 // MARK: - Safe SQLite Text Binding
 
-/// The SQLITE_TRANSIENT destructor value, telling SQLite to copy the string immediately.
-private let SQLITE_TRANSIENT_DESTRUCTOR = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-
 /// Binds a Swift String to a SQLite prepared statement at the given parameter index.
 ///
 /// Uses `withCString` to keep the C string alive for the duration of the bind call,
@@ -23,7 +20,7 @@ private let SQLITE_TRANSIENT_DESTRUCTOR = unsafeBitCast(-1, to: sqlite3_destruct
 /// This prevents dangling pointer bugs from temporary NSString conversions.
 private func sqliteBindText(_ stmt: OpaquePointer?, _ index: Int32, _ text: String) {
     _ = text.withCString { cStr in
-        sqlite3_bind_text(stmt, index, cStr, -1, SQLITE_TRANSIENT_DESTRUCTOR)
+        sqlite3_bind_text(stmt, index, cStr, -1, sqliteTransientDestructor)
     }
 }
 

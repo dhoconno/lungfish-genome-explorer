@@ -92,7 +92,6 @@ public final class GenBankRecordDatabase: @unchecked Sendable {
         "field_values": ["record_id", "field_key", "value_ordinal", "value"]
     ]
     private static let requiredIndexes = ["idx_field_values_key_value", "idx_field_values_record_key"]
-    private static let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
     public let databaseURL: URL
     private var database: OpaquePointer?
@@ -637,7 +636,7 @@ public final class GenBankRecordDatabase: @unchecked Sendable {
         guard sqlite3_prepare_v2(database, "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1", -1, &statement, nil) == SQLITE_OK else {
             return false
         }
-        guard sqlite3_bind_text(statement, 1, name, -1, sqliteTransient) == SQLITE_OK else { return false }
+        guard sqlite3_bind_text(statement, 1, name, -1, sqliteTransientDestructor) == SQLITE_OK else { return false }
         return sqlite3_step(statement) == SQLITE_ROW
     }
 
@@ -661,7 +660,7 @@ public final class GenBankRecordDatabase: @unchecked Sendable {
         guard sqlite3_prepare_v2(database, "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ? LIMIT 1", -1, &statement, nil) == SQLITE_OK else {
             return false
         }
-        guard sqlite3_bind_text(statement, 1, name, -1, sqliteTransient) == SQLITE_OK else { return false }
+        guard sqlite3_bind_text(statement, 1, name, -1, sqliteTransientDestructor) == SQLITE_OK else { return false }
         return sqlite3_step(statement) == SQLITE_ROW
     }
 
@@ -681,7 +680,7 @@ public final class GenBankRecordDatabase: @unchecked Sendable {
     }
 
     private static func bind(_ value: String, to statement: OpaquePointer?, index: Int32, database: OpaquePointer) throws {
-        guard sqlite3_bind_text(statement, index, value, -1, sqliteTransient) == SQLITE_OK else {
+        guard sqlite3_bind_text(statement, index, value, -1, sqliteTransientDestructor) == SQLITE_OK else {
             throw Error.operationFailed(String(cString: sqlite3_errmsg(database)))
         }
     }

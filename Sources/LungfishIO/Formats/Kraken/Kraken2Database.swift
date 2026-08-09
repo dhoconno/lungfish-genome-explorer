@@ -9,13 +9,10 @@ import os.log
 
 private let logger = Logger(subsystem: LogSubsystem.io, category: "Kraken2Database")
 
-/// The SQLITE_TRANSIENT destructor value, telling SQLite to copy the string immediately.
-private let SQLITE_TRANSIENT_DESTRUCTOR = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-
 /// Binds a Swift String to a SQLite prepared statement at the given parameter index.
 private func krBindText(_ stmt: OpaquePointer?, _ index: Int32, _ text: String) {
     _ = text.withCString { cStr in
-        sqlite3_bind_text(stmt, index, cStr, -1, SQLITE_TRANSIENT_DESTRUCTOR)
+        sqlite3_bind_text(stmt, index, cStr, -1, sqliteTransientDestructor)
     }
 }
 

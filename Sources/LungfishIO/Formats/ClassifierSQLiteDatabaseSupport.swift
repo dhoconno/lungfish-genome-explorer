@@ -28,8 +28,6 @@ enum ClassifierSQLiteDatabaseSupport {
     static let buildStateBuilding = "building"
     static let buildStateComplete = "complete"
 
-    private static let transientDestructor = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-
     static func stagingURL(for finalURL: URL) -> URL {
         SQLiteDatabasePublication.stagingURL(for: finalURL)
     }
@@ -281,7 +279,7 @@ enum ClassifierSQLiteDatabaseSupport {
 
     private static func bindText(_ stmt: OpaquePointer?, _ index: Int32, _ text: String) {
         _ = text.withCString { cString in
-            sqlite3_bind_text(stmt, index, cString, -1, transientDestructor)
+            sqlite3_bind_text(stmt, index, cString, -1, sqliteTransientDestructor)
         }
     }
 }

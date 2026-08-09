@@ -400,7 +400,7 @@ extension VariantDatabase {
             var checkStmt: OpaquePointer?
             let checkSQL = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?"
             guard sqlite3_prepare_v2(db, checkSQL, -1, &checkStmt, nil) == SQLITE_OK else { continue }
-            sqlite3_bind_text(checkStmt, 1, tableName, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_text(checkStmt, 1, tableName, -1, sqliteTransientDestructor)
             let exists: Bool
             if sqlite3_step(checkStmt!) == SQLITE_ROW {
                 exists = sqlite3_column_int64(checkStmt!, 0) > 0

@@ -13,8 +13,10 @@ let dbLogger = Logger(subsystem: LogSubsystem.io, category: "AnnotationDatabase"
 /// Tells SQLite to copy bound bytes immediately, rather than trusting the caller to
 /// keep the pointer valid until sqlite3_step()/sqlite3_reset() (F38). Shared across all
 /// AnnotationDatabase+*.swift files so every `sqlite3_bind_text` call in this file family
-/// uses the same non-nil, copying destructor.
-let annotationDatabaseSQLiteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+/// uses the same non-nil, copying destructor. Now an alias for the single
+/// module-wide `sqliteTransientDestructor` (F53, round-2) -- kept under its original
+/// name here rather than mass-renaming every AnnotationDatabase+*.swift call site.
+let annotationDatabaseSQLiteTransient = sqliteTransientDestructor
 
 // MARK: - AnnotationDatabase (Reader)
 
