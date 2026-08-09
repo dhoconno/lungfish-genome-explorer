@@ -277,6 +277,74 @@ final class BAMImportServiceTests: XCTestCase {
         }
     }
 
+    // MARK: - R3-R3ML-4: orphaned artifact cleanup on manifest-update failure
+
+    func testRemoveJustCreatedImportArtifactsDeletesAllFourFiles() throws {
+        let alignmentURL = tempDir.appendingPathComponent("aln_test.sorted.bam")
+        let indexURL = tempDir.appendingPathComponent("aln_test.sorted.bam.bai")
+        let metadataDBURL = tempDir.appendingPathComponent("aln_test.stats.db")
+        let provenanceURL = tempDir.appendingPathComponent("aln_test.import.lungfish-provenance.json")
+        for url in [alignmentURL, indexURL, metadataDBURL, provenanceURL] {
+            try Data("placeholder".utf8).write(to: url)
+        }
+        for url in [alignmentURL, indexURL, metadataDBURL, provenanceURL] {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+        }
+
+        BAMImportService.removeJustCreatedImportArtifacts(
+            alignmentURL: alignmentURL,
+            indexURL: indexURL,
+            metadataDBURL: metadataDBURL,
+            provenanceURL: provenanceURL
+        )
+
+        for url in [alignmentURL, indexURL, metadataDBURL, provenanceURL] {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "\(url.lastPathComponent) should have been removed")
+        }
+    }
+
+    func testRemoveJustCreatedImportArtifactsToleratesAlreadyMissingFiles() throws {
+        // A partial failure earlier in the import (e.g. index creation failed after
+        // the alignment copy was written) can mean not all four artifacts exist yet.
+        // Cleanup must not throw or crash when some paths are already absent.
+        let alignmentURL = tempDir.appendingPathComponent("aln_test.sorted.bam")
+        try Data("placeholder".utf8).write(to: alignmentURL)
+        let indexURL = tempDir.appendingPathComponent("does-not-exist.bai")
+        let metadataDBURL = tempDir.appendingPathComponent("does-not-exist.stats.db")
+        let provenanceURL = tempDir.appendingPathComponent("does-not-exist.provenance.json")
+
+        BAMImportService.removeJustCreatedImportArtifacts(
+            alignmentURL: alignmentURL,
+            indexURL: indexURL,
+            metadataDBURL: metadataDBURL,
+            provenanceURL: provenanceURL
+        )
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: alignmentURL.path))
+    }
+
+    func testImportCallsCleanupBeforeRethrowingManifestUpdateFailure() throws {
+        let source = try String(
+            contentsOf: packageRoot().appendingPathComponent("Sources/LungfishApp/Services/BAMImportService.swift"),
+            encoding: .utf8
+        )
+
+        let manifestUpdateRange = try XCTUnwrap(source.range(of: "// 12. Update bundle manifest"))
+        let cleanupCallRange = try XCTUnwrap(source.range(of: "removeJustCreatedImportArtifacts("))
+        let rethrowRange = try XCTUnwrap(source.range(of: "throw BAMImportError.manifestUpdateFailed(error.localizedDescription)"))
+
+        XCTAssertLessThan(
+            manifestUpdateRange.lowerBound,
+            cleanupCallRange.lowerBound,
+            "Cleanup call must be inside the manifest-update step's catch block."
+        )
+        XCTAssertLessThan(
+            cleanupCallRange.lowerBound,
+            rethrowRange.lowerBound,
+            "Orphaned import artifacts must be removed before the manifestUpdateFailed error is rethrown."
+        )
+    }
+
     func testImportWritesCanonicalProvenanceBeforeManifestUpdate() throws {
         let source = try String(
             contentsOf: packageRoot().appendingPathComponent("Sources/LungfishApp/Services/BAMImportService.swift"),

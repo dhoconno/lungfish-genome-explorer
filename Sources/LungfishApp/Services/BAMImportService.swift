@@ -267,6 +267,18 @@ public final class BAMImportService: @unchecked Sendable {
             let updatedManifest = manifest.addingAlignmentTrack(trackInfo)
             try updatedManifest.save(to: bundleURL)
         } catch {
+            // The sorted/indexed alignment copy, stats database, and provenance
+            // sidecar written in steps 3-8/10 above were never referenced by the
+            // manifest -- remove them so a manifest-save failure (disk full,
+            // concurrent writer, JSON encode failure) does not leave an
+            // untracked, orphaned track in alignments/ that could reappear on
+            // the next filesystem scan or collide on re-import (R3-R3ML-4).
+            removeJustCreatedImportArtifacts(
+                alignmentURL: effectiveBAMURL,
+                indexURL: materialized.indexURL,
+                metadataDBURL: dbURL,
+                provenanceURL: provenanceURL
+            )
             throw BAMImportError.manifestUpdateFailed(error.localizedDescription)
         }
 
@@ -285,6 +297,33 @@ public final class BAMImportService: @unchecked Sendable {
     }
 
     // MARK: - Helpers
+
+    /// Removes the in-bundle artifacts a partially-completed `importBAM` call has already
+    /// written (sorted/indexed alignment copy, stats database, provenance sidecar) when the
+    /// manifest update that would have made them "official" fails. These files were newly
+    /// created by this import -- never pre-existing -- so there is nothing to restore; the
+    /// correct recovery is simply removing what this call just wrote (R3-R3ML-4). Best-effort:
+    /// a removal failure here must not mask or replace the original manifest error.
+    static func removeJustCreatedImportArtifacts(
+        alignmentURL: URL,
+        indexURL: URL,
+        metadataDBURL: URL,
+        provenanceURL: URL,
+        fileManager: FileManager = .default
+    ) {
+        for url in [alignmentURL, indexURL, metadataDBURL, provenanceURL] {
+            do {
+                try fileManager.removeItem(at: url)
+            } catch let error as NSError {
+                guard error.domain == NSCocoaErrorDomain, error.code == NSFileNoSuchFileError else {
+                    importLogger.error("Failed to remove orphaned BAM import artifact \(url.lastPathComponent): \(error.localizedDescription)")
+                    continue
+                }
+            } catch {
+                importLogger.error("Failed to remove orphaned BAM import artifact \(url.lastPathComponent): \(error.localizedDescription)")
+            }
+        }
+    }
 
     /// Detects the alignment format from the file extension.
     private static func detectFormat(_ url: URL) -> AlignmentFormat {
