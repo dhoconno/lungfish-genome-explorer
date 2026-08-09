@@ -16,24 +16,67 @@ import LungfishKit
 /// An actor rather than a plain class + `@unchecked Sendable`: `Task` is
 /// itself `Sendable`, so an actor gives race-free cross-isolation access to
 /// the stored handle without any unsafe opt-out.
-private actor MappingBatchTaskHandle {
+///
+/// `assign` and `cancel` are both `nonisolated` and hop onto the actor via
+/// their own unordered `Task { await ... }` -- the Swift runtime gives no
+/// ordering guarantee between two such hops fired from different call
+/// sites. Without `cancelRequested`, a `cancel()` that wins the race while
+/// `assign(_:)`'s hop is still pending would find `task == nil` and be a
+/// silent no-op: the `OperationCenter` row would show "Cancelled by user"
+/// while the mapper keeps running underneath. `cancelRequested` closes that
+/// window: whichever hop loses the race still observes the other's intent
+/// and acts on it.
+// `internal` (not `private`) rather than file-scoped so
+// `MappingBatchTaskHandleTests` can drive its actor-isolated methods
+// directly via `@testable import LungfishApp` -- it is still an
+// implementation detail, not part of any public API, and its production
+// call sites (`assign`/`cancel`) are only ever used from within this file.
+actor MappingBatchTaskHandle {
     private var task: Task<Void, Never>?
+    private var cancelRequested = false
 
+    /// Production entry point: hops onto the actor via its own unordered
+    /// `Task { await ... }`, so calling this back-to-back with `cancel()`
+    /// from a `nonisolated` context gives NO ordering guarantee between the
+    /// two -- see `setTask`'s `cancelRequested` check for why that's safe.
     nonisolated func assign(_ task: Task<Void, Never>) {
         Task { await self.setTask(task) }
     }
 
-    private func setTask(_ task: Task<Void, Never>) {
+    /// Actor-isolated and directly `await`-able, so a test can drive the
+    /// exact "cancel already requested before assignment lands" ordering
+    /// deterministically by calling this and `cancelStoredTask` (via
+    /// `cancelForTesting`) as plain sequential `await`s, instead of relying
+    /// on `assign`/`cancel`'s racy `Task { await ... }` hops to land in a
+    /// particular order.
+    func setTask(_ task: Task<Void, Never>) {
+        if cancelRequested {
+            // cancel() already ran (or is concurrently running) before this
+            // assignment landed -- honor the earlier request immediately
+            // instead of storing a task nobody will ever cancel.
+            task.cancel()
+            return
+        }
         self.task = task
     }
 
+    /// Production entry point: see `assign`'s doc comment for the ordering
+    /// caveat this exists to close (`cancelRequested`).
     nonisolated func cancel() {
         Task { await self.cancelStoredTask() }
     }
 
-    private func cancelStoredTask() {
+    /// Actor-isolated and directly `await`-able -- see `setTask`.
+    func cancelStoredTask() {
+        cancelRequested = true
         task?.cancel()
     }
+
+    /// Test-only observers of internal state, so a deterministic test can
+    /// assert on the actual stored flag/task rather than only inferring
+    /// correctness from `Task.isCancelled` side effects.
+    func currentlyHasCancelRequested() -> Bool { cancelRequested }
+    func currentlyAssignedTask() -> Task<Void, Never>? { task }
 }
 
 extension AppDelegate {
@@ -1016,17 +1059,30 @@ extension AppDelegate {
     /// Runs one `MappingRunRequest` to completion (success or failure),
     /// awaiting the whole pipeline before returning, so the sequential loop
     /// in `runManagedMapping` never starts a second bundle's mapping while
-    /// this one is still using the CPU/reference index. This method is a
-    /// member of `AppDelegate` (`@MainActor`) so its body already runs on
-    /// the main actor -- exactly like the pre-existing single-request
-    /// `runManagedMapping` it replaces, which called `self?.
-    /// resolveInputFiles`/`self.prepareMappingViewerBundleIfPossible` (both
-    /// themselves `@MainActor`-isolated members) the same way from inside
-    /// `Task.detached`. `ManagedMappingPipeline.run` is a plain (non-actor)
-    /// async call, so it still genuinely executes off the main actor's
-    /// queue even though awaited from here. `registerCancel` is invoked
-    /// with the freshly-started operation's ID so the caller can wire
-    /// cancellation before any awaiting begins.
+    /// this one is still using the CPU/reference index.
+    ///
+    /// This method is a member of `AppDelegate` (`@MainActor`), so its
+    /// declaration is `@MainActor`-isolated -- it does NOT run "exactly
+    /// like" the old per-request `Task.detached` body, which executed on a
+    /// background executor throughout. What actually keeps this off the
+    /// main thread for the expensive parts is that `resolveInputFiles`,
+    /// `ManagedMappingPipeline.run`, and `prepareMappingViewerBundleIfPossible`
+    /// are themselves `async` calls whose bodies are not further
+    /// `@MainActor`-isolated (`ManagedMappingPipeline` is a plain,
+    /// non-actor `Sendable` class); `await`-ing them from a `@MainActor`
+    /// caller still lets their own work run on a background executor, and
+    /// control only returns to the main actor at each `await` resumption.
+    /// This depends on the current (default) Swift 6 concurrency model,
+    /// where a `nonisolated`/non-actor `async` function's body executes on
+    /// the caller-supplied executor rather than inheriting the caller's
+    /// actor; it would change under `NonisolatedNonsendingByDefault`
+    /// (SE-0461), which this package does not opt into (no
+    /// `SwiftSetting.enableUpcomingFeature("NonisolatedNonsendingByDefault")`
+    /// anywhere in `Package.swift`) -- if that mode is ever adopted here,
+    /// this method's off-main-actor guarantee for those calls would need
+    /// re-verification. `registerCancel` is invoked with the freshly-started
+    /// operation's ID so the caller can wire cancellation before any
+    /// awaiting begins.
     private func runSingleManagedMappingAwaitingCompletion(
         request initialRequest: MappingRunRequest,
         warning: String?,
