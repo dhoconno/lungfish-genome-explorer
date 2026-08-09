@@ -303,6 +303,83 @@ final class ONTFluidigmAmpliconMaterializerTests: XCTestCase {
         XCTAssertEqual(result.outputBundleURLs, [])
     }
 
+    /// R3-R3H-5: two barcode-sheet rows sharing the identical barcode string
+    /// must be rejected at load time, not silently resolved to whichever
+    /// sample happened to load first via BarcodeMatcher's `map[code]?.first`.
+    func testRunThrowsOnDuplicateBarcodeSequence() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let inputFASTQ = root.appendingPathComponent("barcode11.fastq")
+        let barcodesCSV = root.appendingPathComponent("ONT09_NB11_samples.csv")
+        let outputDirectory = root.appendingPathComponent("ont-fluidigm-amplicons", isDirectory: true)
+
+        try "@read-1\nACGT\n+\nIIII\n".write(to: inputFASTQ, atomically: true, encoding: .utf8)
+        let sharedBarcode = "AAAACCCCGG"
+        try """
+        sample,barcode
+        LF2871,\(sharedBarcode)
+        LF2872,\(sharedBarcode)
+        """.write(to: barcodesCSV, atomically: true, encoding: .utf8)
+
+        do {
+            _ = try await ONTFluidigmAmpliconMaterializer().run(
+                ONTFluidigmAmpliconMaterializationRequest(
+                    inputURL: inputFASTQ,
+                    barcodeDefinitionsURL: barcodesCSV,
+                    outputDirectory: outputDirectory,
+                    force: true
+                )
+            )
+            XCTFail("Expected duplicateBarcodeSequence error to be thrown")
+        } catch let error as ONTFluidigmAmpliconMaterializerError {
+            guard case .duplicateBarcodeSequence(let first, let second, let barcode) = error else {
+                return XCTFail("Expected duplicateBarcodeSequence, got \(error)")
+            }
+            XCTAssertEqual(Set([first, second]), Set(["LF2871", "LF2872"]))
+            XCTAssertEqual(barcode, sharedBarcode)
+        }
+    }
+
+    /// R3-R3H-5: a collision via reverse-complement (one row's forward
+    /// barcode equal to another row's reverse-complement) must also be
+    /// rejected -- BarcodeMatcher indexes both orientations into the same
+    /// code map.
+    func testRunThrowsOnReverseComplementBarcodeCollision() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let inputFASTQ = root.appendingPathComponent("barcode11.fastq")
+        let barcodesCSV = root.appendingPathComponent("ONT09_NB11_samples.csv")
+        let outputDirectory = root.appendingPathComponent("ont-fluidigm-amplicons", isDirectory: true)
+
+        try "@read-1\nACGT\n+\nIIII\n".write(to: inputFASTQ, atomically: true, encoding: .utf8)
+        let barcodeA = "AAAACCCCGG"
+        let barcodeB = Self.reverseComplement(barcodeA)
+        try """
+        sample,barcode
+        LF2871,\(barcodeA)
+        LF2872,\(barcodeB)
+        """.write(to: barcodesCSV, atomically: true, encoding: .utf8)
+
+        do {
+            _ = try await ONTFluidigmAmpliconMaterializer().run(
+                ONTFluidigmAmpliconMaterializationRequest(
+                    inputURL: inputFASTQ,
+                    barcodeDefinitionsURL: barcodesCSV,
+                    outputDirectory: outputDirectory,
+                    force: true
+                )
+            )
+            XCTFail("Expected duplicateBarcodeSequence error to be thrown")
+        } catch let error as ONTFluidigmAmpliconMaterializerError {
+            guard case .duplicateBarcodeSequence(let first, let second, _) = error else {
+                return XCTFail("Expected duplicateBarcodeSequence, got \(error)")
+            }
+            XCTAssertEqual(Set([first, second]), Set(["LF2871", "LF2872"]))
+        }
+    }
+
     private static func reverseComplement(_ sequence: String) -> String {
         let table: [Character: Character] = [
             "A": "T", "C": "G", "G": "C", "T": "A",

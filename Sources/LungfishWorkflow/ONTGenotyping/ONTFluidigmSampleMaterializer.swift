@@ -29,13 +29,17 @@ public struct ONTFluidigmSampleMaterializationResult: Sendable {
     public let unassignedReadCount: Int
 }
 
-public enum ONTFluidigmSampleMaterializerError: LocalizedError, Sendable {
+public enum ONTFluidigmSampleMaterializerError: LocalizedError, Sendable, Equatable {
     case missingInput(URL)
     case missingBarcodeDefinitions(URL)
     case outputExists(URL)
     case noBarcodeRows(URL)
     case noInputFASTQs(URL)
     case compressionFailed(URL, Int32)
+    /// R3-R3H-6: duplicate of ONTFluidigmAmpliconMaterializerError's
+    /// .duplicateBarcodeSequence case for this near-identical sibling
+    /// materializer -- see ONTFluidigmBarcodeCollisionValidation.swift.
+    case duplicateBarcodeSequence(firstSampleID: String, secondSampleID: String, barcode: String)
 
     public var errorDescription: String? {
         switch self {
@@ -51,6 +55,8 @@ public enum ONTFluidigmSampleMaterializerError: LocalizedError, Sendable {
             return "No physical FASTQ payloads could be resolved from \(url.path)."
         case .compressionFailed(let url, let status):
             return "Failed to gzip sample FASTQ \(url.path) (exit \(status))."
+        case .duplicateBarcodeSequence(let firstSampleID, let secondSampleID, let barcode):
+            return "Barcode sheet assigns the same effective barcode '\(barcode)' to both '\(firstSampleID)' and '\(secondSampleID)'. Every matching read would be silently misattributed to whichever sample loaded first; fix the barcode sheet so each sample has a unique barcode (forward or reverse-complement)."
         }
     }
 }
@@ -174,7 +180,7 @@ public final class ONTFluidigmSampleMaterializer: Sendable {
 
     private static func loadBarcodeEntries(from url: URL) throws -> [BarcodeEntry] {
         let text = try String(contentsOf: url, encoding: .utf8)
-        return text.components(separatedBy: .newlines)
+        let entries = text.components(separatedBy: .newlines)
             .compactMap { line -> BarcodeEntry? in
                 let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty, !trimmed.hasPrefix("#") else { return nil }
@@ -189,6 +195,23 @@ public final class ONTFluidigmSampleMaterializer: Sendable {
                 }
                 return BarcodeEntry(sampleID: sanitizedSampleID(sample), barcode: normalizedDNA(barcode))
             }
+
+        // R3-R3H-6: reject colliding barcode sequences before they reach
+        // BarcodeMatcher -- see ONTFluidigmBarcodeCollisionValidation.swift
+        // and the identical guard in ONTFluidigmAmpliconMaterializer (R3-R3H-5).
+        try ONTFluidigmBarcodeCollisionValidation.validateNoDuplicateBarcodeSequences(
+            entries.map {
+                .init(sampleID: $0.sampleID, barcode: $0.barcode, reverseComplementBarcode: $0.reverseComplementBarcode)
+            }
+        ) { firstSampleID, secondSampleID, barcode in
+            ONTFluidigmSampleMaterializerError.duplicateBarcodeSequence(
+                firstSampleID: firstSampleID,
+                secondSampleID: secondSampleID,
+                barcode: barcode
+            )
+        }
+
+        return entries
     }
 
     private static func splitDelimitedLine(_ line: String) -> [String] {

@@ -177,6 +177,90 @@ final class ONTFluidigmSampleMaterializerTests: XCTestCase {
         XCTAssertEqual(manifest.cachedStatistics.baseCount, Int64(sequence.count * 7))
     }
 
+    /// R3-R3H-6: duplicate of the R3-R3H-5 regression for the sibling
+    /// materializer -- two barcode-sheet rows sharing the identical barcode
+    /// string must be rejected at load time, not silently resolved via
+    /// BarcodeMatcher's `map[code]?.first`.
+    func testRunThrowsOnDuplicateBarcodeSequence() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let inputFASTQ = root.appendingPathComponent("barcode11.fastq")
+        let barcodesCSV = root.appendingPathComponent("ONT09_NB11_samples.csv")
+        let outputDirectory = root.appendingPathComponent("ont-fluidigm-samples", isDirectory: true)
+
+        try "@read-1\nACGT\n+\nIIII\n".write(to: inputFASTQ, atomically: true, encoding: .utf8)
+        let sharedBarcode = "AAAACCCCGG"
+        try """
+        sample,barcode
+        LF2871,\(sharedBarcode)
+        LF2872,\(sharedBarcode)
+        """.write(to: barcodesCSV, atomically: true, encoding: .utf8)
+
+        do {
+            _ = try await ONTFluidigmSampleMaterializer().run(
+                ONTFluidigmSampleMaterializationRequest(
+                    inputURL: inputFASTQ,
+                    barcodeDefinitionsURL: barcodesCSV,
+                    outputDirectory: outputDirectory,
+                    force: true
+                )
+            )
+            XCTFail("Expected duplicateBarcodeSequence error to be thrown")
+        } catch let error as ONTFluidigmSampleMaterializerError {
+            guard case .duplicateBarcodeSequence(let first, let second, let barcode) = error else {
+                return XCTFail("Expected duplicateBarcodeSequence, got \(error)")
+            }
+            XCTAssertEqual(Set([first, second]), Set(["LF2871", "LF2872"]))
+            XCTAssertEqual(barcode, sharedBarcode)
+        }
+    }
+
+    /// R3-R3H-6: collision via reverse-complement, mirroring the amplicon
+    /// materializer's equivalent test.
+    func testRunThrowsOnReverseComplementBarcodeCollision() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let inputFASTQ = root.appendingPathComponent("barcode11.fastq")
+        let barcodesCSV = root.appendingPathComponent("ONT09_NB11_samples.csv")
+        let outputDirectory = root.appendingPathComponent("ont-fluidigm-samples", isDirectory: true)
+
+        try "@read-1\nACGT\n+\nIIII\n".write(to: inputFASTQ, atomically: true, encoding: .utf8)
+        let barcodeA = "AAAACCCCGG"
+        let barcodeB = Self.reverseComplement(barcodeA)
+        try """
+        sample,barcode
+        LF2871,\(barcodeA)
+        LF2872,\(barcodeB)
+        """.write(to: barcodesCSV, atomically: true, encoding: .utf8)
+
+        do {
+            _ = try await ONTFluidigmSampleMaterializer().run(
+                ONTFluidigmSampleMaterializationRequest(
+                    inputURL: inputFASTQ,
+                    barcodeDefinitionsURL: barcodesCSV,
+                    outputDirectory: outputDirectory,
+                    force: true
+                )
+            )
+            XCTFail("Expected duplicateBarcodeSequence error to be thrown")
+        } catch let error as ONTFluidigmSampleMaterializerError {
+            guard case .duplicateBarcodeSequence(let first, let second, _) = error else {
+                return XCTFail("Expected duplicateBarcodeSequence, got \(error)")
+            }
+            XCTAssertEqual(Set([first, second]), Set(["LF2871", "LF2872"]))
+        }
+    }
+
+    private static func reverseComplement(_ sequence: String) -> String {
+        let table: [Character: Character] = [
+            "A": "T", "C": "G", "G": "C", "T": "A",
+            "a": "t", "c": "g", "g": "c", "t": "a",
+        ]
+        return String(sequence.reversed().map { table[$0] ?? "N" }).uppercased()
+    }
+
     private func jsonObject(at url: URL) throws -> [String: Any] {
         let data = try Data(contentsOf: url)
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
