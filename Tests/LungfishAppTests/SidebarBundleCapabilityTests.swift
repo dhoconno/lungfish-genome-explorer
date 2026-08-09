@@ -55,6 +55,33 @@ final class SidebarBundleCapabilityTests: XCTestCase {
         }
     }
 
+    /// `isBundle` (used for display/grouping) and `bundleCapabilities`
+    /// (used for menu construction) are two independent switch statements
+    /// over the same enum. `bundleCapabilities` is now compiler-exhaustive
+    /// (no `default:` -- round-2 hardening, E2 follow-up) so a new
+    /// `SidebarItemType` case fails to compile until it's added there, but
+    /// nothing stops the *contents* of the two switches from silently
+    /// drifting apart (e.g. a case listed as `isBundle == true` that
+    /// `bundleCapabilities` puts in the non-bundle `.none` group). This
+    /// test pins the cross-switch invariant every case must satisfy:
+    /// `isBundle` is true if and only if `bundleCapabilities != .none`.
+    func testIsBundleAgreesWithBundleCapabilities() {
+        let allKinds: [SidebarItemType] = [
+            .group, .folder, .sequence, .annotation, .alignment, .coverage, .project, .document, .image,
+            .unknown, .referenceBundle, .mhcReferenceBundle, .multipleSequenceAlignmentBundle,
+            .phylogeneticTreeBundle, .fastqBundle, .primerSchemeBundle, .genotypeResultBundle,
+            .twelveSAmpliconResultBundle, .batchGroup, .classificationResult, .esvirituResult,
+            .taxTriageResult, .naoMgsResult, .nvdResult, .czIdResult, .analysisResult,
+        ]
+        for kind in allKinds {
+            XCTAssertEqual(
+                kind.isBundle,
+                kind.bundleCapabilities != .none,
+                "\(kind): isBundle and bundleCapabilities disagree on bundle-ness"
+            )
+        }
+    }
+
     /// Only `.referenceBundle` supports "Export Sequences" from the context
     /// menu today: the export pipeline's sequence-loading path
     /// (loadSequencesForExport) only knows how to read a `.lungfishref`

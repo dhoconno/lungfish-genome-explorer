@@ -135,8 +135,18 @@ public enum SidebarItemType: Sendable {
     /// omission — the menu-building code consults `bundleCapabilities`
     /// instead of enumerating kinds inline.
     var bundleCapabilities: SidebarBundleCapabilities {
-        guard isBundle else { return .none }
-
+        // Exhaustive switch, NO `default:` case (round-2 hardening, task E2
+        // follow-up): every current and future `SidebarItemType` case must
+        // be listed explicitly below, in either the bundle group or the
+        // non-bundle group. Adding a 10th bundle kind (or any new case at
+        // all) without updating this switch fails compilation instead of
+        // silently falling through to `.none` the way a `default:` branch
+        // would -- that silent-.none failure mode is exactly what caused
+        // the AS3/AS18 family of bugs this capability map replaced. A
+        // matching invariant test (`testIsBundleAgreesWithBundleCapabilities`
+        // in SidebarBundleCapabilityTests) additionally pins
+        // `isBundle == (bundleCapabilities != .none)` so the two switches
+        // above and below can't silently drift apart from each other.
         switch self {
         case .referenceBundle:
             // .referenceBundle: full action set including sequence export
@@ -182,7 +192,10 @@ public enum SidebarItemType: Sendable {
                 canExportSequences: false,
                 canExportAnnotations: false
             )
-        default:
+        case .group, .folder, .sequence, .annotation, .alignment, .coverage, .project, .document, .image,
+             .unknown, .batchGroup, .classificationResult, .esvirituResult, .taxTriageResult, .naoMgsResult,
+             .nvdResult, .analysisResult:
+            // Not a bundle kind: no bundle-scoped context-menu actions.
             return .none
         }
     }

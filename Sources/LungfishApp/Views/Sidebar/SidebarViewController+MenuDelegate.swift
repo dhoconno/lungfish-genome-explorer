@@ -113,6 +113,21 @@ extension SidebarViewController: NSMenuDelegate {
             let exportSeqItem = NSMenuItem(title: exportTitle, action: #selector(FileMenuActions.exportFASTA(_:)), keyEquivalent: "")
             menu.addItem(exportSeqItem)
 
+            // COUPLING NOTE (round-2 hardening, E2 follow-up): "Merge into
+            // New Bundle" is only reachable inside this `!isEmpty` branch,
+            // i.e. gated on `canExportSequences` rather than on its own
+            // capability. That's a COINCIDENCE, not a deliberate rule --
+            // today `.referenceBundle` is the only kind where
+            // `canExportSequences` is true AND `BundleMergeSelection`
+            // recognizes `.reference` as mergeable, so nesting the merge
+            // item here happens to work. If a future bundle kind gets
+            // `canExportSequences: true` without also being merge-capable
+            // (or vice versa), this nesting silently breaks one of the two
+            // actions. `mergeSelectionKind == .reference` is the real gate;
+            // `!exportableBundleItems.isEmpty` is only an accident of
+            // control flow. Should be split into an independent
+            // `if mergeSelectionKind == .reference` block if the two ever
+            // diverge.
             if mergeSelectionKind == .reference {
                 let mergeItem = NSMenuItem(
                     title: "Merge into New Bundle\u{2026}",
