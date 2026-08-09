@@ -1,4 +1,6 @@
 import XCTest
+import os
+import LungfishCore
 @testable import LungfishWorkflow
 
 final class MappingSummaryBuilderTests: XCTestCase {
@@ -96,6 +98,134 @@ final class MappingSummaryBuilderTests: XCTestCase {
         XCTAssertEqual(summaries[1].mappedReads, 0)
     }
 
+    // MARK: - R3-R3ML-first: cancellation wiring for samtools view
+
+    /// Reproduces the missing-cancellation-wiring defect: runProcessCapturingOutput
+    /// previously used a plain withCheckedThrowingContinuation with no
+    /// withTaskCancellationHandler, so cancelling the enclosing Task never
+    /// terminated the child samtools process -- the awaited call would keep
+    /// blocking (and the orphaned process would keep running) until it
+    /// finished or hit the timeout on its own. This stub sleeps far longer
+    /// than the test should ever wait; if cancellation wiring works, the
+    /// process is killed almost immediately.
+    func testRunProcessCapturingOutputTerminatesProcessPromptlyWhenTaskIsCancelled() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mapping-summary-cancel-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let pidFile = root.appendingPathComponent("view.pid")
+        let scriptURL = root.appendingPathComponent("fake_samtools_view.sh")
+        try """
+        #!/bin/bash
+        /usr/bin/printf "%s" "$$" > "\(pidFile.path)"
+        exec /bin/sleep 300
+        """.write(to: scriptURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+
+        let task = Task {
+            try await MappingSummaryBuilder.runProcessCapturingOutput(
+                executableURL: scriptURL,
+                arguments: [],
+                workingDirectory: root,
+                timeout: 300
+            )
+        }
+
+        let deadline = Date().addingTimeInterval(30)
+        while !FileManager.default.fileExists(atPath: pidFile.path), Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        guard FileManager.default.fileExists(atPath: pidFile.path) else {
+            task.cancel()
+            _ = try? await task.value
+            XCTFail("stub samtools view process never wrote its PID file within the deadline")
+            return
+        }
+        let pidString = try String(contentsOf: pidFile, encoding: .utf8)
+        let pid = try XCTUnwrap(
+            Int32(pidString.trimmingCharacters(in: .whitespacesAndNewlines)),
+            "pid file contents were not a valid PID: \(pidString)"
+        )
+        XCTAssertTrue(ProcessTreeTerminator.processExists(pid: pid), "stub samtools view process should have started")
+
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            XCTFail("Expected cancellation to propagate as an error")
+        } catch is CancellationError {
+            // expected
+        } catch {
+            // Some paths surface CancellationError wrapped differently; accept
+            // any thrown error here since the real assertion is prompt process
+            // termination below.
+        }
+
+        let terminationDeadline = Date().addingTimeInterval(5)
+        var stillRunning = ProcessTreeTerminator.processExists(pid: pid)
+        while stillRunning, Date() < terminationDeadline {
+            try await Task.sleep(nanoseconds: 50_000_000)
+            stillRunning = ProcessTreeTerminator.processExists(pid: pid)
+        }
+        XCTAssertFalse(stillRunning, "samtools view process (pid \(pid)) should be terminated promptly after Task cancellation")
+    }
+
+    // MARK: - R3-R3ML-first: memory guard on oversized sorted BAM
+
+    /// A sortedBAM larger than the 2GB guard threshold must skip the
+    /// samtools-view-based summary (which buffers the entire view output in
+    /// memory) rather than attempt to build it, and must report the skip via
+    /// the progress/reporter callback as a warning rather than failing silently.
+    func testBuildSkipsSummaryAndReportsWarningWhenSortedBAMExceedsMemoryGuard() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mapping-summary-oversized-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let oversizedBAM = root.appendingPathComponent("oversized.bam")
+        // Sparse-allocate a file just over the 2GB guard without writing 2GB of real bytes.
+        FileManager.default.createFile(atPath: oversizedBAM.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: oversizedBAM)
+        try handle.truncate(atOffset: UInt64(2_147_483_648) + 1)
+        try handle.close()
+
+        // Stub a managed "samtools" that succeeds trivially for `coverage` and would
+        // fail the test (by hanging / producing unexpected output) if `view` were ever
+        // invoked -- the memory guard must short-circuit before streamSAMView runs.
+        let managedSamtoolsDir = root
+            .appendingPathComponent(".lungfish/conda/envs/samtools/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: managedSamtoolsDir, withIntermediateDirectories: true)
+        let stubSamtools = managedSamtoolsDir.appendingPathComponent("samtools")
+        try """
+        #!/bin/bash
+        if [[ "$1" == "coverage" ]]; then
+          printf "#rname\\tstartpos\\tendpos\\tnumreads\\tcovbases\\tcoverage\\tmeandepth\\tmeanbaseq\\tmeanmapq\\n"
+          printf "chr1\\t1\\t1000\\t3\\t800\\t80.0\\t6.5\\t30.0\\t43.3\\n"
+          exit 0
+        fi
+        echo "unexpected samtools invocation: $*" >&2
+        exit 1
+        """.write(to: stubSamtools, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stubSamtools.path)
+
+        let warningBox = MappingSummaryWarningBox()
+        let contigs = try await MappingSummaryBuilder.build(
+            sortedBAMURL: oversizedBAM,
+            totalReads: 10,
+            runner: NativeToolRunner(toolsDirectory: nil, homeDirectory: root),
+            reportWarning: { message in warningBox.append(message) }
+        )
+        let warnings = warningBox.messages
+
+        XCTAssertEqual(contigs.map(\.contigName), ["chr1"], "coverage/depth rows should still be reported")
+        XCTAssertEqual(contigs.first?.medianMAPQ, 0, "identity/MAPQ columns should be omitted (samtools view skipped) for an oversized BAM")
+        XCTAssertTrue(
+            warnings.contains { $0.localizedCaseInsensitiveContains("2") || $0.localizedCaseInsensitiveContains("memory") },
+            "expected a warning describing the skipped summary, got: \(warnings)"
+        )
+    }
+
     // MARK: - F36: concurrent stdout/stderr draining
 
     /// Regression test for F36: streamSAMView's underlying process runner used to read stdout
@@ -169,4 +299,18 @@ final class MappingSummaryBuilderTests: XCTestCase {
 private enum MappingSummaryTestOutcome: Sendable {
     case completed(Result<String, Error>)
     case timedOut
+}
+
+/// Lock-protected accumulator for warning strings reported from a `@Sendable` callback,
+/// used instead of a captured `var` to satisfy strict concurrency checking.
+private final class MappingSummaryWarningBox: Sendable {
+    private let state = OSAllocatedUnfairLock<[String]>(initialState: [])
+
+    func append(_ message: String) {
+        state.withLock { $0.append(message) }
+    }
+
+    var messages: [String] {
+        state.withLock { $0 }
+    }
 }
