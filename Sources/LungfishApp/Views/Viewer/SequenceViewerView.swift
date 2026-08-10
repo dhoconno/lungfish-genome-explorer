@@ -1376,6 +1376,15 @@ public class SequenceViewerView: NSView {
         buildReadContextMenu(for: read)
     }
 
+    func testBuildContextMenu(
+        for target: SequenceViewerContextTarget,
+        genomicPosition: Int,
+        clickedTrackIndex: Int? = nil
+    ) -> NSMenu {
+        contextMenuGenomicPosition = genomicPosition
+        return buildContextMenu(for: target, clickedTrackIndex: clickedTrackIndex)
+    }
+
     /// Test seam for "Copy as FASTA (aligned orientation)" without going
     /// through the real `NSPasteboard.general` (which is process-global and
     /// would make tests order-dependent). Writes to the pasteboard argument.
