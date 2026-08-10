@@ -297,19 +297,10 @@ extension ViewerViewController {
     }
 
     private func presentExtractOverlappingReadsFailureAlert(_ error: Error) {
-        let alert = NSAlert()
-        alert.messageText = "Extract Overlapping Reads Failed"
-        alert.informativeText = error.localizedDescription
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "OK")
-        if let window = view.window {
-            alert.beginSheetModal(for: window)
-        } else {
-            NSApp.presentError(ExtractOverlappingReadsWarning(
-                title: alert.messageText,
-                message: alert.informativeText
-            ))
-        }
+        presentExtractionFailureAlert(
+            title: "Extract Overlapping Reads Failed",
+            message: error.localizedDescription
+        )
     }
 
     // MARK: - Extract Selected Reads (read-track multi-select)
@@ -411,17 +402,33 @@ extension ViewerViewController {
     }
 
     private func presentExtractSelectedReadsFailureAlert(_ error: Error) {
+        presentExtractionFailureAlert(
+            title: "Extract Selected Reads Failed",
+            message: error.localizedDescription
+        )
+    }
+
+    /// Presents an extraction-failure alert, routing through the injectable
+    /// `extractionFailureAlertPresenter` when set (tests) and otherwise showing
+    /// the real `NSAlert` sheet (or `NSApp.presentError` when no window hosts a
+    /// sheet). Centralizing this keeps both extract paths off a live
+    /// `beginSheetModal` in tests, which blocks under an attached WindowServer.
+    private func presentExtractionFailureAlert(title: String, message: String) {
+        if let presenter = extractionFailureAlertPresenter {
+            presenter(title, message)
+            return
+        }
         let alert = NSAlert()
-        alert.messageText = "Extract Selected Reads Failed"
-        alert.informativeText = error.localizedDescription
+        alert.messageText = title
+        alert.informativeText = message
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")
         if let window = view.window {
             alert.beginSheetModal(for: window)
         } else {
             NSApp.presentError(ExtractOverlappingReadsWarning(
-                title: alert.messageText,
-                message: alert.informativeText
+                title: title,
+                message: message
             ))
         }
     }

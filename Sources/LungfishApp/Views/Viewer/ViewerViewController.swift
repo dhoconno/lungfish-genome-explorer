@@ -66,6 +66,13 @@ public class ViewerViewController: NSViewController {
         _ config: BAMRegionExtractionConfig
     ) async throws -> LungfishWorkflow.ExtractionResult
 
+    /// Presents an extraction-failure alert. `nil` (the default) uses the real
+    /// `NSAlert` presentation; tests inject a recording no-op to avoid a live sheet.
+    typealias ExtractionFailureAlertPresenter = @MainActor (
+        _ title: String,
+        _ message: String
+    ) -> Void
+
     /// Result of `extractSelectedReads`, generalizing the source-FASTQ and
     /// BAM-derived provenance paths so a single completion handler can report
     /// either one.
@@ -160,6 +167,14 @@ public class ViewerViewController: NSViewController {
         try await ReadExtractionService().extractByBAMRegion(config: config)
     }
     var activeOverlappingReadsExtractionTask: Task<Void, Never>?
+
+    /// Presents an extraction-failure alert (title + message). Defaults to the
+    /// real `NSAlert` sheet / `NSApp.presentError` presentation. Overridable in
+    /// tests so the failure paths can be asserted without presenting a live sheet
+    /// — `beginSheetModal(for:)` blocks indefinitely under an attached
+    /// WindowServer when nothing dismisses the sheet, which hangs headless-style
+    /// tests only when run in an interactive session.
+    var extractionFailureAlertPresenter: ExtractionFailureAlertPresenter?
 
     /// Runs the selected-reads extraction (read-track multi-select "Extract
     /// Reads…" action): resolves source FASTQs via `FASTQSourceResolver`

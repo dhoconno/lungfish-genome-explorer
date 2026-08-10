@@ -34,6 +34,17 @@ final class ExtractOverlappingReadsFailureTests: XCTestCase {
         }
     }
 
+    /// Records failure-alert presentations. `@MainActor` because the injected
+    /// `extractionFailureAlertPresenter` is `@MainActor` and only touched there.
+    @MainActor
+    private final class AlertRecorder {
+        private(set) var presentations: [(title: String, message: String)] = []
+
+        func record(title: String, message: String) {
+            presentations.append((title, message))
+        }
+    }
+
     /// Builds a mapping result whose annotation-extraction action has a valid,
     /// non-empty samtools region so `extractOverlappingReads` doesn't bail out
     /// early on `mappingExtractionConfiguration(for:) == nil`.
@@ -89,17 +100,15 @@ final class ExtractOverlappingReadsFailureTests: XCTestCase {
         vc.view.frame = NSRect(x: 0, y: 0, width: 1400, height: 800)
         vc.displayMappingResult(result, resultDirectoryURL: resultDirectory)
 
-        // Attach a host window so the failure alert takes the `beginSheetModal`
-        // path instead of `NSApp.presentError`, which shows a real blocking
-        // modal panel outside of a running `NSApplication` event loop in tests.
-        let host = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1400, height: 800),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        host.contentView = NSView(frame: .zero)
-        host.contentView?.addSubview(vc.view)
+        // Inject the failure-alert presenter so the error path is asserted
+        // without presenting a live `NSAlert` sheet. A real `beginSheetModal`
+        // blocks indefinitely under an attached WindowServer (an interactive
+        // session), which hangs this test; the injected presenter records the
+        // request instead.
+        let alertRecorder = AlertRecorder()
+        vc.extractionFailureAlertPresenter = { title, message in
+            alertRecorder.record(title: title, message: message)
+        }
 
         let recorder = ExtractionInvocationRecorder()
         vc.overlappingReadsExtractionRunner = { config in
@@ -133,6 +142,15 @@ final class ExtractOverlappingReadsFailureTests: XCTestCase {
         // via the real call site, not a bypassed stub.
         let invokedCount = await recorder.configs.count
         XCTAssertEqual(invokedCount, 1)
+
+        // The failure must have surfaced to the user via the alert path (not
+        // just logged), with the stub's message.
+        XCTAssertEqual(alertRecorder.presentations.count, 1)
+        XCTAssertEqual(alertRecorder.presentations.first?.title, "Extract Overlapping Reads Failed")
+        XCTAssertEqual(
+            alertRecorder.presentations.first?.message,
+            "stub samtools failure: region not found"
+        )
     }
 
     func testSuccessfulExtractionCompletesOperationWithOutputURLs() async throws {
