@@ -64,12 +64,13 @@ enum SequenceViewerContextTarget {
 }
 ```
 
-Add `buildContextMenu(for:)`, a shared selected-range appender, and separator normalization. Reuse `addSelectionExtractionMenuItems(to:)`, `addCenterViewMenuItem(to:)`, and all existing selectors. Add a DEBUG seam in `SequenceViewerView.swift`:
+Add `buildContextMenu(for:clickedTrackIndex:)`, a shared selected-range appender, and separator normalization. The optional clicked track preserves the existing per-track translation toggle when no range is selected. Reuse `addSelectionExtractionMenuItems(to:)`, `addCenterViewMenuItem(to:)`, and all existing selectors. Add a DEBUG seam in `SequenceViewerView.swift`:
 
 ```swift
 func testBuildContextMenu(
     for target: SequenceViewerContextTarget,
-    genomicPosition: Int
+    genomicPosition: Int,
+    clickedTrackIndex: Int? = nil
 ) -> NSMenu
 ```
 
@@ -109,13 +110,13 @@ Run the focused test and expect PASS.
 
 - [ ] **Step 1: Add a failing no-selection composition test**
 
-Clear the range and build a sequence/background menu. Assert it includes **Select All**, **Center View Here**, **Zoom to Fit**, and **Show in Inspector**, while omitting the visible-region copy/extraction actions and **Zoom to Selected Region**. Add a specialized-target no-selection assertion to prove its actions are retained ahead of the general section.
+Clear the range and build a sequence/background menu. Assert it includes **Select All**, **Center View Here**, **Zoom to Fit**, and **Show in Inspector**, while omitting the visible-region copy/extraction actions and **Zoom to Selected Region**. Add a specialized-target no-selection assertion to prove its actions are retained ahead of the general section. Configure a two-sequence view, pass `clickedTrackIndex: 0`, and assert the existing per-track and global translation toggles remain present with the correct represented track index.
 
 Run the focused test and confirm the new assertion fails before production changes.
 
 - [ ] **Step 2: Refactor `rightMouseDown(with:)` to one target and one popup**
 
-Keep current hit-test precedence and selection side effects. Resolve one `SequenceViewerContextTarget`, including `.alignment([])` when the point is in the alignment track but no file resolves, call `buildContextMenu(for:)`, and invoke `NSMenu.popUpContextMenu` once. When `selectionRange == nil`, append the existing general commands after any specialized commands.
+Keep current hit-test precedence and selection side effects. Resolve one `SequenceViewerContextTarget`, including `.alignment([])` when the point is in the alignment track but no file resolves. Resolve `stackedSequenceAtPoint(location)?.trackIndex` once, pass it to `buildContextMenu(for:clickedTrackIndex:)`, and invoke `NSMenu.popUpContextMenu` once. When `selectionRange == nil`, append the existing general commands after any specialized commands while preserving the location-dependent translation toggles.
 
 Run:
 
