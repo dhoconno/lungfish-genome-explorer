@@ -110,6 +110,53 @@ final class SequenceViewerContextMenuTests: XCTestCase {
         XCTAssertNotNil(menu.items.first { $0.title == "Center View Here" })
     }
 
+    func testNoSelectionCompositionAppendsGeneralCommandsAfterSpecializedTarget() throws {
+        let viewer = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        viewer.testSetUserSelectionRange(100..<200)
+        viewer.selectionRange = nil
+
+        let sequence1 = try Sequence(name: "Seq1", alphabet: .dna, bases: "ATCGATCG")
+        let sequence2 = try Sequence(name: "Seq2", alphabet: .dna, bases: "GCTAGCTA")
+        viewer.setSequences([sequence1, sequence2])
+
+        let sequenceMenu = viewer.testBuildContextMenu(
+            for: .sequence,
+            genomicPosition: 123,
+            clickedTrackIndex: 0
+        )
+        let sequenceTitles = sequenceMenu.items.filter { !$0.isSeparatorItem }.map(\.title)
+
+        XCTAssertTrue(sequenceTitles.contains("Select All"))
+        XCTAssertTrue(sequenceTitles.contains("Center View Here"))
+        XCTAssertTrue(sequenceTitles.contains("Zoom to Fit"))
+        XCTAssertTrue(sequenceTitles.contains("Show in Inspector"))
+        for title in [
+            "Copy Visible Region",
+            "Copy Visible Region as FASTA",
+            "Extract Visible Region…",
+            "Zoom to Selected Region",
+        ] {
+            XCTAssertFalse(sequenceTitles.contains(title), "Unexpected no-selection item: \(title)")
+        }
+
+        let trackTranslationItem = try XCTUnwrap(sequenceMenu.items.first { $0.title == "Show Translation" })
+        XCTAssertEqual(trackTranslationItem.action, #selector(SequenceViewerView.toggleTrackTranslation(_:)))
+        XCTAssertEqual((trackTranslationItem.representedObject as? NSNumber)?.intValue, 0)
+        XCTAssertNotNil(sequenceMenu.items.first { $0.title == "Show All Translations" })
+
+        let variantMenu = viewer.testBuildContextMenu(
+            for: .variant(makeVariant()),
+            genomicPosition: 123
+        )
+        let variantTitles = variantMenu.items.filter { !$0.isSeparatorItem }.map(\.title)
+        XCTAssertEqual(Array(variantTitles.prefix(2)), ["View Variant in Table", "View Genotypes at Site"])
+        XCTAssertLessThan(
+            try XCTUnwrap(variantTitles.firstIndex(of: "View Genotypes at Site")),
+            try XCTUnwrap(variantTitles.firstIndex(of: "Select All"))
+        )
+        XCTAssertTrue(variantTitles.contains("Show in Inspector"))
+    }
+
     func testAlignmentTargetPreservesRevealActionPayloadAndSharedCommands() {
         let viewer = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
         viewer.testSetUserSelectionRange(100..<200)
