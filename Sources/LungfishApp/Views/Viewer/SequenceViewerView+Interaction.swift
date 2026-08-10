@@ -621,29 +621,43 @@ extension SequenceViewerView {
         clickedTrackIndex: Int? = nil
     ) -> NSMenu {
         let menu: NSMenu
+        let generalInspectorTitle: String
         switch target {
         case .sequence:
             menu = NSMenu(title: "Sequence")
+            generalInspectorTitle = "Show in Inspector"
         case .read(let read):
             menu = buildReadContextMenu(for: read) ?? NSMenu(title: "Read Selection")
+            generalInspectorTitle = "Show in Inspector"
         case .alignment(let entries):
             menu = buildAlignmentContextMenu(for: entries)
+            generalInspectorTitle = "Show in Inspector"
         case .variant(let result):
             menu = buildVariantContextMenu(for: result)
+            generalInspectorTitle = "Show in Inspector"
         case .annotation(let annotation):
             menu = buildAnnotationContextMenu(for: annotation)
+            generalInspectorTitle = "Show Document in Inspector"
         }
 
         if selectionRange != nil {
             appendSelectedRangeMenuItems(to: menu)
         } else {
-            appendGeneralContextMenuItems(to: menu, clickedTrackIndex: clickedTrackIndex)
+            appendGeneralContextMenuItems(
+                to: menu,
+                clickedTrackIndex: clickedTrackIndex,
+                inspectorTitle: generalInspectorTitle
+            )
         }
         normalizeContextMenuSeparators(in: menu)
         return menu
     }
 
-    private func appendGeneralContextMenuItems(to menu: NSMenu, clickedTrackIndex: Int?) {
+    private func appendGeneralContextMenuItems(
+        to menu: NSMenu,
+        clickedTrackIndex: Int?,
+        inspectorTitle: String
+    ) {
         if let last = menu.items.last, !last.isSeparatorItem {
             menu.addItem(NSMenuItem.separator())
         }
@@ -681,7 +695,7 @@ extension SequenceViewerView {
         }
 
         menu.addItem(NSMenuItem.separator())
-        let inspectorItem = NSMenuItem(title: "Show in Inspector", action: #selector(showDocumentInInspector(_:)), keyEquivalent: "")
+        let inspectorItem = NSMenuItem(title: inspectorTitle, action: #selector(showDocumentInInspector(_:)), keyEquivalent: "")
         inspectorItem.target = self
         menu.addItem(inspectorItem)
     }
@@ -1006,7 +1020,7 @@ extension SequenceViewerView {
             menu.addItem(extractReadsItem)
         }
 
-        let inspectorItem = NSMenuItem(title: "Show in Inspector", action: #selector(showAnnotationInInspector(_:)), keyEquivalent: "")
+        let inspectorItem = NSMenuItem(title: "Show Annotation in Inspector", action: #selector(showAnnotationInInspector(_:)), keyEquivalent: "")
         inspectorItem.target = self
         inspectorItem.representedObject = annotation
         menu.addItem(inspectorItem)

@@ -18,26 +18,7 @@ final class SequenceViewerContextMenuTests: XCTestCase {
             genomicPosition: 123
         )
 
-        let sharedTitles = [
-            "Copy Visible Region",
-            "Copy Visible Region as FASTA",
-            "Extract Visible Region…",
-            "Center View Here",
-            "Zoom to Selected Region",
-        ]
-        let sharedItems = menu.items.filter { sharedTitles.contains($0.title) }
-
-        XCTAssertEqual(sharedItems.map(\.title), sharedTitles)
-        XCTAssertEqual(sharedItems.count, sharedTitles.count)
-        for item in sharedItems {
-            XCTAssertTrue(item.target === viewer, item.title)
-        }
-
-        let zoomItem = try! XCTUnwrap(menu.items.first { $0.title == "Zoom to Selected Region" })
-        XCTAssertEqual(zoomItem.action, #selector(SequenceViewerView.zoomToSelectionAction(_:)))
-
-        let centerItem = try! XCTUnwrap(menu.items.first { $0.title == "Center View Here" })
-        XCTAssertEqual((centerItem.representedObject as? NSNumber)?.intValue, 123)
+        assertSharedCommands(in: menu, viewer: viewer, genomicPosition: 123)
     }
 
     func testEmptyAlignmentTargetWithSelectionContainsOnlySharedActionsAndValidSeparators() {
@@ -106,8 +87,23 @@ final class SequenceViewerContextMenuTests: XCTestCase {
 
         XCTAssertNotNil(menu.items.first { $0.title == "Select All" })
         XCTAssertNotNil(menu.items.first { $0.title == "Zoom to Fit" })
-        XCTAssertNotNil(menu.items.first { $0.title == "Show in Inspector" })
+        let inspectorItem = try! XCTUnwrap(menu.items.first { $0.title == "Show in Inspector" })
+        XCTAssertEqual(inspectorItem.action, #selector(SequenceViewerView.showDocumentInInspector(_:)))
         XCTAssertNotNil(menu.items.first { $0.title == "Center View Here" })
+    }
+
+    func testAnnotationTargetWithoutSelectionDisambiguatesInspectorActions() throws {
+        let viewer = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        let annotation = makeAnnotation()
+
+        let menu = viewer.testBuildContextMenu(for: .annotation(annotation), genomicPosition: 123)
+        let annotationItem = try XCTUnwrap(menu.items.first { $0.title == "Show Annotation in Inspector" })
+        let documentItems = menu.items.filter { $0.title == "Show Document in Inspector" }
+
+        XCTAssertEqual(documentItems.count, 1)
+        XCTAssertEqual(annotationItem.action, #selector(SequenceViewerView.showAnnotationInInspector(_:)))
+        XCTAssertEqual(documentItems[0].action, #selector(SequenceViewerView.showDocumentInInspector(_:)))
+        XCTAssertFalse(menu.items.contains { $0.title == "Show in Inspector" })
     }
 
     func testNoSelectionCompositionAppendsGeneralCommandsAfterSpecializedTarget() throws {
@@ -176,7 +172,7 @@ final class SequenceViewerContextMenuTests: XCTestCase {
         XCTAssertEqual(revealItem.action, #selector(SequenceViewerView.showAlignmentFileInFinderAction(_:)))
         XCTAssertTrue(revealItem.target === viewer)
         XCTAssertEqual(revealItem.representedObject as? URL, url)
-        assertSharedCommands(in: menu, viewer: viewer)
+        assertSharedCommands(in: menu, viewer: viewer, genomicPosition: 123)
     }
 
     func testReadTargetPreservesSpecializedActionsAndSharedCommands() {
@@ -195,7 +191,7 @@ final class SequenceViewerContextMenuTests: XCTestCase {
             XCTAssertNotNil(item.target)
             XCTAssertFalse(item.target === viewer)
         }
-        assertSharedCommands(in: menu, viewer: viewer)
+        assertSharedCommands(in: menu, viewer: viewer, genomicPosition: 123)
     }
 
     func testVariantTargetPreservesTableAndGenotypeActionsAndSharedCommands() {
@@ -214,7 +210,7 @@ final class SequenceViewerContextMenuTests: XCTestCase {
         XCTAssertEqual(genotypeItem.action, #selector(SequenceViewerView.viewVariantGenotypesAction(_:)))
         XCTAssertEqual((tableItem.representedObject as? AnnotationSearchIndex.SearchResult)?.id, variant.id)
         XCTAssertEqual((genotypeItem.representedObject as? AnnotationSearchIndex.SearchResult)?.id, variant.id)
-        assertSharedCommands(in: menu, viewer: viewer)
+        assertSharedCommands(in: menu, viewer: viewer, genomicPosition: 123)
     }
 
     func testSelectedRangeSectionIsSeparatedFromVariantActions() {
@@ -251,24 +247,40 @@ final class SequenceViewerContextMenuTests: XCTestCase {
         XCTAssertEqual((copyNameItem.representedObject as? SequenceAnnotation)?.id, annotation.id)
         XCTAssertEqual((extractItem.representedObject as? SequenceAnnotation)?.id, annotation.id)
         XCTAssertEqual((annotationZoomItem.representedObject as? SequenceAnnotation)?.id, annotation.id)
-        assertSharedCommands(in: menu, viewer: viewer)
+        let annotationInspectorItem = try! XCTUnwrap(allItems.first { $0.title == "Show Annotation in Inspector" })
+        XCTAssertEqual(annotationInspectorItem.action, #selector(SequenceViewerView.showAnnotationInInspector(_:)))
+        assertSharedCommands(in: menu, viewer: viewer, genomicPosition: 123)
         XCTAssertEqual(allItems.filter { $0.title == "Center View Here" }.count, 1)
         XCTAssertEqual(allItems.filter { $0.title == "Zoom to Selected Region" }.count, 1)
     }
 
-    private func assertSharedCommands(in menu: NSMenu, viewer: SequenceViewerView) {
-        let sharedTitles = [
-            "Copy Visible Region",
-            "Copy Visible Region as FASTA",
-            "Extract Visible Region…",
-            "Center View Here",
-            "Zoom to Selected Region",
+    private func assertSharedCommands(
+        in menu: NSMenu,
+        viewer: SequenceViewerView,
+        genomicPosition: Int
+    ) {
+        let sharedActionSelectors: [(title: String, action: Selector)] = [
+            ("Copy Visible Region", #selector(SequenceViewerView.copySelectionAction(_:))),
+            ("Copy Visible Region as FASTA", #selector(SequenceViewerView.copySelectionAsFASTA(_:))),
+            ("Extract Visible Region…", #selector(SequenceViewerView.extractSelectionSequence(_:))),
+            ("Center View Here", #selector(SequenceViewerView.centerViewHereAction(_:))),
+            ("Zoom to Selected Region", #selector(SequenceViewerView.zoomToSelectionAction(_:))),
         ]
-        let sharedItems = menu.items.filter { sharedTitles.contains($0.title) }
-        XCTAssertEqual(sharedItems.map(\.title), sharedTitles)
-        XCTAssertEqual(sharedItems.count, sharedTitles.count)
-        for item in sharedItems {
-            XCTAssertTrue(item.target === viewer, item.title)
+
+        let sharedItems = menu.items.filter { item in
+            sharedActionSelectors.contains { expected in expected.title == item.title }
+        }
+        XCTAssertEqual(sharedItems.map(\.title), sharedActionSelectors.map(\.title))
+        XCTAssertEqual(sharedItems.count, sharedActionSelectors.count)
+        for expected in sharedActionSelectors {
+            let matchingItems = menu.items.filter { $0.title == expected.title }
+            XCTAssertEqual(matchingItems.count, 1, "Expected one shared item: \(expected.title)")
+            guard let item = matchingItems.first else { continue }
+            XCTAssertEqual(item.action, expected.action, expected.title)
+            XCTAssertTrue(item.target === viewer, expected.title)
+            if expected.title == "Center View Here" {
+                XCTAssertEqual((item.representedObject as? NSNumber)?.intValue, genomicPosition)
+            }
         }
     }
 
