@@ -73,12 +73,52 @@ public enum ReferenceCandidate: Sendable, Identifiable, Equatable {
         Self.displayPath(for: fastaURL, relativeTo: projectURL)
     }
 
-    /// Returns the label to use inside project file pickers.
+    /// Returns picker labels keyed by candidate id.
     ///
-    /// Project-local choices include their full path relative to the project root
-    /// so same-named files in different folders remain distinguishable.
-    public func pickerDisplayName(relativeTo projectURL: URL?) -> String {
-        displayPath(relativeTo: projectURL)
+    /// A unique candidate uses only its bundle or FASTA name. Candidates with
+    /// the same name include their containing folder so they remain distinct.
+    public static func pickerDisplayNames(
+        for candidates: [ReferenceCandidate],
+        relativeTo projectURL: URL?
+    ) -> [String: String] {
+        let candidatesByName = Dictionary(grouping: candidates) {
+            $0.displayName.lowercased()
+        }
+        let displayNameKeys = Set(candidatesByName.keys)
+
+        var labels: [String: String] = [:]
+        for sameNamedCandidates in candidatesByName.values {
+            guard sameNamedCandidates.count > 1 else {
+                if let candidate = sameNamedCandidates.first {
+                    labels[candidate.id] = candidate.displayName
+                }
+                continue
+            }
+
+            let candidatesByFolder = Dictionary(grouping: sameNamedCandidates) { candidate in
+                displayFolder(
+                    for: candidate.pickerContainerURL,
+                    relativeTo: projectURL
+                ).lowercased()
+            }
+
+            for candidate in sameNamedCandidates {
+                let folder = displayFolder(
+                    for: candidate.pickerContainerURL,
+                    relativeTo: projectURL
+                )
+                let folderQualifiedLabel = "\(candidate.displayName) (\(folder))"
+                let detail: String
+                if candidatesByFolder[folder.lowercased(), default: []].count > 1
+                    || displayNameKeys.contains(folderQualifiedLabel.lowercased()) {
+                    detail = displayPath(for: candidate.pickerSourceURL, relativeTo: projectURL)
+                } else {
+                    detail = folder
+                }
+                labels[candidate.id] = "\(candidate.displayName) (\(detail))"
+            }
+        }
+        return labels
     }
 
     /// Source categories for grouping in dropdowns.
@@ -99,6 +139,31 @@ public enum ReferenceCandidate: Sendable, Identifiable, Equatable {
         guard let projectURL else { return standardizedTarget }
 
         let projectPath = projectURL.standardizedFileURL.path
+        let normalizedProjectPath = projectPath.hasSuffix("/") ? projectPath : projectPath + "/"
+        guard standardizedTarget.hasPrefix(normalizedProjectPath) else {
+            return standardizedTarget
+        }
+
+        return String(standardizedTarget.dropFirst(normalizedProjectPath.count))
+    }
+
+    private var pickerContainerURL: URL {
+        pickerSourceURL.deletingLastPathComponent()
+    }
+
+    private var pickerSourceURL: URL {
+        sourceBundleURL ?? fastaURL
+    }
+
+    private static func displayFolder(for url: URL, relativeTo projectURL: URL?) -> String {
+        let standardizedTarget = url.standardizedFileURL.path
+        guard let projectURL else { return standardizedTarget }
+
+        let projectPath = projectURL.standardizedFileURL.path
+        if standardizedTarget == projectPath {
+            return "."
+        }
+
         let normalizedProjectPath = projectPath.hasSuffix("/") ? projectPath : projectPath + "/"
         guard standardizedTarget.hasPrefix(normalizedProjectPath) else {
             return standardizedTarget

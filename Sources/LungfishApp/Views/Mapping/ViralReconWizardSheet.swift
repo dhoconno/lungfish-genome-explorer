@@ -42,6 +42,13 @@ struct ViralReconWizardSheet: View {
         referenceCandidates.first { $0.id == selectedReferenceID }
     }
 
+    private var referencePickerDisplayNames: [String: String] {
+        ReferenceCandidate.pickerDisplayNames(
+            for: referenceCandidates,
+            relativeTo: projectURL
+        )
+    }
+
     private var selectedLocalReferenceURL: URL? {
         if selectedReferenceID == Self.browsedReferenceID {
             return browsedReferenceURL
@@ -231,7 +238,8 @@ struct ViralReconWizardSheet: View {
                         Text(displayPath(for: browsedReferenceURL)).tag(Self.browsedReferenceID)
                     }
                     ForEach(referenceCandidates) { candidate in
-                        Text(candidate.pickerDisplayName(relativeTo: projectURL)).tag(candidate.id)
+                        Text(referencePickerDisplayNames[candidate.id] ?? candidate.displayName)
+                            .tag(candidate.id)
                     }
                 }
                 .pickerStyle(.menu)

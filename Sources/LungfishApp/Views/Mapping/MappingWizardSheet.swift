@@ -166,6 +166,13 @@ struct MappingWizardSheet: View {
         referenceCandidates.first(where: { $0.id == selectedReferenceID })
     }
 
+    private var referencePickerDisplayNames: [String: String] {
+        ReferenceCandidate.pickerDisplayNames(
+            for: referenceCandidates,
+            relativeTo: projectURL
+        )
+    }
+
     private var resolvedReferenceURL: URL? {
         if selectedReferenceID == "__browsed__", let browsedReferenceURL {
             return browsedReferenceURL
@@ -599,7 +606,8 @@ struct MappingWizardSheet: View {
                             .tag("__browsed__")
                     }
                     ForEach(referenceCandidates) { candidate in
-                        Text(candidate.pickerDisplayName(relativeTo: projectURL)).tag(candidate.id)
+                        Text(referencePickerDisplayNames[candidate.id] ?? candidate.displayName)
+                            .tag(candidate.id)
                     }
                 }
                 .labelsHidden()

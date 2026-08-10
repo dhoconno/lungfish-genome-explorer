@@ -95,10 +95,15 @@ public struct ReferenceSequencePickerView: View {
         guard let projectURL else { return }
 
         let refs = await Task.detached(priority: .userInitiated) {
-            ReferenceSequenceScanner.scanAll(in: projectURL).map { candidate in
+            let candidates = ReferenceSequenceScanner.scanAll(in: projectURL)
+            let displayNames = ReferenceCandidate.pickerDisplayNames(
+                for: candidates,
+                relativeTo: projectURL
+            )
+            return candidates.map { candidate in
                 DiscoveredReference(
                     id: candidate.id,
-                    displayPath: candidate.pickerDisplayName(relativeTo: projectURL),
+                    displayPath: displayNames[candidate.id] ?? candidate.displayName,
                     bundleURL: candidate.sourceBundleURL ?? candidate.fastaURL.deletingLastPathComponent(),
                     fastaURL: candidate.fastaURL
                 )
