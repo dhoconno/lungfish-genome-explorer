@@ -40,6 +40,65 @@ final class SequenceViewerContextMenuTests: XCTestCase {
         XCTAssertEqual((centerItem.representedObject as? NSNumber)?.intValue, 123)
     }
 
+    func testEmptyAlignmentTargetWithSelectionContainsOnlySharedActionsAndValidSeparators() {
+        let viewer = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        viewer.testSetUserSelectionRange(100..<200)
+
+        let menu = viewer.testBuildContextMenu(for: .alignment([]), genomicPosition: 123)
+
+        XCTAssertEqual(menu.items.map(menuToken), [
+            "Copy Visible Region",
+            "<separator>",
+            "Copy Visible Region as FASTA",
+            "Extract Visible Region…",
+            "<separator>",
+            "Center View Here",
+            "Zoom to Selected Region",
+        ])
+        XCTAssertFalse(menu.items.contains { $0.title == "Show BAM in Finder" })
+        XCTAssertFalse(menu.items.contains { $0.title == "Show Alignment File in Finder" })
+        assertValidSeparators(in: menu)
+    }
+
+    func testSequenceTargetWithSelectionContainsOnlySharedSelectedRangeActions() {
+        let viewer = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        viewer.testSetUserSelectionRange(100..<200)
+
+        let menu = viewer.testBuildContextMenu(for: .sequence, genomicPosition: 123)
+
+        XCTAssertEqual(
+            menu.items.filter { !$0.isSeparatorItem }.map(\.title),
+            [
+                "Copy Visible Region",
+                "Copy Visible Region as FASTA",
+                "Extract Visible Region…",
+                "Center View Here",
+                "Zoom to Selected Region",
+            ]
+        )
+        XCTAssertFalse(menu.items.contains { $0.title == "Select All" })
+        XCTAssertFalse(menu.items.contains { $0.title == "Zoom to Fit" })
+        XCTAssertFalse(menu.items.contains { $0.title == "Show in Inspector" })
+    }
+
+    func testSelectedRangeMenuPreservesExtractionAndCenterAdjacency() {
+        let viewer = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        viewer.testSetUserSelectionRange(100..<200)
+
+        let menu = viewer.testBuildContextMenu(for: .sequence, genomicPosition: 123)
+        let tokens = menu.items.map(menuToken)
+
+        XCTAssertEqual(tokens, [
+            "Copy Visible Region",
+            "<separator>",
+            "Copy Visible Region as FASTA",
+            "Extract Visible Region…",
+            "<separator>",
+            "Center View Here",
+            "Zoom to Selected Region",
+        ])
+    }
+
     func testSequenceTargetWithoutSelectionPreservesBackgroundCommands() {
         let viewer = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
 
@@ -210,6 +269,18 @@ final class SequenceViewerContextMenuTests: XCTestCase {
     private func allMenuItems(in menu: NSMenu) -> [NSMenuItem] {
         menu.items.flatMap { item in
             [item] + (item.submenu.map(allMenuItems(in:)) ?? [])
+        }
+    }
+
+    private func menuToken(_ item: NSMenuItem) -> String {
+        item.isSeparatorItem ? "<separator>" : item.title
+    }
+
+    private func assertValidSeparators(in menu: NSMenu) {
+        XCTAssertFalse(menu.items.first?.isSeparatorItem == true)
+        XCTAssertFalse(menu.items.last?.isSeparatorItem == true)
+        for pair in zip(menu.items, menu.items.dropFirst()) {
+            XCTAssertFalse(pair.0.isSeparatorItem && pair.1.isSeparatorItem)
         }
     }
 }

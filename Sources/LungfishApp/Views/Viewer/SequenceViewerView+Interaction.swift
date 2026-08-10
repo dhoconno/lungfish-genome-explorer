@@ -644,6 +644,8 @@ extension SequenceViewerView {
     private func buildSequenceContextMenu(clickedTrackIndex: Int?) -> NSMenu {
         let menu = NSMenu(title: "Sequence")
 
+        guard selectionRange == nil else { return menu }
+
         let selectAllItem = NSMenuItem(title: "Select All", action: #selector(selectAllAction(_:)), keyEquivalent: "a")
         selectAllItem.target = self
         menu.addItem(selectAllItem)
@@ -697,6 +699,7 @@ extension SequenceViewerView {
         menu.addItem(copyItem)
 
         addSelectionExtractionMenuItems(to: menu)
+        menu.addItem(NSMenuItem.separator())
         addCenterViewMenuItem(to: menu)
 
         let zoomItem = NSMenuItem(title: "Zoom to Selected Region", action: #selector(zoomToSelectionAction(_:)), keyEquivalent: "")
