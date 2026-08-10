@@ -838,12 +838,6 @@ extension SequenceViewerView {
         }
     }
 
-    func alignmentFileContextMenu(at location: NSPoint) -> NSMenu? {
-        guard isPointInAlignmentTrack(location) else { return nil }
-        let entries = alignmentFileMenuEntriesForContext(at: location)
-        return buildAlignmentContextMenu(for: entries)
-    }
-
     func buildAlignmentContextMenu(for entries: [AlignmentFileMenuEntry]) -> NSMenu {
         let menu = NSMenu(title: "Alignment")
         if entries.count == 1, let entry = entries.first {
@@ -907,12 +901,6 @@ extension SequenceViewerView {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
-    /// Creates and shows context menu for variant actions.
-    func showVariantContextMenu(for result: AnnotationSearchIndex.SearchResult, at event: NSEvent) {
-        let menu = buildContextMenu(for: .variant(result))
-        NSMenu.popUpContextMenu(menu, with: event, for: self)
-    }
-
     func buildVariantContextMenu(for result: AnnotationSearchIndex.SearchResult) -> NSMenu {
         let menu = NSMenu(title: "Variant")
 
@@ -927,12 +915,6 @@ extension SequenceViewerView {
         menu.addItem(viewGenotypesItem)
 
         return menu
-    }
-
-    /// Creates and shows context menu for annotation
-    func showAnnotationContextMenu(for annotation: SequenceAnnotation, at event: NSEvent) {
-        let menu = buildContextMenu(for: .annotation(annotation))
-        NSMenu.popUpContextMenu(menu, with: event, for: self)
     }
 
     func buildAnnotationContextMenu(for annotation: SequenceAnnotation) -> NSMenu {
@@ -1043,81 +1025,6 @@ extension SequenceViewerView {
         menu.addItem(deleteItem)
 
         return menu
-    }
-
-    /// Creates and shows context menu for visible-region actions.
-    func showSelectionContextMenu(at event: NSEvent) {
-        let menu = NSMenu(title: "Visible Region")
-
-        // Copy visible region bases.
-        let copyItem = NSMenuItem(title: "Copy Visible Region", action: #selector(copySelectionAction(_:)), keyEquivalent: "c")
-        copyItem.target = self
-        menu.addItem(copyItem)
-
-        // Extraction actions
-        addSelectionExtractionMenuItems(to: menu)
-
-        menu.addItem(NSMenuItem.separator())
-
-        // View navigation helper.
-        addCenterViewMenuItem(to: menu)
-
-        let zoomItem = NSMenuItem(title: "Zoom to Selected Region", action: #selector(zoomToSelectionAction(_:)), keyEquivalent: "")
-        zoomItem.target = self
-        menu.addItem(zoomItem)
-
-        NSMenu.popUpContextMenu(menu, with: event, for: self)
-    }
-
-    /// Creates and shows general context menu (no selection)
-    func showGeneralContextMenu(at event: NSEvent) {
-        let menu = NSMenu(title: "Sequence")
-
-        // Select All
-        let selectAllItem = NSMenuItem(title: "Select All", action: #selector(selectAllAction(_:)), keyEquivalent: "a")
-        selectAllItem.target = self
-        menu.addItem(selectAllItem)
-
-        menu.addItem(NSMenuItem.separator())
-
-        addCenterViewMenuItem(to: menu)
-
-        // Zoom to Fit
-        let zoomFitItem = NSMenuItem(title: "Zoom to Fit", action: #selector(zoomToFitAction(_:)), keyEquivalent: "")
-        zoomFitItem.target = self
-        menu.addItem(zoomFitItem)
-
-        // Multi-sequence translation toggle
-        if isMultiSequenceMode, let state = multiSequenceState {
-            let location = convert(event.locationInWindow, from: nil)
-            if let clickedInfo = stackedSequenceAtPoint(location) {
-                menu.addItem(NSMenuItem.separator())
-
-                // Per-track translation toggle
-                let translationTitle = clickedInfo.showTranslation ? "Hide Translation" : "Show Translation"
-                let translationItem = NSMenuItem(title: translationTitle, action: #selector(toggleTrackTranslation(_:)), keyEquivalent: "")
-                translationItem.target = self
-                translationItem.representedObject = clickedInfo.trackIndex as NSNumber
-                menu.addItem(translationItem)
-            }
-
-            // Global translation toggle (show/hide all)
-            menu.addItem(NSMenuItem.separator())
-            let anyShowing = state.stackedSequences.contains { $0.showTranslation }
-            let globalTitle = anyShowing ? "Hide All Translations" : "Show All Translations"
-            let globalItem = NSMenuItem(title: globalTitle, action: #selector(toggleAllTranslations(_:)), keyEquivalent: "")
-            globalItem.target = self
-            menu.addItem(globalItem)
-        }
-
-        menu.addItem(NSMenuItem.separator())
-
-        // Show in Inspector (Document tab)
-        let inspectorItem = NSMenuItem(title: "Show in Inspector", action: #selector(showDocumentInInspector(_:)), keyEquivalent: "")
-        inspectorItem.target = self
-        menu.addItem(inspectorItem)
-
-        NSMenu.popUpContextMenu(menu, with: event, for: self)
     }
 
     func clampedContextMenuPosition(for location: NSPoint, frame: ReferenceFrame) -> Int {
