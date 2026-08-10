@@ -12,6 +12,14 @@ import Quartz
 import PDFKit
 import os.log
 
+enum SequenceViewerContextTarget {
+    case read(AlignedRead)
+    case variant(AnnotationSearchIndex.SearchResult)
+    case annotation(SequenceAnnotation)
+    case alignment([AlignmentFileMenuEntry])
+    case sequence
+}
+
 extension SequenceViewerView {
 
     // MARK: - Annotation Hit-Testing
@@ -608,6 +616,115 @@ extension SequenceViewerView {
 
     // MARK: - Right-Click Context Menu
 
+    func buildContextMenu(
+        for target: SequenceViewerContextTarget,
+        clickedTrackIndex: Int? = nil
+    ) -> NSMenu {
+        let menu: NSMenu
+        switch target {
+        case .sequence:
+            menu = buildSequenceContextMenu(clickedTrackIndex: clickedTrackIndex)
+        case .read(let read):
+            menu = buildReadContextMenu(for: read) ?? NSMenu(title: "Read Selection")
+        case .alignment(let entries):
+            menu = buildAlignmentContextMenu(for: entries)
+        case .variant(let result):
+            menu = buildVariantContextMenu(for: result)
+        case .annotation(let annotation):
+            menu = buildAnnotationContextMenu(for: annotation)
+        }
+
+        if selectionRange != nil {
+            appendSelectedRangeMenuItems(to: menu)
+        }
+        normalizeContextMenuSeparators(in: menu)
+        return menu
+    }
+
+    private func buildSequenceContextMenu(clickedTrackIndex: Int?) -> NSMenu {
+        let menu = NSMenu(title: "Sequence")
+
+        let selectAllItem = NSMenuItem(title: "Select All", action: #selector(selectAllAction(_:)), keyEquivalent: "a")
+        selectAllItem.target = self
+        menu.addItem(selectAllItem)
+
+        menu.addItem(NSMenuItem.separator())
+        if selectionRange == nil {
+            addCenterViewMenuItem(to: menu)
+        }
+
+        let zoomFitItem = NSMenuItem(title: "Zoom to Fit", action: #selector(zoomToFitAction(_:)), keyEquivalent: "")
+        zoomFitItem.target = self
+        menu.addItem(zoomFitItem)
+
+        if isMultiSequenceMode, let state = multiSequenceState {
+            if selectionRange == nil,
+               let clickedTrackIndex,
+               state.stackedSequences.indices.contains(clickedTrackIndex) {
+                let clickedInfo = state.stackedSequences[clickedTrackIndex]
+                menu.addItem(NSMenuItem.separator())
+
+                let translationTitle = clickedInfo.showTranslation ? "Hide Translation" : "Show Translation"
+                let translationItem = NSMenuItem(title: translationTitle, action: #selector(toggleTrackTranslation(_:)), keyEquivalent: "")
+                translationItem.target = self
+                translationItem.representedObject = clickedTrackIndex as NSNumber
+                menu.addItem(translationItem)
+            }
+
+            menu.addItem(NSMenuItem.separator())
+            let anyShowing = state.stackedSequences.contains { $0.showTranslation }
+            let globalTitle = anyShowing ? "Hide All Translations" : "Show All Translations"
+            let globalItem = NSMenuItem(title: globalTitle, action: #selector(toggleAllTranslations(_:)), keyEquivalent: "")
+            globalItem.target = self
+            menu.addItem(globalItem)
+        }
+
+        menu.addItem(NSMenuItem.separator())
+        let inspectorItem = NSMenuItem(title: "Show in Inspector", action: #selector(showDocumentInInspector(_:)), keyEquivalent: "")
+        inspectorItem.target = self
+        menu.addItem(inspectorItem)
+
+        return menu
+    }
+
+    private func appendSelectedRangeMenuItems(to menu: NSMenu) {
+        if let last = menu.items.last, !last.isSeparatorItem {
+            menu.addItem(NSMenuItem.separator())
+        }
+
+        let copyItem = NSMenuItem(title: "Copy Visible Region", action: #selector(copySelectionAction(_:)), keyEquivalent: "c")
+        copyItem.target = self
+        menu.addItem(copyItem)
+
+        addSelectionExtractionMenuItems(to: menu)
+        addCenterViewMenuItem(to: menu)
+
+        let zoomItem = NSMenuItem(title: "Zoom to Selected Region", action: #selector(zoomToSelectionAction(_:)), keyEquivalent: "")
+        zoomItem.target = self
+        menu.addItem(zoomItem)
+    }
+
+    private func normalizeContextMenuSeparators(in menu: NSMenu) {
+        while let first = menu.items.first, first.isSeparatorItem {
+            menu.removeItem(first)
+        }
+        while let last = menu.items.last, last.isSeparatorItem {
+            menu.removeItem(last)
+        }
+
+        var previousWasSeparator = false
+        for item in menu.items {
+            if item.isSeparatorItem {
+                if previousWasSeparator {
+                    menu.removeItem(item)
+                }
+                previousWasSeparator = true
+            } else {
+                previousWasSeparator = false
+            }
+        }
+    }
+
     /// Handles right-click/control-click to show contextual menu
     public override func rightMouseDown(with event: NSEvent) {
         guard let frame = viewController?.referenceFrame else { return }
@@ -732,9 +849,12 @@ extension SequenceViewerView {
     }
 
     func alignmentFileContextMenu(at location: NSPoint) -> NSMenu? {
+        guard isPointInAlignmentTrack(location) else { return nil }
         let entries = alignmentFileMenuEntriesForContext(at: location)
-        guard !entries.isEmpty else { return nil }
+        return buildAlignmentContextMenu(for: entries)
+    }
 
+    func buildAlignmentContextMenu(for entries: [AlignmentFileMenuEntry]) -> NSMenu {
         let menu = NSMenu(title: "Alignment")
         if entries.count == 1, let entry = entries.first {
             let item = NSMenuItem(
@@ -745,7 +865,7 @@ extension SequenceViewerView {
             item.target = self
             item.representedObject = entry.url
             menu.addItem(item)
-        } else {
+        } else if entries.count > 1 {
             let revealMenu = NSMenu(title: "Show Alignment File in Finder")
             for entry in entries {
                 let item = NSMenuItem(
@@ -762,8 +882,10 @@ extension SequenceViewerView {
             menu.addItem(revealItem)
         }
 
-        menu.addItem(NSMenuItem.separator())
-        addCenterViewMenuItem(to: menu)
+        if selectionRange == nil {
+            menu.addItem(NSMenuItem.separator())
+            addCenterViewMenuItem(to: menu)
+        }
         return menu
     }
 
@@ -801,6 +923,11 @@ extension SequenceViewerView {
 
     /// Creates and shows context menu for variant actions.
     func showVariantContextMenu(for result: AnnotationSearchIndex.SearchResult, at event: NSEvent) {
+        let menu = buildContextMenu(for: .variant(result))
+        NSMenu.popUpContextMenu(menu, with: event, for: self)
+    }
+
+    func buildVariantContextMenu(for result: AnnotationSearchIndex.SearchResult) -> NSMenu {
         let menu = NSMenu(title: "Variant")
 
         let viewVariantItem = NSMenuItem(title: "View Variant in Table", action: #selector(viewVariantInTableAction(_:)), keyEquivalent: "")
@@ -813,20 +940,20 @@ extension SequenceViewerView {
         viewGenotypesItem.representedObject = result
         menu.addItem(viewGenotypesItem)
 
-        menu.addItem(NSMenuItem.separator())
-        addCenterViewMenuItem(to: menu)
-
-        if selectionRange != nil {
-            let zoomItem = NSMenuItem(title: "Zoom to Visible Region", action: #selector(zoomToSelectionAction(_:)), keyEquivalent: "")
-            zoomItem.target = self
-            menu.addItem(zoomItem)
+        if selectionRange == nil {
+            menu.addItem(NSMenuItem.separator())
+            addCenterViewMenuItem(to: menu)
         }
-
-        NSMenu.popUpContextMenu(menu, with: event, for: self)
+        return menu
     }
 
     /// Creates and shows context menu for annotation
     func showAnnotationContextMenu(for annotation: SequenceAnnotation, at event: NSEvent) {
+        let menu = buildContextMenu(for: .annotation(annotation))
+        NSMenu.popUpContextMenu(menu, with: event, for: self)
+    }
+
+    func buildAnnotationContextMenu(for annotation: SequenceAnnotation) -> NSMenu {
         let menu = NSMenu(title: "Annotation")
 
         // --- Copy submenu ---
@@ -891,7 +1018,9 @@ extension SequenceViewerView {
         menu.addItem(NSMenuItem.separator())
 
         // --- Navigation ---
-        addCenterViewMenuItem(to: menu)
+        if selectionRange == nil {
+            addCenterViewMenuItem(to: menu)
+        }
 
         let zoomItem = NSMenuItem(title: "Zoom to Annotation", action: #selector(zoomToAnnotationAction(_:)), keyEquivalent: "")
         zoomItem.target = self
@@ -935,7 +1064,7 @@ extension SequenceViewerView {
         deleteItem.representedObject = annotation
         menu.addItem(deleteItem)
 
-        NSMenu.popUpContextMenu(menu, with: event, for: self)
+        return menu
     }
 
     /// Creates and shows context menu for visible-region actions.
@@ -955,7 +1084,7 @@ extension SequenceViewerView {
         // View navigation helper.
         addCenterViewMenuItem(to: menu)
 
-        let zoomItem = NSMenuItem(title: "Zoom to Visible Region", action: #selector(zoomToSelectionAction(_:)), keyEquivalent: "")
+        let zoomItem = NSMenuItem(title: "Zoom to Selected Region", action: #selector(zoomToSelectionAction(_:)), keyEquivalent: "")
         zoomItem.target = self
         menu.addItem(zoomItem)
 
