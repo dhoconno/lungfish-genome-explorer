@@ -12,7 +12,7 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
     enum Availability: Equatable {
         case idle
         case loading
-        case available(reference: ClassifierAlignmentEvidenceValidator.ReferenceStatus)
+        case available(reference: ClassifierAlignmentEvidenceValidator.ReferenceStatus, reason: String?)
         case unavailable(String)
     }
 
@@ -46,7 +46,7 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
                     referenceSequence: validated.reference.sequence
                 )
                 viewer.displayDetachedAlignment(source)
-                availability = .available(reference: validated.reference.status)
+                availability = .available(reference: validated.reference.status, reason: validated.reference.reason)
             } catch {
                 guard !Task.isCancelled, currentGeneration == generation else { return }
                 viewer.viewerView.clearReferenceBundle()

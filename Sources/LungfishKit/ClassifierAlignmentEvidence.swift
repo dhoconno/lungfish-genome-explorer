@@ -5,6 +5,17 @@
 import AppKit
 import Foundation
 
+/// Immutable identity of a final evidence payload for session-staleness checks.
+public struct ClassifierAlignmentEvidenceFileSnapshot: Equatable, Sendable {
+    public let size: Int64
+    public let sha256: String
+
+    public init(size: Int64, sha256: String) {
+        self.size = size
+        self.sha256 = sha256
+    }
+}
+
 /// The classifier workflows that use the shared detached alignment viewer.
 ///
 /// NAO-MGS intentionally remains on its existing compact BAM viewer.
@@ -36,10 +47,12 @@ public struct ClassifierAlignmentIndex: Equatable, Sendable {
 
     public let url: URL
     public let kind: Kind
+    public let expectedSnapshot: ClassifierAlignmentEvidenceFileSnapshot?
 
-    public init(url: URL, kind: Kind) {
+    public init(url: URL, kind: Kind, expectedSnapshot: ClassifierAlignmentEvidenceFileSnapshot? = nil) {
         self.url = url
         self.kind = kind
+        self.expectedSnapshot = expectedSnapshot
     }
 }
 
@@ -69,17 +82,20 @@ public struct ClassifierAlignmentReferenceCandidate: Equatable, Sendable {
     public let recordName: String
     public let expectedLength: Int
     public let expectedMD5: String?
+    public let expectedSnapshot: ClassifierAlignmentEvidenceFileSnapshot?
 
     public init(
         fastaURL: URL,
         recordName: String,
         expectedLength: Int,
-        expectedMD5: String? = nil
+        expectedMD5: String? = nil,
+        expectedSnapshot: ClassifierAlignmentEvidenceFileSnapshot? = nil
     ) {
         self.fastaURL = fastaURL
         self.recordName = recordName
         self.expectedLength = expectedLength
         self.expectedMD5 = expectedMD5
+        self.expectedSnapshot = expectedSnapshot
     }
 }
 
@@ -122,6 +138,7 @@ public struct ClassifierAlignmentEvidenceRequest: Equatable, Sendable {
     public let workflow: ClassifierAlignmentWorkflowKind
     public let resultIdentity: ClassifierAlignmentResultIdentity
     public let bamURL: URL
+    public let bamExpectedSnapshot: ClassifierAlignmentEvidenceFileSnapshot?
     public let index: ClassifierAlignmentIndex
     public let sample: ClassifierAlignmentSample
     public let contig: ClassifierAlignmentContig
@@ -132,6 +149,7 @@ public struct ClassifierAlignmentEvidenceRequest: Equatable, Sendable {
         workflow: ClassifierAlignmentWorkflowKind,
         resultIdentity: ClassifierAlignmentResultIdentity,
         bamURL: URL,
+        bamExpectedSnapshot: ClassifierAlignmentEvidenceFileSnapshot? = nil,
         index: ClassifierAlignmentIndex,
         sample: ClassifierAlignmentSample,
         contig: ClassifierAlignmentContig,
@@ -184,6 +202,7 @@ public struct ClassifierAlignmentEvidenceRequest: Equatable, Sendable {
         self.workflow = workflow
         self.resultIdentity = resultIdentity
         self.bamURL = bamURL
+        self.bamExpectedSnapshot = bamExpectedSnapshot
         self.index = index
         self.sample = sample
         self.contig = contig

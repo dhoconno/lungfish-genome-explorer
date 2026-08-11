@@ -249,6 +249,8 @@ public class SequenceViewerView: NSView {
     var depthFetchGate = AsyncRequestGate<ViewerAlignmentFetchIdentity>()
     var consensusFetchGate = AsyncRequestGate<ViewerAlignmentFetchIdentity>()
     var activeAlignmentFetchIdentity: ViewerAlignmentFetchIdentity?
+    var detachedReadFetchTask: Task<Void, Never>?
+    var detachedDepthFetchTask: Task<Void, Never>?
 
     /// Coverage stats from the currently cached depth points.
     var cachedCoverageStats: ReadTrackRenderer.CoverageStats?
@@ -1138,8 +1140,13 @@ public class SequenceViewerView: NSView {
 
     func invalidateAlignmentFetchState(
         invalidateDepth: Bool,
-        invalidateConsensus: Bool
+        invalidateConsensus: Bool,
+        preserveReadSelection: Bool = false
     ) {
+        detachedReadFetchTask?.cancel()
+        detachedReadFetchTask = nil
+        detachedDepthFetchTask?.cancel()
+        detachedDepthFetchTask = nil
         readFetchGeneration += 1
         readFetchGate.invalidate()
         cachedAlignedReads = []
@@ -1177,11 +1184,15 @@ public class SequenceViewerView: NSView {
         }
 
         activeAlignmentFetchIdentity = nil
-        if !selectedReadIDs.isEmpty {
+        if !preserveReadSelection, !selectedReadIDs.isEmpty {
             selectedReadIDs.removeAll()
             NotificationCenter.default.post(name: .readSelected, object: self, userInfo: windowScopedUserInfo())
         }
         updateSelectionStatus()
+    }
+
+    func invalidateDetachedAlignmentFiltersPreservingSelection() {
+        invalidateAlignmentFetchState(invalidateDepth: true, invalidateConsensus: true, preserveReadSelection: true)
     }
 
     func readSettingsSignature() -> String {

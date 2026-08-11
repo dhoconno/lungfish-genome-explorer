@@ -47,6 +47,7 @@ final class ClassifierAlignmentEvidenceValidatorTests: XCTestCase {
 
         await XCTAssertThrowsErrorAsync(try await validator.validate(try files.request(reference: false))) { error in
             XCTAssertEqual(error as? ClassifierAlignmentEvidenceValidator.Error, .indexUnavailable(files.index))
+            XCTAssertEqual(error.localizedDescription, "The explicit BAM index is unavailable: evidence.bam.bai.")
         }
     }
 
@@ -93,6 +94,23 @@ final class ClassifierAlignmentEvidenceValidatorTests: XCTestCase {
         XCTAssertEqual(result.reference.status, .unavailable)
         XCTAssertNil(result.reference.sequence)
     }
+
+    func testFinalEvidenceSnapshotsRejectChangedBAMAndExposeAcceptedIdentities() async throws {
+        let files = try FixtureFiles()
+        let validator = ClassifierAlignmentEvidenceValidator(
+            headerReader: { _ in "@SQ\tSN:chr1\tLN:4\n" }, indexQuery: { _, _, _ in }, fileManager: files.fileManager
+        )
+        let first = try await validator.validate(try files.request(reference: true))
+        XCTAssertEqual(first.bamSnapshot.size, 3)
+        XCTAssertEqual(first.indexSnapshot.size, 3)
+        XCTAssertNotNil(first.referenceSnapshot)
+
+        let request = try files.request(reference: false, bamSnapshot: first.bamSnapshot)
+        try Data([0x00, 0x01]).write(to: files.bam)
+        await XCTAssertThrowsErrorAsync(try await validator.validate(request)) { error in
+            XCTAssertEqual(error as? ClassifierAlignmentEvidenceValidator.Error, .snapshotMismatch(files.bam))
+        }
+    }
 }
 
 private enum FixtureError: Error { case badIndex }
@@ -120,12 +138,14 @@ private final class FixtureFiles {
     func request(
         reference: Bool,
         indexURL: URL? = nil,
-        indexKind: ClassifierAlignmentIndex.Kind = .bai
+        indexKind: ClassifierAlignmentIndex.Kind = .bai,
+        bamSnapshot: ClassifierAlignmentEvidenceFileSnapshot? = nil
     ) throws -> ClassifierAlignmentEvidenceRequest {
         try ClassifierAlignmentEvidenceRequest(
             workflow: .taxTriage,
             resultIdentity: .init(stableID: "result", finalResultURL: directory, provenanceID: "prov"),
             bamURL: bam,
+            bamExpectedSnapshot: bamSnapshot,
             index: .init(url: indexURL ?? index, kind: indexKind),
             sample: .init(canonicalID: "sample"),
             contig: .init(name: "chr1", expectedLength: 4),

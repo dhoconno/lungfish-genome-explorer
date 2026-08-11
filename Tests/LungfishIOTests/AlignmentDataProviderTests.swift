@@ -8,6 +8,18 @@ import XCTest
 
 final class AlignmentDataProviderTests: XCTestCase {
 
+    func testFetchDepthUsesExplicitCustomIndex() async throws {
+        let tempDir = try makeTemporaryDirectory(prefix: "alignment-depth-index")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let script = try makeFakeSamtools(in: tempDir, script: """
+        #!/bin/sh
+        case " $* " in *" -X /tmp/fake.bam /tmp/nonadjacent.csi "*) echo "chr1\t1\t2" ;; *) exit 9 ;; esac
+        """)
+        let provider = AlignmentDataProvider(alignmentPath: "/tmp/fake.bam", indexPath: "/tmp/nonadjacent.csi", samtoolsPath: script.path)
+        let depth = try await provider.fetchDepth(chromosome: "chr1", start: 0, end: 1)
+        XCTAssertEqual(depth.first?.depth, 2)
+    }
+
     // MARK: - Initialization
 
     func testProviderInitialization() {

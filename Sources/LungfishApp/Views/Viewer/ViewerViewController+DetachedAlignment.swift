@@ -30,7 +30,7 @@ extension ViewerViewController {
     func updateDetachedAlignmentSettings(minMapQ: Int, excludeFlags: UInt16) {
         viewerView.minMapQSetting = max(0, minMapQ)
         viewerView.excludeFlagsSetting = excludeFlags
-        viewerView.invalidateAlignmentFetchState()
+        viewerView.invalidateDetachedAlignmentFiltersPreservingSelection()
         viewerView.needsDisplay = true
     }
 }

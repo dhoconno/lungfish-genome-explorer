@@ -29,7 +29,7 @@ extension SequenceViewerView {
         let tokenIdentity = token.identity
         let provider = source.provider
         let filters = (excludeFlagsSetting, minMapQSetting, selectedReadGroupsSetting, limitReadRowsSetting ? 250_000 : Int.max)
-        Task.detached { [weak self] in
+        detachedReadFetchTask = Task.detached { [weak self] in
             let reads: [AlignedRead]
             do {
                 reads = try await provider.fetchReads(
@@ -40,6 +40,7 @@ extension SequenceViewerView {
                 sequenceViewerLogger.error("fetchDetachedReads: \(error.localizedDescription, privacy: .public)")
                 reads = []
             }
+            guard !Task.isCancelled else { return }
             DispatchQueue.main.async { [weak self] in
                 MainActor.assumeIsolated {
                     guard let self else { return }
@@ -64,7 +65,7 @@ extension SequenceViewerView {
         let tokenIdentity = token.identity
         let provider = source.provider
         let filters = (max(0, max(minMapQSetting, consensusMinMapQSetting)), max(0, consensusMinBaseQSetting), excludeFlagsSetting)
-        Task.detached { [weak self] in
+        detachedDepthFetchTask = Task.detached { [weak self] in
             let points: [ReadTrackRenderer.CoveragePoint]
             do {
                 points = try await provider.fetchDepth(
@@ -75,6 +76,7 @@ extension SequenceViewerView {
                 sequenceViewerLogger.error("fetchDetachedDepth: \(error.localizedDescription, privacy: .public)")
                 points = []
             }
+            guard !Task.isCancelled else { return }
             DispatchQueue.main.async { [weak self] in
                 MainActor.assumeIsolated {
                     guard let self else { return }

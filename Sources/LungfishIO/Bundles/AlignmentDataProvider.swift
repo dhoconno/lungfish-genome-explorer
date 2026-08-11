@@ -26,6 +26,14 @@ private final class PipeReadBuffer: @unchecked Sendable {
     }
 }
 
+final class SamtoolsCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var process: Process?
+    private var cancelled = false
+    func install(_ process: Process) { lock.lock(); self.process = process; let cancel = cancelled; lock.unlock(); if cancel { process.terminate() } }
+    func cancel() { lock.lock(); cancelled = true; let process = process; lock.unlock(); process?.terminate() }
+}
+
 // MARK: - DepthPoint
 
 /// Per-position read depth from `samtools depth`.
@@ -425,7 +433,7 @@ public final class AlignmentDataProvider: @unchecked Sendable {
         }
 
         let regionStr = "\(chromosome):\(start + 1)-\(end)"
-        arguments += ["-r", regionStr, alignmentPath]
+        arguments += ["-r", regionStr, "-X", alignmentPath, indexPath]
 
         alignmentLogger.debug("Fetching depth: samtools \(arguments.joined(separator: " "))")
         let result = try await runSamtools(arguments: arguments, timeout: 30)
@@ -596,19 +604,22 @@ public final class AlignmentDataProvider: @unchecked Sendable {
     private func runSamtools(arguments: [String], timeout: TimeInterval = 60) async throws -> (exitCode: Int32, stdout: String, stderr: String) {
         let samtoolsPath = try findSamtools()
 
-        return try await Task.detached(priority: .userInitiated) {
-            try Self.runSamtoolsProcess(
-                samtoolsPath: samtoolsPath,
-                arguments: arguments,
-                timeout: timeout
-            )
-        }.value
+        let cancellation = SamtoolsCancellation()
+        return try await withTaskCancellationHandler(operation: {
+            try Task.checkCancellation()
+            let value = try await Task.detached(priority: .userInitiated) {
+                try Self.runSamtoolsProcess(samtoolsPath: samtoolsPath, arguments: arguments, timeout: timeout, cancellation: cancellation)
+            }.value
+            try Task.checkCancellation()
+            return value
+        }, onCancel: { cancellation.cancel() })
     }
 
     static func runSamtoolsProcess(
         samtoolsPath: String,
         arguments: [String],
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        cancellation: SamtoolsCancellation? = nil
     ) throws -> (exitCode: Int32, stdout: String, stderr: String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: samtoolsPath)
@@ -624,6 +635,7 @@ public final class AlignmentDataProvider: @unchecked Sendable {
         } catch {
             throw AlignmentFetchError.samtoolsNotFound
         }
+        cancellation?.install(process)
 
         // Read stdout and stderr CONCURRENTLY to prevent pipe deadlock.
         // If we read sequentially, filling one pipe's buffer (64 KB) blocks
