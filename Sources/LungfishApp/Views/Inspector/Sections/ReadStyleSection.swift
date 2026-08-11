@@ -410,6 +410,19 @@ public final class ReadStyleSectionViewModel {
         classifierEvidenceCapabilities = capabilities
     }
 
+    func refreshClassifierEvidence(_ capabilities: ClassifierAlignmentInspectorCapabilities) {
+        readGroups = capabilities.readGroups.map {
+            .init(id: $0.id, sample: $0.sample, library: nil, platform: nil)
+        }
+        switch capabilities.status {
+        case .stale, .unavailable:
+            selectedRead = nil
+        case .idle, .loading, .available:
+            break
+        }
+        classifierEvidenceCapabilities = capabilities
+    }
+
     /// Loads alignment statistics from bundle's metadata databases.
     public func loadStatistics(from bundle: ReferenceBundle) {
         let trackIds = bundle.alignmentTrackIds

@@ -28,6 +28,7 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
     private var generation = 0
     private var task: Task<Void, Never>?
     private var activeRequest: ClassifierAlignmentEvidenceRequest?
+    private var observedInspectorSnapshots: InspectorSnapshots?
     private(set) var availability: Availability = .idle
     private(set) var status: ClassifierAlignmentViewerStatus = .idle { didSet { publishStatus() } }
     var onStatusChanged: (@MainActor @Sendable (ClassifierAlignmentViewerStatus) -> Void)?
@@ -102,6 +103,7 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
         let currentGeneration = generation
         task?.cancel()
         activeRequest = request
+        observedInspectorSnapshots = nil
         availability = .loading
         status = .loading
         publishInspectorCapabilities(reference: request.referenceCandidate == nil ? .absent : .unavailable("Reference validation is pending."), readGroups: [])
@@ -129,14 +131,15 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
                 }
                 availability = .available(reference: validated.reference.status, reason: validated.reference.reason)
                 status = .available(referenceStrength: referenceStrengthText(validated.reference.status), reason: validated.reference.reason)
+                observedInspectorSnapshots = .init(
+                    bam: validated.bamSnapshot,
+                    index: validated.indexSnapshot,
+                    reference: validated.referenceSnapshot
+                )
                 publishInspectorCapabilities(
                     reference: inspectorReferenceValidation(validated.reference),
                     readGroups: validated.readGroups.map { .init(id: $0.id, sample: $0.sample) },
-                    snapshots: .init(
-                        bam: validated.bamSnapshot,
-                        index: validated.indexSnapshot,
-                        reference: validated.referenceSnapshot
-                    )
+                    snapshots: observedInspectorSnapshots
                 )
             } catch {
                 guard !Task.isCancelled, currentGeneration == generation else { return }
@@ -153,6 +156,7 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
         task?.cancel()
         task = nil
         activeRequest = nil
+        observedInspectorSnapshots = nil
         viewer.viewerView.clearReferenceBundle()
         viewer.viewerView.onDetachedEvidenceStale = nil
         availability = .idle
@@ -186,6 +190,7 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
         snapshots: InspectorSnapshots? = nil
     ) {
         guard let request = activeRequest else { inspectorCapabilities = nil; return }
+        let snapshots = snapshots ?? observedInspectorSnapshots
         let referenceSnapshot = if let snapshots {
             snapshots.reference
         } else {
@@ -200,7 +205,8 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
             bamSnapshot: snapshots?.bam ?? request.bamExpectedSnapshot,
             indexSnapshot: snapshots?.index ?? request.index.expectedSnapshot,
             referenceSnapshot: referenceSnapshot,
-            provenanceID: request.resultIdentity.provenanceID
+            provenanceID: request.resultIdentity.provenanceID,
+            provenanceSourceURL: request.resultIdentity.finalResultURL
         )
     }
 }

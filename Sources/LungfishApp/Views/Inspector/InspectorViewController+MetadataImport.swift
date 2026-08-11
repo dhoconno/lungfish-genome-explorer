@@ -562,18 +562,38 @@ extension InspectorViewController {
         applySettings: @escaping ([AnyHashable: Any]) -> Void
     ) {
         let readStyle = viewModel.readStyleSectionViewModel
-        readStyle.configureClassifierEvidence(capabilities)
+        let sameEvidence = readStyle.classifierEvidenceCapabilities?.bamPath == capabilities.bamPath
+            && readStyle.classifierEvidenceCapabilities?.indexPath == capabilities.indexPath
+            && readStyle.classifierEvidenceCapabilities?.selectedTrack.id == capabilities.selectedTrack.id
+            && readStyle.classifierEvidenceCapabilities?.provenanceID == capabilities.provenanceID
+        if sameEvidence {
+            readStyle.refreshClassifierEvidence(capabilities)
+        } else {
+            readStyle.configureClassifierEvidence(capabilities)
+        }
         viewModel.selectionSectionViewModel.referenceBundle = nil
         viewModel.documentSectionViewModel.referenceTrackCapabilities = nil
         viewModel.documentSectionViewModel.alignmentTrackRows = []
         viewModel.documentSectionViewModel.selectVisibleAlignmentTrack = nil
         viewModel.documentSectionViewModel.removeDerivedAlignmentTrack = nil
-        viewModel.documentSectionViewModel.visibleAlignmentTrackID = capabilities.selectedTrack.id
-        readStyle.onSettingsChanged = { [weak self] in
-            guard let self else { return }
-            applySettings(self.makeReadDisplaySettingsPayload(from: self.viewModel.readStyleSectionViewModel))
+        viewModel.documentSectionViewModel.visibleAlignmentTrackID = sameEvidence
+            ? readStyle.selectedVisibleAlignmentTrackID
+            : capabilities.selectedTrack.id
+        if !sameEvidence {
+            readStyle.onSettingsChanged = { [weak self] in
+                guard let self else { return }
+                applySettings(self.makeReadDisplaySettingsPayload(from: self.viewModel.readStyleSectionViewModel))
+            }
+            applySettings(makeReadDisplaySettingsPayload(from: readStyle))
         }
-        applySettings(makeReadDisplaySettingsPayload(from: readStyle))
+        if case .available = capabilities.status, let provenanceURL = capabilities.provenanceSourceURL {
+            viewModel.provenanceSectionViewModel.load(
+                item: .init(url: provenanceURL, sidebarType: nil, contentMode: .metagenomics, displayName: capabilities.result),
+                clearWhenUnavailable: true
+            )
+        } else {
+            viewModel.provenanceSectionViewModel.clear()
+        }
     }
 
     private func syncAlignmentTrackInventory(from bundle: ReferenceBundle) {

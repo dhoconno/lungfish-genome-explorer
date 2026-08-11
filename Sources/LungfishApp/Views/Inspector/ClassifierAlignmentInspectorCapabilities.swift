@@ -78,6 +78,7 @@ struct ClassifierAlignmentInspectorCapabilities: Equatable {
     let indexSnapshot: ClassifierAlignmentEvidenceFileSnapshot?
     let referenceSnapshot: ClassifierAlignmentEvidenceFileSnapshot?
     let provenanceID: String?
+    let provenanceSourceURL: URL?
 
     let defaultExcludeFlags: UInt16 = 0xD04
 
@@ -95,7 +96,8 @@ struct ClassifierAlignmentInspectorCapabilities: Equatable {
         bamSnapshot: ClassifierAlignmentEvidenceFileSnapshot? = nil,
         indexSnapshot: ClassifierAlignmentEvidenceFileSnapshot? = nil,
         referenceSnapshot: ClassifierAlignmentEvidenceFileSnapshot? = nil,
-        provenanceID: String? = nil
+        provenanceID: String? = nil,
+        provenanceSourceURL: URL? = nil
     ) -> Self {
         .init(
             workflow: workflow,
@@ -109,7 +111,8 @@ struct ClassifierAlignmentInspectorCapabilities: Equatable {
             selectedTrack: .init(id: "classifier:\(sample)", name: sample),
             coveragePolicy: "Coverage uses MAPQ and read-inclusion filters; it is unavailable while read-group filtering is active.",
             status: status, referencePath: referencePath, bamSnapshot: bamSnapshot,
-            indexSnapshot: indexSnapshot, referenceSnapshot: referenceSnapshot, provenanceID: provenanceID
+            indexSnapshot: indexSnapshot, referenceSnapshot: referenceSnapshot, provenanceID: provenanceID,
+            provenanceSourceURL: provenanceSourceURL
         )
     }
 
@@ -127,10 +130,11 @@ struct ClassifierAlignmentInspectorCapabilities: Equatable {
     private func snapshotRow(_ label: String, _ snapshot: ClassifierAlignmentEvidenceFileSnapshot?) -> String? { snapshot.map { "\(label): \($0.size) bytes • \($0.sha256)" } }
 
     var unavailableReasons: [String] {
-        Control.allCases.compactMap { control in
+        var seen = Set<String>()
+        return Control.allCases.compactMap { control in
             switch availability(of: control) {
             case .available: nil
-            case .disabled(let reason), .hidden(let reason): reason
+            case .disabled(let reason), .hidden(let reason): seen.insert(reason).inserted ? reason : nil
             }
         }
     }

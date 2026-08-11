@@ -80,6 +80,7 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         viewer.viewerView.testSetSelectedReadIDs([selectedSecondID])
 
         viewer.updateDetachedAlignmentSettings(minMapQ: 1, excludeFlags: 0xD04)
+        viewer.updateDetachedAlignmentSettings(minMapQ: 2, excludeFlags: 0xD04)
         viewer.viewerView.fetchDetachedReads(source: source, region: region)
         for _ in 0..<250 where viewer.viewerView.testCachedAlignedReads.count != 2 {
             try await Task.sleep(nanoseconds: 10_000_000)
@@ -144,6 +145,7 @@ final class DetachedAlignmentViewerTests: XCTestCase {
 
         try "empty".write(to: mode, atomically: true, encoding: .utf8)
         viewer.updateDetachedAlignmentSettings(minMapQ: 1, excludeFlags: 0xD04)
+        viewer.updateDetachedAlignmentSettings(minMapQ: 2, excludeFlags: 0xD04)
         viewer.viewerView.fetchDetachedReads(source: source, region: region)
         for _ in 0..<250 where viewer.viewerView.testIsFetchingReads || !viewer.viewerView.testCachedAlignedReads.isEmpty {
             try await Task.sleep(nanoseconds: 10_000_000)

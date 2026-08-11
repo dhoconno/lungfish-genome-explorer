@@ -42,7 +42,11 @@ public final class InspectorViewModel {
             return [.bundle, .provenance]
         case .metagenomics:
             if readStyleSectionViewModel.classifierEvidenceCapabilities != nil {
-                return [.resultSummary, .view, .analysis, .provenance]
+                var tabs: [InspectorTab] = [.resultSummary, .view, .analysis]
+                if provenanceSectionViewModel.currentItem != nil || provenanceSectionViewModel.isLoading {
+                    tabs.append(.provenance)
+                }
+                return tabs
             }
             // The 12S Detail tab is only meaningful for the 12S amplicon
             // viewport; other metagenomics tools (Kraken2, NAO-MGS, NVD) leave

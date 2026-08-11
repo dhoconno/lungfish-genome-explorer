@@ -4,9 +4,49 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishIO
 @testable import LungfishKit
+import LungfishWorkflow
 
 @MainActor
 final class ClassifierAlignmentInspectorTests: XCTestCase {
+    func testBoundStatusRefreshPreservesSettingsChangedDuringValidation() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let bam = directory.appendingPathComponent("final.bam")
+        let index = directory.appendingPathComponent("final.bam.bai")
+        try Data([1]).write(to: bam); try Data([2]).write(to: index)
+        let gate = StatusValidationGate()
+        let request = try ClassifierAlignmentEvidenceRequest(
+            workflow: .taxTriage, resultIdentity: .init(stableID: "result", finalResultURL: directory, provenanceID: "prov"),
+            bamURL: bam, index: .init(url: index, kind: .bai), sample: .init(canonicalID: "S1"),
+            contig: .init(name: "virus", expectedLength: 4), referenceCandidate: nil,
+            presentation: .init(workflowLabel: "TaxTriage", resultLabel: "result", sampleLabel: "S1", contigLabel: "virus")
+        )
+        let controller = ClassifierAlignmentEvidenceViewportController(
+            validator: .init(headerReader: { _ in await gate.wait(); return "@SQ\tSN:virus\tLN:4\n@RG\tID:rg1\n@RG\tID:rg2\n" }, indexQuery: { _, _, _ in })
+        )
+        let inspector = InspectorViewController(); _ = inspector.view
+        controller.bindInspector(inspector)
+        controller.display(request)
+        await gate.waitUntilEntered()
+
+        let state = inspector.readStyleSectionViewModel
+        state.minMapQ = 31; state.showDuplicates = true; state.selectedReadGroups = ["rg1"]
+        state.onSettingsChanged?()
+        await gate.release()
+        for _ in 0..<100 where controller.status != .available(referenceStrength: "not provided", reason: nil) { await Task.yield() }
+        XCTAssertEqual(state.minMapQ, 31)
+        XCTAssertTrue(state.showDuplicates)
+        XCTAssertEqual(state.selectedReadGroups, ["rg1"])
+        XCTAssertEqual(controller.viewer.viewerView.minMapQSetting, 31)
+        XCTAssertEqual(controller.viewer.viewerView.excludeFlagsSetting, 0x904)
+        XCTAssertEqual(controller.viewer.viewerView.selectedReadGroupsSetting, ["rg1"])
+
+        controller.viewer.viewerView.markDetachedEvidenceStale("stale")
+        XCTAssertEqual(state.minMapQ, 31)
+        XCTAssertTrue(state.showDuplicates)
+        XCTAssertEqual(state.selectedReadGroups, ["rg1"])
+    }
     func testMainSplitFactoryBindsItsActualInspectorAndScopeAndPublishesCompleteInventory() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -104,12 +144,54 @@ final class ClassifierAlignmentInspectorTests: XCTestCase {
         let stale = try XCTUnwrap(inspector.readStyleSectionViewModel.classifierEvidenceCapabilities)
         XCTAssertEqual(stale.status, .stale(reason))
         XCTAssertEqual(stale.referenceValidation, .unavailable(reason))
+        XCTAssertEqual(stale.bamSnapshot, available.bamSnapshot)
+        XCTAssertEqual(stale.indexSnapshot, available.indexSnapshot)
+        XCTAssertEqual(stale.referenceSnapshot, available.referenceSnapshot)
         XCTAssertEqual(stale.availability(of: .readRendering), .disabled(reason))
         XCTAssertEqual(stale.availability(of: .referenceMismatch), .disabled(reason))
         XCTAssertNil(inspector.readStyleSectionViewModel.selectedRead)
         XCTAssertNil(inspector.readStyleSectionViewModel.onMarkDuplicatesRequested)
         XCTAssertNil(inspector.readStyleSectionViewModel.onCreateFilteredAlignmentRequested)
         XCTAssertNil(inspector.readStyleSectionViewModel.onCallVariantsRequested)
+    }
+
+    func testClassifierProvenanceBindingReplacesPriorSelectionAndClearsWhenUnavailable() async throws {
+        let inspector = InspectorViewController(); _ = inspector.view
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let validURL = directory.appendingPathComponent("valid", isDirectory: true)
+        try FileManager.default.createDirectory(at: validURL, withIntermediateDirectories: true)
+        try ProvenanceWriter(signingProvider: nil).write(
+            .init(workflowName: "Classifier final", toolName: "lungfish-cli", toolVersion: "1.0"),
+            to: validURL
+        )
+        let missingURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: missingURL) }
+        try FileManager.default.createDirectory(at: missingURL, withIntermediateDirectories: true)
+        let previousURL = URL(fileURLWithPath: "/tmp/previous.lungfishfastq")
+        inspector.viewModel.provenanceSectionViewModel.load(item: .init(url: previousURL, sidebarType: .fastqBundle, contentMode: .fastq, displayName: "Previous"))
+        inspector.updateClassifierAlignmentInspector(
+            capabilities: .detachedEvidence(workflow: "TaxTriage", result: "Classifier", sample: "S1", contig: "virus", bamPath: "/tmp/final.bam", indexPath: "/tmp/final.bam.bai", referenceValidation: .absent, readGroups: [], status: .available(referenceStrength: "not provided", reason: nil), provenanceSourceURL: validURL),
+            applySettings: { _ in }
+        )
+        XCTAssertEqual(inspector.viewModel.provenanceSectionViewModel.currentItem?.url, validURL)
+        for _ in 0..<250 where inspector.viewModel.provenanceSectionViewModel.isLoading { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertNotNil(inspector.viewModel.provenanceSectionViewModel.resolvedEnvelope)
+        inspector.updateClassifierAlignmentInspector(
+            capabilities: .detachedEvidence(workflow: "TaxTriage", result: "Classifier", sample: "S1", contig: "virus", bamPath: "/tmp/final.bam", indexPath: "/tmp/final.bam.bai", referenceValidation: .absent, readGroups: [], status: .available(referenceStrength: "not provided", reason: nil), provenanceSourceURL: missingURL),
+            applySettings: { _ in }
+        )
+        XCTAssertEqual(inspector.viewModel.provenanceSectionViewModel.currentItem?.url, missingURL)
+        for _ in 0..<250 where inspector.viewModel.provenanceSectionViewModel.isLoading { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertNil(inspector.viewModel.provenanceSectionViewModel.resolvedEnvelope)
+        XCTAssertNil(inspector.viewModel.provenanceSectionViewModel.currentItem)
+        XCTAssertFalse(inspector.viewModel.availableTabs.contains(.provenance))
+        inspector.updateClassifierAlignmentInspector(
+            capabilities: .detachedEvidence(workflow: "TaxTriage", result: "Classifier", sample: "S1", contig: "virus", bamPath: "/tmp/final.bam", indexPath: "/tmp/final.bam.bai", referenceValidation: .unavailable("stale"), readGroups: [], status: .stale("stale"), provenanceSourceURL: missingURL),
+            applySettings: { _ in }
+        )
+        XCTAssertNil(inspector.viewModel.provenanceSectionViewModel.currentItem)
     }
 
     func testViewportBindingPublishesCapabilitiesIntoInspectorWithoutDirectInspectorUpdate() async throws {
@@ -174,6 +256,7 @@ final class ClassifierAlignmentInspectorTests: XCTestCase {
         XCTAssertEqual(capabilities.referenceMismatchExplanation, "A validated reference sequence is required.")
         XCTAssertTrue(capabilities.inventoryRows.contains("Workflow: EsViritu"))
         XCTAssertTrue(capabilities.unavailableReasons.contains("Classifier evidence has no annotation track."))
+        XCTAssertEqual(capabilities.unavailableReasons.count, Set(capabilities.unavailableReasons).count)
     }
 
     func testValidatedReferenceCapabilityMatrixEnablesReferenceRenderingButNotOutputs() {
@@ -298,4 +381,18 @@ final class ClassifierAlignmentInspectorTests: XCTestCase {
         view.testSetCachedPackedReads([])
         XCTAssertTrue(view.testSelectedReadIDs.isEmpty)
     }
+}
+
+private actor StatusValidationGate {
+    private var entered = false
+    private var released = false
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+    private var enteredContinuation: CheckedContinuation<Void, Never>?
+    func wait() async {
+        entered = true; enteredContinuation?.resume()
+        if released { return }
+        await withCheckedContinuation { releaseContinuation = $0 }
+    }
+    func waitUntilEntered() async { if entered { return }; await withCheckedContinuation { enteredContinuation = $0 } }
+    func release() { released = true; releaseContinuation?.resume(); releaseContinuation = nil }
 }

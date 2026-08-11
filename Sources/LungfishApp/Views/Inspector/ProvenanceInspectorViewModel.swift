@@ -439,7 +439,7 @@ final class ProvenanceInspectorViewModel {
     /// off-main. The result is only applied back on the main actor if `loadGeneration` still
     /// matches the generation captured when this call started, so a superseded lookup from
     /// rapid arrow-key/click navigation cannot overwrite a newer selection's result.
-    func load(item: ProvenanceInspectableItem) {
+    func load(item: ProvenanceInspectableItem, clearWhenUnavailable: Bool = false) {
         loadGeneration += 1
         let thisGeneration = loadGeneration
         currentItem = item
@@ -453,7 +453,11 @@ final class ProvenanceInspectorViewModel {
 
             guard let self, thisGeneration == self.loadGeneration else { return }
             self.isLoading = false
-            self.apply(outcome, item: item)
+            if clearWhenUnavailable, outcome.resolvedEnvelope == nil {
+                self.clear()
+            } else {
+                self.apply(outcome, item: item)
+            }
         }
     }
 

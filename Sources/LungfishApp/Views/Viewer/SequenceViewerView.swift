@@ -1240,8 +1240,10 @@ public class SequenceViewerView: NSView {
     }
 
     func invalidateDetachedAlignmentFiltersPreservingSelection() {
-        let identities = Self.detachedSelectionIdentities(for: cachedPackedReads.map(\.read))
-        preservedDetachedSelectionKeys = Set(selectedReadIDs.compactMap { identities[$0] })
+        if preservedDetachedSelectionKeys.isEmpty {
+            let identities = Self.detachedSelectionIdentities(for: cachedPackedReads.map(\.read))
+            preservedDetachedSelectionKeys = Set(selectedReadIDs.compactMap { identities[$0] })
+        }
         invalidateAlignmentFetchState(invalidateDepth: true, invalidateConsensus: true, preserveReadSelection: true)
     }
 
