@@ -211,6 +211,33 @@ public protocol FastpFusible: RecipeStepExecutor {
 
 // MARK: - RecipeEngineError
 
+/// Actual process evidence retained when a fused recipe invocation is rejected.
+public struct RecipeProcessEvidence: Sendable, Equatable {
+    public let arguments: [String]
+    public let exitStatus: Int
+    public let stderr: String
+    public let startedAt: Date
+    public let completedAt: Date
+
+    public init(
+        arguments: [String],
+        exitStatus: Int,
+        stderr: String,
+        startedAt: Date,
+        completedAt: Date
+    ) {
+        self.arguments = arguments
+        self.exitStatus = exitStatus
+        self.stderr = ProvenanceStderr.normalized(stderr) ?? ""
+        self.startedAt = startedAt
+        self.completedAt = completedAt
+    }
+
+    public var effectiveDurationSeconds: TimeInterval {
+        completedAt.timeIntervalSince(startedAt)
+    }
+}
+
 /// Errors produced during recipe validation and step execution.
 public enum RecipeEngineError: Error, LocalizedError {
     /// A step `type` string does not match any registered ``RecipeStepExecutor``.
@@ -228,8 +255,16 @@ public enum RecipeEngineError: Error, LocalizedError {
     /// The underlying tool process exited with a non-zero status.
     case toolFailed(tool: String, step: String, stderr: String)
 
+    /// A physical process failed after yielding complete execution evidence.
+    case processFailed(tool: String, step: String, evidence: RecipeProcessEvidence)
+
     /// A tool reported success without producing the requested readable JSON report.
-    case invalidRequiredReport(tool: String, path: String, reason: String)
+    case invalidRequiredReport(
+        tool: String,
+        path: String,
+        reason: String,
+        evidence: RecipeProcessEvidence
+    )
 
     /// A referenced database or index was not found on disk.
     case databaseNotFound(id: String, step: String)
@@ -251,7 +286,9 @@ public enum RecipeEngineError: Error, LocalizedError {
             return "Invalid value '\(value)' for parameter '\(param)' in step '\(step)'."
         case .toolFailed(let tool, let step, let stderr):
             return "\(tool) failed in step '\(step)': \(stderr)"
-        case .invalidRequiredReport(let tool, let path, let reason):
+        case .processFailed(let tool, let step, let evidence):
+            return "\(tool) failed in step '\(step)' with exit status \(evidence.exitStatus): \(evidence.stderr)"
+        case .invalidRequiredReport(let tool, let path, let reason, _):
             return "\(tool) did not produce a valid required report at '\(path)': \(reason)"
         case .databaseNotFound(let id, let step):
             return "Database '\(id)' not found (required by step '\(step)')."

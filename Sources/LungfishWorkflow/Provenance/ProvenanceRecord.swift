@@ -220,6 +220,9 @@ public struct StepExecution: Codable, Sendable, Identifiable, Equatable {
     /// Resolved invocation metadata retained by canonical provenance when available.
     public let resolvedOptions: [String: ParameterValue]?
 
+    /// Runtime used for this specific tool invocation, when distinct evidence is available.
+    public let runtimeIdentity: ProvenanceRuntimeIdentity?
+
     /// Input files consumed by this step.
     public let inputs: [FileRecord]
 
@@ -257,6 +260,7 @@ public struct StepExecution: Codable, Sendable, Identifiable, Equatable {
         command: [String],
         durableReplayArgv: [String]? = nil,
         resolvedOptions: [String: ParameterValue]? = nil,
+        runtimeIdentity: ProvenanceRuntimeIdentity? = nil,
         inputs: [FileRecord],
         outputs: [FileRecord] = [],
         exitCode: Int32? = nil,
@@ -276,6 +280,7 @@ public struct StepExecution: Codable, Sendable, Identifiable, Equatable {
         self.command = command
         self.durableReplayArgv = durableReplayArgv
         self.resolvedOptions = resolvedOptions
+        self.runtimeIdentity = runtimeIdentity
         self.inputs = inputs
         self.outputs = outputs
         self.exitCode = exitCode
@@ -479,6 +484,7 @@ extension ProvenanceEnvelope {
                     containerImage: runtimeIdentity.containerImage,
                     containerDigest: runtimeIdentity.containerDigest,
                     command: legacyCommand(argv: argv, reproducibleCommand: reproducibleCommand),
+                    runtimeIdentity: runtimeIdentity,
                     inputs: files.filter { $0.role == .input }.map(FileRecord.init(provenanceFile:)),
                     outputs: fallbackOutputs.map(FileRecord.init(provenanceFile:)),
                     exitCode: exitStatus.map(Int32.init),
@@ -498,6 +504,7 @@ extension ProvenanceEnvelope {
                     containerImage: runtimeIdentity.containerImage,
                     containerDigest: runtimeIdentity.containerDigest,
                     command: legacyCommand(argv: step.argv, reproducibleCommand: step.reproducibleCommand),
+                    runtimeIdentity: step.runtimeIdentity ?? runtimeIdentity,
                     inputs: step.inputs.map(FileRecord.init(provenanceFile:)),
                     outputs: step.outputs.map(FileRecord.init(provenanceFile:)),
                     exitCode: step.exitStatus.map(Int32.init),
@@ -613,6 +620,7 @@ extension ProvenanceStep {
             durableReplayArgv: stepExecution.durableReplayArgv,
             reproducibleCommand: (stepExecution.durableReplayArgv ?? stepExecution.command).map(shellEscape).joined(separator: " "),
             resolvedOptions: stepExecution.resolvedOptions ?? [:],
+            runtimeIdentity: stepExecution.runtimeIdentity,
             inputs: stepExecution.inputs.map { ProvenanceFileDescriptor(fileRecord: $0) },
             outputs: stepExecution.outputs.map { ProvenanceFileDescriptor(fileRecord: $0) },
             exitStatus: stepExecution.exitCode.map(Int.init),

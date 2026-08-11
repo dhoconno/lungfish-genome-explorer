@@ -960,19 +960,34 @@ final class FASTQBatchImporterTests: XCTestCase {
         let bundleFASTQURL = publishedBundleURL.appendingPathComponent("Sample.fastq.gz")
         let publishedReportURL = publishedBundleURL
             .appendingPathComponent("metadata/recipe-step-artifacts/sample_fused_fastp_report.json")
+        let ephemeralR1 = root.appendingPathComponent("workspace/Sample_fused_R1.fq.gz")
+        let ephemeralR2 = root.appendingPathComponent("workspace/Sample_fused_R2.fq.gz")
+        let fastpExecutable = root.appendingPathComponent("conda/envs/fastp/bin/fastp")
         let startedAt = Date(timeIntervalSince1970: 1_000)
         let completedAt = Date(timeIntervalSince1970: 1_005)
         let result = RecipeStepResult(
             stepName: "Remove PCR duplicates + Adapter + quality trim",
             tool: "fastp",
             toolVersion: "1.2.3",
-            commandArguments: ["fastp", "-j", stagedReportURL.path, "-h", "/dev/null"],
+            commandArguments: [fastpExecutable.path, "-j", stagedReportURL.path, "-h", "/dev/null"],
             durationSeconds: 1,
             auxiliaryOutputPaths: [publishedReportURL.path],
             auxiliaryCommandPathRewrites: [stagedReportURL.path: publishedReportURL.path],
             logicalComponents: [
                 RecipeLogicalComponent(typeID: "fastp-dedup", displayName: "PCR Duplicate Removal"),
                 RecipeLogicalComponent(typeID: "fastp-trim", displayName: "Adapter + Quality Trim"),
+            ],
+            executionOutputFiles: [
+                RecipeStepOutputFile(
+                    path: ephemeralR1.path,
+                    checksumSHA256: "r1-sha256",
+                    sizeBytes: 101
+                ),
+                RecipeStepOutputFile(
+                    path: ephemeralR2.path,
+                    checksumSHA256: "r2-sha256",
+                    sizeBytes: 202
+                ),
             ],
             exitStatus: 17,
             stderr: "fastp stderr output",
@@ -1001,6 +1016,16 @@ final class FASTQBatchImporterTests: XCTestCase {
         XCTAssertEqual(step.startedAt, startedAt)
         XCTAssertEqual(step.completedAt, completedAt)
         XCTAssertEqual(step.wallTimeSeconds, 5)
+        XCTAssertFalse(step.outputs.contains { $0.path == bundleFASTQURL.path })
+        XCTAssertEqual(
+            step.outputs.filter { $0.format == .fastq }.map(\.path),
+            [ephemeralR1.path, ephemeralR2.path]
+        )
+        XCTAssertEqual(step.outputs.first { $0.path == ephemeralR1.path }?.checksumSHA256, "r1-sha256")
+        XCTAssertEqual(step.outputs.first { $0.path == ephemeralR1.path }?.fileSize, 101)
+        XCTAssertEqual(step.runtimeIdentity?.executablePath, fastpExecutable.path)
+        XCTAssertEqual(step.runtimeIdentity?.condaEnvironment, "fastp")
+        XCTAssertEqual(step.runtimeIdentity?.condaPrefix, root.appendingPathComponent("conda/envs/fastp").path)
         XCTAssertEqual(
             step.resolvedOptions["recipeLogicalComponents"],
             .array([
@@ -1016,11 +1041,31 @@ final class FASTQBatchImporterTests: XCTestCase {
         )
         XCTAssertEqual(
             step.durableReplayArgv,
-            ["fastp", "-j", publishedReportURL.path, "-h", "/dev/null"]
+            [fastpExecutable.path, "-j", publishedReportURL.path, "-h", "/dev/null"]
         )
         let report = try XCTUnwrap(step.outputs.first { $0.path == publishedReportURL.path })
         XCTAssertNotNil(report.checksumSHA256)
         XCTAssertEqual(report.fileSize, UInt64(reportData.count))
+    }
+
+    func testLegacyStepExecutionDecodesWithoutNewOptionalEvidence() throws {
+        let legacyJSON = """
+        {
+          "id": "00000000-0000-0000-0000-000000000001",
+          "toolName": "fastp",
+          "toolVersion": "0.23.4",
+          "command": ["fastp", "--dedup"],
+          "inputs": [],
+          "outputs": [],
+          "dependsOn": [],
+          "startTime": 0
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(StepExecution.self, from: Data(legacyJSON.utf8))
+
+        XCTAssertNil(decoded.resolvedOptions)
+        XCTAssertNil(decoded.runtimeIdentity)
     }
 
     func testPublishFASTQBundleUsesFoundationReplacementForExistingBundle() throws {

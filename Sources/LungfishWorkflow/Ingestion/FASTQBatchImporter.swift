@@ -808,12 +808,17 @@ public enum FASTQBatchImporter {
             var recipeOutputFASTQ: URL? = nil
             var isPairedAfterRecipe = processingPair.r2 != nil
             var recipeStepResults: [RecipeStepResult] = []
+            var reportableRecipeStepCount = config.recipe?.steps.count ?? 0
 
             if let newRecipe = config.newRecipe {
                 // New-format declarative recipe: delegate to RecipeEngine
                 let engine = RecipeEngine()
                 let inputFormat: RecipeFileFormat = processingPair.r2 != nil ? .pairedR1R2 : .single
                 let stepInput = StepInput(r1: processingPair.r1, r2: processingPair.r2, format: inputFormat)
+                reportableRecipeStepCount = try engine.reportableStepCount(
+                    recipe: newRecipe,
+                    inputFormat: inputFormat
+                )
 
                 // Track the in-progress step so we can emit stepComplete when the next step starts
                 // (or after execute() returns for the final step). Uses a class for shared mutation
@@ -826,7 +831,7 @@ public enum FASTQBatchImporter {
                 }
                 let tracker = RecipeStepTracker()
                 // Total includes recipe steps + clumpify + stats
-                tracker.totalSteps = newRecipe.steps.count + 2
+                tracker.totalSteps = reportableRecipeStepCount + 2
 
                 let stepContext = StepContext(
                     workspace: workspace,
@@ -924,7 +929,7 @@ public enum FASTQBatchImporter {
             )
 
             // Total steps = recipe steps + clumpify + stats
-            let recipeStepCount = config.recipe?.steps.count ?? config.newRecipe?.steps.count ?? 0
+            let recipeStepCount = reportableRecipeStepCount
             let totalSteps = recipeStepCount + 2  // +1 clumpify, +1 stats
             let clumpifyStepIndex = recipeStepCount + 1
             let statsStepIndex = recipeStepCount + 2
@@ -1441,6 +1446,7 @@ public enum FASTQBatchImporter {
                         publishedBundleURL: publishedBundleURL
                     )
                 },
+                runtimeIdentity: step.runtimeIdentity,
                 inputs: step.inputs.map {
                     rewriteStagedDescriptor($0, stagingBundleURL: stagingBundleURL, publishedBundleURL: publishedBundleURL)
                 },
@@ -1614,10 +1620,14 @@ public enum FASTQBatchImporter {
                 command: command,
                 durableReplayArgv: durableReplayArgv == command ? nil : durableReplayArgv,
                 resolvedOptions: recipeResolvedOptions(for: result),
+                runtimeIdentity: recipeRuntimeIdentity(for: result, command: command),
                 inputs: originalInputURLs.map {
                     ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input)
                 },
-                outputs: [ProvenanceRecorder.fileRecord(url: bundleFASTQURL, format: .fastq, role: .output)]
+                outputs: recipePrimaryOutputRecords(
+                    for: result,
+                    legacyBundleFASTQURL: bundleFASTQURL
+                )
                     + result.auxiliaryOutputPaths.map {
                         recipeAuxiliaryOutputRecord(
                             finalPath: $0,
@@ -1632,6 +1642,56 @@ public enum FASTQBatchImporter {
                 endTime: result.completedAt ?? timestamp
             )
         }
+    }
+
+    private static func recipePrimaryOutputRecords(
+        for result: RecipeStepResult,
+        legacyBundleFASTQURL: URL
+    ) -> [FileRecord] {
+        if !result.executionOutputFiles.isEmpty {
+            return result.executionOutputFiles.map {
+                FileRecord(
+                    path: $0.path,
+                    sha256: $0.checksumSHA256,
+                    sizeBytes: $0.sizeBytes,
+                    format: .fastq,
+                    role: .output
+                )
+            }
+        }
+        if result.tool == NativeTool.fastp.rawValue {
+            return []
+        }
+        return [ProvenanceRecorder.fileRecord(
+            url: legacyBundleFASTQURL,
+            format: .fastq,
+            role: .output
+        )]
+    }
+
+    private static func recipeRuntimeIdentity(
+        for result: RecipeStepResult,
+        command: [String]
+    ) -> ProvenanceRuntimeIdentity? {
+        guard let tool = NativeTool(rawValue: result.tool), tool == .fastp,
+              case .managed(let environment, let executableName) = tool.location,
+              let executablePath = command.first,
+              !executablePath.isEmpty else {
+            return nil
+        }
+
+        let executableURL = URL(fileURLWithPath: executablePath)
+        let binDirectory = executableURL.deletingLastPathComponent()
+        guard executableURL.lastPathComponent == executableName,
+              binDirectory.lastPathComponent == "bin" else {
+            return nil
+        }
+
+        return ProvenanceRuntimeIdentity(
+            executablePath: executableURL.path,
+            condaEnvironment: environment,
+            condaPrefix: binDirectory.deletingLastPathComponent().path
+        )
     }
 
     private static func recipeResolvedOptions(for result: RecipeStepResult) -> [String: ParameterValue]? {

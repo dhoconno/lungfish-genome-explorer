@@ -173,6 +173,18 @@ final class RecipeEngineTests: XCTestCase {
         XCTAssertEqual(label, "Remove ribosomal RNA")
     }
 
+    func testReportableStepCountUsesPhysicalVSP2Plan() throws {
+        let recipe = try XCTUnwrap(
+            RecipeRegistryV2.builtinRecipes().first { $0.id == "vsp2-target-enrichment" }
+        )
+
+        XCTAssertEqual(
+            try RecipeEngine().reportableStepCount(recipe: recipe, inputFormat: .pairedR1R2),
+            4,
+            "The fused fastp invocation and three other tools are four physical progress steps"
+        )
+    }
+
     func testExecuteFusedFastpRetainsJSONAndActualExecutionEvidence() async throws {
         let root = try makeTemporaryDirectory(prefix: "RecipeEngineFusedFastp")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -214,6 +226,15 @@ final class RecipeEngineTests: XCTestCase {
         XCTAssertEqual(arguments[arguments.index(after: htmlArgumentIndex)], "/dev/null")
 
         XCTAssertEqual(step.logicalComponents.map(\.typeID), ["fastp-dedup", "fastp-trim"])
+        XCTAssertEqual(step.executionOutputFiles.count, 2)
+        XCTAssertEqual(
+            Set(step.executionOutputFiles.map(\.path)),
+            Set([result.output.r1.path, try XCTUnwrap(result.output.r2).path])
+        )
+        for output in step.executionOutputFiles {
+            XCTAssertFalse(output.checksumSHA256.isEmpty)
+            XCTAssertGreaterThan(output.sizeBytes, 0)
+        }
         XCTAssertEqual(step.exitStatus, 0)
         XCTAssertEqual(
             step.stderr?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -255,12 +276,63 @@ final class RecipeEngineTests: XCTestCase {
                     )
                 )
                 XCTFail("A successful fastp process with a \(report) JSON report must fail")
-            } catch {
-                XCTAssertTrue(
-                    error.localizedDescription.localizedCaseInsensitiveContains("report"),
-                    "Expected a JSON-report error, got \(error)"
+            } catch let RecipeEngineError.invalidRequiredReport(tool, path, _, evidence) {
+                XCTAssertEqual(tool, "fastp")
+                XCTAssertEqual(evidence.exitStatus, 0)
+                XCTAssertEqual(
+                    evidence.stderr.trimmingCharacters(in: .whitespacesAndNewlines),
+                    "fastp test stderr"
                 )
+                XCTAssertFalse(evidence.arguments.isEmpty)
+                XCTAssertNotNil(evidence.startedAt)
+                XCTAssertNotNil(evidence.completedAt)
+                XCTAssertGreaterThanOrEqual(evidence.effectiveDurationSeconds, 0)
+                XCTAssertFalse(FileManager.default.fileExists(atPath: path))
+                assertGeneratedFastpFilesWereCleaned(arguments: evidence.arguments)
+            } catch {
+                XCTFail("Expected evidenced JSON-report error, got \(error)")
             }
+        }
+    }
+
+    func testExecuteFusedFastpNonzeroFailureCarriesEvidenceAndCleansOutputs() async throws {
+        let root = try makeTemporaryDirectory(prefix: "RecipeEngineFusedFastpFailure")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workspace = root.appendingPathComponent("workspace", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        let (r1, r2) = try writePairedFASTQ(in: root)
+        let runner = try makeFakeFastpRunner(in: root, report: .nonzero)
+        let recipe = makeRecipe(steps: [
+            RecipeStep(type: "fastp-dedup"),
+            RecipeStep(type: "fastp-trim"),
+        ])
+
+        do {
+            _ = try await RecipeEngine().execute(
+                recipe: recipe,
+                input: StepInput(r1: r1, r2: r2, format: .pairedR1R2),
+                context: StepContext(
+                    workspace: workspace,
+                    threads: 2,
+                    sampleName: "sample",
+                    runner: runner,
+                    progress: { _, _ in }
+                )
+            )
+            XCTFail("Nonzero fastp must fail")
+        } catch let RecipeEngineError.processFailed(tool, step, evidence) {
+            XCTAssertEqual(tool, "fastp")
+            XCTAssertTrue(step.contains("fused-fastp"))
+            XCTAssertEqual(evidence.exitStatus, 23)
+            XCTAssertTrue(evidence.stderr.contains("fastp deliberate failure"))
+            XCTAssertTrue(evidence.arguments.contains("--dedup"))
+            XCTAssertTrue(evidence.arguments.contains("-q"))
+            XCTAssertNotNil(evidence.startedAt)
+            XCTAssertNotNil(evidence.completedAt)
+            XCTAssertGreaterThanOrEqual(evidence.effectiveDurationSeconds, 0)
+            assertGeneratedFastpFilesWereCleaned(arguments: evidence.arguments)
+        } catch {
+            XCTFail("Expected evidenced process failure, got \(error)")
         }
     }
 
@@ -313,12 +385,14 @@ final class RecipeEngineTests: XCTestCase {
         case valid
         case missing
         case invalid
+        case nonzero
 
         var description: String {
             switch self {
             case .valid: "valid"
             case .missing: "missing"
             case .invalid: "invalid"
+            case .nonzero: "nonzero"
             }
         }
     }
@@ -356,6 +430,8 @@ final class RecipeEngineTests: XCTestCase {
             reportCommand = ":"
         case .invalid:
             reportCommand = #"printf '%s\n' 'not-json' > "$report""#
+        case .nonzero:
+            reportCommand = #"echo 'fastp deliberate failure' >&2; exit 23"#
         }
         let script = """
         #!/bin/sh
@@ -382,5 +458,23 @@ final class RecipeEngineTests: XCTestCase {
         try script.write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
         return NativeToolRunner(toolsDirectory: nil, homeDirectory: homeDirectory)
+    }
+
+    private func assertGeneratedFastpFilesWereCleaned(
+        arguments: [String],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        for flag in ["-o", "-O", "-j"] {
+            guard let index = arguments.firstIndex(of: flag), arguments.indices.contains(index + 1) else {
+                return XCTFail("Missing \(flag) in argv", file: file, line: line)
+            }
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: arguments[index + 1]),
+                "Rejected fastp output \(flag) should be cleaned",
+                file: file,
+                line: line
+            )
+        }
     }
 }

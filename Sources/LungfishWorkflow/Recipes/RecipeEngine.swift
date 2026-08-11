@@ -192,6 +192,14 @@ public final class RecipeEngine: Sendable {
         return plan
     }
 
+    /// Number of physical tool steps exposed through recipe progress reporting.
+    public func reportableStepCount(
+        recipe: Recipe,
+        inputFormat: RecipeFileFormat
+    ) throws -> Int {
+        Self.reportableStepCount(in: try plan(recipe: recipe, inputFormat: inputFormat))
+    }
+
     // MARK: - Execute
 
     /// Executes the recipe against `input`, producing a ``RecipeExecutionResult``
@@ -217,10 +225,7 @@ public final class RecipeEngine: Sendable {
         )
 
         // Count only non-format-conversion steps for progress reporting
-        let reportableStepCount = steps.filter {
-            if case .formatConversion = $0 { return false }
-            return true
-        }.count
+        let reportableStepCount = Self.reportableStepCount(in: steps)
         var reportableStepIndex = 0
 
         var stepRecords: [RecipeStepResult] = []
@@ -303,6 +308,20 @@ public final class RecipeEngine: Sendable {
                 if outputReadCount == nil {
                     outputReadCount = try? await Self.countReadsForRecipeStep(currentOutput)
                 }
+                let executionOutputFiles: [RecipeStepOutputFile]
+                if logicalComponents.isEmpty {
+                    executionOutputFiles = []
+                } else {
+                    executionOutputFiles = try [currentOutput.r1, currentOutput.r2, currentOutput.r3]
+                        .compactMap { $0 }
+                        .map { outputURL in
+                            RecipeStepOutputFile(
+                                path: outputURL.path,
+                                checksumSHA256: try ProvenanceFileHasher.sha256(of: outputURL),
+                                sizeBytes: try ProvenanceFileHasher.fileSize(of: outputURL)
+                            )
+                        }
+                }
 
                 stepRecords.append(RecipeStepResult(
                     stepName: stepLabel,
@@ -315,6 +334,7 @@ public final class RecipeEngine: Sendable {
                     durationSeconds: stepDuration,
                     auxiliaryOutputPaths: currentOutput.auxiliaryOutputs.map(\.path),
                     logicalComponents: logicalComponents,
+                    executionOutputFiles: executionOutputFiles,
                     exitStatus: currentOutput.exitStatus,
                     stderr: currentOutput.stderr,
                     startedAt: currentOutput.startedAt,
@@ -331,6 +351,13 @@ public final class RecipeEngine: Sendable {
         }
 
         return RecipeExecutionResult(output: currentOutput, stepRecords: stepRecords)
+    }
+
+    private static func reportableStepCount(in steps: [PlannedStep]) -> Int {
+        steps.filter {
+            if case .formatConversion = $0 { return false }
+            return true
+        }.count
     }
 
     static func countReadsForRecipeStep(_ output: StepOutput) async throws -> Int {
@@ -404,6 +431,14 @@ public final class RecipeEngine: Sendable {
             "\(context.sampleName)_fused_R2.fq.gz")
         let report = context.workspace.appendingPathComponent(
             "\(context.sampleName)_fused_fastp_report_\(UUID().uuidString).json")
+        var acceptedOutputs = false
+        defer {
+            if !acceptedOutputs {
+                for generatedURL in [outR1, outR2, report] {
+                    try? FileManager.default.removeItem(at: generatedURL)
+                }
+            }
+        }
 
         var args = [
             "-i", input.r1.path,
@@ -425,12 +460,23 @@ public final class RecipeEngine: Sendable {
             timeout: context.recipeToolTimeout(for: .fastp, input: input)
         )
         let completedAt = Date()
+        let evidence = RecipeProcessEvidence(
+            arguments: result.arguments,
+            exitStatus: Int(result.exitCode),
+            stderr: result.stderr,
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
         if result.exitCode != 0 {
-            throw RecipeEngineError.toolFailed(
-                tool: "fastp", step: "fused-fastp(\(label))", stderr: result.stderr)
+            throw RecipeEngineError.processFailed(
+                tool: "fastp",
+                step: "fused-fastp(\(label))",
+                evidence: evidence
+            )
         }
 
-        try Self.validateRequiredJSONReport(at: report, tool: "fastp")
+        try Self.validateRequiredJSONReport(at: report, tool: "fastp", evidence: evidence)
+        acceptedOutputs = true
 
         return StepOutput(
             r1: outR1,
@@ -446,12 +492,17 @@ public final class RecipeEngine: Sendable {
         )
     }
 
-    private static func validateRequiredJSONReport(at report: URL, tool: String) throws {
+    private static func validateRequiredJSONReport(
+        at report: URL,
+        tool: String,
+        evidence: RecipeProcessEvidence
+    ) throws {
         guard FileManager.default.isReadableFile(atPath: report.path) else {
             throw RecipeEngineError.invalidRequiredReport(
                 tool: tool,
                 path: report.path,
-                reason: "file is missing or unreadable"
+                reason: "file is missing or unreadable",
+                evidence: evidence
             )
         }
 
@@ -461,14 +512,16 @@ public final class RecipeEngine: Sendable {
                 throw RecipeEngineError.invalidRequiredReport(
                     tool: tool,
                     path: report.path,
-                    reason: "file is empty"
+                    reason: "file is empty",
+                    evidence: evidence
                 )
             }
             guard try JSONSerialization.jsonObject(with: data) is [String: Any] else {
                 throw RecipeEngineError.invalidRequiredReport(
                     tool: tool,
                     path: report.path,
-                    reason: "JSON root is not an object"
+                    reason: "JSON root is not an object",
+                    evidence: evidence
                 )
             }
         } catch let error as RecipeEngineError {
@@ -477,7 +530,8 @@ public final class RecipeEngine: Sendable {
             throw RecipeEngineError.invalidRequiredReport(
                 tool: tool,
                 path: report.path,
-                reason: "JSON is invalid: \(error.localizedDescription)"
+                reason: "JSON is invalid: \(error.localizedDescription)",
+                evidence: evidence
             )
         }
     }

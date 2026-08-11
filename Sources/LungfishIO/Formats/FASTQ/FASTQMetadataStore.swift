@@ -476,6 +476,19 @@ public struct RecipeLogicalComponent: Codable, Sendable, Equatable {
     }
 }
 
+/// Execution-time evidence for a recipe step output that may be deleted after downstream use.
+public struct RecipeStepOutputFile: Codable, Sendable, Equatable {
+    public let path: String
+    public let checksumSHA256: String
+    public let sizeBytes: UInt64
+
+    public init(path: String, checksumSHA256: String, sizeBytes: UInt64) {
+        self.path = path
+        self.checksumSHA256 = checksumSHA256
+        self.sizeBytes = sizeBytes
+    }
+}
+
 /// Per-step statistics for a processing recipe applied during ingestion.
 public struct RecipeStepResult: Codable, Sendable {
     /// Human-readable step name (e.g. "Human read scrub", "Deduplicate").
@@ -500,6 +513,8 @@ public struct RecipeStepResult: Codable, Sendable {
     public let auxiliaryCommandPathRewrites: [String: String]
     /// Ordered logical recipe components represented by this physical step.
     public let logicalComponents: [RecipeLogicalComponent]
+    /// Primary output files snapshotted at execution time before intermediate cleanup.
+    public let executionOutputFiles: [RecipeStepOutputFile]
     /// Actual process exit status, when the process ran and reported one.
     public let exitStatus: Int?
     /// Bounded, normalized stderr captured from the actual process.
@@ -521,6 +536,7 @@ public struct RecipeStepResult: Codable, Sendable {
         case auxiliaryOutputPaths
         case auxiliaryCommandPathRewrites
         case logicalComponents
+        case executionOutputFiles
         case exitStatus
         case stderr
         case startedAt
@@ -545,6 +561,7 @@ public struct RecipeStepResult: Codable, Sendable {
         auxiliaryOutputPaths: [String] = [],
         auxiliaryCommandPathRewrites: [String: String] = [:],
         logicalComponents: [RecipeLogicalComponent] = [],
+        executionOutputFiles: [RecipeStepOutputFile] = [],
         exitStatus: Int? = nil,
         stderr: String? = nil,
         startedAt: Date? = nil,
@@ -561,6 +578,7 @@ public struct RecipeStepResult: Codable, Sendable {
         self.auxiliaryOutputPaths = auxiliaryOutputPaths
         self.auxiliaryCommandPathRewrites = auxiliaryCommandPathRewrites
         self.logicalComponents = logicalComponents
+        self.executionOutputFiles = executionOutputFiles
         self.exitStatus = exitStatus
         self.stderr = Self.normalizedStderr(stderr)
         self.startedAt = startedAt
@@ -585,6 +603,10 @@ public struct RecipeStepResult: Codable, Sendable {
         logicalComponents = try container.decodeIfPresent(
             [RecipeLogicalComponent].self,
             forKey: .logicalComponents
+        ) ?? []
+        executionOutputFiles = try container.decodeIfPresent(
+            [RecipeStepOutputFile].self,
+            forKey: .executionOutputFiles
         ) ?? []
         exitStatus = try container.decodeIfPresent(Int.self, forKey: .exitStatus)
         stderr = Self.normalizedStderr(try container.decodeIfPresent(String.self, forKey: .stderr))
@@ -611,6 +633,9 @@ public struct RecipeStepResult: Codable, Sendable {
         if !logicalComponents.isEmpty {
             try container.encode(logicalComponents, forKey: .logicalComponents)
         }
+        if !executionOutputFiles.isEmpty {
+            try container.encode(executionOutputFiles, forKey: .executionOutputFiles)
+        }
         try container.encodeIfPresent(exitStatus, forKey: .exitStatus)
         try container.encodeIfPresent(stderr, forKey: .stderr)
         try container.encodeIfPresent(startedAt, forKey: .startedAt)
@@ -633,6 +658,7 @@ public struct RecipeStepResult: Codable, Sendable {
             auxiliaryOutputPaths: paths,
             auxiliaryCommandPathRewrites: commandPathRewrites,
             logicalComponents: logicalComponents,
+            executionOutputFiles: executionOutputFiles,
             exitStatus: exitStatus,
             stderr: stderr,
             startedAt: startedAt,

@@ -243,9 +243,11 @@ final class FASTQBatchImporterRecipeIntegrationTests: XCTestCase {
             optimizeStorage: false,
             threads: 2
         )
+        let collector = FASTQBatchImporterRecipeEventCollector()
         let result = await FASTQBatchImporter.runBatchImport(
             pairs: [pair],
-            config: config
+            config: config,
+            log: { collector.append($0) }
         )
 
         XCTAssertEqual(result.completed, 1, "VSP2 import should succeed. Errors: \(result.errors)")
@@ -274,6 +276,17 @@ final class FASTQBatchImporterRecipeIntegrationTests: XCTestCase {
         let metadata = try XCTUnwrap(FASTQMetadataStore.load(for: fastqURL))
         let fastpStep = try XCTUnwrap(metadata.ingestion?.recipeApplied?.stepResults.first { $0.tool == "fastp" })
         XCTAssertEqual(fastpStep.logicalComponents.map(\.typeID), ["fastp-dedup", "fastp-trim"])
+        let fusedArgv = try XCTUnwrap(fastpStep.commandArguments)
+        XCTAssertTrue(fusedArgv.contains("--dedup"))
+        XCTAssertTrue(fusedArgv.contains("--detect_adapter_for_pe"))
+        XCTAssertTrue(fusedArgv.contains("-q"))
+        XCTAssertEqual(metadata.ingestion?.recipeApplied?.deduplicationSummary, nil)
+        XCTAssertEqual(
+            metadata.ingestion?.recipeApplied?.stepResults.filter {
+                $0.tool == "fastp" && ($0.commandArguments?.contains("--dedup") == true)
+            }.count,
+            1
+        )
         let fastpReportURL = try XCTUnwrap(
             try FileManager.default.contentsOfDirectory(
                 at: artifactDirectory,
@@ -308,6 +321,16 @@ final class FASTQBatchImporterRecipeIntegrationTests: XCTestCase {
         XCTAssertTrue(provenanceStep.durableReplayArgv?.contains(summaryURL.path) == true)
 
         let fastpProvenanceStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "fastp" })
+        XCTAssertFalse(fastpProvenanceStep.outputs.contains { canonicalPath($0.path) == canonicalPath(fastqURL) })
+        let ephemeralFASTQOutputs = fastpProvenanceStep.outputs.filter { $0.format == .fastq }
+        XCTAssertEqual(ephemeralFASTQOutputs.count, 2)
+        XCTAssertTrue(ephemeralFASTQOutputs.allSatisfy { $0.path.contains("_fused_R") })
+        XCTAssertTrue(ephemeralFASTQOutputs.allSatisfy { $0.checksumSHA256?.isEmpty == false })
+        XCTAssertTrue(ephemeralFASTQOutputs.allSatisfy { ($0.fileSize ?? 0) > 0 })
+        XCTAssertTrue(ephemeralFASTQOutputs.allSatisfy { !FileManager.default.fileExists(atPath: $0.path) })
+        XCTAssertEqual(fastpProvenanceStep.runtimeIdentity?.condaEnvironment, "fastp")
+        XCTAssertTrue(fastpProvenanceStep.runtimeIdentity?.condaPrefix?.contains("/envs/fastp") == true)
+        XCTAssertTrue(fastpProvenanceStep.runtimeIdentity?.executablePath.hasSuffix("/bin/fastp") == true)
         XCTAssertEqual(
             fastpProvenanceStep.resolvedOptions["recipeLogicalComponents"],
             .array([
@@ -336,6 +359,13 @@ final class FASTQBatchImporterRecipeIntegrationTests: XCTestCase {
             canonicalPath(durableReplayArgv[jsonArgumentIndex + 1]),
             canonicalPath(fastpReportURL)
         )
+
+        let startedSteps = collector.events.compactMap { event -> (Int, Int)? in
+            guard case .stepStart(_, _, let stepIndex, let totalSteps) = event else { return nil }
+            return (stepIndex, totalSteps)
+        }
+        XCTAssertEqual(startedSteps.map(\.0), [1, 2, 3, 4, 5, 6])
+        XCTAssertEqual(startedSteps.map(\.1), [6, 6, 6, 6, 6, 6])
     }
 
     private func requireManagedTools(_ tools: [NativeTool]) async throws {
