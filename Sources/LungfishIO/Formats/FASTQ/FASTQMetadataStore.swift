@@ -461,6 +461,21 @@ public struct IngestionMetadata: Codable, Sendable {
 
 // MARK: - Recipe Applied Info
 
+/// A logical recipe component represented by a physical execution step.
+///
+/// A physical tool invocation may fuse multiple logical recipe components.
+/// These values identify the requested components without implying that each
+/// component ran as a separate process.
+public struct RecipeLogicalComponent: Codable, Sendable, Equatable {
+    public let typeID: String
+    public let displayName: String
+
+    public init(typeID: String, displayName: String) {
+        self.typeID = typeID
+        self.displayName = displayName
+    }
+}
+
 /// Per-step statistics for a processing recipe applied during ingestion.
 public struct RecipeStepResult: Codable, Sendable {
     /// Human-readable step name (e.g. "Human read scrub", "Deduplicate").
@@ -483,6 +498,16 @@ public struct RecipeStepResult: Codable, Sendable {
     public let auxiliaryOutputPaths: [String]
     /// Rewrites from exact execution-time paths to durable replay paths for auxiliary outputs.
     public let auxiliaryCommandPathRewrites: [String: String]
+    /// Ordered logical recipe components represented by this physical step.
+    public let logicalComponents: [RecipeLogicalComponent]
+    /// Actual process exit status, when the process ran and reported one.
+    public let exitStatus: Int?
+    /// Bounded, normalized stderr captured from the actual process.
+    public let stderr: String?
+    /// Actual process start timestamp, when captured.
+    public let startedAt: Date?
+    /// Actual process completion timestamp, when captured.
+    public let completedAt: Date?
 
     private enum CodingKeys: String, CodingKey {
         case stepName
@@ -495,7 +520,15 @@ public struct RecipeStepResult: Codable, Sendable {
         case durationSeconds
         case auxiliaryOutputPaths
         case auxiliaryCommandPathRewrites
+        case logicalComponents
+        case exitStatus
+        case stderr
+        case startedAt
+        case completedAt
     }
+
+    private static let maxStderrLength = 10_240
+    private static let stderrTruncationMarker = "\n... [truncated]"
 
     public init(
         stepName: String,
@@ -507,7 +540,12 @@ public struct RecipeStepResult: Codable, Sendable {
         outputReadCount: Int? = nil,
         durationSeconds: Double,
         auxiliaryOutputPaths: [String] = [],
-        auxiliaryCommandPathRewrites: [String: String] = [:]
+        auxiliaryCommandPathRewrites: [String: String] = [:],
+        logicalComponents: [RecipeLogicalComponent] = [],
+        exitStatus: Int? = nil,
+        stderr: String? = nil,
+        startedAt: Date? = nil,
+        completedAt: Date? = nil
     ) {
         self.stepName = stepName
         self.tool = tool
@@ -519,6 +557,11 @@ public struct RecipeStepResult: Codable, Sendable {
         self.durationSeconds = durationSeconds
         self.auxiliaryOutputPaths = auxiliaryOutputPaths
         self.auxiliaryCommandPathRewrites = auxiliaryCommandPathRewrites
+        self.logicalComponents = logicalComponents
+        self.exitStatus = exitStatus
+        self.stderr = Self.normalizedStderr(stderr)
+        self.startedAt = startedAt
+        self.completedAt = completedAt
     }
 
     public init(from decoder: any Decoder) throws {
@@ -536,6 +579,14 @@ public struct RecipeStepResult: Codable, Sendable {
             [String: String].self,
             forKey: .auxiliaryCommandPathRewrites
         ) ?? [:]
+        logicalComponents = try container.decodeIfPresent(
+            [RecipeLogicalComponent].self,
+            forKey: .logicalComponents
+        ) ?? []
+        exitStatus = try container.decodeIfPresent(Int.self, forKey: .exitStatus)
+        stderr = Self.normalizedStderr(try container.decodeIfPresent(String.self, forKey: .stderr))
+        startedAt = try container.decodeIfPresent(Date.self, forKey: .startedAt)
+        completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -554,6 +605,13 @@ public struct RecipeStepResult: Codable, Sendable {
         if !auxiliaryCommandPathRewrites.isEmpty {
             try container.encode(auxiliaryCommandPathRewrites, forKey: .auxiliaryCommandPathRewrites)
         }
+        if !logicalComponents.isEmpty {
+            try container.encode(logicalComponents, forKey: .logicalComponents)
+        }
+        try container.encodeIfPresent(exitStatus, forKey: .exitStatus)
+        try container.encodeIfPresent(stderr, forKey: .stderr)
+        try container.encodeIfPresent(startedAt, forKey: .startedAt)
+        try container.encodeIfPresent(completedAt, forKey: .completedAt)
     }
 
     public func replacingAuxiliaryOutputs(
@@ -570,8 +628,77 @@ public struct RecipeStepResult: Codable, Sendable {
             outputReadCount: outputReadCount,
             durationSeconds: durationSeconds,
             auxiliaryOutputPaths: paths,
-            auxiliaryCommandPathRewrites: commandPathRewrites
+            auxiliaryCommandPathRewrites: commandPathRewrites,
+            logicalComponents: logicalComponents,
+            exitStatus: exitStatus,
+            stderr: stderr,
+            startedAt: startedAt,
+            completedAt: completedAt
         )
+    }
+
+    /// Whether this physical step includes a deduplication operation.
+    public var didApplyDeduplication: Bool {
+        let componentText = logicalComponents
+            .flatMap { [$0.typeID, $0.displayName] }
+            .joined(separator: " ")
+            .lowercased()
+        let name = stepName.lowercased()
+        let arguments = commandArguments ?? []
+        return componentText.contains("dedup")
+            || componentText.contains("duplicate")
+            || name.contains("dedup")
+            || name.contains("duplicate")
+            || arguments.contains(where: { $0.lowercased() == "--dedup" })
+    }
+
+    /// Whether this physical step combines deduplication with trimming or filtering.
+    public var didApplyDeduplicationAndTrimmingInCombinedPass: Bool {
+        let componentText = logicalComponents
+            .flatMap { [$0.typeID, $0.displayName] }
+            .joined(separator: " ")
+            .lowercased()
+        let hasStructuredComponents = !logicalComponents.isEmpty
+        let hasStructuredDedup = componentText.contains("dedup") || componentText.contains("duplicate")
+        let hasStructuredTrim = componentText.contains("trim")
+            || componentText.contains("adapter")
+            || componentText.contains("quality")
+
+        if hasStructuredComponents {
+            return hasStructuredDedup && hasStructuredTrim
+        }
+
+        let name = stepName.lowercased()
+        let hasLegacyDedupName = name.contains("dedup") || name.contains("duplicate")
+        let hasLegacyTrimName = name.contains("trim")
+            || name.contains("adapter")
+            || name.contains("quality")
+        let arguments = commandArguments?.map { $0.lowercased() } ?? []
+        let hasDedupArgument = arguments.contains("--dedup")
+        let trimArgumentPrefixes = [
+            "--adapter_sequence",
+            "--average_qual",
+            "--cut_",
+            "--length_required",
+            "--qualified_quality_phred",
+            "--trim_"
+        ]
+        let hasTrimArgument = arguments.dropFirst().contains { argument in
+            trimArgumentPrefixes.contains { prefix in argument.hasPrefix(prefix) }
+        }
+
+        return (hasLegacyDedupName && hasLegacyTrimName) || (hasDedupArgument && hasTrimArgument)
+    }
+
+    private static func normalizedStderr(_ stderr: String?) -> String? {
+        guard let stderr else { return nil }
+        let bounded: String
+        if stderr.count > maxStderrLength {
+            bounded = String(stderr.prefix(maxStderrLength)) + stderrTruncationMarker
+        } else {
+            bounded = stderr
+        }
+        return bounded.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : bounded
     }
 
     /// Reads removed (positive) or added (negative) by this step.
@@ -629,9 +756,18 @@ public struct RecipeAppliedInfo: Codable, Sendable {
 
     public var deduplicationSummary: ReadDeltaSummary? {
         readDeltaSummary { step in
-            let name = step.stepName.lowercased()
-            return name.contains("dedup") || name.contains("duplicate")
+            step.didApplyDeduplication && !step.didApplyDeduplicationAndTrimmingInCombinedPass
         }
+    }
+
+    /// Whether any recipe step performed deduplication.
+    public var didApplyDeduplication: Bool {
+        stepResults.contains(where: \.didApplyDeduplication)
+    }
+
+    /// Whether deduplication was performed as part of a fused physical step.
+    public var deduplicationPerformedInCombinedPass: Bool {
+        stepResults.contains(where: \.didApplyDeduplicationAndTrimmingInCombinedPass)
     }
 
     public var humanScrubSummary: ReadDeltaSummary? {

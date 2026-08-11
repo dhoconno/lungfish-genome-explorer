@@ -15,6 +15,25 @@ final class RecipeAppliedInfoSummaryTests: XCTestCase {
         )
     }
 
+    private func step(
+        _ name: String,
+        tool: String,
+        input: Int?,
+        output: Int?,
+        commandArguments: [String]? = nil,
+        logicalComponents: [RecipeLogicalComponent] = []
+    ) -> RecipeStepResult {
+        RecipeStepResult(
+            stepName: name,
+            tool: tool,
+            commandArguments: commandArguments,
+            inputReadCount: input,
+            outputReadCount: output,
+            durationSeconds: 0,
+            logicalComponents: logicalComponents
+        )
+    }
+
     func testDeduplicationSummaryUsesDedupStepCounts() throws {
         let info = RecipeAppliedInfo(
             recipeID: "vsp2-target-enrichment",
@@ -59,6 +78,50 @@ final class RecipeAppliedInfoSummaryTests: XCTestCase {
             ]
         )
 
+        XCTAssertNil(info.deduplicationSummary)
+    }
+
+    func testStructuredFusedDeduplicationReportsCombinedPassWithoutDedupOnlySummary() {
+        let info = RecipeAppliedInfo(
+            recipeID: "vsp2-target-enrichment",
+            recipeName: "VSP2 Target Enrichment",
+            stepResults: [
+                step(
+                    "Remove PCR duplicates + Adapter + quality trim",
+                    tool: "fastp",
+                    input: 1_000_000,
+                    output: 720_000,
+                    logicalComponents: [
+                        RecipeLogicalComponent(typeID: "fastp-dedup", displayName: "Remove PCR duplicates"),
+                        RecipeLogicalComponent(typeID: "fastp-trim", displayName: "Adapter + quality trim"),
+                    ]
+                ),
+            ]
+        )
+
+        XCTAssertTrue(info.didApplyDeduplication)
+        XCTAssertTrue(info.deduplicationPerformedInCombinedPass)
+        XCTAssertNil(info.deduplicationSummary)
+        XCTAssertEqual(info.totalReadsRemoved, 280_000)
+    }
+
+    func testLegacyFusedDeduplicationIsRecognizedFromNameAndArguments() {
+        let info = RecipeAppliedInfo(
+            recipeID: "vsp2-target-enrichment",
+            recipeName: "VSP2 Target Enrichment",
+            stepResults: [
+                step(
+                    "Remove PCR duplicates + Adapter + quality trim",
+                    tool: "fastp",
+                    input: 1_000_000,
+                    output: 720_000,
+                    commandArguments: ["fastp", "--dedup", "--cut_front", "--length_required", "20"]
+                ),
+            ]
+        )
+
+        XCTAssertTrue(info.didApplyDeduplication)
+        XCTAssertTrue(info.deduplicationPerformedInCombinedPass)
         XCTAssertNil(info.deduplicationSummary)
     }
 }

@@ -345,6 +345,88 @@ final class FASTQMetadataStoreTests: XCTestCase {
         XCTAssertEqual(FASTQAssemblyReadType.pacBioHiFi.displayName, "PacBio HiFi/CCS")
     }
 
+    // MARK: - RecipeStepResult Codable
+
+    func testRecipeStepResultRoundTripsLogicalComponentsAndExecutionEvidence() throws {
+        let startedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let completedAt = Date(timeIntervalSince1970: 1_700_000_012)
+        let result = RecipeStepResult(
+            stepName: "Remove PCR duplicates + Adapter + quality trim",
+            tool: "fastp",
+            toolVersion: "0.23.4",
+            commandLine: "fastp --dedup --cut_front",
+            commandArguments: ["fastp", "--dedup", "--cut_front"],
+            inputReadCount: 1_000_000,
+            outputReadCount: 720_000,
+            durationSeconds: 12,
+            auxiliaryOutputPaths: ["/tmp/fastp.json"],
+            auxiliaryCommandPathRewrites: ["/tmp/fastp.json": "metadata/recipe-step-artifacts/fastp.json"],
+            logicalComponents: [
+                RecipeLogicalComponent(typeID: "fastp-dedup", displayName: "Remove PCR duplicates"),
+                RecipeLogicalComponent(typeID: "fastp-trim", displayName: "Adapter + quality trim"),
+            ],
+            exitStatus: 0,
+            stderr: "fastp warning",
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(result)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(RecipeStepResult.self, from: data)
+
+        XCTAssertEqual(decoded.logicalComponents, result.logicalComponents)
+        XCTAssertEqual(decoded.exitStatus, 0)
+        XCTAssertEqual(decoded.stderr, "fastp warning")
+        XCTAssertEqual(decoded.startedAt, startedAt)
+        XCTAssertEqual(decoded.completedAt, completedAt)
+
+        let replaced = decoded.replacingAuxiliaryOutputs(
+            paths: ["metadata/recipe-step-artifacts/fastp.json"],
+            commandPathRewrites: [:]
+        )
+        XCTAssertEqual(replaced.logicalComponents, result.logicalComponents)
+        XCTAssertEqual(replaced.exitStatus, result.exitStatus)
+        XCTAssertEqual(replaced.stderr, result.stderr)
+        XCTAssertEqual(replaced.startedAt, result.startedAt)
+        XCTAssertEqual(replaced.completedAt, result.completedAt)
+    }
+
+    func testRecipeStepResultDecodesLegacyMetadataWithAdditiveDefaults() throws {
+        let data = Data(#"{"stepName":"Deduplicate","tool":"fastp","durationSeconds":2.5}"#.utf8)
+
+        let result = try JSONDecoder().decode(RecipeStepResult.self, from: data)
+
+        XCTAssertTrue(result.logicalComponents.isEmpty)
+        XCTAssertNil(result.exitStatus)
+        XCTAssertNil(result.stderr)
+        XCTAssertNil(result.startedAt)
+        XCTAssertNil(result.completedAt)
+    }
+
+    func testRecipeStepResultBoundsAndNormalizesStderr() {
+        let result = RecipeStepResult(
+            stepName: "Deduplicate",
+            tool: "fastp",
+            durationSeconds: 0,
+            stderr: String(repeating: "x", count: 10_500)
+        )
+
+        XCTAssertEqual(result.stderr?.count, 10_240 + "\n... [truncated]".count)
+        XCTAssertTrue(result.stderr?.hasSuffix("\n... [truncated]") == true)
+
+        let empty = RecipeStepResult(
+            stepName: "Deduplicate",
+            tool: "fastp",
+            durationSeconds: 0,
+            stderr: "  \n"
+        )
+        XCTAssertNil(empty.stderr)
+    }
+
     // MARK: - SRARunInfo Codable
 
     func testSRARunInfoCodableRoundTrip() throws {
