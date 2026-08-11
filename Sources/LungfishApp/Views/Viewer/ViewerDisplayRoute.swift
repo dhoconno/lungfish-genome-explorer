@@ -44,10 +44,19 @@ enum ViewerDisplayRouteFactory {
         resultDirectoryURL: URL?,
         provenance: MappingProvenance?
     ) -> ViewerDisplayRoute {
-        .referenceBundle(.mappingResult(
+        // Mapping rows need the embedded alignment declarations during their
+        // initial configuration, not after a later Inspector refresh. Loading
+        // the manifest here keeps the route self-contained for both sidebar
+        // and programmatic display paths; unreadable bundles remain a valid
+        // legacy mapping route with no track-derived rows.
+        let viewerBundleManifest = result.viewerBundleURL.flatMap {
+            try? BundleManifest.load(from: $0)
+        }
+        return .referenceBundle(.mappingResult(
             result: result,
             resultDirectoryURL: resultDirectoryURL,
-            provenance: provenance
+            provenance: provenance,
+            viewerBundleManifest: viewerBundleManifest
         ))
     }
 

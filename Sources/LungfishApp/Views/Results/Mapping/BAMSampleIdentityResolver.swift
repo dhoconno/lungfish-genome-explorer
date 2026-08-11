@@ -47,14 +47,17 @@ struct BAMSampleIdentityResolver {
         }
 
         let knownTrackIDs = Set(trackIDs)
+        let singleResolvedSample = canonicalByNormalizedValue.count == 1
         let samples = canonicalByNormalizedValue.values.sorted().map { canonicalID in
             SampleIdentity(
                 canonicalID: canonicalID,
                 aliases: aliases[canonicalID] ?? [],
-                alignmentTrackIDs: trackSampleIDs.compactMap { trackID, sampleID in
-                    knownTrackIDs.contains(trackID) && normalized(sampleID) == normalized(canonicalID)
-                        ? trackID : nil
-                },
+                alignmentTrackIDs: singleResolvedSample
+                    ? knownTrackIDs.sorted()
+                    : trackSampleIDs.compactMap { trackID, sampleID in
+                        knownTrackIDs.contains(trackID) && normalized(sampleID) == normalized(canonicalID)
+                            ? trackID : nil
+                    },
                 readGroupIDs: readGroupsBySample[canonicalID] ?? []
             )
         }
@@ -69,7 +72,44 @@ struct BAMSampleIdentityResolver {
         )
     }
 
-    private static func normalized(_ value: String) -> String {
+    /// Merges identities from independent alignment tracks. The persisted SM
+    /// spelling first encountered is retained for display, while grouping uses
+    /// the same trim/case-fold key as `SampleIdentityIndex`. Explicit aliases
+    /// are accepted only through `aliases`; alternate SM spellings are not
+    /// promoted to aliases because they already resolve through the canonical
+    /// normalized identity and were not authored as alias metadata.
+    static func merge(
+        _ identities: [SampleIdentity],
+        aliases: [String: [String]] = [:]
+    ) -> [SampleIdentity] {
+        var mergedByKey: [String: SampleIdentity] = [:]
+        for identity in identities {
+            let key = normalized(identity.canonicalID)
+            guard !key.isEmpty else { continue }
+            if let current = mergedByKey[key] {
+                mergedByKey[key] = SampleIdentity(
+                    canonicalID: current.canonicalID,
+                    aliases: Array(Set(current.aliases).union(identity.aliases)).sorted(),
+                    alignmentTrackIDs: Array(Set(current.alignmentTrackIDs).union(identity.alignmentTrackIDs)).sorted(),
+                    readGroupIDs: Array(Set(current.readGroupIDs).union(identity.readGroupIDs)).sorted()
+                )
+            } else {
+                mergedByKey[key] = identity
+            }
+        }
+
+        return mergedByKey.values.map { identity in
+            let explicitAliases = aliases.first { normalized($0.key) == normalized(identity.canonicalID) }?.value ?? []
+            return SampleIdentity(
+                canonicalID: identity.canonicalID,
+                aliases: Array(Set(identity.aliases).union(explicitAliases)).sorted(),
+                alignmentTrackIDs: identity.alignmentTrackIDs,
+                readGroupIDs: identity.readGroupIDs
+            )
+        }.sorted { $0.canonicalID.localizedCaseInsensitiveCompare($1.canonicalID) == .orderedAscending }
+    }
+
+    static func normalized(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 

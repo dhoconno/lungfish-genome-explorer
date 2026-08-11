@@ -272,6 +272,87 @@ final class MappingViewportRoutingTests: XCTestCase {
         XCTAssertEqual(viewport.testSelectedReadGroups, Set(["S2-rg"]))
     }
 
+    func testDirectSequenceNoRGFallbackClearsPreviousReadGroupFilter() throws {
+        let bundleURL = try MappingRoutingFixture.makeReferenceBundle(
+            name: "Direct RG Clear",
+            chromosomes: [.init(name: "chr1", length: 100)]
+        )
+        defer { try? FileManager.default.removeItem(at: bundleURL.deletingLastPathComponent()) }
+        try MappingRoutingFixture.addSingleSampleAlignment(
+            to: bundleURL, sampleID: "RG", trackID: "rg-track"
+        )
+        try MappingRoutingFixture.addSingleSampleAlignment(
+            to: bundleURL, sampleID: "NoRG", trackID: "no-rg-track", includeReadGroup: false
+        )
+
+        let split = MainSplitViewController(); split.loadViewIfNeeded()
+        split.displayReferenceBundleViewportFromSidebar(at: bundleURL)
+        _ = try MappingRoutingFixture.waitForBAMMetadataContext(on: split)
+        let viewport = try XCTUnwrap(split.viewerController.referenceBundleViewportController)
+
+        viewport.testSelectSequence(sampleID: "RG", named: "chr1")
+        XCTAssertEqual(viewport.testSelectedReadGroups, Set(["RG-rg"]))
+        viewport.testSelectSequence(sampleID: "NoRG", named: "chr1")
+        XCTAssertEqual(viewport.testVisibleAlignmentTrackID, "no-rg-track")
+        XCTAssertEqual(viewport.testSelectedReadGroups, [])
+    }
+
+    func testBAMInstallerMergesCaseWhitespaceEquivalentTracksAndExplicitAliases() throws {
+        let bundleURL = try MappingRoutingFixture.makeReferenceBundle(
+            name: "Canonical BAM Merge",
+            chromosomes: [.init(name: "chr1", length: 100)]
+        )
+        defer { try? FileManager.default.removeItem(at: bundleURL.deletingLastPathComponent()) }
+        try MappingRoutingFixture.addSingleSampleAlignment(to: bundleURL, sampleID: " S1 ", trackID: "track-a")
+        try MappingRoutingFixture.addSingleSampleAlignment(to: bundleURL, sampleID: "s1", trackID: "track-b")
+
+        let split = MainSplitViewController(); split.loadViewIfNeeded()
+        let manifest = try BundleManifest.load(from: bundleURL)
+        try split.viewerController.display(ViewerDisplayRouteFactory.directReferenceBundle(
+            bundleURL: bundleURL, manifest: manifest
+        ))
+        split.installBAMMetadataPresentation(
+            resultURL: bundleURL,
+            bundleURL: bundleURL,
+            workflowName: "Reference Bundle",
+            persistedSampleAliases: ["S1": ["subject-1"]]
+        )
+
+        let index = try XCTUnwrap(split.bamMetadataPresentationContext?.identityIndex)
+        XCTAssertEqual(index.canonicalSampleIDs, Set(["S1"]))
+        XCTAssertEqual(index.alignmentTrackIDs(forCanonicalSampleID: "s1"), Set(["track-a", "track-b"]))
+        XCTAssertEqual(index.readGroupIDs(forCanonicalSampleID: "S1"), Set([" S1 -rg", "s1-rg"]))
+        XCTAssertEqual(index.canonicalSampleID(forMetadataIdentifier: "subject-1"), "S1")
+    }
+
+    func testSidebarMappingRoutePassesViewerManifestAndBuildsInitialSampleRows() throws {
+        let bundleURL = try MappingRoutingFixture.makeReferenceBundle(
+            name: "Sidebar Initial BAM Rows",
+            chromosomes: [.init(name: "chr1", length: 100)]
+        )
+        defer { try? FileManager.default.removeItem(at: bundleURL.deletingLastPathComponent()) }
+        try MappingRoutingFixture.addSingleSampleAlignment(
+            to: bundleURL, sampleID: "S1", includeReadGroup: false, includeChromosomeStats: true
+        )
+        let statsDatabase = try AlignmentMetadataDatabase(
+            url: bundleURL.appendingPathComponent("alignments/reads-track.metadata.sqlite")
+        )
+        XCTAssertEqual(statsDatabase.chromosomeStats().first?.mappedReads, 1)
+        XCTAssertEqual(try BundleManifest.load(from: bundleURL).alignments.map(\.id), ["reads-track"])
+        let resultURL = bundleURL.deletingLastPathComponent().appendingPathComponent("mapping-result", isDirectory: true)
+        try FileManager.default.createDirectory(at: resultURL, withIntermediateDirectories: true)
+        let result = MappingRoutingFixture.makeMappingResult(
+            resultDirectory: resultURL, viewerBundleURL: bundleURL
+        )
+        try result.save(to: resultURL)
+
+        let split = MainSplitViewController(); split.loadViewIfNeeded()
+        split.displayMappingAnalysisFromSidebar(at: resultURL)
+        let viewport = try MappingRoutingFixture.waitForInitialSampleRows(on: split)
+        XCTAssertEqual(viewport.currentInput?.viewerBundleManifest?.identifier, (try BundleManifest.load(from: bundleURL)).identifier)
+        XCTAssertEqual(viewport.testContigTableView.displayedRows.map(\.sampleID), ["S1"])
+    }
+
     func testReferenceBundleRouteClearsInspectorBeforeManifestLoadAndWiresDirectInspectorState() throws {
         let mainWindowSource = combinedMainSplitViewControllerSource()
         let routeStart = try XCTUnwrap(
@@ -2599,7 +2680,9 @@ private enum MappingRoutingFixture {
     static func addSingleSampleAlignment(
         to bundleURL: URL,
         sampleID: String,
-        trackID: String = "reads-track"
+        trackID: String = "reads-track",
+        includeReadGroup: Bool = true,
+        includeChromosomeStats: Bool = false
     ) throws {
         let alignmentsURL = bundleURL.appendingPathComponent("alignments", isDirectory: true)
         try FileManager.default.createDirectory(at: alignmentsURL, withIntermediateDirectories: true)
@@ -2609,7 +2692,12 @@ private enum MappingRoutingFixture {
         let database = try AlignmentMetadataDatabase.create(
             at: bundleURL.appendingPathComponent(metadataPath)
         )
-        database.addReadGroup(id: "\(sampleID)-rg", sample: sampleID)
+        if includeReadGroup {
+            database.addReadGroup(id: "\(sampleID)-rg", sample: sampleID)
+        }
+        if includeChromosomeStats {
+            database.addChromosomeStats(chromosome: "chr1", length: 100, mapped: 1, unmapped: 0)
+        }
 
         let manifest = try BundleManifest.load(from: bundleURL)
         let alignment = AlignmentTrackInfo(
@@ -2619,7 +2707,8 @@ private enum MappingRoutingFixture {
                 indexPath: "alignments/\(trackID).bam.bai",
                 metadataDBPath: metadataPath,
                 mappedReadCount: 1,
-                unmappedReadCount: 0
+                unmappedReadCount: 0,
+                sampleNames: includeReadGroup ? [] : [sampleID]
         )
         let updatedManifest = BundleManifest(
             formatVersion: manifest.formatVersion,
@@ -2658,6 +2747,28 @@ private enum MappingRoutingFixture {
         }
         throw NSError(domain: "MappingRoutingFixture", code: 1, userInfo: [
             NSLocalizedDescriptionKey: "Timed out installing the BAM metadata context"
+        ])
+    }
+
+    @MainActor
+    static func waitForInitialSampleRows(
+        on split: MainSplitViewController
+    ) throws -> ReferenceBundleViewportController {
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline {
+            if let viewport = split.viewerController.referenceBundleViewportController,
+               viewport.testContigTableView.displayedRows.contains(where: { $0.sampleID == "S1" }) {
+                return viewport
+            }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        let input = split.viewerController.referenceBundleViewportController?.currentInput
+        let rows = split.viewerController.referenceBundleViewportController?
+            .testContigTableView.displayedRows
+            .map { "\($0.sampleID ?? "nil"):\($0.contigName)" }
+        let visibleTrack = split.viewerController.referenceBundleViewportController?.testVisibleAlignmentTrackID
+        throw NSError(domain: "MappingRoutingFixture", code: 2, userInfo: [
+            NSLocalizedDescriptionKey: "Timed out waiting for initial sample × contig rows; rendered=\(input?.renderedBundleURL?.path ?? "nil") manifest=\(input?.viewerBundleManifest?.name ?? "nil") tracks=\(input?.viewerBundleManifest?.alignments.map(\.id) ?? []) track=\(visibleTrack ?? "nil") rows=\(rows ?? [])"
         ])
     }
 

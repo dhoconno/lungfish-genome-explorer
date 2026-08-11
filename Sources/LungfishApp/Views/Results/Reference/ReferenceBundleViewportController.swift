@@ -508,10 +508,32 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         applyMappingBundleDisplayLabels()
         applyOriginalMappingRows(preferredSelectionName: preferredSelectionName)
         let configuredTrackID = embeddedViewerController.viewerView.visibleAlignmentTrackIDSetting
-        let defaultTrackID = currentInput?.viewerBundleManifest?.alignments
+        let alignmentTracks = currentInput?.viewerBundleManifest?.alignments ?? []
+        let defaultTrackID = alignmentTracks
             .first(where: { $0.metadataDBPath != nil })?.id
-        let visibleTrackID = (configuredTrackID?.isEmpty == false) ? configuredTrackID : defaultTrackID
+            ?? alignmentTracks.first?.id
+        let visibleTrackID = alignmentTracks.contains { $0.id == configuredTrackID }
+            ? configuredTrackID
+            : defaultTrackID
         if let visibleTrackID, !visibleTrackID.isEmpty {
+            if let track = alignmentTracks.first(where: { $0.id == visibleTrackID }),
+               let bundleURL = currentInput?.renderedBundleURL,
+               let resolution = sampleIdentityResolution(for: track, bundleURL: bundleURL),
+               resolution.identityIndex.canonicalSampleIDs.count == 1,
+               let sampleID = resolution.identityIndex.canonicalSampleIDs.first,
+               let cachedRows = metadataFallbackRows(
+                for: track,
+                bundleURL: bundleURL,
+                totalReads: Int(clamping: (track.mappedReadCount ?? 0) + (track.unmappedReadCount ?? 0))
+               ) {
+                applyVisibleAlignmentRows(
+                    [(sampleID, cachedRows)],
+                    track: track,
+                    mappedReads: Int(clamping: track.mappedReadCount ?? 0),
+                    totalReads: Int(clamping: (track.mappedReadCount ?? 0) + (track.unmappedReadCount ?? 0)),
+                    preferredSelectionName: preferredSelectionName
+                )
+            }
             embeddedViewerController.viewerView.visibleAlignmentTrackIDSetting = visibleTrackID
             refreshMappingRowsForVisibleAlignmentTrack(
                 visibleTrackID,
@@ -753,11 +775,51 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         embeddedViewerController.applyReadDisplaySettings(userInfo)
 
         if userInfo.keys.contains(NotificationUserInfoKey.visibleAlignmentTrackID as AnyHashable) {
+            let tracks = currentInput?.viewerBundleManifest?.alignments ?? []
+            let requestedTrackID = embeddedViewerController.viewerView.visibleAlignmentTrackIDSetting
+            guard requestedTrackID != nil else {
+                applyAllMetadataTrackFallbackRows(tracks)
+                return
+            }
+            let effectiveTrackID = tracks.contains { $0.id == requestedTrackID } ? requestedTrackID : nil
             refreshMappingRowsForVisibleAlignmentTrack(
-                embeddedViewerController.viewerView.visibleAlignmentTrackIDSetting,
+                effectiveTrackID,
                 preferredSelectionName: currentSelectedContig()?.contigName
             )
         }
+    }
+
+    /// Nil track selection means All Alignments, never a silent default-track
+    /// substitution. Cached per-track stats can truthfully populate rows only
+    /// when a track resolves one persisted sample; aggregate multi-sample
+    /// stats are deliberately omitted until exact filtered summaries arrive.
+    private func applyAllMetadataTrackFallbackRows(_ tracks: [AlignmentTrackInfo]) {
+        guard let bundleURL = currentInput?.renderedBundleURL else { return }
+        let rows = tracks.flatMap { track -> [MappingContigSummary] in
+            guard let resolution = sampleIdentityResolution(for: track, bundleURL: bundleURL),
+                  resolution.identityIndex.canonicalSampleIDs.count == 1,
+                  let sampleID = resolution.identityIndex.canonicalSampleIDs.first,
+                  let stats = metadataFallbackRows(
+                    for: track,
+                    bundleURL: bundleURL,
+                    totalReads: Int(clamping: (track.mappedReadCount ?? 0) + (track.unmappedReadCount ?? 0))
+                  )
+            else { return [] }
+            return stats.map { summary in
+                MappingContigSummary(
+                    sampleID: sampleID,
+                    contigName: summary.contigName,
+                    contigLength: summary.contigLength,
+                    mappedReads: summary.mappedReads,
+                    mappedReadPercent: summary.mappedReadPercent,
+                    meanDepth: summary.meanDepth,
+                    coverageBreadth: summary.coverageBreadth,
+                    medianMAPQ: summary.medianMAPQ,
+                    meanIdentity: summary.meanIdentity
+                )
+            }
+        }
+        if !rows.isEmpty { contigTableView.configure(rows: rows) }
     }
 
     func notifyEmbeddedReferenceBundleLoadedIfAvailable() {
@@ -955,12 +1017,13 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
 
     private func displaySelectedSequence(_ row: ReferenceBundleRecordRow) {
         if let alignmentTrackID = row.alignmentTrackID {
-            var settings: [AnyHashable: Any] = [
-                NotificationUserInfoKey.visibleAlignmentTrackID: alignmentTrackID
+            let settings: [AnyHashable: Any] = [
+                NotificationUserInfoKey.visibleAlignmentTrackID: alignmentTrackID,
+                // An explicit no-RG sample fallback is still a selection. It
+                // must clear a previously-selected track's RG filter rather
+                // than inheriting it and silently showing the wrong subset.
+                NotificationUserInfoKey.selectedReadGroups: row.readGroupIDs,
             ]
-            if !row.readGroupIDs.isEmpty {
-                settings[NotificationUserInfoKey.selectedReadGroups] = row.readGroupIDs
-            }
             embeddedViewerController.applyReadDisplaySettings(settings)
         }
         displaySelectedSequence(row.summary)
@@ -1118,6 +1181,26 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
             sampleReadGroups = [(nil, [])]
         }
 
+        // Cached metadata is immediately usable for a single resolved sample
+        // and avoids an empty initial list while the expensive exact summary
+        // process is starting. The async result below replaces these rows when
+        // it completes. Multiple samples are intentionally not expanded from
+        // aggregate track stats because that would fabricate per-sample reads.
+        if sampleReadGroups.count == 1,
+           let fallbackRows = metadataFallbackRows(
+            for: track,
+            bundleURL: bundleURL,
+            totalReads: totalReads
+           ) {
+            applyVisibleAlignmentRows(
+                [(sampleReadGroups[0].sampleID, fallbackRows)],
+                track: track,
+                mappedReads: mappedReads,
+                totalReads: totalReads,
+                preferredSelectionName: preferredSelectionName
+            )
+        }
+
         Task { @MainActor [weak self] in
             do {
                 var sampleSummaries: [(sampleID: String?, summaries: [MappingContigSummary])] = []
@@ -1127,6 +1210,23 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                     // metrics are then truthful for that one sample.
                     let summaries = try await summaryBuilder(bamURL, totalReads, sample.readGroupIDs)
                     sampleSummaries.append((sample.sampleID, summaries))
+                }
+                // Some managed samtools wrappers surface a failed streamed
+                // subcommand as an empty, otherwise-successful parse. For a
+                // single persisted sample, the bundle's indexed stats remain
+                // a truthful initial sample × contig fallback; do not leave
+                // the default metadata-bearing track blank until a manual
+                // track toggle.
+                if sampleSummaries.allSatisfy({ sample in
+                    sample.summaries.isEmpty || sample.summaries.allSatisfy { $0.mappedReads == 0 }
+                }),
+                   sampleReadGroups.count == 1,
+                   let fallbackRows = self?.metadataFallbackRows(
+                    for: track,
+                    bundleURL: bundleURL,
+                    totalReads: totalReads
+                   ) {
+                    sampleSummaries = [(sampleReadGroups[0].sampleID, fallbackRows)]
                 }
                 guard let self,
                       self.alignmentTrackSummaryRefreshID == refreshID
@@ -1151,9 +1251,9 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                     for: track,
                     bundleURL: bundleURL,
                     totalReads: totalReads
-                ) {
+                ), sampleReadGroups.count == 1 {
                     self.applyVisibleAlignmentRows(
-                        [(nil, fallbackRows)],
+                        [(sampleReadGroups[0].sampleID, fallbackRows)],
                         track: track,
                         mappedReads: mappedReads,
                         totalReads: totalReads,

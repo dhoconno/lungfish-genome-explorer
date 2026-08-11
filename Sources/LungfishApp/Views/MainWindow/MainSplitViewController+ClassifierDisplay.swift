@@ -44,12 +44,17 @@ extension MainSplitViewController {
     /// is resolved through BAMSampleIdentityResolver before identities from
     /// separate tracks are merged, keeping one canonical policy for all BAM
     /// viewports.
-    func installBAMMetadataPresentation(resultURL: URL, bundleURL: URL, workflowName: String) {
+    func installBAMMetadataPresentation(
+        resultURL: URL,
+        bundleURL: URL,
+        workflowName: String,
+        persistedSampleAliases: [String: [String]] = [:]
+    ) {
         clearBAMMetadataPresentation()
         guard let consumer = viewerController.referenceBundleViewportController,
               let manifest = try? BundleManifest.load(from: bundleURL)
         else { return }
-        var identitiesByCanonicalID: [String: SampleIdentity] = [:]
+        var collectedIdentities: [SampleIdentity] = []
         for track in manifest.alignments {
             guard let metadataDBPath = track.metadataDBPath,
                   let database = try? AlignmentMetadataDatabase(url: bundleMemberURL(metadataDBPath, in: bundleURL)),
@@ -60,20 +65,12 @@ extension MainSplitViewController {
                     trackSampleIDs: track.sampleNames.count == 1 ? [track.id: track.sampleNames[0]] : [:]
                   )
             else { continue }
-            for identity in resolution.identities {
-                if let current = identitiesByCanonicalID[identity.canonicalID] {
-                    identitiesByCanonicalID[identity.canonicalID] = SampleIdentity(
-                        canonicalID: current.canonicalID,
-                        aliases: Array(Set(current.aliases).union(identity.aliases)).sorted(),
-                        alignmentTrackIDs: Array(Set(current.alignmentTrackIDs).union(identity.alignmentTrackIDs)).sorted(),
-                        readGroupIDs: Array(Set(current.readGroupIDs).union(identity.readGroupIDs)).sorted()
-                    )
-                } else {
-                    identitiesByCanonicalID[identity.canonicalID] = identity
-                }
-            }
+            collectedIdentities.append(contentsOf: resolution.identities)
         }
-        let identities = identitiesByCanonicalID.values.sorted { $0.canonicalID < $1.canonicalID }
+        let identities = BAMSampleIdentityResolver.merge(
+            collectedIdentities,
+            aliases: persistedSampleAliases
+        )
         guard !identities.isEmpty,
               let index = try? SampleIdentityIndex(samples: identities)
         else { return }
