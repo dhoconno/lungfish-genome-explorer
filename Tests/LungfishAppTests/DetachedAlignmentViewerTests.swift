@@ -77,7 +77,35 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         XCTAssertEqual(controller.visibleStatusText, "Alignment evidence ready (reference: notProvided).")
     }
 
-    func testChangedValidatedEvidenceIsClearedAndPublishedAsStale() async throws {
+    func testEvidenceChangedBetweenValidationAndInstallationIsRejected() async throws {
+        let files = try DetachedEvidenceFiles()
+        let request = try files.request("installation-race")
+        let gate = DetachedHeaderGate()
+        let validator = ClassifierAlignmentEvidenceValidator(
+            headerReader: { url in
+                await gate.wait(for: url)
+                return "@SQ\tSN:chr1\tLN:4\n"
+            },
+            indexQuery: { _, _, _ in },
+            fileManager: .default
+        )
+        let controller = ClassifierAlignmentEvidenceViewportController(validator: validator)
+
+        controller.display(request)
+        await gate.waitUntilEntered(request.bamURL)
+        try Data([9]).write(to: request.bamURL)
+        await gate.release(request.bamURL)
+        for _ in 0..<100 where controller.status == .loading {
+            await Task.yield()
+        }
+
+        let reason = "Classifier alignment evidence changed on disk: installation-race.bam."
+        XCTAssertNil(controller.viewer.viewerView.testDetachedAlignmentSource)
+        XCTAssertEqual(controller.status, .stale(reason))
+        XCTAssertEqual(controller.visibleStatusText, reason)
+    }
+
+    func testSameSizeRestoredMTimeReplacementIsDetectedByEvidenceMonitor() async throws {
         let files = try DetachedEvidenceFiles()
         let request = try files.request("changed")
         let validator = ClassifierAlignmentEvidenceValidator(
@@ -97,15 +125,20 @@ final class DetachedAlignmentViewerTests: XCTestCase {
             AlignedRead(name: "cached", flag: 0, chromosome: "chr1", position: 0, mapq: 60, cigar: [.init(op: .match, length: 1)], sequence: "A", qualities: [30])
         ])
 
-        try Data([2]).write(to: request.bamURL)
-        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: 60)], ofItemAtPath: request.bamURL.path)
+        let originalAttributes = try FileManager.default.attributesOfItem(atPath: request.bamURL.path)
+        let originalMTime = try XCTUnwrap(originalAttributes[.modificationDate] as? Date)
+        try Data([9]).write(to: request.bamURL) // same byte count as the validated payload
+        try FileManager.default.setAttributes([.modificationDate: originalMTime], ofItemAtPath: request.bamURL.path)
 
-        XCTAssertFalse(controller.viewer.viewerView.detachedEvidenceIsCurrent(source))
+        for _ in 0..<250 where controller.status != .stale("Classifier alignment evidence changed on disk: changed.bam.") {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
         let reason = "Classifier alignment evidence changed on disk: changed.bam."
         XCTAssertEqual(controller.viewer.viewerView.detachedEvidenceStaleReason, reason)
         XCTAssertEqual(controller.status, .stale(reason))
         XCTAssertEqual(controller.visibleStatusText, reason)
         XCTAssertTrue(controller.viewer.viewerView.testCachedAlignedReads.isEmpty)
+        XCTAssertGreaterThan(controller.viewer.viewerView.testDetachedEvidenceMonitorEventCount, 0)
     }
 
     func testClearCancelsRetainedDetachedReadAndDepthTasks() async {
@@ -189,11 +222,19 @@ private final class CancellationProbe: @unchecked Sendable {
 
 private actor DetachedHeaderGate {
     private var continuations: [URL: CheckedContinuation<Void, Never>] = [:]
+    private var enteredContinuations: [URL: CheckedContinuation<Void, Never>] = [:]
+    private var entered: Set<URL> = []
     private var released: Set<URL> = []
     private var cancelled: Set<URL> = []
     func wait(for url: URL) async {
+        entered.insert(url)
+        enteredContinuations.removeValue(forKey: url)?.resume()
         if released.remove(url) != nil { return }
         await withCheckedContinuation { continuations[url] = $0 }
+    }
+    func waitUntilEntered(_ url: URL) async {
+        if entered.contains(url) { return }
+        await withCheckedContinuation { enteredContinuations[url] = $0 }
     }
     func recordCancellation(_ url: URL) { cancelled.insert(url) }
     func cancelledURLs() -> Set<URL> { cancelled }

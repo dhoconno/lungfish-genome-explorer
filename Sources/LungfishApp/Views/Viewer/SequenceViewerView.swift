@@ -12,6 +12,7 @@ import PDFKit
 import os.log
 import LungfishKit
 import CryptoKit
+import Darwin
 
 /// Logger for SequenceViewerView operations
 let sequenceViewerLogger = Logger(subsystem: LogSubsystem.app, category: "SequenceViewerView")
@@ -90,6 +91,11 @@ public class SequenceViewerView: NSView {
     var detachedEvidenceStaleReason: String?
     var detachedResourceSignatures: [URL: (Int, Date?)] = [:]
     var onDetachedEvidenceStale: ((String) -> Void)?
+    private var detachedEvidenceMonitorSources: [DispatchSourceFileSystemObject] = []
+    private var detachedEvidenceMonitorGeneration = 0
+#if DEBUG
+    private(set) var detachedEvidenceMonitorEventCount = 0
+#endif
     
     /// Cached sequence data for the current visible region (for bundle mode)
     var cachedBundleSequence: String?
@@ -1032,7 +1038,8 @@ public class SequenceViewerView: NSView {
         setAccessibilityIdentifier("sequence-viewer")
     }
 
-    deinit {
+    isolated deinit {
+        stopDetachedEvidenceMonitors()
         trackLoadingAnimationTimer?.invalidate()
         NotificationCenter.default.removeObserver(self)
     }
@@ -1348,6 +1355,7 @@ public class SequenceViewerView: NSView {
     var testIsFetchingDepth: Bool { isFetchingDepth }
     var testIsFetchingConsensus: Bool { isFetchingConsensus }
     var testDetachedAlignmentSource: DetachedAlignmentSource? { detachedAlignmentSource }
+    var testDetachedEvidenceMonitorEventCount: Int { detachedEvidenceMonitorEventCount }
 
     func testInstallDetachedAlignmentFetchTasks(read: Task<Void, Never>?, depth: Task<Void, Never>?) {
         detachedReadFetchTask = read
@@ -2057,8 +2065,11 @@ public class SequenceViewerView: NSView {
     func clearReferenceBundle() {
         sequenceViewerLogger.info("SequenceViewerView.clearReferenceBundle: Clearing bundle")
         cancelDetachedAlignmentFetches()
+        stopDetachedEvidenceMonitors()
         self.currentReferenceBundle = nil
         self.detachedAlignmentSource = nil
+        self.detachedEvidenceStaleReason = nil
+        self.detachedResourceSignatures = [:]
         self.cachedBundleSequence = nil
         self.cachedSequenceRegion = nil
         self.cachedBundleAnnotations = []
@@ -2125,12 +2136,23 @@ public class SequenceViewerView: NSView {
     /// Configures the existing alignment renderer for an externally-owned final BAM.
     /// This creates no bundle, writes no data, and intentionally leaves annotations
     /// and reference-dependent data absent when no validated FASTA was supplied.
-    func setDetachedAlignmentSource(_ source: DetachedAlignmentSource) {
+    @discardableResult
+    func setDetachedAlignmentSource(_ source: DetachedAlignmentSource) -> Bool {
         clearReferenceBundle()
+        // Validation runs before this view is reached, but the files can change while
+        // it is crossing the actor boundary. Never accept a source until its current
+        // bytes match those validated snapshots.
+        guard verifyDetachedEvidenceSnapshots(source) else { return false }
+        guard startDetachedEvidenceMonitors(for: source) else {
+            markDetachedEvidenceStale("Classifier alignment evidence is unavailable for monitoring.")
+            return false
+        }
+        // The monitor is now live. Verify once more to close the interval between the
+        // first hash and monitor activation before exposing the source to rendering.
+        guard verifyDetachedEvidenceSnapshots(source) else { return false }
         currentReferenceBundle = nil
         detachedAlignmentSource = source
         detachedEvidenceStaleReason = nil
-        detachedResourceSignatures = resourceSignatures(for: source)
         alignmentDataProviders = [(trackId: "detached", provider: source.provider)]
         visibleAlignmentTrackIDSetting = "detached"
         alignmentChromosomeAliasMap = [:]
@@ -2140,28 +2162,87 @@ public class SequenceViewerView: NSView {
         }
         invalidateAlignmentFetchState()
         needsDisplay = true
+        return true
     }
 
     func detachedEvidenceIsCurrent(_ source: DetachedAlignmentSource) -> Bool {
         guard detachedEvidenceStaleReason == nil else { return false }
-        for (url, expected) in expectedSnapshots(for: source) {
+        let expectedSnapshots = expectedSnapshots(for: source)
+        // An unchanged size/mtime is only a cheap fallback signal. Identity is
+        // established by the installation hash and maintained by vnode events.
+        guard expectedSnapshots.isEmpty || detachedEvidenceMonitorSources.count == expectedSnapshots.count else {
+            markDetachedEvidenceStale("Classifier alignment evidence monitor stopped unexpectedly.")
+            return false
+        }
+        for (url, _) in expectedSnapshots {
             let fast = resourceSignature(for: url)
-            if let prior = detachedResourceSignatures[url], prior.0 == fast.0 && prior.1 == fast.1 { continue }
-            guard let observed = try? checksumSnapshot(url), observed == expected else {
-                markDetachedEvidenceStale("Classifier alignment evidence changed on disk: \(url.lastPathComponent).")
-                return false
+            guard let prior = detachedResourceSignatures[url], prior.0 == fast.0 && prior.1 == fast.1 else {
+                return verifyDetachedEvidenceSnapshots(source)
             }
-            detachedResourceSignatures[url] = fast
         }
         return true
     }
 
     func markDetachedEvidenceStale(_ reason: String) {
         detachedEvidenceStaleReason = reason
+        stopDetachedEvidenceMonitors()
         cancelDetachedAlignmentFetches()
         invalidateAlignmentFetchState()
         onDetachedEvidenceStale?(reason)
         needsDisplay = true
+    }
+
+    private func verifyDetachedEvidenceSnapshots(_ source: DetachedAlignmentSource) -> Bool {
+        for (url, expected) in expectedSnapshots(for: source) {
+            guard let observed = try? checksumSnapshot(url), observed == expected else {
+                markDetachedEvidenceStale("Classifier alignment evidence changed on disk: \(url.lastPathComponent).")
+                return false
+            }
+            detachedResourceSignatures[url] = resourceSignature(for: url)
+        }
+        return true
+    }
+
+    private func startDetachedEvidenceMonitors(for source: DetachedAlignmentSource) -> Bool {
+        stopDetachedEvidenceMonitors()
+        let snapshots = expectedSnapshots(for: source)
+        guard !snapshots.isEmpty else { return true }
+        detachedEvidenceMonitorGeneration += 1
+        let generation = detachedEvidenceMonitorGeneration
+        for (url, _) in snapshots {
+            let descriptor = open(url.path, O_EVTONLY)
+            guard descriptor >= 0 else {
+                stopDetachedEvidenceMonitors()
+                return false
+            }
+            let monitor = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: descriptor,
+                eventMask: [.write, .delete, .rename, .attrib, .extend, .revoke],
+                queue: .main
+            )
+            monitor.setEventHandler { [weak self] in
+                self?.confirmDetachedEvidenceMonitorEvent(generation: generation)
+            }
+            monitor.setCancelHandler { close(descriptor) }
+            detachedEvidenceMonitorSources.append(monitor)
+            monitor.resume()
+        }
+        return true
+    }
+
+    private func stopDetachedEvidenceMonitors() {
+        detachedEvidenceMonitorGeneration += 1
+        detachedEvidenceMonitorSources.forEach { $0.cancel() }
+        detachedEvidenceMonitorSources.removeAll()
+    }
+
+    private func confirmDetachedEvidenceMonitorEvent(generation: Int) {
+        guard generation == detachedEvidenceMonitorGeneration,
+              let source = detachedAlignmentSource else { return }
+#if DEBUG
+        detachedEvidenceMonitorEventCount += 1
+#endif
+        _ = verifyDetachedEvidenceSnapshots(source)
     }
 
     private func expectedSnapshots(for source: DetachedAlignmentSource) -> [(URL, ClassifierAlignmentEvidenceFileSnapshot)] {

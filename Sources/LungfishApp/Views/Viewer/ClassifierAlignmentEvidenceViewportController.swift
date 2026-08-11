@@ -82,7 +82,12 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
                     referenceURL: request.referenceCandidate?.fastaURL,
                     referenceSnapshot: validated.referenceSnapshot
                 )
-                viewer.displayDetachedAlignment(source)
+                guard viewer.displayDetachedAlignment(source) else {
+                    let reason = viewer.viewerView.detachedEvidenceStaleReason ?? "Classifier alignment evidence could not be verified."
+                    availability = .unavailable(reason)
+                    status = .stale(reason)
+                    return
+                }
                 availability = .available(reference: validated.reference.status, reason: validated.reference.reason)
                 status = .available(referenceStrength: String(describing: validated.reference.status), reason: validated.reference.reason)
             } catch {

@@ -8,7 +8,8 @@ extension ViewerViewController {
     /// Installs a detached BAM source in this controller's existing full viewer.
     /// The controller is deliberately retained across setting changes so navigation,
     /// zoom, and read selection remain AppKit state rather than classifier state.
-    func displayDetachedAlignment(_ source: SequenceViewerView.DetachedAlignmentSource) {
+    @discardableResult
+    func displayDetachedAlignment(_ source: SequenceViewerView.DetachedAlignmentSource) -> Bool {
         _ = view
         let width = max(800, Int(viewerView.bounds.width))
         referenceFrame = ReferenceFrame(
@@ -18,12 +19,13 @@ extension ViewerViewController {
             pixelWidth: width,
             sequenceLength: source.contig.length
         )
-        viewerView.setDetachedAlignmentSource(source)
+        guard viewerView.setDetachedAlignmentSource(source) else { return false }
         headerView.setTrackNames([source.contig.name, "Alignments"])
         enhancedRulerView.referenceFrame = referenceFrame
         updateStatusBar()
         viewerView.needsDisplay = true
         enhancedRulerView.needsDisplay = true
+        return true
     }
 
     /// Applies detached evidence filters without replacing the viewer/controller.
