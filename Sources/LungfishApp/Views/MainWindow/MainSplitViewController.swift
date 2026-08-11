@@ -380,6 +380,16 @@ public class MainSplitViewController: NSSplitViewController {
     /// The inspector panel (selection details)
     public private(set) var inspectorController: InspectorViewController!
 
+    /// Composition-root factory for classifier adapters.  Leaf classifier
+    /// modules receive only the Kit protocol; this App-owned factory binds the
+    /// detached viewport to this window's Inspector.
+    func makeClassifierAlignmentEvidenceViewport() -> ClassifierAlignmentEvidenceViewportController {
+        let controller = ClassifierAlignmentEvidenceViewportController()
+        controller.viewer.windowStateScope = windowStateScope
+        controller.bindInspector(inspectorController)
+        return controller
+    }
+
     /// The shared activity indicator for showing progress across the app
     public private(set) var activityIndicator: ActivityIndicatorView!
 

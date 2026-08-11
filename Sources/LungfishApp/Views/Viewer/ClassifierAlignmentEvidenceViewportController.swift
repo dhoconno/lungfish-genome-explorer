@@ -175,7 +175,12 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
             workflow: request.presentation.workflowLabel, result: request.presentation.resultLabel,
             sample: request.presentation.sampleLabel, contig: request.presentation.contigLabel,
             bamPath: request.bamURL.path, indexPath: request.index.url.path,
-            referenceValidation: reference, readGroups: readGroups, status: status
+            referenceValidation: reference, readGroups: readGroups, status: status,
+            referencePath: request.referenceCandidate?.fastaURL.path,
+            bamSnapshot: request.bamExpectedSnapshot,
+            indexSnapshot: request.index.expectedSnapshot,
+            referenceSnapshot: request.referenceCandidate?.expectedSnapshot,
+            provenanceID: request.resultIdentity.provenanceID
         )
     }
 }

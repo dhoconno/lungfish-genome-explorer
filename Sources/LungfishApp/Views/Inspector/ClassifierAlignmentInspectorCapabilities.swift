@@ -73,6 +73,11 @@ struct ClassifierAlignmentInspectorCapabilities: Equatable {
     let coveragePolicy: String
     /// Mirrors the provider's visible lifecycle state in the evidence inventory.
     let status: ClassifierAlignmentViewerStatus
+    let referencePath: String?
+    let bamSnapshot: ClassifierAlignmentEvidenceFileSnapshot?
+    let indexSnapshot: ClassifierAlignmentEvidenceFileSnapshot?
+    let referenceSnapshot: ClassifierAlignmentEvidenceFileSnapshot?
+    let provenanceID: String?
 
     let defaultExcludeFlags: UInt16 = 0xD04
 
@@ -85,7 +90,12 @@ struct ClassifierAlignmentInspectorCapabilities: Equatable {
         indexPath: String,
         referenceValidation: ReferenceValidation,
         readGroups: [ReadGroup],
-        status: ClassifierAlignmentViewerStatus = .idle
+        status: ClassifierAlignmentViewerStatus = .idle,
+        referencePath: String? = nil,
+        bamSnapshot: ClassifierAlignmentEvidenceFileSnapshot? = nil,
+        indexSnapshot: ClassifierAlignmentEvidenceFileSnapshot? = nil,
+        referenceSnapshot: ClassifierAlignmentEvidenceFileSnapshot? = nil,
+        provenanceID: String? = nil
     ) -> Self {
         .init(
             workflow: workflow,
@@ -98,7 +108,8 @@ struct ClassifierAlignmentInspectorCapabilities: Equatable {
             readGroups: readGroups,
             selectedTrack: .init(id: "classifier:\(sample)", name: sample),
             coveragePolicy: "Coverage uses MAPQ and read-inclusion filters; it is unavailable while read-group filtering is active.",
-            status: status
+            status: status, referencePath: referencePath, bamSnapshot: bamSnapshot,
+            indexSnapshot: indexSnapshot, referenceSnapshot: referenceSnapshot, provenanceID: provenanceID
         )
     }
 
@@ -110,8 +121,10 @@ struct ClassifierAlignmentInspectorCapabilities: Equatable {
     }
 
     var inventoryRows: [String] {
-        ["Workflow: \(workflow)", "Result: \(result)", "Sample: \(sample) • Contig: \(contig)", "BAM: \(bamPath)", "Index: \(indexPath)", "Reference: \(referenceValidation.label)", "Status: \(status.message)", coveragePolicy]
+        ["Workflow: \(workflow)", "Result: \(result)", "Sample: \(sample) • Contig: \(contig)", "BAM: \(bamPath)", "Index: \(indexPath)", "Reference: \(referencePath ?? referenceValidation.label)", "Status: \(status.message)", provenanceID.map { "Provenance: \($0)" }, snapshotRow("BAM snapshot", bamSnapshot), snapshotRow("Index snapshot", indexSnapshot), snapshotRow("Reference snapshot", referenceSnapshot), coveragePolicy].compactMap { $0 }
     }
+
+    private func snapshotRow(_ label: String, _ snapshot: ClassifierAlignmentEvidenceFileSnapshot?) -> String? { snapshot.map { "\(label): \($0.size) bytes • \($0.sha256)" } }
 
     var unavailableReasons: [String] {
         Control.allCases.compactMap { control in
