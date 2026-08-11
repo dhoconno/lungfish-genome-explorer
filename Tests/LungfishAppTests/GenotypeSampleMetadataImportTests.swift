@@ -8,6 +8,41 @@ import LungfishKit
 
 @MainActor
 final class GenotypeSampleMetadataImportTests: XCTestCase {
+    func testImportRejectsCanonicalAndAliasRowsWithoutPublishingArtifacts() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SampleMetadataAliasCollision-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("result.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: bundleURL.appendingPathComponent("manifest.json"))
+        let sourceURL = root.appendingPathComponent("metadata.tsv")
+        let data = Data("sample\tsite\nS1\tHilo\nalias-one\tKona\n".utf8)
+        try data.write(to: sourceURL)
+        let index = try SampleIdentityIndex(samples: [
+            .init(canonicalID: "S1", aliases: ["alias-one"], alignmentTrackIDs: [], readGroupIDs: [])
+        ])
+        let scan = try SampleMetadataStore.scanForSampleColumn(
+            csvData: data,
+            knownSampleIds: Set(index.metadataIdentifierMappings.keys)
+        )
+
+        XCTAssertThrowsError(try SampleMetadataBundleImportService().importMetadata(
+            data: data,
+            sourceURL: sourceURL,
+            scanResult: scan,
+            sampleColumnIndex: try XCTUnwrap(scan.bestColumn).index,
+            knownSampleIds: index.canonicalSampleIDs,
+            identityIndex: index,
+            bundleURL: bundleURL
+        )) { error in
+            XCTAssertEqual(error as? SampleMetadataBundleImportError, .duplicateCanonicalIdentity("S1"))
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("metadata").path))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename).path
+        ))
+    }
+
     func testImportRekeysExplicitAliasAndRecordsIdentityMapping() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("SampleMetadataAliasImport-\(UUID().uuidString)", isDirectory: true)
