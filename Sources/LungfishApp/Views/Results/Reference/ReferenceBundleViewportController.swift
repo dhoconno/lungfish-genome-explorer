@@ -525,6 +525,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                let bundleURL = currentInput?.renderedBundleURL,
                let resolution = sampleIdentityResolution(for: track, bundleURL: bundleURL),
                resolution.identityIndex.canonicalSampleIDs.count == 1,
+               resolution.unmatchedReadGroupIDs.isEmpty,
                let sampleID = resolution.identityIndex.canonicalSampleIDs.first,
                let cachedRows = metadataFallbackRows(
                 for: track,
@@ -849,10 +850,12 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                 } else {
                     samples = [(sampleID: nil, readGroupIDs: [])]
                 }
+                let canUseAggregateFallback = samples.count == 1
+                    && samples[0].sampleID != nil
+                    && resolution?.unmatchedReadGroupIDs.isEmpty == true
                 for (sampleID, readGroups) in samples {
                     let summaries: [MappingContigSummary]
-                    if samples.count == 1,
-                       sampleID != nil,
+                    if canUseAggregateFallback,
                        let cached = self?.metadataFallbackRows(for: track, bundleURL: bundleURL, totalReads: total) {
                         summaries = cached
                     } else {
@@ -1234,14 +1237,16 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         } else {
             sampleReadGroups = [(nil, [])]
         }
+        let canUseAggregateFallback = sampleReadGroups.count == 1
+            && sampleReadGroups[0].sampleID != nil
+            && resolution?.unmatchedReadGroupIDs.isEmpty == true
 
         // Cached metadata is immediately usable for a single resolved sample
         // and avoids an empty initial list while the expensive exact summary
         // process is starting. The async result below replaces these rows when
         // it completes. Multiple samples are intentionally not expanded from
         // aggregate track stats because that would fabricate per-sample reads.
-        if sampleReadGroups.count == 1,
-           sampleReadGroups[0].sampleID != nil,
+        if canUseAggregateFallback,
            let fallbackRows = metadataFallbackRows(
             for: track,
             bundleURL: bundleURL,
@@ -1279,8 +1284,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                 if sampleSummaries.allSatisfy({ sample in
                     sample.summaries.isEmpty || sample.summaries.allSatisfy { $0.mappedReads == 0 }
                 }),
-                   sampleReadGroups.count == 1,
-                   sampleReadGroups[0].sampleID != nil,
+                   canUseAggregateFallback,
                    let fallbackRows = self?.metadataFallbackRows(
                     for: track,
                     bundleURL: bundleURL,
@@ -1315,8 +1319,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                     for: track,
                     bundleURL: bundleURL,
                    totalReads: totalReads
-                ), sampleReadGroups.count == 1,
-                   sampleReadGroups[0].sampleID != nil {
+                ), canUseAggregateFallback {
                     self.applyVisibleAlignmentRows(
                         [(
                             sampleID: sampleReadGroups[0].sampleID,

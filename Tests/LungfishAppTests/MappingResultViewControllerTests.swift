@@ -739,6 +739,50 @@ final class MappingResultViewControllerTests: XCTestCase {
         XCTAssertTrue(vc.testContigTableView.displayedRows.allSatisfy { $0.sampleID == nil })
     }
 
+    func testMixedResolvedAndUnmatchedReadGroupsNeverUseAggregateStatsAsSampleMetrics() async throws {
+        let vc = MappingResultViewController()
+        _ = vc.view
+        let bundleURL = try makeReferenceBundleWithAlignmentTracks(includeMixedSampleMetadata: true)
+        var filteredSampleRequests = 0
+        vc.setAlignmentTrackSummaryBuilderForTesting { bamURL, _, readGroups in
+            guard bamURL.lastPathComponent == "filtered.bam" else { return [] }
+            if readGroups == Set(["S1-RG"]) {
+                filteredSampleRequests += 1
+            }
+            try await Task.sleep(nanoseconds: 200_000_000)
+            return [
+                MappingContigSummary(
+                    contigName: "gamma", contigLength: 100, mappedReads: 4,
+                    mappedReadPercent: 100, meanDepth: 1, coverageBreadth: 1,
+                    medianMAPQ: 60, meanIdentity: 1
+                )
+            ]
+        }
+
+        vc.configureForTesting(result: makeMappingResult(viewerBundleURL: bundleURL))
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertFalse(
+            vc.testContigTableView.displayedRows.contains { $0.sampleID == "S1" && $0.mappedReads == 99 },
+            "track-level aggregate chromosome stats must not be presented as S1 when another RG is unmatched"
+        )
+        try await waitUntil {
+            vc.testContigTableView.displayedRows.contains {
+                $0.sampleID == "S1" && $0.alignmentTrackID == "filtered-track" && $0.mappedReads == 4
+            }
+        }
+
+        vc.applyEmbeddedReadDisplaySettings([
+            NotificationUserInfoKey.visibleAlignmentTrackID: ""
+        ])
+        try await waitUntil {
+            filteredSampleRequests >= 2
+                && vc.testContigTableView.displayedRows.contains {
+                    $0.sampleID == "S1" && $0.alignmentTrackID == "filtered-track" && $0.mappedReads == 4
+                }
+        }
+        XCTAssertFalse(vc.testContigTableView.displayedRows.contains { $0.sampleID == "S1" && $0.mappedReads == 99 })
+    }
+
     func testRapidTrackAndAllAlignmentChangesDiscardSupersededRows() async throws {
         let vc = MappingResultViewController()
         _ = vc.view
@@ -1317,7 +1361,8 @@ final class MappingResultViewControllerTests: XCTestCase {
     private func makeReferenceBundleWithAlignmentTracks(
         includeSampleMetadata: Bool = false,
         includeAmbiguousSampleMetadata: Bool = false,
-        includeBlankSampleMetadata: Bool = false
+        includeBlankSampleMetadata: Bool = false,
+        includeMixedSampleMetadata: Bool = false
     ) throws -> URL {
         let bundleURL = tempDir.appendingPathComponent("alignment-tracks.lungfishref", isDirectory: true)
         let genomeURL = bundleURL.appendingPathComponent("genome", isDirectory: true)
@@ -1334,7 +1379,7 @@ final class MappingResultViewControllerTests: XCTestCase {
         try Data().write(to: filteredURL.appendingPathComponent("filtered.bam"))
         try Data().write(to: filteredURL.appendingPathComponent("filtered.bam.bai"))
         let metadataPath = "alignments/filtered/filtered.stats.db"
-        if includeSampleMetadata || includeAmbiguousSampleMetadata || includeBlankSampleMetadata {
+        if includeSampleMetadata || includeAmbiguousSampleMetadata || includeBlankSampleMetadata || includeMixedSampleMetadata {
             let database = try AlignmentMetadataDatabase.create(at: bundleURL.appendingPathComponent(metadataPath))
             if includeAmbiguousSampleMetadata {
                 database.addReadGroup(id: "unresolved-rg", sample: nil)
@@ -1342,6 +1387,10 @@ final class MappingResultViewControllerTests: XCTestCase {
             } else if includeBlankSampleMetadata {
                 database.addReadGroup(id: "missing-sample", sample: nil)
                 database.addReadGroup(id: "blank-sample", sample: "   ")
+            } else if includeMixedSampleMetadata {
+                database.addReadGroup(id: "S1-RG", sample: "S1")
+                database.addReadGroup(id: "unmatched-rg", sample: nil)
+                database.addChromosomeStats(chromosome: "gamma", length: 100, mapped: 99, unmapped: 0)
             } else {
                 database.addReadGroup(id: "S1-A", sample: "S1")
                 database.addReadGroup(id: "S1-B", sample: "S1")
@@ -1378,7 +1427,7 @@ final class MappingResultViewControllerTests: XCTestCase {
                     name: "Exact matches",
                     sourcePath: "alignments/filtered/filtered.bam",
                     indexPath: "alignments/filtered/filtered.bam.bai",
-                    metadataDBPath: (includeSampleMetadata || includeAmbiguousSampleMetadata || includeBlankSampleMetadata) ? metadataPath : nil,
+                    metadataDBPath: (includeSampleMetadata || includeAmbiguousSampleMetadata || includeBlankSampleMetadata || includeMixedSampleMetadata) ? metadataPath : nil,
                     mappedReadCount: 4,
                     unmappedReadCount: 0
                 ),
