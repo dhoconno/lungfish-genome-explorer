@@ -1477,13 +1477,12 @@ extension AppDelegate {
             viewerBundleURL: viewerBundleURL,
             sourceReferenceBundleURL: sourceBundleURL
         )
-        try preparedResult.save(to: request.outputDirectory)
-        if let provenance = MappingProvenance.load(from: request.outputDirectory) {
-            try provenance
-                .withViewerBundleURL(viewerBundleURL)
-                .withSourceReferenceBundleURL(sourceBundleURL)
-                .save(to: request.outputDirectory)
-        }
+        try MappingViewerBundlePublicationService.publish(
+            result: preparedResult,
+            resultDirectoryURL: request.outputDirectory,
+            sourceReferenceBundleURL: sourceBundleURL,
+            viewerBundleURL: viewerBundleURL
+        )
         return preparedResult
     }
 
