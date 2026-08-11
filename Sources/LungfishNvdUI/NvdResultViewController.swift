@@ -995,6 +995,15 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         alignmentEvidenceHeightConstraint = nil
     }
 
+    /// Clears detached evidence before this leaf is detached from its host.
+    public func clearClassifierAlignmentEvidence() {
+        teardownAlignmentEvidence()
+    }
+
+    isolated deinit {
+        teardownAlignmentEvidence()
+    }
+
     // MARK: - Detail Content Sizing
 
     private func resizeDetailContentToFit(restoringScrollOrigin: NSPoint? = nil) {

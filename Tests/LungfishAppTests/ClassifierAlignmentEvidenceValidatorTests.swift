@@ -21,6 +21,16 @@ final class ClassifierAlignmentEvidenceValidatorTests: XCTestCase {
         XCTAssertEqual(result.provider.indexPath, files.index.path)
     }
 
+    func testAcceptsValidDescendantEvidenceForEveryClassifierLeaf() async throws {
+        let files = try FixtureFiles()
+        let validator = ClassifierAlignmentEvidenceValidator(
+            headerReader: { _ in "@SQ\tSN:chr1\tLN:4\n" }, indexQuery: { _, _, _ in }, fileManager: files.fileManager
+        )
+        for workflow in [ClassifierAlignmentWorkflowKind.esViritu, .taxTriage, .nvd] {
+            _ = try await validator.validate(try files.request(reference: true, workflow: workflow))
+        }
+    }
+
     func testValidatesExplicitCSIIndex() async throws {
         let files = try FixtureFiles()
         let csi = files.directory.appendingPathComponent("evidence.bam.csi")
@@ -157,6 +167,48 @@ final class ClassifierAlignmentEvidenceValidatorTests: XCTestCase {
             XCTAssertEqual(error as? ClassifierAlignmentEvidenceValidator.Error, .snapshotMismatch(files.bam))
         }
     }
+
+    func testRejectsEvidenceOutsideFinalResultByPathComponentForEveryClassifierLeaf() async throws {
+        let files = try FixtureFiles()
+        let outside = files.directory.deletingLastPathComponent()
+            .appendingPathComponent("outside-\(UUID().uuidString).bam")
+        try Data([0]).write(to: outside)
+        defer { try? files.fileManager.removeItem(at: outside) }
+        let validator = ClassifierAlignmentEvidenceValidator(
+            headerReader: { _ in "@SQ\tSN:chr1\tLN:4\n" }, indexQuery: { _, _, _ in }, fileManager: files.fileManager
+        )
+        for workflow in [ClassifierAlignmentWorkflowKind.esViritu, .taxTriage, .nvd] {
+            let request = try files.request(reference: false, workflow: workflow, bamURL: outside)
+            await XCTAssertThrowsErrorAsync(try await validator.validate(request)) { error in
+                XCTAssertEqual(error as? ClassifierAlignmentEvidenceValidator.Error, .evidenceOutsideFinalResult(outside))
+            }
+        }
+    }
+
+    func testRejectsSiblingPrefixTraversalAndSymlinkEscapesForBAMIndexAndReference() async throws {
+        let files = try FixtureFiles()
+        let parent = files.directory.deletingLastPathComponent()
+        let siblingPrefix = parent.appendingPathComponent(files.directory.lastPathComponent + "-sibling")
+        try files.fileManager.createDirectory(at: siblingPrefix, withIntermediateDirectories: true)
+        defer { try? files.fileManager.removeItem(at: siblingPrefix) }
+        let external = siblingPrefix.appendingPathComponent("external")
+        try Data([1]).write(to: external)
+        let escaped = files.directory.appendingPathComponent("escape")
+        try files.fileManager.createSymbolicLink(at: escaped, withDestinationURL: external)
+        let validator = ClassifierAlignmentEvidenceValidator(
+            headerReader: { _ in "@SQ\tSN:chr1\tLN:4\n" }, indexQuery: { _, _, _ in }, fileManager: files.fileManager
+        )
+        let requests = [
+            try files.request(reference: false, bamURL: siblingPrefix.appendingPathComponent("evidence.bam")),
+            try files.request(reference: false, indexURL: parent.appendingPathComponent("../\(siblingPrefix.lastPathComponent)/evidence.bam.bai")),
+            try files.request(reference: true, referenceURL: escaped),
+        ]
+        for request in requests {
+            await XCTAssertThrowsErrorAsync(try await validator.validate(request)) { error in
+                XCTAssertTrue(error is ClassifierAlignmentEvidenceValidator.Error)
+            }
+        }
+    }
 }
 
 private enum FixtureError: Error { case badIndex }
@@ -185,17 +237,20 @@ private final class FixtureFiles {
         reference: Bool,
         indexURL: URL? = nil,
         indexKind: ClassifierAlignmentIndex.Kind = .bai,
-        bamSnapshot: ClassifierAlignmentEvidenceFileSnapshot? = nil
+        bamSnapshot: ClassifierAlignmentEvidenceFileSnapshot? = nil,
+        workflow: ClassifierAlignmentWorkflowKind = .taxTriage,
+        bamURL: URL? = nil,
+        referenceURL: URL? = nil
     ) throws -> ClassifierAlignmentEvidenceRequest {
         try ClassifierAlignmentEvidenceRequest(
-            workflow: .taxTriage,
+            workflow: workflow,
             resultIdentity: .init(stableID: "result", finalResultURL: directory, provenanceID: "prov"),
-            bamURL: bam,
+            bamURL: bamURL ?? bam,
             bamExpectedSnapshot: bamSnapshot,
             index: .init(url: indexURL ?? index, kind: indexKind),
             sample: .init(canonicalID: "sample"),
             contig: .init(name: "chr1", expectedLength: 4),
-            referenceCandidate: reference ? .init(fastaURL: fasta, recordName: "chr1", expectedLength: 4) : nil,
+            referenceCandidate: reference ? .init(fastaURL: referenceURL ?? fasta, recordName: "chr1", expectedLength: 4) : nil,
             presentation: .init(workflowLabel: "TaxTriage", resultLabel: "result", sampleLabel: "sample", contigLabel: "chr1")
         )
     }

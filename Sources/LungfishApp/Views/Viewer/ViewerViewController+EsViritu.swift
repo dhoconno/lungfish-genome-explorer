@@ -240,6 +240,7 @@ extension ViewerViewController {
     /// Removes the EsViritu result browser and restores normal viewer components.
     public func hideEsVirituView() {
         guard let controller = esVirituViewController else { return }
+        controller.clearClassifierAlignmentEvidence()
         controller.view.removeFromSuperview()
         controller.removeFromParent()
         esVirituViewController = nil

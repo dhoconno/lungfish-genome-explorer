@@ -243,6 +243,7 @@ extension ViewerViewController {
     /// Removes the TaxTriage result browser and restores normal viewer components.
     public func hideTaxTriageView() {
         guard let controller = taxTriageViewController else { return }
+        controller.clearClassifierAlignmentEvidence()
         controller.view.removeFromSuperview()
         controller.removeFromParent()
         taxTriageViewController = nil

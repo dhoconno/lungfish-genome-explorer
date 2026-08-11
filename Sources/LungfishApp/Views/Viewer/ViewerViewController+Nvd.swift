@@ -210,7 +210,8 @@ extension ViewerViewController {
 
     /// Hides the NVD result viewer if one is displayed and restores normal viewer components.
     public func hideNvdView() {
-        for child in children where child is NvdResultViewController {
+        for case let child as NvdResultViewController in children {
+            child.clearClassifierAlignmentEvidence()
             child.view.removeFromSuperview()
             child.removeFromParent()
         }

@@ -555,13 +555,19 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         validateInitialSplitLayoutAfterWindowAttachment()
     }
 
-    deinit {
+    isolated deinit {
+        clearClassifierAlignmentEvidence()
         databaseRowLoadTask?.cancel()
         deduplicatedReadCountTask?.cancel()
         if let contentTypographyObserver {
             NotificationCenter.default.removeObserver(contentTypographyObserver)
         }
         NotificationCenter.default.removeObserver(self)
+    }
+
+    /// Clears detached evidence before this leaf is detached from its host.
+    public func clearClassifierAlignmentEvidence() {
+        alignmentEvidenceViewer?.clear()
     }
 
     private func validateInitialSplitLayoutAfterWindowAttachment() {

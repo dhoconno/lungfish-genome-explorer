@@ -1687,6 +1687,16 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         alignmentEvidenceViewer?.clear()
     }
 
+    /// Clears detached evidence before this leaf is detached from its host.
+    public func clearClassifierAlignmentEvidence() {
+        clearCurrentAlignmentEvidence()
+    }
+
+    isolated deinit {
+        clearCurrentAlignmentEvidence()
+        NotificationCenter.default.removeObserver(self)
+    }
+
     private func hideMultiSelectionPlaceholder() {
         multiSelectionPlaceholder.isHidden = true
         detailPane.isHidden = false

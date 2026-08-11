@@ -15,6 +15,7 @@ struct ClassifierAlignmentEvidenceValidator: @unchecked Sendable {
     enum Error: Swift.Error, Equatable, LocalizedError {
         case bamUnavailable(URL)
         case indexUnavailable(URL)
+        case evidenceOutsideFinalResult(URL)
         case indexDoesNotMatchBAM(String)
         case headerUnavailable(String)
         case contigUnavailable(String)
@@ -25,6 +26,7 @@ struct ClassifierAlignmentEvidenceValidator: @unchecked Sendable {
             switch self {
             case .bamUnavailable(let url): "The final BAM is unavailable: \(url.lastPathComponent)."
             case .indexUnavailable(let url): "The explicit BAM index is unavailable: \(url.lastPathComponent)."
+            case .evidenceOutsideFinalResult(let url): "Classifier evidence must be stored inside the final result: \(url.lastPathComponent)."
             case .indexDoesNotMatchBAM(let detail): "The explicit BAM index does not match the BAM: \(detail)"
             case .headerUnavailable(let detail): "The BAM header could not be read: \(detail)"
             case .contigUnavailable(let name): "The requested BAM contig '\(name)' is unavailable."
@@ -99,6 +101,11 @@ struct ClassifierAlignmentEvidenceValidator: @unchecked Sendable {
     }
 
     func validate(_ request: ClassifierAlignmentEvidenceRequest) async throws -> Result {
+        try validateContainment(of: request.bamURL, in: request.resultIdentity.finalResultURL)
+        try validateContainment(of: request.index.url, in: request.resultIdentity.finalResultURL)
+        if let reference = request.referenceCandidate {
+            try validateContainment(of: reference.fastaURL, in: request.resultIdentity.finalResultURL)
+        }
         guard fileManager.isReadableFile(atPath: request.bamURL.path) else {
             throw Error.bamUnavailable(request.bamURL)
         }
@@ -151,6 +158,20 @@ struct ClassifierAlignmentEvidenceValidator: @unchecked Sendable {
             referenceSnapshot: reference.sequence == nil ? nil : referenceSnapshot,
             readGroups: SAMParser.parseReadGroups(from: header)
         )
+    }
+
+    /// Uses standardized, symlink-resolved path components rather than string prefixes:
+    /// `/result-copy` is not inside `/result`, and a symlinked member cannot escape.
+    private func validateContainment(of candidate: URL, in finalResultURL: URL) throws {
+        let root = finalResultURL.standardizedFileURL.resolvingSymlinksInPath()
+        let resolved = candidate.standardizedFileURL.resolvingSymlinksInPath()
+        let rootComponents = root.pathComponents
+        let candidateComponents = resolved.pathComponents
+        guard candidateComponents.count >= rootComponents.count,
+              candidateComponents.prefix(rootComponents.count).elementsEqual(rootComponents)
+        else {
+            throw Error.evidenceOutsideFinalResult(candidate)
+        }
     }
 
     private func validateReference(
