@@ -18,7 +18,7 @@ struct SampleMetadataBundleImportService {
         knownSampleIds: Set<String>,
         bundleURL: URL?
     ) throws -> SampleMetadataBundleImportResult {
-        let store = SampleMetadataStore(
+        let store = try SampleMetadataStore(
             scanResult: scanResult,
             sampleColumnIndex: sampleColumnIndex,
             knownSampleIds: knownSampleIds
@@ -34,6 +34,7 @@ struct SampleMetadataBundleImportService {
 
         let startedAt = Date()
         let metadataURL = bundleURL.appendingPathComponent("metadata/sample_metadata.tsv")
+        let editJournalURL = bundleURL.appendingPathComponent("metadata/sample_metadata_edits.json")
         let sampleColumnName = scanResult.candidates
             .first(where: { $0.index == sampleColumnIndex })?
             .name ?? "Column \(sampleColumnIndex + 1)"
@@ -67,8 +68,12 @@ struct SampleMetadataBundleImportService {
             ],
             defaults: [
                 "destination": .string("metadata/sample_metadata.tsv"),
+                "editJournalDestination": .string("metadata/sample_metadata_edits.json"),
             ],
             resolved: [
+                "sourceFormat": .string(scanResult.delimiter == "\t" ? "tsv" : "csv"),
+                "sourceDelimiter": .string(scanResult.delimiter == "\t" ? "tab" : "comma"),
+                "validationPolicy": .string("trimmed-normalized-identifiers"),
                 "knownSampleCount": .integer(knownSampleIds.count),
                 "matchedSampleCount": .integer(store.matchedSampleIds.count),
                 "unmatchedMetadataRowCount": .integer(store.unmatchedRecords.count),
@@ -90,6 +95,7 @@ struct SampleMetadataBundleImportService {
         do {
             try store.persist(originalData: data, to: bundleURL)
             builder = try builder.output(metadataURL, format: .text, role: .output)
+            builder = try builder.output(editJournalURL, format: .json, role: .output)
 
             let envelope = try builder.complete(
                 exitStatus: 0,

@@ -34,7 +34,9 @@ public struct MetadataColumnScanResult: Sendable {
     /// Parsed file contents retained for creating the store without re-parsing.
     internal let headers: [String]
     internal let dataRows: [[String]]
-    internal let delimiter: Character
+    /// Delimiter detected from the source payload.  Persisted metadata keeps
+    /// the original bytes even though its stable bundle name is `.tsv`.
+    public let delimiter: Character
 }
 
 /// Imports, stores, and manages free-form sample metadata from CSV/TSV files.
@@ -64,7 +66,10 @@ public final class SampleMetadataStore: @unchecked Sendable {
         }
 
         let delimiter: Character = headerLine.contains("\t") ? "\t" : ","
-        let headers = DelimitedLineParser.fields(in: headerLine, delimiter: delimiter)
+        let headers = try validateHeaders(
+            DelimitedLineParser.fields(in: headerLine, delimiter: delimiter)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        )
         guard headers.count >= 2 else {
             throw MetadataParseError.insufficientColumns
         }
@@ -85,6 +90,26 @@ public final class SampleMetadataStore: @unchecked Sendable {
         return (headers: headers, dataRows: dataRows, delimiter: delimiter)
     }
 
+    private static func validateHeaders(_ headers: [String]) throws -> [String] {
+        var normalizedHeaders = Set<String>()
+        for (index, header) in headers.enumerated() {
+            guard !header.isEmpty else {
+                throw MetadataParseError.blankHeader(column: index + 1)
+            }
+            let normalized = normalize(header)
+            guard normalizedHeaders.insert(normalized).inserted else {
+                throw MetadataParseError.duplicateHeader(normalized)
+            }
+        }
+        return headers
+    }
+
+    private static func normalize(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: " ", with: "_")
+    }
+
     public init(csvData: Data, knownSampleIds: Set<String>) throws {
         let (headers, dataRows, _) = try Self.parseCSV(csvData)
 
@@ -92,7 +117,7 @@ public final class SampleMetadataStore: @unchecked Sendable {
         self.columnNames = metadataColumns
 
         let knownLookup: [String: String] = Dictionary(
-            knownSampleIds.map { ($0.lowercased(), $0) },
+            knownSampleIds.map { (Self.normalize($0), $0) },
             uniquingKeysWith: { first, _ in first }
         )
 
@@ -100,8 +125,14 @@ public final class SampleMetadataStore: @unchecked Sendable {
         var unmatched: [String: [String: String]] = [:]
         var matchedIds: Set<String> = []
 
+        var seenIDs = Set<String>()
         for fields in dataRows {
             guard let rawId = fields.first else { continue }
+            let trimmedID = rawId.trimmingCharacters(in: .whitespacesAndNewlines)
+            let normalizedID = Self.normalize(trimmedID)
+            guard seenIDs.insert(normalizedID).inserted else {
+                throw MetadataParseError.duplicateSampleID(normalizedID)
+            }
 
             var record: [String: String] = [:]
             for (i, col) in metadataColumns.enumerated() {
@@ -109,11 +140,11 @@ public final class SampleMetadataStore: @unchecked Sendable {
                 record[col] = value
             }
 
-            if let knownId = knownLookup[rawId.lowercased()] {
+            if let knownId = knownLookup[normalizedID] {
                 matched[knownId] = record
                 matchedIds.insert(knownId)
             } else {
-                unmatched[rawId] = record
+                unmatched[trimmedID] = record
             }
         }
 
@@ -152,13 +183,16 @@ public final class SampleMetadataStore: @unchecked Sendable {
         scanResult: MetadataColumnScanResult,
         sampleColumnIndex: Int,
         knownSampleIds: Set<String>
-    ) {
+    ) throws {
+        guard scanResult.headers.indices.contains(sampleColumnIndex) else {
+            throw MetadataParseError.invalidSampleColumn(sampleColumnIndex)
+        }
         let metadataColumns = scanResult.headers.enumerated()
             .filter { $0.offset != sampleColumnIndex }
             .map(\.element)
 
         let knownLookup: [String: String] = Dictionary(
-            knownSampleIds.map { ($0.lowercased(), $0) },
+            knownSampleIds.map { (Self.normalize($0), $0) },
             uniquingKeysWith: { first, _ in first }
         )
 
@@ -166,9 +200,14 @@ public final class SampleMetadataStore: @unchecked Sendable {
         var unmatched: [String: [String: String]] = [:]
         var matchedIds: Set<String> = []
 
+        var seenIDs = Set<String>()
         for row in scanResult.dataRows {
             guard sampleColumnIndex < row.count else { continue }
-            let rawId = row[sampleColumnIndex]
+            let rawId = row[sampleColumnIndex].trimmingCharacters(in: .whitespacesAndNewlines)
+            let normalizedID = Self.normalize(rawId)
+            guard seenIDs.insert(normalizedID).inserted else {
+                throw MetadataParseError.duplicateSampleID(normalizedID)
+            }
 
             var record: [String: String] = [:]
             var metaIdx = 0
@@ -179,7 +218,7 @@ public final class SampleMetadataStore: @unchecked Sendable {
                 metaIdx += 1
             }
 
-            if let knownId = knownLookup[rawId.lowercased()] {
+            if let knownId = knownLookup[normalizedID] {
                 matched[knownId] = record
                 matchedIds.insert(knownId)
             } else {
@@ -202,14 +241,14 @@ public final class SampleMetadataStore: @unchecked Sendable {
     ) throws -> MetadataColumnScanResult {
         let (headers, dataRows, delimiter) = try parseCSV(csvData)
 
-        let knownLookup = Set(knownSampleIds.map { $0.lowercased() })
+        let knownLookup = Set(knownSampleIds.map(Self.normalize))
 
         var candidates: [MetadataColumnScanResult.Candidate] = []
         for (colIdx, colName) in headers.enumerated() {
             var matchCount = 0
             for row in dataRows {
                 guard colIdx < row.count else { continue }
-                if knownLookup.contains(row[colIdx].lowercased()) {
+                if knownLookup.contains(Self.normalize(row[colIdx])) {
                     matchCount += 1
                 }
             }
@@ -269,10 +308,11 @@ public final class SampleMetadataStore: @unchecked Sendable {
         let metadataDir = bundleURL.appendingPathComponent("metadata", isDirectory: true)
         try FileManager.default.createDirectory(at: metadataDir, withIntermediateDirectories: true)
         try originalData.write(to: metadataDir.appendingPathComponent("sample_metadata.tsv"))
-        if !edits.isEmpty {
-            let json = try editsJSON()
-            try json.write(to: metadataDir.appendingPathComponent("sample_metadata_edits.json"))
-        }
+        // The journal is a scientific output even when the import has not yet
+        // been edited.  Writing an explicit empty journal makes provenance
+        // complete and gives subsequent edit replay a stable final path.
+        let json = try editsJSON()
+        try json.write(to: metadataDir.appendingPathComponent("sample_metadata_edits.json"))
     }
 
     /// Wires the `onEditsChanged` callback to autosave the edit journal to the bundle.
@@ -296,7 +336,7 @@ public final class SampleMetadataStore: @unchecked Sendable {
             knownSampleIds: knownSampleIds
         ),
            let bestColumn = scanResult.bestColumn {
-            store = SampleMetadataStore(
+            store = try? SampleMetadataStore(
                 scanResult: scanResult,
                 sampleColumnIndex: bestColumn.index,
                 knownSampleIds: knownSampleIds
@@ -322,6 +362,10 @@ public enum MetadataParseError: Error, LocalizedError, Equatable {
     case noData
     case insufficientColumns
     case rowWidthMismatch(row: Int, expected: Int, actual: Int)
+    case blankHeader(column: Int)
+    case duplicateHeader(String)
+    case duplicateSampleID(String)
+    case invalidSampleColumn(Int)
 
     public var errorDescription: String? {
         switch self {
@@ -330,6 +374,14 @@ public enum MetadataParseError: Error, LocalizedError, Equatable {
         case .insufficientColumns: return "File must have at least 2 columns (sample ID + metadata)"
         case .rowWidthMismatch(let row, let expected, let actual):
             return "Metadata row \(row) has \(actual) columns; expected \(expected)"
+        case .blankHeader(let column):
+            return "Metadata header column \(column) is blank"
+        case .duplicateHeader(let header):
+            return "Metadata contains duplicate normalized header '\(header)'"
+        case .duplicateSampleID(let sampleID):
+            return "Metadata contains duplicate normalized sample ID '\(sampleID)'"
+        case .invalidSampleColumn(let column):
+            return "Metadata sample column \(column + 1) is outside the header range"
         }
     }
 }

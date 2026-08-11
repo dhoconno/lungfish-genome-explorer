@@ -115,6 +115,60 @@ struct SampleMetadataStoreTests {
         #expect(store.records["S2"]?["note"] == "plain")
     }
 
+    @Test("Preserves quoted delimiters and escaped quotes in a selected non-first sample column")
+    func quotedValuesAndNonFirstSampleColumn() throws {
+        let csv = "note,sample,site\n\"Doe, \"\"Jane\"\"\", S1 ,Hilo\n"
+        let scan = try SampleMetadataStore.scanForSampleColumn(
+            csvData: Data(csv.utf8),
+            knownSampleIds: Set(["S1"])
+        )
+        let store = try SampleMetadataStore(
+            scanResult: scan,
+            sampleColumnIndex: 1,
+            knownSampleIds: Set(["S1"])
+        )
+
+        #expect(store.columnNames == ["note", "site"])
+        #expect(store.records["S1"]?["note"] == "Doe, \"Jane\"")
+        #expect(store.records["S1"]?["site"] == "Hilo")
+    }
+
+    @Test("Trims headers and sample identities before matching")
+    func trimsHeadersAndSampleIdentities() throws {
+        let tsv = " sample \t Site \n  s1  \t Hilo \n"
+        let store = try SampleMetadataStore(
+            csvData: Data(tsv.utf8),
+            knownSampleIds: Set(["S1"])
+        )
+
+        #expect(store.columnNames == ["Site"])
+        #expect(store.records["S1"]?["Site"] == " Hilo ")
+    }
+
+    @Test("Rejects blank normalized headers")
+    func rejectsBlankHeader() {
+        let tsv = "sample\t \nS1\tHilo\n"
+        #expect(throws: (any Error).self) {
+            try SampleMetadataStore(csvData: Data(tsv.utf8), knownSampleIds: Set(["S1"]))
+        }
+    }
+
+    @Test("Rejects normalized duplicate headers")
+    func rejectsNormalizedDuplicateHeaders() {
+        let tsv = "sample\tSite Name\tsite_name\nS1\tHilo\tHilo\n"
+        #expect(throws: (any Error).self) {
+            try SampleMetadataStore(csvData: Data(tsv.utf8), knownSampleIds: Set(["S1"]))
+        }
+    }
+
+    @Test("Rejects duplicate normalized sample identities")
+    func rejectsDuplicateNormalizedSampleIDs() {
+        let tsv = "sample\tsite\nS1\tHilo\n s1 \tKona\n"
+        #expect(throws: (any Error).self) {
+            try SampleMetadataStore(csvData: Data(tsv.utf8), knownSampleIds: Set(["S1"]))
+        }
+    }
+
     @Test("Rejects rows with missing metadata columns")
     func rejectsRowsWithMissingColumns() throws {
         let csv = "sample_id,site\nS1\n"
@@ -192,7 +246,7 @@ struct SampleMetadataStoreTests {
             csvData: data,
             knownSampleIds: Set(["S1", "S2"])
         )
-        let store = SampleMetadataStore(
+        let store = try SampleMetadataStore(
             scanResult: scanResult,
             sampleColumnIndex: scanResult.bestColumn!.index,
             knownSampleIds: Set(["S1", "S2"])

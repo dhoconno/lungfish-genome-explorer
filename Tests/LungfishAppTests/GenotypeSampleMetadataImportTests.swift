@@ -39,8 +39,11 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
         )
 
         let finalMetadataURL = bundleURL.appendingPathComponent("metadata/sample_metadata.tsv")
+        let editJournalURL = bundleURL.appendingPathComponent("metadata/sample_metadata_edits.json")
         XCTAssertEqual(result.store.records["AnimalA"]?["Cohort"], "treated")
         XCTAssertTrue(FileManager.default.fileExists(atPath: finalMetadataURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: editJournalURL.path))
+        XCTAssertEqual(try Data(contentsOf: finalMetadataURL), metadata)
         let provenanceURL = try XCTUnwrap(result.provenanceURL)
         XCTAssertEqual(provenanceURL, bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename))
         let provenance = try ProvenanceJSON.decoder.decode(
@@ -50,6 +53,10 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
         XCTAssertEqual(provenance.workflowName, "Sample metadata import")
         XCTAssertTrue(provenance.files.contains(where: { $0.path == sourceURL.path && $0.role == .input }))
         XCTAssertTrue(provenance.outputs.contains(where: { $0.path == finalMetadataURL.path && $0.role == .output }))
+        XCTAssertTrue(provenance.outputs.contains(where: { $0.path == editJournalURL.path && $0.role == .output }))
+        XCTAssertEqual(provenance.options.resolvedDefaults["sourceFormat"]?.stringValue, "tsv")
+        XCTAssertEqual(provenance.options.resolvedDefaults["sourceDelimiter"]?.stringValue, "tab")
+        XCTAssertEqual(provenance.options.resolvedDefaults["validationPolicy"]?.stringValue, "trimmed-normalized-identifiers")
     }
 
     func testImportRollsBackMetadataWhenProvenanceLayoutFails() throws {

@@ -2223,7 +2223,7 @@ private func nativeToolProvenanceStep(
                 throw CLIExitCode.inputError.exitCode
             }
 
-            let store = SampleMetadataStore(
+            let store = try SampleMetadataStore(
                 scanResult: scanResult,
                 sampleColumnIndex: bestColumn.index,
                 knownSampleIds: knownSampleIds
