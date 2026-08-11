@@ -165,6 +165,18 @@ final class ImportFastqCommandTests: XCTestCase {
         XCTAssertTrue(command.force)
     }
 
+    func testParseCanonicalVSP2TargetEnrichmentWithTrimGalore() throws {
+        let command = try ImportCommand.FastqSubcommand.parse([
+            "/data/fastq_dir",
+            "--project", "/projects/Test.lungfish",
+            "--recipe", "vsp2-target-enrichment",
+            "--clumping-tool", "trim-galore",
+        ])
+
+        XCTAssertEqual(command.recipe, "vsp2-target-enrichment")
+        XCTAssertEqual(command.clumpingTool, "trim-galore")
+    }
+
     func testParseDefaultNewFlags() throws {
         let command = try ImportCommand.FastqSubcommand.parse([
             "/data/fastq_dir",

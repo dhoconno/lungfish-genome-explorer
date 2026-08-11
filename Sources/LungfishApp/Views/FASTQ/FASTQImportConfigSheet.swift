@@ -120,6 +120,7 @@ public final class FASTQImportConfigSheet: NSViewController {
     private let clumpifyCheckbox = NSButton(checkboxWithTitle: "Optimize storage (reorder reads for better compression)", target: nil, action: nil)
     private let clumpingToolLabel = NSTextField(labelWithString: "Compression Tool:")
     private let clumpingToolPopup = NSPopUpButton()
+    private let clumpingToolDisclosureLabel = NSTextField(wrappingLabelWithString: "")
     private let compressionLabel = NSTextField(labelWithString: "Compression Level:")
     private let compressionPopup = NSPopUpButton()
     private let recipeCheckbox = NSButton(checkboxWithTitle: "Apply processing recipe after import", target: nil, action: nil)
@@ -322,8 +323,19 @@ public final class FASTQImportConfigSheet: NSViewController {
         selectClumpingTool(defaultClumpingTool())
         clumpingToolPopup.font = .systemFont(ofSize: 12)
         clumpingToolPopup.translatesAutoresizingMaskIntoConstraints = false
+        clumpingToolPopup.target = self
+        clumpingToolPopup.action = #selector(clumpingToolChanged(_:))
         clumpingToolPopup.applyLungfishHelp(LungfishHelpContent.fastqImportClumpify)
         view.addSubview(clumpingToolPopup)
+
+        clumpingToolDisclosureLabel.font = .systemFont(ofSize: 11)
+        clumpingToolDisclosureLabel.textColor = .secondaryLabelColor
+        clumpingToolDisclosureLabel.translatesAutoresizingMaskIntoConstraints = false
+        clumpingToolDisclosureLabel.maximumNumberOfLines = 0
+        clumpingToolDisclosureLabel.lineBreakMode = .byWordWrapping
+        clumpingToolDisclosureLabel.preferredMaxLayoutWidth = 400
+        clumpingToolDisclosureLabel.setAccessibilityIdentifier("fastq-import-trim-galore-disclosure")
+        view.addSubview(clumpingToolDisclosureLabel)
 
         // Compression level picker
         compressionLabel.font = .systemFont(ofSize: 12, weight: .medium)
@@ -517,8 +529,12 @@ public final class FASTQImportConfigSheet: NSViewController {
             clumpingToolPopup.leadingAnchor.constraint(equalTo: clumpingToolLabel.trailingAnchor, constant: 8),
             clumpingToolPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 200),
 
+            clumpingToolDisclosureLabel.topAnchor.constraint(equalTo: clumpingToolLabel.bottomAnchor, constant: 4),
+            clumpingToolDisclosureLabel.leadingAnchor.constraint(equalTo: clumpingToolPopup.leadingAnchor),
+            clumpingToolDisclosureLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -margin),
+
             // Compression row
-            compressionLabel.topAnchor.constraint(equalTo: clumpingToolLabel.bottomAnchor, constant: 10),
+            compressionLabel.topAnchor.constraint(equalTo: clumpingToolDisclosureLabel.bottomAnchor, constant: 10),
             compressionLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: margin),
             compressionLabel.widthAnchor.constraint(equalToConstant: labelWidth),
             compressionPopup.centerYAnchor.constraint(equalTo: compressionLabel.centerYAnchor),
@@ -677,10 +693,21 @@ public final class FASTQImportConfigSheet: NSViewController {
         updateClumpingToolControls()
     }
 
+    @objc private func clumpingToolChanged(_ sender: NSPopUpButton) {
+        updateClumpingToolDisclosure()
+    }
+
     private func updateClumpingToolControls() {
         let optimizeStorage = clumpifyCheckbox.state == .on
         clumpingToolLabel.isEnabled = optimizeStorage
         clumpingToolPopup.isEnabled = optimizeStorage
+        updateClumpingToolDisclosure()
+    }
+
+    private func updateClumpingToolDisclosure() {
+        let selectedTool = selectedClumpingTool()
+        clumpingToolDisclosureLabel.stringValue = selectedTool.importSheetDisclosure ?? ""
+        clumpingToolDisclosureLabel.isHidden = clumpifyCheckbox.state != .on || selectedTool.importSheetDisclosure == nil
     }
 
     private func updatePairingControlsForSelectedPlatform() {

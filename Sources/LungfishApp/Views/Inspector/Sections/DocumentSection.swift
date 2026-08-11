@@ -1147,7 +1147,12 @@ public struct DocumentSection: View {
                 metadataRow(label: "Net reads removed", value: "\(formatCount(totalRemoved))\(pct)")
             }
 
-            if let deduplicationSummary = info.deduplicationSummary {
+            if info.deduplicationPerformedInCombinedPass {
+                metadataRow(
+                    label: "Deduplication",
+                    value: "Performed in combined fastp pass; an exact dedup-only removed count is unavailable."
+                )
+            } else if let deduplicationSummary = info.deduplicationSummary {
                 metadataRow(label: "Deduplication", value: readDeltaDisplay(deduplicationSummary))
             }
 

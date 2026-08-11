@@ -183,6 +183,67 @@ final class CLIImportRunnerTests: XCTestCase {
         XCTAssertEqual(reason, "Bundle already exists")
     }
 
+    func testParseNoticeEvent() throws {
+        let json = """
+        {"event":"notice","sample":"Sample1","message":"Trim Galore --clumpify also performs adapter/quality filtering and may remove short reads.","timestamp":"2026-08-10T10:00:00Z"}
+        """
+        let event = try XCTUnwrap(CLIImportRunner.parseEvent(from: json))
+        guard case let .notice(sample, message) = event else {
+            return XCTFail("Expected notice, got \(event)")
+        }
+        XCTAssertEqual(sample, "Sample1")
+        XCTAssertEqual(message, "Trim Galore --clumpify also performs adapter/quality filtering and may remove short reads.")
+    }
+
+    func testRunForwardsNoticeEventToOperationCenter() async throws {
+        let tempDir = try makeTemporaryDirectory()
+        let fakeCLI = tempDir.appendingPathComponent("lungfish-cli")
+        try """
+        #!/bin/sh
+        echo '{"event":"notice","sample":"Sample1","message":"Trim Galore --clumpify also performs adapter/quality filtering and may remove short reads."}'
+        echo '{"event":"importComplete","completed":1,"skipped":0,"failed":0,"totalDurationSeconds":0.01}'
+        """.write(to: fakeCLI, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLI.path)
+
+        let priorCLIPath = ProcessInfo.processInfo.environment["LUNGFISH_CLI_PATH"]
+        setenv("LUNGFISH_CLI_PATH", fakeCLI.path, 1)
+        defer {
+            if let priorCLIPath {
+                setenv("LUNGFISH_CLI_PATH", priorCLIPath, 1)
+            } else {
+                unsetenv("LUNGFISH_CLI_PATH")
+            }
+        }
+
+        let operationID = await MainActor.run {
+            OperationCenter.shared.start(
+                title: "FASTQ Import: Trim Galore notice test",
+                detail: "Starting",
+                operationType: .ingestion
+            )
+        }
+        addTeardownBlock {
+            await MainActor.run {
+                OperationCenter.shared.clearItem(id: operationID)
+            }
+        }
+
+        await CLIImportRunner().run(
+            arguments: [],
+            operationID: operationID,
+            projectDirectory: tempDir,
+            onBundleCreated: { _ in },
+            onError: { _ in }
+        )
+
+        let item = await MainActor.run {
+            OperationCenter.shared.items.first { $0.id == operationID }
+        }
+        XCTAssertTrue(item?.logEntries.contains {
+            $0.message.contains("Trim Galore --clumpify also performs adapter/quality filtering and may remove short reads.")
+        } == true)
+    }
+
     // MARK: - Argument Building Tests
 
     func testBuildCLIArgumentsPairedEnd() {
@@ -260,6 +321,25 @@ final class CLIImportRunnerTests: XCTestCase {
 
         XCTAssertTrue(args.contains("--clumping-tool"))
         XCTAssertTrue(args.contains("trim-galore"))
+    }
+
+    func testBuildCLIArgumentsCombinesVSP2TargetEnrichmentWithTrimGalore() {
+        let args = CLIImportRunner.buildCLIArguments(
+            r1: URL(fileURLWithPath: "/data/reads.fastq.gz"),
+            r2: nil,
+            projectDirectory: URL(fileURLWithPath: "/project"),
+            platform: "illumina",
+            recipeName: "vsp2-target-enrichment",
+            qualityBinning: "illumina4",
+            optimizeStorage: true,
+            clumpingTool: .trimGalore,
+            compressionLevel: "balanced"
+        )
+
+        let recipeIndex = args.firstIndex(of: "--recipe")!
+        let toolIndex = args.firstIndex(of: "--clumping-tool")!
+        XCTAssertEqual(args[recipeIndex + 1], "vsp2-target-enrichment")
+        XCTAssertEqual(args[toolIndex + 1], "trim-galore")
     }
 
     func testBuildCLIArgumentsTreatsNoClumpingToolAsNoOptimizeStorage() {

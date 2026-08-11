@@ -243,6 +243,46 @@ struct FASTQImportConfigurationTests {
     }
 
     @MainActor
+    @Test("FASTQ import sheet updates the Trim Galore disclosure when the selection changes")
+    func importSheetUpdatesTrimGaloreDisclosure() throws {
+        let sourceURL = try Self.temporaryFASTQ(named: "sample.fastq.gz", byteCount: 1_048_576)
+        defer { try? FileManager.default.removeItem(at: sourceURL.deletingLastPathComponent()) }
+
+        let sheet = FASTQImportConfigSheet(
+            pairs: [FASTQFilePair(r1: sourceURL, r2: nil)],
+            detectedPlatform: .illumina
+        )
+        sheet.loadViewIfNeeded()
+
+        let disclosure = sheet.view.fastqImportDescendants(of: NSTextField.self)
+            .first { $0.accessibilityIdentifier() == "fastq-import-trim-galore-disclosure" }
+        #expect(disclosure != nil)
+        #expect(disclosure?.cell?.wraps == true)
+
+        let popup = try #require(sheet.view.fastqImportStorageToolPopup())
+        popup.selectClumpingTool(.bbtools)
+        #expect(disclosure?.isHidden == true)
+        popup.selectClumpingTool(.trimGalore)
+        #expect(disclosure?.isHidden == false)
+    }
+
+    @Test("Inspector discloses combined fastp deduplication without presenting a false dedup-only delta")
+    func inspectorUsesCombinedFastpState() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = root.appendingPathComponent(
+            "Sources/LungfishApp/Views/Inspector/Sections/DocumentSection.swift"
+        )
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        #expect(source.contains("info.deduplicationPerformedInCombinedPass"))
+        #expect(source.contains("Performed in combined fastp pass; an exact dedup-only removed count is unavailable."))
+        #expect(source.contains("info.deduplicationSummary"))
+    }
+
+    @MainActor
     @Test("ONT demux recipe import captures user folder override")
     func ontDemuxRecipeImportCapturesUserFolderOverride() {
         let sourceURL = URL(fileURLWithPath: "/data/Run42/fastq_pass", isDirectory: true)
@@ -388,6 +428,9 @@ private extension NSPopUpButton {
         for index in 0..<numberOfItems {
             guard item(at: index)?.representedObject as? ClumpingTool == tool else { continue }
             selectItem(at: index)
+            if let action, let target {
+                _ = sendAction(action, to: target)
+            }
             return
         }
     }

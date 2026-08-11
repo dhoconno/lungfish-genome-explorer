@@ -23,6 +23,8 @@ private final class FASTQBatchImporterEventCollector: @unchecked Sendable {
 
 final class FASTQBatchImporterTests: XCTestCase {
 
+    private static let gib: Int64 = 1_073_741_824
+
     // MARK: - Pair Detection
 
     func testPairDetectionIlluminaStandard() {
@@ -400,6 +402,130 @@ final class FASTQBatchImporterTests: XCTestCase {
         XCTAssertTrue(json.contains("\"importStart\""))
         // recipeName key should be absent when nil
         XCTAssertFalse(json.contains("recipeName"))
+    }
+
+    func testLogEventNoticeJSONEncoding() throws {
+        let event = ImportLogEvent.notice(
+            sample: "Sample1",
+            message: "Trim Galore --clumpify also performs adapter/quality filtering and may remove short reads."
+        )
+        let json = FASTQBatchImporter.encodeLogEvent(event)
+        let parsed = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
+
+        XCTAssertEqual(parsed["event"] as? String, "notice")
+        XCTAssertEqual(parsed["sample"] as? String, "Sample1")
+        XCTAssertEqual(
+            parsed["message"] as? String,
+            "Trim Galore --clumpify also performs adapter/quality filtering and may remove short reads."
+        )
+    }
+
+    func testTrimGaloreNoticeIsEmittedOnceBeforeTheIngestionInvocation() async throws {
+        final class InvocationRecorder: @unchecked Sendable {
+            private let lock = NSLock()
+            private var entries: [String] = []
+
+            func append(_ entry: String) {
+                lock.withLock { entries.append(entry) }
+            }
+
+            var snapshot: [String] {
+                lock.withLock { entries }
+            }
+        }
+
+        let recorder = InvocationRecorder()
+        let config = FASTQIngestionConfig(
+            inputFiles: [URL(fileURLWithPath: "/data/Sample.fastq.gz")],
+            outputDirectory: URL(fileURLWithPath: "/tmp/import-workspace")
+        )
+        let expectedMessage = "Trim Galore --clumpify also performs adapter/quality filtering and may remove short reads."
+
+        _ = try await FASTQBatchImporter.runIngestionPipeline(
+            sample: "Sample1",
+            config: config,
+            estimatedInputBytes: 20 * Self.gib,
+            physicalMemoryBytes: 64 * Self.gib,
+            log: { event in
+                if case let .notice(sample, message) = event {
+                    recorder.append("notice:\(sample):\(message)")
+                }
+            },
+            invoke: {
+                recorder.append("pipeline")
+                return FASTQIngestionResult(
+                    outputFile: URL(fileURLWithPath: "/tmp/output.fastq.gz"),
+                    wasClumpified: true,
+                    qualityBinning: .illumina4,
+                    originalFilenames: ["Sample.fastq.gz"],
+                    originalSizeBytes: 1,
+                    finalSizeBytes: 1,
+                    pairingMode: .singleEnd,
+                    resolvedClumpingTool: .trimGalore
+                )
+            }
+        )
+
+        XCTAssertEqual(
+            recorder.snapshot,
+            ["notice:Sample1:\(expectedMessage)", "pipeline"]
+        )
+    }
+
+    func testNoticeUsesResolvedAutomaticTrimGaloreAndSkipsOtherTools() async throws {
+        final class NoticeCounter: @unchecked Sendable {
+            private let lock = NSLock()
+            private var value = 0
+
+            func increment() {
+                lock.withLock { value += 1 }
+            }
+
+            var count: Int {
+                lock.withLock { value }
+            }
+        }
+
+        let config = FASTQIngestionConfig(
+            inputFiles: [URL(fileURLWithPath: "/data/Sample.fastq.gz")],
+            outputDirectory: URL(fileURLWithPath: "/tmp/import-workspace")
+        )
+        let cases: [(ClumpingTool, Int64, Int64, Bool)] = [
+            (.auto, 20 * Self.gib, 64 * Self.gib, true),
+            (.bbtools, 20 * Self.gib, 64 * Self.gib, false),
+            (.none, 20 * Self.gib, 64 * Self.gib, false),
+        ]
+
+        for (tool, inputBytes, memoryBytes, shouldNotice) in cases {
+            let toolConfig = FASTQIngestionConfig(
+                inputFiles: config.inputFiles,
+                outputDirectory: config.outputDirectory,
+                clumpingTool: tool
+            )
+            let noticeCounter = NoticeCounter()
+            _ = try await FASTQBatchImporter.runIngestionPipeline(
+                sample: "Sample1",
+                config: toolConfig,
+                estimatedInputBytes: inputBytes,
+                physicalMemoryBytes: memoryBytes,
+                log: { event in
+                    if case .notice = event { noticeCounter.increment() }
+                },
+                invoke: {
+                    FASTQIngestionResult(
+                        outputFile: URL(fileURLWithPath: "/tmp/output.fastq.gz"),
+                        wasClumpified: false,
+                        qualityBinning: .illumina4,
+                        originalFilenames: [],
+                        originalSizeBytes: 0,
+                        finalSizeBytes: 0,
+                        pairingMode: .singleEnd,
+                        resolvedClumpingTool: tool
+                    )
+                }
+            )
+            XCTAssertEqual(noticeCounter.count, shouldNotice ? 1 : 0, "Unexpected notice count for \(tool)")
+        }
     }
 
     func testLogEventSampleSkip() {

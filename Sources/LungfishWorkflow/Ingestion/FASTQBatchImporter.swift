@@ -48,6 +48,7 @@ public enum ImportLogEvent: Sendable {
     case sampleStart(sample: String, index: Int, total: Int, r1: String, r2: String?)
     case stepStart(sample: String, step: String, stepIndex: Int, totalSteps: Int)
     case stepComplete(sample: String, step: String, durationSeconds: Double)
+    case notice(sample: String, message: String)
     case recipeReadDelta(
         sample: String,
         label: String,
@@ -587,6 +588,11 @@ public enum FASTQBatchImporter {
             dict["step"] = step
             dict["durationSeconds"] = durationSeconds
 
+        case .notice(let sample, let message):
+            dict["event"] = "notice"
+            dict["sample"] = sample
+            dict["message"] = message
+
         case .recipeReadDelta(let sample, let label, let inputReads, let outputReads, let readsRemoved, let percentRemoved):
             dict["event"] = "recipeReadDelta"
             dict["sample"] = sample
@@ -663,6 +669,28 @@ public enum FASTQBatchImporter {
             readsRemoved: summary.readsRemoved,
             percentRemoved: summary.percentRemoved
         )
+    }
+
+    /// Resolves the storage tool once for an ingestion invocation and records
+    /// any filtering disclosure before the invocation begins.
+    static func runIngestionPipeline(
+        sample: String,
+        config: FASTQIngestionConfig,
+        estimatedInputBytes: Int64? = nil,
+        physicalMemoryBytes: Int64 = Int64(clamping: ProcessInfo.processInfo.physicalMemory),
+        log: (@Sendable (ImportLogEvent) -> Void)?,
+        invoke: @escaping @Sendable () async throws -> FASTQIngestionResult
+    ) async throws -> FASTQIngestionResult {
+        let estimatedBytes = estimatedInputBytes
+            ?? FASTQIngestionPipeline.estimatedUncompressedInputBytes(for: config.inputFiles)
+        let resolution = config.clumpingTool.resolve(
+            estimatedInputBytes: estimatedBytes,
+            physicalMemoryBytes: physicalMemoryBytes
+        )
+        if let message = resolution.resolved.operationNotice {
+            log?(.notice(sample: sample, message: message))
+        }
+        return try await invoke()
     }
 
     // MARK: - Main Entry Point
@@ -939,9 +967,16 @@ public enum FASTQBatchImporter {
             let clumpifyStart = Date()
 
             let pipeline = FASTQIngestionPipeline()
-            let ingestionResult = try await pipeline.run(config: ingestionConfig, progress: { _, msg in
-                logger.debug("\(pair.sampleName): \(msg)")
-            })
+            let ingestionResult = try await runIngestionPipeline(
+                sample: pair.sampleName,
+                config: ingestionConfig,
+                log: log,
+                invoke: {
+                    try await pipeline.run(config: ingestionConfig, progress: { _, msg in
+                        logger.debug("\(pair.sampleName): \(msg)")
+                    })
+                }
+            )
 
             log?(.stepComplete(
                 sample: pair.sampleName,

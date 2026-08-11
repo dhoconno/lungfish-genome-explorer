@@ -13,6 +13,23 @@ final class FASTQClumpingToolTests: XCTestCase {
         XCTAssertEqual(ClumpingTool.none.rawValue, "none")
     }
 
+    func testTrimGaloreDisclosureWordingIsSharedAndOtherToolsHaveNone() {
+        XCTAssertEqual(
+            ClumpingTool.trimGalore.importSheetDisclosure,
+            "Trim Galore also performs adapter detection/removal, quality trimming, and short-read filtering."
+        )
+        XCTAssertEqual(
+            ClumpingTool.trimGalore.operationNotice,
+            "Trim Galore --clumpify also performs adapter/quality filtering and may remove short reads."
+        )
+        XCTAssertNil(ClumpingTool.auto.importSheetDisclosure)
+        XCTAssertNil(ClumpingTool.bbtools.importSheetDisclosure)
+        XCTAssertNil(ClumpingTool.none.importSheetDisclosure)
+        XCTAssertNil(ClumpingTool.auto.operationNotice)
+        XCTAssertNil(ClumpingTool.bbtools.operationNotice)
+        XCTAssertNil(ClumpingTool.none.operationNotice)
+    }
+
     func testAutoChoosesBBToolsWhenEstimatedInputIsSafelyBelowHeapThreshold() {
         let resolution = ClumpingTool.auto.resolve(
             estimatedInputBytes: 10 * Self.gib,

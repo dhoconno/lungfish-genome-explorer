@@ -34,6 +34,7 @@ public enum CLIImportEvent: Sendable {
     case sampleStart(sample: String, index: Int, total: Int, r1: String, r2: String?)
     case stepStart(sample: String, step: String, stepIndex: Int, totalSteps: Int)
     case stepComplete(sample: String, step: String, durationSeconds: Double)
+    case notice(sample: String, message: String)
     case recipeReadDelta(
         sample: String,
         label: String,
@@ -198,6 +199,12 @@ public actor CLIImportRunner {
                 sample: dict["sample"] as? String ?? "",
                 step: dict["step"] as? String ?? "",
                 durationSeconds: dict["durationSeconds"] as? Double ?? 0
+            )
+
+        case "notice":
+            return .notice(
+                sample: dict["sample"] as? String ?? "",
+                message: dict["message"] as? String ?? ""
             )
 
         case "recipeReadDelta":
@@ -373,6 +380,17 @@ public actor CLIImportRunner {
                                     id: opID,
                                     level: .info,
                                     message: "\(sample) — \(step) completed (\(String(format: "%.1f", durationSeconds))s)"
+                                )
+                            }
+                        }
+
+                    case let .notice(sample, message):
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                OperationCenter.shared.log(
+                                    id: opID,
+                                    level: .warning,
+                                    message: "\(sample) — \(message)"
                                 )
                             }
                         }

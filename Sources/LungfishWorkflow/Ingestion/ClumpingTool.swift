@@ -25,6 +25,20 @@ public enum ClumpingTool: String, Codable, Sendable, CaseIterable {
         }
     }
 
+    /// Disclosure shown when the selected tool performs filtering in addition to clumpify.
+    public var importSheetDisclosure: String? {
+        self == .trimGalore
+            ? "Trim Galore also performs adapter detection/removal, quality trimming, and short-read filtering."
+            : nil
+    }
+
+    /// Notice recorded immediately before a resolved storage-tool invocation.
+    public var operationNotice: String? {
+        self == .trimGalore
+            ? "Trim Galore --clumpify also performs adapter/quality filtering and may remove short reads."
+            : nil
+    }
+
     public var isClumpingEnabled: Bool {
         self != .none
     }
