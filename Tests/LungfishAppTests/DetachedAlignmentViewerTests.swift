@@ -73,6 +73,8 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         XCTAssertEqual(cancelled, Set(requests.prefix(2).map(\.bamURL)))
         XCTAssertEqual(controller.viewer.viewerView.testDetachedAlignmentSource?.identityURL, requests[2].bamURL)
         XCTAssertEqual(controller.availability, .available(reference: .notProvided, reason: nil))
+        XCTAssertEqual(controller.status, .available(referenceStrength: "notProvided", reason: nil))
+        XCTAssertEqual(controller.visibleStatusText, "Alignment evidence ready (reference: notProvided).")
     }
 
     private func makeSource(_ suffix: String) -> SequenceViewerView.DetachedAlignmentSource {

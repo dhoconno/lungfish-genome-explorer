@@ -17,10 +17,13 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
     }
 
     let viewer = ViewerViewController()
+    private let statusLabel = NSTextField(labelWithString: "")
     private let validator: ClassifierAlignmentEvidenceValidator
     private var generation = 0
     private var task: Task<Void, Never>?
     private(set) var availability: Availability = .idle
+    private(set) var status: ClassifierAlignmentViewerStatus = .idle { didSet { publishStatus() } }
+    var onStatusChanged: (@MainActor @Sendable (ClassifierAlignmentViewerStatus) -> Void)?
 
     init(validator: ClassifierAlignmentEvidenceValidator = .init()) {
         self.validator = validator
@@ -28,12 +31,38 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
     }
 
     var viewController: NSViewController { viewer }
+    var visibleStatusText: String { statusLabel.stringValue }
+
+    private func publishStatus() {
+        statusLabel.stringValue = status.message
+        statusLabel.isHidden = status == .idle
+        onStatusChanged?(status)
+    }
+
+    private func installStatusLabel() {
+        guard statusLabel.superview == nil else { return }
+        statusLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        statusLabel.textColor = .secondaryLabelColor
+        statusLabel.drawsBackground = true
+        statusLabel.backgroundColor = .windowBackgroundColor
+        statusLabel.translatesAutoresizingMaskIntoConstraints = false
+        viewer.view.addSubview(statusLabel)
+        NSLayoutConstraint.activate([
+            statusLabel.leadingAnchor.constraint(equalTo: viewer.view.leadingAnchor, constant: 8),
+            statusLabel.topAnchor.constraint(equalTo: viewer.view.topAnchor, constant: 6),
+        ])
+        publishStatus()
+    }
 
     func display(_ request: ClassifierAlignmentEvidenceRequest) {
+        _ = viewer.view
+        installStatusLabel()
+        viewer.viewerView.cancelDetachedAlignmentFetches()
         generation += 1
         let currentGeneration = generation
         task?.cancel()
         availability = .loading
+        status = .loading
         task = Task { [weak self] in
             guard let self else { return }
             do {
@@ -47,10 +76,12 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
                 )
                 viewer.displayDetachedAlignment(source)
                 availability = .available(reference: validated.reference.status, reason: validated.reference.reason)
+                status = .available(referenceStrength: String(describing: validated.reference.status), reason: validated.reference.reason)
             } catch {
                 guard !Task.isCancelled, currentGeneration == generation else { return }
                 viewer.viewerView.clearReferenceBundle()
                 availability = .unavailable(error.localizedDescription)
+                status = .unavailable(error.localizedDescription)
             }
         }
     }
@@ -61,5 +92,6 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
         task = nil
         viewer.viewerView.clearReferenceBundle()
         availability = .idle
+        status = .idle
     }
 }

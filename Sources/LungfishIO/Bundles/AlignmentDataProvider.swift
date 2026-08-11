@@ -421,15 +421,13 @@ public final class AlignmentDataProvider: @unchecked Sendable {
         }
 
         var arguments = ["depth"]
-        if minMapQ > 0 {
-            arguments += ["-q", String(minMapQ)]
-        }
-        if minBaseQ > 0 {
-            arguments += ["-Q", String(minBaseQ)]
-        }
-        if excludeFlags != 0 {
-            arguments += ["-G", String(excludeFlags)]
-        }
+        // samtools depth: -q is base quality and -Q is mapping quality.
+        if minBaseQ > 0 { arguments += ["-q", String(minBaseQ)] }
+        if minMapQ > 0 { arguments += ["-Q", String(minMapQ)] }
+        // Clear depth's implicit UNMAP|SECONDARY|QCFAIL|DUP mask (0x704),
+        // then apply precisely the viewer's effective read exclusion mask.
+        arguments += ["-g", "1796"]
+        if excludeFlags != 0 { arguments += ["-G", String(excludeFlags)] }
         if format == .cram, let refPath = referenceFastaPath {
             arguments += ["--reference", refPath]
         }

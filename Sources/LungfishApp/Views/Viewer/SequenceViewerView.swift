@@ -2038,6 +2038,7 @@ public class SequenceViewerView: NSView {
     /// Clears the current reference bundle.
     func clearReferenceBundle() {
         sequenceViewerLogger.info("SequenceViewerView.clearReferenceBundle: Clearing bundle")
+        cancelDetachedAlignmentFetches()
         self.currentReferenceBundle = nil
         self.detachedAlignmentSource = nil
         self.cachedBundleSequence = nil
@@ -2094,6 +2095,13 @@ public class SequenceViewerView: NSView {
         invalidateAnnotationTile()
 
         needsDisplay = true
+    }
+
+    func cancelDetachedAlignmentFetches() {
+        detachedReadFetchTask?.cancel()
+        detachedReadFetchTask = nil
+        detachedDepthFetchTask?.cancel()
+        detachedDepthFetchTask = nil
     }
 
     /// Configures the existing alignment renderer for an externally-owned final BAM.

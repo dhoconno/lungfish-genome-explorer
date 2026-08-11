@@ -25,6 +25,24 @@ public enum ClassifierAlignmentWorkflowKind: String, CaseIterable, Sendable {
     case nvd
 }
 
+/// Inspector-facing state of an embedded classifier evidence viewport.
+public enum ClassifierAlignmentViewerStatus: Equatable, Sendable {
+    case idle
+    case loading
+    case available(referenceStrength: String, reason: String?)
+    case unavailable(String)
+    case stale(String)
+
+    public var message: String {
+        switch self {
+        case .idle: "No classifier alignment evidence selected."
+        case .loading: "Validating classifier alignment evidence…"
+        case .available(let strength, let reason): reason ?? "Alignment evidence ready (reference: \(strength))."
+        case .unavailable(let reason), .stale(let reason): reason
+        }
+    }
+}
+
 /// Stable identity and final storage location of a classifier result.
 public struct ClassifierAlignmentResultIdentity: Equatable, Sendable {
     public let stableID: String
@@ -222,6 +240,8 @@ public struct ClassifierAlignmentEvidenceRequest: Equatable, Sendable {
 @MainActor
 public protocol ClassifierAlignmentViewerProviding: AnyObject {
     var viewController: NSViewController { get }
+    var status: ClassifierAlignmentViewerStatus { get }
+    var onStatusChanged: (@MainActor @Sendable (ClassifierAlignmentViewerStatus) -> Void)? { get set }
 
     func display(_ request: ClassifierAlignmentEvidenceRequest)
     func clear()
