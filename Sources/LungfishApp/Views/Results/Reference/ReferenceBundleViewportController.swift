@@ -801,11 +801,15 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         else { return }
         alignmentTrackSummaryRefreshID = UUID()
         let refreshID = alignmentTrackSummaryRefreshID
+        visibleAlignmentSummaryOverride = nil
+        alignmentTrackSummaryWarning = nil
+        bamSampleIdentityIndex = nil
+        updateSummaryBar()
         contigTableView.configure(rows: [])
         let builder = alignmentTrackSummaryBuilder
         Task { @MainActor [weak self] in
             var rows: [MappingContigSummary] = []
-            for track in tracks where track.metadataDBPath != nil {
+            for track in tracks {
                 let total = Int(clamping: (track.mappedReadCount ?? 0) + (track.unmappedReadCount ?? 0))
                 let bamURL = self?.resolvedTrackURL(track.sourcePath, bundleURL: bundleURL) ?? bundleURL
                 let resolution = self?.sampleIdentityResolution(for: track, bundleURL: bundleURL)
@@ -815,6 +819,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                 for (sampleID, readGroups) in samples {
                     let summaries: [MappingContigSummary]
                     if samples.count == 1,
+                       sampleID != nil,
                        let cached = self?.metadataFallbackRows(for: track, bundleURL: bundleURL, totalReads: total) {
                         summaries = cached
                     } else {
@@ -1196,6 +1201,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         // it completes. Multiple samples are intentionally not expanded from
         // aggregate track stats because that would fabricate per-sample reads.
         if sampleReadGroups.count == 1,
+           sampleReadGroups[0].sampleID != nil,
            let fallbackRows = metadataFallbackRows(
             for: track,
             bundleURL: bundleURL,
@@ -1230,6 +1236,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                     sample.summaries.isEmpty || sample.summaries.allSatisfy { $0.mappedReads == 0 }
                 }),
                    sampleReadGroups.count == 1,
+                   sampleReadGroups[0].sampleID != nil,
                    let fallbackRows = self?.metadataFallbackRows(
                     for: track,
                     bundleURL: bundleURL,
@@ -1259,8 +1266,9 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                 if let fallbackRows = self.metadataFallbackRows(
                     for: track,
                     bundleURL: bundleURL,
-                    totalReads: totalReads
-                ), sampleReadGroups.count == 1 {
+                   totalReads: totalReads
+                ), sampleReadGroups.count == 1,
+                   sampleReadGroups[0].sampleID != nil {
                     self.applyVisibleAlignmentRows(
                         [(sampleReadGroups[0].sampleID, fallbackRows)],
                         track: track,

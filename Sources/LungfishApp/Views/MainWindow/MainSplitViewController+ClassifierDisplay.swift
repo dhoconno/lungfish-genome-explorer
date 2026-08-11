@@ -66,13 +66,17 @@ extension MainSplitViewController {
                     trackSampleIDs: track.sampleNames.count == 1 ? [track.id: track.sampleNames[0]] : [:]
                   )
             else { continue }
-            if track.sampleNames.count == 1, let declared = track.sampleNames.first {
-                for identity in resolution.identities
-                where BAMSampleIdentityResolver.normalized(identity.canonicalID)
-                    == BAMSampleIdentityResolver.normalized(declared)
-                    && identity.canonicalID != declared {
-                    manifestAliases[identity.canonicalID, default: []].append(declared)
-                }
+            if track.sampleNames.count == 1,
+               let declared = track.sampleNames.first,
+               resolution.identities.count == 1,
+               let resolved = resolution.identities.first,
+               BAMSampleIdentityResolver.normalized(resolved.canonicalID)
+                    != BAMSampleIdentityResolver.normalized(declared) {
+                // A single persisted track-level sample name is an explicit
+                // alias for its one resolved RG sample.  Do not attach it to
+                // multi-sample tracks: that would make imported metadata
+                // ambiguous rather than helpful.
+                manifestAliases[resolved.canonicalID, default: []].append(declared)
             }
             collectedIdentities.append(contentsOf: resolution.identities)
         }
@@ -86,7 +90,13 @@ extension MainSplitViewController {
         guard !identities.isEmpty,
               let index = try? SampleIdentityIndex(samples: identities)
         else { return }
-        let store = SampleMetadataStore.load(from: resultURL, knownSampleIds: index.canonicalSampleIDs)
+        let metadataIdentifiers = index.canonicalSampleIDs.union(
+            Set(identities.flatMap(\.aliases))
+        )
+        let store = SampleMetadataStore.load(from: resultURL, knownSampleIds: metadataIdentifiers)
+        if let store {
+            rekeyBAMMetadataRecords(store, using: index)
+        }
         store?.wireAutosave(bundleURL: resultURL)
         let context = SampleMetadataPresentationContext(
             finalResultURL: resultURL,
@@ -114,6 +124,32 @@ extension MainSplitViewController {
         if path.hasPrefix("@/") { return bundleURL.appendingPathComponent(String(path.dropFirst(2))) }
         if path.hasPrefix("/") { return URL(fileURLWithPath: path) }
         return bundleURL.appendingPathComponent(path)
+    }
+
+    /// The metadata store persists records keyed by whichever header value was
+    /// imported.  BAM viewports use canonical RG identities, so fold any
+    /// persisted manifest aliases back to the canonical key before observers
+    /// receive the store.  A canonical record wins if both it and an alias are
+    /// present, keeping a duplicate metadata import deterministic.
+    private func rekeyBAMMetadataRecords(
+        _ store: SampleMetadataStore,
+        using identityIndex: SampleIdentityIndex
+    ) {
+        var rekeyed: [String: [String: String]] = [:]
+        for canonicalID in identityIndex.canonicalSampleIDs.sorted() {
+            if let record = store.records[canonicalID] {
+                rekeyed[canonicalID] = record
+            }
+        }
+        for identifier in store.records.keys.sorted() {
+            guard let canonicalID = identityIndex.canonicalSampleID(forMetadataIdentifier: identifier),
+                  rekeyed[canonicalID] == nil,
+                  let record = store.records[identifier]
+            else { continue }
+            rekeyed[canonicalID] = record
+        }
+        store.records = rekeyed
+        store.matchedSampleIds = Set(rekeyed.keys)
     }
 
     func clearClassifierMetadataPresentation() {

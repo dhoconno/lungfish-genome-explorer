@@ -458,34 +458,59 @@ final class MappingResultViewControllerTests: XCTestCase {
         try FileManager.default.createDirectory(at: resultDirectory, withIntermediateDirectories: true)
         let bundleURL = try makeReferenceBundleWithAlignmentTracks()
         let result = makeMappingResult(viewerBundleURL: bundleURL, resultDirectoryURL: resultDirectory)
-        let builderCalled = expectation(description: "filtered alignment summary builder called")
+        let filteredBuilderCalled = expectation(description: "filtered alignment summary builder called")
+        var originalTrackCallCount = 0
+        var filteredTrackCallCount = 0
 
         vc.setAlignmentTrackSummaryBuilderForTesting { bamURL, totalReads in
-            XCTAssertEqual(bamURL.lastPathComponent, "filtered.bam")
-            XCTAssertEqual(totalReads, 4)
-            builderCalled.fulfill()
-            return [
-                MappingContigSummary(
-                    contigName: "alpha",
-                    contigLength: 100,
-                    mappedReads: 0,
-                    mappedReadPercent: 0,
-                    meanDepth: 0,
-                    coverageBreadth: 0,
-                    medianMAPQ: 0,
-                    meanIdentity: 0
-                ),
-                MappingContigSummary(
-                    contigName: "gamma",
-                    contigLength: 100,
-                    mappedReads: 4,
-                    mappedReadPercent: 100,
-                    meanDepth: 7.5,
-                    coverageBreadth: 0.42,
-                    medianMAPQ: 60,
-                    meanIdentity: 1.0
-                ),
-            ]
+            switch bamURL.lastPathComponent {
+            case "original.bam":
+                XCTAssertEqual(totalReads, 10)
+                originalTrackCallCount += 1
+                return [
+                    MappingContigSummary(
+                        contigName: "alpha",
+                        contigLength: 100,
+                        mappedReads: 10,
+                        mappedReadPercent: 100,
+                        meanDepth: 4.5,
+                        coverageBreadth: 0.84,
+                        medianMAPQ: 60,
+                        meanIdentity: 1.0
+                    )
+                ]
+            case "filtered.bam":
+                XCTAssertEqual(totalReads, 4)
+                filteredTrackCallCount += 1
+                if filteredTrackCallCount == 1 {
+                    filteredBuilderCalled.fulfill()
+                }
+                return [
+                    MappingContigSummary(
+                        contigName: "alpha",
+                        contigLength: 100,
+                        mappedReads: 0,
+                        mappedReadPercent: 0,
+                        meanDepth: 0,
+                        coverageBreadth: 0,
+                        medianMAPQ: 0,
+                        meanIdentity: 0
+                    ),
+                    MappingContigSummary(
+                        contigName: "gamma",
+                        contigLength: 100,
+                        mappedReads: 4,
+                        mappedReadPercent: 100,
+                        meanDepth: 7.5,
+                        coverageBreadth: 0.42,
+                        medianMAPQ: 60,
+                        meanIdentity: 1.0
+                    ),
+                ]
+            default:
+                XCTFail("Unexpected alignment track summary request: \(bamURL.path)")
+                return []
+            }
         }
 
         vc.configureForTesting(result: result, resultDirectoryURL: resultDirectory)
@@ -495,7 +520,7 @@ final class MappingResultViewControllerTests: XCTestCase {
             NotificationUserInfoKey.visibleAlignmentTrackID: "filtered-track"
         ])
 
-        await fulfillment(of: [builderCalled], timeout: 2.0)
+        await fulfillment(of: [filteredBuilderCalled], timeout: 2.0)
         try await waitUntil {
             vc.testContigTableView.displayedRows.map(\.contigName) == ["gamma"]
         }
@@ -507,7 +532,17 @@ final class MappingResultViewControllerTests: XCTestCase {
             NotificationUserInfoKey.visibleAlignmentTrackID: ""
         ])
 
-        XCTAssertEqual(vc.testContigTableView.displayedRows.map(\.contigName), ["beta", "alpha"])
+        try await waitUntil {
+            originalTrackCallCount >= 2
+                && filteredTrackCallCount >= 2
+                && vc.testContigTableView.displayedRows.map(\.contigName) == ["alpha", "gamma"]
+        }
+        XCTAssertNil(vc.testVisibleAlignmentTrackID)
+        XCTAssertEqual(
+            vc.testContigTableView.displayedRows.map { "\($0.sampleID ?? "unmatched"):\($0.contigName)" },
+            ["unmatched:alpha", "unmatched:gamma"]
+        )
+        XCTAssertEqual(vc.testContigTableView.record(at: 0)?.mappedReads, 10)
         XCTAssertEqual(vc.testSummaryText, "minimap2 Mapping — 198 / 200 reads mapped (99.0%)")
     }
 
@@ -537,6 +572,134 @@ final class MappingResultViewControllerTests: XCTestCase {
         XCTAssertEqual(vc.testContigTableView.displayedRows.first { $0.sampleID == "S1" }?.mappedReads, 4)
         vc.testSelectContig(named: "gamma")
         XCTAssertEqual(vc.testSelectedReadGroups, Set(["S1-A", "S1-B"]))
+
+        vc.applyEmbeddedReadDisplaySettings([
+            NotificationUserInfoKey.visibleAlignmentTrackID: ""
+        ])
+        try await waitUntil {
+            requestedReadGroups.filter { $0 == Set(["S1-A", "S1-B"]) }.count == 2
+                && requestedReadGroups.filter { $0 == Set(["S2-A"]) }.count == 2
+                && requestedReadGroups.contains([])
+                && Set(vc.testContigTableView.displayedRows.compactMap(\.sampleID)) == Set(["S1", "S2"])
+        }
+        XCTAssertEqual(
+            vc.testContigTableView.displayedRows.first { $0.sampleID == "S1" }?.mappedReads,
+            4,
+            "All Alignments must rebuild each multi-sample read-group slice instead of caching aggregate stats"
+        )
+    }
+
+    func testAllAlignmentsMissingMetadataLeavesAnExplicitUnmatchedRowInsteadOfFocusedRows() async throws {
+        let vc = MappingResultViewController()
+        _ = vc.view
+        let bundleURL = try makeReferenceBundleWithAlignmentTracks()
+        let result = makeMappingResult(viewerBundleURL: bundleURL)
+        var filteredCallCount = 0
+        vc.setAlignmentTrackSummaryBuilderForTesting { bamURL, _, _ in
+            if bamURL.lastPathComponent == "filtered.bam" {
+                filteredCallCount += 1
+                return [
+                    MappingContigSummary(
+                        contigName: "gamma", contigLength: 100, mappedReads: 4,
+                        mappedReadPercent: 100, meanDepth: 2, coverageBreadth: 0.5,
+                        medianMAPQ: 60, meanIdentity: 1
+                    )
+                ]
+            }
+            return []
+        }
+
+        vc.configureForTesting(result: result)
+        vc.applyEmbeddedReadDisplaySettings([
+            NotificationUserInfoKey.visibleAlignmentTrackID: "filtered-track"
+        ])
+        try await waitUntil {
+            filteredCallCount >= 1
+                && vc.testContigTableView.displayedRows.map(\.contigName) == ["gamma"]
+        }
+
+        vc.applyEmbeddedReadDisplaySettings([
+            NotificationUserInfoKey.visibleAlignmentTrackID: ""
+        ])
+        try await waitUntil {
+            filteredCallCount >= 2
+                && vc.testContigTableView.displayedRows.map(\.contigName) == ["gamma"]
+                && vc.testContigTableView.displayedRows.allSatisfy { $0.sampleID == nil }
+        }
+        XCTAssertNil(vc.testVisibleAlignmentTrackID)
+    }
+
+    func testUnresolvedMetadataBuildsUnmatchedRowsInsteadOfCachingAggregateStats() async throws {
+        let vc = MappingResultViewController()
+        _ = vc.view
+        let bundleURL = try makeReferenceBundleWithAlignmentTracks(includeAmbiguousSampleMetadata: true)
+        let result = makeMappingResult(viewerBundleURL: bundleURL)
+        var filteredCallCount = 0
+        vc.setAlignmentTrackSummaryBuilderForTesting { bamURL, _, readGroups in
+            if bamURL.lastPathComponent == "filtered.bam" {
+                XCTAssertTrue(readGroups.isEmpty, "ambiguous persisted identity must not invent an RG filter")
+                filteredCallCount += 1
+                return [
+                    MappingContigSummary(
+                        contigName: "gamma", contigLength: 100, mappedReads: 4,
+                        mappedReadPercent: 100, meanDepth: 2, coverageBreadth: 0.5,
+                        medianMAPQ: 60, meanIdentity: 1
+                    )
+                ]
+            }
+            return []
+        }
+
+        vc.configureForTesting(result: result)
+        try await waitUntil { filteredCallCount >= 1 }
+        XCTAssertEqual(vc.testContigTableView.displayedRows.map(\.contigName), ["gamma"])
+        XCTAssertTrue(vc.testContigTableView.displayedRows.allSatisfy { $0.sampleID == nil })
+    }
+
+    func testRapidTrackAndAllAlignmentChangesDiscardSupersededRows() async throws {
+        let vc = MappingResultViewController()
+        _ = vc.view
+        let bundleURL = try makeReferenceBundleWithAlignmentTracks()
+        let result = makeMappingResult(viewerBundleURL: bundleURL)
+        vc.setAlignmentTrackSummaryBuilderForTesting { bamURL, _, _ in
+            if bamURL.lastPathComponent == "filtered.bam" {
+                try await Task.sleep(nanoseconds: 200_000_000)
+                return [
+                    MappingContigSummary(
+                        contigName: "gamma", contigLength: 100, mappedReads: 4,
+                        mappedReadPercent: 100, meanDepth: 2, coverageBreadth: 0.5,
+                        medianMAPQ: 60, meanIdentity: 1
+                    )
+                ]
+            }
+            try await Task.sleep(nanoseconds: 20_000_000)
+            return [
+                MappingContigSummary(
+                    contigName: "alpha", contigLength: 100, mappedReads: 10,
+                    mappedReadPercent: 100, meanDepth: 2, coverageBreadth: 0.5,
+                    medianMAPQ: 60, meanIdentity: 1
+                )
+            ]
+        }
+
+        vc.configureForTesting(result: result)
+        vc.applyEmbeddedReadDisplaySettings([
+            NotificationUserInfoKey.visibleAlignmentTrackID: "filtered-track"
+        ])
+        vc.applyEmbeddedReadDisplaySettings([
+            NotificationUserInfoKey.visibleAlignmentTrackID: ""
+        ])
+
+        try await waitUntil {
+            vc.testContigTableView.displayedRows.map(\.contigName) == ["alpha", "gamma"]
+        }
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(
+            vc.testContigTableView.displayedRows.map(\.contigName),
+            ["alpha", "gamma"],
+            "a late focused-track result must not replace the newer All Alignments rows"
+        )
+        XCTAssertNil(vc.testVisibleAlignmentTrackID)
     }
 
     func testConsensusExportUsesSelectedContigNameInSuggestedStem() throws {
@@ -1068,7 +1231,10 @@ final class MappingResultViewControllerTests: XCTestCase {
         return bundleURL
     }
 
-    private func makeReferenceBundleWithAlignmentTracks(includeSampleMetadata: Bool = false) throws -> URL {
+    private func makeReferenceBundleWithAlignmentTracks(
+        includeSampleMetadata: Bool = false,
+        includeAmbiguousSampleMetadata: Bool = false
+    ) throws -> URL {
         let bundleURL = tempDir.appendingPathComponent("alignment-tracks.lungfishref", isDirectory: true)
         let genomeURL = bundleURL.appendingPathComponent("genome", isDirectory: true)
         let alignmentsURL = bundleURL.appendingPathComponent("alignments", isDirectory: true)
@@ -1084,11 +1250,16 @@ final class MappingResultViewControllerTests: XCTestCase {
         try Data().write(to: filteredURL.appendingPathComponent("filtered.bam"))
         try Data().write(to: filteredURL.appendingPathComponent("filtered.bam.bai"))
         let metadataPath = "alignments/filtered/filtered.stats.db"
-        if includeSampleMetadata {
+        if includeSampleMetadata || includeAmbiguousSampleMetadata {
             let database = try AlignmentMetadataDatabase.create(at: bundleURL.appendingPathComponent(metadataPath))
-            database.addReadGroup(id: "S1-A", sample: "S1")
-            database.addReadGroup(id: "S1-B", sample: "S1")
-            database.addReadGroup(id: "S2-A", sample: "S2")
+            if includeAmbiguousSampleMetadata {
+                database.addReadGroup(id: "unresolved-rg", sample: nil)
+                database.addChromosomeStats(chromosome: "gamma", length: 100, mapped: 99, unmapped: 0)
+            } else {
+                database.addReadGroup(id: "S1-A", sample: "S1")
+                database.addReadGroup(id: "S1-B", sample: "S1")
+                database.addReadGroup(id: "S2-A", sample: "S2")
+            }
         }
 
         let manifest = BundleManifest(
@@ -1120,7 +1291,7 @@ final class MappingResultViewControllerTests: XCTestCase {
                     name: "Exact matches",
                     sourcePath: "alignments/filtered/filtered.bam",
                     indexPath: "alignments/filtered/filtered.bam.bai",
-                    metadataDBPath: includeSampleMetadata ? metadataPath : nil,
+                    metadataDBPath: (includeSampleMetadata || includeAmbiguousSampleMetadata) ? metadataPath : nil,
                     mappedReadCount: 4,
                     unmappedReadCount: 0
                 ),

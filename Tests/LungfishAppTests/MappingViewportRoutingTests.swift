@@ -353,6 +353,42 @@ final class MappingViewportRoutingTests: XCTestCase {
         XCTAssertEqual(viewport.testContigTableView.displayedRows.map(\.sampleID), ["S1"])
     }
 
+    func testSidebarMappingRouteUsesPersistedManifestSampleNameAliasForImportedMetadata() throws {
+        let bundleURL = try MappingRoutingFixture.makeReferenceBundle(
+            name: "Sidebar Manifest Alias",
+            chromosomes: [.init(name: "chr1", length: 100)]
+        )
+        defer { try? FileManager.default.removeItem(at: bundleURL.deletingLastPathComponent()) }
+        try MappingRoutingFixture.addSingleSampleAlignment(
+            to: bundleURL,
+            sampleID: "S1",
+            includeReadGroup: true,
+            includeChromosomeStats: true,
+            manifestSampleNames: ["subject-1"]
+        )
+        let resultURL = bundleURL.deletingLastPathComponent().appendingPathComponent(
+            "mapping-result", isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: resultURL, withIntermediateDirectories: true)
+        let result = MappingRoutingFixture.makeMappingResult(
+            resultDirectory: resultURL, viewerBundleURL: bundleURL
+        )
+        try result.save(to: resultURL)
+        let metadataURL = resultURL.appendingPathComponent("metadata/sample_metadata.tsv")
+        try FileManager.default.createDirectory(
+            at: metadataURL.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        try Data("Sample\tCohort\nsubject-1\tcase\n".utf8).write(to: metadataURL)
+
+        let split = MainSplitViewController(); split.loadViewIfNeeded()
+        split.displayMappingAnalysisFromSidebar(at: resultURL)
+        let context = try MappingRoutingFixture.waitForBAMMetadataContext(on: split)
+
+        XCTAssertEqual(context.identityIndex.canonicalSampleID(forMetadataIdentifier: "subject-1"), "S1")
+        XCTAssertEqual(context.sampleMetadataStore?.records["S1"]?["Cohort"], "case")
+        XCTAssertTrue(context.sampleMetadataStore?.unmatchedRecords.isEmpty ?? false)
+    }
+
     func testReferenceBundleRouteClearsInspectorBeforeManifestLoadAndWiresDirectInspectorState() throws {
         let mainWindowSource = combinedMainSplitViewControllerSource()
         let routeStart = try XCTUnwrap(
@@ -2682,7 +2718,8 @@ private enum MappingRoutingFixture {
         sampleID: String,
         trackID: String = "reads-track",
         includeReadGroup: Bool = true,
-        includeChromosomeStats: Bool = false
+        includeChromosomeStats: Bool = false,
+        manifestSampleNames: [String]? = nil
     ) throws {
         let alignmentsURL = bundleURL.appendingPathComponent("alignments", isDirectory: true)
         try FileManager.default.createDirectory(at: alignmentsURL, withIntermediateDirectories: true)
@@ -2708,7 +2745,7 @@ private enum MappingRoutingFixture {
                 metadataDBPath: metadataPath,
                 mappedReadCount: 1,
                 unmappedReadCount: 0,
-                sampleNames: includeReadGroup ? [] : [sampleID]
+                sampleNames: manifestSampleNames ?? (includeReadGroup ? [] : [sampleID])
         )
         let updatedManifest = BundleManifest(
             formatVersion: manifest.formatVersion,
