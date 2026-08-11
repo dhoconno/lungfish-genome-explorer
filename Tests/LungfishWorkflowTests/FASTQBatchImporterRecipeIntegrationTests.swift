@@ -336,11 +336,11 @@ final class FASTQBatchImporterRecipeIntegrationTests: XCTestCase {
             .array([
                 .dictionary([
                     "typeID": .string("fastp-dedup"),
-                    "displayName": .string("PCR Duplicate Removal"),
+                    "displayName": .string("Remove PCR duplicates"),
                 ]),
                 .dictionary([
                     "typeID": .string("fastp-trim"),
-                    "displayName": .string("Adapter + Quality Trim"),
+                    "displayName": .string("Adapter + quality trim"),
                 ]),
             ])
         )
