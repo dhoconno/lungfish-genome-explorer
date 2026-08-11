@@ -371,6 +371,7 @@ public final class ReadStyleSectionViewModel {
         latestDerivedAlignmentMessage = nil
         latestMappedReadsAnnotationMessage = nil
         selectedRead = nil
+        onSettingsChanged = nil
         resetAlignmentFilterState()
         resetMappedReadsAnnotationState()
         primerTrimProvenance = nil

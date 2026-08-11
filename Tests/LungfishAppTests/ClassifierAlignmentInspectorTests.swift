@@ -89,6 +89,13 @@ final class ClassifierAlignmentInspectorTests: XCTestCase {
         XCTAssertEqual(inspector.readStyleSectionViewModel.classifierEvidenceCapabilities?.referenceValidation, .structural)
         XCTAssertEqual(inspector.readStyleSectionViewModel.classifierEvidenceCapabilities?.availability(of: .referenceMismatch), .available)
         XCTAssertEqual(inspector.readStyleSectionViewModel.selectedVisibleAlignmentTrackID, "classifier:S1")
+        let available = try XCTUnwrap(inspector.readStyleSectionViewModel.classifierEvidenceCapabilities)
+        XCTAssertEqual(available.bamSnapshot, .init(size: 1, sha256: "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a"))
+        XCTAssertEqual(available.indexSnapshot, .init(size: 1, sha256: "dbc1b4c900ffe48d575b5da5c638040125f65db0fe3e24494b76ea986457d986"))
+        XCTAssertEqual(available.referenceSnapshot, .init(size: 12, sha256: "79616796334dab0b5d194a9afd1ea936cbbc100acd5958f338d3ac5c7a7db30d"))
+        XCTAssertTrue(available.inventoryRows.contains("BAM snapshot: 1 bytes • 4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a"))
+        XCTAssertTrue(available.inventoryRows.contains("Index snapshot: 1 bytes • dbc1b4c900ffe48d575b5da5c638040125f65db0fe3e24494b76ea986457d986"))
+        XCTAssertTrue(available.inventoryRows.contains("Reference snapshot: 12 bytes • 79616796334dab0b5d194a9afd1ea936cbbc100acd5958f338d3ac5c7a7db30d"))
         inspector.readStyleSectionViewModel.selectedRead = AlignedRead(name: "selected", flag: 0, chromosome: "virus", position: 0, mapq: 60, cigar: [.init(op: .match, length: 4)], sequence: "ACTG", qualities: [30, 30, 30, 30])
 
         let reason = "Classifier alignment evidence changed on disk: final.bam."
@@ -135,6 +142,13 @@ final class ClassifierAlignmentInspectorTests: XCTestCase {
         XCTAssertTrue(inspector.viewModel.availableTabs.contains(.analysis))
         controller.clear()
         XCTAssertNil(inspector.readStyleSectionViewModel.classifierEvidenceCapabilities)
+        XCTAssertNil(inspector.readStyleSectionViewModel.onSettingsChanged)
+        XCTAssertNil(inspector.viewModel.documentSectionViewModel.visibleAlignmentTrackID)
+        XCTAssertEqual(inspector.viewModel.contentMode, .empty)
+        XCTAssertEqual(inspector.viewModel.selectedTab, .bundle)
+        inspector.readStyleSectionViewModel.minMapQ = 47
+        inspector.readStyleSectionViewModel.onSettingsChanged?()
+        XCTAssertEqual(controller.viewer.viewerView.minMapQSetting, 0)
     }
     func testReferenceFreeCapabilityMatrixDisablesReferenceAndOutputOperations() {
         let capabilities = ClassifierAlignmentInspectorCapabilities.detachedEvidence(

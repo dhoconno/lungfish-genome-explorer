@@ -9,6 +9,12 @@ import LungfishKit
 /// No wrapper bundle is created and `clear` only clears in-memory display state.
 @MainActor
 final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierAlignmentViewerProviding {
+    private struct InspectorSnapshots {
+        let bam: ClassifierAlignmentEvidenceFileSnapshot
+        let index: ClassifierAlignmentEvidenceFileSnapshot
+        let reference: ClassifierAlignmentEvidenceFileSnapshot?
+    }
+
     enum Availability: Equatable {
         case idle
         case loading
@@ -123,7 +129,15 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
                 }
                 availability = .available(reference: validated.reference.status, reason: validated.reference.reason)
                 status = .available(referenceStrength: referenceStrengthText(validated.reference.status), reason: validated.reference.reason)
-                publishInspectorCapabilities(reference: inspectorReferenceValidation(validated.reference), readGroups: validated.readGroups.map { .init(id: $0.id, sample: $0.sample) })
+                publishInspectorCapabilities(
+                    reference: inspectorReferenceValidation(validated.reference),
+                    readGroups: validated.readGroups.map { .init(id: $0.id, sample: $0.sample) },
+                    snapshots: .init(
+                        bam: validated.bamSnapshot,
+                        index: validated.indexSnapshot,
+                        reference: validated.referenceSnapshot
+                    )
+                )
             } catch {
                 guard !Task.isCancelled, currentGeneration == generation else { return }
                 viewer.viewerView.clearReferenceBundle()
@@ -168,18 +182,24 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
 
     private func publishInspectorCapabilities(
         reference: ClassifierAlignmentInspectorCapabilities.ReferenceValidation,
-        readGroups: [ClassifierAlignmentInspectorCapabilities.ReadGroup]
+        readGroups: [ClassifierAlignmentInspectorCapabilities.ReadGroup],
+        snapshots: InspectorSnapshots? = nil
     ) {
         guard let request = activeRequest else { inspectorCapabilities = nil; return }
+        let referenceSnapshot = if let snapshots {
+            snapshots.reference
+        } else {
+            request.referenceCandidate?.expectedSnapshot
+        }
         inspectorCapabilities = .detachedEvidence(
             workflow: request.presentation.workflowLabel, result: request.presentation.resultLabel,
             sample: request.presentation.sampleLabel, contig: request.presentation.contigLabel,
             bamPath: request.bamURL.path, indexPath: request.index.url.path,
             referenceValidation: reference, readGroups: readGroups, status: status,
             referencePath: request.referenceCandidate?.fastaURL.path,
-            bamSnapshot: request.bamExpectedSnapshot,
-            indexSnapshot: request.index.expectedSnapshot,
-            referenceSnapshot: request.referenceCandidate?.expectedSnapshot,
+            bamSnapshot: snapshots?.bam ?? request.bamExpectedSnapshot,
+            indexSnapshot: snapshots?.index ?? request.index.expectedSnapshot,
+            referenceSnapshot: referenceSnapshot,
             provenanceID: request.resultIdentity.provenanceID
         )
     }
