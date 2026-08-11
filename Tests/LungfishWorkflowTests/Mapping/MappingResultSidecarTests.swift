@@ -88,4 +88,23 @@ final class MappingResultSidecarTests: XCTestCase {
         XCTAssertEqual(loaded.unmappedReads, 5)
         XCTAssertTrue(loaded.contigs.isEmpty)
     }
+
+    func testContigSummaryEncodesReadGroupIDsInSortedOrder() throws {
+        let summary = MappingContigSummary(
+            sampleID: "S1",
+            alignmentTrackID: "track-a",
+            readGroupIDs: ["rg-z", "rg-a", "rg-m"],
+            contigName: "chr1",
+            contigLength: 100,
+            mappedReads: 3,
+            mappedReadPercent: 100,
+            meanDepth: 1,
+            coverageBreadth: 1,
+            medianMAPQ: 60,
+            meanIdentity: 1
+        )
+
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(summary)) as? [String: Any])
+        XCTAssertEqual(object["readGroupIDs"] as? [String], ["rg-a", "rg-m", "rg-z"])
+    }
 }

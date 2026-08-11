@@ -64,4 +64,30 @@ final class BAMSampleIdentityResolverTests: XCTestCase {
         XCTAssertNil(resolver.identityIndex.canonicalSampleID(forMetadataIdentifier: "track-1"))
         XCTAssertEqual(resolver.identityIndex.canonicalSampleID(forAlignmentTrackID: "track-2"), "S2")
     }
+
+    func testMergeUnionsAllExplicitAliasesWithEquivalentNormalizedCanonicalKeys() {
+        let merged = BAMSampleIdentityResolver.merge(
+            [
+                SampleIdentity(
+                    canonicalID: "S1",
+                    aliases: [],
+                    alignmentTrackIDs: ["track-1"],
+                    readGroupIDs: ["rg-1"]
+                ),
+            ],
+            aliases: [
+                " S1 ": ["subject-a"],
+                "s1": ["subject-b"],
+            ]
+        )
+
+        XCTAssertEqual(merged, [
+            SampleIdentity(
+                canonicalID: "S1",
+                aliases: ["subject-a", "subject-b"],
+                alignmentTrackIDs: ["track-1"],
+                readGroupIDs: ["rg-1"]
+            ),
+        ])
+    }
 }

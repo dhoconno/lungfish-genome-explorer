@@ -79,6 +79,24 @@ public struct MappingContigSummary: Sendable, Codable, Equatable {
         medianMAPQ = try container.decode(Double.self, forKey: .medianMAPQ)
         meanIdentity = try container.decode(Double.self, forKey: .meanIdentity)
     }
+
+    /// Persist read-group predicates in a stable order so mapping-result
+    /// sidecars are reproducible even though callers naturally use a Set for
+    /// selection and lookup.
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(sampleID, forKey: .sampleID)
+        try container.encodeIfPresent(alignmentTrackID, forKey: .alignmentTrackID)
+        try container.encode(readGroupIDs.sorted(), forKey: .readGroupIDs)
+        try container.encode(contigName, forKey: .contigName)
+        try container.encode(contigLength, forKey: .contigLength)
+        try container.encode(mappedReads, forKey: .mappedReads)
+        try container.encode(mappedReadPercent, forKey: .mappedReadPercent)
+        try container.encode(meanDepth, forKey: .meanDepth)
+        try container.encode(coverageBreadth, forKey: .coverageBreadth)
+        try container.encode(medianMAPQ, forKey: .medianMAPQ)
+        try container.encode(meanIdentity, forKey: .meanIdentity)
+    }
 }
 
 public struct MappingResult: Sendable, Codable, Equatable {

@@ -99,7 +99,10 @@ struct BAMSampleIdentityResolver {
         }
 
         return mergedByKey.values.map { identity in
-            let explicitAliases = aliases.first { normalized($0.key) == normalized(identity.canonicalID) }?.value ?? []
+            let explicitAliases = aliases
+                .filter { normalized($0.key) == normalized(identity.canonicalID) }
+                .values
+                .flatMap { $0 }
             return SampleIdentity(
                 canonicalID: identity.canonicalID,
                 aliases: Array(Set(identity.aliases).union(explicitAliases)).sorted(),
