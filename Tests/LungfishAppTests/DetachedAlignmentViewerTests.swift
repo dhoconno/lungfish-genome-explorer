@@ -284,6 +284,42 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         await gate.release(second.bamURL)
     }
 
+    func testClearCancelsPendingValidationAndPreventsLaterStatusOrInspectorPublication() async throws {
+        let files = try DetachedEvidenceFiles()
+        let request = try files.request("navigation-pending")
+        let gate = DetachedHeaderGate()
+        let validator = ClassifierAlignmentEvidenceValidator(
+            headerReader: { url in
+                await gate.wait(for: url)
+                if Task.isCancelled {
+                    await gate.recordCancellation(url)
+                    throw CancellationError()
+                }
+                return "@SQ\tSN:chr1\tLN:4\n"
+            }, indexQuery: { _, _, _ in }, fileManager: .default
+        )
+        let controller = ClassifierAlignmentEvidenceViewportController(validator: validator)
+        var statuses: [ClassifierAlignmentViewerStatus] = []
+        var capabilities: [ClassifierAlignmentInspectorCapabilities?] = []
+        controller.onStatusChanged = { statuses.append($0) }
+        controller.onInspectorCapabilitiesChanged = { capabilities.append($0) }
+
+        controller.display(request)
+        await gate.waitUntilEntered(request.bamURL)
+        controller.clear()
+        XCTAssertEqual(controller.status, .idle)
+        XCTAssertNil(controller.inspectorCapabilities)
+        await gate.release(request.bamURL)
+        for _ in 0..<20 { await Task.yield() }
+
+        let cancelled = await gate.cancelledURLs()
+        XCTAssertEqual(cancelled, [request.bamURL])
+        XCTAssertEqual(controller.status, .idle)
+        XCTAssertNil(controller.inspectorCapabilities)
+        XCTAssertEqual(statuses.last, .idle)
+        XCTAssertNil(capabilities.last!)
+    }
+
     func testSameSizeRestoredMTimeReplacementIsDetectedByEvidenceMonitor() async throws {
         let files = try DetachedEvidenceFiles()
         let request = try files.request("changed")
