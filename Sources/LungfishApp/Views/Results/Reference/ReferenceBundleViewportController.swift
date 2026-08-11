@@ -180,6 +180,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
 
     public func applySampleMetadata(_ store: SampleMetadataStore?) {
         contigTableView.metadataColumns.update(store: store, sampleId: nil)
+        sequenceTableView.metadataColumns.update(store: store, sampleId: nil)
     }
 
     private func setupSummaryBar() {
@@ -307,7 +308,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         }
 
         sequenceTableView.onRowSelected = { [weak self] row in
-            self?.displaySelectedSequence(row.summary)
+            self?.displaySelectedSequence(row)
         }
         sequenceTableView.onSelectionCleared = { [weak self] in
             self?.showDetailPlaceholder("Select a sequence to inspect.")
@@ -544,7 +545,11 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
             manifest: manifest,
             summaries: loadResult.summary.sequences
         )
-        sequenceRows = tableContent.rows
+        sequenceRows = directRows(
+            from: tableContent.rows,
+            manifest: manifest,
+            bundleURL: bundleURL
+        )
         usesRecordStoreTable = manifest.recordStore != nil
         recordStoreWarning = tableContent.warning
         updateSummaryBar()
@@ -948,6 +953,19 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         }
     }
 
+    private func displaySelectedSequence(_ row: ReferenceBundleRecordRow) {
+        if let alignmentTrackID = row.alignmentTrackID {
+            var settings: [AnyHashable: Any] = [
+                NotificationUserInfoKey.visibleAlignmentTrackID: alignmentTrackID
+            ]
+            if !row.readGroupIDs.isEmpty {
+                settings[NotificationUserInfoKey.selectedReadGroups] = row.readGroupIDs
+            }
+            embeddedViewerController.applyReadDisplaySettings(settings)
+        }
+        displaySelectedSequence(row.summary)
+    }
+
     private func displaySelectedSequence(_ selectedSequence: BundleBrowserSequenceSummary) {
         guard let bundleURL = currentInput?.renderedBundleURL else {
             showDetailPlaceholder("Reference bundle viewer unavailable for this mapping result.")
@@ -1017,7 +1035,40 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     private func selectSequence(at row: Int) {
         guard row >= 0, row < sequenceTableView.displayedRows.count else { return }
         sequenceTableView.tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-        displaySelectedSequence(sequenceTableView.displayedRows[row].summary)
+        displaySelectedSequence(sequenceTableView.displayedRows[row])
+    }
+
+    /// Direct reference bundles normally show one row per sequence. If a
+    /// persisted alignment metadata database resolves samples, expand that
+    /// list to explicit sample × sequence × track rows. The resolver is the
+    /// sole source of sample identity; tracks with no resolved sample remain
+    /// as unbound reference rows rather than inheriting a filename-derived
+    /// identity.
+    private func directRows(
+        from baseRows: [ReferenceBundleRecordRow],
+        manifest: BundleManifest,
+        bundleURL: URL
+    ) -> [ReferenceBundleRecordRow] {
+        let bindings = manifest.alignments.flatMap { track -> [(String, String, Set<String>)] in
+            guard let resolution = sampleIdentityResolution(for: track, bundleURL: bundleURL) else {
+                return []
+            }
+            return resolution.identityIndex.canonicalSampleIDs.sorted().map { sampleID in
+                (sampleID, track.id, resolution.identityIndex.readGroupIDs(forCanonicalSampleID: sampleID))
+            }
+        }
+        guard !bindings.isEmpty else { return baseRows }
+        return bindings.flatMap { sampleID, trackID, readGroupIDs in
+            baseRows.map { row in
+                ReferenceBundleRecordRow(
+                    summary: row.summary,
+                    values: row.values,
+                    sampleID: sampleID,
+                    alignmentTrackID: trackID,
+                    readGroupIDs: readGroupIDs
+                )
+            }
+        }
     }
 
     private func applyOriginalMappingRows(preferredSelectionName: String?) {
@@ -1460,6 +1511,7 @@ extension ReferenceBundleViewportController {
     var testRecordTableColumnIdentifiers: [String] {
         sequenceTableView.tableView.tableColumns.map(\.identifier.rawValue)
     }
+    var testSequenceTableView: ReferenceBundleRecordTable { sequenceTableView }
     var testContigTableView: MappingContigTableView { contigTableView }
     var testDetailPlaceholderMessage: String { detailPlaceholderLabel.stringValue }
     var testEmbeddedViewerPublishesGlobalViewportNotifications: Bool {
@@ -1485,6 +1537,13 @@ extension ReferenceBundleViewportController {
 
     func testSelectSequence(named name: String) {
         _ = selectSequence(named: name)
+    }
+
+    func testSelectSequence(sampleID: String, named name: String) {
+        guard let row = sequenceTableView.displayedRows.firstIndex(where: {
+            $0.sampleID == sampleID && $0.summary.name == name
+        }) else { return }
+        selectSequence(at: row)
     }
 
     func testEnterFocusedDetailMode() {
@@ -1540,5 +1599,7 @@ extension ReferenceBundleViewportController {
     }
 
     var testSelectedReadGroups: Set<String> { embeddedViewerController.viewerView.selectedReadGroupsSetting }
+    var testVisibleAlignmentTrackID: String? { embeddedViewerController.viewerView.visibleAlignmentTrackIDSetting }
+    var testDisplayedSequenceSampleIDs: [String?] { sequenceTableView.displayedRows.map(\.sampleID) }
 }
 #endif

@@ -10,6 +10,27 @@ import LungfishKit
 struct ReferenceBundleRecordRow: Sendable, Equatable {
     let summary: BundleBrowserSequenceSummary
     let values: [String: String]
+    /// Direct reference bundles have sequence rows rather than per-sample
+    /// result rows. When persisted BAM metadata resolves exactly one sample,
+    /// the owning viewport supplies it here so the standard metadata-column
+    /// controller can render that result-scoped sample on every sequence row.
+    let sampleID: String?
+    let alignmentTrackID: String?
+    let readGroupIDs: Set<String>
+
+    init(
+        summary: BundleBrowserSequenceSummary,
+        values: [String: String],
+        sampleID: String? = nil,
+        alignmentTrackID: String? = nil,
+        readGroupIDs: Set<String> = []
+    ) {
+        self.summary = summary
+        self.values = values
+        self.sampleID = sampleID
+        self.alignmentTrackID = alignmentTrackID
+        self.readGroupIDs = readGroupIDs
+    }
 }
 
 @MainActor
@@ -35,7 +56,9 @@ final class ReferenceBundleRecordTable: BatchTableView<ReferenceBundleRecordRow>
     }
 
     override var columnSpecs: [BatchColumnSpec] {
-        let fixed: [BatchColumnSpec] = [
+        let fixed: [BatchColumnSpec] = (displaysSamples ? [
+            .init(identifier: .init("sample"), title: "Sample", width: 130, minWidth: 90, defaultAscending: true),
+        ] : []) + [
             .init(identifier: .init("sequence"), title: "Sequence", width: 220, minWidth: 140, defaultAscending: true),
             .init(identifier: .init("length"), title: "Length", width: 100, minWidth: 80, defaultAscending: false),
             .init(identifier: .init("role"), title: "Role", width: 100, minWidth: 80, defaultAscending: true),
@@ -52,6 +75,8 @@ final class ReferenceBundleRecordTable: BatchTableView<ReferenceBundleRecordRow>
         }
     }
 
+    private var displaysSamples = false
+
     override var searchPlaceholder: String { "Filter records\u{2026}" }
     override var searchAccessibilityIdentifier: String? { "reference-bundle-sequence-search" }
     override var searchAccessibilityLabel: String? { "Filter reference records" }
@@ -66,6 +91,7 @@ final class ReferenceBundleRecordTable: BatchTableView<ReferenceBundleRecordRow>
 
     override var columnTypeHints: [String: Bool] {
         var hints = ["sequence": false, "length": true, "role": false]
+        if displaysSamples { hints["sample"] = false }
         for field in dynamicFields {
             hints[Self.columnIdentifier(for: field.key)] = isNumeric(field)
         }
@@ -91,6 +117,7 @@ final class ReferenceBundleRecordTable: BatchTableView<ReferenceBundleRecordRow>
         dynamicFields: [GenBankRecordDatabase.FieldDefinition],
         rows: [ReferenceBundleRecordRow]
     ) {
+        displaysSamples = rows.contains { $0.sampleID != nil }
         self.dynamicFields = dynamicFields.sorted { lhs, rhs in
             if lhs.preferredOrder != rhs.preferredOrder {
                 return lhs.preferredOrder < rhs.preferredOrder
@@ -118,7 +145,9 @@ final class ReferenceBundleRecordTable: BatchTableView<ReferenceBundleRecordRow>
     ) -> (text: String, alignment: NSTextAlignment, font: NSFont?) {
         let numeric = column.rawValue == "length" || numericDynamicColumnIdentifiers.contains(column.rawValue)
         let displayText: String
-        if column.rawValue == "sequence", let bundleDisplayName {
+        if column.rawValue == "sample" {
+            displayText = row.sampleID ?? "—"
+        } else if column.rawValue == "sequence", let bundleDisplayName {
             // Primary line shows the bundle's user-facing name; the
             // underlying sequence/contig name moves to the dimmed secondary
             // line (see `secondaryCellText`). `columnValue(for:"sequence")`
@@ -151,6 +180,8 @@ final class ReferenceBundleRecordTable: BatchTableView<ReferenceBundleRecordRow>
 
     override func columnValue(for columnId: String, row: ReferenceBundleRecordRow) -> String {
         switch columnId {
+        case "sample":
+            return row.sampleID ?? ""
         case "sequence":
             return row.summary.name
         case "length":
@@ -178,7 +209,8 @@ final class ReferenceBundleRecordTable: BatchTableView<ReferenceBundleRecordRow>
     override func rowMatchesFilter(_ row: ReferenceBundleRecordRow, filterText: String) -> Bool {
         let query = filterText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return true }
-        if row.summary.name.localizedCaseInsensitiveContains(query)
+        if (row.sampleID?.localizedCaseInsensitiveContains(query) == true)
+            || row.summary.name.localizedCaseInsensitiveContains(query)
             || (row.summary.displayDescription?.localizedCaseInsensitiveContains(query) == true)
             || row.summary.aliases.contains(where: { $0.localizedCaseInsensitiveContains(query) })
             || String(row.summary.length).localizedCaseInsensitiveContains(query)
@@ -204,6 +236,8 @@ final class ReferenceBundleRecordTable: BatchTableView<ReferenceBundleRecordRow>
                 columnNumericValue(for: key, row: lhs),
                 columnNumericValue(for: key, row: rhs)
             )
+        } else if key == "sample" {
+            comparison = (lhs.sampleID ?? "").localizedCaseInsensitiveCompare(rhs.sampleID ?? "")
         } else {
             comparison = columnValue(for: key, row: lhs)
                 .localizedStandardCompare(columnValue(for: key, row: rhs))
@@ -217,7 +251,12 @@ final class ReferenceBundleRecordTable: BatchTableView<ReferenceBundleRecordRow>
     }
 
     override func rowIdentity(for row: ReferenceBundleRecordRow) -> String? {
-        row.summary.name
+        [row.sampleID ?? "unmatched", row.alignmentTrackID ?? "reference", row.summary.name]
+            .joined(separator: "\u{1F}")
+    }
+
+    override func sampleId(for row: ReferenceBundleRecordRow) -> String? {
+        row.sampleID
     }
 
     override func didApplyDisplayedRows() {

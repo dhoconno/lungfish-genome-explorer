@@ -114,6 +114,7 @@ extension MainSplitViewController {
         }
         classifierMetadataPresentationContext = nil
         classifierMetadataPresentationConsumerToken = nil
+        classifierAlignmentEvidenceViewport?.bindSampleMetadataPresentation(nil)
         inspectorController?.clearClassifierSampleMetadataState()
     }
 
@@ -165,6 +166,7 @@ extension MainSplitViewController {
         )
         classifierMetadataPresentationContext = context
         classifierMetadataPresentationConsumerToken = context.observe(consumer)
+        classifierAlignmentEvidenceViewport?.bindSampleMetadataPresentation(context)
         inspectorController?.updateClassifierSampleState(
             pickerState: pickerState,
             entries: entries,

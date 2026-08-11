@@ -389,6 +389,11 @@ public class MainSplitViewController: NSSplitViewController {
     var bamMetadataPresentationContext: SampleMetadataPresentationContext?
     var bamMetadataPresentationConsumerToken: SampleMetadataPresentationContext.ObserverToken?
 
+    /// The active detached classifier evidence viewport is a presentation
+    /// child of this window, not a second result store. Keep only a weak
+    /// reference so callers still own its lifetime.
+    weak var classifierAlignmentEvidenceViewport: ClassifierAlignmentEvidenceViewportController?
+
     /// Composition-root factory for classifier adapters.  Leaf classifier
     /// modules receive only the Kit protocol; this App-owned factory binds the
     /// detached viewport to this window's Inspector.
@@ -396,6 +401,8 @@ public class MainSplitViewController: NSSplitViewController {
         let controller = ClassifierAlignmentEvidenceViewportController()
         controller.viewer.windowStateScope = windowStateScope
         controller.bindInspector(inspectorController)
+        controller.bindSampleMetadataPresentation(classifierMetadataPresentationContext)
+        classifierAlignmentEvidenceViewport = controller
         return controller
     }
 

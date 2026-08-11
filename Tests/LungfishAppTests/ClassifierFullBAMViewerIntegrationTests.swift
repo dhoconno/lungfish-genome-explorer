@@ -1,5 +1,7 @@
 import XCTest
 @testable import LungfishApp
+@testable import LungfishEsVirituUI
+import LungfishCore
 import LungfishKit
 
 @MainActor
@@ -11,6 +13,36 @@ final class ClassifierFullBAMViewerIntegrationTests: XCTestCase {
         let provider = split.makeClassifierAlignmentEvidenceViewport()
 
         XCTAssertEqual(provider.viewer.windowStateScope, split.windowStateScope)
+    }
+
+    func testDetachedEvidenceProviderSharesTheParentClassifierMetadataContext() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("classifier-detached-context-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let split = MainSplitViewController()
+        split.loadViewIfNeeded()
+        let provider = split.makeClassifierAlignmentEvidenceViewport()
+        let consumer = EsVirituResultViewController()
+        let entry = EsVirituResultViewController.EsVirituSampleEntry(
+            id: "S1", displayName: "S1", detectedVirusCount: 1
+        )
+
+        split.installClassifierMetadataPresentation(
+            resultURL: root,
+            pickerState: ClassifierSamplePickerState(allSamples: ["S1"]),
+            entries: [entry],
+            strippedPrefix: "",
+            workflowName: "EsViritu",
+            consumer: consumer
+        )
+
+        let context = try XCTUnwrap(split.classifierMetadataPresentationContext)
+        XCTAssertTrue(provider.testSampleMetadataPresentationContext === context)
+        XCTAssertTrue(
+            split.inspectorController.viewModel.documentSectionViewModel.sampleMetadataPresentationContext === context
+        )
     }
 
     func testMissingEvidenceDoesNotCreateAReferenceBundleOrWriteFiles() throws {

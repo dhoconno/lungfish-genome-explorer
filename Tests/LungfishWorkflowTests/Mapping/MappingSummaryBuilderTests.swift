@@ -5,6 +5,51 @@ import LungfishCore
 
 final class MappingSummaryBuilderTests: XCTestCase {
 
+    func testBuildUsesRealReadGroupPipeAndSampleSpecificDenominator() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mapping-summary-rg-pipe-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bin = root.appendingPathComponent(".lungfish/conda/envs/samtools/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let log = root.appendingPathComponent("samtools.log")
+        let samtools = bin.appendingPathComponent("samtools")
+        try """
+        #!/bin/bash
+        echo "$*" >> "\(log.path)"
+        if [[ "$1 $2" == "view -c" ]]; then echo 4; exit 0; fi
+        if [[ "$1" == "view" ]]; then
+          if [[ "$2" == "-R" ]]; then rg_list="$3"; elif [[ "$3" == "-R" ]]; then rg_list="$4"; else exit 91; fi
+          grep -qx 'S1-A' "$rg_list" || exit 94
+          grep -qx 'S1-B' "$rg_list" || exit 95
+          printf '@HD\\tVN:1.6\\n'
+          printf 'r1\\t0\\tchr1\\t1\\t60\\t10M\\t*\\t0\\t0\\tAAAAAAAAAA\\t*\\tNM:i:0\\n'
+          exit 0
+        fi
+        if [[ "$1" == "coverage" && "$2" == "-" ]]; then
+          IFS= read -r header
+          [[ "$header" == @HD* ]] || exit 92
+          cat >/dev/null
+          printf '#rname\\tstartpos\\tendpos\\tnumreads\\tcovbases\\tcoverage\\tmeandepth\\tmeanbaseq\\tmeanmapq\\n'
+          printf 'chr1\\t1\\t100\\t1\\t10\\t10.0\\t0.1\\t30\\t60\\n'
+          exit 0
+        fi
+        exit 93
+        """.write(to: samtools, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: samtools.path)
+        let bam = root.appendingPathComponent("input.bam")
+        try Data().write(to: bam)
+        let summaries = try await MappingSummaryBuilder.build(
+            sortedBAMURL: bam, totalReads: 99, readGroupIDs: ["S1-A", "S1-B"],
+            runner: NativeToolRunner(toolsDirectory: nil, homeDirectory: root), timeout: 2
+        )
+        XCTAssertEqual(try XCTUnwrap(summaries.first).mappedReadPercent, 25, accuracy: 0.001)
+        let invocationLog = try String(contentsOf: log, encoding: .utf8)
+        XCTAssertTrue(invocationLog.contains("view -h -R"))
+        XCTAssertTrue(invocationLog.contains("coverage -"))
+        XCTAssertTrue(invocationLog.contains("view -c -R"))
+    }
+
     func testBuildSummariesCombinesCoverageAndIdentityMetrics() throws {
         let coverageOutput = """
         #rname\tstartpos\tendpos\tnumreads\tcovbases\tcoverage\tmeandepth\tmeanbaseq\tmeanmapq

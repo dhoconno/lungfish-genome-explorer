@@ -6,6 +6,7 @@ import XCTest
 @testable import LungfishCore
 @testable import LungfishIO
 @testable import LungfishWorkflow
+import LungfishKit
 
 @MainActor
 final class MappingViewportRoutingTests: XCTestCase {
@@ -181,6 +182,94 @@ final class MappingViewportRoutingTests: XCTestCase {
         XCTAssertEqual(viewportController.currentInput?.renderedBundleURL, bundleURL.standardizedFileURL)
         XCTAssertNil(vc.referenceFrame)
         XCTAssertNil(vc.chromosomeNavigatorView)
+    }
+
+    func testDirectReferenceBAMRouteInstallsOneContextAndPublishesGenericImportsToListAndReopen() throws {
+        let bundleURL = try MappingRoutingFixture.makeReferenceBundle(
+            name: "Direct BAM Metadata",
+            chromosomes: [.init(name: "chr1", length: 100)]
+        )
+        defer { try? FileManager.default.removeItem(at: bundleURL.deletingLastPathComponent()) }
+        try MappingRoutingFixture.addSingleSampleAlignment(to: bundleURL, sampleID: "S1")
+
+        let split = MainSplitViewController()
+        split.loadViewIfNeeded()
+        split.displayReferenceBundleViewportFromSidebar(at: bundleURL)
+        let firstContext = try MappingRoutingFixture.waitForBAMMetadataContext(on: split)
+        let viewport = try XCTUnwrap(split.viewerController.referenceBundleViewportController)
+
+        XCTAssertTrue(
+            split.inspectorController.viewModel.documentSectionViewModel.sampleMetadataPresentationContext === firstContext
+        )
+        XCTAssertEqual(firstContext.identityIndex.canonicalSampleIDs, ["S1"])
+
+        let importURL = bundleURL.deletingLastPathComponent().appendingPathComponent("samples.tsv")
+        try "Sample\tCohort\nS1\tcase\n".write(to: importURL, atomically: true, encoding: .utf8)
+        try split.inspectorController.testingImportMetadata(from: importURL)
+        XCTAssertEqual(firstContext.sampleMetadataStore?.records["S1"]?["Cohort"], "case")
+
+        let table = try XCTUnwrap(viewport.testSequenceTableView.tableView)
+        let headerMenu = try XCTUnwrap(table.headerView?.menu)
+        let cohortItem = try XCTUnwrap(headerMenu.items.firstIndex {
+            ($0.representedObject as? String) == "Cohort"
+        })
+        headerMenu.performActionForItem(at: cohortItem)
+        XCTAssertTrue(viewport.testRecordTableColumnIdentifiers.contains("metadata_Cohort"))
+        let cohortColumn = table.column(withIdentifier: .init("metadata_Cohort"))
+        XCTAssertGreaterThanOrEqual(cohortColumn, 0)
+        let cell = table.view(atColumn: cohortColumn, row: 0, makeIfNecessary: true) as? NSTableCellView
+        XCTAssertEqual(cell?.textField?.stringValue, "case")
+
+        let reopened = MainSplitViewController()
+        reopened.loadViewIfNeeded()
+        reopened.displayReferenceBundleViewportFromSidebar(at: bundleURL)
+        let reopenedContext = try MappingRoutingFixture.waitForBAMMetadataContext(on: reopened)
+        XCTAssertEqual(reopenedContext.sampleMetadataStore?.records["S1"]?["Cohort"], "case")
+
+        let replacementURL = try MappingRoutingFixture.makeReferenceBundle(
+            name: "Replacement BAM Metadata",
+            chromosomes: [.init(name: "chr2", length: 100)]
+        )
+        defer { try? FileManager.default.removeItem(at: replacementURL.deletingLastPathComponent()) }
+        try MappingRoutingFixture.addSingleSampleAlignment(to: replacementURL, sampleID: "S2")
+        split.displayReferenceBundleViewportFromSidebar(at: replacementURL)
+        let replacementContext = try MappingRoutingFixture.waitForBAMMetadataContext(on: split, excluding: firstContext)
+        let replacementViewport = try XCTUnwrap(split.viewerController.referenceBundleViewportController)
+        XCTAssertFalse(replacementContext === firstContext)
+        XCTAssertEqual(replacementContext.identityIndex.canonicalSampleIDs, ["S2"])
+        firstContext.updateSampleMetadataStore(try SampleMetadataStore(
+            csvData: Data("Sample\tCohort\nS1\tstale\n".utf8), knownSampleIds: ["S1"]
+        ))
+        XCTAssertNil(replacementViewport.testSequenceTableView.metadataColumns.store)
+    }
+
+    func testDirectReferenceBAMRouteExpandsTwoTracksIntoTruthfulSampleRowsAndSelection() throws {
+        let bundleURL = try MappingRoutingFixture.makeReferenceBundle(
+            name: "Direct Multi BAM Metadata",
+            chromosomes: [.init(name: "chr1", length: 100), .init(name: "chr2", length: 100)]
+        )
+        defer { try? FileManager.default.removeItem(at: bundleURL.deletingLastPathComponent()) }
+        try MappingRoutingFixture.addSingleSampleAlignment(
+            to: bundleURL, sampleID: "S1", trackID: "reads-s1"
+        )
+        try MappingRoutingFixture.addSingleSampleAlignment(
+            to: bundleURL, sampleID: "S2", trackID: "reads-s2"
+        )
+
+        let split = MainSplitViewController()
+        split.loadViewIfNeeded()
+        split.displayReferenceBundleViewportFromSidebar(at: bundleURL)
+        let context = try MappingRoutingFixture.waitForBAMMetadataContext(on: split)
+        let viewport = try XCTUnwrap(split.viewerController.referenceBundleViewportController)
+
+        XCTAssertEqual(context.identityIndex.canonicalSampleIDs, ["S1", "S2"])
+        XCTAssertEqual(viewport.testDisplayedSequenceNames.count, 4)
+        XCTAssertEqual(Set(viewport.testDisplayedSequenceSampleIDs.compactMap { $0 }), Set(["S1", "S2"]))
+        XCTAssertTrue(viewport.testRecordTableColumnIdentifiers.contains("sample"))
+
+        viewport.testSelectSequence(sampleID: "S2", named: "chr1")
+        XCTAssertEqual(viewport.testVisibleAlignmentTrackID, "reads-s2")
+        XCTAssertEqual(viewport.testSelectedReadGroups, Set(["S2-rg"]))
     }
 
     func testReferenceBundleRouteClearsInspectorBeforeManifestLoadAndWiresDirectInspectorState() throws {
@@ -2505,6 +2594,71 @@ private enum MappingRoutingFixture {
         )
         try manifest.save(to: bundleURL)
         return bundleURL
+    }
+
+    static func addSingleSampleAlignment(
+        to bundleURL: URL,
+        sampleID: String,
+        trackID: String = "reads-track"
+    ) throws {
+        let alignmentsURL = bundleURL.appendingPathComponent("alignments", isDirectory: true)
+        try FileManager.default.createDirectory(at: alignmentsURL, withIntermediateDirectories: true)
+        try Data().write(to: alignmentsURL.appendingPathComponent("\(trackID).bam"))
+        try Data().write(to: alignmentsURL.appendingPathComponent("\(trackID).bam.bai"))
+        let metadataPath = "alignments/\(trackID).metadata.sqlite"
+        let database = try AlignmentMetadataDatabase.create(
+            at: bundleURL.appendingPathComponent(metadataPath)
+        )
+        database.addReadGroup(id: "\(sampleID)-rg", sample: sampleID)
+
+        let manifest = try BundleManifest.load(from: bundleURL)
+        let alignment = AlignmentTrackInfo(
+                id: trackID,
+                name: "Reads",
+                sourcePath: "alignments/\(trackID).bam",
+                indexPath: "alignments/\(trackID).bam.bai",
+                metadataDBPath: metadataPath,
+                mappedReadCount: 1,
+                unmappedReadCount: 0
+        )
+        let updatedManifest = BundleManifest(
+            formatVersion: manifest.formatVersion,
+            name: manifest.name,
+            identifier: manifest.identifier,
+            description: manifest.description,
+            originBundlePath: manifest.originBundlePath,
+            createdDate: manifest.createdDate,
+            modifiedDate: Date(),
+            source: manifest.source,
+            genome: manifest.genome,
+            annotations: manifest.annotations,
+            variants: manifest.variants,
+            tracks: manifest.tracks,
+            alignments: manifest.alignments + [alignment],
+            metadata: manifest.metadata,
+            browserSummary: manifest.browserSummary,
+            warnings: manifest.warnings,
+            recordStore: manifest.recordStore
+        )
+        try updatedManifest.save(to: bundleURL)
+    }
+
+    @MainActor
+    static func waitForBAMMetadataContext(
+        on split: MainSplitViewController,
+        excluding previous: SampleMetadataPresentationContext? = nil
+    ) throws -> SampleMetadataPresentationContext {
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline {
+            if let context = split.bamMetadataPresentationContext,
+               context !== previous {
+                return context
+            }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        throw NSError(domain: "MappingRoutingFixture", code: 1, userInfo: [
+            NSLocalizedDescriptionKey: "Timed out installing the BAM metadata context"
+        ])
     }
 
     static func makeInvalidReferenceBundle(name: String) throws -> URL {

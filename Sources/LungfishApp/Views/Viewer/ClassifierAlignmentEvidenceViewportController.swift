@@ -75,6 +75,12 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
         sampleMetadataPresentationContext = context
     }
 
+#if DEBUG
+    var testSampleMetadataPresentationContext: SampleMetadataPresentationContext? {
+        sampleMetadataPresentationContext
+    }
+#endif
+
     private func publishStatus() {
         statusLabel.stringValue = status.message
         statusLabel.isHidden = status == .idle
