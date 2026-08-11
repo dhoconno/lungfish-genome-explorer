@@ -370,6 +370,7 @@ public final class ReadStyleSectionViewModel {
         selectedVisibleAlignmentTrackID = nil
         latestDerivedAlignmentMessage = nil
         latestMappedReadsAnnotationMessage = nil
+        selectedRead = nil
         resetAlignmentFilterState()
         resetMappedReadsAnnotationState()
         primerTrimProvenance = nil

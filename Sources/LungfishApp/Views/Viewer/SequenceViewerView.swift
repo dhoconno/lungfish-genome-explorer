@@ -39,6 +39,14 @@ private struct DetachedEvidenceSnapshotCheck: Sendable {
     let expected: ClassifierAlignmentEvidenceFileSnapshot
 }
 
+/// Reproducible identity for one returned SAM record.  UUIDs belong to a
+/// parser invocation, so an occurrence ordinal distinguishes otherwise
+/// byte-identical records across detached-evidence re-fetches.
+private struct DetachedAlignmentSelectionIdentity: Hashable {
+    let signature: String
+    let occurrence: Int
+}
+
 /// The main view for rendering sequence and track data.
 /// Note: Uses @MainActor for thread safety as it contains mutable UI state.
 @MainActor
@@ -355,7 +363,7 @@ public class SequenceViewerView: NSView {
 
     /// Set of read UUIDs currently selected (for multi-read selection).
     var selectedReadIDs: Set<UUID> = []
-    private var preservedDetachedSelectionKeys: Set<String> = []
+    private var preservedDetachedSelectionKeys: Set<DetachedAlignmentSelectionIdentity> = []
 
     /// Currently selected read (for inspector display — first selected read).
     var selectedRead: AlignedRead? {
@@ -383,11 +391,13 @@ public class SequenceViewerView: NSView {
             cachedPackedReadsByRow = SequenceViewerView.bucketPackedReadsByRow(cachedPackedReads)
             if !preservedDetachedSelectionKeys.isEmpty,
                (!cachedPackedReads.isEmpty || !cachedAlignedReads.isEmpty) {
-                selectedReadIDs = Set(cachedPackedReads.compactMap { row in
-                    preservedDetachedSelectionKeys.contains(Self.detachedSelectionKey(row.read)) ? row.read.id : nil
+                let identities = Self.detachedSelectionIdentities(for: cachedPackedReads.map(\.read))
+                let restored = Set<UUID>(cachedPackedReads.compactMap { row in
+                    guard let identity = identities[row.read.id], preservedDetachedSelectionKeys.contains(identity) else { return nil }
+                    return row.read.id
                 })
                 preservedDetachedSelectionKeys = []
-                updateSelectionStatus()
+                updateDetachedSelection(restored)
             }
         }
     }
@@ -1230,12 +1240,45 @@ public class SequenceViewerView: NSView {
     }
 
     func invalidateDetachedAlignmentFiltersPreservingSelection() {
-        preservedDetachedSelectionKeys = Set(selectedReads.map(Self.detachedSelectionKey))
+        let identities = Self.detachedSelectionIdentities(for: cachedPackedReads.map(\.read))
+        preservedDetachedSelectionKeys = Set(selectedReadIDs.compactMap { identities[$0] })
         invalidateAlignmentFetchState(invalidateDepth: true, invalidateConsensus: true, preserveReadSelection: true)
     }
 
-    private static func detachedSelectionKey(_ read: AlignedRead) -> String {
-        "\(read.name)|\(read.chromosome)|\(read.position)|\(read.flag)|\(read.cigar.map { "\($0.length)\($0.op.rawValue)" }.joined())"
+    private static func detachedSelectionIdentities(
+        for reads: [AlignedRead]
+    ) -> [UUID: DetachedAlignmentSelectionIdentity] {
+        var occurrenceBySignature: [String: Int] = [:]
+        var identities: [UUID: DetachedAlignmentSelectionIdentity] = [:]
+        identities.reserveCapacity(reads.count)
+        for read in reads {
+            let signature = detachedSelectionSignature(read)
+            let occurrence = occurrenceBySignature[signature, default: 0]
+            occurrenceBySignature[signature] = occurrence + 1
+            identities[read.id] = .init(signature: signature, occurrence: occurrence)
+        }
+        return identities
+    }
+
+    private static func detachedSelectionSignature(_ read: AlignedRead) -> String {
+        let fields: [String] = [
+            read.name, String(read.flag), read.chromosome, String(read.position), String(read.mapq),
+            read.cigarString, read.sequence, read.qualities.map(String.init).joined(separator: ","),
+            read.mateChromosome ?? "", read.matePosition.map(String.init) ?? "", String(read.insertSize),
+            read.readGroup ?? "", read.mdTag ?? "", read.editDistance.map(String.init) ?? "",
+            read.supplementaryAlignments ?? "", read.numHits.map(String.init) ?? "", read.strandTag ?? "",
+        ]
+        return fields.map { "\($0.utf8.count):\($0)" }.joined(separator: "|")
+    }
+
+    private func updateDetachedSelection(_ ids: Set<UUID>) {
+        guard selectedReadIDs != ids else { return }
+        selectedReadIDs = ids
+        NotificationCenter.default.post(
+            name: .readSelected,
+            object: self,
+            userInfo: selectedRead.map { windowScopedUserInfo([NotificationUserInfoKey.alignedRead: $0]) ?? [:] }
+        )
     }
 
     func readSettingsSignature() -> String {
@@ -1325,8 +1368,7 @@ public class SequenceViewerView: NSView {
         cachedReadRegion = region
         if reads.isEmpty, !preservedDetachedSelectionKeys.isEmpty {
             preservedDetachedSelectionKeys = []
-            selectedReadIDs = []
-            updateSelectionStatus()
+            updateDetachedSelection([])
         }
         isFetchingReads = false
         readFetchStartTime = nil

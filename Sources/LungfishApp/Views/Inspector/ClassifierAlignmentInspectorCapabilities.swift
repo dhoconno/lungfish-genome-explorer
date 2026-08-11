@@ -136,6 +136,19 @@ struct ClassifierAlignmentInspectorCapabilities: Equatable {
     }
 
     func availability(of control: Control) -> Availability {
+        // A request remains inspectable while it is validating or stale, but it
+        // must not leave a live read-control surface attached to absent evidence.
+        switch status {
+        case .loading, .unavailable, .stale:
+            switch control {
+            case .evidenceInventory, .sourceProvenance:
+                break
+            default:
+                return .disabled(status.message)
+            }
+        case .idle, .available:
+            break
+        }
         switch control {
         case .evidenceInventory, .navigation, .readRendering, .minMAPQ, .duplicates,
              .secondary, .supplementary, .coverage, .selectedReadDetails, .sourceProvenance:

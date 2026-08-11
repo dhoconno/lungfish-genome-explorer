@@ -690,16 +690,7 @@ extension SequenceViewerView {
         if !readsCovered && !isFetchingReads { fetchDetachedReads(source: source, region: region) }
         guard !cachedAlignedReads.isEmpty else { return }
 
-        let maxRows = limitReadRowsSetting ? max(1, maxReadRowsSetting) : nil
-        let (packed, overflow) = ReadTrackRenderer.packReads(
-            cachedAlignedReads.filter { $0.chromosome == region.chromosome },
-            frame: frame,
-            maxRows: maxRows,
-            sortMode: .position,
-            prioritizedRegion: region.start..<region.end
-        )
-        cachedPackedReads = packed
-        cachedPackOverflow = overflow
+        let (packed, overflow, maxRows) = prepareDetachedReadLayout(region: region, frame: frame)
         let rowCount = (packed.map(\.row).max() ?? -1) + 1
         let contentHeight = ReadTrackRenderer.totalHeight(rowCount: rowCount, tier: tier, verticalCompress: verticallyCompressContigSetting)
         let rect = CGRect(x: 0, y: rowsY, width: bounds.width, height: contentHeight)
@@ -721,6 +712,26 @@ extension SequenceViewerView {
             }
         }
         drawSelectedReadHighlights(frame: frame, context: context)
+    }
+
+    /// The stateful packing portion of detached rendering. Keeping this beside
+    /// the drawing callback makes the fetch-to-pack handoff deterministic and
+    /// lets tests exercise the real rendering path without an AppKit window.
+    func prepareDetachedReadLayout(
+        region: GenomicRegion,
+        frame: ReferenceFrame
+    ) -> (packed: [(row: Int, read: AlignedRead)], overflow: Int, maxRows: Int?) {
+        let maxRows = limitReadRowsSetting ? max(1, maxReadRowsSetting) : nil
+        let (packed, overflow) = ReadTrackRenderer.packReads(
+            cachedAlignedReads.filter { $0.chromosome == region.chromosome },
+            frame: frame,
+            maxRows: maxRows,
+            sortMode: .position,
+            prioritizedRegion: region.start..<region.end
+        )
+        cachedPackedReads = packed
+        cachedPackOverflow = overflow
+        return (packed, overflow, maxRows)
     }
 
     /// Fetches annotations asynchronously for the visible region from SQLite annotation databases.

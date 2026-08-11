@@ -7,6 +7,104 @@ import XCTest
 
 @MainActor
 final class ClassifierAlignmentInspectorTests: XCTestCase {
+    func testMainSplitFactoryBindsItsActualInspectorAndScopeAndPublishesCompleteInventory() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let bam = directory.appendingPathComponent("final.bam")
+        let index = directory.appendingPathComponent("final.bam.bai")
+        let fasta = directory.appendingPathComponent("reference.fasta")
+        try Data("BAMDATA".utf8).write(to: bam)
+        try Data("INDEXDATA".utf8).write(to: index)
+        try Data(">virus\nACTG\n".utf8).write(to: fasta)
+        let request = try ClassifierAlignmentEvidenceRequest(
+            workflow: .taxTriage,
+            resultIdentity: .init(stableID: "result-1", finalResultURL: directory, provenanceID: "provenance-1"),
+            bamURL: bam,
+            bamExpectedSnapshot: .init(size: 7, sha256: "bam-checksum"),
+            index: .init(url: index, kind: .bai, expectedSnapshot: .init(size: 9, sha256: "index-checksum")),
+            sample: .init(canonicalID: "sample-1"),
+            contig: .init(name: "virus", expectedLength: 4),
+            referenceCandidate: .init(
+                fastaURL: fasta, recordName: "virus", expectedLength: 4,
+                expectedSnapshot: .init(size: 12, sha256: "reference-checksum")
+            ),
+            presentation: .init(workflowLabel: "TaxTriage", resultLabel: "result-1", sampleLabel: "sample-1", contigLabel: "virus")
+        )
+        let split = MainSplitViewController()
+        split.loadViewIfNeeded() // No user window is required for the composition-root seam.
+
+        let viewport = split.makeClassifierAlignmentEvidenceViewport()
+        XCTAssertEqual(viewport.viewer.windowStateScope, split.windowStateScope)
+        viewport.display(request)
+
+        let capabilities = try XCTUnwrap(split.inspectorController.readStyleSectionViewModel.classifierEvidenceCapabilities)
+        XCTAssertEqual(capabilities.status, .loading)
+        XCTAssertEqual(split.inspectorController.viewModel.contentMode, .metagenomics)
+        XCTAssertEqual(split.inspectorController.viewModel.documentSectionViewModel.visibleAlignmentTrackID, "classifier:sample-1")
+        XCTAssertEqual(
+            capabilities.inventoryRows,
+            [
+                "Workflow: TaxTriage", "Result: result-1", "Sample: sample-1 • Contig: virus",
+                "BAM: \(bam.path)", "Index: \(index.path)", "Reference: \(fasta.path)",
+                "Status: Validating classifier alignment evidence…", "Provenance: provenance-1",
+                "BAM snapshot: 7 bytes • bam-checksum", "Index snapshot: 9 bytes • index-checksum",
+                "Reference snapshot: 12 bytes • reference-checksum", capabilities.coveragePolicy,
+            ]
+        )
+        viewport.clear()
+    }
+
+    func testBoundInspectorLifecyclePublishesLoadingAvailableAndStaleCapabilitiesAndClearsSelection() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let bam = directory.appendingPathComponent("final.bam")
+        let index = directory.appendingPathComponent("final.bam.bai")
+        let fasta = directory.appendingPathComponent("reference.fasta")
+        try Data([1]).write(to: bam)
+        try Data([2]).write(to: index)
+        try ">virus\nACTG\n".write(to: fasta, atomically: true, encoding: .utf8)
+        let request = try ClassifierAlignmentEvidenceRequest(
+            workflow: .taxTriage,
+            resultIdentity: .init(stableID: "result", finalResultURL: directory, provenanceID: "provenance"),
+            bamURL: bam, index: .init(url: index, kind: .bai), sample: .init(canonicalID: "S1"),
+            contig: .init(name: "virus", expectedLength: 4),
+            referenceCandidate: .init(fastaURL: fasta, recordName: "virus", expectedLength: 4),
+            presentation: .init(workflowLabel: "TaxTriage", resultLabel: "result", sampleLabel: "S1", contigLabel: "virus")
+        )
+        let controller = ClassifierAlignmentEvidenceViewportController(
+            validator: .init(headerReader: { _ in "@SQ\tSN:virus\tLN:4\n" }, indexQuery: { _, _, _ in })
+        )
+        let inspector = InspectorViewController()
+        _ = inspector.view
+        controller.bindInspector(inspector)
+
+        controller.display(request)
+        XCTAssertEqual(inspector.readStyleSectionViewModel.classifierEvidenceCapabilities?.status, .loading)
+        XCTAssertEqual(inspector.readStyleSectionViewModel.classifierEvidenceCapabilities?.referenceValidation, .unavailable("Reference validation is pending."))
+        for _ in 0..<100 where inspector.readStyleSectionViewModel.classifierEvidenceCapabilities?.status != .available(referenceStrength: "structurally validated", reason: nil) {
+            await Task.yield()
+        }
+        XCTAssertEqual(inspector.readStyleSectionViewModel.classifierEvidenceCapabilities?.referenceValidation, .structural)
+        XCTAssertEqual(inspector.readStyleSectionViewModel.classifierEvidenceCapabilities?.availability(of: .referenceMismatch), .available)
+        XCTAssertEqual(inspector.readStyleSectionViewModel.selectedVisibleAlignmentTrackID, "classifier:S1")
+        inspector.readStyleSectionViewModel.selectedRead = AlignedRead(name: "selected", flag: 0, chromosome: "virus", position: 0, mapq: 60, cigar: [.init(op: .match, length: 4)], sequence: "ACTG", qualities: [30, 30, 30, 30])
+
+        let reason = "Classifier alignment evidence changed on disk: final.bam."
+        controller.viewer.viewerView.markDetachedEvidenceStale(reason)
+
+        let stale = try XCTUnwrap(inspector.readStyleSectionViewModel.classifierEvidenceCapabilities)
+        XCTAssertEqual(stale.status, .stale(reason))
+        XCTAssertEqual(stale.referenceValidation, .unavailable(reason))
+        XCTAssertEqual(stale.availability(of: .readRendering), .disabled(reason))
+        XCTAssertEqual(stale.availability(of: .referenceMismatch), .disabled(reason))
+        XCTAssertNil(inspector.readStyleSectionViewModel.selectedRead)
+        XCTAssertNil(inspector.readStyleSectionViewModel.onMarkDuplicatesRequested)
+        XCTAssertNil(inspector.readStyleSectionViewModel.onCreateFilteredAlignmentRequested)
+        XCTAssertNil(inspector.readStyleSectionViewModel.onCallVariantsRequested)
+    }
+
     func testViewportBindingPublishesCapabilitiesIntoInspectorWithoutDirectInspectorUpdate() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
