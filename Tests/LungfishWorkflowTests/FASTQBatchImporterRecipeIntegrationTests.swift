@@ -255,6 +255,9 @@ final class FASTQBatchImporterRecipeIntegrationTests: XCTestCase {
             .appendingPathComponent("Imports")
             .appendingPathComponent("vsp2.lungfishfastq")
         let fastqURL = bundleURL.appendingPathComponent("vsp2.fastq.gz")
+        let artifactDirectory = bundleURL
+            .appendingPathComponent("metadata", isDirectory: true)
+            .appendingPathComponent("recipe-step-artifacts", isDirectory: true)
         let summaryURL = bundleURL
             .appendingPathComponent("metadata", isDirectory: true)
             .appendingPathComponent("recipe-step-artifacts", isDirectory: true)
@@ -269,6 +272,25 @@ final class FASTQBatchImporterRecipeIntegrationTests: XCTestCase {
         XCTAssertNotNil(summary["seqs_removed"])
 
         let metadata = try XCTUnwrap(FASTQMetadataStore.load(for: fastqURL))
+        let fastpStep = try XCTUnwrap(metadata.ingestion?.recipeApplied?.stepResults.first { $0.tool == "fastp" })
+        XCTAssertEqual(fastpStep.logicalComponents.map(\.typeID), ["fastp-dedup", "fastp-trim"])
+        let fastpReportURL = try XCTUnwrap(
+            try FileManager.default.contentsOfDirectory(
+                at: artifactDirectory,
+                includingPropertiesForKeys: nil
+            ).first {
+                $0.pathExtension == "json" && $0.lastPathComponent.contains("fused_fastp_report")
+            }
+        )
+        XCTAssertEqual(
+            fastpStep.auxiliaryOutputPaths.map(canonicalPath),
+            [canonicalPath(fastpReportURL)]
+        )
+        XCTAssertTrue(
+            fastpStep.auxiliaryCommandPathRewrites.values.contains {
+                canonicalPath($0) == canonicalPath(fastpReportURL)
+            }
+        )
         let deaconStep = try XCTUnwrap(metadata.ingestion?.recipeApplied?.stepResults.first { $0.tool == "deacon" })
         XCTAssertEqual(deaconStep.auxiliaryOutputPaths, [summaryURL.path])
         XCTAssertTrue(deaconStep.auxiliaryCommandPathRewrites.values.contains(summaryURL.path))
@@ -284,6 +306,36 @@ final class FASTQBatchImporterRecipeIntegrationTests: XCTestCase {
         XCTAssertNotNil(summaryOutput.checksumSHA256)
         XCTAssertEqual(summaryOutput.fileSize, UInt64(summaryData.count))
         XCTAssertTrue(provenanceStep.durableReplayArgv?.contains(summaryURL.path) == true)
+
+        let fastpProvenanceStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "fastp" })
+        XCTAssertEqual(
+            fastpProvenanceStep.resolvedOptions["recipeLogicalComponents"],
+            .array([
+                .dictionary([
+                    "typeID": .string("fastp-dedup"),
+                    "displayName": .string("PCR Duplicate Removal"),
+                ]),
+                .dictionary([
+                    "typeID": .string("fastp-trim"),
+                    "displayName": .string("Adapter + Quality Trim"),
+                ]),
+            ])
+        )
+        let reportOutput = try XCTUnwrap(fastpProvenanceStep.outputs.first {
+            canonicalPath($0.path) == canonicalPath(fastpReportURL)
+        })
+        XCTAssertNotNil(reportOutput.checksumSHA256)
+        XCTAssertEqual(reportOutput.fileSize, UInt64(try Data(contentsOf: fastpReportURL).count))
+        XCTAssertEqual(fastpProvenanceStep.exitStatus, fastpStep.exitStatus)
+        XCTAssertEqual(fastpProvenanceStep.startedAt, fastpStep.startedAt)
+        XCTAssertEqual(fastpProvenanceStep.completedAt, fastpStep.completedAt)
+        XCTAssertGreaterThan(try XCTUnwrap(fastpProvenanceStep.wallTimeSeconds), 0)
+        let durableReplayArgv = try XCTUnwrap(fastpProvenanceStep.durableReplayArgv)
+        let jsonArgumentIndex = try XCTUnwrap(durableReplayArgv.firstIndex(of: "-j"))
+        XCTAssertEqual(
+            canonicalPath(durableReplayArgv[jsonArgumentIndex + 1]),
+            canonicalPath(fastpReportURL)
+        )
     }
 
     private func requireManagedTools(_ tools: [NativeTool]) async throws {
@@ -312,5 +364,13 @@ final class FASTQBatchImporterRecipeIntegrationTests: XCTestCase {
     private func fileSize(_ url: URL) throws -> Int64 {
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         return try XCTUnwrap(attributes[.size] as? Int64)
+    }
+
+    private func canonicalPath(_ url: URL) -> String {
+        url.resolvingSymlinksInPath().path
+    }
+
+    private func canonicalPath(_ path: String) -> String {
+        canonicalPath(URL(fileURLWithPath: path))
     }
 }

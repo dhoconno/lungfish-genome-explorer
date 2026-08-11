@@ -23,7 +23,12 @@ public enum PlannedStep: Sendable {
     /// A regular single-step execution.
     case singleStep(any RecipeStepExecutor, label: String)
     /// Two or more consecutive ``FastpFusible`` steps merged into one fastp invocation.
-    case fusedFastp(args: [String], inputFormat: RecipeFileFormat, label: String)
+    case fusedFastp(
+        args: [String],
+        inputFormat: RecipeFileFormat,
+        label: String,
+        components: [RecipeLogicalComponent]
+    )
     /// A format-conversion step inserted automatically by the planner.
     case formatConversion(from: RecipeFileFormat, to: RecipeFileFormat)
 }
@@ -140,6 +145,10 @@ public final class RecipeEngine: Sendable {
                 // Collect as many consecutive fusible steps as possible
                 var fusedArgs = fusible.fastpArgs()
                 var fusionLabels = [step.label ?? type(of: executor).displayName]
+                var fusionComponents = [RecipeLogicalComponent(
+                    typeID: type(of: executor).typeID,
+                    displayName: type(of: executor).displayName
+                )]
                 var j = i + 1
 
                 while j < executors.count {
@@ -151,6 +160,10 @@ public final class RecipeEngine: Sendable {
                     }
                     fusedArgs += nextFusible.fastpArgs()
                     fusionLabels.append(nextStep.label ?? type(of: nextExecutor).displayName)
+                    fusionComponents.append(RecipeLogicalComponent(
+                        typeID: type(of: nextExecutor).typeID,
+                        displayName: type(of: nextExecutor).displayName
+                    ))
                     j += 1
                 }
 
@@ -160,7 +173,8 @@ public final class RecipeEngine: Sendable {
                     plan.append(.fusedFastp(
                         args: fusedArgs,
                         inputFormat: .pairedR1R2,
-                        label: fusionLabels.joined(separator: " + ")
+                        label: fusionLabels.joined(separator: " + "),
+                        components: fusionComponents
                     ))
                     currentFormat = .pairedR1R2
                     i = j
@@ -224,6 +238,7 @@ public final class RecipeEngine: Sendable {
 
             let stepStart = Date()
             var stepLabel: String
+            var logicalComponents: [RecipeLogicalComponent] = []
 
             switch plannedStep {
             case .singleStep(let executor, let label):
@@ -236,8 +251,9 @@ public final class RecipeEngine: Sendable {
                 currentOutput = try await executor.execute(input: stepInput, context: context)
                 reportableStepIndex += 1
 
-            case .fusedFastp(let extraArgs, _, let label):
+            case .fusedFastp(let extraArgs, _, let label, let components):
                 stepLabel = label
+                logicalComponents = components
                 logger.debug("Executing fused fastp: \(label)")
                 let fraction = reportableStepCount > 0
                     ? Double(reportableStepIndex) / Double(reportableStepCount)
@@ -262,7 +278,13 @@ public final class RecipeEngine: Sendable {
                 )
             }
 
-            let stepDuration = Date().timeIntervalSince(stepStart)
+            let stepCompletedAt = Date()
+            let stepDuration: TimeInterval
+            if let startedAt = currentOutput.startedAt, let completedAt = currentOutput.completedAt {
+                stepDuration = completedAt.timeIntervalSince(startedAt)
+            } else {
+                stepDuration = stepCompletedAt.timeIntervalSince(stepStart)
+            }
 
             // Build provenance record (skip format-conversion steps — internal bookkeeping)
             if case .formatConversion = plannedStep {
@@ -291,7 +313,12 @@ public final class RecipeEngine: Sendable {
                     inputReadCount: previousReadCount,
                     outputReadCount: outputReadCount,
                     durationSeconds: stepDuration,
-                    auxiliaryOutputPaths: currentOutput.auxiliaryOutputs.map(\.path)
+                    auxiliaryOutputPaths: currentOutput.auxiliaryOutputs.map(\.path),
+                    logicalComponents: logicalComponents,
+                    exitStatus: currentOutput.exitStatus,
+                    stderr: currentOutput.stderr,
+                    startedAt: currentOutput.startedAt,
+                    completedAt: currentOutput.completedAt
                 ))
                 previousReadCount = outputReadCount
             }
@@ -375,6 +402,8 @@ public final class RecipeEngine: Sendable {
             "\(context.sampleName)_fused_R1.fq.gz")
         let outR2 = context.workspace.appendingPathComponent(
             "\(context.sampleName)_fused_R2.fq.gz")
+        let report = context.workspace.appendingPathComponent(
+            "\(context.sampleName)_fused_fastp_report_\(UUID().uuidString).json")
 
         var args = [
             "-i", input.r1.path,
@@ -385,21 +414,72 @@ public final class RecipeEngine: Sendable {
         args += extraArgs
         args += [
             "-w", "\(context.threads)",
-            "-j", "/dev/null",
+            "-j", report.path,
             "-h", "/dev/null",
         ]
 
+        let startedAt = Date()
         let result = try await context.runner.run(
             .fastp,
             arguments: args,
             timeout: context.recipeToolTimeout(for: .fastp, input: input)
         )
+        let completedAt = Date()
         if result.exitCode != 0 {
             throw RecipeEngineError.toolFailed(
                 tool: "fastp", step: "fused-fastp(\(label))", stderr: result.stderr)
         }
 
-        return StepOutput(r1: outR1, r2: outR2, format: .pairedR1R2, tool: .fastp, arguments: result.arguments)
+        try Self.validateRequiredJSONReport(at: report, tool: "fastp")
+
+        return StepOutput(
+            r1: outR1,
+            r2: outR2,
+            format: .pairedR1R2,
+            tool: .fastp,
+            arguments: result.arguments,
+            auxiliaryOutputs: [report],
+            exitStatus: Int(result.exitCode),
+            stderr: result.stderr,
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+    }
+
+    private static func validateRequiredJSONReport(at report: URL, tool: String) throws {
+        guard FileManager.default.isReadableFile(atPath: report.path) else {
+            throw RecipeEngineError.invalidRequiredReport(
+                tool: tool,
+                path: report.path,
+                reason: "file is missing or unreadable"
+            )
+        }
+
+        do {
+            let data = try Data(contentsOf: report)
+            guard !data.isEmpty else {
+                throw RecipeEngineError.invalidRequiredReport(
+                    tool: tool,
+                    path: report.path,
+                    reason: "file is empty"
+                )
+            }
+            guard try JSONSerialization.jsonObject(with: data) is [String: Any] else {
+                throw RecipeEngineError.invalidRequiredReport(
+                    tool: tool,
+                    path: report.path,
+                    reason: "JSON root is not an object"
+                )
+            }
+        } catch let error as RecipeEngineError {
+            throw error
+        } catch {
+            throw RecipeEngineError.invalidRequiredReport(
+                tool: tool,
+                path: report.path,
+                reason: "JSON is invalid: \(error.localizedDescription)"
+            )
+        }
     }
 
     /// Performs a format conversion between two compatible ``RecipeFileFormat`` values.

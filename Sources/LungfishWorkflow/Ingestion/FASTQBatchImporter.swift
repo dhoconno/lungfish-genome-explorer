@@ -1434,6 +1434,13 @@ public enum FASTQBatchImporter {
                 argv: step.argv,
                 durableReplayArgv: replayArgv,
                 reproducibleCommand: replayCommand,
+                resolvedOptions: step.resolvedOptions.mapValues {
+                    rewriteStagedParameterValue(
+                        $0,
+                        stagingBundleURL: stagingBundleURL,
+                        publishedBundleURL: publishedBundleURL
+                    )
+                },
                 inputs: step.inputs.map {
                     rewriteStagedDescriptor($0, stagingBundleURL: stagingBundleURL, publishedBundleURL: publishedBundleURL)
                 },
@@ -1606,6 +1613,7 @@ public enum FASTQBatchImporter {
                 toolVersion: result.toolVersion ?? "unknown",
                 command: command,
                 durableReplayArgv: durableReplayArgv == command ? nil : durableReplayArgv,
+                resolvedOptions: recipeResolvedOptions(for: result),
                 inputs: originalInputURLs.map {
                     ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input)
                 },
@@ -1617,13 +1625,25 @@ public enum FASTQBatchImporter {
                             publishedBundleURL: publishedBundleURL
                         )
                     },
-                exitCode: 0,
-                wallTime: result.durationSeconds,
-                stderr: nil,
-                startTime: timestamp.addingTimeInterval(-result.durationSeconds),
-                endTime: timestamp
+                exitCode: result.exitStatus.flatMap { Int32(exactly: $0) },
+                wallTime: result.effectiveDurationSeconds,
+                stderr: result.stderr,
+                startTime: result.startedAt ?? timestamp.addingTimeInterval(-result.effectiveDurationSeconds),
+                endTime: result.completedAt ?? timestamp
             )
         }
+    }
+
+    private static func recipeResolvedOptions(for result: RecipeStepResult) -> [String: ParameterValue]? {
+        guard !result.logicalComponents.isEmpty else { return nil }
+        return [
+            "recipeLogicalComponents": .array(result.logicalComponents.map { component in
+                .dictionary([
+                    "typeID": .string(component.typeID),
+                    "displayName": .string(component.displayName),
+                ])
+            })
+        ]
     }
 
     private static func durableRecipeStepArguments(
@@ -1790,6 +1810,7 @@ public enum FASTQBatchImporter {
                 containerDigest: step.containerDigest,
                 command: step.command,
                 durableReplayArgv: durableReplayArgv,
+                resolvedOptions: step.resolvedOptions,
                 inputs: step.inputs,
                 outputs: outputs,
                 exitCode: step.exitCode,

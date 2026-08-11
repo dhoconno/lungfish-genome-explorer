@@ -217,6 +217,9 @@ public struct StepExecution: Codable, Sendable, Identifiable, Equatable {
     /// Durable argv suitable for replay when execution used temporary materialized paths.
     public let durableReplayArgv: [String]?
 
+    /// Resolved invocation metadata retained by canonical provenance when available.
+    public let resolvedOptions: [String: ParameterValue]?
+
     /// Input files consumed by this step.
     public let inputs: [FileRecord]
 
@@ -253,6 +256,7 @@ public struct StepExecution: Codable, Sendable, Identifiable, Equatable {
         containerDigest: String? = nil,
         command: [String],
         durableReplayArgv: [String]? = nil,
+        resolvedOptions: [String: ParameterValue]? = nil,
         inputs: [FileRecord],
         outputs: [FileRecord] = [],
         exitCode: Int32? = nil,
@@ -271,6 +275,7 @@ public struct StepExecution: Codable, Sendable, Identifiable, Equatable {
         self.containerDigest = containerDigest
         self.command = command
         self.durableReplayArgv = durableReplayArgv
+        self.resolvedOptions = resolvedOptions
         self.inputs = inputs
         self.outputs = outputs
         self.exitCode = exitCode
@@ -607,6 +612,7 @@ extension ProvenanceStep {
             argv: stepExecution.command,
             durableReplayArgv: stepExecution.durableReplayArgv,
             reproducibleCommand: (stepExecution.durableReplayArgv ?? stepExecution.command).map(shellEscape).joined(separator: " "),
+            resolvedOptions: stepExecution.resolvedOptions ?? [:],
             inputs: stepExecution.inputs.map { ProvenanceFileDescriptor(fileRecord: $0) },
             outputs: stepExecution.outputs.map { ProvenanceFileDescriptor(fileRecord: $0) },
             exitStatus: stepExecution.exitCode.map(Int.init),

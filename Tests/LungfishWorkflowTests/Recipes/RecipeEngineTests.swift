@@ -3,7 +3,23 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import LungfishIO
 @testable import LungfishWorkflow
+
+private final class RecipeProgressCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var labels: [String] = []
+
+    func record(_ label: String) {
+        lock.withLock {
+            labels.append(label)
+        }
+    }
+
+    var eventCount: Int {
+        lock.withLock { labels.count }
+    }
+}
 
 final class RecipeEngineTests: XCTestCase {
 
@@ -73,13 +89,26 @@ final class RecipeEngineTests: XCTestCase {
 
         // Two fastp steps → 1 fused step
         XCTAssertEqual(plan.count, 1)
-        if case .fusedFastp(let args, _, _) = plan[0] {
+        if case .fusedFastp(let args, _, _, let components) = plan[0] {
             XCTAssertTrue(args.contains("--dedup"),
                           "fused args should contain --dedup; got \(args)")
             XCTAssertTrue(args.contains("-q"),
                           "fused args should contain -q; got \(args)")
             XCTAssertTrue(args.contains("15"),
                           "fused args should contain quality value 15; got \(args)")
+            XCTAssertEqual(
+                components,
+                [
+                    RecipeLogicalComponent(
+                        typeID: "fastp-dedup",
+                        displayName: "PCR Duplicate Removal"
+                    ),
+                    RecipeLogicalComponent(
+                        typeID: "fastp-trim",
+                        displayName: "Adapter + Quality Trim"
+                    ),
+                ]
+            )
         } else {
             XCTFail("Expected .fusedFastp, got \(plan[0])")
         }
@@ -144,6 +173,97 @@ final class RecipeEngineTests: XCTestCase {
         XCTAssertEqual(label, "Remove ribosomal RNA")
     }
 
+    func testExecuteFusedFastpRetainsJSONAndActualExecutionEvidence() async throws {
+        let root = try makeTemporaryDirectory(prefix: "RecipeEngineFusedFastp")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workspace = root.appendingPathComponent("workspace", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        let (r1, r2) = try writePairedFASTQ(in: root)
+        let runner = try makeFakeFastpRunner(in: root, report: .valid)
+        let progress = RecipeProgressCollector()
+        let recipe = makeRecipe(steps: [
+            RecipeStep(type: "fastp-dedup"),
+            RecipeStep(type: "fastp-trim"),
+        ])
+
+        let result = try await RecipeEngine().execute(
+            recipe: recipe,
+            input: StepInput(r1: r1, r2: r2, format: .pairedR1R2),
+            context: StepContext(
+                workspace: workspace,
+                threads: 2,
+                sampleName: "sample",
+                runner: runner,
+                progress: { _, label in progress.record(label) }
+            )
+        )
+
+        XCTAssertEqual(progress.eventCount, 1, "Fused fastp should report one physical progress event")
+        XCTAssertEqual(result.stepRecords.count, 1)
+        let step = try XCTUnwrap(result.stepRecords.first)
+        let reportPath = try XCTUnwrap(step.auxiliaryOutputPaths.first)
+        let reportURL = URL(fileURLWithPath: reportPath)
+        XCTAssertTrue(FileManager.default.isReadableFile(atPath: reportURL.path))
+        XCTAssertNoThrow(try JSONSerialization.jsonObject(with: Data(contentsOf: reportURL)))
+
+        let arguments = try XCTUnwrap(step.commandArguments)
+        let jsonArgumentIndex = try XCTUnwrap(arguments.firstIndex(of: "-j"))
+        XCTAssertEqual(arguments[arguments.index(after: jsonArgumentIndex)], reportURL.path)
+        XCTAssertNotEqual(arguments[arguments.index(after: jsonArgumentIndex)], "/dev/null")
+        let htmlArgumentIndex = try XCTUnwrap(arguments.firstIndex(of: "-h"))
+        XCTAssertEqual(arguments[arguments.index(after: htmlArgumentIndex)], "/dev/null")
+
+        XCTAssertEqual(step.logicalComponents.map(\.typeID), ["fastp-dedup", "fastp-trim"])
+        XCTAssertEqual(step.exitStatus, 0)
+        XCTAssertEqual(
+            step.stderr?.trimmingCharacters(in: .whitespacesAndNewlines),
+            "fastp test stderr"
+        )
+        XCTAssertNotNil(step.startedAt)
+        XCTAssertNotNil(step.completedAt)
+        XCTAssertEqual(
+            step.durationSeconds,
+            step.effectiveDurationSeconds,
+            accuracy: 0.001,
+            "Timestamp-derived duration should be authoritative for the physical fastp process"
+        )
+    }
+
+    func testExecuteFusedFastpRejectsSuccessfulProcessWithoutValidJSONReport() async throws {
+        for report in [FakeFastpReport.missing, .invalid] {
+            let root = try makeTemporaryDirectory(prefix: "RecipeEngineFusedFastp")
+            defer { try? FileManager.default.removeItem(at: root) }
+            let workspace = root.appendingPathComponent("workspace", isDirectory: true)
+            try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+            let (r1, r2) = try writePairedFASTQ(in: root)
+            let runner = try makeFakeFastpRunner(in: root, report: report)
+            let recipe = makeRecipe(steps: [
+                RecipeStep(type: "fastp-dedup"),
+                RecipeStep(type: "fastp-trim"),
+            ])
+
+            do {
+                _ = try await RecipeEngine().execute(
+                    recipe: recipe,
+                    input: StepInput(r1: r1, r2: r2, format: .pairedR1R2),
+                    context: StepContext(
+                        workspace: workspace,
+                        threads: 2,
+                        sampleName: "sample",
+                        runner: runner,
+                        progress: { _, _ in }
+                    )
+                )
+                XCTFail("A successful fastp process with a \(report) JSON report must fail")
+            } catch {
+                XCTAssertTrue(
+                    error.localizedDescription.localizedCaseInsensitiveContains("report"),
+                    "Expected a JSON-report error, got \(error)"
+                )
+            }
+        }
+    }
+
     func testRecipeToolTimeoutDisablesTimeoutForFullSizeFastpInputs() {
         let timeout = StepContext.recipeToolTimeout(
             for: .fastp,
@@ -185,5 +305,82 @@ final class RecipeEngineTests: XCTestCase {
         try RecipeEngine.concatenateStreams([first, second], to: output)
 
         XCTAssertEqual(try Data(contentsOf: output), firstBytes + secondBytes)
+    }
+
+    // MARK: - Fused fastp test runner
+
+    private enum FakeFastpReport: CustomStringConvertible {
+        case valid
+        case missing
+        case invalid
+
+        var description: String {
+            switch self {
+            case .valid: "valid"
+            case .missing: "missing"
+            case .invalid: "invalid"
+            }
+        }
+    }
+
+    private func makeTemporaryDirectory(prefix: String) throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    private func writePairedFASTQ(in directory: URL) throws -> (r1: URL, r2: URL) {
+        let r1 = directory.appendingPathComponent("sample_R1.fastq")
+        let r2 = directory.appendingPathComponent("sample_R2.fastq")
+        let r1Contents = "@pair1/1\nACGT\n+\nIIII\n"
+        let r2Contents = "@pair1/2\nTGCA\n+\nIIII\n"
+        try r1Contents.write(to: r1, atomically: true, encoding: .utf8)
+        try r2Contents.write(to: r2, atomically: true, encoding: .utf8)
+        return (r1, r2)
+    }
+
+    private func makeFakeFastpRunner(
+        in homeDirectory: URL,
+        report: FakeFastpReport
+    ) throws -> NativeToolRunner {
+        let executableDirectory = homeDirectory
+            .appendingPathComponent(".lungfish/conda/envs/fastp/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: executableDirectory, withIntermediateDirectories: true)
+        let executable = executableDirectory.appendingPathComponent("fastp")
+        let reportCommand: String
+        switch report {
+        case .valid:
+            reportCommand = #"printf '%s\n' '{"summary":{"before_filtering":{"total_reads":2}}}' > "$report""#
+        case .missing:
+            reportCommand = ":"
+        case .invalid:
+            reportCommand = #"printf '%s\n' 'not-json' > "$report""#
+        }
+        let script = """
+        #!/bin/sh
+        set -eu
+        if [ "${1:-}" = "--version" ]; then
+          echo "fastp 1.2.3"
+          exit 0
+        fi
+        while [ "$#" -gt 0 ]; do
+          case "$1" in
+            -i) in_r1="$2"; shift 2 ;;
+            -I) in_r2="$2"; shift 2 ;;
+            -o) out_r1="$2"; shift 2 ;;
+            -O) out_r2="$2"; shift 2 ;;
+            -j) report="$2"; shift 2 ;;
+            *) shift ;;
+          esac
+        done
+        /usr/bin/gzip -c "$in_r1" > "$out_r1"
+        /usr/bin/gzip -c "$in_r2" > "$out_r2"
+        \(reportCommand)
+        echo "fastp test stderr" >&2
+        """
+        try script.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        return NativeToolRunner(toolsDirectory: nil, homeDirectory: homeDirectory)
     }
 }

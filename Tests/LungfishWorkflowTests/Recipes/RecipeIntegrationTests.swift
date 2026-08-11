@@ -28,7 +28,7 @@ final class RecipeIntegrationTests: XCTestCase {
         // 5. singleStep (seqkit-length-filter)
         XCTAssertEqual(plan.count, 5)
 
-        if case .fusedFastp(let args, _, _) = plan[0] {
+        if case .fusedFastp(let args, _, _, _) = plan[0] {
             XCTAssertTrue(args.contains("--dedup"), "Fused args should include --dedup")
             XCTAssertTrue(args.contains("--detect_adapter_for_pe"), "Should include adapter detection")
             XCTAssertTrue(args.contains("-q"), "Should include quality threshold")

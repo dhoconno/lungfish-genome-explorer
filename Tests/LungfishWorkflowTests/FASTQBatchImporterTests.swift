@@ -942,6 +942,87 @@ final class FASTQBatchImporterTests: XCTestCase {
         )
     }
 
+    func testRecipeProvenanceRetainsFusedFastpExecutionEvidenceAndLogicalComponents() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FASTQBatchImporterFusedFastp-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let stagingBundleURL = root.appendingPathComponent("staging/Sample.lungfishfastq", isDirectory: true)
+        let publishedBundleURL = root.appendingPathComponent("published/Sample.lungfishfastq", isDirectory: true)
+        let artifactDirectory = stagingBundleURL
+            .appendingPathComponent("metadata/recipe-step-artifacts", isDirectory: true)
+        try FileManager.default.createDirectory(at: artifactDirectory, withIntermediateDirectories: true)
+        let stagedReportURL = artifactDirectory.appendingPathComponent("sample_fused_fastp_report.json")
+        let reportData = Data("{\"summary\":{}}\n".utf8)
+        try reportData.write(to: stagedReportURL)
+
+        let inputURL = root.appendingPathComponent("Sample_R1.fastq")
+        try Data("@read\nACGT\n+\nIIII\n".utf8).write(to: inputURL)
+        let bundleFASTQURL = publishedBundleURL.appendingPathComponent("Sample.fastq.gz")
+        let publishedReportURL = publishedBundleURL
+            .appendingPathComponent("metadata/recipe-step-artifacts/sample_fused_fastp_report.json")
+        let startedAt = Date(timeIntervalSince1970: 1_000)
+        let completedAt = Date(timeIntervalSince1970: 1_005)
+        let result = RecipeStepResult(
+            stepName: "Remove PCR duplicates + Adapter + quality trim",
+            tool: "fastp",
+            toolVersion: "1.2.3",
+            commandArguments: ["fastp", "-j", stagedReportURL.path, "-h", "/dev/null"],
+            durationSeconds: 1,
+            auxiliaryOutputPaths: [publishedReportURL.path],
+            auxiliaryCommandPathRewrites: [stagedReportURL.path: publishedReportURL.path],
+            logicalComponents: [
+                RecipeLogicalComponent(typeID: "fastp-dedup", displayName: "PCR Duplicate Removal"),
+                RecipeLogicalComponent(typeID: "fastp-trim", displayName: "Adapter + Quality Trim"),
+            ],
+            exitStatus: 17,
+            stderr: "fastp stderr output",
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+
+        let steps = FASTQBatchImporter.recipeProvenanceSteps(
+            recipeStepResults: [result],
+            originalInputURLs: [inputURL],
+            bundleFASTQURL: bundleFASTQURL,
+            stagingBundleURL: stagingBundleURL,
+            publishedBundleURL: publishedBundleURL
+        )
+        let envelope = WorkflowRun(
+            name: "Test fused fastp provenance",
+            startTime: startedAt,
+            endTime: completedAt,
+            status: .completed,
+            steps: steps
+        ).canonicalEnvelope()
+
+        let step = try XCTUnwrap(envelope.steps.first)
+        XCTAssertEqual(step.exitStatus, 17)
+        XCTAssertEqual(step.stderr, "fastp stderr output")
+        XCTAssertEqual(step.startedAt, startedAt)
+        XCTAssertEqual(step.completedAt, completedAt)
+        XCTAssertEqual(step.wallTimeSeconds, 5)
+        XCTAssertEqual(
+            step.resolvedOptions["recipeLogicalComponents"],
+            .array([
+                .dictionary([
+                    "typeID": .string("fastp-dedup"),
+                    "displayName": .string("PCR Duplicate Removal"),
+                ]),
+                .dictionary([
+                    "typeID": .string("fastp-trim"),
+                    "displayName": .string("Adapter + Quality Trim"),
+                ]),
+            ])
+        )
+        XCTAssertEqual(
+            step.durableReplayArgv,
+            ["fastp", "-j", publishedReportURL.path, "-h", "/dev/null"]
+        )
+        let report = try XCTUnwrap(step.outputs.first { $0.path == publishedReportURL.path })
+        XCTAssertNotNil(report.checksumSHA256)
+        XCTAssertEqual(report.fileSize, UInt64(reportData.count))
+    }
+
     func testPublishFASTQBundleUsesFoundationReplacementForExistingBundle() throws {
         let source = try String(contentsOf: fastqBatchImporterSourceURL(), encoding: .utf8)
         let start = try XCTUnwrap(source.range(of: "static func publishFASTQBundle"))

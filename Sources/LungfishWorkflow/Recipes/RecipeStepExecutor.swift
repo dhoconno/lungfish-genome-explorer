@@ -63,11 +63,21 @@ public struct StepOutput: Sendable {
     public let arguments: [String]?
     /// Additional machine-readable files emitted by the tool, such as native JSON summaries.
     public let auxiliaryOutputs: [URL]
+    /// Actual process exit status when this output comes from a native tool invocation.
+    public let exitStatus: Int?
+    /// Standard error captured from the actual native tool invocation.
+    public let stderr: String?
+    /// Actual native tool process start time.
+    public let startedAt: Date?
+    /// Actual native tool process completion time.
+    public let completedAt: Date?
 
     public init(r1: URL, r2: URL? = nil, r3: URL? = nil,
                 format: RecipeFileFormat, readCount: Int? = nil,
                 tool: NativeTool? = nil, arguments: [String]? = nil,
-                auxiliaryOutputs: [URL] = []) {
+                auxiliaryOutputs: [URL] = [], exitStatus: Int? = nil,
+                stderr: String? = nil, startedAt: Date? = nil,
+                completedAt: Date? = nil) {
         self.r1 = r1
         self.r2 = r2
         self.r3 = r3
@@ -76,6 +86,10 @@ public struct StepOutput: Sendable {
         self.tool = tool
         self.arguments = arguments
         self.auxiliaryOutputs = auxiliaryOutputs
+        self.exitStatus = exitStatus
+        self.stderr = stderr
+        self.startedAt = startedAt
+        self.completedAt = completedAt
     }
 }
 
@@ -214,6 +228,9 @@ public enum RecipeEngineError: Error, LocalizedError {
     /// The underlying tool process exited with a non-zero status.
     case toolFailed(tool: String, step: String, stderr: String)
 
+    /// A tool reported success without producing the requested readable JSON report.
+    case invalidRequiredReport(tool: String, path: String, reason: String)
+
     /// A referenced database or index was not found on disk.
     case databaseNotFound(id: String, step: String)
 
@@ -234,6 +251,8 @@ public enum RecipeEngineError: Error, LocalizedError {
             return "Invalid value '\(value)' for parameter '\(param)' in step '\(step)'."
         case .toolFailed(let tool, let step, let stderr):
             return "\(tool) failed in step '\(step)': \(stderr)"
+        case .invalidRequiredReport(let tool, let path, let reason):
+            return "\(tool) did not produce a valid required report at '\(path)': \(reason)"
         case .databaseNotFound(let id, let step):
             return "Database '\(id)' not found (required by step '\(step)')."
         case .inputRequirementNotMet(let required, let actual):
