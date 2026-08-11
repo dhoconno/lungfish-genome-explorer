@@ -178,7 +178,9 @@ public final class AlignmentDataProvider: @unchecked Sendable {
             subsampleSeed: subsampleSeed
         )
         let regionStr = "\(chromosome):\(start + 1)-\(end)"
-        arguments += [alignmentPath, regionStr]
+        // `-X` makes the caller-supplied BAI/CSI authoritative instead of
+        // silently discovering a neighbouring index beside the BAM.
+        arguments += ["-X", alignmentPath, indexPath, regionStr]
 
         alignmentLogger.debug("Fetching reads: samtools \(arguments.joined(separator: " "))")
 
@@ -214,7 +216,7 @@ public final class AlignmentDataProvider: @unchecked Sendable {
             countOnly: true
         )
         let regionStr = "\(chromosome):\(start + 1)-\(end)"
-        arguments += [alignmentPath, regionStr]
+        arguments += ["-X", alignmentPath, indexPath, regionStr]
 
         alignmentLogger.debug("Counting reads: samtools \(arguments.joined(separator: " "))")
         let result = try await runSamtools(arguments: arguments, timeout: 30)

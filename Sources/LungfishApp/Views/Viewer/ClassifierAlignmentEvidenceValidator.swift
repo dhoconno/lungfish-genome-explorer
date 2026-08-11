@@ -1,0 +1,162 @@
+// ClassifierAlignmentEvidenceValidator.swift - Read-only validation for detached classifier BAM evidence
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+
+import CryptoKit
+import Foundation
+import LungfishIO
+import LungfishKit
+
+/// Validates final classifier evidence before it is handed to the detached viewer.
+///
+/// The validator deliberately has no output path. Opening evidence is read-only: the
+/// returned `AlignmentDataProvider` points at the final BAM and explicit index.
+struct ClassifierAlignmentEvidenceValidator: @unchecked Sendable {
+    enum Error: Swift.Error, Equatable {
+        case bamUnavailable(URL)
+        case indexUnavailable(URL)
+        case indexDoesNotMatchBAM(String)
+        case headerUnavailable(String)
+        case contigUnavailable(String)
+        case contigLengthMismatch(expected: Int, actual: Int)
+    }
+
+    enum ReferenceStatus: Equatable {
+        case notProvided
+        case validatedStructural
+        case validatedMD5
+        case unavailable
+    }
+
+    struct Reference: Equatable {
+        let status: ReferenceStatus
+        let sequence: String?
+        let reason: String?
+    }
+
+    struct Contig: Equatable {
+        let name: String
+        let length: Int
+    }
+
+    struct Result {
+        let request: ClassifierAlignmentEvidenceRequest
+        let contig: Contig
+        let provider: AlignmentDataProvider
+        let reference: Reference
+    }
+
+    typealias HeaderReader = @Sendable (URL) async throws -> String
+    typealias IndexQuery = @Sendable (URL, URL, String) async throws -> Void
+
+    private let headerReader: HeaderReader
+    private let indexQuery: IndexQuery
+    private let fileManager: FileManager
+
+    init(
+        headerReader: @escaping HeaderReader = { bamURL in
+            try await AlignmentDataProvider(
+                alignmentPath: bamURL.path,
+                indexPath: bamURL.appendingPathExtension("bai").path
+            ).fetchHeader()
+        },
+        indexQuery: @escaping IndexQuery = { bamURL, indexURL, contig in
+            // A one-base indexed query proves that the explicit index can be used for
+            // this BAM/contig. `AlignmentDataProvider` owns the samtools invocation.
+            _ = try await AlignmentDataProvider(
+                alignmentPath: bamURL.path,
+                indexPath: indexURL.path
+            ).fetchReads(chromosome: contig, start: 0, end: 1, maxReads: 1)
+        },
+        fileManager: FileManager = .default
+    ) {
+        self.headerReader = headerReader
+        self.indexQuery = indexQuery
+        self.fileManager = fileManager
+    }
+
+    func validate(_ request: ClassifierAlignmentEvidenceRequest) async throws -> Result {
+        guard fileManager.isReadableFile(atPath: request.bamURL.path) else {
+            throw Error.bamUnavailable(request.bamURL)
+        }
+        guard fileManager.isReadableFile(atPath: request.index.url.path) else {
+            throw Error.indexUnavailable(request.index.url)
+        }
+
+        let header: String
+        do { header = try await headerReader(request.bamURL) }
+        catch { throw Error.headerUnavailable(error.localizedDescription) }
+        let sequences = SAMParser.parseReferenceSequences(from: header)
+        guard let sequence = sequences.first(where: { $0.name == request.contig.name }) else {
+            throw Error.contigUnavailable(request.contig.name)
+        }
+        guard sequence.length == Int64(request.contig.expectedLength) else {
+            throw Error.contigLengthMismatch(expected: request.contig.expectedLength, actual: Int(sequence.length))
+        }
+
+        do { try await indexQuery(request.bamURL, request.index.url, request.contig.name) }
+        catch { throw Error.indexDoesNotMatchBAM(error.localizedDescription) }
+
+        let reference = validateReference(
+            request.referenceCandidate,
+            bamMD5: sequence.md5,
+            expectedContigLength: request.contig.expectedLength
+        )
+        return Result(
+            request: request,
+            contig: Contig(name: request.contig.name, length: request.contig.expectedLength),
+            provider: AlignmentDataProvider(
+                alignmentPath: request.bamURL.path,
+                indexPath: request.index.url.path,
+                format: .bam,
+                referenceFastaPath: reference.sequence == nil ? nil : request.referenceCandidate?.fastaURL.path
+            ),
+            reference: reference
+        )
+    }
+
+    private func validateReference(
+        _ candidate: ClassifierAlignmentReferenceCandidate?,
+        bamMD5: String?,
+        expectedContigLength: Int
+    ) -> Reference {
+        guard let candidate else { return Reference(status: .notProvided, sequence: nil, reason: nil) }
+        guard let record = try? readExactFASTARecord(at: candidate.fastaURL, named: candidate.recordName) else {
+            return Reference(status: .unavailable, sequence: nil, reason: "The requested FASTA record is unavailable.")
+        }
+        guard record.count == candidate.expectedLength, record.count == expectedContigLength else {
+            return Reference(status: .unavailable, sequence: nil, reason: "The FASTA record length does not match the selected BAM contig.")
+        }
+        let expectedMD5s = [candidate.expectedMD5, bamMD5].compactMap { value -> String? in
+            guard let value, !value.isEmpty else { return nil }
+            return value
+        }
+        if !expectedMD5s.isEmpty {
+            let observed = Insecure.MD5.hash(data: Data(record.utf8)).map { String(format: "%02x", $0) }.joined()
+            guard expectedMD5s.allSatisfy({ observed.caseInsensitiveCompare($0) == .orderedSame }) else {
+                return Reference(status: .unavailable, sequence: nil, reason: "The FASTA record M5 checksum does not match the BAM header.")
+            }
+            return Reference(status: .validatedMD5, sequence: record, reason: nil)
+        }
+        return Reference(status: .validatedStructural, sequence: record, reason: nil)
+    }
+
+    private func readExactFASTARecord(at url: URL, named name: String) throws -> String {
+        let text = try String(contentsOf: url, encoding: .utf8)
+        var found: String?
+        var active = false
+        var sequence = ""
+        for line in text.split(whereSeparator: \.isNewline) {
+            if line.first == ">" {
+                if active { break }
+                let id = line.dropFirst().split(whereSeparator: \.isWhitespace).first.map(String.init)
+                active = id == name
+            } else if active {
+                sequence += line.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        if active { found = sequence.uppercased() }
+        guard let found, !found.isEmpty else { throw Error.contigUnavailable(name) }
+        return found
+    }
+}

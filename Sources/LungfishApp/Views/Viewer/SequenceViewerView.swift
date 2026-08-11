@@ -37,6 +37,21 @@ struct ViewerAlignmentFetchIdentity: Hashable, Sendable {
 @MainActor
 public class SequenceViewerView: NSView {
 
+    /// A read-only alignment source that uses the full renderer without requiring
+    /// a reference-bundle directory. The optional sequence exists only after FASTA
+    /// validation; callers must never derive it from reads.
+    struct DetachedAlignmentSource {
+        struct Contig: Equatable {
+            let name: String
+            let length: Int
+        }
+
+        let identityURL: URL
+        let contig: Contig
+        let provider: AlignmentDataProvider
+        let referenceSequence: String?
+    }
+
 #if DEBUG
     private(set) var testDisplayInvalidationCount = 0
 #endif
@@ -59,6 +74,9 @@ public class SequenceViewerView: NSView {
     
     /// The reference bundle being displayed (for .lungfishref bundles)
     private(set) var currentReferenceBundle: ReferenceBundle?
+
+    /// Detached classifier BAM evidence, mutually exclusive with a reference bundle.
+    private(set) var detachedAlignmentSource: DetachedAlignmentSource?
     
     /// Cached sequence data for the current visible region (for bundle mode)
     var cachedBundleSequence: String?
@@ -1305,6 +1323,7 @@ public class SequenceViewerView: NSView {
     var testIsFetchingReads: Bool { isFetchingReads }
     var testIsFetchingDepth: Bool { isFetchingDepth }
     var testIsFetchingConsensus: Bool { isFetchingConsensus }
+    var testDetachedAlignmentSource: DetachedAlignmentSource? { detachedAlignmentSource }
 
     func testSetUserSelectionRange(_ range: Range<Int>) {
         selectionRange = range
@@ -1818,6 +1837,7 @@ public class SequenceViewerView: NSView {
         variantFetchGeneration += 1
 
         // Store the bundle reference
+        self.detachedAlignmentSource = nil
         self.currentReferenceBundle = bundle
 
         // Clear any existing sequence/annotations since we'll fetch on-demand
@@ -2008,6 +2028,7 @@ public class SequenceViewerView: NSView {
     func clearReferenceBundle() {
         sequenceViewerLogger.info("SequenceViewerView.clearReferenceBundle: Clearing bundle")
         self.currentReferenceBundle = nil
+        self.detachedAlignmentSource = nil
         self.cachedBundleSequence = nil
         self.cachedSequenceRegion = nil
         self.cachedBundleAnnotations = []
@@ -2051,6 +2072,8 @@ public class SequenceViewerView: NSView {
         self.variantChromosomeAliasMap = [:]
         self.variantTrackChromosomeMap = [:]
         self.alignmentChromosomeAliasMap = [:]
+        self.alignmentDataProviders = []
+        self.visibleAlignmentTrackIDSetting = nil
         self.sequenceFetchStartTime = nil
         self.annotationFetchStartTime = nil
 
@@ -2059,6 +2082,24 @@ public class SequenceViewerView: NSView {
         typeDensityColorCache.removeAll()
         invalidateAnnotationTile()
 
+        needsDisplay = true
+    }
+
+    /// Configures the existing alignment renderer for an externally-owned final BAM.
+    /// This creates no bundle, writes no data, and intentionally leaves annotations
+    /// and reference-dependent data absent when no validated FASTA was supplied.
+    func setDetachedAlignmentSource(_ source: DetachedAlignmentSource) {
+        clearReferenceBundle()
+        currentReferenceBundle = nil
+        detachedAlignmentSource = source
+        alignmentDataProviders = [(trackId: "detached", provider: source.provider)]
+        visibleAlignmentTrackIDSetting = "detached"
+        alignmentChromosomeAliasMap = [:]
+        if let reference = source.referenceSequence {
+            cachedBundleSequence = reference
+            cachedSequenceRegion = GenomicRegion(chromosome: source.contig.name, start: 0, end: source.contig.length)
+        }
+        invalidateAlignmentFetchState()
         needsDisplay = true
     }
 

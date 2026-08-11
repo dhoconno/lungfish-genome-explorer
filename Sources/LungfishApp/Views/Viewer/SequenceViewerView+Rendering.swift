@@ -64,6 +64,10 @@ extension SequenceViewerView {
                 // Reference bundle mode: draw from cached bundle data
                 sequenceViewerLogger.debug("SequenceViewerView.draw: Drawing bundle content for \(frame.chromosome)")
                 drawBundleContent(frame: frame, context: context)
+            } else if detachedAlignmentSource != nil {
+                // Detached evidence mode reuses the full read/coverage renderer but has
+                // no annotation database and no implicit reference sequence.
+                drawDetachedAlignmentContent(frame: frame, context: context)
             } else if let seq = sequence {
                 // Single sequence mode
                 sequenceViewerLogger.debug("SequenceViewerView.draw: Drawing single sequence '\(seq.name, privacy: .public)' in bounds \(self.bounds.width)x\(self.bounds.height)")
@@ -622,6 +626,87 @@ extension SequenceViewerView {
 
         // Draw selection overlays on top of all content
         drawColumnSelectionHighlight(frame: frame, context: context)
+        drawSelectedReadHighlights(frame: frame, context: context)
+    }
+
+    /// Read-only evidence rendering for a loose final BAM. This intentionally has
+    /// no annotation/variant fetches and only draws bases when validation supplied a
+    /// real FASTA record; it never constructs a read-derived reference.
+    func drawDetachedAlignmentContent(frame: ReferenceFrame, context: CGContext) {
+        guard let source = detachedAlignmentSource else { return }
+        ensureVisibleViewportSelection(frame: frame)
+        let region = GenomicRegion(
+            chromosome: frame.chromosome,
+            start: max(0, Int(frame.start)),
+            end: max(Int(frame.start) + 1, Int(ceil(frame.end)))
+        )
+        let scale = frame.scale
+        if let sequence = source.referenceSequence,
+           scale < showLineThreshold,
+           let cachedRegion = cachedSequenceRegion {
+            drawBundleSequence(sequence, region: cachedRegion, frame: frame, context: context)
+        } else {
+            drawSequenceLine(frame: frame, context: context)
+        }
+
+        guard showReads else { return }
+        let tier = applyReadViewportPolicy(scale: scale)
+        let coverageRect = CGRect(x: 0, y: readTrackY, width: bounds.width, height: coverageStripHeight)
+        let depthCovered = cachedDepthRegion?.chromosome == region.chromosome
+            && (cachedDepthRegion?.start ?? Int.max) <= region.start
+            && (cachedDepthRegion?.end ?? Int.min) >= region.end
+        if !depthCovered && !isFetchingDepth { fetchDetachedDepth(source: source, region: region) }
+        ReadTrackRenderer.drawCoverage(
+            depthPoints: cachedDepthPoints,
+            regionStart: region.start,
+            regionEnd: region.end,
+            frame: frame,
+            context: context,
+            rect: coverageRect
+        )
+
+        let rowsY = coverageRect.maxY + coverageToConsensusGap
+        lastRenderedReadY = rowsY
+        guard tier != .coverage else {
+            drawReadZoomHint(context: context, yOffset: rowsY + 2, scale: scale)
+            return
+        }
+        let readsCovered = cachedReadRegion?.chromosome == region.chromosome
+            && (cachedReadRegion?.start ?? Int.max) <= region.start
+            && (cachedReadRegion?.end ?? Int.min) >= region.end
+        if !readsCovered && !isFetchingReads { fetchDetachedReads(source: source, region: region) }
+        guard !cachedAlignedReads.isEmpty else { return }
+
+        let maxRows = limitReadRowsSetting ? max(1, maxReadRowsSetting) : nil
+        let (packed, overflow) = ReadTrackRenderer.packReads(
+            cachedAlignedReads.filter { $0.chromosome == region.chromosome },
+            frame: frame,
+            maxRows: maxRows,
+            sortMode: .position,
+            prioritizedRegion: region.start..<region.end
+        )
+        cachedPackedReads = packed
+        cachedPackOverflow = overflow
+        let rowCount = (packed.map(\.row).max() ?? -1) + 1
+        let contentHeight = ReadTrackRenderer.totalHeight(rowCount: rowCount, tier: tier, verticalCompress: verticallyCompressContigSetting)
+        let rect = CGRect(x: 0, y: rowsY, width: bounds.width, height: contentHeight)
+        let settings = ReadTrackRenderer.DisplaySettings(
+            showMismatches: showMismatchesSetting,
+            showSoftClips: showSoftClipsSetting,
+            showIndels: showIndelsSetting,
+            consensusMaskingEnabled: consensusMaskingEnabledSetting,
+            consensusGapThreshold: Double(consensusGapThresholdPercentSetting) / 100,
+            consensusMaskingMinDepth: consensusMaskingMinDepthSetting,
+            showStrandColors: showStrandColorsSetting
+        )
+        if tier == .packed {
+            ReadTrackRenderer.drawPackedReads(packedReads: packed, overflow: overflow, frame: frame, referenceSequence: source.referenceSequence, referenceStart: 0, settings: settings, verticalCompress: verticallyCompressContigSetting, maxRowsLimit: maxRows, maskedPositions: [], context: context, rect: rect)
+        } else {
+            ReadTrackRenderer.drawBaseReads(packedReads: packed, overflow: overflow, frame: frame, referenceSequence: source.referenceSequence, referenceStart: 0, settings: settings, verticalCompress: verticallyCompressContigSetting, maxRowsLimit: maxRows, maskedPositions: [], context: context, rect: rect)
+            if source.referenceSequence == nil && ReadTrackRenderer.shouldShowNoReferenceBadge(hasReference: false, hasMDTags: packed.contains(where: { $0.read.mdTag != nil })) {
+                drawTrackLoadingBadge(context: context, message: ReadTrackRenderer.noReferenceBadgeMessage, yOffset: rowsY + 2, tooltip: ReadTrackRenderer.noReferenceBadgeTooltip)
+            }
+        }
         drawSelectedReadHighlights(frame: frame, context: context)
     }
 

@@ -13,6 +13,79 @@ import os.log
 
 extension SequenceViewerView {
 
+    /// Indexed detached-evidence read fetch. The source identity participates in
+    /// the existing request gate so superseded classifier selections cannot draw.
+    func fetchDetachedReads(source: DetachedAlignmentSource, region: GenomicRegion) {
+        let scale = viewController?.referenceFrame?.scale ?? 1
+        guard ReadViewportPolicy.allowsIndividualReads(scale: scale) else { return }
+        let span = region.end - region.start
+        let expanded = GenomicRegion(
+            chromosome: region.chromosome,
+            start: max(0, region.start - max(20_000, span * 2)),
+            end: min(source.contig.length, region.end + max(20_000, span * 2))
+        )
+        let token = beginReadFetch(bundleURL: source.identityURL, trackID: "detached", region: expanded)
+        let tokenGeneration = token.generation
+        let tokenIdentity = token.identity
+        let provider = source.provider
+        let filters = (excludeFlagsSetting, minMapQSetting, selectedReadGroupsSetting, limitReadRowsSetting ? 250_000 : Int.max)
+        Task.detached { [weak self] in
+            let reads: [AlignedRead]
+            do {
+                reads = try await provider.fetchReads(
+                    chromosome: expanded.chromosome, start: expanded.start, end: expanded.end,
+                    excludeFlags: filters.0, minMapQ: filters.1, maxReads: filters.3, readGroups: filters.2
+                )
+            } catch {
+                sequenceViewerLogger.error("fetchDetachedReads: \(error.localizedDescription, privacy: .public)")
+                reads = []
+            }
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    let token = AsyncRequestToken(generation: tokenGeneration, identity: tokenIdentity)
+                    guard self.commitReadFetch(token, reads: reads, region: expanded) else { return }
+                    self.setNeedsDisplay(self.bounds)
+                }
+            }
+        }
+    }
+
+    /// Indexed detached-evidence depth fetch, sharing the normal coverage cache and gate.
+    func fetchDetachedDepth(source: DetachedAlignmentSource, region: GenomicRegion) {
+        let span = region.end - region.start
+        let expanded = GenomicRegion(
+            chromosome: region.chromosome,
+            start: max(0, region.start - max(5_000, span)),
+            end: min(source.contig.length, region.end + max(5_000, span))
+        )
+        let token = beginDepthFetch(bundleURL: source.identityURL, trackID: "detached", region: expanded)
+        let tokenGeneration = token.generation
+        let tokenIdentity = token.identity
+        let provider = source.provider
+        let filters = (max(0, max(minMapQSetting, consensusMinMapQSetting)), max(0, consensusMinBaseQSetting), excludeFlagsSetting)
+        Task.detached { [weak self] in
+            let points: [ReadTrackRenderer.CoveragePoint]
+            do {
+                points = try await provider.fetchDepth(
+                    chromosome: expanded.chromosome, start: expanded.start, end: expanded.end,
+                    minMapQ: filters.0, minBaseQ: filters.1, excludeFlags: filters.2
+                ).map { .init(position: $0.position, depth: $0.depth) }
+            } catch {
+                sequenceViewerLogger.error("fetchDetachedDepth: \(error.localizedDescription, privacy: .public)")
+                points = []
+            }
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    let token = AsyncRequestToken(generation: tokenGeneration, identity: tokenIdentity)
+                    guard self.commitDepthFetch(token, points: points, region: expanded) else { return }
+                    self.setNeedsDisplay(self.bounds)
+                }
+            }
+        }
+    }
+
     // MARK: - Alignment Chromosome Aliasing
 
     /// Translates a reference chromosome name to the BAM/CRAM chromosome name.

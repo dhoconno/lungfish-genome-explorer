@@ -1,6 +1,7 @@
 import XCTest
 @testable import LungfishApp
 import LungfishCore
+@testable import LungfishIO
 
 @MainActor
 final class SequenceViewerFetchInvalidationTests: XCTestCase {
@@ -87,6 +88,22 @@ final class SequenceViewerFetchInvalidationTests: XCTestCase {
         XCTAssertNil(view.cachedReadRegion)
         XCTAssertNil(view.cachedDepthRegion)
         XCTAssertNil(view.cachedConsensusRegion)
+    }
+
+    func testThreeRapidDetachedRequestsInvalidateEarlierCompletions() {
+        let view = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 800, height: 320))
+        let region = GenomicRegion(chromosome: "chr1", start: 0, end: 50)
+        view.setDetachedAlignmentSource(testDetachedSource("one"))
+        let first = view.testBeginReadFetch(bundleURL: URL(fileURLWithPath: "/tmp/one.bam"), trackID: "detached", region: region)
+        view.setDetachedAlignmentSource(testDetachedSource("two"))
+        let second = view.testBeginReadFetch(bundleURL: URL(fileURLWithPath: "/tmp/two.bam"), trackID: "detached", region: region)
+        view.setDetachedAlignmentSource(testDetachedSource("three"))
+        let third = view.testBeginReadFetch(bundleURL: URL(fileURLWithPath: "/tmp/three.bam"), trackID: "detached", region: region)
+
+        XCTAssertFalse(view.testCommitReadFetch(first, reads: [makeRead(name: "one", position: 1)], region: region))
+        XCTAssertFalse(view.testCommitReadFetch(second, reads: [makeRead(name: "two", position: 2)], region: region))
+        XCTAssertTrue(view.testCommitReadFetch(third, reads: [makeRead(name: "three", position: 3)], region: region))
+        XCTAssertEqual(view.testCachedAlignedReads.map(\.name), ["three"])
     }
 
     func testShowReadsSettingsChangeInvalidatesInFlightReadFetch() {
@@ -200,6 +217,16 @@ final class SequenceViewerFetchInvalidationTests: XCTestCase {
             cigar: CIGAROperation.parse("10M") ?? [],
             sequence: "ACTGACTGAA",
             qualities: Array(repeating: 37, count: 10)
+        )
+    }
+
+    private func testDetachedSource(_ suffix: String) -> SequenceViewerView.DetachedAlignmentSource {
+        let bam = URL(fileURLWithPath: "/tmp/\(suffix).bam")
+        return .init(
+            identityURL: bam,
+            contig: .init(name: "chr1", length: 50),
+            provider: AlignmentDataProvider(alignmentPath: bam.path, indexPath: "\(bam.path).bai"),
+            referenceSequence: nil
         )
     }
 }
