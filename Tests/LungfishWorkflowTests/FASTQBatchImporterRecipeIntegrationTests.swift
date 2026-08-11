@@ -360,6 +360,25 @@ final class FASTQBatchImporterRecipeIntegrationTests: XCTestCase {
             canonicalPath(fastpReportURL)
         )
 
+        let fastpMergeProvenanceStep = try XCTUnwrap(envelope.steps.first {
+            $0.toolName == "fastp" && $0.argv.contains("--merge")
+        })
+        let mergeFASTQOutputs = fastpMergeProvenanceStep.outputs.filter { $0.format == .fastq }
+        XCTAssertEqual(mergeFASTQOutputs.count, 3)
+        XCTAssertEqual(
+            Set(mergeFASTQOutputs.map { URL(fileURLWithPath: $0.path).lastPathComponent }),
+            Set([
+                "vsp2_merged.fq.gz",
+                "vsp2_unmerged_R1.fq.gz",
+                "vsp2_unmerged_R2.fq.gz",
+            ])
+        )
+        XCTAssertTrue(mergeFASTQOutputs.allSatisfy { $0.checksumSHA256?.isEmpty == false })
+        XCTAssertTrue(mergeFASTQOutputs.allSatisfy { ($0.fileSize ?? 0) > 0 })
+        XCTAssertTrue(mergeFASTQOutputs.allSatisfy {
+            !FileManager.default.fileExists(atPath: $0.path)
+        })
+
         let startedSteps = collector.events.compactMap { event -> (Int, Int)? in
             guard case .stepStart(_, _, let stepIndex, let totalSteps) = event else { return nil }
             return (stepIndex, totalSteps)

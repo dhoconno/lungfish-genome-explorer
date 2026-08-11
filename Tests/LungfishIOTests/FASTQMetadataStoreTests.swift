@@ -350,6 +350,18 @@ final class FASTQMetadataStoreTests: XCTestCase {
     func testRecipeStepResultRoundTripsLogicalComponentsAndExecutionEvidence() throws {
         let startedAt = Date(timeIntervalSince1970: 1_700_000_000)
         let completedAt = Date(timeIntervalSince1970: 1_700_000_012)
+        let executionOutputFiles = [
+            RecipeStepOutputFile(
+                path: "/tmp/sample_fused_R1.fq.gz",
+                checksumSHA256: "r1-checksum",
+                sizeBytes: 101
+            ),
+            RecipeStepOutputFile(
+                path: "/tmp/sample_fused_R2.fq.gz",
+                checksumSHA256: "r2-checksum",
+                sizeBytes: 202
+            ),
+        ]
         let result = RecipeStepResult(
             stepName: "Remove PCR duplicates + Adapter + quality trim",
             tool: "fastp",
@@ -365,6 +377,7 @@ final class FASTQMetadataStoreTests: XCTestCase {
                 RecipeLogicalComponent(typeID: "fastp-dedup", displayName: "Remove PCR duplicates"),
                 RecipeLogicalComponent(typeID: "fastp-trim", displayName: "Adapter + quality trim"),
             ],
+            executionOutputFiles: executionOutputFiles,
             exitStatus: 0,
             stderr: "fastp warning",
             startedAt: startedAt,
@@ -379,6 +392,7 @@ final class FASTQMetadataStoreTests: XCTestCase {
         let decoded = try decoder.decode(RecipeStepResult.self, from: data)
 
         XCTAssertEqual(decoded.logicalComponents, result.logicalComponents)
+        XCTAssertEqual(decoded.executionOutputFiles, executionOutputFiles)
         XCTAssertEqual(decoded.exitStatus, 0)
         XCTAssertEqual(decoded.stderr, "fastp warning")
         XCTAssertEqual(decoded.startedAt, startedAt)
@@ -389,6 +403,7 @@ final class FASTQMetadataStoreTests: XCTestCase {
             commandPathRewrites: [:]
         )
         XCTAssertEqual(replaced.logicalComponents, result.logicalComponents)
+        XCTAssertEqual(replaced.executionOutputFiles, executionOutputFiles)
         XCTAssertEqual(replaced.exitStatus, result.exitStatus)
         XCTAssertEqual(replaced.stderr, result.stderr)
         XCTAssertEqual(replaced.startedAt, result.startedAt)
@@ -401,6 +416,7 @@ final class FASTQMetadataStoreTests: XCTestCase {
         let result = try JSONDecoder().decode(RecipeStepResult.self, from: data)
 
         XCTAssertTrue(result.logicalComponents.isEmpty)
+        XCTAssertTrue(result.executionOutputFiles.isEmpty)
         XCTAssertNil(result.exitStatus)
         XCTAssertNil(result.stderr)
         XCTAssertNil(result.startedAt)

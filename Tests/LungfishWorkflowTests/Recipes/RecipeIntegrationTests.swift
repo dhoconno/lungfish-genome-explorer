@@ -298,6 +298,24 @@ final class RecipeIntegrationTests: XCTestCase {
         let result = try await engine.execute(recipe: vsp2, input: input, context: context)
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.output.r1.path))
 
+        let mergeStep = try XCTUnwrap(result.stepRecords.first {
+            $0.tool == "fastp" && $0.commandArguments?.contains("--merge") == true
+        })
+        XCTAssertEqual(mergeStep.executionOutputFiles.count, 3)
+        XCTAssertEqual(
+            Set(mergeStep.executionOutputFiles.map { URL(fileURLWithPath: $0.path).lastPathComponent }),
+            Set([
+                "sarscov2-vsp2_merged.fq.gz",
+                "sarscov2-vsp2_unmerged_R1.fq.gz",
+                "sarscov2-vsp2_unmerged_R2.fq.gz",
+            ])
+        )
+        XCTAssertTrue(mergeStep.executionOutputFiles.allSatisfy { !$0.checksumSHA256.isEmpty })
+        XCTAssertTrue(mergeStep.executionOutputFiles.allSatisfy { $0.sizeBytes > 0 })
+        XCTAssertTrue(mergeStep.executionOutputFiles.allSatisfy {
+            !FileManager.default.fileExists(atPath: $0.path)
+        })
+
         let stats = try await NativeToolRunner.shared.run(.seqkit, arguments: ["stats", "--tabular", result.output.r1.path])
         XCTAssertEqual(stats.exitCode, 0)
     }

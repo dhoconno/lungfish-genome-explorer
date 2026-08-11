@@ -1068,6 +1068,39 @@ final class FASTQBatchImporterTests: XCTestCase {
         XCTAssertNil(decoded.runtimeIdentity)
     }
 
+    func testRehydratedIngestionStepsPreserveRuntimeIdentity() throws {
+        let sourceOutputURL = URL(fileURLWithPath: "/tmp/import-staging/sample.fastq.gz")
+        let finalOutputURL = URL(fileURLWithPath: "/project/sample.lungfishfastq/sample.fastq.gz")
+        let runtimeIdentity = ProvenanceRuntimeIdentity(
+            appVersion: "1.2.3",
+            executablePath: "/managed/conda/envs/pigz/bin/pigz",
+            processIdentifier: 42,
+            operatingSystemVersion: "macOS test",
+            architecture: "arm64",
+            user: "tester",
+            condaEnvironment: "pigz",
+            condaPrefix: "/managed/conda/envs/pigz"
+        )
+        let step = StepExecution(
+            toolName: "pigz",
+            toolVersion: "2.8",
+            command: ["/managed/conda/envs/pigz/bin/pigz", sourceOutputURL.path],
+            runtimeIdentity: runtimeIdentity,
+            inputs: [],
+            outputs: [FileRecord(path: sourceOutputURL.path, format: .fastq, role: .output)]
+        )
+
+        let rehydrated = FASTQBatchImporter.rehydratedIngestionSteps(
+            [step],
+            sourceOutputURL: sourceOutputURL,
+            finalOutputURL: finalOutputURL,
+            originalInputURLs: []
+        )
+
+        XCTAssertEqual(try XCTUnwrap(rehydrated.first).runtimeIdentity, runtimeIdentity)
+        XCTAssertEqual(rehydrated.first?.outputs.map(\.path), [finalOutputURL.path])
+    }
+
     func testPublishFASTQBundleUsesFoundationReplacementForExistingBundle() throws {
         let source = try String(contentsOf: fastqBatchImporterSourceURL(), encoding: .utf8)
         let start = try XCTUnwrap(source.range(of: "static func publishFASTQBundle"))

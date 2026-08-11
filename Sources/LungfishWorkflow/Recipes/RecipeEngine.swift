@@ -309,9 +309,7 @@ public final class RecipeEngine: Sendable {
                     outputReadCount = try? await Self.countReadsForRecipeStep(currentOutput)
                 }
                 let executionOutputFiles: [RecipeStepOutputFile]
-                if logicalComponents.isEmpty {
-                    executionOutputFiles = []
-                } else {
+                if currentOutput.tool == .fastp {
                     executionOutputFiles = try [currentOutput.r1, currentOutput.r2, currentOutput.r3]
                         .compactMap { $0 }
                         .map { outputURL in
@@ -321,6 +319,8 @@ public final class RecipeEngine: Sendable {
                                 sizeBytes: try ProvenanceFileHasher.fileSize(of: outputURL)
                             )
                         }
+                } else {
+                    executionOutputFiles = []
                 }
 
                 stepRecords.append(RecipeStepResult(

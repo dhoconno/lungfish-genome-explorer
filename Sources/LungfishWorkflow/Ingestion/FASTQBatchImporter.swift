@@ -1839,7 +1839,7 @@ public enum FASTQBatchImporter {
         return arguments
     }
 
-    private static func rehydratedIngestionSteps(
+    static func rehydratedIngestionSteps(
         _ steps: [StepExecution],
         sourceOutputURL: URL,
         finalOutputURL: URL,
@@ -1871,6 +1871,7 @@ public enum FASTQBatchImporter {
                 command: step.command,
                 durableReplayArgv: durableReplayArgv,
                 resolvedOptions: step.resolvedOptions,
+                runtimeIdentity: step.runtimeIdentity,
                 inputs: step.inputs,
                 outputs: outputs,
                 exitCode: step.exitCode,
