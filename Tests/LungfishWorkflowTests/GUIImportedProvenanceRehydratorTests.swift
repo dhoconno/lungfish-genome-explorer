@@ -2,7 +2,7 @@ import XCTest
 @testable import LungfishWorkflow
 
 final class GUIImportedProvenanceRehydratorTests: XCTestCase {
-    func testImportedPayloadPreservesCLIStepAndAddsGUIImportStepWithFinalOutputPath() throws {
+    func testImportedPayloadPreservesSourceStepAndAddsGUIImportStepWithFinalOutputPath() throws {
         let tempDir = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
@@ -28,13 +28,30 @@ final class GUIImportedProvenanceRehydratorTests: XCTestCase {
         .output(stagedFASTQ, format: .fastq, role: .output)
         .step(
             ProvenanceStep(
-                toolName: "lungfish-cli",
-                toolVersion: "2026.05",
-                argv: ["lungfish-cli", "fetch", "ncbi", "SRR123", "--output", stagedFASTQ.path],
+                toolName: "fastp",
+                toolVersion: "0.23.4",
+                githubReleaseVersion: "v0.23.4",
+                argv: ["fastp", "-i", stagedFASTQ.path, "-o", stagedFASTQ.path],
+                durableReplayArgv: ["fastp", "-i", stagedFASTQ.path, "-o", stagedFASTQ.path],
+                resolvedOptions: [
+                    "recipeInput": .file(stagedFASTQ),
+                    "recipeLogicalComponents": .array([.string("fastp-trim")]),
+                ],
+                runtimeIdentity: ProvenanceRuntimeIdentity(
+                    appVersion: "Lungfish fixture",
+                    executablePath: stagingDirectory.appendingPathComponent("conda/envs/fastp/bin/fastp").path,
+                    processIdentifier: 12,
+                    operatingSystemVersion: "macOS fixture",
+                    architecture: "arm64",
+                    user: "fixture-user",
+                    condaEnvironment: "fastp",
+                    condaPrefix: stagingDirectory.appendingPathComponent("conda/envs/fastp").path
+                ),
                 inputs: [],
                 outputs: [try ProvenanceFileDescriptor.file(url: stagedFASTQ, format: .fastq, role: .output)],
                 exitStatus: 0,
-                wallTimeSeconds: 1.5
+                wallTimeSeconds: 1.5,
+                peakMemoryBytes: 4242
             )
         )
         .runtime(ProvenanceRuntimeIdentity.fixture())
@@ -53,19 +70,33 @@ final class GUIImportedProvenanceRehydratorTests: XCTestCase {
         XCTAssertEqual(rehydrated.workflowName, "CLI FASTQ Download")
         XCTAssertEqual(rehydrated.output?.path, finalFASTQ.path)
         XCTAssertEqual(rehydrated.outputs.map(\.path), [finalFASTQ.path])
-        XCTAssertEqual(rehydrated.steps.map(\.toolName), ["lungfish-cli", "lungfish-app"])
+        XCTAssertEqual(rehydrated.steps.map(\.toolName), ["fastp", "lungfish-app"])
         XCTAssertEqual(rehydrated.steps[0].outputs.map(\.path), [finalFASTQ.path])
         XCTAssertEqual(rehydrated.steps[0].outputs.first?.originPath, stagedFASTQ.path)
         XCTAssertEqual(rehydrated.steps[0].outputs.first?.sourceProvenancePath, sourceSidecarURL.path)
         XCTAssertEqual(rehydrated.steps[0].argv.last, stagedFASTQ.path)
         XCTAssertEqual(rehydrated.steps[0].durableReplayArgv?.last, finalFASTQ.path)
+        XCTAssertEqual(rehydrated.steps[0].githubReleaseVersion, "v0.23.4")
+        XCTAssertEqual(rehydrated.steps[0].resolvedOptions["recipeInput"]?.fileValue?.path, finalFASTQ.path)
+        XCTAssertEqual(
+            rehydrated.steps[0].resolvedOptions["recipeLogicalComponents"],
+            .array([.string("fastp-trim")])
+        )
+        XCTAssertEqual(rehydrated.steps[0].runtimeIdentity?.condaEnvironment, "fastp")
+        XCTAssertEqual(
+            rehydrated.steps[0].runtimeIdentity?.condaPrefix,
+            stagingDirectory.appendingPathComponent("conda/envs/fastp").path
+        )
+        XCTAssertEqual(rehydrated.steps[0].peakMemoryBytes, 4242)
         XCTAssertTrue(rehydrated.steps[1].argv.contains("gui-import"))
         XCTAssertEqual(rehydrated.steps[1].outputs.map(\.path), [finalFASTQ.path])
         XCTAssertFalse(rehydrated.files.contains { $0.role == .output && $0.path == stagedFASTQ.path })
 
         let stored = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundleURL))
-        XCTAssertEqual(stored.steps.map(\.toolName), ["lungfish-cli", "lungfish-app"])
+        XCTAssertEqual(stored.steps.map(\.toolName), ["fastp", "lungfish-app"])
         XCTAssertEqual(stored.output?.path, finalFASTQ.path)
+        XCTAssertEqual(stored.steps[0].resolvedOptions["recipeInput"]?.fileValue?.path, finalFASTQ.path)
+        XCTAssertEqual(stored.steps[0].runtimeIdentity?.condaEnvironment, "fastp")
     }
 
     func testImportedBundleRehydratesNestedCLIOutputsIntoCopiedBundle() throws {

@@ -29,6 +29,104 @@ struct ProvenanceEnvelopeTests {
         #expect(decoded.runtimeIdentity == runtimeIdentity)
     }
 
+    @Test("writer projections preserve every provenance step evidence field")
+    func writerProjectionsPreserveEveryProvenanceStepEvidenceField() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("provenance-writer-projections-\(UUID().uuidString)", isDirectory: true)
+        let bundle = root.appendingPathComponent("sample.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let outputURL = bundle.appendingPathComponent("reads.fastq")
+        try Data("@read\nACGT\n+\n!!!!\n".utf8).write(to: outputURL)
+        let inputURL = root.appendingPathComponent("input.fastq")
+        try Data("@input\nTGCA\n+\n!!!!\n".utf8).write(to: inputURL)
+        let input = try ProvenanceFileDescriptor.file(url: inputURL, format: .fastq, role: .input)
+        let output = try ProvenanceFileDescriptor.file(url: outputURL, format: .fastq, role: .output)
+        let runtimeIdentity = ProvenanceRuntimeIdentity(
+            appVersion: "Lungfish fixture",
+            executablePath: "/managed/conda/envs/fastp/bin/fastp",
+            processIdentifier: 7,
+            operatingSystemVersion: "macOS fixture",
+            architecture: "arm64",
+            user: "fixture-user",
+            condaEnvironment: "fastp",
+            condaPrefix: "/managed/conda/envs/fastp"
+        )
+        let resolvedOptions: [String: ParameterValue] = [
+            "recipeLogicalComponents": .array([
+                .dictionary([
+                    "typeID": .string("fastp-dedup"),
+                    "displayName": .string("Remove PCR duplicates"),
+                ]),
+                .dictionary([
+                    "typeID": .string("fastp-trim"),
+                    "displayName": .string("Adapter + quality trim"),
+                ]),
+            ]),
+        ]
+        let step = ProvenanceStep(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+            toolName: "fastp",
+            toolVersion: "0.23.4",
+            githubReleaseVersion: "v0.23.4",
+            argv: ["fastp", "-o", outputURL.path],
+            durableReplayArgv: ["fastp", "-o", outputURL.path],
+            reproducibleCommand: "fastp --out1 'quoted output'",
+            resolvedOptions: resolvedOptions,
+            runtimeIdentity: runtimeIdentity,
+            inputs: [input],
+            outputs: [output],
+            exitStatus: 0,
+            wallTimeSeconds: 1.5,
+            peakMemoryBytes: 9876,
+            stderr: "fastp stderr",
+            dependsOn: [UUID(uuidString: "00000000-0000-0000-0000-000000000002")!],
+            startedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            completedAt: Date(timeIntervalSince1970: 1_700_000_002)
+        )
+        let envelope = ProvenanceEnvelope(
+            workflowName: "fastp fixture",
+            workflowVersion: "fixture",
+            toolName: "fastp",
+            toolVersion: "0.23.4",
+            argv: step.argv,
+            runtimeIdentity: runtimeIdentity,
+            files: [output],
+            output: output,
+            outputs: [output],
+            steps: [step],
+            wallTimeSeconds: 1.5,
+            exitStatus: 0
+        )
+
+        try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundle)
+
+        let rootEnvelope = try #require(
+            try ProvenanceEnvelopeReader.load(
+                fromSidecar: bundle.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+            )
+        )
+        let rollupEnvelope = try #require(
+            try ProvenanceEnvelopeReader.load(
+                fromSidecar: bundle
+                    .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
+                    .appendingPathComponent(ProvenanceWriter.bundleRollupFilename)
+            )
+        )
+        let focusedURL = try #require(ProvenanceWriter.bundleOutputSidecarURL(for: outputURL, inBundle: bundle))
+        let focusedEnvelope = try #require(try ProvenanceEnvelopeReader.load(fromSidecar: focusedURL))
+
+        for projected in [rootEnvelope, rollupEnvelope, focusedEnvelope] {
+            let projectedStep = try #require(projected.steps.first)
+            #expect(projectedStep == step)
+            #expect(projectedStep.githubReleaseVersion == "v0.23.4")
+            #expect(projectedStep.resolvedOptions == resolvedOptions)
+            #expect(projectedStep.runtimeIdentity == runtimeIdentity)
+            #expect(projectedStep.peakMemoryBytes == 9876)
+        }
+    }
+
     @Test("legacy provenance step defaults missing resolved options and runtime identity")
     func legacyProvenanceStepDefaultsMissingResolvedOptionsAndRuntimeIdentity() throws {
         let data = Data("""
@@ -46,6 +144,35 @@ struct ProvenanceEnvelopeTests {
 
         #expect(decoded.resolvedOptions.isEmpty)
         #expect(decoded.runtimeIdentity == nil)
+    }
+
+    @Test("legacy workflow conversion preserves durable replay argv and resolved options")
+    func legacyWorkflowConversionPreservesDurableReplayArgvAndResolvedOptions() throws {
+        let durableReplayArgv = ["fastp", "-j", "/bundle/report.json"]
+        let resolvedOptions: [String: ParameterValue] = [
+            "recipeLogicalComponents": .array([.string("fastp-dedup")]),
+        ]
+        let envelope = ProvenanceEnvelope(
+            workflowName: "fastp fixture",
+            toolName: "fastp",
+            toolVersion: "0.23.4",
+            argv: ["fastp", "-j", "/tmp/report.json"],
+            steps: [
+                ProvenanceStep(
+                    toolName: "fastp",
+                    toolVersion: "0.23.4",
+                    argv: ["fastp", "-j", "/tmp/report.json"],
+                    durableReplayArgv: durableReplayArgv,
+                    resolvedOptions: resolvedOptions,
+                    exitStatus: 0
+                ),
+            ],
+            exitStatus: 0
+        )
+
+        let legacy = envelope.legacyWorkflowRun()
+        #expect(legacy.steps.first?.durableReplayArgv == durableReplayArgv)
+        #expect(legacy.steps.first?.resolvedOptions == resolvedOptions)
     }
 
     @Test("canonical envelope encodes documented top-level fields and compatibility aliases")

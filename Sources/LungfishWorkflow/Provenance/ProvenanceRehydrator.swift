@@ -401,6 +401,7 @@ public enum ProvenanceRehydrator {
             id: step.id,
             toolName: step.toolName,
             toolVersion: step.toolVersion,
+            githubReleaseVersion: step.githubReleaseVersion,
             argv: step.argv,
             durableReplayArgv: replayArgv,
             reproducibleCommand: commandLine(
@@ -408,6 +409,10 @@ public enum ProvenanceRehydrator {
                 fallback: step.reproducibleCommand,
                 pathMap: replayPathMap
             ),
+            resolvedOptions: step.resolvedOptions.mapValues {
+                rewriteParameterValue($0, pathMap: replayPathMap)
+            },
+            runtimeIdentity: step.runtimeIdentity,
             inputs: try step.inputs.map {
                 try rewriteInputDescriptor(
                     $0,

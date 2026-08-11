@@ -504,6 +504,8 @@ extension ProvenanceEnvelope {
                     containerImage: runtimeIdentity.containerImage,
                     containerDigest: runtimeIdentity.containerDigest,
                     command: legacyCommand(argv: step.argv, reproducibleCommand: step.reproducibleCommand),
+                    durableReplayArgv: step.durableReplayArgv,
+                    resolvedOptions: step.resolvedOptions,
                     runtimeIdentity: step.runtimeIdentity ?? runtimeIdentity,
                     inputs: step.inputs.map(FileRecord.init(provenanceFile:)),
                     outputs: step.outputs.map(FileRecord.init(provenanceFile:)),

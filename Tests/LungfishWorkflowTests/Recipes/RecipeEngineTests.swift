@@ -114,6 +114,26 @@ final class RecipeEngineTests: XCTestCase {
         }
     }
 
+    func testPlanFusedFastpUsesRecipeLabelsForLogicalComponents() throws {
+        let recipe = makeRecipe(steps: [
+            RecipeStep(type: "fastp-dedup", label: "VSP2 duplicate removal"),
+            RecipeStep(type: "fastp-trim", label: "VSP2 adapter trimming"),
+        ])
+
+        let plan = try RecipeEngine().plan(recipe: recipe, inputFormat: .pairedR1R2)
+        guard case .fusedFastp(_, _, _, let components) = try XCTUnwrap(plan.first) else {
+            return XCTFail("Expected a fused fastp plan")
+        }
+
+        XCTAssertEqual(
+            components,
+            [
+                RecipeLogicalComponent(typeID: "fastp-dedup", displayName: "VSP2 duplicate removal"),
+                RecipeLogicalComponent(typeID: "fastp-trim", displayName: "VSP2 adapter trimming"),
+            ]
+        )
+    }
+
     func testPlanDoesNotFuseAcrossNonFastp() throws {
         let recipe = makeRecipe(steps: [
             RecipeStep(type: "fastp-dedup"),

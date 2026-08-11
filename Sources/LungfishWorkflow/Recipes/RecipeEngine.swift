@@ -147,7 +147,7 @@ public final class RecipeEngine: Sendable {
                 var fusionLabels = [step.label ?? type(of: executor).displayName]
                 var fusionComponents = [RecipeLogicalComponent(
                     typeID: type(of: executor).typeID,
-                    displayName: type(of: executor).displayName
+                    displayName: step.label ?? type(of: executor).displayName
                 )]
                 var j = i + 1
 
@@ -162,7 +162,7 @@ public final class RecipeEngine: Sendable {
                     fusionLabels.append(nextStep.label ?? type(of: nextExecutor).displayName)
                     fusionComponents.append(RecipeLogicalComponent(
                         typeID: type(of: nextExecutor).typeID,
-                        displayName: type(of: nextExecutor).displayName
+                        displayName: nextStep.label ?? type(of: nextExecutor).displayName
                     ))
                     j += 1
                 }
