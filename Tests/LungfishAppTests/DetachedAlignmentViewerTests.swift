@@ -73,8 +73,8 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         XCTAssertEqual(cancelled, Set(requests.prefix(2).map(\.bamURL)))
         XCTAssertEqual(controller.viewer.viewerView.testDetachedAlignmentSource?.identityURL, requests[2].bamURL)
         XCTAssertEqual(controller.availability, .available(reference: .notProvided, reason: nil))
-        XCTAssertEqual(controller.status, .available(referenceStrength: "notProvided", reason: nil))
-        XCTAssertEqual(controller.visibleStatusText, "Alignment evidence ready (reference: notProvided).")
+        XCTAssertEqual(controller.status, .available(referenceStrength: "not provided", reason: nil))
+        XCTAssertEqual(controller.visibleStatusText, "Alignment evidence ready (reference: not provided).")
     }
 
     func testEvidenceChangedBetweenValidationAndInstallationIsRejected() async throws {
@@ -105,6 +105,30 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         XCTAssertEqual(controller.visibleStatusText, reason)
     }
 
+    func testNewDisplaySynchronouslyClearsInstalledEvidenceWhileValidationWaits() async throws {
+        let files = try DetachedEvidenceFiles()
+        let first = try files.request("installed")
+        let second = try files.request("pending")
+        let gate = DetachedHeaderGate()
+        let validator = ClassifierAlignmentEvidenceValidator(
+            headerReader: { url in
+                if url == second.bamURL { await gate.wait(for: url) }
+                return "@SQ\tSN:chr1\tLN:4\n"
+            }, indexQuery: { _, _, _ in }, fileManager: .default
+        )
+        let controller = ClassifierAlignmentEvidenceViewportController(validator: validator)
+        controller.display(first)
+        for _ in 0..<100 where controller.viewer.viewerView.testDetachedAlignmentSource == nil { await Task.yield() }
+        XCTAssertEqual(controller.viewer.viewerView.testDetachedAlignmentSource?.identityURL, first.bamURL)
+
+        controller.display(second)
+        await gate.waitUntilEntered(second.bamURL)
+
+        XCTAssertNil(controller.viewer.viewerView.testDetachedAlignmentSource)
+        XCTAssertEqual(controller.status, .loading)
+        await gate.release(second.bamURL)
+    }
+
     func testSameSizeRestoredMTimeReplacementIsDetectedByEvidenceMonitor() async throws {
         let files = try DetachedEvidenceFiles()
         let request = try files.request("changed")
@@ -118,7 +142,7 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         for _ in 0..<100 where controller.viewer.viewerView.testDetachedAlignmentSource == nil {
             await Task.yield()
         }
-        guard let source = controller.viewer.viewerView.testDetachedAlignmentSource else {
+        guard controller.viewer.viewerView.testDetachedAlignmentSource != nil else {
             return XCTFail("Validated detached source was not installed")
         }
         controller.viewer.viewerView.testSetCachedAlignedReads([

@@ -34,6 +34,11 @@ struct ViewerAlignmentFetchIdentity: Hashable, Sendable {
     let settingsSignature: String
 }
 
+private struct DetachedEvidenceSnapshotCheck: Sendable {
+    let url: URL
+    let expected: ClassifierAlignmentEvidenceFileSnapshot
+}
+
 /// The main view for rendering sequence and track data.
 /// Note: Uses @MainActor for thread safety as it contains mutable UI state.
 @MainActor
@@ -91,8 +96,10 @@ public class SequenceViewerView: NSView {
     var detachedEvidenceStaleReason: String?
     var detachedResourceSignatures: [URL: (Int, Date?)] = [:]
     var onDetachedEvidenceStale: ((String) -> Void)?
+    var detachedEvidenceFetchMessage: String?
     private var detachedEvidenceMonitorSources: [DispatchSourceFileSystemObject] = []
     private var detachedEvidenceMonitorGeneration = 0
+    private var detachedEvidenceHashInFlight = false
 #if DEBUG
     private(set) var detachedEvidenceMonitorEventCount = 0
 #endif
@@ -1356,6 +1363,7 @@ public class SequenceViewerView: NSView {
     var testIsFetchingConsensus: Bool { isFetchingConsensus }
     var testDetachedAlignmentSource: DetachedAlignmentSource? { detachedAlignmentSource }
     var testDetachedEvidenceMonitorEventCount: Int { detachedEvidenceMonitorEventCount }
+    var testDetachedEvidenceFetchMessage: String? { detachedEvidenceFetchMessage }
 
     func testInstallDetachedAlignmentFetchTasks(read: Task<Void, Never>?, depth: Task<Void, Never>?) {
         detachedReadFetchTask = read
@@ -2070,6 +2078,7 @@ public class SequenceViewerView: NSView {
         self.detachedAlignmentSource = nil
         self.detachedEvidenceStaleReason = nil
         self.detachedResourceSignatures = [:]
+        self.detachedEvidenceFetchMessage = nil
         self.cachedBundleSequence = nil
         self.cachedSequenceRegion = nil
         self.cachedBundleAnnotations = []
@@ -2153,6 +2162,7 @@ public class SequenceViewerView: NSView {
         currentReferenceBundle = nil
         detachedAlignmentSource = source
         detachedEvidenceStaleReason = nil
+        detachedEvidenceFetchMessage = nil
         alignmentDataProviders = [(trackId: "detached", provider: source.provider)]
         visibleAlignmentTrackIDSetting = "detached"
         alignmentChromosomeAliasMap = [:]
@@ -2194,7 +2204,7 @@ public class SequenceViewerView: NSView {
 
     private func verifyDetachedEvidenceSnapshots(_ source: DetachedAlignmentSource) -> Bool {
         for (url, expected) in expectedSnapshots(for: source) {
-            guard let observed = try? checksumSnapshot(url), observed == expected else {
+            guard let observed = try? Self.checksumSnapshot(url), observed == expected else {
                 markDetachedEvidenceStale("Classifier alignment evidence changed on disk: \(url.lastPathComponent).")
                 return false
             }
@@ -2221,7 +2231,7 @@ public class SequenceViewerView: NSView {
                 queue: .main
             )
             monitor.setEventHandler { [weak self] in
-                self?.confirmDetachedEvidenceMonitorEvent(generation: generation)
+                self?.scheduleDetachedEvidenceMonitorCheck(generation: generation)
             }
             monitor.setCancelHandler { close(descriptor) }
             detachedEvidenceMonitorSources.append(monitor)
@@ -2232,17 +2242,50 @@ public class SequenceViewerView: NSView {
 
     private func stopDetachedEvidenceMonitors() {
         detachedEvidenceMonitorGeneration += 1
+        detachedEvidenceHashInFlight = false
         detachedEvidenceMonitorSources.forEach { $0.cancel() }
         detachedEvidenceMonitorSources.removeAll()
     }
 
-    private func confirmDetachedEvidenceMonitorEvent(generation: Int) {
+    private func scheduleDetachedEvidenceMonitorCheck(generation: Int) {
         guard generation == detachedEvidenceMonitorGeneration,
               let source = detachedAlignmentSource else { return }
 #if DEBUG
         detachedEvidenceMonitorEventCount += 1
 #endif
-        _ = verifyDetachedEvidenceSnapshots(source)
+        guard !detachedEvidenceHashInFlight else { return }
+        detachedEvidenceHashInFlight = true
+        let identityURL = source.identityURL
+        let checks = expectedSnapshots(for: source).map { DetachedEvidenceSnapshotCheck(url: $0.0, expected: $0.1) }
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let mismatch = checks.first { check in
+                return (try? Self.checksumSnapshot(check.url)) != check.expected
+            }
+            DispatchQueue.main.async {
+                self?.applyDetachedEvidenceMonitorCheck(
+                    generation: generation,
+                    identityURL: identityURL,
+                    checks: checks,
+                    mismatchURL: mismatch?.url
+                )
+            }
+        }
+    }
+
+    private func applyDetachedEvidenceMonitorCheck(
+        generation: Int,
+        identityURL: URL,
+        checks: [DetachedEvidenceSnapshotCheck],
+        mismatchURL: URL?
+    ) {
+        guard generation == detachedEvidenceMonitorGeneration,
+              detachedAlignmentSource?.identityURL == identityURL else { return }
+        detachedEvidenceHashInFlight = false
+        if let mismatchURL {
+            markDetachedEvidenceStale("Classifier alignment evidence changed on disk: \(mismatchURL.lastPathComponent).")
+            return
+        }
+        for check in checks { detachedResourceSignatures[check.url] = resourceSignature(for: check.url) }
     }
 
     private func expectedSnapshots(for source: DetachedAlignmentSource) -> [(URL, ClassifierAlignmentEvidenceFileSnapshot)] {
@@ -2267,7 +2310,7 @@ public class SequenceViewerView: NSView {
         let modificationDate = attributes?[.modificationDate] as? Date
         return (size, modificationDate)
     }
-    private func checksumSnapshot(_ url: URL) throws -> ClassifierAlignmentEvidenceFileSnapshot {
+    nonisolated private static func checksumSnapshot(_ url: URL) throws -> ClassifierAlignmentEvidenceFileSnapshot {
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         let size = (attributes[.size] as? NSNumber)?.int64Value ?? 0
         let handle = try FileHandle(forReadingFrom: url); defer { try? handle.close() }; var hash = SHA256()

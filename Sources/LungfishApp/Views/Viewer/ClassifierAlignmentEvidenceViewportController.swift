@@ -61,7 +61,9 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
             self?.availability = .unavailable(reason)
             self?.status = .stale(reason)
         }
-        viewer.viewerView.cancelDetachedAlignmentFetches()
+        // A new request must never leave prior evidence visible while its own
+        // validation is pending; this also tears down the old vnode monitors.
+        viewer.viewerView.clearReferenceBundle()
         generation += 1
         let currentGeneration = generation
         task?.cancel()
@@ -89,7 +91,7 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
                     return
                 }
                 availability = .available(reference: validated.reference.status, reason: validated.reference.reason)
-                status = .available(referenceStrength: String(describing: validated.reference.status), reason: validated.reference.reason)
+                status = .available(referenceStrength: referenceStrengthText(validated.reference.status), reason: validated.reference.reason)
             } catch {
                 guard !Task.isCancelled, currentGeneration == generation else { return }
                 viewer.viewerView.clearReferenceBundle()
@@ -107,5 +109,14 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
         viewer.viewerView.onDetachedEvidenceStale = nil
         availability = .idle
         status = .idle
+    }
+
+    private func referenceStrengthText(_ status: ClassifierAlignmentEvidenceValidator.ReferenceStatus) -> String {
+        switch status {
+        case .notProvided: "not provided"
+        case .validatedStructural: "structurally validated"
+        case .validatedMD5: "BAM M5 validated"
+        case .unavailable: "unavailable"
+        }
     }
 }

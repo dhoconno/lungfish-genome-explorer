@@ -150,7 +150,10 @@ struct ClassifierAlignmentEvidenceValidator: @unchecked Sendable {
         expectedContigLength: Int
     ) -> Reference {
         guard let candidate else { return Reference(status: .notProvided, sequence: nil, reason: nil) }
-        guard let record = try? readExactFASTARecord(at: candidate.fastaURL, named: candidate.recordName) else {
+        guard let before = try? snapshot(candidate.fastaURL),
+              let record = try? readExactFASTARecord(at: candidate.fastaURL, named: candidate.recordName),
+              let after = try? snapshot(candidate.fastaURL),
+              before == after else {
             return Reference(status: .unavailable, sequence: nil, reason: "The requested FASTA record is unavailable.")
         }
         guard record.count == candidate.expectedLength, record.count == expectedContigLength else {
@@ -188,19 +191,24 @@ struct ClassifierAlignmentEvidenceValidator: @unchecked Sendable {
     private func readExactFASTARecord(at url: URL, named name: String) throws -> String {
         let text = try String(contentsOf: url, encoding: .utf8)
         var found: String?
+        var matchedCount = 0
         var active = false
         var sequence = ""
         for line in text.split(whereSeparator: \.isNewline) {
             if line.first == ">" {
-                if active { break }
+                active = false
                 let id = line.dropFirst().split(whereSeparator: \.isWhitespace).first.map(String.init)
                 active = id == name
+                if active {
+                    matchedCount += 1
+                    if matchedCount > 1 { throw Error.contigUnavailable(name) }
+                }
             } else if active {
                 sequence += line.trimmingCharacters(in: .whitespacesAndNewlines)
             }
         }
         if active { found = sequence.uppercased() }
-        guard let found, !found.isEmpty else { throw Error.contigUnavailable(name) }
+        guard matchedCount == 1, let found, !found.isEmpty else { throw Error.contigUnavailable(name) }
         return found
     }
 }

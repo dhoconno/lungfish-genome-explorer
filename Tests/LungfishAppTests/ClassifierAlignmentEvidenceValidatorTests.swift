@@ -95,6 +95,18 @@ final class ClassifierAlignmentEvidenceValidatorTests: XCTestCase {
         XCTAssertNil(result.reference.sequence)
     }
 
+    func testDuplicateMatchingFASTARecordIsRejected() async throws {
+        let files = try FixtureFiles(fasta: ">chr1\nACTG\n>chr1 duplicate\nACTG\n")
+        let validator = ClassifierAlignmentEvidenceValidator(
+            headerReader: { _ in "@SQ\tSN:chr1\tLN:4\n" }, indexQuery: { _, _, _ in }, fileManager: files.fileManager
+        )
+
+        let result = try await validator.validate(try files.request(reference: true))
+
+        XCTAssertEqual(result.reference.status, .unavailable)
+        XCTAssertNil(result.reference.sequence)
+    }
+
     func testFinalEvidenceSnapshotsRejectChangedBAMAndExposeAcceptedIdentities() async throws {
         let files = try FixtureFiles()
         let validator = ClassifierAlignmentEvidenceValidator(

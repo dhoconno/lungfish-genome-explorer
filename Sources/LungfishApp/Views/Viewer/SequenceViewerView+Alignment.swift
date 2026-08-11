@@ -13,6 +13,10 @@ import os.log
 
 extension SequenceViewerView {
 
+    /// Independent of the user-facing row preference: detached evidence must never
+    /// stream an unbounded SAM payload into the App process.
+    static let detachedEvidenceTransportReadCap = 250_000
+
     /// Indexed detached-evidence read fetch. The source identity participates in
     /// the existing request gate so superseded classifier selections cannot draw.
     func fetchDetachedReads(source: DetachedAlignmentSource, region: GenomicRegion) {
@@ -29,17 +33,24 @@ extension SequenceViewerView {
         let tokenGeneration = token.generation
         let tokenIdentity = token.identity
         let provider = source.provider
-        let filters = (excludeFlagsSetting, minMapQSetting, selectedReadGroupsSetting, limitReadRowsSetting ? 250_000 : Int.max)
+        let filters = (excludeFlagsSetting, minMapQSetting, selectedReadGroupsSetting)
+        let transportCap = min(Self.detachedEvidenceTransportReadCap, limitReadRowsSetting ? maxReadRowsSetting : Self.detachedEvidenceTransportReadCap)
         detachedReadFetchTask = Task.detached { [weak self] in
             let reads: [AlignedRead]
+            var notice: String?
             do {
-                reads = try await provider.fetchReads(
+                let sketch = try await provider.fetchReadSketch(
                     chromosome: expanded.chromosome, start: expanded.start, end: expanded.end,
-                    excludeFlags: filters.0, minMapQ: filters.1, maxReads: filters.3, readGroups: filters.2
+                    excludeFlags: filters.0, minMapQ: filters.1, targetReads: transportCap, readGroups: filters.2
                 )
+                reads = sketch.reads
+                if sketch.isSubsampled {
+                    notice = "Read evidence is a deterministic sample of \(sketch.estimatedTotalReads.formatted()) reads (display cap \(transportCap.formatted()))."
+                }
             } catch {
                 sequenceViewerLogger.error("fetchDetachedReads: \(error.localizedDescription, privacy: .public)")
                 reads = []
+                notice = "Read evidence could not be fetched: \(error.localizedDescription)"
             }
             guard !Task.isCancelled else { return }
             DispatchQueue.main.async { [weak self] in
@@ -47,6 +58,7 @@ extension SequenceViewerView {
                     guard let self else { return }
                     let token = AsyncRequestToken(generation: tokenGeneration, identity: tokenIdentity)
                     guard self.commitReadFetch(token, reads: reads, region: expanded) else { return }
+                    if let notice { self.detachedEvidenceFetchMessage = notice }
                     self.setNeedsDisplay(self.bounds)
                 }
             }
@@ -56,6 +68,17 @@ extension SequenceViewerView {
     /// Indexed detached-evidence depth fetch, sharing the normal coverage cache and gate.
     func fetchDetachedDepth(source: DetachedAlignmentSource, region: GenomicRegion) {
         guard detachedEvidenceIsCurrent(source) else { return }
+        guard selectedReadGroupsSetting.isEmpty else {
+            let reason = "Coverage is unavailable while read-group filtering is active."
+            let changed = !cachedDepthPoints.isEmpty || cachedDepthRegion != nil || detachedEvidenceFetchMessage != reason
+            cachedDepthPoints = []
+            cachedDepthRegion = nil
+            cachedCoverageStats = nil
+            isFetchingDepth = false
+            detachedEvidenceFetchMessage = reason
+            if changed { needsDisplay = true }
+            return
+        }
         let span = region.end - region.start
         let expanded = GenomicRegion(
             chromosome: region.chromosome,
@@ -77,6 +100,14 @@ extension SequenceViewerView {
             } catch {
                 sequenceViewerLogger.error("fetchDetachedDepth: \(error.localizedDescription, privacy: .public)")
                 points = []
+                let message = "Coverage evidence could not be fetched: \(error.localizedDescription)"
+                DispatchQueue.main.async { [weak self] in
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        self.detachedEvidenceFetchMessage = message
+                        self.setNeedsDisplay(self.bounds)
+                    }
+                }
             }
             guard !Task.isCancelled else { return }
             DispatchQueue.main.async { [weak self] in

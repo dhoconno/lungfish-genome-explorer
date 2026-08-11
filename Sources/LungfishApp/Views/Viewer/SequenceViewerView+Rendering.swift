@@ -638,6 +638,9 @@ extension SequenceViewerView {
             drawTrackLoadingBadge(context: context, message: detachedEvidenceStaleReason ?? "Classifier alignment evidence is unavailable.", yOffset: 8)
             return
         }
+        if let message = detachedEvidenceFetchMessage {
+            drawTrackLoadingBadge(context: context, message: message, yOffset: 8)
+        }
         ensureVisibleViewportSelection(frame: frame)
         let region = GenomicRegion(
             chromosome: frame.chromosome,
@@ -659,7 +662,13 @@ extension SequenceViewerView {
         let depthCovered = cachedDepthRegion?.chromosome == region.chromosome
             && (cachedDepthRegion?.start ?? Int.max) <= region.start
             && (cachedDepthRegion?.end ?? Int.min) >= region.end
-        if !depthCovered && !isFetchingDepth { fetchDetachedDepth(source: source, region: region) }
+        if !selectedReadGroupsSetting.isEmpty {
+            // samtools depth does not share the view command's RG predicate, so
+            // retaining a prior all-RG cache would misrepresent filtered reads.
+            fetchDetachedDepth(source: source, region: region)
+        } else if !depthCovered && !isFetchingDepth {
+            fetchDetachedDepth(source: source, region: region)
+        }
         ReadTrackRenderer.drawCoverage(
             depthPoints: cachedDepthPoints,
             regionStart: region.start,
