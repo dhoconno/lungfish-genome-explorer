@@ -43,10 +43,14 @@ public enum SampleIdentityIndexError: Error, Equatable {
 public struct SampleIdentityIndex: Sendable {
     private let canonicalIDs: [String: String]
     private let aliases: [String: String]
-    private let alignmentTrackIDs: [String: String]
+    private let alignmentTrackIDToSampleID: [String: String]
     private let readGroupIDs: [String: String]
+    private let alignmentTrackIDsByCanonicalID: [String: Set<String>]
     private let readGroupsByCanonicalID: [String: Set<String>]
     private let explicitOneSampleFallbackCanonicalID: String?
+
+    /// Persisted canonical sample IDs available to metadata and BAM list rows.
+    public let canonicalSampleIDs: Set<String>
 
     public init(
         samples: [SampleIdentity],
@@ -63,8 +67,9 @@ public struct SampleIdentityIndex: Sendable {
         }
 
         var aliases: [String: String] = [:]
-        var alignmentTrackIDs: [String: String] = [:]
+        var alignmentTrackIDToSampleID: [String: String] = [:]
         var readGroupIDs: [String: String] = [:]
+        var alignmentTrackIDsByCanonicalID: [String: Set<String>] = [:]
         var readGroupsByCanonicalID: [String: Set<String>] = [:]
 
         for sample in samples {
@@ -84,9 +89,10 @@ public struct SampleIdentityIndex: Sendable {
                 try Self.insert(
                     canonicalID: sample.canonicalID,
                     key: key,
-                    into: &alignmentTrackIDs,
+                    into: &alignmentTrackIDToSampleID,
                     ambiguousError: .ambiguousAlignmentTrackID(key)
                 )
+                alignmentTrackIDsByCanonicalID[sample.canonicalID, default: []].insert(trackID)
             }
             for readGroupID in sample.readGroupIDs {
                 let key = Self.normalized(readGroupID)
@@ -113,9 +119,11 @@ public struct SampleIdentityIndex: Sendable {
 
         self.canonicalIDs = canonicalIDs
         self.aliases = aliases
-        self.alignmentTrackIDs = alignmentTrackIDs
+        self.alignmentTrackIDToSampleID = alignmentTrackIDToSampleID
         self.readGroupIDs = readGroupIDs
+        self.alignmentTrackIDsByCanonicalID = alignmentTrackIDsByCanonicalID
         self.readGroupsByCanonicalID = readGroupsByCanonicalID
+        self.canonicalSampleIDs = Set(canonicalIDs.values)
     }
 
     /// Resolves a metadata value using canonical IDs first, then explicit aliases.
@@ -128,7 +136,7 @@ public struct SampleIdentityIndex: Sendable {
     /// Resolves a BAM alignment track without deriving identity from its path.
     public func canonicalSampleID(forAlignmentTrackID trackID: String?) -> String? {
         guard let trackID else { return explicitOneSampleFallbackCanonicalID }
-        return alignmentTrackIDs[Self.normalized(trackID)]
+        return alignmentTrackIDToSampleID[Self.normalized(trackID)]
     }
 
     /// Resolves a BAM read group; an explicit one-sample fallback is used only for a missing ID.
@@ -140,6 +148,11 @@ public struct SampleIdentityIndex: Sendable {
     /// All read groups belonging to a selected canonical sample.
     public func readGroupIDs(forCanonicalSampleID canonicalID: String) -> Set<String> {
         readGroupsByCanonicalID[canonicalIDs[Self.normalized(canonicalID)] ?? canonicalID] ?? []
+    }
+
+    /// All alignment track IDs belonging to a selected canonical sample.
+    public func alignmentTrackIDs(forCanonicalSampleID canonicalID: String) -> Set<String> {
+        alignmentTrackIDsByCanonicalID[canonicalIDs[Self.normalized(canonicalID)] ?? canonicalID] ?? []
     }
 
     private static func normalized(_ value: String) -> String {
@@ -161,27 +174,21 @@ public struct SampleIdentityIndex: Sendable {
 
 /// Information retained by a result owner for a future import/provenance service.
 public struct SampleMetadataImportContext: Equatable, Sendable {
+    public let resultID: String
+    public let provenanceID: String
     public let workflowName: String
     public let workflowVersion: String
-    public let sourceMetadataURL: URL
-    public let identityInputURLs: [URL]
-    public let commandArguments: [String]
-    public let resolvedOptions: [String: String]
 
     public init(
+        resultID: String,
+        provenanceID: String,
         workflowName: String,
-        workflowVersion: String,
-        sourceMetadataURL: URL,
-        identityInputURLs: [URL],
-        commandArguments: [String] = [],
-        resolvedOptions: [String: String] = [:]
+        workflowVersion: String
     ) {
+        self.resultID = resultID
+        self.provenanceID = provenanceID
         self.workflowName = workflowName
         self.workflowVersion = workflowVersion
-        self.sourceMetadataURL = sourceMetadataURL
-        self.identityInputURLs = identityInputURLs
-        self.commandArguments = commandArguments
-        self.resolvedOptions = resolvedOptions
     }
 }
 
@@ -189,11 +196,11 @@ public struct SampleMetadataImportContext: Equatable, Sendable {
 @MainActor
 public final class SampleMetadataPresentationContext {
     public typealias ObserverToken = UUID
-    public typealias Observer = (SampleMetadataStore) -> Void
+    public typealias Observer = (SampleMetadataStore?) -> Void
 
     public let finalResultURL: URL
     public let identityIndex: SampleIdentityIndex
-    public private(set) var sampleMetadataStore: SampleMetadataStore
+    public private(set) var sampleMetadataStore: SampleMetadataStore?
     public let importContext: SampleMetadataImportContext
 
     private var observers: [ObserverToken: Observer] = [:]
@@ -201,7 +208,7 @@ public final class SampleMetadataPresentationContext {
     public init(
         finalResultURL: URL,
         identityIndex: SampleIdentityIndex,
-        sampleMetadataStore: SampleMetadataStore,
+        sampleMetadataStore: SampleMetadataStore? = nil,
         importContext: SampleMetadataImportContext
     ) {
         self.finalResultURL = finalResultURL
@@ -226,8 +233,19 @@ public final class SampleMetadataPresentationContext {
     /// Publishes the complete imported store; column headers are never filtered here.
     public func updateSampleMetadataStore(_ store: SampleMetadataStore) {
         sampleMetadataStore = store
-        for observer in observers.values {
-            observer(store)
+        notifyObservers()
+    }
+
+    /// Clears imported metadata after its owning result removes it.
+    public func clearSampleMetadataStore() {
+        sampleMetadataStore = nil
+        notifyObservers()
+    }
+
+    private func notifyObservers() {
+        let observerSnapshot = Array(observers.values)
+        for observer in observerSnapshot {
+            observer(sampleMetadataStore)
         }
     }
 }
