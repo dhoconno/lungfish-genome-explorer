@@ -60,6 +60,24 @@ final class AlignmentDataProviderTests: XCTestCase {
         XCTAssertLessThanOrEqual(result.stdout.split(separator: "\n").count, 7)
     }
 
+    func testBudgetedReaderKillsTermIgnoringNoisyChildByDeadline() throws {
+        let tempDir = try makeTemporaryDirectory(prefix: "alignment-budget-timeout")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let script = try makeFakeSamtools(in: tempDir, script: """
+        #!/bin/sh
+        trap '' TERM
+        while :; do printf 'unterminated-record'; printf 'noisy stderr' >&2; done
+        """)
+        let started = Date()
+        XCTAssertThrowsError(try AlignmentDataProvider.runSamtoolsProcessBudgeted(
+            samtoolsPath: script.path, arguments: ["view", "-X", "/tmp/evidence.bam", "/tmp/evidence.bam.bai", "chr1:1-1"],
+            timeout: 0.2, maxRecords: 10, maxBytes: 256
+        )) { error in
+            XCTAssertEqual(error.localizedDescription, "samtools timed out")
+        }
+        XCTAssertLessThan(Date().timeIntervalSince(started), 6)
+    }
+
     // MARK: - Initialization
 
     func testProviderInitialization() {

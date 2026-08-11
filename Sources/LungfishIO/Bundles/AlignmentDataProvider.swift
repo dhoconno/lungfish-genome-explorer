@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import Darwin
 import LungfishCore
 import os.log
 
@@ -66,12 +67,14 @@ public struct AlignmentReadSketch: Sendable {
     public let estimatedTotalReads: Int
     public let targetReads: Int
     public let isSubsampled: Bool
+    public let transportTruncated: Bool
 
-    public init(reads: [AlignedRead], estimatedTotalReads: Int, targetReads: Int, isSubsampled: Bool) {
+    public init(reads: [AlignedRead], estimatedTotalReads: Int, targetReads: Int, isSubsampled: Bool, transportTruncated: Bool = false) {
         self.reads = reads
         self.estimatedTotalReads = estimatedTotalReads
         self.targetReads = targetReads
         self.isSubsampled = isSubsampled
+        self.transportTruncated = transportTruncated
     }
 }
 
@@ -81,6 +84,29 @@ struct BudgetedSamtoolsResult: Sendable {
     let stderr: String
     let terminatedForBudget: Bool
     let retainedRecordCount: Int
+}
+
+private final class BudgetedSamtoolsState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var retained = Data(), pending = Data(), stderr = Data()
+    private var records = 0, budgetReached = false
+    private let maxRecords: Int, maxBytes: Int, maxStderrBytes: Int
+    init(maxRecords: Int, maxBytes: Int, maxStderrBytes: Int = 1 << 20) { self.maxRecords = maxRecords; self.maxBytes = maxBytes; self.maxStderrBytes = maxStderrBytes }
+    /// Returns true exactly once when the process must be stopped.
+    func consumeStdout(_ chunk: Data) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard !budgetReached else { return false }
+        pending.append(chunk)
+        if retained.count + pending.count > maxBytes { budgetReached = true; pending.removeAll(); return true }
+        while let newline = pending.firstIndex(of: 0x0A) {
+            let end = pending.index(after: newline)
+            guard records < maxRecords else { budgetReached = true; pending.removeAll(); return true }
+            retained.append(pending.prefix(upTo: end)); records += 1; pending.removeSubrange(..<end)
+        }
+        return false
+    }
+    func consumeStderr(_ chunk: Data) { lock.lock(); defer { lock.unlock() }; if stderr.count < maxStderrBytes { stderr.append(chunk.prefix(maxStderrBytes - stderr.count)) } }
+    func result(exitCode: Int32) -> BudgetedSamtoolsResult { lock.lock(); defer { lock.unlock() }; return .init(exitCode: exitCode, stdout: String(data: retained, encoding: .utf8) ?? "", stderr: String(data: stderr, encoding: .utf8) ?? "", terminatedForBudget: budgetReached, retainedRecordCount: records) }
 }
 
 // MARK: - AlignmentDataProvider
@@ -278,25 +304,29 @@ public final class AlignmentDataProvider: @unchecked Sendable {
         )
 
         guard let fraction = Self.readSketchSubsampleFraction(totalReads: totalReads, targetReads: targetReads) else {
-            let reads = try await fetchReads(
+            let bounded = try await fetchReadsBounded(
                 chromosome: chromosome,
                 start: start,
                 end: end,
                 excludeFlags: excludeFlags,
                 minMapQ: minMapQ,
-                maxReads: max(totalReads, targetReads),
-                readGroups: readGroups
+                maxReads: targetReads,
+                readGroups: readGroups,
+                subsampleFraction: nil,
+                subsampleSeed: subsampleSeed,
+                byteBudget: 64 * 1024 * 1024
             )
             return AlignmentReadSketch(
-                reads: reads,
+                reads: bounded.reads,
                 estimatedTotalReads: totalReads,
                 targetReads: targetReads,
-                isSubsampled: false
+                isSubsampled: false,
+                transportTruncated: bounded.transportTruncated
             )
         }
 
         let parseLimit = targetReads > Int.max / 2 ? Int.max : targetReads * 2
-        let reads = try await fetchReadsBounded(
+        let bounded = try await fetchReadsBounded(
             chromosome: chromosome, start: start, end: end,
             excludeFlags: excludeFlags, minMapQ: minMapQ,
             maxReads: parseLimit, readGroups: readGroups,
@@ -304,19 +334,20 @@ public final class AlignmentDataProvider: @unchecked Sendable {
             byteBudget: 64 * 1024 * 1024
         )
         return AlignmentReadSketch(
-            reads: reads,
+            reads: bounded.reads,
             estimatedTotalReads: totalReads,
             targetReads: targetReads,
-            isSubsampled: true
+            isSubsampled: true,
+            transportTruncated: bounded.transportTruncated
         )
     }
 
     private func fetchReadsBounded(
         chromosome: String, start: Int, end: Int,
         excludeFlags: UInt16, minMapQ: Int, maxReads: Int,
-        readGroups: Set<String>, subsampleFraction: Double, subsampleSeed: Int,
+        readGroups: Set<String>, subsampleFraction: Double?, subsampleSeed: Int,
         byteBudget: Int
-    ) async throws -> [AlignedRead] {
+    ) async throws -> (reads: [AlignedRead], transportTruncated: Bool) {
         var arguments = viewArguments(
             excludeFlags: excludeFlags, minMapQ: minMapQ, readGroups: readGroups,
             subsampleFraction: subsampleFraction, subsampleSeed: subsampleSeed
@@ -339,7 +370,7 @@ public final class AlignmentDataProvider: @unchecked Sendable {
         guard result.exitCode == 0 || result.terminatedForBudget else {
             throw AlignmentFetchError.samtoolsFailed(result.stderr.isEmpty ? "exit code \(result.exitCode)" : result.stderr)
         }
-        return SAMParser.parse(result.stdout, maxReads: maxReads)
+        return (SAMParser.parse(result.stdout, maxReads: maxReads), result.terminatedForBudget)
     }
 
     static func readSketchSubsampleFraction(totalReads: Int, targetReads: Int) -> Double? {
@@ -738,12 +769,7 @@ public final class AlignmentDataProvider: @unchecked Sendable {
         do { try process.run() } catch { throw AlignmentFetchError.samtoolsNotFound }
         cancellation?.install(process)
 
-        let lock = NSLock()
-        var retained = Data()
-        var pending = Data()
-        var records = 0
-        var reachedBudget = false
-        let stderrBox = PipeReadBuffer()
+        let state = BudgetedSamtoolsState(maxRecords: maxRecords, maxBytes: maxBytes)
         let group = DispatchGroup()
         group.enter()
         DispatchQueue.global(qos: .userInitiated).async {
@@ -751,52 +777,28 @@ public final class AlignmentDataProvider: @unchecked Sendable {
             while true {
                 let chunk = stdoutPipe.fileHandleForReading.readData(ofLength: 64 * 1024)
                 guard !chunk.isEmpty else { return }
-                lock.lock()
-                pending.append(chunk)
-                while let newline = pending.firstIndex(of: 0x0A) {
-                    let recordEnd = pending.index(after: newline)
-                    let record = pending.prefix(upTo: recordEnd)
-                    guard records < maxRecords, retained.count + record.count <= maxBytes else {
-                        reachedBudget = true
-                        lock.unlock()
-                        process.terminate()
-                        // Reap immediately after the explicit cap termination so
-                        // the pipe's write end closes even for an endless producer.
-                        process.waitUntilExit()
-                        lock.lock()
-                        pending.removeAll(keepingCapacity: false)
-                        break
-                    }
-                    retained.append(record)
-                    records += 1
-                    pending.removeSubrange(..<recordEnd)
-                }
-                lock.unlock()
+                if state.consumeStdout(chunk) { process.terminate() }
             }
         }
         group.enter()
         DispatchQueue.global(qos: .userInitiated).async {
-            stderrBox.store(stderrPipe.fileHandleForReading.readDataToEndOfFile())
-            group.leave()
+            defer { group.leave() }
+            while true {
+                let chunk = stderrPipe.fileHandleForReading.readData(ofLength: 64 * 1024)
+                guard !chunk.isEmpty else { return }
+                state.consumeStderr(chunk)
+            }
         }
         if group.wait(timeout: .now() + timeout) == .timedOut {
             process.terminate()
+            _ = kill(process.processIdentifier, SIGKILL)
             stdoutPipe.fileHandleForReading.closeFile()
             stderrPipe.fileHandleForReading.closeFile()
             _ = group.wait(timeout: .now() + 5)
             throw AlignmentFetchError.timeout
         }
         process.waitUntilExit()
-        lock.lock()
-        let output = String(data: retained, encoding: .utf8) ?? ""
-        let didReachBudget = reachedBudget
-        let recordCount = records
-        lock.unlock()
-        return BudgetedSamtoolsResult(
-            exitCode: process.terminationStatus, stdout: output,
-            stderr: String(data: stderrBox.load(), encoding: .utf8) ?? "",
-            terminatedForBudget: didReachBudget, retainedRecordCount: recordCount
-        )
+        return state.result(exitCode: process.terminationStatus)
     }
 
     /// Finds the samtools binary from standard locations.

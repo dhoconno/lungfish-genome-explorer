@@ -51,6 +51,9 @@ extension SequenceViewerView {
                 if sketch.isSubsampled {
                     notice = "Read evidence is a deterministic sample of \(sketch.estimatedTotalReads.formatted()) reads (display cap \(transportCap.formatted()))."
                 }
+                if sketch.transportTruncated {
+                    notice = "Read evidence transport stopped at the \(transportCap.formatted())-record safety target; displayed reads may be incomplete."
+                }
             } catch {
                 sequenceViewerLogger.error("fetchDetachedReads: \(error.localizedDescription, privacy: .public)")
                 reads = []
