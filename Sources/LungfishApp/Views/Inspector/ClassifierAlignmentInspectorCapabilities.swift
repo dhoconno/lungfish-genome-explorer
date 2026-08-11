@@ -104,6 +104,24 @@ struct ClassifierAlignmentInspectorCapabilities: Equatable {
 
     var showsReadGroupControls: Bool { readGroups.count > 1 }
 
+    var referenceMismatchExplanation: String? {
+        guard case let .disabled(reason) = availability(of: .referenceMismatch) else { return nil }
+        return reason
+    }
+
+    var inventoryRows: [String] {
+        ["Workflow: \(workflow)", "Result: \(result)", "Sample: \(sample) • Contig: \(contig)", "BAM: \(bamPath)", "Index: \(indexPath)", "Reference: \(referenceValidation.label)", "Status: \(status.message)", coveragePolicy]
+    }
+
+    var unavailableReasons: [String] {
+        Control.allCases.compactMap { control in
+            switch availability(of: control) {
+            case .available: nil
+            case .disabled(let reason), .hidden(let reason): reason
+            }
+        }
+    }
+
     func availability(of control: Control) -> Availability {
         switch control {
         case .evidenceInventory, .navigation, .readRendering, .minMAPQ, .duplicates,

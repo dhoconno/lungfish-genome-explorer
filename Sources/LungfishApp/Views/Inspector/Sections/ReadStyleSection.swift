@@ -1891,8 +1891,8 @@ public struct ReadStyleSection: View {
                         viewModel.onSettingsChanged?()
                     }
                     .help("When on, matching bases are shown as dots and mismatches as colored letters. When off, all bases are shown as letters. Mismatches remain highlighted.")
-                } else {
-                    Text("Reference mismatch display is unavailable: A validated reference sequence is required.")
+                } else if let reason = viewModel.classifierEvidenceCapabilities?.referenceMismatchExplanation {
+                    Text("Reference mismatch display is unavailable: \(reason)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .accessibilityIdentifier("classifier-reference-mismatch-unavailable")

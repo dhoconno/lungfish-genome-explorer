@@ -59,6 +59,9 @@ final class ClassifierAlignmentInspectorTests: XCTestCase {
         XCTAssertFalse(capabilities.showsReadGroupControls)
         XCTAssertEqual(capabilities.selectedTrack.name, "S1")
         XCTAssertEqual(capabilities.status, .idle)
+        XCTAssertEqual(capabilities.referenceMismatchExplanation, "A validated reference sequence is required.")
+        XCTAssertTrue(capabilities.inventoryRows.contains("Workflow: EsViritu"))
+        XCTAssertTrue(capabilities.unavailableReasons.contains("Classifier evidence has no annotation track."))
     }
 
     func testValidatedReferenceCapabilityMatrixEnablesReferenceRenderingButNotOutputs() {
@@ -78,6 +81,7 @@ final class ClassifierAlignmentInspectorTests: XCTestCase {
         XCTAssertEqual(capabilities.availability(of: .variantCalling), .disabled("Classifier evidence has no variant or cohort output target."))
         XCTAssertTrue(capabilities.showsReadGroupControls)
         XCTAssertEqual(capabilities.coveragePolicy, "Coverage uses MAPQ and read-inclusion filters; it is unavailable while read-group filtering is active.")
+        XCTAssertNil(capabilities.referenceMismatchExplanation)
     }
 
     func testApplyingSettingsKeepsDetachedViewerLocusAndSelectionAndDoesNotInstallWorkflowTargets() {
@@ -154,7 +158,7 @@ final class ClassifierAlignmentInspectorTests: XCTestCase {
         let controller = ClassifierAlignmentEvidenceViewportController(validator: validator)
 
         controller.display(request)
-        for _ in 0..<100 where controller.inspectorCapabilities == nil { await Task.yield() }
+        for _ in 0..<100 where controller.inspectorCapabilities?.status != .available(referenceStrength: "not provided", reason: nil) { await Task.yield() }
 
         let inventory = try XCTUnwrap(controller.inspectorCapabilities)
         XCTAssertEqual(inventory.status, .available(referenceStrength: "not provided", reason: nil))
@@ -163,5 +167,23 @@ final class ClassifierAlignmentInspectorTests: XCTestCase {
 
         controller.clear()
         XCTAssertNil(controller.inspectorCapabilities)
+    }
+
+    func testDetachedRefetchRemapsSelectedReadByStableAlignmentKeyAndClearsWhenAbsent() {
+        let view = SequenceViewerView(frame: .zero)
+        let old = AlignedRead(name: "read", flag: 0, chromosome: "chr1", position: 10, mapq: 60, cigar: [.init(op: .match, length: 4)], sequence: "ACTG", qualities: [30, 30, 30, 30])
+        let reparsed = AlignedRead(name: "read", flag: 0, chromosome: "chr1", position: 10, mapq: 60, cigar: [.init(op: .match, length: 4)], sequence: "ACTG", qualities: [30, 30, 30, 30])
+        view.testSetCachedPackedReads([(0, old)])
+        view.testSetSelectedReadIDs([old.id])
+        view.invalidateDetachedAlignmentFiltersPreservingSelection()
+        let token = view.testBeginReadFetch(bundleURL: URL(fileURLWithPath: "/tmp/a.bam"), trackID: "detached", region: .init(chromosome: "chr1", start: 0, end: 20))
+        XCTAssertTrue(view.testCommitReadFetch(token, reads: [reparsed], region: .init(chromosome: "chr1", start: 0, end: 20)))
+        view.testSetCachedPackedReads([(0, reparsed)])
+        XCTAssertEqual(view.testSelectedReadIDs, [reparsed.id])
+        view.invalidateDetachedAlignmentFiltersPreservingSelection()
+        let emptyToken = view.testBeginReadFetch(bundleURL: URL(fileURLWithPath: "/tmp/a.bam"), trackID: "detached", region: .init(chromosome: "chr1", start: 0, end: 20))
+        XCTAssertTrue(view.testCommitReadFetch(emptyToken, reads: [], region: .init(chromosome: "chr1", start: 0, end: 20)))
+        view.testSetCachedPackedReads([])
+        XCTAssertTrue(view.testSelectedReadIDs.isEmpty)
     }
 }

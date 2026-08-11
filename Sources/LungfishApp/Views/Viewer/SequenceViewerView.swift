@@ -381,7 +381,8 @@ public class SequenceViewerView: NSView {
     var cachedPackedReads: [(row: Int, read: AlignedRead)] = [] {
         didSet {
             cachedPackedReadsByRow = SequenceViewerView.bucketPackedReadsByRow(cachedPackedReads)
-            if !preservedDetachedSelectionKeys.isEmpty {
+            if !preservedDetachedSelectionKeys.isEmpty,
+               (!cachedPackedReads.isEmpty || !cachedAlignedReads.isEmpty) {
                 selectedReadIDs = Set(cachedPackedReads.compactMap { row in
                     preservedDetachedSelectionKeys.contains(Self.detachedSelectionKey(row.read)) ? row.read.id : nil
                 })
@@ -1322,6 +1323,11 @@ public class SequenceViewerView: NSView {
         guard readFetchGate.isCurrent(token) else { return false }
         cachedAlignedReads = reads
         cachedReadRegion = region
+        if reads.isEmpty, !preservedDetachedSelectionKeys.isEmpty {
+            preservedDetachedSelectionKeys = []
+            selectedReadIDs = []
+            updateSelectionStatus()
+        }
         isFetchingReads = false
         readFetchStartTime = nil
         return true
