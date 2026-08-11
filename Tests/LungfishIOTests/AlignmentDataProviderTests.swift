@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import Darwin
 @testable import LungfishIO
 @testable import LungfishCore
 
@@ -63,11 +64,8 @@ final class AlignmentDataProviderTests: XCTestCase {
     func testBudgetedReaderKillsTermIgnoringNoisyChildByDeadline() throws {
         let tempDir = try makeTemporaryDirectory(prefix: "alignment-budget-timeout")
         defer { try? FileManager.default.removeItem(at: tempDir) }
-        let script = try makeFakeSamtools(in: tempDir, script: """
-        #!/bin/sh
-        trap '' TERM
-        while :; do printf 'unterminated-record'; printf 'noisy stderr' >&2; done
-        """)
+        let pidFile = tempDir.appendingPathComponent("child.pid")
+        let script = try makeFakeSamtools(in: tempDir, script: "#!/bin/sh\necho $$ > '\(pidFile.path)'\ntrap '' TERM\nwhile :; do printf 'unterminated-record'; printf 'noisy stderr' >&2; done\n")
         let started = Date()
         XCTAssertThrowsError(try AlignmentDataProvider.runSamtoolsProcessBudgeted(
             samtoolsPath: script.path, arguments: ["view", "-X", "/tmp/evidence.bam", "/tmp/evidence.bam.bai", "chr1:1-1"],
@@ -76,6 +74,8 @@ final class AlignmentDataProviderTests: XCTestCase {
             XCTAssertEqual(error.localizedDescription, "samtools timed out")
         }
         XCTAssertLessThan(Date().timeIntervalSince(started), 6)
+        let pid = try XCTUnwrap(Int(String(contentsOf: pidFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)))
+        XCTAssertEqual(kill(pid_t(pid), 0), -1, "Timed-out child must be reaped before returning")
     }
 
     // MARK: - Initialization

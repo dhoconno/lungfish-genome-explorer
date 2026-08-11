@@ -792,6 +792,9 @@ public final class AlignmentDataProvider: @unchecked Sendable {
         if group.wait(timeout: .now() + timeout) == .timedOut {
             process.terminate()
             _ = kill(process.processIdentifier, SIGKILL)
+            // The owner, not either reader, owns process reaping. Waiting here
+            // guarantees a timed-out child cannot remain as a zombie/orphan.
+            process.waitUntilExit()
             stdoutPipe.fileHandleForReading.closeFile()
             stderrPipe.fileHandleForReading.closeFile()
             _ = group.wait(timeout: .now() + 5)
