@@ -24,6 +24,10 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
     private(set) var availability: Availability = .idle
     private(set) var status: ClassifierAlignmentViewerStatus = .idle { didSet { publishStatus() } }
     var onStatusChanged: (@MainActor @Sendable (ClassifierAlignmentViewerStatus) -> Void)?
+    private(set) var inspectorCapabilities: ClassifierAlignmentInspectorCapabilities? {
+        didSet { onInspectorCapabilitiesChanged?(inspectorCapabilities) }
+    }
+    var onInspectorCapabilitiesChanged: (@MainActor (ClassifierAlignmentInspectorCapabilities?) -> Void)?
 
     init(validator: ClassifierAlignmentEvidenceValidator = .init()) {
         self.validator = validator
@@ -69,6 +73,7 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
         task?.cancel()
         availability = .loading
         status = .loading
+        inspectorCapabilities = nil
         task = Task { [weak self] in
             guard let self else { return }
             do {
@@ -92,11 +97,23 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
                 }
                 availability = .available(reference: validated.reference.status, reason: validated.reference.reason)
                 status = .available(referenceStrength: referenceStrengthText(validated.reference.status), reason: validated.reference.reason)
+                inspectorCapabilities = .detachedEvidence(
+                    workflow: request.presentation.workflowLabel,
+                    result: request.presentation.resultLabel,
+                    sample: request.presentation.sampleLabel,
+                    contig: validated.contig.name,
+                    bamPath: request.bamURL.path,
+                    indexPath: request.index.url.path,
+                    referenceValidation: inspectorReferenceValidation(validated.reference),
+                    readGroups: validated.readGroups.map { .init(id: $0.id, sample: $0.sample) },
+                    status: status
+                )
             } catch {
                 guard !Task.isCancelled, currentGeneration == generation else { return }
                 viewer.viewerView.clearReferenceBundle()
                 availability = .unavailable(error.localizedDescription)
                 status = .unavailable(error.localizedDescription)
+                inspectorCapabilities = nil
             }
         }
     }
@@ -109,6 +126,7 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
         viewer.viewerView.onDetachedEvidenceStale = nil
         availability = .idle
         status = .idle
+        inspectorCapabilities = nil
     }
 
     private func referenceStrengthText(_ status: ClassifierAlignmentEvidenceValidator.ReferenceStatus) -> String {
@@ -117,6 +135,17 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
         case .validatedStructural: "structurally validated"
         case .validatedMD5: "BAM M5 validated"
         case .unavailable: "unavailable"
+        }
+    }
+
+    private func inspectorReferenceValidation(
+        _ reference: ClassifierAlignmentEvidenceValidator.Reference
+    ) -> ClassifierAlignmentInspectorCapabilities.ReferenceValidation {
+        switch reference.status {
+        case .notProvided: .absent
+        case .validatedStructural: .structural
+        case .validatedMD5: .md5
+        case .unavailable: .unavailable(reference.reason ?? "The requested FASTA reference is unavailable.")
         }
     }
 }

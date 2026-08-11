@@ -60,6 +60,7 @@ struct ClassifierAlignmentEvidenceValidator: @unchecked Sendable {
         let bamSnapshot: ClassifierAlignmentEvidenceFileSnapshot
         let indexSnapshot: ClassifierAlignmentEvidenceFileSnapshot
         let referenceSnapshot: ClassifierAlignmentEvidenceFileSnapshot?
+        let readGroups: [SAMParser.ReadGroup]
     }
 
     typealias HeaderReader = @Sendable (URL) async throws -> String
@@ -147,7 +148,8 @@ struct ClassifierAlignmentEvidenceValidator: @unchecked Sendable {
             reference: reference,
             bamSnapshot: bamSnapshot,
             indexSnapshot: indexSnapshot,
-            referenceSnapshot: reference.sequence == nil ? nil : referenceSnapshot
+            referenceSnapshot: reference.sequence == nil ? nil : referenceSnapshot,
+            readGroups: SAMParser.parseReadGroups(from: header)
         )
     }
 

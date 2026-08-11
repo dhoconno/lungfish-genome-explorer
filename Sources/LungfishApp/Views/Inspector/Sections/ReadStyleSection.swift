@@ -331,6 +331,10 @@ public final class ReadStyleSectionViewModel {
     /// Whether mapping mode should expose biological consensus export.
     public var supportsConsensusExtraction: Bool = false
 
+    /// Non-nil only while the Inspector is presenting explicit detached
+    /// classifier evidence rather than a mutable reference bundle.
+    var classifierEvidenceCapabilities: ClassifierAlignmentInspectorCapabilities?
+
     /// Called to export biological consensus from the active mapping viewer.
     public var onExtractConsensusRequested: (() -> Void)?
 
@@ -367,6 +371,39 @@ public final class ReadStyleSectionViewModel {
         resetAlignmentFilterState()
         resetMappedReadsAnnotationState()
         primerTrimProvenance = nil
+        classifierEvidenceCapabilities = nil
+    }
+
+    /// Configures the existing read controls for a single, detached classifier
+    /// BAM.  Classifier evidence is deliberately not a source for output workflows.
+    func configureClassifierEvidence(_ capabilities: ClassifierAlignmentInspectorCapabilities) {
+        clear()
+        hasAlignmentTracks = true
+        hasVariantCallableAlignmentTracks = false
+        trackNames = [capabilities.selectedTrack.name]
+        configureVisibleAlignmentTracks([
+            .init(id: capabilities.selectedTrack.id, name: capabilities.selectedTrack.name),
+        ])
+        selectedVisibleAlignmentTrackID = capabilities.selectedTrack.id
+        readGroups = capabilities.readGroups.map {
+            .init(id: $0.id, sample: $0.sample, library: nil, platform: nil)
+        }
+        showDuplicates = false
+        showSecondary = false
+        showSupplementary = false
+        minMapQ = 0
+        selectedReadGroups = []
+        onMarkDuplicatesRequested = nil
+        onCreateDeduplicatedBundleRequested = nil
+        onCreateFilteredAlignmentRequested = nil
+        onConvertMappedReadsToAnnotationsRequested = nil
+        onPrimerTrimRequested = nil
+        onCallVariantsRequested = nil
+        onExtractConsensusRequested = nil
+        // A validated reference may render consensus evidence, but detached
+        // classifier evidence has no output-producing consensus export target.
+        supportsConsensusExtraction = false
+        classifierEvidenceCapabilities = capabilities
     }
 
     /// Loads alignment statistics from bundle's metadata databases.
@@ -1897,6 +1934,7 @@ public struct ReadStyleSection: View {
             )
         }
     }
+
 }
 
 // MARK: - AnalysisSection
@@ -1913,7 +1951,9 @@ public struct AnalysisSection: View {
     }
 
     public var body: some View {
-        if viewModel.hasAlignmentTracks {
+        if let capabilities = viewModel.classifierEvidenceCapabilities {
+            classifierEvidenceSection(capabilities)
+        } else if viewModel.hasAlignmentTracks {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Run alignment analysis workflows, create derived outputs, and export bundle-ready results.")
                     .font(.caption)
@@ -1947,6 +1987,26 @@ public struct AnalysisSection: View {
                 Text("Import a BAM or CRAM file before creating derived alignments or running BAM-based workflows.")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func classifierEvidenceSection(_ capabilities: ClassifierAlignmentInspectorCapabilities) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Classifier alignment evidence")
+                .font(.headline)
+            Text(capabilities.coveragePolicy)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            switch capabilities.availability(of: .consensus) {
+            case .available:
+                consensusSection
+            case .disabled(let reason), .hidden(let reason):
+                Text(reason)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }

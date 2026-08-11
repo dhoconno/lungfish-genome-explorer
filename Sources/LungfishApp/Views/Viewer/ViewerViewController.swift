@@ -1176,7 +1176,11 @@ public class ViewerViewController: NSViewController {
             || userInfo[NotificationUserInfoKey.excludeFlags] != nil
             || userInfo[NotificationUserInfoKey.selectedReadGroups] != nil
             || userInfo.keys.contains(NotificationUserInfoKey.visibleAlignmentTrackID as AnyHashable) {
-            viewerView.invalidateAlignmentFetchState()
+            if viewerView.isDisplayingDetachedAlignment {
+                viewerView.invalidateDetachedAlignmentFiltersPreservingSelection()
+            } else {
+                viewerView.invalidateAlignmentFetchState()
+            }
         }
 
         viewerView.needsDisplay = true

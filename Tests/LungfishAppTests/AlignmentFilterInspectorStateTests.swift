@@ -9,6 +9,23 @@ import XCTest
 @MainActor
 final class AlignmentFilterInspectorStateTests: XCTestCase {
 
+    func testDetachedEvidenceConfigurationNeverSeedsAnOutputWorkflowTarget() {
+        let viewModel = ReadStyleSectionViewModel()
+
+        viewModel.configureClassifierEvidence(
+            .detachedEvidence(
+                workflow: "EsViritu", result: "result", sample: "S1", contig: "virus",
+                bamPath: "/tmp/final.bam", indexPath: "/tmp/final.bam.bai",
+                referenceValidation: .absent, readGroups: []
+            )
+        )
+
+        XCTAssertTrue(viewModel.alignmentFilterTrackOptions.isEmpty)
+        XCTAssertTrue(viewModel.visibleAlignmentTrackOptions.map(\.id) == ["classifier:S1"])
+        XCTAssertNil(viewModel.selectedAlignmentFilterSourceTrackID)
+        XCTAssertNil(viewModel.onCreateFilteredAlignmentRequested)
+    }
+
     func testConfigureAlignmentFilterTracksSeedsDefaultSelectionAndOutputName() {
         let viewModel = ReadStyleSectionViewModel()
 

@@ -93,6 +93,8 @@ public class SequenceViewerView: NSView {
 
     /// Detached classifier BAM evidence, mutually exclusive with a reference bundle.
     private(set) var detachedAlignmentSource: DetachedAlignmentSource?
+
+    var isDisplayingDetachedAlignment: Bool { detachedAlignmentSource != nil }
     var detachedEvidenceStaleReason: String?
     var detachedResourceSignatures: [URL: (Int, Date?)] = [:]
     var onDetachedEvidenceStale: ((String) -> Void)?

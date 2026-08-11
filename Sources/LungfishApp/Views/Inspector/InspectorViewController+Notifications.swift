@@ -94,8 +94,13 @@ extension InspectorViewController {
         clearTransientSelectionState()
         viewModel.selectionSectionViewModel.referenceBundle = nil
         viewModel.readStyleSectionViewModel.clear()
+        viewModel.readStyleSectionViewModel.onSettingsChanged = nil
+        viewModel.readStyleSectionViewModel.onMarkDuplicatesRequested = nil
+        viewModel.readStyleSectionViewModel.onCreateDeduplicatedBundleRequested = nil
         viewModel.readStyleSectionViewModel.onCreateFilteredAlignmentRequested = nil
         viewModel.readStyleSectionViewModel.onConvertMappedReadsToAnnotationsRequested = nil
+        viewModel.readStyleSectionViewModel.onPrimerTrimRequested = nil
+        viewModel.readStyleSectionViewModel.onCallVariantsRequested = nil
         viewModel.readStyleSectionViewModel.supportsConsensusExtraction = false
         viewModel.readStyleSectionViewModel.onExtractConsensusRequested = nil
 

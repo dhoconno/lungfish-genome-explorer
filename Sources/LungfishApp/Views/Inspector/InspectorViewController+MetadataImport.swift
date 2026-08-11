@@ -555,6 +555,27 @@ extension InspectorViewController {
         ]
     }
 
+    /// Updates the Inspector from explicit detached-evidence capabilities.  This
+    /// path intentionally does not call any bundle or mapping setup method.
+    func updateClassifierAlignmentInspector(
+        capabilities: ClassifierAlignmentInspectorCapabilities,
+        applySettings: @escaping ([AnyHashable: Any]) -> Void
+    ) {
+        let readStyle = viewModel.readStyleSectionViewModel
+        readStyle.configureClassifierEvidence(capabilities)
+        viewModel.selectionSectionViewModel.referenceBundle = nil
+        viewModel.documentSectionViewModel.referenceTrackCapabilities = nil
+        viewModel.documentSectionViewModel.alignmentTrackRows = []
+        viewModel.documentSectionViewModel.selectVisibleAlignmentTrack = nil
+        viewModel.documentSectionViewModel.removeDerivedAlignmentTrack = nil
+        viewModel.documentSectionViewModel.visibleAlignmentTrackID = capabilities.selectedTrack.id
+        readStyle.onSettingsChanged = { [weak self] in
+            guard let self else { return }
+            applySettings(self.makeReadDisplaySettingsPayload(from: self.viewModel.readStyleSectionViewModel))
+        }
+        applySettings(makeReadDisplaySettingsPayload(from: readStyle))
+    }
+
     private func syncAlignmentTrackInventory(from bundle: ReferenceBundle) {
         viewModel.documentSectionViewModel.updateAlignmentTrackInventory(
             from: bundle,

@@ -268,9 +268,24 @@ private struct InspectorReadStyleSection: View {
         case .alignment:
             AlignmentViewSection(viewModel: viewModel.readStyleSectionViewModel)
         case .annotations:
-            InspectorAnnotationDisplaySection(viewModel: viewModel)
+            if let capabilities = viewModel.readStyleSectionViewModel.classifierEvidenceCapabilities {
+                Text(capabilities.availability(of: .annotationAppearance).reason)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                InspectorAnnotationDisplaySection(viewModel: viewModel)
+            }
         case .reads:
             ReadStyleSection(viewModel: viewModel.readStyleSectionViewModel)
+        }
+    }
+}
+
+private extension ClassifierAlignmentInspectorCapabilities.Availability {
+    var reason: String {
+        switch self {
+        case .available: "Available"
+        case .disabled(let reason), .hidden(let reason): reason
         }
     }
 }
