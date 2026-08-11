@@ -59,10 +59,6 @@ public final class EsVirituDetailPane: NSView {
     /// The detached evidence view (child lifecycle is owned by the parent VC).
     public var alignmentEvidenceView: NSView?
 
-    /// Compatibility seam for older layout tests. Production wiring uses
-    /// `alignmentEvidenceView`; this value is never displayed by the result VC.
-    @available(*, deprecated, message: "Use alignmentEvidenceView")
-    public var miniBAMViewController: MiniBAMViewController?
 
     /// Called when the user selects a virus and BAM is available — triggers
     /// automatic alignment loading in the detail pane.
@@ -266,7 +262,7 @@ public final class EsVirituDetailPane: NSView {
 
     private func buildDetailContent() {
         guard let assembly = selectedAssembly else { return }
-        if bamAvailable, let evidenceView = alignmentEvidenceView ?? miniBAMViewController?.view {
+        if bamAvailable, let evidenceView = alignmentEvidenceView {
             buildAlignmentEvidenceOnlyDetailContent(using: evidenceView)
             return
         }

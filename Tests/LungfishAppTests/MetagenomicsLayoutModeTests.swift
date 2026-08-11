@@ -703,9 +703,8 @@ final class MetagenomicsLayoutModeTests: XCTestCase {
 
     func testEsVirituDetailPaneTracksDocumentWidthToClipViewAfterResize() throws {
         let pane = EsVirituDetailPane(frame: NSRect(x: 0, y: 0, width: 420, height: 280))
-        let miniBAM = MiniBAMViewController()
-        _ = miniBAM.view
-        pane.miniBAMViewController = miniBAM
+        let evidenceView = NSView()
+        pane.alignmentEvidenceView = evidenceView
 
         let host = NSView(frame: pane.frame)
         pane.autoresizingMask = [.width, .height]
@@ -746,9 +745,8 @@ final class MetagenomicsLayoutModeTests: XCTestCase {
 
     func testEsVirituVirusDetailWithBAMPresentsOnlyMiniBAMContent() throws {
         let pane = EsVirituDetailPane(frame: NSRect(x: 0, y: 0, width: 420, height: 280))
-        let miniBAM = MiniBAMViewController()
-        _ = miniBAM.view
-        pane.miniBAMViewController = miniBAM
+        let evidenceView = NSView()
+        pane.alignmentEvidenceView = evidenceView
 
         pane.showVirusDetail(
             assembly: makeEsVirituAssembly(),
@@ -762,8 +760,7 @@ final class MetagenomicsLayoutModeTests: XCTestCase {
         let documentView = try XCTUnwrap(scrollView.documentView)
 
         XCTAssertEqual(documentView.subviews.count, 1)
-        XCTAssertTrue(documentView.subviews.first === miniBAM.view)
-        XCTAssertNil(miniBAM.onResizeBy)
+        XCTAssertTrue(documentView.subviews.first === evidenceView)
     }
 
     func testEsVirituImmediateUserDividerMoveSurvivesDeferredValidation() {

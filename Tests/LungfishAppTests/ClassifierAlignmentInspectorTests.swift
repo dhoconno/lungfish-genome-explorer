@@ -183,7 +183,11 @@ final class ClassifierAlignmentInspectorTests: XCTestCase {
             applySettings: { _ in }
         )
         XCTAssertEqual(inspector.viewModel.provenanceSectionViewModel.currentItem?.url, missingURL)
-        for _ in 0..<250 where inspector.viewModel.provenanceSectionViewModel.isLoading { try await Task.sleep(nanoseconds: 10_000_000) }
+        for _ in 0..<1_000 where inspector.viewModel.provenanceSectionViewModel.currentItem != nil
+            || inspector.viewModel.provenanceSectionViewModel.isLoading {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertFalse(inspector.viewModel.provenanceSectionViewModel.isLoading)
         XCTAssertNil(inspector.viewModel.provenanceSectionViewModel.resolvedEnvelope)
         XCTAssertNil(inspector.viewModel.provenanceSectionViewModel.currentItem)
         XCTAssertFalse(inspector.viewModel.availableTabs.contains(.provenance))

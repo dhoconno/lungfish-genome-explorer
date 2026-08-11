@@ -7,7 +7,38 @@ import LungfishCore
 import LungfishKit
 
 @MainActor
+private final class NvdRecordingEvidenceViewer: NSObject, ClassifierAlignmentViewerProviding {
+    let viewController = NSViewController()
+    private(set) var status: ClassifierAlignmentViewerStatus = .idle
+    var onStatusChanged: (@MainActor @Sendable (ClassifierAlignmentViewerStatus) -> Void)?
+    private(set) var requests: [ClassifierAlignmentEvidenceRequest] = []
+    private(set) var clearCount = 0
+    override init() { super.init(); viewController.view = NSView() }
+    func display(_ request: ClassifierAlignmentEvidenceRequest) { requests.append(request) }
+    func clear() { clearCount += 1 }
+}
+
+@MainActor
 final class NvdResultViewControllerTests: XCTestCase {
+    func testManifestIndexIsUsedWhenLegacyDatabaseIndexIsAbsent() throws {
+        let fixture = try NvdMenuFixture()
+        addTeardownBlock { try? FileManager.default.removeItem(at: fixture.rootURL) }
+        let recorder = NvdRecordingEvidenceViewer()
+        let vc = NvdResultViewController()
+        vc.classifierAlignmentViewerFactory = { recorder }
+        _ = vc.view
+        vc.configure(database: fixture.database, manifest: fixture.manifest, bundleURL: fixture.bundleURL)
+        vc.testSelectOutlineRow(0)
+        let request = try XCTUnwrap(recorder.requests.last)
+        XCTAssertEqual(request.workflow, .nvd)
+        XCTAssertEqual(request.bamURL.lastPathComponent, "sample1.bam")
+        XCTAssertEqual(request.index.url.lastPathComponent, "sample1.bam.bai")
+        XCTAssertEqual(request.index.kind, .bai)
+        XCTAssertEqual(request.sample.canonicalID, "sample1")
+        XCTAssertEqual(request.contig.name, "contig_1")
+        XCTAssertEqual(request.contig.expectedLength, 8)
+        XCTAssertEqual(request.referenceCandidate?.fastaURL.lastPathComponent, "sample1.fasta")
+    }
     func testSelectionSurvivesCachedReloadWithDuplicateContigAcrossSamples() {
         let vc = NvdResultViewController()
         _ = vc.view
@@ -787,6 +818,8 @@ private struct NvdMenuFixture {
         >contig_1
         TTGGCCAA
         """.write(to: secondFastaURL, atomically: true, encoding: .utf8)
+        try Data().write(to: bundleURL.appendingPathComponent("sample1.bam"))
+        try Data().write(to: bundleURL.appendingPathComponent("sample1.bam.bai"))
 
         let hit = NvdBlastHit(
             experiment: "exp-1",
@@ -942,6 +975,7 @@ private struct NvdMenuFixture {
                     hitCount: 1,
                     totalReads: 1000,
                     bamRelativePath: "sample1.bam",
+                    bamIndexRelativePath: "sample1.bam.bai",
                     fastaRelativePath: fastaRelativePath
                 ),
             ] + (duplicateContigs ? [

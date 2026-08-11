@@ -12,8 +12,13 @@ import LungfishCore
 
 final class EsVirituResultViewControllerSmokeTests: XCTestCase {
     func testEsVirituLeafDoesNotDependOnMiniBAM() throws {
+        let directory = URL(fileURLWithPath: "Sources/LungfishEsVirituUI")
+        let sources = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "swift" }
+            .map { try String(contentsOf: $0, encoding: .utf8) }
+            .joined(separator: "\n")
+        XCTAssertFalse(sources.contains("MiniBAMViewController"))
         let source = try String(contentsOfFile: "Sources/LungfishEsVirituUI/EsVirituResultViewController.swift", encoding: .utf8)
-        XCTAssertFalse(source.contains("MiniBAMViewController"))
         XCTAssertTrue(source.contains("currentBAMSampleID"))
         XCTAssertTrue(source.contains("sample: .init(canonicalID: sampleID)"))
     }

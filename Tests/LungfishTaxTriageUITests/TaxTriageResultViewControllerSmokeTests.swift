@@ -9,6 +9,18 @@ import AppKit
 import LungfishWorkflow
 import LungfishKit
 
+@MainActor
+private final class TaxTriageRecordingEvidenceViewer: NSObject, ClassifierAlignmentViewerProviding {
+    let viewController = NSViewController()
+    private(set) var status: ClassifierAlignmentViewerStatus = .idle
+    var onStatusChanged: (@MainActor @Sendable (ClassifierAlignmentViewerStatus) -> Void)?
+    private(set) var requests: [ClassifierAlignmentEvidenceRequest] = []
+    private(set) var clearCount = 0
+    override init() { super.init(); viewController.view = NSView() }
+    func display(_ request: ClassifierAlignmentEvidenceRequest) { requests.append(request) }
+    func clear() { clearCount += 1 }
+}
+
 final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
     func testTaxTriageLeafDoesNotDependOnMiniBAM() throws {
         let source = try String(contentsOfFile: "Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift", encoding: .utf8)
@@ -132,6 +144,11 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
 
         let bamURL = tempDir.appendingPathComponent("sample-1.bam")
         try Data().write(to: bamURL)
+        let indexURL = tempDir.appendingPathComponent("stored-index.csi")
+        try Data().write(to: indexURL)
+        let referenceURL = tempDir.appendingPathComponent("download/sample-1.dwnld.references.fasta")
+        try FileManager.default.createDirectory(at: referenceURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(">NC_123456.1\nACGT\n".utf8).write(to: referenceURL)
 
         let dbURL = tempDir.appendingPathComponent("taxtriage.sqlite")
         let row = TaxTriageTaxonomyRow(
@@ -169,13 +186,15 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
             pathogenicSubstrains: nil,
             sampleType: nil,
             bamPath: bamURL.path,
-            bamIndexPath: nil,
+            bamIndexPath: indexURL.path,
             primaryAccession: "NC_123456.1",
             accessionLength: 1_000
         )
         let db = try TaxTriageDatabase.create(at: dbURL, rows: [row], metadata: ["tool": "taxtriage"])
 
+        let recorder = TaxTriageRecordingEvidenceViewer()
         let vc = TaxTriageResultViewController()
+        vc.classifierAlignmentViewerFactory = { recorder }
         _ = vc.view
         vc.configureFromDatabase(db, resultURL: tempDir)
 
@@ -207,6 +226,15 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
             "Selecting a TaxTriage database row with BAM data and accession mapping should reveal the miniBAM pane"
         )
         XCTAssertGreaterThan(vc.testLeftPaneContainer.frame.height, 100)
+        let request = try XCTUnwrap(recorder.requests.last)
+        XCTAssertEqual(request.workflow, .taxTriage)
+        XCTAssertEqual(request.bamURL, bamURL)
+        XCTAssertEqual(request.index.url, indexURL)
+        XCTAssertEqual(request.index.kind, .csi)
+        XCTAssertEqual(request.sample.canonicalID, "sample-1")
+        XCTAssertEqual(request.contig.name, "NC_123456.1")
+        XCTAssertEqual(request.contig.expectedLength, 1_000)
+        XCTAssertEqual(request.referenceCandidate?.fastaURL, referenceURL)
     }
 
     @MainActor func testDatabaseConfiguredBeforeWindowDisplaysBatchTableAfterAttach() throws {

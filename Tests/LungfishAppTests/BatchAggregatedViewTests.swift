@@ -681,8 +681,6 @@ final class BatchTableSelectionIdentityTests: XCTestCase {
             Notification(name: NSOutlineView.selectionDidChangeNotification, object: table.testOutlineView)
         )
 
-        viewController.testDetailPane.miniBAMViewController?.onReadStatsUpdated?(40, 3)
-
         XCTAssertEqual(table.uniqueReadCountsByAssembly["GCF_A"], 37)
         XCTAssertEqual(table.uniqueReadCountsBySampleAssembly["sample-A\tGCF_A"], 37)
         XCTAssertEqual(table.uniqueReadCountsByContig["NC_A"], 37)

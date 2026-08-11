@@ -17,6 +17,8 @@ private struct TaxTriageDatabasePageSnapshot: Sendable {
     let uniqueReadsByKey: [String: Int]
     let totalReadsByKey: [String: Int]
     let bamFilesBySample: [String: URL]
+    let bamIndexesBySample: [String: URL]
+    let retainedReferencesBySample: [String: URL]
     let organismToAccessionsBySample: [String: [String: [String]]]
     let taxIDToAccessionsBySample: [String: [Int: [String]]]
     let accessionLengths: [String: Int]
@@ -43,6 +45,8 @@ private func makeTaxTriageDatabasePageSnapshot(
     var uniqueReadsLookup: [String: Int] = [:]
     var totalReadsLookup: [String: Int] = [:]
     var bamsBySample: [String: URL] = [:]
+    var indexesBySample: [String: URL] = [:]
+    var referencesBySample: [String: URL] = [:]
     var organismAccessionsBySample: [String: [String: [String]]] = [:]
     var taxIDAccessionsBySample: [String: [Int: [String]]] = [:]
     var accessionLengths: [String: Int] = [:]
@@ -79,6 +83,21 @@ private func makeTaxTriageDatabasePageSnapshot(
                 bamsBySample[row.sample] = resultURL.appendingPathComponent(bamPath)
             }
         }
+        if let bamIndexPath = row.bamIndexPath, !bamIndexPath.isEmpty {
+            if bamIndexPath.hasPrefix("/") {
+                indexesBySample[row.sample] = URL(fileURLWithPath: bamIndexPath)
+            } else if let resultURL {
+                indexesBySample[row.sample] = resultURL.appendingPathComponent(bamIndexPath)
+            }
+        }
+        if let resultURL {
+            let retainedReference = resultURL
+                .appendingPathComponent("download", isDirectory: true)
+                .appendingPathComponent("\(row.sample).dwnld.references.fasta")
+            if FileManager.default.fileExists(atPath: retainedReference.path) {
+                referencesBySample[row.sample] = retainedReference
+            }
+        }
 
         if let accession = row.primaryAccession, !accession.isEmpty {
             let normalized = OrganismNameNormalizer.normalizedKey(row.organism)
@@ -97,6 +116,8 @@ private func makeTaxTriageDatabasePageSnapshot(
         uniqueReadsByKey: uniqueReadsLookup,
         totalReadsByKey: totalReadsLookup,
         bamFilesBySample: bamsBySample,
+        bamIndexesBySample: indexesBySample,
+        retainedReferencesBySample: referencesBySample,
         organismToAccessionsBySample: organismAccessionsBySample,
         taxIDToAccessionsBySample: taxIDAccessionsBySample,
         accessionLengths: accessionLengths,
@@ -186,6 +207,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     /// All discovered BAM files keyed by sample ID substring.
     private var bamFilesBySample: [String: URL] = [:]
+    private var bamIndexesBySample: [String: URL] = [:]
+    private var retainedReferencesBySample: [String: URL] = [:]
 
     /// Maps normalized organism names → BAM reference accessions (from gcfmapping.tsv).
     private var organismToAccessions: [String: [String]] = [:]
@@ -1365,7 +1388,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
             if let sampleBam = bamFilesBySample[targetSampleId] {
                 bamURL = sampleBam
-                bamIndexURL = resolveBamIndex(for: sampleBam, allOutputFiles: taxTriageResult?.allOutputFiles ?? [])
+                bamIndexURL = bamIndexesBySample[targetSampleId]
+                    ?? resolveBamIndex(for: sampleBam, allOutputFiles: taxTriageResult?.allOutputFiles ?? [])
                 accessionLengths = [:]
                 accessionMappedReadCounts = [:]
             }
@@ -2472,6 +2496,11 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         resultURL: URL
     ) -> ClassifierAlignmentReferenceCandidate? {
         let name = "\(sampleID).dwnld.references.fasta"
+        if let storedMember = retainedReferencesBySample[sampleID],
+           storedMember.lastPathComponent == name,
+           FileManager.default.fileExists(atPath: storedMember.path) {
+            return .init(fastaURL: storedMember, recordName: accession, expectedLength: expectedLength)
+        }
         guard let storedMember = taxTriageResult?.allOutputFiles.first(where: {
             $0.lastPathComponent == name && $0.standardizedFileURL.path.hasPrefix(resultURL.standardizedFileURL.path)
         }), FileManager.default.fileExists(atPath: storedMember.path) else {
@@ -2658,7 +2687,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 self.revealMiniBAMDetailPaneIfNeeded()
                 self.displayTaxTriageMiniBAM(
                     bamURL: bamURL,
-                    indexURL: resolveBamIndex(for: bamURL, allOutputFiles: []),
+                    indexURL: row.sample.flatMap { self.bamIndexesBySample[$0] }
+                        ?? resolveBamIndex(for: bamURL, allOutputFiles: []),
                     accessions: accessions
                 )
             } else {
@@ -2724,6 +2754,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         batchFlatTableView.totalReadsByKey = [:]
         batchFlatTableView.configure(rows: [])
         bamFilesBySample = [:]
+        bamIndexesBySample = [:]
+        retainedReferencesBySample = [:]
         organismToAccessionsBySample = [:]
         taxIDToAccessionsBySample = [:]
         mergedOrganismToAccessions = [:]
@@ -2751,6 +2783,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         batchFlatTableView.totalReadsByKey = [:]
         batchFlatTableView.configure(rows: [])
         bamFilesBySample = [:]
+        bamIndexesBySample = [:]
+        retainedReferencesBySample = [:]
         organismToAccessionsBySample = [:]
         taxIDToAccessionsBySample = [:]
         mergedOrganismToAccessions = [:]
@@ -2818,6 +2852,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         batchFlatTableView.uniqueReadsByKey.merge(snapshot.uniqueReadsByKey) { _, new in new }
         batchFlatTableView.totalReadsByKey.merge(snapshot.totalReadsByKey) { _, new in new }
         bamFilesBySample.merge(snapshot.bamFilesBySample) { _, new in new }
+        bamIndexesBySample.merge(snapshot.bamIndexesBySample) { _, new in new }
+        retainedReferencesBySample.merge(snapshot.retainedReferencesBySample) { _, new in new }
         accessionLengths.merge(snapshot.accessionLengths) { _, new in new }
 
         mergeOrganismAccessions(snapshot.organismToAccessionsBySample)

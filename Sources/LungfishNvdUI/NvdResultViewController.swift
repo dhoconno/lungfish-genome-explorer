@@ -125,6 +125,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
 
     /// All samples from the database.
     private var allSamples: [NvdSampleMetadata] = []
+    private var manifestSamplesByID: [String: NvdSampleSummary] = [:]
 
     /// Currently selected sample IDs for filtering.
     private var selectedSamples: Set<String> = []
@@ -468,6 +469,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     /// until `configure(database:manifest:bundleURL:)` is called.
     public func configureWithCachedRows(_ rows: [NvdContigRow], manifest: NvdManifest, bundleURL: URL) {
         self.manifest = manifest
+        self.manifestSamplesByID = Dictionary(uniqueKeysWithValues: manifest.samples.map { ($0.sampleId, $0) })
         self.bundleURL = bundleURL
         self.cachedRows = rows
 
@@ -524,6 +526,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
 
         self.database = database
         self.manifest = manifest
+        self.manifestSamplesByID = Dictionary(uniqueKeysWithValues: manifest.samples.map { ($0.sampleId, $0) })
         self.bundleURL = bundleURL
 
         // Fetch samples from database
@@ -935,6 +938,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
             }
             let bamURL = bundleURL.appendingPathComponent(bamRelPath)
             let indexRelative = try database.bamIndexPath(forSample: hit.sampleId)
+                ?? manifestSamplesByID[hit.sampleId]?.bamIndexRelativePath
             let indexURL = resolveNvdIndex(bamURL: bamURL, storedIndexPath: indexRelative, bundleURL: bundleURL)
             guard let indexURL else {
                 viewer.clear()
