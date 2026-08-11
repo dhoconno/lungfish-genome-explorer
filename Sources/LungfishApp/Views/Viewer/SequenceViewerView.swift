@@ -2139,6 +2139,11 @@ public class SequenceViewerView: NSView {
         sequenceViewerLogger.info("SequenceViewerView.clearReferenceBundle: Clearing bundle")
         cancelDetachedAlignmentFetches()
         stopDetachedEvidenceMonitors()
+        // Semantic selection keys are valid only for the source whose filter
+        // update captured them. A source replacement or explicit clear must
+        // never restore a coincidentally identical read from later evidence.
+        preservedDetachedSelectionKeys = []
+        updateDetachedSelection([])
         self.currentReferenceBundle = nil
         self.detachedAlignmentSource = nil
         self.detachedEvidenceStaleReason = nil

@@ -155,6 +155,48 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         XCTAssertNil(inspector.readStyleSectionViewModel.selectedRead)
     }
 
+    func testSourceReplacementDoesNotRestorePendingSelectionWithMatchingReadIdentity() throws {
+        let viewer = ViewerViewController()
+        let inspector = InspectorViewController()
+        _ = viewer.view
+        _ = inspector.view
+        let sourceA = makeSource("selection-source-a")
+        let sourceB = makeSource("selection-source-b")
+        viewer.displayDetachedAlignment(sourceA)
+        inspector.updateClassifierAlignmentInspector(
+            capabilities: .detachedEvidence(
+                workflow: "TaxTriage", result: "result-a", sample: "S1", contig: "chr1",
+                bamPath: sourceA.provider.alignmentPath, indexPath: sourceA.provider.indexPath,
+                referenceValidation: .absent, readGroups: []
+            ),
+            applySettings: viewer.applyReadDisplaySettings
+        )
+
+        let sourceARead = AlignedRead(
+            name: "same-read", flag: 0, chromosome: "chr1", position: 15, mapq: 60,
+            cigar: [.init(op: .match, length: 4)], sequence: "ACTG", qualities: [30, 30, 30, 30]
+        )
+        viewer.viewerView.testSetCachedPackedReads([(0, sourceARead)])
+        viewer.viewerView.testSetSelectedReadIDs([sourceARead.id])
+        NotificationCenter.default.post(
+            name: .readSelected,
+            object: viewer.viewerView,
+            userInfo: [NotificationUserInfoKey.alignedRead: sourceARead]
+        )
+        XCTAssertEqual(inspector.readStyleSectionViewModel.selectedRead?.id, sourceARead.id)
+
+        viewer.updateDetachedAlignmentSettings(minMapQ: 20, excludeFlags: 0xD04)
+        viewer.displayDetachedAlignment(sourceB)
+        let sourceBRead = AlignedRead(
+            name: "same-read", flag: 0, chromosome: "chr1", position: 15, mapq: 60,
+            cigar: [.init(op: .match, length: 4)], sequence: "ACTG", qualities: [30, 30, 30, 30]
+        )
+        viewer.viewerView.testSetCachedPackedReads([(0, sourceBRead)])
+
+        XCTAssertTrue(viewer.viewerView.testSelectedReadIDs.isEmpty)
+        XCTAssertNil(inspector.readStyleSectionViewModel.selectedRead)
+    }
+
     func testThreeRapidDisplaysCancelSupersededValidationAndOnlyShowLatestSource() async throws {
         let files = try DetachedEvidenceFiles()
         let gate = DetachedHeaderGate()
