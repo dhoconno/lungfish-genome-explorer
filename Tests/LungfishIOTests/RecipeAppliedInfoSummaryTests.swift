@@ -105,13 +105,78 @@ final class RecipeAppliedInfoSummaryTests: XCTestCase {
         XCTAssertEqual(info.totalReadsRemoved, 280_000)
     }
 
-    func testLegacyFusedDeduplicationIsRecognizedFromNameAndArguments() {
+    func testStructuredTrimComponentIDsOverrideStaleDeduplicationMetadata() {
         let info = RecipeAppliedInfo(
             recipeID: "vsp2-target-enrichment",
             recipeName: "VSP2 Target Enrichment",
             stepResults: [
                 step(
                     "Remove PCR duplicates + Adapter + quality trim",
+                    tool: "fastp",
+                    input: 1_000_000,
+                    output: 720_000,
+                    commandArguments: ["fastp", "--dedup", "--cut_front"],
+                    logicalComponents: [
+                        RecipeLogicalComponent(typeID: "fastp-trim", displayName: "Remove PCR duplicates"),
+                    ]
+                ),
+            ]
+        )
+
+        XCTAssertFalse(info.didApplyDeduplication)
+        XCTAssertFalse(info.deduplicationPerformedInCombinedPass)
+        XCTAssertNil(info.deduplicationSummary)
+    }
+
+    func testStructuredDedupComponentIDOverridesStaleTrimmingMetadata() throws {
+        let info = RecipeAppliedInfo(
+            recipeID: "vsp2-target-enrichment",
+            recipeName: "VSP2 Target Enrichment",
+            stepResults: [
+                step(
+                    "Remove PCR duplicates + Adapter + quality trim",
+                    tool: "fastp",
+                    input: 1_000_000,
+                    output: 720_000,
+                    commandArguments: ["fastp", "--dedup", "--cut_front"],
+                    logicalComponents: [
+                        RecipeLogicalComponent(typeID: "fastp-dedup", displayName: "Adapter + quality trim"),
+                    ]
+                ),
+            ]
+        )
+
+        XCTAssertTrue(info.didApplyDeduplication)
+        XCTAssertFalse(info.deduplicationPerformedInCombinedPass)
+        XCTAssertEqual(try XCTUnwrap(info.deduplicationSummary).readsRemoved, 280_000)
+    }
+
+    func testLegacyFusedDeduplicationIsRecognizedFromKnownFastpCombinedNameOnly() {
+        let info = RecipeAppliedInfo(
+            recipeID: "vsp2-target-enrichment",
+            recipeName: "VSP2 Target Enrichment",
+            stepResults: [
+                step(
+                    "Remove PCR duplicates + Adapter + quality trim",
+                    tool: "fastp",
+                    input: 1_000_000,
+                    output: 720_000
+                ),
+            ]
+        )
+
+        XCTAssertTrue(info.didApplyDeduplication)
+        XCTAssertTrue(info.deduplicationPerformedInCombinedPass)
+        XCTAssertNil(info.deduplicationSummary)
+    }
+
+    func testLegacyFusedDeduplicationIsRecognizedFromArgvOnly() {
+        let info = RecipeAppliedInfo(
+            recipeID: "vsp2-target-enrichment",
+            recipeName: "VSP2 Target Enrichment",
+            stepResults: [
+                step(
+                    "Legacy fastp processing",
                     tool: "fastp",
                     input: 1_000_000,
                     output: 720_000,
@@ -123,5 +188,43 @@ final class RecipeAppliedInfoSummaryTests: XCTestCase {
         XCTAssertTrue(info.didApplyDeduplication)
         XCTAssertTrue(info.deduplicationPerformedInCombinedPass)
         XCTAssertNil(info.deduplicationSummary)
+    }
+
+    func testLegacyQualityAwareDuplicateRemovalNameIsNotTreatedAsCombinedPass() throws {
+        let info = RecipeAppliedInfo(
+            recipeID: "legacy-recipe",
+            recipeName: "Legacy Recipe",
+            stepResults: [
+                step(
+                    "Quality-aware duplicate removal",
+                    tool: "fastp",
+                    input: 1_000_000,
+                    output: 850_000
+                ),
+            ]
+        )
+
+        XCTAssertTrue(info.didApplyDeduplication)
+        XCTAssertFalse(info.deduplicationPerformedInCombinedPass)
+        XCTAssertEqual(try XCTUnwrap(info.deduplicationSummary).readsRemoved, 150_000)
+    }
+
+    func testLegacyCombinedNameRequiresFastpTool() throws {
+        let info = RecipeAppliedInfo(
+            recipeID: "legacy-recipe",
+            recipeName: "Legacy Recipe",
+            stepResults: [
+                step(
+                    "Remove PCR duplicates + Adapter + quality trim",
+                    tool: "other-tool",
+                    input: 1_000_000,
+                    output: 850_000
+                ),
+            ]
+        )
+
+        XCTAssertTrue(info.didApplyDeduplication)
+        XCTAssertFalse(info.deduplicationPerformedInCombinedPass)
+        XCTAssertEqual(try XCTUnwrap(info.deduplicationSummary).readsRemoved, 150_000)
     }
 }

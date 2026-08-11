@@ -529,6 +529,9 @@ public struct RecipeStepResult: Codable, Sendable {
 
     private static let maxStderrLength = 10_240
     private static let stderrTruncationMarker = "\n... [truncated]"
+    private static let deduplicationComponentID = "fastp-dedup"
+    private static let trimmingComponentID = "fastp-trim"
+    private static let legacyFusedFastpLabel = "remove pcr duplicates + adapter + quality trim"
 
     public init(
         stepName: String,
@@ -637,42 +640,37 @@ public struct RecipeStepResult: Codable, Sendable {
         )
     }
 
+    /// Timestamp-derived wall time when actual execution evidence is available,
+    /// otherwise the duration stored by legacy metadata.
+    public var effectiveDurationSeconds: Double {
+        guard let startedAt, let completedAt else { return durationSeconds }
+        return completedAt.timeIntervalSince(startedAt)
+    }
+
     /// Whether this physical step includes a deduplication operation.
     public var didApplyDeduplication: Bool {
-        let componentText = logicalComponents
-            .flatMap { [$0.typeID, $0.displayName] }
-            .joined(separator: " ")
-            .lowercased()
+        if !logicalComponents.isEmpty {
+            return logicalComponentTypeIDs.contains(Self.deduplicationComponentID)
+        }
+
         let name = stepName.lowercased()
         let arguments = commandArguments ?? []
-        return componentText.contains("dedup")
-            || componentText.contains("duplicate")
-            || name.contains("dedup")
+        return name.contains("dedup")
             || name.contains("duplicate")
             || arguments.contains(where: { $0.lowercased() == "--dedup" })
     }
 
     /// Whether this physical step combines deduplication with trimming or filtering.
     public var didApplyDeduplicationAndTrimmingInCombinedPass: Bool {
-        let componentText = logicalComponents
-            .flatMap { [$0.typeID, $0.displayName] }
-            .joined(separator: " ")
-            .lowercased()
-        let hasStructuredComponents = !logicalComponents.isEmpty
-        let hasStructuredDedup = componentText.contains("dedup") || componentText.contains("duplicate")
-        let hasStructuredTrim = componentText.contains("trim")
-            || componentText.contains("adapter")
-            || componentText.contains("quality")
-
-        if hasStructuredComponents {
-            return hasStructuredDedup && hasStructuredTrim
+        if !logicalComponents.isEmpty {
+            return logicalComponentTypeIDs.contains(Self.deduplicationComponentID)
+                && logicalComponentTypeIDs.contains(Self.trimmingComponentID)
         }
 
-        let name = stepName.lowercased()
-        let hasLegacyDedupName = name.contains("dedup") || name.contains("duplicate")
-        let hasLegacyTrimName = name.contains("trim")
-            || name.contains("adapter")
-            || name.contains("quality")
+        let normalizedTool = tool.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalizedName = stepName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let hasKnownFusedFastpName = normalizedTool == "fastp"
+            && normalizedName == Self.legacyFusedFastpLabel
         let arguments = commandArguments?.map { $0.lowercased() } ?? []
         let hasDedupArgument = arguments.contains("--dedup")
         let trimArgumentPrefixes = [
@@ -683,11 +681,15 @@ public struct RecipeStepResult: Codable, Sendable {
             "--qualified_quality_phred",
             "--trim_"
         ]
-        let hasTrimArgument = arguments.dropFirst().contains { argument in
+        let hasTrimArgument = arguments.contains { argument in
             trimArgumentPrefixes.contains { prefix in argument.hasPrefix(prefix) }
         }
 
-        return (hasLegacyDedupName && hasLegacyTrimName) || (hasDedupArgument && hasTrimArgument)
+        return hasKnownFusedFastpName || (hasDedupArgument && hasTrimArgument)
+    }
+
+    private var logicalComponentTypeIDs: Set<String> {
+        Set(logicalComponents.map { $0.typeID.lowercased() })
     }
 
     private static func normalizedStderr(_ stderr: String?) -> String? {

@@ -427,6 +427,28 @@ final class FASTQMetadataStoreTests: XCTestCase {
         XCTAssertNil(empty.stderr)
     }
 
+    func testRecipeStepResultEffectiveDurationUsesExecutionTimestamps() {
+        let result = RecipeStepResult(
+            stepName: "Deduplicate",
+            tool: "fastp",
+            durationSeconds: 99,
+            startedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            completedAt: Date(timeIntervalSince1970: 1_700_000_012)
+        )
+
+        XCTAssertEqual(result.effectiveDurationSeconds, 12, accuracy: 0.001)
+    }
+
+    func testRecipeStepResultEffectiveDurationFallsBackToLegacyDuration() {
+        let result = RecipeStepResult(
+            stepName: "Deduplicate",
+            tool: "fastp",
+            durationSeconds: 7.5
+        )
+
+        XCTAssertEqual(result.effectiveDurationSeconds, 7.5, accuracy: 0.001)
+    }
+
     // MARK: - SRARunInfo Codable
 
     func testSRARunInfoCodableRoundTrip() throws {
