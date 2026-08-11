@@ -250,7 +250,7 @@ private struct InspectorReadStyleSection: View {
             if viewModel.contentMode == .genotype {
                 GenotypeResultDisplaySection(viewModel: viewModel.genotypeResultDisplaySectionViewModel)
             } else {
-                if viewModel.contentMode == .mapping {
+            if viewModel.contentMode == .mapping {
                     MappingViewSettingsSection(viewModel: viewModel.documentSectionViewModel)
                     Divider()
                 }
@@ -258,6 +258,11 @@ private struct InspectorReadStyleSection: View {
                 InspectorSubsectionGrid(selection: $viewModel.selectedReadStyleViewSubsection)
 
                 subsectionContent
+            }
+
+            if let capabilities = viewModel.readStyleSectionViewModel.classifierEvidenceCapabilities {
+                ClassifierEvidenceInventorySection(capabilities: capabilities)
+                Divider()
             }
         }
     }
@@ -278,6 +283,28 @@ private struct InspectorReadStyleSection: View {
         case .reads:
             ReadStyleSection(viewModel: viewModel.readStyleSectionViewModel)
         }
+    }
+}
+
+private struct ClassifierEvidenceInventorySection: View {
+    let capabilities: ClassifierAlignmentInspectorCapabilities
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Classifier alignment evidence").font(.headline)
+            Text("Workflow: \(capabilities.workflow)")
+            Text("Result: \(capabilities.result)")
+            Text("Sample: \(capabilities.sample) • Contig: \(capabilities.contig)")
+            Text("BAM: \(capabilities.bamPath)").textSelection(.enabled)
+            Text("Index: \(capabilities.indexPath)").textSelection(.enabled)
+            Text("Reference: \(capabilities.referenceValidation.label)")
+            Text("Status: \(capabilities.status.message)")
+            Text(capabilities.coveragePolicy).font(.caption).foregroundStyle(.secondary)
+            ForEach(ClassifierAlignmentInspectorCapabilities.Control.allCases, id: \.self) { control in
+                if case let .disabled(reason) = capabilities.availability(of: control) { Text(reason).font(.caption).foregroundStyle(.secondary) }
+                if case let .hidden(reason) = capabilities.availability(of: control) { Text(reason).font(.caption).foregroundStyle(.secondary) }
+            }
+        }
+        .accessibilityIdentifier("classifier-evidence-inventory")
     }
 }
 

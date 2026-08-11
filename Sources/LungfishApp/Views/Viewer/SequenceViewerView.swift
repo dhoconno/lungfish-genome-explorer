@@ -355,6 +355,7 @@ public class SequenceViewerView: NSView {
 
     /// Set of read UUIDs currently selected (for multi-read selection).
     var selectedReadIDs: Set<UUID> = []
+    private var preservedDetachedSelectionKeys: Set<String> = []
 
     /// Currently selected read (for inspector display — first selected read).
     var selectedRead: AlignedRead? {
@@ -380,6 +381,13 @@ public class SequenceViewerView: NSView {
     var cachedPackedReads: [(row: Int, read: AlignedRead)] = [] {
         didSet {
             cachedPackedReadsByRow = SequenceViewerView.bucketPackedReadsByRow(cachedPackedReads)
+            if !preservedDetachedSelectionKeys.isEmpty {
+                selectedReadIDs = Set(cachedPackedReads.compactMap { row in
+                    preservedDetachedSelectionKeys.contains(Self.detachedSelectionKey(row.read)) ? row.read.id : nil
+                })
+                preservedDetachedSelectionKeys = []
+                updateSelectionStatus()
+            }
         }
     }
 
@@ -1221,7 +1229,12 @@ public class SequenceViewerView: NSView {
     }
 
     func invalidateDetachedAlignmentFiltersPreservingSelection() {
+        preservedDetachedSelectionKeys = Set(selectedReads.map(Self.detachedSelectionKey))
         invalidateAlignmentFetchState(invalidateDepth: true, invalidateConsensus: true, preserveReadSelection: true)
+    }
+
+    private static func detachedSelectionKey(_ read: AlignedRead) -> String {
+        "\(read.name)|\(read.chromosome)|\(read.position)|\(read.flag)|\(read.cigar.map { "\($0.length)\($0.op.rawValue)" }.joined())"
     }
 
     func readSettingsSignature() -> String {

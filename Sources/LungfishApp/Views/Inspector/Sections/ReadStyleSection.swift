@@ -335,6 +335,8 @@ public final class ReadStyleSectionViewModel {
     /// classifier evidence rather than a mutable reference bundle.
     var classifierEvidenceCapabilities: ClassifierAlignmentInspectorCapabilities?
 
+    var supportsReferenceReadRendering: Bool { classifierEvidenceCapabilities?.referenceValidation.isValidated ?? true }
+
     /// Called to export biological consensus from the active mapping viewer.
     public var onExtractConsensusRequested: (() -> Void)?
 
@@ -1883,11 +1885,18 @@ public struct ReadStyleSection: View {
 
                 Divider()
 
+                if viewModel.supportsReferenceReadRendering {
                 Toggle("Show matching bases as dots", isOn: $viewModel.showMismatches)
                     .onChange(of: viewModel.showMismatches) { _, _ in
                         viewModel.onSettingsChanged?()
                     }
                     .help("When on, matching bases are shown as dots and mismatches as colored letters. When off, all bases are shown as letters. Mismatches remain highlighted.")
+                } else {
+                    Text("Reference mismatch display is unavailable: A validated reference sequence is required.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("classifier-reference-mismatch-unavailable")
+                }
 
                 Toggle("Show soft-clipped sequence", isOn: $viewModel.showSoftClips)
                     .onChange(of: viewModel.showSoftClips) { _, _ in

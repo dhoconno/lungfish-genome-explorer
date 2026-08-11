@@ -21,6 +21,7 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
     private let validator: ClassifierAlignmentEvidenceValidator
     private var generation = 0
     private var task: Task<Void, Never>?
+    private var activeRequest: ClassifierAlignmentEvidenceRequest?
     private(set) var availability: Availability = .idle
     private(set) var status: ClassifierAlignmentViewerStatus = .idle { didSet { publishStatus() } }
     var onStatusChanged: (@MainActor @Sendable (ClassifierAlignmentViewerStatus) -> Void)?
@@ -82,6 +83,7 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
         viewer.viewerView.onDetachedEvidenceStale = { [weak self] reason in
             self?.availability = .unavailable(reason)
             self?.status = .stale(reason)
+            self?.publishInspectorCapabilities(reference: .unavailable(reason), readGroups: [])
         }
         // A new request must never leave prior evidence visible while its own
         // validation is pending; this also tears down the old vnode monitors.
@@ -89,9 +91,10 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
         generation += 1
         let currentGeneration = generation
         task?.cancel()
+        activeRequest = request
         availability = .loading
         status = .loading
-        inspectorCapabilities = nil
+        publishInspectorCapabilities(reference: request.referenceCandidate == nil ? .absent : .unavailable("Reference validation is pending."), readGroups: [])
         task = Task { [weak self] in
             guard let self else { return }
             do {
@@ -111,27 +114,18 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
                     let reason = viewer.viewerView.detachedEvidenceStaleReason ?? "Classifier alignment evidence could not be verified."
                     availability = .unavailable(reason)
                     status = .stale(reason)
+                    publishInspectorCapabilities(reference: .unavailable(reason), readGroups: [])
                     return
                 }
                 availability = .available(reference: validated.reference.status, reason: validated.reference.reason)
                 status = .available(referenceStrength: referenceStrengthText(validated.reference.status), reason: validated.reference.reason)
-                inspectorCapabilities = .detachedEvidence(
-                    workflow: request.presentation.workflowLabel,
-                    result: request.presentation.resultLabel,
-                    sample: request.presentation.sampleLabel,
-                    contig: validated.contig.name,
-                    bamPath: request.bamURL.path,
-                    indexPath: request.index.url.path,
-                    referenceValidation: inspectorReferenceValidation(validated.reference),
-                    readGroups: validated.readGroups.map { .init(id: $0.id, sample: $0.sample) },
-                    status: status
-                )
+                publishInspectorCapabilities(reference: inspectorReferenceValidation(validated.reference), readGroups: validated.readGroups.map { .init(id: $0.id, sample: $0.sample) })
             } catch {
                 guard !Task.isCancelled, currentGeneration == generation else { return }
                 viewer.viewerView.clearReferenceBundle()
                 availability = .unavailable(error.localizedDescription)
                 status = .unavailable(error.localizedDescription)
-                inspectorCapabilities = nil
+                publishInspectorCapabilities(reference: .unavailable(error.localizedDescription), readGroups: [])
             }
         }
     }
@@ -140,6 +134,7 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
         generation += 1
         task?.cancel()
         task = nil
+        activeRequest = nil
         viewer.viewerView.clearReferenceBundle()
         viewer.viewerView.onDetachedEvidenceStale = nil
         availability = .idle
@@ -165,5 +160,18 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
         case .validatedMD5: .md5
         case .unavailable: .unavailable(reference.reason ?? "The requested FASTA reference is unavailable.")
         }
+    }
+
+    private func publishInspectorCapabilities(
+        reference: ClassifierAlignmentInspectorCapabilities.ReferenceValidation,
+        readGroups: [ClassifierAlignmentInspectorCapabilities.ReadGroup]
+    ) {
+        guard let request = activeRequest else { inspectorCapabilities = nil; return }
+        inspectorCapabilities = .detachedEvidence(
+            workflow: request.presentation.workflowLabel, result: request.presentation.resultLabel,
+            sample: request.presentation.sampleLabel, contig: request.presentation.contigLabel,
+            bamPath: request.bamURL.path, indexPath: request.index.url.path,
+            referenceValidation: reference, readGroups: readGroups, status: status
+        )
     }
 }

@@ -46,7 +46,7 @@ struct ClassifierAlignmentInspectorCapabilities: Equatable {
         let name: String
     }
 
-    enum Control: CaseIterable {
+    enum Control: CaseIterable, Hashable {
         case evidenceInventory, navigation, readRendering, minMAPQ, duplicates
         case secondary, supplementary, readGroups, coverage, selectedReadDetails
         case sourceProvenance, referenceMismatch, consensus
