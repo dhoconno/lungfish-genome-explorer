@@ -126,6 +126,21 @@ final class ClassifierAlignmentEvidenceValidatorTests: XCTestCase {
         XCTAssertEqual(result.reference.reason, "The requested FASTA record is unavailable.")
     }
 
+    func testTargetFASTARecordMayAppearFirstMiddleOrLast() async throws {
+        for fasta in [
+            ">chr1\nACTG\n>other\nTT\n",
+            ">other\nTT\n>chr1\nACTG\n>last\nGG\n",
+            ">other\nTT\n>last\nGG\n>chr1\nACTG\n",
+        ] {
+            let files = try FixtureFiles(fasta: fasta)
+            let validator = ClassifierAlignmentEvidenceValidator(
+                headerReader: { _ in "@SQ\tSN:chr1\tLN:4\n" }, indexQuery: { _, _, _ in }, fileManager: files.fileManager
+            )
+            let result = try await validator.validate(try files.request(reference: true))
+            XCTAssertEqual(result.reference.sequence, "ACTG")
+        }
+    }
+
     func testFinalEvidenceSnapshotsRejectChangedBAMAndExposeAcceptedIdentities() async throws {
         let files = try FixtureFiles()
         let validator = ClassifierAlignmentEvidenceValidator(

@@ -123,12 +123,13 @@ struct ClassifierAlignmentEvidenceValidator: @unchecked Sendable {
         do { try await indexQuery(request.bamURL, request.index.url, request.contig.name) }
         catch { throw Error.indexDoesNotMatchBAM(error.localizedDescription) }
 
-        let reference = validateReference(
+        let referenceValidation = validateReference(
             request.referenceCandidate,
             bamMD5: sequence.md5,
             expectedContigLength: request.contig.expectedLength
         )
-        let referenceSnapshot = request.referenceCandidate.flatMap { try? snapshot($0.fastaURL) }
+        let reference = referenceValidation.reference
+        let referenceSnapshot = referenceValidation.snapshot
         if let expected = request.referenceCandidate?.expectedSnapshot,
            let referenceSnapshot,
            expected != referenceSnapshot {
@@ -154,16 +155,16 @@ struct ClassifierAlignmentEvidenceValidator: @unchecked Sendable {
         _ candidate: ClassifierAlignmentReferenceCandidate?,
         bamMD5: String?,
         expectedContigLength: Int
-    ) -> Reference {
-        guard let candidate else { return Reference(status: .notProvided, sequence: nil, reason: nil) }
+    ) -> (reference: Reference, snapshot: ClassifierAlignmentEvidenceFileSnapshot?) {
+        guard let candidate else { return (Reference(status: .notProvided, sequence: nil, reason: nil), nil) }
         guard let before = try? snapshot(candidate.fastaURL),
               let record = try? referenceReader(candidate.fastaURL, candidate.recordName),
               let after = try? snapshot(candidate.fastaURL),
               before == after else {
-            return Reference(status: .unavailable, sequence: nil, reason: "The requested FASTA record is unavailable.")
+            return (Reference(status: .unavailable, sequence: nil, reason: "The requested FASTA record is unavailable."), nil)
         }
         guard record.count == candidate.expectedLength, record.count == expectedContigLength else {
-            return Reference(status: .unavailable, sequence: nil, reason: "The FASTA record length does not match the selected BAM contig.")
+            return (Reference(status: .unavailable, sequence: nil, reason: "The FASTA record length does not match the selected BAM contig."), after)
         }
         let expectedMD5s = [candidate.expectedMD5, bamMD5].compactMap { value -> String? in
             guard let value, !value.isEmpty else { return nil }
@@ -174,11 +175,11 @@ struct ClassifierAlignmentEvidenceValidator: @unchecked Sendable {
         if !expectedMD5s.isEmpty {
             let observed = Insecure.MD5.hash(data: Data(record.utf8)).map { String(format: "%02x", $0) }.joined()
             guard expectedMD5s.allSatisfy({ observed.caseInsensitiveCompare($0) == .orderedSame }) else {
-                return Reference(status: .unavailable, sequence: nil, reason: "The FASTA record M5 checksum does not match the BAM header.")
+                return (Reference(status: .unavailable, sequence: nil, reason: "The FASTA record M5 checksum does not match the BAM header."), after)
             }
-            return Reference(status: bamMD5?.isEmpty == false ? .validatedMD5 : .validatedStructural, sequence: record, reason: nil)
+            return (Reference(status: bamMD5?.isEmpty == false ? .validatedMD5 : .validatedStructural, sequence: record, reason: nil), after)
         }
-        return Reference(status: .validatedStructural, sequence: record, reason: nil)
+        return (Reference(status: .validatedStructural, sequence: record, reason: nil), after)
     }
 
     private func snapshot(_ url: URL) throws -> ClassifierAlignmentEvidenceFileSnapshot {
@@ -202,12 +203,14 @@ struct ClassifierAlignmentEvidenceValidator: @unchecked Sendable {
         var sequence = ""
         for line in text.split(whereSeparator: \.isNewline) {
             if line.first == ">" {
+                if active { found = sequence.uppercased() }
                 active = false
                 let id = line.dropFirst().split(whereSeparator: \.isWhitespace).first.map(String.init)
                 active = id == name
                 if active {
                     matchedCount += 1
                     if matchedCount > 1 { throw Error.contigUnavailable(name) }
+                    sequence = ""
                 }
             } else if active {
                 sequence += line.trimmingCharacters(in: .whitespacesAndNewlines)
