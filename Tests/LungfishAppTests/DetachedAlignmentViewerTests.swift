@@ -181,6 +181,65 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         XCTAssertTrue(depthProbe.cancelled)
     }
 
+    func testReadGroupFilterSuppressesCoverageAndRemovingItResumesDepth() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let script = directory.appendingPathComponent("samtools")
+        try "#!/bin/sh\nprintf 'chr1\\t1\\t5\\n'\n".write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        let source = SequenceViewerView.DetachedAlignmentSource(
+            identityURL: directory.appendingPathComponent("evidence.bam"),
+            contig: .init(name: "chr1", length: 100),
+            provider: AlignmentDataProvider(alignmentPath: "/tmp/evidence.bam", indexPath: "/tmp/evidence.bam.bai", samtoolsPath: script.path),
+            referenceSequence: nil
+        )
+        let view = SequenceViewerView(frame: .zero)
+        view.setDetachedAlignmentSource(source)
+        view.selectedReadGroupsSetting = ["rg1"]
+        view.fetchDetachedDepth(source: source, region: .init(chromosome: "chr1", start: 0, end: 1))
+        XCTAssertTrue(view.testCachedDepthPoints.isEmpty)
+        XCTAssertEqual(view.testDetachedEvidenceFetchMessage, "Coverage is unavailable while read-group filtering is active.")
+
+        view.selectedReadGroupsSetting = []
+        view.fetchDetachedDepth(source: source, region: .init(chromosome: "chr1", start: 0, end: 1))
+        for _ in 0..<250 where view.testCachedDepthPoints.isEmpty {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(view.testCachedDepthPoints.first?.depth, 5)
+    }
+
+    func testDetachedReadAndDepthFailuresPublishVisibleFetchMessages() async {
+        let source = SequenceViewerView.DetachedAlignmentSource(
+            identityURL: URL(fileURLWithPath: "/tmp/missing-evidence.bam"),
+            contig: .init(name: "chr1", length: 100),
+            provider: AlignmentDataProvider(alignmentPath: "/tmp/missing-evidence.bam", indexPath: "/tmp/missing-evidence.bam.bai", samtoolsPath: "/tmp/no-samtools"),
+            referenceSequence: nil
+        )
+        let view = SequenceViewerView(frame: .zero)
+        view.setDetachedAlignmentSource(source)
+        let region = GenomicRegion(chromosome: "chr1", start: 0, end: 1)
+        view.fetchDetachedReads(source: source, region: region)
+        for _ in 0..<200 where view.testDetachedEvidenceFetchMessage == nil { await Task.yield() }
+        XCTAssertTrue(view.testDetachedEvidenceFetchMessage?.hasPrefix("Read evidence could not be fetched:") == true)
+
+        view.detachedEvidenceFetchMessage = nil
+        view.fetchDetachedDepth(source: source, region: region)
+        for _ in 0..<200 where view.testDetachedEvidenceFetchMessage == nil { await Task.yield() }
+        XCTAssertTrue(view.testDetachedEvidenceFetchMessage?.hasPrefix("Coverage evidence could not be fetched:") == true)
+    }
+
+    func testDetachedTransportCapAppliesWhenRowLimitingIsDisabled() {
+        XCTAssertEqual(
+            SequenceViewerView.detachedEvidenceTransportTarget(limitRows: false, maxRows: Int.max),
+            250_000
+        )
+        XCTAssertEqual(
+            SequenceViewerView.detachedEvidenceTransportTarget(limitRows: true, maxRows: 75),
+            75
+        )
+    }
+
     func testSourceReplacementCancelsRetainedDetachedReadAndDepthTasks() async {
         let view = SequenceViewerView(frame: .zero)
         view.setDetachedAlignmentSource(makeSource("old"))

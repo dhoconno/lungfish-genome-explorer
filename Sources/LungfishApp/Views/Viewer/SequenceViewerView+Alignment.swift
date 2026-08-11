@@ -17,6 +17,10 @@ extension SequenceViewerView {
     /// stream an unbounded SAM payload into the App process.
     static let detachedEvidenceTransportReadCap = 250_000
 
+    static func detachedEvidenceTransportTarget(limitRows: Bool, maxRows: Int) -> Int {
+        min(detachedEvidenceTransportReadCap, limitRows ? maxRows : detachedEvidenceTransportReadCap)
+    }
+
     /// Indexed detached-evidence read fetch. The source identity participates in
     /// the existing request gate so superseded classifier selections cannot draw.
     func fetchDetachedReads(source: DetachedAlignmentSource, region: GenomicRegion) {
@@ -34,7 +38,7 @@ extension SequenceViewerView {
         let tokenIdentity = token.identity
         let provider = source.provider
         let filters = (excludeFlagsSetting, minMapQSetting, selectedReadGroupsSetting)
-        let transportCap = min(Self.detachedEvidenceTransportReadCap, limitReadRowsSetting ? maxReadRowsSetting : Self.detachedEvidenceTransportReadCap)
+        let transportCap = Self.detachedEvidenceTransportTarget(limitRows: limitReadRowsSetting, maxRows: maxReadRowsSetting)
         detachedReadFetchTask = Task.detached { [weak self] in
             let reads: [AlignedRead]
             var notice: String?

@@ -64,9 +64,11 @@ struct ClassifierAlignmentEvidenceValidator: @unchecked Sendable {
 
     typealias HeaderReader = @Sendable (URL) async throws -> String
     typealias IndexQuery = @Sendable (URL, URL, String) async throws -> Void
+    typealias ReferenceReader = @Sendable (URL, String) throws -> String
 
     private let headerReader: HeaderReader
     private let indexQuery: IndexQuery
+    private let referenceReader: ReferenceReader
     private let fileManager: FileManager
 
     init(
@@ -84,10 +86,14 @@ struct ClassifierAlignmentEvidenceValidator: @unchecked Sendable {
                 indexPath: indexURL.path
             ).fetchReads(chromosome: contig, start: 0, end: 1, maxReads: 1)
         },
+        referenceReader: @escaping ReferenceReader = { url, name in
+            try Self.readExactFASTARecord(at: url, named: name)
+        },
         fileManager: FileManager = .default
     ) {
         self.headerReader = headerReader
         self.indexQuery = indexQuery
+        self.referenceReader = referenceReader
         self.fileManager = fileManager
     }
 
@@ -151,7 +157,7 @@ struct ClassifierAlignmentEvidenceValidator: @unchecked Sendable {
     ) -> Reference {
         guard let candidate else { return Reference(status: .notProvided, sequence: nil, reason: nil) }
         guard let before = try? snapshot(candidate.fastaURL),
-              let record = try? readExactFASTARecord(at: candidate.fastaURL, named: candidate.recordName),
+              let record = try? referenceReader(candidate.fastaURL, candidate.recordName),
               let after = try? snapshot(candidate.fastaURL),
               before == after else {
             return Reference(status: .unavailable, sequence: nil, reason: "The requested FASTA record is unavailable.")
@@ -188,7 +194,7 @@ struct ClassifierAlignmentEvidenceValidator: @unchecked Sendable {
         return .init(size: Int64(values.fileSize ?? 0), sha256: digest.finalize().map { String(format: "%02x", $0) }.joined())
     }
 
-    private func readExactFASTARecord(at url: URL, named name: String) throws -> String {
+    private static func readExactFASTARecord(at url: URL, named name: String) throws -> String {
         let text = try String(contentsOf: url, encoding: .utf8)
         var found: String?
         var matchedCount = 0
