@@ -679,7 +679,7 @@ public enum FASTQBatchImporter {
         estimatedInputBytes: Int64? = nil,
         physicalMemoryBytes: Int64 = Int64(clamping: ProcessInfo.processInfo.physicalMemory),
         log: (@Sendable (ImportLogEvent) -> Void)?,
-        invoke: @escaping @Sendable () async throws -> FASTQIngestionResult
+        invoke: @escaping @Sendable (ClumpingToolResolution) async throws -> FASTQIngestionResult
     ) async throws -> FASTQIngestionResult {
         let estimatedBytes = estimatedInputBytes
             ?? FASTQIngestionPipeline.estimatedUncompressedInputBytes(for: config.inputFiles)
@@ -690,7 +690,7 @@ public enum FASTQBatchImporter {
         if let message = resolution.resolved.operationNotice {
             log?(.notice(sample: sample, message: message))
         }
-        return try await invoke()
+        return try await invoke(resolution)
     }
 
     // MARK: - Main Entry Point
@@ -931,10 +931,7 @@ public enum FASTQBatchImporter {
                 let rawInputs = processingPair.r2 != nil
                     ? [processingPair.r1, processingPair.r2!]
                     : [processingPair.r1]
-                let resolvedRawClumpingTool = config.clumpingTool.resolve(
-                    estimatedInputBytes: FASTQIngestionPipeline.estimatedUncompressedInputBytes(for: rawInputs)
-                ).resolved
-                if config.optimizeStorage && resolvedRawClumpingTool != .none {
+                if config.optimizeStorage && config.clumpingTool != .none {
                     clumpifyInput = rawInputs
                     deleteIngestionInputsAfterRun = false
                 } else {
@@ -971,10 +968,14 @@ public enum FASTQBatchImporter {
                 sample: pair.sampleName,
                 config: ingestionConfig,
                 log: log,
-                invoke: {
-                    try await pipeline.run(config: ingestionConfig, progress: { _, msg in
-                        logger.debug("\(pair.sampleName): \(msg)")
-                    })
+                invoke: { clumpingResolution in
+                    try await pipeline.run(
+                        config: ingestionConfig,
+                        clumpingResolution: clumpingResolution,
+                        progress: { _, msg in
+                            logger.debug("\(pair.sampleName): \(msg)")
+                        }
+                    )
                 }
             )
 

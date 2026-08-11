@@ -420,7 +420,7 @@ final class FASTQBatchImporterTests: XCTestCase {
         )
     }
 
-    func testTrimGaloreNoticeIsEmittedOnceBeforeTheIngestionInvocation() async throws {
+    func testIngestionNoticeAndResultUseTheSameClumpingResolution() async throws {
         final class InvocationRecorder: @unchecked Sendable {
             private let lock = NSLock()
             private var entries: [String] = []
@@ -434,97 +434,62 @@ final class FASTQBatchImporterTests: XCTestCase {
             }
         }
 
-        let recorder = InvocationRecorder()
-        let config = FASTQIngestionConfig(
+        let baseConfig = FASTQIngestionConfig(
             inputFiles: [URL(fileURLWithPath: "/data/Sample.fastq.gz")],
             outputDirectory: URL(fileURLWithPath: "/tmp/import-workspace")
         )
         let expectedMessage = "Trim Galore --clumpify also performs adapter/quality filtering and may remove short reads."
-
-        _ = try await FASTQBatchImporter.runIngestionPipeline(
-            sample: "Sample1",
-            config: config,
-            estimatedInputBytes: 20 * Self.gib,
-            physicalMemoryBytes: 64 * Self.gib,
-            log: { event in
-                if case let .notice(sample, message) = event {
-                    recorder.append("notice:\(sample):\(message)")
-                }
-            },
-            invoke: {
-                recorder.append("pipeline")
-                return FASTQIngestionResult(
-                    outputFile: URL(fileURLWithPath: "/tmp/output.fastq.gz"),
-                    wasClumpified: true,
-                    qualityBinning: .illumina4,
-                    originalFilenames: ["Sample.fastq.gz"],
-                    originalSizeBytes: 1,
-                    finalSizeBytes: 1,
-                    pairingMode: .singleEnd,
-                    resolvedClumpingTool: .trimGalore
-                )
-            }
-        )
-
-        XCTAssertEqual(
-            recorder.snapshot,
-            ["notice:Sample1:\(expectedMessage)", "pipeline"]
-        )
-    }
-
-    func testNoticeUsesResolvedAutomaticTrimGaloreAndSkipsOtherTools() async throws {
-        final class NoticeCounter: @unchecked Sendable {
-            private let lock = NSLock()
-            private var value = 0
-
-            func increment() {
-                lock.withLock { value += 1 }
-            }
-
-            var count: Int {
-                lock.withLock { value }
-            }
-        }
-
-        let config = FASTQIngestionConfig(
-            inputFiles: [URL(fileURLWithPath: "/data/Sample.fastq.gz")],
-            outputDirectory: URL(fileURLWithPath: "/tmp/import-workspace")
-        )
-        let cases: [(ClumpingTool, Int64, Int64, Bool)] = [
-            (.auto, 20 * Self.gib, 64 * Self.gib, true),
-            (.bbtools, 20 * Self.gib, 64 * Self.gib, false),
-            (.none, 20 * Self.gib, 64 * Self.gib, false),
+        let cases: [(requested: ClumpingTool, inputBytes: Int64, memoryBytes: Int64, resolved: ClumpingTool)] = [
+            (.trimGalore, 1 * Self.gib, 64 * Self.gib, .trimGalore),
+            (.auto, 20 * Self.gib, 64 * Self.gib, .trimGalore),
+            (.bbtools, 20 * Self.gib, 64 * Self.gib, .bbtools),
+            (.none, 20 * Self.gib, 64 * Self.gib, .none),
+            (.auto, 1 * Self.gib, 64 * Self.gib, .bbtools),
         ]
 
-        for (tool, inputBytes, memoryBytes, shouldNotice) in cases {
+        for testCase in cases {
+            let recorder = InvocationRecorder()
             let toolConfig = FASTQIngestionConfig(
-                inputFiles: config.inputFiles,
-                outputDirectory: config.outputDirectory,
-                clumpingTool: tool
+                inputFiles: baseConfig.inputFiles,
+                outputDirectory: baseConfig.outputDirectory,
+                clumpingTool: testCase.requested
             )
-            let noticeCounter = NoticeCounter()
-            _ = try await FASTQBatchImporter.runIngestionPipeline(
+            let result = try await FASTQBatchImporter.runIngestionPipeline(
                 sample: "Sample1",
                 config: toolConfig,
-                estimatedInputBytes: inputBytes,
-                physicalMemoryBytes: memoryBytes,
+                estimatedInputBytes: testCase.inputBytes,
+                physicalMemoryBytes: testCase.memoryBytes,
                 log: { event in
-                    if case .notice = event { noticeCounter.increment() }
+                    if case let .notice(sample, message) = event {
+                        recorder.append("notice:\(sample):\(message)")
+                    }
                 },
-                invoke: {
-                    FASTQIngestionResult(
+                invoke: { resolution in
+                    recorder.append("pipeline:\(resolution.resolved.rawValue)")
+                    return FASTQIngestionResult(
                         outputFile: URL(fileURLWithPath: "/tmp/output.fastq.gz"),
-                        wasClumpified: false,
+                        wasClumpified: resolution.resolved != .none,
                         qualityBinning: .illumina4,
-                        originalFilenames: [],
-                        originalSizeBytes: 0,
-                        finalSizeBytes: 0,
+                        originalFilenames: ["Sample.fastq.gz"],
+                        originalSizeBytes: testCase.inputBytes,
+                        finalSizeBytes: 1,
                         pairingMode: .singleEnd,
-                        resolvedClumpingTool: tool
+                        requestedClumpingTool: resolution.requested,
+                        resolvedClumpingTool: resolution.resolved,
+                        clumpingResolution: resolution
                     )
                 }
             )
-            XCTAssertEqual(noticeCounter.count, shouldNotice ? 1 : 0, "Unexpected notice count for \(tool)")
+
+            let pipelineEntry = "pipeline:\(testCase.resolved.rawValue)"
+            let expectedEntries = testCase.resolved == .trimGalore
+                ? ["notice:Sample1:\(expectedMessage)", pipelineEntry]
+                : [pipelineEntry]
+            XCTAssertEqual(recorder.snapshot, expectedEntries, "Unexpected ordering for \(testCase.requested)")
+            XCTAssertEqual(result.requestedClumpingTool, testCase.requested)
+            XCTAssertEqual(result.resolvedClumpingTool, testCase.resolved)
+            XCTAssertEqual(result.clumpingResolution.requested, testCase.requested)
+            XCTAssertEqual(result.clumpingResolution.resolved, testCase.resolved)
         }
     }
 

@@ -209,10 +209,12 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
     ///
     /// - Parameters:
     ///   - config: Ingestion configuration
+    ///   - clumpingResolution: Resolution already chosen for this invocation, when available
     ///   - progress: Progress callback (fraction 0-1, status message)
     /// - Returns: Ingestion result with output file paths
     public func run(
         config: FASTQIngestionConfig,
+        clumpingResolution suppliedClumpingResolution: ClumpingToolResolution? = nil,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> FASTQIngestionResult {
 
@@ -237,7 +239,12 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             return total + (attrs?[.size] as? Int64 ?? 0)
         }
         let estimatedInputBytes = Self.estimatedUncompressedInputBytes(for: config.inputFiles)
-        let clumpingResolution = config.clumpingTool.resolve(estimatedInputBytes: estimatedInputBytes)
+        let clumpingResolution = suppliedClumpingResolution
+            ?? config.clumpingTool.resolve(estimatedInputBytes: estimatedInputBytes)
+        precondition(
+            clumpingResolution.requested == config.clumpingTool,
+            "Clumping resolution must preserve the requested tool"
+        )
 
         let baseName = Self.deriveBaseName(from: config.inputFiles[0])
         var outputFile = config.outputDirectory.appendingPathComponent("\(baseName).fastq.gz")

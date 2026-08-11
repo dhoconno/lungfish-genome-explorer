@@ -506,6 +506,31 @@ struct AlignmentTrackInventoryRow: Identifiable, Equatable {
 
 /// SwiftUI view displaying bundle-level metadata in the Inspector Document tab.
 ///
+enum RecipeDeduplicationPresentation: Equatable {
+    case combinedPass
+    case standaloneReadDelta(String)
+
+    static func presentation(for info: RecipeAppliedInfo) -> Self? {
+        if info.deduplicationPerformedInCombinedPass {
+            return .combinedPass
+        }
+        guard let summary = info.deduplicationSummary else { return nil }
+        let removed = LungfishFormatters.formatGroupedCount(summary.readsRemoved)
+        return .standaloneReadDelta(
+            "\(removed) removed (\(String(format: "%.1f", summary.percentRemoved))%)"
+        )
+    }
+
+    var value: String {
+        switch self {
+        case .combinedPass:
+            return "Performed in combined fastp pass; an exact dedup-only removed count is unavailable."
+        case .standaloneReadDelta(let value):
+            return value
+        }
+    }
+}
+
 /// Shows source information, genome summary, extended metadata groups from the
 /// manifest, and chromosome details when a chromosome is selected. Each section
 /// uses a collapsible `DisclosureGroup` for a compact, Keynote-style layout.
@@ -1147,13 +1172,8 @@ public struct DocumentSection: View {
                 metadataRow(label: "Net reads removed", value: "\(formatCount(totalRemoved))\(pct)")
             }
 
-            if info.deduplicationPerformedInCombinedPass {
-                metadataRow(
-                    label: "Deduplication",
-                    value: "Performed in combined fastp pass; an exact dedup-only removed count is unavailable."
-                )
-            } else if let deduplicationSummary = info.deduplicationSummary {
-                metadataRow(label: "Deduplication", value: readDeltaDisplay(deduplicationSummary))
+            if let deduplication = RecipeDeduplicationPresentation.presentation(for: info) {
+                metadataRow(label: "Deduplication", value: deduplication.value)
             }
 
             if let humanScrubSummary = info.humanScrubSummary {

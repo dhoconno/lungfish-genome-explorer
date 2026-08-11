@@ -7,6 +7,43 @@ import XCTest
 
 final class FASTQIngestionPipelineTests: XCTestCase {
 
+    func testRunUsesProvidedClumpingResolutionForExecutionAndResult() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("FASTQIngestionPipeline Resolution Test \(UUID().uuidString)", isDirectory: true)
+        let inputURL = root.appendingPathComponent("Sample.fastq.gz")
+        let outputDirectory = root.appendingPathComponent("output", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data([0x1f, 0x8b]).write(to: inputURL)
+
+        let resolution = ClumpingToolResolution(
+            requested: .auto,
+            resolved: .none,
+            estimatedInputBytes: 42,
+            physicalMemoryBytes: 64 * 1_073_741_824,
+            clumpifyHeapBytes: 31 * 1_073_741_824,
+            thresholdBytes: 15 * 1_073_741_824 + 536_870_912,
+            reason: "test resolution supplied by caller"
+        )
+        let result = try await FASTQIngestionPipeline().run(
+            config: FASTQIngestionConfig(
+                inputFiles: [inputURL],
+                outputDirectory: outputDirectory,
+                deleteOriginals: false,
+                clumpingTool: .auto
+            ),
+            clumpingResolution: resolution,
+            progress: { _, _ in }
+        )
+
+        XCTAssertEqual(result.requestedClumpingTool, .auto)
+        XCTAssertEqual(result.resolvedClumpingTool, .none)
+        XCTAssertEqual(result.clumpingResolution, resolution)
+        XCTAssertEqual(result.outputFile.standardizedFileURL, inputURL.standardizedFileURL)
+    }
+
     func testPairedEndClumpifySucceedsWhenProjectPathContainsSpaces() async throws {
         let runner = NativeToolRunner.shared
         guard (try? await runner.toolPath(for: .clumpify)) != nil else {

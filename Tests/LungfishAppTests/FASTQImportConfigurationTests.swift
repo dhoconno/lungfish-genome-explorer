@@ -6,6 +6,7 @@ import Foundation
 import AppKit
 import Testing
 @testable import LungfishApp
+import LungfishIO
 import LungfishWorkflow
 
 @Suite("FASTQ Import Configuration")
@@ -266,20 +267,67 @@ struct FASTQImportConfigurationTests {
         #expect(disclosure?.isHidden == false)
     }
 
-    @Test("Inspector discloses combined fastp deduplication without presenting a false dedup-only delta")
-    func inspectorUsesCombinedFastpState() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let sourceURL = root.appendingPathComponent(
-            "Sources/LungfishApp/Views/Inspector/Sections/DocumentSection.swift"
+    @Test("Inspector combined fastp presentation uses the approved message exclusively")
+    func inspectorUsesCombinedFastpPresentation() throws {
+        let info = RecipeAppliedInfo(
+            recipeID: "vsp2-target-enrichment",
+            recipeName: "VSP2 Target Enrichment",
+            stepResults: [
+                RecipeStepResult(
+                    stepName: "Remove PCR duplicates + Adapter + quality trim",
+                    tool: "fastp",
+                    inputReadCount: 1_000_000,
+                    outputReadCount: 720_000,
+                    durationSeconds: 1,
+                    logicalComponents: [
+                        RecipeLogicalComponent(typeID: "fastp-dedup", displayName: "Remove PCR duplicates"),
+                        RecipeLogicalComponent(typeID: "fastp-trim", displayName: "Adapter + quality trim"),
+                    ]
+                ),
+                RecipeStepResult(
+                    stepName: "Remove PCR duplicates",
+                    tool: "fastp",
+                    inputReadCount: 720_000,
+                    outputReadCount: 700_000,
+                    durationSeconds: 1
+                ),
+            ]
         )
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        #expect(info.deduplicationPerformedInCombinedPass)
+        #expect(info.deduplicationSummary != nil)
 
-        #expect(source.contains("info.deduplicationPerformedInCombinedPass"))
-        #expect(source.contains("Performed in combined fastp pass; an exact dedup-only removed count is unavailable."))
-        #expect(source.contains("info.deduplicationSummary"))
+        let presentation = try #require(RecipeDeduplicationPresentation.presentation(for: info))
+
+        #expect(presentation == .combinedPass)
+        #expect(presentation.value == "Performed in combined fastp pass; an exact dedup-only removed count is unavailable.")
+        if case .standaloneReadDelta = presentation {
+            Issue.record("Combined and standalone deduplication branches must be exclusive")
+        }
+    }
+
+    @Test("Inspector standalone deduplication presentation retains its read delta")
+    func inspectorUsesStandaloneDeduplicationReadDelta() throws {
+        let info = RecipeAppliedInfo(
+            recipeID: "legacy-recipe",
+            recipeName: "Legacy Recipe",
+            stepResults: [
+                RecipeStepResult(
+                    stepName: "Remove PCR duplicates",
+                    tool: "fastp",
+                    inputReadCount: 1_000_000,
+                    outputReadCount: 720_000,
+                    durationSeconds: 1
+                ),
+            ]
+        )
+
+        let presentation = try #require(RecipeDeduplicationPresentation.presentation(for: info))
+
+        #expect(presentation == .standaloneReadDelta("280,000 removed (28.0%)"))
+        #expect(presentation.value == "280,000 removed (28.0%)")
+        if case .combinedPass = presentation {
+            Issue.record("Standalone and combined deduplication branches must be exclusive")
+        }
     }
 
     @MainActor
