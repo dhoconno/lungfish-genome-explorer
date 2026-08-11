@@ -832,9 +832,23 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                 let total = Int(clamping: (track.mappedReadCount ?? 0) + (track.unmappedReadCount ?? 0))
                 let bamURL = self?.resolvedTrackURL(track.sourcePath, bundleURL: bundleURL) ?? bundleURL
                 let resolution = self?.sampleIdentityResolution(for: track, bundleURL: bundleURL)
-                let samples = resolution?.identityIndex.canonicalSampleIDs.sorted().map {
-                    ($0 as String?, resolution!.identityIndex.readGroupIDs(forCanonicalSampleID: $0))
-                } ?? [(nil, Set<String>())]
+                let canonicalSampleIDs = resolution?.identityIndex.canonicalSampleIDs.sorted() ?? []
+                let samples: [(sampleID: String?, readGroupIDs: Set<String>)]
+                if canonicalSampleIDs.isEmpty {
+                    // Metadata can exist while every RG has no usable SM tag.
+                    // Keep this track visible as an unmatched, no-RG row
+                    // rather than silently omitting it from All Alignments.
+                    samples = [(sampleID: nil, readGroupIDs: [])]
+                } else if let resolution {
+                    samples = canonicalSampleIDs.map { sampleID in
+                        (
+                            sampleID: sampleID,
+                            readGroupIDs: resolution.identityIndex.readGroupIDs(forCanonicalSampleID: sampleID)
+                        )
+                    }
+                } else {
+                    samples = [(sampleID: nil, readGroupIDs: [])]
+                }
                 for (sampleID, readGroups) in samples {
                     let summaries: [MappingContigSummary]
                     if samples.count == 1,
