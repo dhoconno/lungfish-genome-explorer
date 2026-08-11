@@ -77,6 +77,88 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         XCTAssertEqual(controller.visibleStatusText, "Alignment evidence ready (reference: notProvided).")
     }
 
+    func testChangedValidatedEvidenceIsClearedAndPublishedAsStale() async throws {
+        let files = try DetachedEvidenceFiles()
+        let request = try files.request("changed")
+        let validator = ClassifierAlignmentEvidenceValidator(
+            headerReader: { _ in "@SQ\tSN:chr1\tLN:4\n" },
+            indexQuery: { _, _, _ in },
+            fileManager: .default
+        )
+        let controller = ClassifierAlignmentEvidenceViewportController(validator: validator)
+        controller.display(request)
+        for _ in 0..<100 where controller.viewer.viewerView.testDetachedAlignmentSource == nil {
+            await Task.yield()
+        }
+        guard let source = controller.viewer.viewerView.testDetachedAlignmentSource else {
+            return XCTFail("Validated detached source was not installed")
+        }
+        controller.viewer.viewerView.testSetCachedAlignedReads([
+            AlignedRead(name: "cached", flag: 0, chromosome: "chr1", position: 0, mapq: 60, cigar: [.init(op: .match, length: 1)], sequence: "A", qualities: [30])
+        ])
+
+        try Data([2]).write(to: request.bamURL)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: 60)], ofItemAtPath: request.bamURL.path)
+
+        XCTAssertFalse(controller.viewer.viewerView.detachedEvidenceIsCurrent(source))
+        let reason = "Classifier alignment evidence changed on disk: changed.bam."
+        XCTAssertEqual(controller.viewer.viewerView.detachedEvidenceStaleReason, reason)
+        XCTAssertEqual(controller.status, .stale(reason))
+        XCTAssertEqual(controller.visibleStatusText, reason)
+        XCTAssertTrue(controller.viewer.viewerView.testCachedAlignedReads.isEmpty)
+    }
+
+    func testClearCancelsRetainedDetachedReadAndDepthTasks() async {
+        let view = SequenceViewerView(frame: .zero)
+        let readProbe = CancellationProbe()
+        let depthProbe = CancellationProbe()
+        view.testInstallDetachedAlignmentFetchTasks(
+            read: makeCancellationTask(readProbe),
+            depth: makeCancellationTask(depthProbe)
+        )
+
+        view.clearReferenceBundle()
+        await waitForCancellation(readProbe, depthProbe)
+
+        XCTAssertTrue(readProbe.cancelled)
+        XCTAssertTrue(depthProbe.cancelled)
+    }
+
+    func testSourceReplacementCancelsRetainedDetachedReadAndDepthTasks() async {
+        let view = SequenceViewerView(frame: .zero)
+        view.setDetachedAlignmentSource(makeSource("old"))
+        let readProbe = CancellationProbe()
+        let depthProbe = CancellationProbe()
+        view.testInstallDetachedAlignmentFetchTasks(
+            read: makeCancellationTask(readProbe),
+            depth: makeCancellationTask(depthProbe)
+        )
+
+        view.setDetachedAlignmentSource(makeSource("replacement"))
+        await waitForCancellation(readProbe, depthProbe)
+
+        XCTAssertTrue(readProbe.cancelled)
+        XCTAssertTrue(depthProbe.cancelled)
+    }
+
+    private func makeCancellationTask(_ probe: CancellationProbe) -> Task<Void, Never> {
+        Task.detached {
+            await withTaskCancellationHandler(operation: {
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 10_000_000)
+                }
+            }, onCancel: {
+                probe.recordCancellation()
+            })
+        }
+    }
+
+    private func waitForCancellation(_ read: CancellationProbe, _ depth: CancellationProbe) async {
+        for _ in 0..<200 where !(read.cancelled && depth.cancelled) {
+            await Task.yield()
+        }
+    }
+
     private func makeSource(_ suffix: String) -> SequenceViewerView.DetachedAlignmentSource {
         let bam = URL(fileURLWithPath: "/tmp/final-\(suffix).bam")
         return .init(
@@ -85,6 +167,23 @@ final class DetachedAlignmentViewerTests: XCTestCase {
             provider: AlignmentDataProvider(alignmentPath: bam.path, indexPath: "\(bam.path).bai"),
             referenceSequence: nil
         )
+    }
+}
+
+private final class CancellationProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+
+    var cancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+
+    func recordCancellation() {
+        lock.lock()
+        value = true
+        lock.unlock()
     }
 }
 

@@ -634,6 +634,10 @@ extension SequenceViewerView {
     /// real FASTA record; it never constructs a read-derived reference.
     func drawDetachedAlignmentContent(frame: ReferenceFrame, context: CGContext) {
         guard let source = detachedAlignmentSource else { return }
+        guard detachedEvidenceIsCurrent(source) else {
+            drawTrackLoadingBadge(context: context, message: detachedEvidenceStaleReason ?? "Classifier alignment evidence is unavailable.", yOffset: 8)
+            return
+        }
         ensureVisibleViewportSelection(frame: frame)
         let region = GenomicRegion(
             chromosome: frame.chromosome,

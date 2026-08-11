@@ -57,6 +57,10 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
     func display(_ request: ClassifierAlignmentEvidenceRequest) {
         _ = viewer.view
         installStatusLabel()
+        viewer.viewerView.onDetachedEvidenceStale = { [weak self] reason in
+            self?.availability = .unavailable(reason)
+            self?.status = .stale(reason)
+        }
         viewer.viewerView.cancelDetachedAlignmentFetches()
         generation += 1
         let currentGeneration = generation
@@ -72,7 +76,11 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
                     identityURL: request.bamURL,
                     contig: .init(name: validated.contig.name, length: validated.contig.length),
                     provider: validated.provider,
-                    referenceSequence: validated.reference.sequence
+                    referenceSequence: validated.reference.sequence,
+                    bamSnapshot: validated.bamSnapshot,
+                    indexSnapshot: validated.indexSnapshot,
+                    referenceURL: request.referenceCandidate?.fastaURL,
+                    referenceSnapshot: validated.referenceSnapshot
                 )
                 viewer.displayDetachedAlignment(source)
                 availability = .available(reference: validated.reference.status, reason: validated.reference.reason)
@@ -91,6 +99,7 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
         task?.cancel()
         task = nil
         viewer.viewerView.clearReferenceBundle()
+        viewer.viewerView.onDetachedEvidenceStale = nil
         availability = .idle
         status = .idle
     }

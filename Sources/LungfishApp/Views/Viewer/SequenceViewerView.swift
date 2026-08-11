@@ -11,6 +11,7 @@ import Quartz
 import PDFKit
 import os.log
 import LungfishKit
+import CryptoKit
 
 /// Logger for SequenceViewerView operations
 let sequenceViewerLogger = Logger(subsystem: LogSubsystem.app, category: "SequenceViewerView")
@@ -50,6 +51,15 @@ public class SequenceViewerView: NSView {
         let contig: Contig
         let provider: AlignmentDataProvider
         let referenceSequence: String?
+        let bamSnapshot: ClassifierAlignmentEvidenceFileSnapshot?
+        let indexSnapshot: ClassifierAlignmentEvidenceFileSnapshot?
+        let referenceURL: URL?
+        let referenceSnapshot: ClassifierAlignmentEvidenceFileSnapshot?
+
+        init(identityURL: URL, contig: Contig, provider: AlignmentDataProvider, referenceSequence: String?, bamSnapshot: ClassifierAlignmentEvidenceFileSnapshot? = nil, indexSnapshot: ClassifierAlignmentEvidenceFileSnapshot? = nil, referenceURL: URL? = nil, referenceSnapshot: ClassifierAlignmentEvidenceFileSnapshot? = nil) {
+            self.identityURL = identityURL; self.contig = contig; self.provider = provider; self.referenceSequence = referenceSequence
+            self.bamSnapshot = bamSnapshot; self.indexSnapshot = indexSnapshot; self.referenceURL = referenceURL; self.referenceSnapshot = referenceSnapshot
+        }
     }
 
 #if DEBUG
@@ -77,6 +87,9 @@ public class SequenceViewerView: NSView {
 
     /// Detached classifier BAM evidence, mutually exclusive with a reference bundle.
     private(set) var detachedAlignmentSource: DetachedAlignmentSource?
+    var detachedEvidenceStaleReason: String?
+    var detachedResourceSignatures: [URL: (Int, Date?)] = [:]
+    var onDetachedEvidenceStale: ((String) -> Void)?
     
     /// Cached sequence data for the current visible region (for bundle mode)
     var cachedBundleSequence: String?
@@ -1336,6 +1349,11 @@ public class SequenceViewerView: NSView {
     var testIsFetchingConsensus: Bool { isFetchingConsensus }
     var testDetachedAlignmentSource: DetachedAlignmentSource? { detachedAlignmentSource }
 
+    func testInstallDetachedAlignmentFetchTasks(read: Task<Void, Never>?, depth: Task<Void, Never>?) {
+        detachedReadFetchTask = read
+        detachedDepthFetchTask = depth
+    }
+
     func testSetUserSelectionRange(_ range: Range<Int>) {
         selectionRange = range
         selectionStartBase = range.lowerBound
@@ -2111,6 +2129,8 @@ public class SequenceViewerView: NSView {
         clearReferenceBundle()
         currentReferenceBundle = nil
         detachedAlignmentSource = source
+        detachedEvidenceStaleReason = nil
+        detachedResourceSignatures = resourceSignatures(for: source)
         alignmentDataProviders = [(trackId: "detached", provider: source.provider)]
         visibleAlignmentTrackIDSetting = "detached"
         alignmentChromosomeAliasMap = [:]
@@ -2120,6 +2140,58 @@ public class SequenceViewerView: NSView {
         }
         invalidateAlignmentFetchState()
         needsDisplay = true
+    }
+
+    func detachedEvidenceIsCurrent(_ source: DetachedAlignmentSource) -> Bool {
+        guard detachedEvidenceStaleReason == nil else { return false }
+        for (url, expected) in expectedSnapshots(for: source) {
+            let fast = resourceSignature(for: url)
+            if let prior = detachedResourceSignatures[url], prior.0 == fast.0 && prior.1 == fast.1 { continue }
+            guard let observed = try? checksumSnapshot(url), observed == expected else {
+                markDetachedEvidenceStale("Classifier alignment evidence changed on disk: \(url.lastPathComponent).")
+                return false
+            }
+            detachedResourceSignatures[url] = fast
+        }
+        return true
+    }
+
+    func markDetachedEvidenceStale(_ reason: String) {
+        detachedEvidenceStaleReason = reason
+        cancelDetachedAlignmentFetches()
+        invalidateAlignmentFetchState()
+        onDetachedEvidenceStale?(reason)
+        needsDisplay = true
+    }
+
+    private func expectedSnapshots(for source: DetachedAlignmentSource) -> [(URL, ClassifierAlignmentEvidenceFileSnapshot)] {
+        var snapshots: [(URL, ClassifierAlignmentEvidenceFileSnapshot)] = []
+        if let snapshot = source.bamSnapshot {
+            snapshots.append((source.identityURL, snapshot))
+        }
+        if let snapshot = source.indexSnapshot {
+            snapshots.append((URL(fileURLWithPath: source.provider.indexPath), snapshot))
+        }
+        if let url = source.referenceURL, let snapshot = source.referenceSnapshot {
+            snapshots.append((url, snapshot))
+        }
+        return snapshots
+    }
+    private func resourceSignatures(for source: DetachedAlignmentSource) -> [URL: (Int, Date?)] {
+        Dictionary(uniqueKeysWithValues: expectedSnapshots(for: source).map { ($0.0, resourceSignature(for: $0.0)) })
+    }
+    private func resourceSignature(for url: URL) -> (Int, Date?) {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+        let size = (attributes?[.size] as? NSNumber)?.intValue ?? -1
+        let modificationDate = attributes?[.modificationDate] as? Date
+        return (size, modificationDate)
+    }
+    private func checksumSnapshot(_ url: URL) throws -> ClassifierAlignmentEvidenceFileSnapshot {
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        let size = (attributes[.size] as? NSNumber)?.int64Value ?? 0
+        let handle = try FileHandle(forReadingFrom: url); defer { try? handle.close() }; var hash = SHA256()
+        while true { let data = try handle.read(upToCount: 1 << 20) ?? Data(); if data.isEmpty { break }; hash.update(data: data) }
+        return .init(size: size, sha256: hash.finalize().map { String(format: "%02x", $0) }.joined())
     }
 
     /// Clears sequence fetch error state, allowing retry for a new region.

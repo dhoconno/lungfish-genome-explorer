@@ -16,6 +16,7 @@ extension SequenceViewerView {
     /// Indexed detached-evidence read fetch. The source identity participates in
     /// the existing request gate so superseded classifier selections cannot draw.
     func fetchDetachedReads(source: DetachedAlignmentSource, region: GenomicRegion) {
+        guard detachedEvidenceIsCurrent(source) else { return }
         let scale = viewController?.referenceFrame?.scale ?? 1
         guard ReadViewportPolicy.allowsIndividualReads(scale: scale) else { return }
         let span = region.end - region.start
@@ -54,6 +55,7 @@ extension SequenceViewerView {
 
     /// Indexed detached-evidence depth fetch, sharing the normal coverage cache and gate.
     func fetchDetachedDepth(source: DetachedAlignmentSource, region: GenomicRegion) {
+        guard detachedEvidenceIsCurrent(source) else { return }
         let span = region.end - region.start
         let expanded = GenomicRegion(
             chromosome: region.chromosome,
