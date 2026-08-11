@@ -45,9 +45,13 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
             guard let inspector else { return }
             guard let capabilities else {
                 inspector.readStyleSectionViewModel.clear()
+                inspector.viewModel.documentSectionViewModel.visibleAlignmentTrackID = nil
+                inspector.viewModel.contentMode = .empty
+                inspector.viewModel.selectedTab = .bundle
                 return
             }
             inspector.viewModel.contentMode = .metagenomics
+            inspector.viewModel.selectedTab = .view
             inspector.updateClassifierAlignmentInspector(
                 capabilities: capabilities,
                 applySettings: { [weak self] payload in self?.viewer.applyReadDisplaySettings(payload) }

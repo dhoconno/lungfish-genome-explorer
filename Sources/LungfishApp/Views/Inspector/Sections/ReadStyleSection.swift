@@ -1604,11 +1604,18 @@ public struct AlignmentViewSection: View {
             multipleSequenceAlignmentControls
         } else if viewModel.hasAlignmentTracks {
             VStack(alignment: .leading, spacing: 8) {
+                if let capabilities = viewModel.classifierEvidenceCapabilities {
+                    Text("Current alignment: \(capabilities.selectedTrack.name)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
                 Text("Choose whether the viewer shows every alignment track together or just one alignment track at a time.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                .fixedSize(horizontal: false, vertical: true)
+                }
 
+                if viewModel.classifierEvidenceCapabilities == nil {
                 Text("Visible Alignment")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -1625,6 +1632,7 @@ public struct AlignmentViewSection: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                }
 
                 Divider()
 
