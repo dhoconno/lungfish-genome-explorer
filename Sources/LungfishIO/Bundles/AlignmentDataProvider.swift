@@ -75,6 +75,14 @@ public struct AlignmentReadSketch: Sendable {
     }
 }
 
+struct BudgetedSamtoolsResult: Sendable {
+    let exitCode: Int32
+    let stdout: String
+    let stderr: String
+    let terminatedForBudget: Bool
+    let retainedRecordCount: Int
+}
+
 // MARK: - AlignmentDataProvider
 
 /// Provides read alignment data by shelling out to samtools for region queries.
@@ -288,16 +296,12 @@ public final class AlignmentDataProvider: @unchecked Sendable {
         }
 
         let parseLimit = targetReads > Int.max / 2 ? Int.max : targetReads * 2
-        let reads = try await fetchReads(
-            chromosome: chromosome,
-            start: start,
-            end: end,
-            excludeFlags: excludeFlags,
-            minMapQ: minMapQ,
-            maxReads: parseLimit,
-            readGroups: readGroups,
-            subsampleFraction: fraction,
-            subsampleSeed: subsampleSeed
+        let reads = try await fetchReadsBounded(
+            chromosome: chromosome, start: start, end: end,
+            excludeFlags: excludeFlags, minMapQ: minMapQ,
+            maxReads: parseLimit, readGroups: readGroups,
+            subsampleFraction: fraction, subsampleSeed: subsampleSeed,
+            byteBudget: 64 * 1024 * 1024
         )
         return AlignmentReadSketch(
             reads: reads,
@@ -305,6 +309,37 @@ public final class AlignmentDataProvider: @unchecked Sendable {
             targetReads: targetReads,
             isSubsampled: true
         )
+    }
+
+    private func fetchReadsBounded(
+        chromosome: String, start: Int, end: Int,
+        excludeFlags: UInt16, minMapQ: Int, maxReads: Int,
+        readGroups: Set<String>, subsampleFraction: Double, subsampleSeed: Int,
+        byteBudget: Int
+    ) async throws -> [AlignedRead] {
+        var arguments = viewArguments(
+            excludeFlags: excludeFlags, minMapQ: minMapQ, readGroups: readGroups,
+            subsampleFraction: subsampleFraction, subsampleSeed: subsampleSeed
+        )
+        arguments += ["-X", alignmentPath, indexPath, "\(chromosome):\(start + 1)-\(end)"]
+        let finalArguments = arguments
+        let samtoolsPath = try findSamtools()
+        let cancellation = SamtoolsCancellation()
+        let result = try await withTaskCancellationHandler(operation: {
+            try Task.checkCancellation()
+            let value = try await Task.detached(priority: .userInitiated) {
+                try Self.runSamtoolsProcessBudgeted(
+                    samtoolsPath: samtoolsPath, arguments: finalArguments, timeout: 30,
+                    maxRecords: maxReads, maxBytes: byteBudget, cancellation: cancellation
+                )
+            }.value
+            try Task.checkCancellation()
+            return value
+        }, onCancel: { cancellation.cancel() })
+        guard result.exitCode == 0 || result.terminatedForBudget else {
+            throw AlignmentFetchError.samtoolsFailed(result.stderr.isEmpty ? "exit code \(result.exitCode)" : result.stderr)
+        }
+        return SAMParser.parse(result.stdout, maxReads: maxReads)
     }
 
     static func readSketchSubsampleFraction(totalReads: Int, targetReads: Int) -> Double? {
@@ -679,6 +714,89 @@ public final class AlignmentDataProvider: @unchecked Sendable {
         let stdout = String(data: stdoutBuffer.load(), encoding: .utf8) ?? ""
         let stderr = String(data: stderrBuffer.load(), encoding: .utf8) ?? ""
         return (process.terminationStatus, stdout, stderr)
+    }
+
+    /// Runs a sketch query without ever retaining an unbounded SAM stream. Stdout
+    /// is consumed in a background reader, retaining complete records only until
+    /// either budget is reached; the child is then terminated while both pipes are
+    /// drained so a noisy stderr cannot deadlock the caller.
+    static func runSamtoolsProcessBudgeted(
+        samtoolsPath: String,
+        arguments: [String],
+        timeout: TimeInterval,
+        maxRecords: Int,
+        maxBytes: Int,
+        cancellation: SamtoolsCancellation? = nil
+    ) throws -> BudgetedSamtoolsResult {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: samtoolsPath)
+        process.arguments = arguments
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        do { try process.run() } catch { throw AlignmentFetchError.samtoolsNotFound }
+        cancellation?.install(process)
+
+        let lock = NSLock()
+        var retained = Data()
+        var pending = Data()
+        var records = 0
+        var reachedBudget = false
+        let stderrBox = PipeReadBuffer()
+        let group = DispatchGroup()
+        group.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            defer { group.leave() }
+            while true {
+                let chunk = stdoutPipe.fileHandleForReading.readData(ofLength: 64 * 1024)
+                guard !chunk.isEmpty else { return }
+                lock.lock()
+                pending.append(chunk)
+                while let newline = pending.firstIndex(of: 0x0A) {
+                    let recordEnd = pending.index(after: newline)
+                    let record = pending.prefix(upTo: recordEnd)
+                    guard records < maxRecords, retained.count + record.count <= maxBytes else {
+                        reachedBudget = true
+                        lock.unlock()
+                        process.terminate()
+                        // Reap immediately after the explicit cap termination so
+                        // the pipe's write end closes even for an endless producer.
+                        process.waitUntilExit()
+                        lock.lock()
+                        pending.removeAll(keepingCapacity: false)
+                        break
+                    }
+                    retained.append(record)
+                    records += 1
+                    pending.removeSubrange(..<recordEnd)
+                }
+                lock.unlock()
+            }
+        }
+        group.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            stderrBox.store(stderrPipe.fileHandleForReading.readDataToEndOfFile())
+            group.leave()
+        }
+        if group.wait(timeout: .now() + timeout) == .timedOut {
+            process.terminate()
+            stdoutPipe.fileHandleForReading.closeFile()
+            stderrPipe.fileHandleForReading.closeFile()
+            _ = group.wait(timeout: .now() + 5)
+            throw AlignmentFetchError.timeout
+        }
+        process.waitUntilExit()
+        lock.lock()
+        let output = String(data: retained, encoding: .utf8) ?? ""
+        let didReachBudget = reachedBudget
+        let recordCount = records
+        lock.unlock()
+        return BudgetedSamtoolsResult(
+            exitCode: process.terminationStatus, stdout: output,
+            stderr: String(data: stderrBox.load(), encoding: .utf8) ?? "",
+            terminatedForBudget: didReachBudget, retainedRecordCount: recordCount
+        )
     }
 
     /// Finds the samtools binary from standard locations.

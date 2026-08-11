@@ -40,6 +40,26 @@ final class AlignmentDataProviderTests: XCTestCase {
         XCTAssertNotEqual(result.exitCode, 0)
     }
 
+    func testBudgetedSketchReaderTerminatesProducerAndRetainsBoundedRecords() throws {
+        let tempDir = try makeTemporaryDirectory(prefix: "alignment-budgeted-stream")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let script = try makeFakeSamtools(in: tempDir, script: """
+        #!/bin/sh
+        trap 'exit 0' TERM
+        while :; do printf 'read\\t0\\tchr1\\t1\\t60\\t1M\\t*\\t0\\t0\\tA\\tI\\n'; done
+        """)
+
+        let result = try AlignmentDataProvider.runSamtoolsProcessBudgeted(
+            samtoolsPath: script.path, arguments: ["view", "-X", "/tmp/evidence.bam", "/tmp/evidence.bam.bai", "chr1:1-1"],
+            timeout: 5, maxRecords: 7, maxBytes: 2_048
+        )
+
+        XCTAssertTrue(result.terminatedForBudget)
+        XCTAssertLessThanOrEqual(result.retainedRecordCount, 7)
+        XCTAssertLessThanOrEqual(result.stdout.utf8.count, 2_048)
+        XCTAssertLessThanOrEqual(result.stdout.split(separator: "\n").count, 7)
+    }
+
     // MARK: - Initialization
 
     func testProviderInitialization() {
