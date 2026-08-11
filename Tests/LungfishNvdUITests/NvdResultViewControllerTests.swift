@@ -38,6 +38,12 @@ final class NvdResultViewControllerTests: XCTestCase {
         XCTAssertEqual(request.contig.name, "contig_1")
         XCTAssertEqual(request.contig.expectedLength, 8)
         XCTAssertEqual(request.referenceCandidate?.fastaURL.lastPathComponent, "sample1.fasta")
+        let providerIdentity = ObjectIdentifier(recorder)
+        let requestCountBeforeReplacement = recorder.requests.count
+        vc.testSelectOutlineRow(0)
+        XCTAssertEqual(ObjectIdentifier(recorder), providerIdentity)
+        XCTAssertEqual(recorder.requests.count, requestCountBeforeReplacement + 1)
+        XCTAssertGreaterThanOrEqual(recorder.clearCount, 1)
     }
     func testSelectionSurvivesCachedReloadWithDuplicateContigAcrossSamples() {
         let vc = NvdResultViewController()

@@ -10,7 +10,128 @@ import LungfishWorkflow
 import LungfishKit
 import LungfishCore
 
+@MainActor
+private final class EsVirituRecordingEvidenceViewer: NSObject, ClassifierAlignmentViewerProviding {
+    let viewController = NSViewController()
+    private(set) var status: ClassifierAlignmentViewerStatus = .idle
+    var onStatusChanged: (@MainActor @Sendable (ClassifierAlignmentViewerStatus) -> Void)?
+    private(set) var requests: [ClassifierAlignmentEvidenceRequest] = []
+    private(set) var clearCount = 0
+    override init() { super.init(); viewController.view = NSView() }
+    func display(_ request: ClassifierAlignmentEvidenceRequest) { requests.append(request) }
+    func clear() { clearCount += 1 }
+}
+
 final class EsVirituResultViewControllerSmokeTests: XCTestCase {
+    @MainActor func testDatabaseSelectionBuildsDetachedEvidenceRequestForDuplicateAccession() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EsVirituEvidence-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let sampleABAM = root.appendingPathComponent("sample-a.bam")
+        let sampleAIndex = root.appendingPathComponent("sample-a.bam.bai")
+        let sampleBBAM = root.appendingPathComponent("sample-b.bam")
+        let sampleBIndex = root.appendingPathComponent("sample-b.bam.csi")
+        for url in [sampleABAM, sampleAIndex, sampleBBAM, sampleBIndex] {
+            try Data().write(to: url)
+        }
+        let database = try EsVirituDatabase.create(
+            at: root.appendingPathComponent("esviritu.sqlite"),
+            rows: [
+                Self.evidenceRow(sample: "sample-a", bamURL: sampleABAM, indexURL: sampleAIndex),
+                Self.evidenceRow(sample: "sample-b", bamURL: sampleBBAM, indexURL: sampleBIndex),
+            ],
+            metadata: ["tool": "test"]
+        )
+        let recorder = EsVirituRecordingEvidenceViewer()
+        var factoryInvocationCount = 0
+        let controller = EsVirituResultViewController()
+        controller.classifierAlignmentViewerFactory = {
+            factoryInvocationCount += 1
+            return recorder
+        }
+        _ = controller.view
+        controller.configureFromDatabase(database, resultURL: root)
+        let table = controller.testDetectionTableView.testOutlineView
+        table.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        XCTAssertEqual(controller.testCurrentBAMSampleID, "sample-b")
+        table.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+        XCTAssertEqual(controller.testCurrentBAMSampleID, "sample-a")
+
+        XCTAssertEqual(factoryInvocationCount, 1)
+        XCTAssertEqual(recorder.requests.count, 2)
+        let firstRequest = recorder.requests[0]
+        XCTAssertEqual(firstRequest.workflow, .esViritu)
+        XCTAssertEqual(firstRequest.resultIdentity.finalResultURL, root)
+        XCTAssertEqual(firstRequest.resultIdentity.provenanceID, "esviritu:\(root.lastPathComponent)")
+        XCTAssertEqual(firstRequest.bamURL, sampleBBAM)
+        XCTAssertEqual(firstRequest.index.url, sampleBIndex)
+        XCTAssertEqual(firstRequest.index.kind, .csi)
+        XCTAssertEqual(firstRequest.sample.canonicalID, "sample-b")
+        XCTAssertEqual(firstRequest.contig.name, "NC_DUP.1")
+        XCTAssertEqual(firstRequest.contig.expectedLength, 4_200)
+        XCTAssertNil(firstRequest.referenceCandidate)
+        let secondRequest = recorder.requests[1]
+        XCTAssertEqual(secondRequest.bamURL, sampleABAM)
+        XCTAssertEqual(secondRequest.index.url, sampleAIndex)
+        XCTAssertEqual(secondRequest.index.kind, .bai)
+        XCTAssertEqual(secondRequest.sample.canonicalID, "sample-a")
+        XCTAssertEqual(secondRequest.contig.name, "NC_DUP.1")
+        XCTAssertEqual(secondRequest.contig.expectedLength, 4_200)
+        XCTAssertNil(secondRequest.referenceCandidate)
+
+        let clearCountBeforeMultiSelection = recorder.clearCount
+        table.selectRowIndexes(IndexSet([0, 1]), byExtendingSelection: false)
+        XCTAssertEqual(
+            recorder.clearCount,
+            clearCountBeforeMultiSelection + 1,
+            "actual multi-selection clears the shared provider"
+        )
+        table.deselectAll(nil)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(
+            recorder.clearCount,
+            clearCountBeforeMultiSelection + 2,
+            "actual selection clearing clears the shared provider"
+        )
+    }
+
+    private static func evidenceRow(
+        sample: String,
+        bamURL: URL,
+        indexURL: URL
+    ) -> EsVirituDetectionRow {
+        EsVirituDetectionRow(
+            sample: sample,
+            virusName: "Duplicate virus",
+            description: nil,
+            contigLength: 4_200,
+            segment: nil,
+            accession: "NC_DUP.1",
+            assembly: "ASM_\(sample)",
+            assemblyLength: 4_200,
+            kingdom: nil,
+            phylum: nil,
+            tclass: nil,
+            torder: nil,
+            family: nil,
+            genus: nil,
+            species: nil,
+            subspecies: nil,
+            rpkmf: 1,
+            readCount: sample == "sample-b" ? 24 : 12,
+            uniqueReads: sample == "sample-b" ? 20 : 10,
+            coveredBases: 4_200,
+            meanCoverage: 1,
+            avgReadIdentity: 0.99,
+            pi: nil,
+            filteredReadsInSample: 100,
+            bamPath: bamURL.path,
+            bamIndexPath: indexURL.path
+        )
+    }
+
     func testEsVirituLeafDoesNotDependOnMiniBAM() throws {
         let directory = URL(fileURLWithPath: "Sources/LungfishEsVirituUI")
         let sources = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)

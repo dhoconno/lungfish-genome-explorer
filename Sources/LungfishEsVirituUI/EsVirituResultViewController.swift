@@ -522,6 +522,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         batchTableView.onSelectionCleared = { [weak self] in
             guard let self else { return }
             self.actionBar.updateInfoText("Select a virus to view details")
+            self.clearCurrentAlignmentEvidence()
             self.hideMultiSelectionPlaceholder()
         }
 
@@ -1266,6 +1267,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
 
             guard let assembly = self.resolveAssembly(for: detection) else {
                 logger.warning("Unable to resolve parent assembly for detection \(detection.accession, privacy: .public)")
+                self.clearCurrentAlignmentEvidence()
                 return
             }
             self.showAssemblyDetail(assembly, focusedContigAccession: detection.accession)
@@ -1668,6 +1670,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     // MARK: - Multi-Selection Helpers
 
     private func showMultiSelectionPlaceholder(count: Int) {
+        clearCurrentAlignmentEvidence()
         if let stack = multiSelectionPlaceholder.subviews.first as? NSStackView,
            let primary = stack.arrangedSubviews.first as? NSTextField {
             primary.stringValue = "\(count) items selected"
@@ -1675,6 +1678,13 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         detailPane.isHidden = true
         multiSelectionPlaceholder.isHidden = false
         contentTypographyObservation?.refresh()
+    }
+
+    private func clearCurrentAlignmentEvidence() {
+        currentBAMAssemblyAccession = nil
+        currentBAMContigAccession = nil
+        currentBAMSampleID = nil
+        alignmentEvidenceViewer?.clear()
     }
 
     private func hideMultiSelectionPlaceholder() {
@@ -2047,6 +2057,9 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
 
     /// Returns the contig currently targeted by mini-BAM updates.
     var testCurrentBAMContigAccession: String? { currentBAMContigAccession }
+
+    /// Returns the sample currently targeted by detached-alignment updates.
+    var testCurrentBAMSampleID: String? { currentBAMSampleID }
 
     #if DEBUG
     struct TestingPlaceholderTypographyMetrics: Equatable {

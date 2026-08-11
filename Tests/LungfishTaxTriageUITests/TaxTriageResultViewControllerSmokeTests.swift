@@ -19,6 +19,7 @@ private final class TaxTriageRecordingEvidenceViewer: NSObject, ClassifierAlignm
     override init() { super.init(); viewController.view = NSView() }
     func display(_ request: ClassifierAlignmentEvidenceRequest) { requests.append(request) }
     func clear() { clearCount += 1 }
+    func discardRecordedRequests() { requests.removeAll() }
 }
 
 final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
@@ -149,6 +150,12 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
         let referenceURL = tempDir.appendingPathComponent("download/sample-1.dwnld.references.fasta")
         try FileManager.default.createDirectory(at: referenceURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(">NC_123456.1\nACGT\n".utf8).write(to: referenceURL)
+        let secondBAMURL = tempDir.appendingPathComponent("sample-2.bam")
+        let secondIndexURL = tempDir.appendingPathComponent("stored-index-2.bai")
+        let secondReferenceURL = tempDir.appendingPathComponent("download/sample-2.dwnld.references.fasta")
+        try Data().write(to: secondBAMURL)
+        try Data().write(to: secondIndexURL)
+        try Data(">NC_654321.1\nTGCA\n".utf8).write(to: secondReferenceURL)
 
         let dbURL = tempDir.appendingPathComponent("taxtriage.sqlite")
         let row = TaxTriageTaxonomyRow(
@@ -190,11 +197,58 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
             primaryAccession: "NC_123456.1",
             accessionLength: 1_000
         )
-        let db = try TaxTriageDatabase.create(at: dbURL, rows: [row], metadata: ["tool": "taxtriage"])
+        let secondRow = TaxTriageTaxonomyRow(
+            sample: "sample-2",
+            organism: "Influenza B virus",
+            taxId: 11520,
+            status: nil,
+            tassScore: 0.91,
+            readsAligned: 31,
+            uniqueReads: 18,
+            pctReads: nil,
+            pctAlignedReads: nil,
+            coverageBreadth: 72.5,
+            meanCoverage: nil,
+            meanDepth: nil,
+            confidence: "high",
+            k2Reads: nil,
+            parentK2Reads: nil,
+            giniCoefficient: nil,
+            meanBaseQ: nil,
+            meanMapQ: nil,
+            mapqScore: nil,
+            disparityScore: nil,
+            minhashScore: nil,
+            diamondIdentity: nil,
+            k2DisparityScore: nil,
+            siblingsScore: nil,
+            breadthWeightScore: nil,
+            hhsPercentile: nil,
+            isAnnotated: nil,
+            annClass: nil,
+            microbialCategory: nil,
+            highConsequence: nil,
+            isSpecies: nil,
+            pathogenicSubstrains: nil,
+            sampleType: nil,
+            bamPath: secondBAMURL.path,
+            bamIndexPath: secondIndexURL.path,
+            primaryAccession: "NC_654321.1",
+            accessionLength: 2_000
+        )
+        let db = try TaxTriageDatabase.create(
+            at: dbURL,
+            rows: [row, secondRow],
+            metadata: ["tool": "taxtriage"]
+        )
 
         let recorder = TaxTriageRecordingEvidenceViewer()
+        var factoryInvocationCount = 0
         let vc = TaxTriageResultViewController()
-        vc.classifierAlignmentViewerFactory = { recorder }
+        vc.classifierAlignmentViewerFactory = {
+            factoryInvocationCount += 1
+            return recorder
+        }
         _ = vc.view
         vc.configureFromDatabase(db, resultURL: tempDir)
 
@@ -209,12 +263,22 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
         vc.view.layoutSubtreeIfNeeded()
 
         let deadline = Date().addingTimeInterval(5)
-        while vc.testBatchFlatTableView.displayedRows.isEmpty && Date() < deadline {
+        while vc.testBatchFlatTableView.displayedRows.count < 2 && Date() < deadline {
             RunLoop.main.run(until: Date().addingTimeInterval(0.02))
         }
-        XCTAssertEqual(vc.testBatchFlatTableView.displayedRows.count, 1)
+        XCTAssertEqual(vc.testBatchFlatTableView.displayedRows.count, 2)
 
-        vc.testBatchFlatTableView.selectDisplayedRowForContextMenuIfNeeded(0)
+        let firstIndex = try XCTUnwrap(
+            vc.testBatchFlatTableView.displayedRows.firstIndex { $0.sample == "sample-1" }
+        )
+        let secondIndex = try XCTUnwrap(
+            vc.testBatchFlatTableView.displayedRows.firstIndex { $0.sample == "sample-2" }
+        )
+        let table = vc.testBatchFlatTableView.testTableView
+        table.deselectAll(nil)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        recorder.discardRecordedRequests()
+        table.selectRowIndexes(IndexSet(integer: firstIndex), byExtendingSelection: false)
         window.layoutIfNeeded()
         vc.view.layoutSubtreeIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
@@ -226,15 +290,38 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
             "Selecting a TaxTriage database row with BAM data and accession mapping should reveal the miniBAM pane"
         )
         XCTAssertGreaterThan(vc.testLeftPaneContainer.frame.height, 100)
-        let request = try XCTUnwrap(recorder.requests.last)
-        XCTAssertEqual(request.workflow, .taxTriage)
-        XCTAssertEqual(request.bamURL, bamURL)
-        XCTAssertEqual(request.index.url, indexURL)
-        XCTAssertEqual(request.index.kind, .csi)
-        XCTAssertEqual(request.sample.canonicalID, "sample-1")
-        XCTAssertEqual(request.contig.name, "NC_123456.1")
-        XCTAssertEqual(request.contig.expectedLength, 1_000)
-        XCTAssertEqual(request.referenceCandidate?.fastaURL, referenceURL)
+        table.selectRowIndexes(IndexSet(integer: secondIndex), byExtendingSelection: false)
+        window.layoutIfNeeded()
+        vc.view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(factoryInvocationCount, 1)
+        XCTAssertEqual(recorder.requests.count, 2)
+        let firstRequest = recorder.requests[0]
+        XCTAssertEqual(firstRequest.workflow, .taxTriage)
+        XCTAssertEqual(firstRequest.bamURL, bamURL)
+        XCTAssertEqual(firstRequest.index.url, indexURL)
+        XCTAssertEqual(firstRequest.index.kind, .csi)
+        XCTAssertEqual(firstRequest.sample.canonicalID, "sample-1")
+        XCTAssertEqual(firstRequest.contig.name, "NC_123456.1")
+        XCTAssertEqual(firstRequest.contig.expectedLength, 1_000)
+        XCTAssertEqual(firstRequest.referenceCandidate?.fastaURL, referenceURL)
+        let secondRequest = recorder.requests[1]
+        XCTAssertEqual(secondRequest.bamURL, secondBAMURL)
+        XCTAssertEqual(secondRequest.index.url, secondIndexURL)
+        XCTAssertEqual(secondRequest.index.kind, .bai)
+        XCTAssertEqual(secondRequest.sample.canonicalID, "sample-2")
+        XCTAssertEqual(secondRequest.contig.name, "NC_654321.1")
+        XCTAssertEqual(secondRequest.contig.expectedLength, 2_000)
+        XCTAssertEqual(secondRequest.referenceCandidate?.fastaURL, secondReferenceURL)
+
+        let clearCountBeforeMultiSelection = recorder.clearCount
+        table.selectRowIndexes(
+            IndexSet([firstIndex, secondIndex]),
+            byExtendingSelection: false
+        )
+        XCTAssertEqual(recorder.clearCount, clearCountBeforeMultiSelection + 1)
+        table.deselectAll(nil)
+        XCTAssertEqual(recorder.clearCount, clearCountBeforeMultiSelection + 2)
     }
 
     @MainActor func testDatabaseConfiguredBeforeWindowDisplaysBatchTableAfterAttach() throws {

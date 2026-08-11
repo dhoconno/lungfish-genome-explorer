@@ -2702,8 +2702,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             self.actionBar.setBlastEnabled(false, reason: "Select a single row to use BLAST Verify")
             self.actionBar.setExtractEnabled(self.hasExtractableResultPath)
             self.showMultiSelectionPlaceholder(count: rows.count)
-            self.selectedBatchSampleId = nil
-            self.selectedBatchOrganismName = nil
             // Hide the left pane when multiple rows are selected — the
             // miniBAM viewer can only show one organism at a time.
             self.collapseMiniBAMDetailPane()
@@ -2994,8 +2992,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             self.actionBar.setBlastEnabled(false, reason: "Select a single row to use BLAST Verify")
             self.actionBar.setExtractEnabled(self.hasExtractableResultPath)
             self.showMultiSelectionPlaceholder(count: rows.count)
-            self.selectedBatchSampleId = nil
-            self.selectedBatchOrganismName = nil
             // Hide the left pane when multiple rows are selected.
             self.collapseMiniBAMDetailPane()
         }
@@ -3552,6 +3548,11 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     // MARK: - Multi-Selection Helpers
 
     private func showMultiSelectionPlaceholder(count: Int) {
+        selectedOrganismName = nil
+        selectedReadCount = nil
+        selectedBatchSampleId = nil
+        selectedBatchOrganismName = nil
+        alignmentEvidenceViewer?.clear()
         multiSelectionPrimaryLabel.stringValue = "\(count) items selected"
         multiSelectionPrimaryLabel.toolTip = multiSelectionPrimaryLabel.stringValue
         multiSelectionPrimaryLabel.setAccessibilityValue(
