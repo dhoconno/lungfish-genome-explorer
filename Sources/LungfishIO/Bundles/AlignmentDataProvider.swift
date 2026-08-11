@@ -30,7 +30,9 @@ final class SamtoolsCancellation: @unchecked Sendable {
     private let lock = NSLock()
     private var process: Process?
     private var cancelled = false
-    func install(_ process: Process) { lock.lock(); self.process = process; let cancel = cancelled; lock.unlock(); if cancel { process.terminate() } }
+    private let onInstall: (@Sendable () -> Void)?
+    init(onInstall: (@Sendable () -> Void)? = nil) { self.onInstall = onInstall }
+    func install(_ process: Process) { lock.lock(); self.process = process; let cancel = cancelled; lock.unlock(); onInstall?(); if cancel { process.terminate() } }
     func cancel() { lock.lock(); cancelled = true; let process = process; lock.unlock(); process?.terminate() }
 }
 

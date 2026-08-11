@@ -20,6 +20,26 @@ final class AlignmentDataProviderTests: XCTestCase {
         XCTAssertEqual(depth.first?.depth, 2)
     }
 
+    func testCancellationRelayTerminatesRunningSamtoolsProcess() async throws {
+        let tempDir = try makeTemporaryDirectory(prefix: "alignment-cancellation")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let script = try makeFakeSamtools(in: tempDir, script: """
+        #!/bin/sh
+        exec /bin/sleep 1000
+        """)
+        let installed = DispatchSemaphore(value: 0)
+        let cancellation = SamtoolsCancellation(onInstall: { installed.signal() })
+        let task = Task.detached {
+            try AlignmentDataProvider.runSamtoolsProcess(
+                samtoolsPath: script.path, arguments: [], timeout: 30, cancellation: cancellation
+            )
+        }
+        XCTAssertEqual(installed.wait(timeout: .now() + 2), .success)
+        cancellation.cancel()
+        let result = try await task.value
+        XCTAssertNotEqual(result.exitCode, 0)
+    }
+
     // MARK: - Initialization
 
     func testProviderInitialization() {
