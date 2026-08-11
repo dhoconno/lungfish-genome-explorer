@@ -1178,9 +1178,14 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         manifest: BundleManifest,
         bundleURL: URL
     ) -> [ReferenceBundleRecordRow] {
-        let bindings = manifest.alignments.flatMap { track -> [(String, String, Set<String>)] in
-            guard let resolution = sampleIdentityResolution(for: track, bundleURL: bundleURL) else {
-                return []
+        let bindings = manifest.alignments.flatMap { track -> [(String?, String, Set<String>)] in
+            guard let resolution = sampleIdentityResolution(for: track, bundleURL: bundleURL),
+                  !resolution.identityIndex.canonicalSampleIDs.isEmpty
+            else {
+                // Keep a selectable, explicitly unmatched row for tracks that
+                // have no usable persisted SM identity. It must not disappear
+                // merely because another track resolves to a named sample.
+                return [(nil, track.id, [])]
             }
             return resolution.identityIndex.canonicalSampleIDs.sorted().map { sampleID in
                 (sampleID, track.id, resolution.identityIndex.readGroupIDs(forCanonicalSampleID: sampleID))
@@ -1790,6 +1795,15 @@ extension ReferenceBundleViewportController {
     func testSelectSequence(sampleID: String, named name: String) {
         guard let row = sequenceTableView.displayedRows.firstIndex(where: {
             $0.sampleID == sampleID && $0.summary.name == name
+        }) else { return }
+        selectSequence(at: row)
+    }
+
+    func testSelectSequence(sampleID: String?, alignmentTrackID: String?, named name: String) {
+        guard let row = sequenceTableView.displayedRows.firstIndex(where: {
+            $0.sampleID == sampleID
+                && $0.alignmentTrackID == alignmentTrackID
+                && $0.summary.name == name
         }) else { return }
         selectSequence(at: row)
     }

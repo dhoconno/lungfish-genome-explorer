@@ -272,6 +272,32 @@ final class MappingViewportRoutingTests: XCTestCase {
         XCTAssertEqual(viewport.testSelectedReadGroups, Set(["S2-rg"]))
     }
 
+    func testDirectReferenceBAMRouteKeepsUnresolvedTrackRowsAlongsideResolvedTracks() throws {
+        let bundleURL = try MappingRoutingFixture.makeReferenceBundle(
+            name: "Direct Resolved and Unresolved BAM Metadata",
+            chromosomes: [.init(name: "chr1", length: 100)]
+        )
+        defer { try? FileManager.default.removeItem(at: bundleURL.deletingLastPathComponent()) }
+        try MappingRoutingFixture.addSingleSampleAlignment(
+            to: bundleURL, sampleID: "S1", trackID: "reads-s1"
+        )
+        try MappingRoutingFixture.addUnresolvedAlignment(
+            to: bundleURL, trackID: "reads-unresolved"
+        )
+
+        let split = MainSplitViewController(); split.loadViewIfNeeded()
+        split.displayReferenceBundleViewportFromSidebar(at: bundleURL)
+        _ = try MappingRoutingFixture.waitForBAMMetadataContext(on: split)
+        let viewport = try XCTUnwrap(split.viewerController.referenceBundleViewportController)
+
+        XCTAssertEqual(viewport.testDisplayedSequenceNames, ["chr1", "chr1"])
+        XCTAssertEqual(viewport.testDisplayedSequenceSampleIDs, ["S1", nil])
+
+        viewport.testSelectSequence(sampleID: nil, alignmentTrackID: "reads-unresolved", named: "chr1")
+        XCTAssertEqual(viewport.testVisibleAlignmentTrackID, "reads-unresolved")
+        XCTAssertEqual(viewport.testSelectedReadGroups, [])
+    }
+
     func testDirectSequenceNoRGFallbackClearsPreviousReadGroupFilter() throws {
         let bundleURL = try MappingRoutingFixture.makeReferenceBundle(
             name: "Direct RG Clear",
@@ -2767,6 +2793,51 @@ private enum MappingRoutingFixture {
             recordStore: manifest.recordStore
         )
         try updatedManifest.save(to: bundleURL)
+    }
+
+    static func addUnresolvedAlignment(
+        to bundleURL: URL,
+        trackID: String
+    ) throws {
+        let alignmentsURL = bundleURL.appendingPathComponent("alignments", isDirectory: true)
+        try FileManager.default.createDirectory(at: alignmentsURL, withIntermediateDirectories: true)
+        try Data().write(to: alignmentsURL.appendingPathComponent("\(trackID).bam"))
+        try Data().write(to: alignmentsURL.appendingPathComponent("\(trackID).bam.bai"))
+        let metadataPath = "alignments/\(trackID).metadata.sqlite"
+        let database = try AlignmentMetadataDatabase.create(
+            at: bundleURL.appendingPathComponent(metadataPath)
+        )
+        database.addReadGroup(id: "unresolved-rg", sample: nil)
+
+        let manifest = try BundleManifest.load(from: bundleURL)
+        let alignment = AlignmentTrackInfo(
+            id: trackID,
+            name: "Unresolved reads",
+            sourcePath: "alignments/\(trackID).bam",
+            indexPath: "alignments/\(trackID).bam.bai",
+            metadataDBPath: metadataPath,
+            mappedReadCount: 1,
+            unmappedReadCount: 0
+        )
+        try BundleManifest(
+            formatVersion: manifest.formatVersion,
+            name: manifest.name,
+            identifier: manifest.identifier,
+            description: manifest.description,
+            originBundlePath: manifest.originBundlePath,
+            createdDate: manifest.createdDate,
+            modifiedDate: Date(),
+            source: manifest.source,
+            genome: manifest.genome,
+            annotations: manifest.annotations,
+            variants: manifest.variants,
+            tracks: manifest.tracks,
+            alignments: manifest.alignments + [alignment],
+            metadata: manifest.metadata,
+            browserSummary: manifest.browserSummary,
+            warnings: manifest.warnings,
+            recordStore: manifest.recordStore
+        ).save(to: bundleURL)
     }
 
     @MainActor
