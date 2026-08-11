@@ -5,6 +5,7 @@
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
+@testable import LungfishIO
 @testable import LungfishWorkflow
 
 final class BAMImportServiceTests: XCTestCase {
@@ -78,6 +79,26 @@ final class BAMImportServiceTests: XCTestCase {
         XCTAssertTrue(result.indexWasCreated)
         XCTAssertTrue(result.wasSorted)
         XCTAssertEqual(result.mappedReads, 50_000_000)
+    }
+
+    func testPublishedReadCountsIncludeWholeFileUnmappedReads() throws {
+        let databaseURL = tempDir.appendingPathComponent("counts.stats.db")
+        let database = try AlignmentMetadataDatabase.create(at: databaseURL)
+        database.populateFromIdxstats("""
+        PX392161\t2280\t2\t0
+        PX392163\t2182\t23\t0
+        *\t0\t0\t5633894
+        """)
+        database.populateFromFlagstat("""
+        5633919 + 0 in total (QC-passed reads + QC-failed reads)
+        25 + 0 mapped (0.00% : N/A)
+        """)
+
+        let counts = BAMImportService.publishedReadCounts(from: database)
+
+        XCTAssertEqual(counts.mapped, 25)
+        XCTAssertEqual(counts.unmapped, 5_633_894)
+        XCTAssertEqual(counts.total, 5_633_919)
     }
 
     // MARK: - BAMImportError

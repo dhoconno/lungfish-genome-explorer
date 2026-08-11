@@ -168,6 +168,32 @@ final class AlignmentMetadataDatabaseTests: XCTestCase {
         XCTAssertEqual(db.totalUnmappedReads(), 30)
     }
 
+    func testTotalUnmappedReadsUsesFlagstatTotalWhenIdxstatsStarRowIsExcluded() throws {
+        let db = try makeDatabase()
+        db.populateFromIdxstats("""
+        PX392161\t2280\t2\t0
+        PX392163\t2182\t23\t0
+        *\t0\t0\t5633894
+        """)
+        db.populateFromFlagstat("""
+        5633919 + 0 in total (QC-passed reads + QC-failed reads)
+        25 + 0 mapped (0.00% : N/A)
+        """)
+
+        XCTAssertEqual(db.chromosomeStats().map(\.chromosome).sorted(), ["PX392161", "PX392163"])
+        XCTAssertEqual(db.totalMappedReads(), 25)
+        XCTAssertEqual(db.totalUnmappedReads(), 5_633_894)
+    }
+
+    func testTotalUnmappedReadsFallsBackToChromosomeStatsWhenFlagstatTotalsAreInvalid() throws {
+        let db = try makeDatabase()
+        db.addChromosomeStats(chromosome: "chr1", length: 1000, mapped: 100, unmapped: 30)
+        db.addFlagStat(category: "total", qcPass: 90, qcFail: 0)
+        db.addFlagStat(category: "mapped", qcPass: 100, qcFail: 0)
+
+        XCTAssertEqual(db.totalUnmappedReads(), 30)
+    }
+
     func testEmptyTotals() throws {
         let db = try makeDatabase()
         XCTAssertEqual(db.totalMappedReads(), 0)

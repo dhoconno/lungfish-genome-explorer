@@ -344,6 +344,25 @@ public final class AlignmentMetadataDatabase: @unchecked Sendable {
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return 0 }
         defer { sqlite3_finalize(stmt) }
         guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
+        let chromosomeTotal = sqlite3_column_int64(stmt, 0)
+
+        guard let flagstatTotal = flagStatCount(category: "total"),
+              let flagstatMapped = flagStatCount(category: "mapped"),
+              flagstatTotal >= flagstatMapped else {
+            return chromosomeTotal
+        }
+        let wholeFileUnmapped = flagstatTotal - flagstatMapped
+        guard wholeFileUnmapped >= chromosomeTotal else { return chromosomeTotal }
+        return wholeFileUnmapped
+    }
+
+    private func flagStatCount(category: String) -> Int64? {
+        let sql = "SELECT qc_pass + qc_fail FROM flag_stats WHERE category = ? LIMIT 1"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(stmt) }
+        bindText(stmt, 1, category)
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
         return sqlite3_column_int64(stmt, 0)
     }
 

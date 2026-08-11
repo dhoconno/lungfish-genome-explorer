@@ -4,6 +4,7 @@
 
 import XCTest
 import LungfishCore
+import LungfishIO
 @testable import LungfishWorkflow
 
 final class PreparedAlignmentAttachmentServiceTests: XCTestCase {
@@ -103,6 +104,49 @@ final class PreparedAlignmentAttachmentServiceTests: XCTestCase {
         XCTAssertEqual(finalManifest.alignments.map(\.name), ["unique-name"])
     }
 
+    func testAttachPublishesWholeFileUnmappedCountFromFlagstat() async throws {
+        let bundleURL = try makeMinimalBundle(named: "whole-file-counts")
+        let (stagedBAM, stagedIndex) = try makeStagedArtifacts(in: tempDir)
+        let request = PreparedAlignmentAttachmentRequest(
+            bundleURL: bundleURL,
+            stagedBAMURL: stagedBAM,
+            stagedIndexURL: stagedIndex,
+            outputTrackID: "aln_counts",
+            outputTrackName: "counts",
+            relativeDirectory: "alignments"
+        )
+        let collector = StubPreparedAlignmentMetadataCollector(
+            idxstatsOutput: """
+            PX392161\t2280\t2\t0
+            PX392163\t2182\t23\t0
+            *\t0\t0\t5633894
+            """,
+            flagstatOutput: """
+            5633919 + 0 in total (QC-passed reads + QC-failed reads)
+            25 + 0 mapped (0.00% : N/A)
+            """
+        )
+
+        let result = try await PreparedAlignmentAttachmentService(
+            metadataCollector: collector
+        ).attach(request: request)
+
+        XCTAssertEqual(result.trackInfo.mappedReadCount, 25)
+        XCTAssertEqual(result.trackInfo.unmappedReadCount, 5_633_894)
+
+        let manifestTrack = try XCTUnwrap(BundleManifest.load(from: bundleURL).alignments.first)
+        XCTAssertEqual(manifestTrack.mappedReadCount, 25)
+        XCTAssertEqual(manifestTrack.unmappedReadCount, 5_633_894)
+
+        let metadataPath = try XCTUnwrap(manifestTrack.metadataDBPath)
+        let metadataDB = try AlignmentMetadataDatabase(
+            url: bundleURL.appendingPathComponent(metadataPath)
+        )
+        XCTAssertEqual(metadataDB.getFileInfo("total_reads"), "5633919")
+        XCTAssertEqual(metadataDB.getFileInfo("mapped_reads"), "25")
+        XCTAssertEqual(metadataDB.getFileInfo("unmapped_reads"), "5633894")
+    }
+
     // MARK: - Fixtures
 
     private func makeMinimalBundle(named name: String) throws -> URL {
@@ -150,6 +194,9 @@ final class PreparedAlignmentAttachmentServiceTests: XCTestCase {
 /// Stub metadata collector avoiding a real samtools dependency for this attach-commit
 /// unit test -- only the manifest read/collision-check/commit ordering is under test.
 private struct StubPreparedAlignmentMetadataCollector: PreparedAlignmentMetadataCollecting {
+    var idxstatsOutput = "chr1\t4\t0\t0\n"
+    var flagstatOutput = "0 + 0 in total (QC-passed reads + QC-failed reads)\n"
+
     func collectMetadata(
         bamURL: URL,
         indexURL: URL,
@@ -157,8 +204,8 @@ private struct StubPreparedAlignmentMetadataCollector: PreparedAlignmentMetadata
         referenceFastaPath: String?
     ) async throws -> PreparedAlignmentMetadataSnapshot {
         PreparedAlignmentMetadataSnapshot(
-            idxstatsOutput: "chr1\t4\t0\t0\n",
-            flagstatOutput: "0 + 0 in total (QC-passed reads + QC-failed reads)\n",
+            idxstatsOutput: idxstatsOutput,
+            flagstatOutput: flagstatOutput,
             headerText: "@HD\tVN:1.6\tSO:coordinate\n"
         )
     }

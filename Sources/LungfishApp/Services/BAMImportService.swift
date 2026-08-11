@@ -187,8 +187,9 @@ public final class BAMImportService: @unchecked Sendable {
             importLogger.info("Reference inference: \(inferredRef.assembly ?? "unknown") (\(inferredRef.organism ?? "?")) confidence=\(String(describing: inferredRef.confidence))")
         }
 
-        let mappedReads = metadataDB.totalMappedReads()
-        let unmappedReads = metadataDB.totalUnmappedReads()
+        let readCounts = publishedReadCounts(from: metadataDB)
+        let mappedReads = readCounts.mapped
+        let unmappedReads = readCounts.unmapped
 
         metadataDB.setFileInfo("total_reads", value: "\(mappedReads + unmappedReads)")
         metadataDB.setFileInfo("mapped_reads", value: "\(mappedReads)")
@@ -294,6 +295,14 @@ public final class BAMImportService: @unchecked Sendable {
             indexWasCreated: indexCreated,
             wasSorted: wasSorted
         )
+    }
+
+    static func publishedReadCounts(
+        from metadataDB: AlignmentMetadataDatabase
+    ) -> (mapped: Int64, unmapped: Int64, total: Int64) {
+        let mapped = metadataDB.totalMappedReads()
+        let unmapped = metadataDB.totalUnmappedReads()
+        return (mapped, unmapped, mapped + unmapped)
     }
 
     // MARK: - Helpers
