@@ -29,6 +29,10 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
     private var task: Task<Void, Never>?
     private var activeRequest: ClassifierAlignmentEvidenceRequest?
     private var observedInspectorSnapshots: InspectorSnapshots?
+    /// Detached evidence owns no independent metadata store or chooser.  It
+    /// retains the classifier result context so Inspector attachment actions
+    /// continue to target the same parent result/list presentation.
+    private var sampleMetadataPresentationContext: SampleMetadataPresentationContext?
     private(set) var availability: Availability = .idle
     private(set) var status: ClassifierAlignmentViewerStatus = .idle { didSet { publishStatus() } }
     var onStatusChanged: (@MainActor @Sendable (ClassifierAlignmentViewerStatus) -> Void)?
@@ -65,6 +69,10 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
             )
         }
         if let inspectorCapabilities { onInspectorCapabilitiesChanged?(inspectorCapabilities) }
+    }
+
+    func bindSampleMetadataPresentation(_ context: SampleMetadataPresentationContext?) {
+        sampleMetadataPresentationContext = context
     }
 
     private func publishStatus() {

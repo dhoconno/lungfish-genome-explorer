@@ -506,8 +506,12 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
 
         applyMappingBundleDisplayLabels()
         applyOriginalMappingRows(preferredSelectionName: preferredSelectionName)
-        if let visibleTrackID = embeddedViewerController.viewerView.visibleAlignmentTrackIDSetting,
-           !visibleTrackID.isEmpty {
+        let configuredTrackID = embeddedViewerController.viewerView.visibleAlignmentTrackIDSetting
+        let defaultTrackID = currentInput?.viewerBundleManifest?.alignments
+            .first(where: { $0.metadataDBPath != nil })?.id
+        let visibleTrackID = (configuredTrackID?.isEmpty == false) ? configuredTrackID : defaultTrackID
+        if let visibleTrackID, !visibleTrackID.isEmpty {
+            embeddedViewerController.viewerView.visibleAlignmentTrackIDSetting = visibleTrackID
             refreshMappingRowsForVisibleAlignmentTrack(
                 visibleTrackID,
                 preferredSelectionName: preferredSelectionName

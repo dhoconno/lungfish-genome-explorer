@@ -969,6 +969,9 @@ extension MainSplitViewController {
                         manifest: manifest
                     )
                     try self.viewerController.display(route)
+                    self.installBAMMetadataPresentation(
+                        resultURL: url, bundleURL: url, workflowName: "Reference Bundle"
+                    )
                     self.wireDirectReferenceViewportInspectorUpdates()
                     mainSplitLogger.info("displayReferenceBundleViewport: Bundle displayed successfully")
                 } catch {

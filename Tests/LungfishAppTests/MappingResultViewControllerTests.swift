@@ -529,9 +529,6 @@ final class MappingResultViewControllerTests: XCTestCase {
             ]
         }
         vc.configureForTesting(result: result)
-        vc.applyEmbeddedReadDisplaySettings([
-            NotificationUserInfoKey.visibleAlignmentTrackID: "filtered-track"
-        ])
         try await waitUntil {
             Set(vc.testContigTableView.displayedRows.compactMap(\.sampleID)) == Set(["S1", "S2"])
         }

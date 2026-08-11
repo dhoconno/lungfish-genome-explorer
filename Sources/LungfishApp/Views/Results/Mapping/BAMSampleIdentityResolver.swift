@@ -13,6 +13,7 @@ import LungfishKit
 struct BAMSampleIdentityResolver {
     struct Resolution {
         let identityIndex: SampleIdentityIndex
+        let identities: [SampleIdentity]
         let unmatchedReadGroupIDs: Set<String>
     }
 
@@ -63,6 +64,7 @@ struct BAMSampleIdentityResolver {
                 samples: samples,
                 explicitOneSampleFallbackCanonicalID: fallback
             ),
+            identities: samples,
             unmatchedReadGroupIDs: unmatched
         )
     }

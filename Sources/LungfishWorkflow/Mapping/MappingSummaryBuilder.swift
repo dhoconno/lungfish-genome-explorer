@@ -39,8 +39,10 @@ public enum MappingSummaryBuilder {
         includeUnmappedReferenceRows: Bool = true,
         reportWarning: (@Sendable (String) -> Void)? = nil
     ) async throws -> [MappingContigSummary] {
+        let effectiveTotalReads: Int
         let coverageOutput: String
         if readGroupIDs.isEmpty {
+            effectiveTotalReads = totalReads
             let coverageResult = try await runner.run(
                 .samtools,
                 arguments: ["coverage", sortedBAMURL.path],
@@ -55,7 +57,14 @@ public enum MappingSummaryBuilder {
             coverageOutput = try await filteredCoverageOutput(
                 sortedBAMURL: sortedBAMURL,
                 readGroupIDs: readGroupIDs,
-                runner: runner
+                runner: runner,
+                timeout: timeout
+            )
+            effectiveTotalReads = try await filteredReadCount(
+                sortedBAMURL: sortedBAMURL,
+                readGroupIDs: readGroupIDs,
+                runner: runner,
+                timeout: timeout
             )
         }
 
@@ -70,7 +79,7 @@ public enum MappingSummaryBuilder {
             return try buildSummaries(
                 coverageOutput: coverageOutput,
                 viewOutput: "",
-                totalReads: totalReads,
+                totalReads: effectiveTotalReads,
                 includeUnmappedReferenceRows: includeUnmappedReferenceRows
             )
         }
@@ -85,7 +94,7 @@ public enum MappingSummaryBuilder {
         return try buildSummaries(
             coverageOutput: coverageOutput,
             viewOutput: viewOutput,
-            totalReads: totalReads,
+            totalReads: effectiveTotalReads,
             includeUnmappedReferenceRows: includeUnmappedReferenceRows
         )
     }
@@ -199,38 +208,99 @@ public enum MappingSummaryBuilder {
     private static func filteredCoverageOutput(
         sortedBAMURL: URL,
         readGroupIDs: Set<String>,
-        runner: NativeToolRunner
+        runner: NativeToolRunner,
+        timeout: TimeInterval
     ) async throws -> String {
         let samtoolsPath = try await runner.findTool(.samtools)
         return try await withReadGroupList(readGroupIDs) { listURL in
             try await Task.detached {
-                let coverage = Process()
-                coverage.executableURL = samtoolsPath
-                coverage.arguments = ["coverage", "-"]
-                coverage.currentDirectoryURL = sortedBAMURL.deletingLastPathComponent()
-                let output = Pipe()
-                let error = Pipe()
-                coverage.standardOutput = output
-                coverage.standardError = error
-
-                let view = Process()
-                view.executableURL = samtoolsPath
-                view.arguments = ["view", "-h", "-R", listURL.path, sortedBAMURL.path]
-                view.currentDirectoryURL = sortedBAMURL.deletingLastPathComponent()
-                view.standardOutput = coverage.standardInput
-
-                try coverage.run()
-                try view.run()
-                view.waitUntilExit()
-                (coverage.standardInput as? Pipe)?.fileHandleForWriting.closeFile()
-                coverage.waitUntilExit()
-                let stdout = String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-                let stderr = String(data: error.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-                guard view.terminationStatus == 0, coverage.terminationStatus == 0 else {
-                    throw MappingSummaryBuilderError.samtoolsCoverageFailed(stderr)
-                }
-                return stdout
+                try runFilteredCoverageSynchronously(
+                    samtoolsPath: samtoolsPath,
+                    sortedBAMURL: sortedBAMURL,
+                    listURL: listURL,
+                    timeout: timeout
+                )
             }.value
+        }
+    }
+
+    private static func runFilteredCoverageSynchronously(
+        samtoolsPath: URL,
+        sortedBAMURL: URL,
+        listURL: URL,
+        timeout: TimeInterval
+    ) throws -> String {
+        let coverage = Process()
+        coverage.executableURL = samtoolsPath
+        coverage.arguments = ["coverage", "-"]
+        coverage.currentDirectoryURL = sortedBAMURL.deletingLastPathComponent()
+        let output = Pipe()
+        let error = Pipe()
+        let input = Pipe()
+        coverage.standardOutput = output
+        coverage.standardError = error
+        coverage.standardInput = input
+
+        let view = Process()
+        view.executableURL = samtoolsPath
+        view.arguments = ["view", "-h", "-R", listURL.path, sortedBAMURL.path]
+        view.currentDirectoryURL = sortedBAMURL.deletingLastPathComponent()
+        // This is an actual pipeline, not an assignment to a nil default stdin.
+        view.standardOutput = input
+
+        let stdoutBox = MappingSummaryDataBox()
+        let stderrBox = MappingSummaryDataBox()
+        let drainGroup = DispatchGroup()
+        for (handle, box) in [(output.fileHandleForReading, stdoutBox), (error.fileHandleForReading, stderrBox)] {
+            drainGroup.enter()
+            DispatchQueue.global().async {
+                box.value = handle.readDataToEndOfFile()
+                drainGroup.leave()
+            }
+        }
+        let timeoutItem = DispatchWorkItem {
+            if view.isRunning { view.terminate() }
+            if coverage.isRunning { coverage.terminate() }
+        }
+        DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutItem)
+        defer { timeoutItem.cancel() }
+        try coverage.run()
+        do {
+            try view.run()
+        } catch {
+            input.fileHandleForWriting.closeFile()
+            if coverage.isRunning { coverage.terminate() }
+            coverage.waitUntilExit()
+            drainGroup.wait()
+            throw error
+        }
+        view.waitUntilExit()
+        input.fileHandleForWriting.closeFile()
+        coverage.waitUntilExit()
+        drainGroup.wait()
+        let stdout = String(data: stdoutBox.value, encoding: .utf8) ?? ""
+        let stderr = String(data: stderrBox.value, encoding: .utf8) ?? ""
+        guard view.terminationStatus == 0, coverage.terminationStatus == 0 else {
+            throw MappingSummaryBuilderError.samtoolsCoverageFailed(stderr)
+        }
+        return stdout
+    }
+
+    private static func filteredReadCount(
+        sortedBAMURL: URL,
+        readGroupIDs: Set<String>,
+        runner: NativeToolRunner,
+        timeout: TimeInterval
+    ) async throws -> Int {
+        let samtoolsPath = try await runner.findTool(.samtools)
+        return try await withReadGroupList(readGroupIDs) { listURL in
+            let output = try await runProcessCapturingOutput(
+                executableURL: samtoolsPath,
+                arguments: ["view", "-c", "-R", listURL.path, sortedBAMURL.path],
+                workingDirectory: sortedBAMURL.deletingLastPathComponent(),
+                timeout: timeout
+            )
+            return Int(output.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
         }
     }
 

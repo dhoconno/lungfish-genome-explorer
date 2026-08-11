@@ -34,38 +34,46 @@ extension MainSplitViewController {
     /// comes only from each persisted alignment metadata database; filenames
     /// are intentionally absent from this path.
     func installMappingBAMMetadataPresentation(resultURL: URL, result: MappingResult) {
+        guard let bundleURL = result.viewerBundleURL else { return }
+        installBAMMetadataPresentation(
+            resultURL: resultURL, bundleURL: bundleURL, workflowName: "Mapping"
+        )
+    }
+
+    /// Shared direct-reference and mapping route installation.  Every track
+    /// is resolved through BAMSampleIdentityResolver before identities from
+    /// separate tracks are merged, keeping one canonical policy for all BAM
+    /// viewports.
+    func installBAMMetadataPresentation(resultURL: URL, bundleURL: URL, workflowName: String) {
         clearBAMMetadataPresentation()
         guard let consumer = viewerController.referenceBundleViewportController,
-              let bundleURL = result.viewerBundleURL,
               let manifest = try? BundleManifest.load(from: bundleURL)
         else { return }
-
-        var readGroupsBySample: [String: Set<String>] = [:]
-        var tracksBySample: [String: Set<String>] = [:]
+        var identitiesByCanonicalID: [String: SampleIdentity] = [:]
         for track in manifest.alignments {
             guard let metadataDBPath = track.metadataDBPath,
-                  let database = try? AlignmentMetadataDatabase(
-                    url: bundleURL.appendingPathComponent(metadataDBPath)
+                  let database = try? AlignmentMetadataDatabase(url: bundleMemberURL(metadataDBPath, in: bundleURL)),
+                  let resolution = try? BAMSampleIdentityResolver.resolve(
+                    readGroups: database.readGroups(),
+                    trackIDs: [track.id],
+                    explicitResultSampleID: track.sampleNames.count == 1 ? track.sampleNames[0] : nil,
+                    trackSampleIDs: track.sampleNames.count == 1 ? [track.id: track.sampleNames[0]] : [:]
                   )
             else { continue }
-            let groups = database.readGroups()
-            let sampleIDs = Set(groups.compactMap { group -> String? in
-                guard let sample = group.sample?.trimmingCharacters(in: .whitespacesAndNewlines), !sample.isEmpty else { return nil }
-                readGroupsBySample[sample, default: []].insert(group.id)
-                return sample
-            })
-            if sampleIDs.count == 1, let sampleID = sampleIDs.first {
-                tracksBySample[sampleID, default: []].insert(track.id)
+            for identity in resolution.identities {
+                if let current = identitiesByCanonicalID[identity.canonicalID] {
+                    identitiesByCanonicalID[identity.canonicalID] = SampleIdentity(
+                        canonicalID: current.canonicalID,
+                        aliases: Array(Set(current.aliases).union(identity.aliases)).sorted(),
+                        alignmentTrackIDs: Array(Set(current.alignmentTrackIDs).union(identity.alignmentTrackIDs)).sorted(),
+                        readGroupIDs: Array(Set(current.readGroupIDs).union(identity.readGroupIDs)).sorted()
+                    )
+                } else {
+                    identitiesByCanonicalID[identity.canonicalID] = identity
+                }
             }
         }
-        let identities = readGroupsBySample.keys.sorted().map { sampleID in
-            SampleIdentity(
-                canonicalID: sampleID,
-                aliases: [],
-                alignmentTrackIDs: Array(tracksBySample[sampleID] ?? []).sorted(),
-                readGroupIDs: Array(readGroupsBySample[sampleID] ?? []).sorted()
-            )
-        }
+        let identities = identitiesByCanonicalID.values.sorted { $0.canonicalID < $1.canonicalID }
         guard !identities.isEmpty,
               let index = try? SampleIdentityIndex(samples: identities)
         else { return }
@@ -77,8 +85,8 @@ extension MainSplitViewController {
             sampleMetadataStore: store,
             importContext: .init(
                 resultID: resultURL.lastPathComponent,
-                provenanceID: "mapping:\(resultURL.lastPathComponent)",
-                workflowName: "Mapping",
+                provenanceID: "\(workflowName.lowercased()):\(resultURL.lastPathComponent)",
+                workflowName: workflowName,
                 workflowVersion: LungfishAppVersion.short
             )
         )
@@ -91,6 +99,12 @@ extension MainSplitViewController {
             presentationContext: context,
             attachments: BundleAttachmentStore(bundleURL: resultURL)
         )
+    }
+
+    private func bundleMemberURL(_ path: String, in bundleURL: URL) -> URL {
+        if path.hasPrefix("@/") { return bundleURL.appendingPathComponent(String(path.dropFirst(2))) }
+        if path.hasPrefix("/") { return URL(fileURLWithPath: path) }
+        return bundleURL.appendingPathComponent(path)
     }
 
     func clearClassifierMetadataPresentation() {
