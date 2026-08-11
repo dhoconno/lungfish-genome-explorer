@@ -7,6 +7,37 @@ import XCTest
 
 @MainActor
 final class ClassifierAlignmentInspectorTests: XCTestCase {
+    func testViewportBindingPublishesCapabilitiesIntoInspectorWithoutDirectInspectorUpdate() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let bam = directory.appendingPathComponent("final.bam")
+        let index = directory.appendingPathComponent("final.bam.bai")
+        try Data([1]).write(to: bam); try Data([2]).write(to: index)
+        let request = try ClassifierAlignmentEvidenceRequest(
+            workflow: .taxTriage,
+            resultIdentity: .init(stableID: "result", finalResultURL: directory, provenanceID: "prov"),
+            bamURL: bam, index: .init(url: index, kind: .bai), sample: .init(canonicalID: "S1"),
+            contig: .init(name: "virus", expectedLength: 4), referenceCandidate: nil,
+            presentation: .init(workflowLabel: "TaxTriage", resultLabel: "result", sampleLabel: "S1", contigLabel: "virus")
+        )
+        let controller = ClassifierAlignmentEvidenceViewportController(
+            validator: .init(headerReader: { _ in "@SQ\tSN:virus\tLN:4\n" }, indexQuery: { _, _, _ in })
+        )
+        let inspector = InspectorViewController()
+        _ = inspector.view
+        controller.bindInspector(inspector)
+
+        controller.display(request)
+        for _ in 0..<100 where inspector.readStyleSectionViewModel.classifierEvidenceCapabilities == nil { await Task.yield() }
+
+        XCTAssertEqual(inspector.readStyleSectionViewModel.trackNames, ["S1"])
+        XCTAssertEqual(inspector.viewModel.contentMode, .metagenomics)
+        XCTAssertTrue(inspector.viewModel.availableTabs.contains(.view))
+        XCTAssertTrue(inspector.viewModel.availableTabs.contains(.analysis))
+        controller.clear()
+        XCTAssertNil(inspector.readStyleSectionViewModel.classifierEvidenceCapabilities)
+    }
     func testReferenceFreeCapabilityMatrixDisablesReferenceAndOutputOperations() {
         let capabilities = ClassifierAlignmentInspectorCapabilities.detachedEvidence(
             workflow: "EsViritu",

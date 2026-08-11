@@ -37,6 +37,24 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
     var viewController: NSViewController { viewer }
     var visibleStatusText: String { statusLabel.stringValue }
 
+    /// Connects this App-owned viewport to the active Inspector.  The callback
+    /// is direct and window-local, avoiding global notification cross-talk.
+    func bindInspector(_ inspector: InspectorViewController) {
+        onInspectorCapabilitiesChanged = { [weak self, weak inspector] capabilities in
+            guard let inspector else { return }
+            guard let capabilities else {
+                inspector.readStyleSectionViewModel.clear()
+                return
+            }
+            inspector.viewModel.contentMode = .metagenomics
+            inspector.updateClassifierAlignmentInspector(
+                capabilities: capabilities,
+                applySettings: { [weak self] payload in self?.viewer.applyReadDisplaySettings(payload) }
+            )
+        }
+        if let inspectorCapabilities { onInspectorCapabilitiesChanged?(inspectorCapabilities) }
+    }
+
     private func publishStatus() {
         statusLabel.stringValue = status.message
         statusLabel.isHidden = status == .idle

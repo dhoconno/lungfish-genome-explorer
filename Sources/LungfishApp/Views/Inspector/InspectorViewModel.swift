@@ -41,6 +41,9 @@ public final class InspectorViewModel {
         case .fastq:
             return [.bundle, .provenance]
         case .metagenomics:
+            if readStyleSectionViewModel.classifierEvidenceCapabilities != nil {
+                return [.resultSummary, .view, .analysis, .provenance]
+            }
             // The 12S Detail tab is only meaningful for the 12S amplicon
             // viewport; other metagenomics tools (Kraken2, NAO-MGS, NVD) leave
             // it out so they don't show an empty Detail tab.
