@@ -15,7 +15,7 @@ planned_shots:
   - id: nvd-import-card
     caption: "The Import Center card for NVD Results under Classification Results."
   - id: nvd-result-viewport
-    caption: "The NVD viewport: a contig row expanded to show its secondary BLAST hits, with the detail pane and mini-BAM on the left."
+    caption: "The NVD viewport: a contig row expanded to show its secondary BLAST hits, with the detail pane and full BAM viewer on the left."
 illustrations: []
 glossary_refs: [contig, BLAST, e-value, percent identity]
 features_refs: []
@@ -154,9 +154,19 @@ known virus is the routine case. A long contig whose best hit is only
 exists to find, and the row to verify next.
 
 Selecting a contig fills the detail pane. For a contig with alignment data,
-the pane includes a mini-BAM viewer showing the reads that built it, so you can
-check whether a deep, even pile supports the contig or a thin stack that may be
-an assembly artifact.
+the pane includes the full BAM viewer showing the reads that built it. It uses
+the same ruler, navigation, read packing, MAPQ and flag filters, coverage
+statistics, and selected-read details as the general alignment viewport. When
+the imported NVD reference record validates against the BAM, reference-aware
+mismatch and consensus inspection is available; otherwise the Inspector
+labels the evidence as reference-free. Use the pileup to check whether a deep,
+even distribution supports the contig or a thin stack may be an assembly
+artifact.
+
+Use **Import Metadata…** in the Inspector to attach CSV or TSV sample
+metadata. Every valid non-identity field becomes selectable in the result
+table's column chooser immediately and remains available when the result is
+reopened. Missing values display an em dash rather than removing the column.
 
 To get an independent opinion on a contig, click **BLAST Verify** in the
 viewport's action bar. The verification submits the contig sequence to NCBI

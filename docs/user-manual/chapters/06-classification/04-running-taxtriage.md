@@ -189,13 +189,23 @@ Three things to do on first read.
    reviewer does that, with the batch overview as the working surface.
    <!-- planned: taxtriage-result-table -->
 
-The mini-BAM preview shows the reads that support the currently selected
-organism, mapped against the organism's reference. Treat the mini-BAM as a
-sanity check: if the supporting reads pile up in one narrow region, the call
-is suspect even when the score is high. To get an independent second opinion
+The full BAM viewer shows the reads that support the currently selected
+organism, mapped against the organism's reference. It shares the general BAM
+viewer's navigation, read-layout, filtering, coverage, and selected-read
+controls. Reference-dependent controls are enabled only when Lungfish can
+validate the exact downloaded reference record against the BAM; otherwise
+the Inspector reports reference-free mode. Treat the pileup as a sanity
+check: if the supporting reads collect in one narrow region, the call is
+suspect even when the score is high. To get an independent second opinion
 on a call, right-click its row on the batch table and choose
 **Verify with BLAST…**, which runs the verification flow described in
 [BLAST Verification](06-blast-verification.md).
+
+You can attach a CSV or TSV sample sheet with **Import Metadata…** in the
+Inspector. Every valid non-identity field is then available from the column
+chooser in the single-sample and batch tables, including fields with missing
+values in the current selection, and remains available after reopening the
+result.
 
 ## Compare and export across samples
 

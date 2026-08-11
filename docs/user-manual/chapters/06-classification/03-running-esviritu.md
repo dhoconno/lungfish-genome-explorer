@@ -18,8 +18,8 @@ planned_shots:
     caption: "The wizard's inline notice when the EsViritu database has not yet been installed."
   - id: esviritu-result-viewport
     caption: "The EsViritu result viewport showing per-virus coverage sparklines for SRR36291587."
-  - id: esviritu-mini-bam
-    caption: "The mini-BAM preview that appears in the detail pane for a selected virus row."
+  - id: esviritu-bam-viewer
+    caption: "The full BAM viewer that appears in the detail pane for a selected virus row."
 illustrations: []
 glossary_refs: [coverage, mapping, BAM, plugin pack]
 features_refs: []
@@ -63,7 +63,7 @@ once a virus is on the table, not as your first look at an unknown sample.
 
 Here you will learn to install the EsViritu database, run the wizard with
 EsViritu selected, read the result viewport's coverage sparklines, and
-inspect the underlying mini-BAM to verify a hit.
+inspect the underlying BAM in the full alignment viewer to verify a hit.
 
 ## EsViritu compared with Kraken2
 
@@ -77,7 +77,7 @@ decision aid before you run either.
 | Is virus X here, and which strain or lineage? | EsViritu |
 | Did the reads cover the whole viral genome, or just a few hot spots? | EsViritu (coverage sparkline) |
 | How many reads classify per minute on a laptop? | Kraken2 |
-| Are the reads spread across the genome or piled on one window? | EsViritu (mini-BAM) |
+| Are the reads spread across the genome or piled on one window? | EsViritu (full BAM viewer) |
 
 The two tools complement each other. A common workflow screens with
 Kraken2, notes the viral species that surface, then reruns those samples
@@ -218,24 +218,32 @@ submenu that opens the matching GenBank accession, assembly record, PubMed
 literature, or Taxonomy Browser page in your web browser. These are the
 fastest routes from a coverage call to a confirmation.
 
-### Mini-BAM preview
+### Full BAM evidence viewer
 
 To audit a single sparkline directly, click a virus row that carries
-alignment data. The mini-BAM appears in the detail pane on its own, showing
-the top of the reads piled against that reference. There is no separate
-"Show reads" button; selecting the row is enough. This is a real, indexed
-BAM saved alongside the classification result, so you can scroll the
-genomic axis, zoom into a region, and read the sequences, CIGAR strings,
-and base qualities the same way the alignment viewport does (Chapter 5).
+alignment data. The full alignment viewer appears in the detail pane on its
+own. There is no separate "Show reads" button; selecting the row is enough.
+It opens the real, indexed BAM saved alongside the classification result,
+using the same pileup renderer, ruler, pan and zoom controls, read packing,
+MAPQ and flag filters, and selected-read details as the general BAM viewer.
+EsViritu evidence is reference-free, so reference-dependent mismatch,
+consensus, variant, and reference-export controls are unavailable and the
+Inspector explains why.
 
-<!-- planned: esviritu-mini-bam -->
+<!-- planned: esviritu-bam-viewer -->
 
-The mini-BAM is the source of truth for everything above it in the
+The BAM evidence is the source of truth for everything above it in the
 viewport. If the row claims 2,400 reads and the BAM viewer shows a thick,
 evenly-spread pile, the call is real. If it claims 2,400 reads and the BAM
 viewer shows a single tall stack at one position, you are looking at PCR
 duplicates of one fragment, and the apparent depth is inflated. Flag the
 row as low-confidence whatever the coverage column says.
+
+Use **Import Metadata…** in the Inspector to attach a CSV or TSV sample
+sheet. Choose the sample-identity column during import. Every other valid
+field becomes available immediately in the table's column chooser; fields
+without a value for a row display an em dash. The same columns remain
+available after you close and reopen the result.
 
 ### Exporting and provenance
 

@@ -530,13 +530,16 @@ features:
     outputs: []
     viewport_class: alignment
     sources:
-      - Sources/LungfishKit/MiniBAMViewController.swift
+      - Sources/LungfishApp/Views/Viewer/SequenceViewerView.swift
+      - Sources/LungfishApp/Views/Viewer/ClassifierAlignmentEvidenceViewportController.swift
       - Sources/LungfishAlignmentUI/AlignmentResultViewController.swift
       - Sources/LungfishApp/Services/MappingViewerBundlePreparer.swift
     notes: >-
       Pile-up viewer for sorted, indexed BAM and CRAM with a coverage track,
-      base mismatches, soft-clip indicators, and a read inspector. All mapping
-      tools share this single viewport.
+      base mismatches when a validated reference is available, soft-clip
+      indicators, sample metadata columns, and a read inspector. Mapping,
+      reference-bundle, EsViritu, TaxTriage, and NVD evidence share this full
+      viewer; NAO-MGS retains its specialized mini-BAM presentation.
   bam.markdup:
     title: Mark and remove duplicate reads
     entry_points:
