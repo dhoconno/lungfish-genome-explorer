@@ -55,6 +55,7 @@ extension MainSplitViewController {
               let manifest = try? BundleManifest.load(from: bundleURL)
         else { return }
         var collectedIdentities: [SampleIdentity] = []
+        var manifestAliases: [String: [String]] = [:]
         for track in manifest.alignments {
             guard let metadataDBPath = track.metadataDBPath,
                   let database = try? AlignmentMetadataDatabase(url: bundleMemberURL(metadataDBPath, in: bundleURL)),
@@ -65,11 +66,22 @@ extension MainSplitViewController {
                     trackSampleIDs: track.sampleNames.count == 1 ? [track.id: track.sampleNames[0]] : [:]
                   )
             else { continue }
+            if track.sampleNames.count == 1, let declared = track.sampleNames.first {
+                for identity in resolution.identities
+                where BAMSampleIdentityResolver.normalized(identity.canonicalID)
+                    == BAMSampleIdentityResolver.normalized(declared)
+                    && identity.canonicalID != declared {
+                    manifestAliases[identity.canonicalID, default: []].append(declared)
+                }
+            }
             collectedIdentities.append(contentsOf: resolution.identities)
+        }
+        let aliases = manifestAliases.merging(persistedSampleAliases) { current, supplied in
+            Array(Set(current).union(supplied)).sorted()
         }
         let identities = BAMSampleIdentityResolver.merge(
             collectedIdentities,
-            aliases: persistedSampleAliases
+            aliases: aliases
         )
         guard !identities.isEmpty,
               let index = try? SampleIdentityIndex(samples: identities)

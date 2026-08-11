@@ -778,7 +778,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
             let tracks = currentInput?.viewerBundleManifest?.alignments ?? []
             let requestedTrackID = embeddedViewerController.viewerView.visibleAlignmentTrackIDSetting
             guard requestedTrackID != nil else {
-                applyAllMetadataTrackFallbackRows(tracks)
+                refreshAllMetadataTracks(tracks, preferredSelectionName: currentSelectedContig()?.contigName)
                 return
             }
             let effectiveTrackID = tracks.contains { $0.id == requestedTrackID } ? requestedTrackID : nil
@@ -789,37 +789,46 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         }
     }
 
-    /// Nil track selection means All Alignments, never a silent default-track
-    /// substitution. Cached per-track stats can truthfully populate rows only
-    /// when a track resolves one persisted sample; aggregate multi-sample
-    /// stats are deliberately omitted until exact filtered summaries arrive.
-    private func applyAllMetadataTrackFallbackRows(_ tracks: [AlignmentTrackInfo]) {
-        guard let bundleURL = currentInput?.renderedBundleURL else { return }
-        let rows = tracks.flatMap { track -> [MappingContigSummary] in
-            guard let resolution = sampleIdentityResolution(for: track, bundleURL: bundleURL),
-                  resolution.identityIndex.canonicalSampleIDs.count == 1,
-                  let sampleID = resolution.identityIndex.canonicalSampleIDs.first,
-                  let stats = metadataFallbackRows(
-                    for: track,
-                    bundleURL: bundleURL,
-                    totalReads: Int(clamping: (track.mappedReadCount ?? 0) + (track.unmappedReadCount ?? 0))
-                  )
-            else { return [] }
-            return stats.map { summary in
-                MappingContigSummary(
-                    sampleID: sampleID,
-                    contigName: summary.contigName,
-                    contigLength: summary.contigLength,
-                    mappedReads: summary.mappedReads,
-                    mappedReadPercent: summary.mappedReadPercent,
-                    meanDepth: summary.meanDepth,
-                    coverageBreadth: summary.coverageBreadth,
-                    medianMAPQ: summary.medianMAPQ,
-                    meanIdentity: summary.meanIdentity
-                )
+    /// Rebuilds All Alignments from scratch. Clearing first is intentional:
+    /// an all-track request must never continue showing a stale focused-track
+    /// result while asynchronous RG-filtered summaries are running.
+    private func refreshAllMetadataTracks(
+        _ tracks: [AlignmentTrackInfo],
+        preferredSelectionName: String?
+    ) {
+        guard currentInput?.kind == .mappingResult,
+              let bundleURL = currentInput?.renderedBundleURL
+        else { return }
+        alignmentTrackSummaryRefreshID = UUID()
+        let refreshID = alignmentTrackSummaryRefreshID
+        contigTableView.configure(rows: [])
+        let builder = alignmentTrackSummaryBuilder
+        Task { @MainActor [weak self] in
+            var rows: [MappingContigSummary] = []
+            for track in tracks where track.metadataDBPath != nil {
+                let total = Int(clamping: (track.mappedReadCount ?? 0) + (track.unmappedReadCount ?? 0))
+                let bamURL = self?.resolvedTrackURL(track.sourcePath, bundleURL: bundleURL) ?? bundleURL
+                let resolution = self?.sampleIdentityResolution(for: track, bundleURL: bundleURL)
+                let samples = resolution?.identityIndex.canonicalSampleIDs.sorted().map {
+                    ($0 as String?, resolution!.identityIndex.readGroupIDs(forCanonicalSampleID: $0))
+                } ?? [(nil, Set<String>())]
+                for (sampleID, readGroups) in samples {
+                    let summaries: [MappingContigSummary]
+                    if samples.count == 1,
+                       let cached = self?.metadataFallbackRows(for: track, bundleURL: bundleURL, totalReads: total) {
+                        summaries = cached
+                    } else {
+                        summaries = (try? await builder(bamURL, total, readGroups)) ?? []
+                    }
+                    rows += summaries.filter { $0.mappedReads > 0 }.map {
+                        MappingContigSummary(sampleID: sampleID, contigName: $0.contigName, contigLength: $0.contigLength, mappedReads: $0.mappedReads, mappedReadPercent: $0.mappedReadPercent, meanDepth: $0.meanDepth, coverageBreadth: $0.coverageBreadth, medianMAPQ: $0.medianMAPQ, meanIdentity: $0.meanIdentity)
+                    }
+                }
             }
+            guard let self, self.alignmentTrackSummaryRefreshID == refreshID else { return }
+            self.contigTableView.configure(rows: rows)
+            self.refreshSelection(preferredSelectionName: preferredSelectionName)
         }
-        if !rows.isEmpty { contigTableView.configure(rows: rows) }
     }
 
     func notifyEmbeddedReferenceBundleLoadedIfAvailable() {
