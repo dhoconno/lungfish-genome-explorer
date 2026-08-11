@@ -223,6 +223,85 @@ final class MappingSummaryBuilderTests: XCTestCase {
         XCTAssertFalse(stillRunning, "samtools view process (pid \(pid)) should be terminated promptly after Task cancellation")
     }
 
+    func testCancellingReadGroupCoveragePipelineTerminatesViewAndCoverageProcessTrees() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mapping-summary-rg-pipeline-cancel-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let bin = root.appendingPathComponent(".lungfish/conda/envs/samtools/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let viewPIDFile = root.appendingPathComponent("view.pid")
+        let viewChildPIDFile = root.appendingPathComponent("view-child.pid")
+        let coveragePIDFile = root.appendingPathComponent("coverage.pid")
+        let samtools = bin.appendingPathComponent("samtools")
+        try """
+        #!/bin/bash
+        if [[ "$1" == "coverage" && "$2" == "-" ]]; then
+          /usr/bin/printf "%s" "$$" > "\(coveragePIDFile.path)"
+          /bin/cat >/dev/null
+          exit 0
+        fi
+        if [[ "$1" == "view" && "$2" == "-h" ]]; then
+          /usr/bin/printf "%s" "$$" > "\(viewPIDFile.path)"
+          /bin/sleep 300 &
+          /usr/bin/printf "%s" "$!" > "\(viewChildPIDFile.path)"
+          wait
+          exit 0
+        fi
+        if [[ "$1" == "view" && "$2" == "-c" ]]; then
+          echo 1
+          exit 0
+        fi
+        exit 91
+        """.write(to: samtools, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: samtools.path)
+        let bam = root.appendingPathComponent("input.bam")
+        try Data().write(to: bam)
+
+        let task = Task {
+            try await MappingSummaryBuilder.build(
+                sortedBAMURL: bam,
+                totalReads: 1,
+                readGroupIDs: ["S1-RG"],
+                runner: NativeToolRunner(toolsDirectory: nil, homeDirectory: root),
+                timeout: 300
+            )
+        }
+
+        let startedPIDs = try await waitForPIDs(
+            at: [viewPIDFile, viewChildPIDFile, coveragePIDFile],
+            timeout: 10
+        )
+        XCTAssertEqual(startedPIDs.count, 3, "expected both pipeline roots and the view child to start")
+
+        task.cancel()
+        let terminationDeadline = Date().addingTimeInterval(5)
+        while startedPIDs.contains(where: ProcessTreeTerminator.processExists), Date() < terminationDeadline {
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        let livePIDs = startedPIDs.filter(ProcessTreeTerminator.processExists)
+        XCTAssertTrue(livePIDs.isEmpty,
+            "cancelling RG coverage must terminate both pipeline roots and the view child"
+        )
+        // Keep the RED path bounded: the pre-fix implementation ignores
+        // cancellation, so explicitly clean up before awaiting its task.
+        for pid in livePIDs {
+            ProcessTreeTerminator.terminate(rootPID: pid, gracePeriod: 0)
+        }
+
+        do {
+            _ = try await task.value
+            XCTFail("Expected pipeline cancellation to throw")
+        } catch is CancellationError {
+            // expected
+        } catch {
+            if livePIDs.isEmpty {
+                XCTFail("Expected CancellationError after pipeline termination, got \(error)")
+            }
+        }
+    }
+
     // MARK: - R3-R3ML-first: memory guard on oversized sorted BAM
 
     /// A sortedBAM larger than the 2GB guard threshold must skip the
@@ -345,6 +424,20 @@ final class MappingSummaryBuilderTests: XCTestCase {
         try script.write(to: scriptURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
         return scriptURL
+    }
+
+    private func waitForPIDs(at urls: [URL], timeout: TimeInterval) async throws -> [Int32] {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let pids = urls.compactMap { url -> Int32? in
+                guard let contents = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+                return Int32(contents.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+            if pids.count == urls.count { return pids }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTFail("timed out waiting for pipeline PID files")
+        return []
     }
 }
 

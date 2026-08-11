@@ -212,15 +212,27 @@ public enum MappingSummaryBuilder {
         timeout: TimeInterval
     ) async throws -> String {
         let samtoolsPath = try await runner.findTool(.samtools)
+        let viewCancellationHandle = NativeProcessCancellationHandle()
+        let coverageCancellationHandle = NativeProcessCancellationHandle()
+        let runState = NativeProcessRunState()
         return try await withReadGroupList(readGroupIDs) { listURL in
-            try await Task.detached {
-                try runFilteredCoverageSynchronously(
-                    samtoolsPath: samtoolsPath,
-                    sortedBAMURL: sortedBAMURL,
-                    listURL: listURL,
-                    timeout: timeout
-                )
-            }.value
+            try await withTaskCancellationHandler {
+                try await Task.detached {
+                    try runFilteredCoverageSynchronously(
+                        samtoolsPath: samtoolsPath,
+                        sortedBAMURL: sortedBAMURL,
+                        listURL: listURL,
+                        timeout: timeout,
+                        viewCancellationHandle: viewCancellationHandle,
+                        coverageCancellationHandle: coverageCancellationHandle,
+                        runState: runState
+                    )
+                }.value
+            } onCancel: {
+                runState.markCancelled()
+                viewCancellationHandle.requestProcessTreeTermination()
+                coverageCancellationHandle.requestProcessTreeTermination()
+            }
         }
     }
 
@@ -228,7 +240,10 @@ public enum MappingSummaryBuilder {
         samtoolsPath: URL,
         sortedBAMURL: URL,
         listURL: URL,
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        viewCancellationHandle: NativeProcessCancellationHandle,
+        coverageCancellationHandle: NativeProcessCancellationHandle,
+        runState: NativeProcessRunState
     ) throws -> String {
         let coverage = Process()
         coverage.executableURL = samtoolsPath
@@ -248,6 +263,13 @@ public enum MappingSummaryBuilder {
         // This is an actual pipeline, not an assignment to a nil default stdin.
         view.standardOutput = input
 
+        coverageCancellationHandle.store(coverage)
+        viewCancellationHandle.store(view)
+        defer {
+            coverageCancellationHandle.clear(coverage)
+            viewCancellationHandle.clear(view)
+        }
+
         let stdoutBox = MappingSummaryDataBox()
         let stderrBox = MappingSummaryDataBox()
         let drainGroup = DispatchGroup()
@@ -259,19 +281,23 @@ public enum MappingSummaryBuilder {
             }
         }
         let timeoutItem = DispatchWorkItem {
-            if view.isRunning { view.terminate() }
-            if coverage.isRunning { coverage.terminate() }
+            runState.markTimedOut()
+            viewCancellationHandle.requestProcessTreeTermination()
+            coverageCancellationHandle.requestProcessTreeTermination()
         }
         DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutItem)
         defer { timeoutItem.cancel() }
         try coverage.run()
+        coverageCancellationHandle.terminateIfRequested()
         do {
             try view.run()
+            viewCancellationHandle.terminateIfRequested()
         } catch {
             input.fileHandleForWriting.closeFile()
-            if coverage.isRunning { coverage.terminate() }
+            coverageCancellationHandle.requestProcessTreeTermination()
             coverage.waitUntilExit()
             drainGroup.wait()
+            if runState.isCancelled { throw CancellationError() }
             throw error
         }
         view.waitUntilExit()
@@ -280,6 +306,7 @@ public enum MappingSummaryBuilder {
         drainGroup.wait()
         let stdout = String(data: stdoutBox.value, encoding: .utf8) ?? ""
         let stderr = String(data: stderrBox.value, encoding: .utf8) ?? ""
+        if runState.isCancelled { throw CancellationError() }
         guard view.terminationStatus == 0, coverage.terminationStatus == 0 else {
             throw MappingSummaryBuilderError.samtoolsCoverageFailed(stderr)
         }
