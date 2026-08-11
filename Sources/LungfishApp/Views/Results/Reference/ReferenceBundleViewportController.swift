@@ -10,6 +10,11 @@ import LungfishKit
 
 @MainActor
 public class ReferenceBundleViewportController: NSViewController, SampleMetadataPresentationConsumer {
+    private struct AlignmentReadCounts {
+        let mapped: Int
+        let total: Int
+    }
+
     enum PresentationMode: Equatable {
         case listDetail
         case focusedDetail
@@ -526,23 +531,25 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                let resolution = sampleIdentityResolution(for: track, bundleURL: bundleURL),
                resolution.identityIndex.canonicalSampleIDs.count == 1,
                resolution.unmatchedReadGroupIDs.isEmpty,
-               let sampleID = resolution.identityIndex.canonicalSampleIDs.first,
-               let cachedRows = metadataFallbackRows(
-                for: track,
-                bundleURL: bundleURL,
-                totalReads: Int(clamping: (track.mappedReadCount ?? 0) + (track.unmappedReadCount ?? 0))
-               ) {
-                applyVisibleAlignmentRows(
-                    [(
-                        sampleID: sampleID,
-                        readGroupIDs: resolution.identityIndex.readGroupIDs(forCanonicalSampleID: sampleID),
-                        summaries: cachedRows
-                    )],
-                    track: track,
-                    mappedReads: Int(clamping: track.mappedReadCount ?? 0),
-                    totalReads: Int(clamping: (track.mappedReadCount ?? 0) + (track.unmappedReadCount ?? 0)),
-                    preferredSelectionName: preferredSelectionName
-                )
+               let sampleID = resolution.identityIndex.canonicalSampleIDs.first {
+                let readCounts = alignmentReadCounts(for: track, bundleURL: bundleURL)
+                if let cachedRows = metadataFallbackRows(
+                    for: track,
+                    bundleURL: bundleURL,
+                    totalReads: readCounts.total
+                ) {
+                    applyVisibleAlignmentRows(
+                        [(
+                            sampleID: sampleID,
+                            readGroupIDs: resolution.identityIndex.readGroupIDs(forCanonicalSampleID: sampleID),
+                            summaries: cachedRows
+                        )],
+                        track: track,
+                        mappedReads: readCounts.mapped,
+                        totalReads: readCounts.total,
+                        preferredSelectionName: preferredSelectionName
+                    )
+                }
             }
             embeddedViewerController.viewerView.visibleAlignmentTrackIDSetting = visibleTrackID
             refreshMappingRowsForVisibleAlignmentTrack(
@@ -830,7 +837,8 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         Task { @MainActor [weak self] in
             var rows: [MappingContigSummary] = []
             for track in tracks {
-                let total = Int(clamping: (track.mappedReadCount ?? 0) + (track.unmappedReadCount ?? 0))
+                let total = self?.alignmentReadCounts(for: track, bundleURL: bundleURL).total
+                    ?? Int(clamping: (track.mappedReadCount ?? 0) + (track.unmappedReadCount ?? 0))
                 let bamURL = self?.resolvedTrackURL(track.sourcePath, bundleURL: bundleURL) ?? bundleURL
                 let resolution = self?.sampleIdentityResolution(for: track, bundleURL: bundleURL)
                 let canonicalSampleIDs = resolution?.identityIndex.canonicalSampleIDs.sorted() ?? []
@@ -1225,8 +1233,9 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         }
 
         let bamURL = resolvedTrackURL(track.sourcePath, bundleURL: bundleURL)
-        let mappedReads = Int(clamping: track.mappedReadCount ?? 0)
-        let totalReads = mappedReads + Int(clamping: track.unmappedReadCount ?? 0)
+        let readCounts = alignmentReadCounts(for: track, bundleURL: bundleURL)
+        let mappedReads = readCounts.mapped
+        let totalReads = readCounts.total
         let summaryBuilder = alignmentTrackSummaryBuilder
         let resolution = sampleIdentityResolution(for: track, bundleURL: bundleURL)
         let sampleReadGroups: [(sampleID: String?, readGroupIDs: Set<String>)]
@@ -1405,6 +1414,53 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
             trackIDs: [track.id],
             explicitResultSampleID: explicitSampleID,
             trackSampleIDs: trackSampleIDs
+        )
+    }
+
+    private func alignmentReadCounts(
+        for track: AlignmentTrackInfo,
+        bundleURL: URL
+    ) -> AlignmentReadCounts {
+        let manifestMapped = Int(clamping: track.mappedReadCount ?? 0)
+        let manifestTotal = manifestMapped + Int(clamping: track.unmappedReadCount ?? 0)
+        let fallback = AlignmentReadCounts(mapped: manifestMapped, total: manifestTotal)
+        guard let metadataDBPath = track.metadataDBPath,
+              let database = try? AlignmentMetadataDatabase(
+                url: resolvedTrackURL(metadataDBPath, bundleURL: bundleURL)
+              )
+        else {
+            return fallback
+        }
+
+        let flagStats = database.flagStats()
+        if let totalRecord = flagStats.first(where: { $0.category == "total" }),
+           let mappedRecord = flagStats.first(where: { $0.category == "mapped" }) {
+            let total = totalRecord.qcPass.addingReportingOverflow(totalRecord.qcFail)
+            let mapped = mappedRecord.qcPass.addingReportingOverflow(mappedRecord.qcFail)
+            if !total.overflow,
+               !mapped.overflow,
+               total.partialValue >= 0,
+               mapped.partialValue >= 0,
+               total.partialValue >= mapped.partialValue {
+                return AlignmentReadCounts(
+                    mapped: Int(clamping: mapped.partialValue),
+                    total: Int(clamping: total.partialValue)
+                )
+            }
+        }
+
+        let databaseMapped = database.totalMappedReads()
+        let databaseUnmapped = database.totalUnmappedReads()
+        let databaseTotal = databaseMapped.addingReportingOverflow(databaseUnmapped)
+        guard databaseMapped >= 0,
+              databaseUnmapped >= 0,
+              !databaseTotal.overflow,
+              databaseTotal.partialValue > 0 else {
+            return fallback
+        }
+        return AlignmentReadCounts(
+            mapped: Int(clamping: databaseMapped),
+            total: Int(clamping: databaseTotal.partialValue)
         )
     }
 
