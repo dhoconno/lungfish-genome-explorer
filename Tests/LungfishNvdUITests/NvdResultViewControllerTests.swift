@@ -20,6 +20,38 @@ private final class NvdRecordingEvidenceViewer: NSObject, ClassifierAlignmentVie
 
 @MainActor
 final class NvdResultViewControllerTests: XCTestCase {
+    func testImportedMetadataImmediatelyUpdatesActualResultTableChooserAndCells() throws {
+        let vc = NvdResultViewController()
+        _ = vc.view
+        vc.configureWithCachedRows(
+            [
+                Self.contigRow(sampleId: "sample-A", qseqid: "NODE_A"),
+                Self.contigRow(sampleId: "sample-B", qseqid: "NODE_B"),
+                Self.contigRow(sampleId: "sample-C", qseqid: "NODE_C"),
+            ],
+            manifest: NvdManifest(
+                experiment: "metadata", sampleCount: 3, contigCount: 3, hitCount: 3,
+                blastDbVersion: "db", snakemakeRunId: "run", sourceDirectoryPath: "/tmp",
+                samples: [], cachedTopContigs: nil
+            ),
+            bundleURL: URL(fileURLWithPath: "/tmp/nvd-metadata", isDirectory: true)
+        )
+        let store = try SampleMetadataStore(
+            csvData: Data("Sample\tCohort\tSite\nsample-A\tcase\tAustin\nsample-B\tcontrol\t\n".utf8),
+            knownSampleIds: ["sample-A", "sample-B", "sample-C"]
+        )
+
+        vc.applySampleMetadata(store)
+        let table = vc.testOutlineView
+        XCTAssertTrue(
+            Set(["Cohort", "Site"]).isSubset(of: Self.metadataMenuTitles(in: table))
+        )
+        try Self.showMetadataColumn(named: "Cohort", in: table)
+
+        XCTAssertEqual(try Self.outlineField(table, identifier: "metadata_Cohort", row: 0).stringValue, "case")
+        XCTAssertEqual(try Self.outlineField(table, identifier: "metadata_Cohort", row: 1).stringValue, "control")
+        XCTAssertEqual(try Self.outlineField(table, identifier: "metadata_Cohort", row: 2).stringValue, "—")
+    }
     func testManifestIndexIsUsedWhenLegacyDatabaseIndexIsAbsent() throws {
         let fixture = try NvdMenuFixture()
         addTeardownBlock { try? FileManager.default.removeItem(at: fixture.rootURL) }
@@ -793,6 +825,18 @@ final class NvdResultViewControllerTests: XCTestCase {
             (table.view(atColumn: column, row: row, makeIfNecessary: true)
                 as? NSTableCellView)?.textField
         )
+    }
+
+    private static func metadataMenuTitles(in table: NSTableView) -> [String] {
+        table.headerView?.menu?.items.compactMap { $0.representedObject as? String } ?? []
+    }
+
+    private static func showMetadataColumn(named name: String, in table: NSTableView) throws {
+        let menu = try XCTUnwrap(table.headerView?.menu)
+        let index = try XCTUnwrap(menu.items.firstIndex {
+            ($0.representedObject as? String) == name
+        })
+        menu.performActionForItem(at: index)
     }
 }
 

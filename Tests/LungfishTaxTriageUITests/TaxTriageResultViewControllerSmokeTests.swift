@@ -23,6 +23,41 @@ private final class TaxTriageRecordingEvidenceViewer: NSObject, ClassifierAlignm
 }
 
 final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
+    @MainActor func testImportedMetadataUpdatesActualOrganismAndBatchFlatTableChoosersAndCells() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TaxTriageMetadata-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let rows = [
+            Self.taxonomyRow(sample: "sample-1", organism: "Alpha virus", taxId: 1, tassScore: 0.9, reads: 20),
+            Self.taxonomyRow(sample: "sample-2", organism: "Beta virus", taxId: 2, tassScore: 0.8, reads: 10),
+        ]
+        let (vc, _) = try makeConfiguredBatchController(tempDir: tempDir, rows: rows)
+        vc.testOrganismTableView.rows = [
+            TaxTriageTableRow(organism: "Alpha virus", tassScore: 0.9, reads: 20, uniqueReads: 10, taxId: 1),
+        ]
+        let store = try SampleMetadataStore(
+            csvData: Data("Sample\tCohort\nsample-1\tcase\nsample-2\tcontrol\n".utf8),
+            knownSampleIds: ["sample-1", "sample-2"]
+        )
+
+        vc.applySampleMetadata(store)
+        let organismTable = vc.testOrganismTableView.testingTableView
+        let batchTable = vc.testBatchFlatTableView.testTableView
+        XCTAssertTrue(Set(["Cohort"]).isSubset(of: Self.metadataMenuTitles(in: organismTable)))
+        XCTAssertTrue(Set(["Cohort"]).isSubset(of: Self.metadataMenuTitles(in: batchTable)))
+
+        try Self.showMetadataColumn(named: "Cohort", in: organismTable)
+        try Self.showMetadataColumn(named: "Cohort", in: batchTable)
+        vc.testOrganismTableView.metadataColumns.update(store: store, sampleId: "sample-1")
+
+        XCTAssertEqual(vc.testOrganismTableView.testingCell(column: "metadata_Cohort", row: 0)?.stringValue, "case")
+        let sample1Row = try XCTUnwrap(vc.testBatchFlatTableView.displayedRows.firstIndex { $0.sample == "sample-1" })
+        let sample2Row = try XCTUnwrap(vc.testBatchFlatTableView.displayedRows.firstIndex { $0.sample == "sample-2" })
+        XCTAssertEqual(vc.testBatchFlatTableView.testCellText(row: sample1Row, columnID: "metadata_Cohort").primary, "case")
+        XCTAssertEqual(vc.testBatchFlatTableView.testCellText(row: sample2Row, columnID: "metadata_Cohort").primary, "control")
+    }
     func testTaxTriageLeafDoesNotDependOnMiniBAM() throws {
         let source = try String(contentsOfFile: "Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift", encoding: .utf8)
         XCTAssertFalse(source.contains("MiniBAMViewController"))
@@ -940,5 +975,17 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
             primaryAccession: "NC_\(taxId)",
             accessionLength: 1000
         )
+    }
+
+    @MainActor private static func metadataMenuTitles(in table: NSTableView) -> [String] {
+        table.headerView?.menu?.items.compactMap { $0.representedObject as? String } ?? []
+    }
+
+    @MainActor private static func showMetadataColumn(named name: String, in table: NSTableView) throws {
+        let menu = try XCTUnwrap(table.headerView?.menu)
+        let index = try XCTUnwrap(menu.items.firstIndex {
+            ($0.representedObject as? String) == name
+        })
+        menu.performActionForItem(at: index)
     }
 }

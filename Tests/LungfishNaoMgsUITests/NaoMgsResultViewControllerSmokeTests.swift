@@ -9,8 +9,34 @@ import SwiftUI
 @testable import LungfishIO
 import LungfishWorkflow
 @testable import LungfishKit
+import LungfishCore
 
 final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
+    @MainActor func testImportedMetadataImmediatelyUpdatesActualTaxonomyTableChooserAndCells() throws {
+        let controller = NaoMgsResultViewController()
+        controller.loadViewIfNeeded()
+        controller.configureWithCachedRows(
+            [
+                Self.makeCachedRow(sample: "sample-A", taxId: 1),
+                Self.makeCachedRow(sample: "sample-B", taxId: 2),
+                Self.makeCachedRow(sample: "sample-C", taxId: 3),
+            ],
+            manifest: Self.makeManifest()
+        )
+        let store = try SampleMetadataStore(
+            csvData: Data("Sample\tCohort\nsample-A\tcase\nsample-B\tcontrol\n".utf8),
+            knownSampleIds: ["sample-A", "sample-B", "sample-C"]
+        )
+
+        controller.applySampleMetadata(store)
+        let table = controller.testTaxonomyTableView
+        XCTAssertTrue(Set(["Cohort"]).isSubset(of: Self.metadataMenuTitles(in: table)))
+        try Self.showMetadataColumn(named: "Cohort", in: table)
+
+        XCTAssertEqual(try Self.tableField(table, identifier: "metadata_Cohort", row: 0).stringValue, "case")
+        XCTAssertEqual(try Self.tableField(table, identifier: "metadata_Cohort", row: 1).stringValue, "control")
+        XCTAssertEqual(try Self.tableField(table, identifier: "metadata_Cohort", row: 2).stringValue, "—")
+    }
     @MainActor func testViewControllerInstantiates() {
         let vc = NaoMgsResultViewController()
         XCTAssertNotNil(vc.view)
@@ -1161,9 +1187,9 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
         vc.contextViewAccessionOnNCBI(item)
     }
 
-    private static func makeCachedRow(taxId: Int = 1234) -> NaoMgsTaxonSummaryRow {
+    private static func makeCachedRow(sample: String = "sample-1", taxId: Int = 1234) -> NaoMgsTaxonSummaryRow {
         NaoMgsTaxonSummaryRow(
-            sample: "sample-1",
+            sample: sample,
             taxId: taxId,
             name: "Example virus",
             hitCount: 10,
@@ -1187,6 +1213,33 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
             taxonCount: 1,
             topTaxon: "Example virus",
             topTaxonId: 1234
+        )
+    }
+
+    @MainActor private static func metadataMenuTitles(in table: NSTableView) -> [String] {
+        table.headerView?.menu?.items.compactMap { $0.representedObject as? String } ?? []
+    }
+
+    @MainActor private static func showMetadataColumn(named name: String, in table: NSTableView) throws {
+        let menu = try XCTUnwrap(table.headerView?.menu)
+        let index = try XCTUnwrap(menu.items.firstIndex {
+            ($0.representedObject as? String) == name
+        })
+        menu.performActionForItem(at: index)
+    }
+
+    @MainActor private static func tableField(
+        _ table: NSTableView,
+        identifier: String,
+        row: Int
+    ) throws -> NSTextField {
+        let column = table.column(withIdentifier: .init(identifier))
+        guard column >= 0 else {
+            XCTFail("Missing table column \(identifier)")
+            throw NSError(domain: "NaoMgsMetadataTests", code: 1)
+        }
+        return try XCTUnwrap(
+            (table.view(atColumn: column, row: row, makeIfNecessary: true) as? NSTableCellView)?.textField
         )
     }
 }

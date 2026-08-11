@@ -481,6 +481,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
 
         // Load ALL rows from the DB (filtering by selection happens in applyBatchSampleFilter).
         reloadFromDatabase()
+        batchTableView.configure(rows: allBatchRows)
 
         // Wire batch table callbacks (same pattern as configureFromDatabase).
         batchTableView.metadataColumns.isMultiSampleMode = true
