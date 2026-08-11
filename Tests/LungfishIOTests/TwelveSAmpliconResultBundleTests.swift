@@ -3,6 +3,35 @@ import XCTest
 @testable import LungfishIO
 
 final class TwelveSAmpliconResultBundleTests: XCTestCase {
+    func testMetadataContextFilesIncludesOnlyFinalAlignmentIdentityArtifacts() throws {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("metadata-context-\(UUID().uuidString).lungfish", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let bamURL = bundleURL.appendingPathComponent("alignments/S1.bam")
+        let indexURL = bundleURL.appendingPathComponent("alignments/S1.bam.bai")
+        let alignmentDB = bundleURL.appendingPathComponent("alignment-metadata.sqlite")
+        let temporaryBAM = bundleURL.appendingPathComponent("tmp/staging.bam")
+        for url in [bamURL, indexURL, alignmentDB, temporaryBAM] {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(url.lastPathComponent.utf8).write(to: url)
+        }
+        let manifest = BundleManifest(
+            name: "viewer", identifier: "org.lungfish.viewer",
+            source: SourceInfo(organism: "test", assembly: "test"),
+            alignments: [.init(
+                id: "viewer", name: "viewer", sourcePath: "alignments/S1.bam",
+                indexPath: "alignments/S1.bam.bai", metadataDBPath: "alignment-metadata.sqlite"
+            )]
+        )
+        try manifest.save(to: bundleURL)
+
+        let files = ResultBundleSampleMetadataResolver.sampleMetadataContextFiles(in: bundleURL)
+        XCTAssertTrue(files.contains(bamURL.standardizedFileURL))
+        XCTAssertTrue(files.contains(indexURL.standardizedFileURL))
+        XCTAssertTrue(files.contains(alignmentDB.standardizedFileURL))
+        XCTAssertFalse(files.contains(temporaryBAM.standardizedFileURL))
+    }
     func testLoadsTargetRowBundleWithSampleCountsAndReadFate() throws {
         let bundleURL = try makeSyntheticBundle()
 

@@ -54,6 +54,12 @@ public enum ResultBundleSampleMetadataResolver {
             candidates.append(TwelveSAmpliconResultBundle.resolvedURL(for: manifest.sampleTablePath, in: bundleURL))
         }
 
+        // These are final, bundle-owned artifacts discovered from the result
+        // directory itself.  Do not synthesize an index path from a BAM name:
+        // a descriptor is recorded only when the exact stored BAM/CRAM, index,
+        // or alignment identity database actually exists outside staging dirs.
+        candidates.append(contentsOf: finalAlignmentIdentityFiles(in: bundleURL))
+
         return existingUniqueFiles(candidates)
     }
 
@@ -84,6 +90,24 @@ public enum ResultBundleSampleMetadataResolver {
                 && !excluded.contains(url.lastPathComponent)
         }
         return Set(subdirs.map(\.lastPathComponent))
+    }
+
+    private static func finalAlignmentIdentityFiles(in bundleURL: URL) -> [URL] {
+        guard let manifest = try? BundleManifest.load(from: bundleURL) else { return [] }
+        return manifest.alignments.flatMap { track in
+            [track.sourcePath, track.indexPath, track.metadataDBPath]
+                .compactMap { $0 }
+                .compactMap { bundleMember($0, in: bundleURL) }
+        }
+    }
+
+    private static func bundleMember(_ relativePath: String, in bundleURL: URL) -> URL? {
+        let bundle = bundleURL.standardizedFileURL
+        let candidate = bundle.appendingPathComponent(relativePath).standardizedFileURL
+        guard candidate.path.hasPrefix(bundle.path + "/"),
+              FileManager.default.fileExists(atPath: candidate.path)
+        else { return nil }
+        return candidate
     }
 
     private static func existingUniqueFiles(_ candidates: [URL]) -> [URL] {

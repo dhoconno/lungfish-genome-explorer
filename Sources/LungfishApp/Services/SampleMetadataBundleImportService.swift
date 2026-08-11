@@ -10,6 +10,10 @@ struct SampleMetadataBundleImportResult {
     let provenanceURL: URL?
 }
 
+enum SampleMetadataBundleImportError: Error, Equatable {
+    case duplicateCanonicalIdentity(String)
+}
+
 struct SampleMetadataBundleImportService {
     func importMetadata(
         data: Data,
@@ -29,7 +33,7 @@ struct SampleMetadataBundleImportService {
             knownSampleIds: acceptedIdentifiers
         )
         if let identityIndex {
-            rekey(store, using: identityIndex)
+            try rekey(store, using: identityIndex)
         }
 
         guard let bundleURL else {
@@ -91,6 +95,7 @@ struct SampleMetadataBundleImportService {
                 ),
                 "matchedSampleCount": .integer(store.matchedSampleIds.count),
                 "unmatchedMetadataRowCount": .integer(store.unmatchedRecords.count),
+                "ambiguousIdentityCount": .integer(0),
                 "totalMetadataRows": .integer(scanResult.totalRows),
             ]
         )
@@ -130,15 +135,16 @@ struct SampleMetadataBundleImportService {
         }
     }
 
-    private func rekey(_ store: SampleMetadataStore, using identityIndex: SampleIdentityIndex) {
+    private func rekey(_ store: SampleMetadataStore, using identityIndex: SampleIdentityIndex) throws {
         var canonicalRecords: [String: [String: String]] = [:]
         for identifier in store.records.keys.sorted() {
             guard let canonicalID = identityIndex.canonicalSampleID(forMetadataIdentifier: identifier),
                   let record = store.records[identifier]
             else { continue }
-            if canonicalRecords[canonicalID] == nil {
-                canonicalRecords[canonicalID] = record
+            guard canonicalRecords[canonicalID] == nil else {
+                throw SampleMetadataBundleImportError.duplicateCanonicalIdentity(canonicalID)
             }
+            canonicalRecords[canonicalID] = record
         }
         store.records = canonicalRecords
         store.matchedSampleIds = Set(canonicalRecords.keys)
