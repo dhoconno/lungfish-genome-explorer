@@ -204,6 +204,9 @@ public final class SampleMetadataPresentationContext {
     public let importContext: SampleMetadataImportContext
 
     private var observers: [ObserverToken: Observer] = [:]
+    private var observerTokensInRegistrationOrder: [ObserverToken] = []
+    private var observerGeneration = 0
+    private var isDeliveringObservers = false
 
     public init(
         finalResultURL: URL,
@@ -218,10 +221,12 @@ public final class SampleMetadataPresentationContext {
     }
 
     /// Registers a viewport consumer and delivers the current store immediately.
+    /// Consumers must call ``removeObserver(_:)`` when they no longer need updates.
     @discardableResult
     public func observe(_ observer: @escaping Observer) -> ObserverToken {
         let token = UUID()
         observers[token] = observer
+        observerTokensInRegistrationOrder.append(token)
         observer(sampleMetadataStore)
         return token
     }
@@ -243,9 +248,25 @@ public final class SampleMetadataPresentationContext {
     }
 
     private func notifyObservers() {
-        let observerSnapshot = Array(observers.values)
-        for observer in observerSnapshot {
-            observer(sampleMetadataStore)
+        observerGeneration &+= 1
+        guard !isDeliveringObservers else { return }
+
+        isDeliveringObservers = true
+        defer { isDeliveringObservers = false }
+
+        while true {
+            let generation = observerGeneration
+            let store = sampleMetadataStore
+            let observerTokenSnapshot = observerTokensInRegistrationOrder
+
+            for token in observerTokenSnapshot {
+                guard observerGeneration == generation else { break }
+                guard let observer = observers[token] else { continue }
+                observer(store)
+            }
+
+            guard observerGeneration == generation else { continue }
+            return
         }
     }
 }

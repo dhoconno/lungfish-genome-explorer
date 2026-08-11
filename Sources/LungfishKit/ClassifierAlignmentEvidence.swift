@@ -102,7 +102,23 @@ public struct ClassifierAlignmentEvidencePresentation: Equatable, Sendable {
 ///
 /// This type deliberately carries final stored paths and explicit identity; it
 /// never represents a synthetic reference-bundle wrapper or a staging payload.
+/// It validates only request shape. URL containment, filesystem existence,
+/// checksums, BAM/index compatibility, `@SQ`, and FASTA-record validation are
+/// intentionally deferred to the App-owned evidence validator.
 public struct ClassifierAlignmentEvidenceRequest: Equatable, Sendable {
+    public enum ValidationError: Error, Equatable {
+        case emptyStableResultID
+        case emptyProvenanceID
+        case emptyCanonicalSampleID
+        case emptyContigName
+        case invalidContigLength(Int)
+        case emptyReferenceRecordName
+        case invalidReferenceLength(Int)
+        case emptyReferenceMD5
+        case emptyPresentationLabel(String)
+        case indexExtensionDoesNotMatchKind(expected: String, actual: String)
+    }
+
     public let workflow: ClassifierAlignmentWorkflowKind
     public let resultIdentity: ClassifierAlignmentResultIdentity
     public let bamURL: URL
@@ -121,7 +137,50 @@ public struct ClassifierAlignmentEvidenceRequest: Equatable, Sendable {
         contig: ClassifierAlignmentContig,
         referenceCandidate: ClassifierAlignmentReferenceCandidate?,
         presentation: ClassifierAlignmentEvidencePresentation
-    ) {
+    ) throws {
+        guard !Self.isBlank(resultIdentity.stableID) else {
+            throw ValidationError.emptyStableResultID
+        }
+        guard !Self.isBlank(resultIdentity.provenanceID) else {
+            throw ValidationError.emptyProvenanceID
+        }
+        guard !Self.isBlank(sample.canonicalID) else {
+            throw ValidationError.emptyCanonicalSampleID
+        }
+        guard !Self.isBlank(contig.name) else {
+            throw ValidationError.emptyContigName
+        }
+        guard contig.expectedLength > 0 else {
+            throw ValidationError.invalidContigLength(contig.expectedLength)
+        }
+        if let referenceCandidate {
+            guard !Self.isBlank(referenceCandidate.recordName) else {
+                throw ValidationError.emptyReferenceRecordName
+            }
+            guard referenceCandidate.expectedLength > 0 else {
+                throw ValidationError.invalidReferenceLength(referenceCandidate.expectedLength)
+            }
+            if let expectedMD5 = referenceCandidate.expectedMD5, Self.isBlank(expectedMD5) {
+                throw ValidationError.emptyReferenceMD5
+            }
+        }
+        for (name, label) in [
+            ("workflowLabel", presentation.workflowLabel),
+            ("resultLabel", presentation.resultLabel),
+            ("sampleLabel", presentation.sampleLabel),
+            ("contigLabel", presentation.contigLabel)
+        ] {
+            guard !Self.isBlank(label) else {
+                throw ValidationError.emptyPresentationLabel(name)
+            }
+        }
+        let actualExtension = index.url.pathExtension.lowercased()
+        if !actualExtension.isEmpty, actualExtension != index.kind.rawValue {
+            throw ValidationError.indexExtensionDoesNotMatchKind(
+                expected: index.kind.rawValue,
+                actual: actualExtension
+            )
+        }
         self.workflow = workflow
         self.resultIdentity = resultIdentity
         self.bamURL = bamURL
@@ -130,6 +189,10 @@ public struct ClassifierAlignmentEvidenceRequest: Equatable, Sendable {
         self.contig = contig
         self.referenceCandidate = referenceCandidate
         self.presentation = presentation
+    }
+
+    private static func isBlank(_ value: String) -> Bool {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 

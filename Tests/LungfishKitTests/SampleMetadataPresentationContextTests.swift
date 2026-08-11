@@ -162,4 +162,76 @@ final class SampleMetadataPresentationContextTests: XCTestCase {
 
         XCTAssertEqual(callbackCount, 2)
     }
+
+    @MainActor
+    func testNestedUpdateDoesNotDeliverOlderStoreToLaterObservers() throws {
+        let context = try makeContext()
+        let storeA = try makeStore(value: "A")
+        let storeB = try makeStore(value: "B")
+        var firstObserverValues: [String?] = []
+        var secondObserverValues: [String?] = []
+
+        context.observe { store in
+            let value = store?.records["S1"]?["state"]
+            firstObserverValues.append(value)
+            if value == "A" {
+                context.updateSampleMetadataStore(storeB)
+            }
+        }
+        context.observe { store in
+            secondObserverValues.append(store?.records["S1"]?["state"])
+        }
+
+        context.updateSampleMetadataStore(storeA)
+
+        XCTAssertEqual(firstObserverValues, [nil, "A", "B"])
+        XCTAssertEqual(secondObserverValues, [nil, "B"])
+    }
+
+    @MainActor
+    func testObserverRemovedByAnotherObserverIsSkippedInCurrentDelivery() throws {
+        let context = try makeContext()
+        let store = try makeStore(value: "A")
+        var firstObserverValues: [String?] = []
+        var secondObserverValues: [String?] = []
+        var secondToken: SampleMetadataPresentationContext.ObserverToken?
+
+        context.observe { receivedStore in
+            firstObserverValues.append(receivedStore?.records["S1"]?["state"])
+            if receivedStore != nil, let secondToken {
+                context.removeObserver(secondToken)
+            }
+        }
+        secondToken = context.observe { receivedStore in
+            secondObserverValues.append(receivedStore?.records["S1"]?["state"])
+        }
+
+        context.updateSampleMetadataStore(store)
+
+        XCTAssertEqual(firstObserverValues, [nil, "A"])
+        XCTAssertEqual(secondObserverValues, [nil])
+    }
+
+    @MainActor
+    private func makeContext() throws -> SampleMetadataPresentationContext {
+        SampleMetadataPresentationContext(
+            finalResultURL: URL(fileURLWithPath: "/results/final/result.lungfish"),
+            identityIndex: try SampleIdentityIndex(samples: [
+                .init(canonicalID: "S1", aliases: [], alignmentTrackIDs: [], readGroupIDs: [])
+            ]),
+            importContext: .init(
+                resultID: "result-1",
+                provenanceID: "provenance-1",
+                workflowName: "sample-metadata-import",
+                workflowVersion: "1.0"
+            )
+        )
+    }
+
+    private func makeStore(value: String) throws -> SampleMetadataStore {
+        try SampleMetadataStore(
+            csvData: Data("sample\tstate\nS1\t\(value)\n".utf8),
+            knownSampleIds: ["S1"]
+        )
+    }
 }
