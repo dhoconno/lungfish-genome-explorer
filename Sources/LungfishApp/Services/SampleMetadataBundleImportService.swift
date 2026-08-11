@@ -2,6 +2,7 @@ import Foundation
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
+import LungfishKit
 
 struct SampleMetadataBundleImportResult {
     let store: SampleMetadataStore
@@ -16,13 +17,20 @@ struct SampleMetadataBundleImportService {
         scanResult: MetadataColumnScanResult,
         sampleColumnIndex: Int,
         knownSampleIds: Set<String>,
+        identityIndex: SampleIdentityIndex? = nil,
         bundleURL: URL?
     ) throws -> SampleMetadataBundleImportResult {
+        let acceptedIdentifiers = identityIndex.map {
+            Set($0.metadataIdentifierMappings.keys)
+        } ?? knownSampleIds
         let store = try SampleMetadataStore(
             scanResult: scanResult,
             sampleColumnIndex: sampleColumnIndex,
-            knownSampleIds: knownSampleIds
+            knownSampleIds: acceptedIdentifiers
         )
+        if let identityIndex {
+            rekey(store, using: identityIndex)
+        }
 
         guard let bundleURL else {
             return SampleMetadataBundleImportResult(
@@ -75,6 +83,12 @@ struct SampleMetadataBundleImportService {
                 "sourceDelimiter": .string(scanResult.delimiter == "\t" ? "tab" : "comma"),
                 "validationPolicy": .string("trimmed-normalized-identifiers"),
                 "knownSampleCount": .integer(knownSampleIds.count),
+                "canonicalAliasMap": .dictionary(
+                    identityIndex?.metadataIdentifierMappings.mapValues(ParameterValue.string) ?? [:]
+                ),
+                "readGroupMap": .dictionary(
+                    identityIndex?.readGroupMappings.mapValues(ParameterValue.string) ?? [:]
+                ),
                 "matchedSampleCount": .integer(store.matchedSampleIds.count),
                 "unmatchedMetadataRowCount": .integer(store.unmatchedRecords.count),
                 "totalMetadataRows": .integer(scanResult.totalRows),
@@ -114,6 +128,20 @@ struct SampleMetadataBundleImportService {
             try snapshot.restore()
             throw error
         }
+    }
+
+    private func rekey(_ store: SampleMetadataStore, using identityIndex: SampleIdentityIndex) {
+        var canonicalRecords: [String: [String: String]] = [:]
+        for identifier in store.records.keys.sorted() {
+            guard let canonicalID = identityIndex.canonicalSampleID(forMetadataIdentifier: identifier),
+                  let record = store.records[identifier]
+            else { continue }
+            if canonicalRecords[canonicalID] == nil {
+                canonicalRecords[canonicalID] = record
+            }
+        }
+        store.records = canonicalRecords
+        store.matchedSampleIds = Set(canonicalRecords.keys)
     }
 
     private func format(for url: URL) -> FileFormat {

@@ -16,6 +16,7 @@ extension InspectorViewController {
 
     private struct SampleMetadataImportContext {
         let knownSampleIds: Set<String>
+        let identityIndex: SampleIdentityIndex?
         let bundleURL: URL?
         let applyStore: (SampleMetadataStore) -> Void
     }
@@ -197,6 +198,7 @@ extension InspectorViewController {
             guard !genotypeDocument.sampleIds.isEmpty else { return nil }
             return SampleMetadataImportContext(
                 knownSampleIds: Set(genotypeDocument.sampleIds),
+                identityIndex: nil,
                 bundleURL: genotypeDocument.bundleURL,
                 applyStore: { [weak self] store in
                     guard let self,
@@ -212,6 +214,7 @@ extension InspectorViewController {
         if let presentationContext = viewModel.documentSectionViewModel.sampleMetadataPresentationContext {
             return SampleMetadataImportContext(
                 knownSampleIds: presentationContext.identityIndex.canonicalSampleIDs,
+                identityIndex: presentationContext.identityIndex,
                 bundleURL: presentationContext.finalResultURL,
                 applyStore: { [weak self, presentationContext] store in
                     presentationContext.updateSampleMetadataStore(store)
@@ -224,6 +227,7 @@ extension InspectorViewController {
         guard !classifierSampleIds.isEmpty else { return nil }
         return SampleMetadataImportContext(
             knownSampleIds: classifierSampleIds,
+            identityIndex: nil,
             bundleURL: viewModel.documentSectionViewModel.bundleAttachmentStore?.bundleURL,
             applyStore: { [weak self] store in
                 self?.viewModel.documentSectionViewModel.sampleMetadataStore = store
@@ -273,6 +277,7 @@ extension InspectorViewController {
             scanResult: scanResult,
             sampleColumnIndex: sampleColumnIndex,
             knownSampleIds: context.knownSampleIds,
+            identityIndex: context.identityIndex,
             bundleURL: context.bundleURL
         )
         context.applyStore(result.store)

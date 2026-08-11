@@ -52,6 +52,15 @@ public struct SampleIdentityIndex: Sendable {
     /// Persisted canonical sample IDs available to metadata and BAM list rows.
     public let canonicalSampleIDs: Set<String>
 
+    /// Stable identity evidence for metadata-import provenance.  Keys are
+    /// normalized identifiers (canonical IDs and explicit aliases); values
+    /// are their persisted canonical sample IDs.
+    public var metadataIdentifierMappings: [String: String] {
+        canonicalIDs.merging(aliases) { canonical, _ in canonical }
+    }
+
+    public var readGroupMappings: [String: String] { readGroupIDs }
+
     public init(
         samples: [SampleIdentity],
         explicitOneSampleFallbackCanonicalID: String? = nil

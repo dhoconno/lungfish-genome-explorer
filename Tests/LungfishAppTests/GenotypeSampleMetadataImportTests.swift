@@ -4,9 +4,42 @@ import XCTest
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
+import LungfishKit
 
 @MainActor
 final class GenotypeSampleMetadataImportTests: XCTestCase {
+    func testImportRekeysExplicitAliasAndRecordsIdentityMapping() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SampleMetadataAliasImport-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let bundleURL = root.appendingPathComponent("result.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: bundleURL.appendingPathComponent("manifest.json"))
+        let sourceURL = root.appendingPathComponent("metadata.tsv")
+        let metadata = Data("donor\tsite\nalias-one\tHilo\n".utf8)
+        try metadata.write(to: sourceURL)
+        let identityIndex = try SampleIdentityIndex(samples: [
+            .init(canonicalID: "S1", aliases: ["alias-one"], alignmentTrackIDs: [], readGroupIDs: ["rg-1"])
+        ])
+        let scan = try SampleMetadataStore.scanForSampleColumn(
+            csvData: metadata,
+            knownSampleIds: Set(identityIndex.metadataIdentifierMappings.keys)
+        )
+
+        let result = try SampleMetadataBundleImportService().importMetadata(
+            data: metadata, sourceURL: sourceURL, scanResult: scan,
+            sampleColumnIndex: try XCTUnwrap(scan.bestColumn).index,
+            knownSampleIds: identityIndex.canonicalSampleIDs,
+            identityIndex: identityIndex, bundleURL: bundleURL
+        )
+
+        XCTAssertEqual(result.store.records["S1"]?["site"], "Hilo")
+        let provenance = try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: Data(contentsOf: try XCTUnwrap(result.provenanceURL)))
+        XCTAssertEqual(provenance.options.resolvedDefaults["canonicalAliasMap"]?.dictionaryValue?["alias-one"]?.stringValue, "S1")
+        XCTAssertEqual(provenance.options.resolvedDefaults["readGroupMap"]?.dictionaryValue?["rg-1"]?.stringValue, "S1")
+    }
+
     func testImportPersistsGenotypeMetadataAndProvenanceWithFinalBundlePayload() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeSampleMetadataImportTests-\(UUID().uuidString)", isDirectory: true)
