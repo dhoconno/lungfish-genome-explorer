@@ -109,7 +109,8 @@ private func nvdHasAncestor<T: NSView>(of type: T.Type, from view: NSView) -> Bo
 /// `NSSplitViewController`) per macOS 26 deprecated API rules.
 @MainActor
 public final class NvdResultViewController: NSViewController, NSSplitViewDelegate,
-    NSOutlineViewDataSource, NSOutlineViewDelegate, NSPopoverDelegate
+    NSOutlineViewDataSource, NSOutlineViewDelegate, NSPopoverDelegate,
+    SampleMetadataPresentationConsumer
 {
 
     // MARK: - Data
@@ -224,6 +225,10 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         didSet {
             updateMetadataColumnsForCurrentSamples()
         }
+    }
+
+    public func applySampleMetadata(_ store: SampleMetadataStore?) {
+        sampleMetadataStore = store
     }
 
     /// Controller for dynamic sample metadata columns (from imported CSV/TSV).

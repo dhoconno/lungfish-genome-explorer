@@ -25,6 +25,7 @@ extension MainSplitViewController {
            ) {
             return
         }
+        clearClassifierMetadataPresentation()
         mainSplitLogger.info("displayContent: Selected '\(item.title, privacy: .public)' type=\(String(describing: item.type))")
         let displayIdentity = contentSelectionIdentity(for: item)
         let displayToken = beginDisplayRequest(identity: displayIdentity)

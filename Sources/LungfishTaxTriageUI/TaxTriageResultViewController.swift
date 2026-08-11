@@ -172,7 +172,7 @@ private func makeTaxTriageDatabasePageSnapshot(
 /// This class is `@MainActor` isolated and manages its `NSSplitView` directly
 /// so pane sizing and table/viewer coordination stay local to this controller.
 @MainActor
-public final class TaxTriageResultViewController: NSViewController, NSSplitViewDelegate {
+public final class TaxTriageResultViewController: NSViewController, NSSplitViewDelegate, SampleMetadataPresentationConsumer {
 
     // MARK: - Data
 
@@ -478,6 +478,10 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         didSet {
             updateMetadataColumnsForCurrentSample()
         }
+    }
+
+    public func applySampleMetadata(_ store: SampleMetadataStore?) {
+        sampleMetadataStore = store
     }
 
     // MARK: - Organism Search

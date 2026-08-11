@@ -209,6 +209,17 @@ extension InspectorViewController {
             )
         }
 
+        if let presentationContext = viewModel.documentSectionViewModel.sampleMetadataPresentationContext {
+            return SampleMetadataImportContext(
+                knownSampleIds: presentationContext.identityIndex.canonicalSampleIDs,
+                bundleURL: presentationContext.finalResultURL,
+                applyStore: { [weak self, presentationContext] store in
+                    presentationContext.updateSampleMetadataStore(store)
+                    self?.viewModel.documentSectionViewModel.sampleMetadataStore = store
+                }
+            )
+        }
+
         let classifierSampleIds = Set(viewModel.documentSectionViewModel.classifierSampleEntries.map(\.id))
         guard !classifierSampleIds.isEmpty else { return nil }
         return SampleMetadataImportContext(

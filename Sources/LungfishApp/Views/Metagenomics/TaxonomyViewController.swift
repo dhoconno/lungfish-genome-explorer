@@ -91,7 +91,7 @@ struct BatchClassificationRow: Sendable {
 /// This class is `@MainActor` isolated and manages its `NSSplitView` directly
 /// so pane sizing and synchronized selection stay within this controller.
 @MainActor
-public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate {
+public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate, SampleMetadataPresentationConsumer {
 
     // MARK: - Data
 
@@ -141,6 +141,10 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
                 try? kraken2Database?.refreshSampleMetadataCache(store: store)
             }
         }
+    }
+
+    public func applySampleMetadata(_ store: SampleMetadataStore?) {
+        sampleMetadataStore = store
     }
 
     // MARK: - Child Views

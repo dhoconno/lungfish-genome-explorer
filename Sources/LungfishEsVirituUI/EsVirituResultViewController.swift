@@ -176,7 +176,7 @@ struct BatchEsVirituRow: Sendable {
 /// This class is `@MainActor` isolated and uses raw `NSSplitView` (not
 /// `NSSplitViewController`) per macOS 26 deprecated API rules.
 @MainActor
-public final class EsVirituResultViewController: NSViewController, NSSplitViewDelegate {
+public final class EsVirituResultViewController: NSViewController, NSSplitViewDelegate, SampleMetadataPresentationConsumer {
 
     // MARK: - Data
 
@@ -311,6 +311,10 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
             detectionTableView.metadataColumns.update(store: sampleMetadataStore, sampleId: sampleId)
             batchTableView.metadataColumns.update(store: sampleMetadataStore, sampleId: nil)
         }
+    }
+
+    public func applySampleMetadata(_ store: SampleMetadataStore?) {
+        sampleMetadataStore = store
     }
 
     // MARK: - Callbacks

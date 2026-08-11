@@ -192,6 +192,14 @@ public struct SampleMetadataImportContext: Equatable, Sendable {
     }
 }
 
+/// A result viewport that accepts the complete metadata store owned by its
+/// result's presentation context. Leaf modules conform directly so the App
+/// composition root never needs classifier-specific import callbacks.
+@MainActor
+public protocol SampleMetadataPresentationConsumer: AnyObject {
+    func applySampleMetadata(_ store: SampleMetadataStore?)
+}
+
 /// Result-owned source of truth for current sample metadata and live consumers.
 @MainActor
 public final class SampleMetadataPresentationContext {
@@ -229,6 +237,14 @@ public final class SampleMetadataPresentationContext {
         observerTokensInRegistrationOrder.append(token)
         observer(sampleMetadataStore)
         return token
+    }
+
+    /// Registers a viewport consumer and immediately applies the current store.
+    @discardableResult
+    public func observe(_ consumer: any SampleMetadataPresentationConsumer) -> ObserverToken {
+        observe { [weak consumer] store in
+            consumer?.applySampleMetadata(store)
+        }
     }
 
     public func removeObserver(_ token: ObserverToken) {

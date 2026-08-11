@@ -424,6 +424,8 @@ public final class DocumentSectionViewModel {
 
     /// Sample metadata store for the current classifier bundle.
     var sampleMetadataStore: SampleMetadataStore?
+    /// Result-owned metadata state shared with the active classifier viewport.
+    var sampleMetadataPresentationContext: SampleMetadataPresentationContext?
     /// Bundle attachment store for the current classifier bundle.
     var bundleAttachmentStore: BundleAttachmentStore?
 

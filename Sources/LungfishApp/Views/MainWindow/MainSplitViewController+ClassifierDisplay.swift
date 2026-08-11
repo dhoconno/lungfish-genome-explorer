@@ -14,6 +14,73 @@ import LungfishWorkflow
 import os.log
 
 extension MainSplitViewController {
+    func clearClassifierMetadataPresentation() {
+        if let context = classifierMetadataPresentationContext,
+           let token = classifierMetadataPresentationConsumerToken {
+            context.removeObserver(token)
+        }
+        classifierMetadataPresentationContext = nil
+        classifierMetadataPresentationConsumerToken = nil
+        inspectorController?.clearClassifierSampleMetadataState()
+    }
+
+    /// Loads persisted metadata once, creates the result-scoped source of truth,
+    /// and connects the active viewport through the shared consumer protocol.
+    /// No classifier-specific import callback is retained by the Inspector.
+    func installClassifierMetadataPresentation(
+        resultURL: URL,
+        pickerState: ClassifierSamplePickerState,
+        entries: [any ClassifierSampleEntry],
+        strippedPrefix: String,
+        workflowName: String,
+        consumer: any SampleMetadataPresentationConsumer
+    ) {
+        clearClassifierMetadataPresentation()
+
+        let sampleIDs = entries.map(\.id)
+        let metadataStore = SampleMetadataStore.load(
+            from: resultURL,
+            knownSampleIds: Set(sampleIDs)
+        )
+        metadataStore?.wireAutosave(bundleURL: resultURL)
+        guard let identityIndex = try? SampleIdentityIndex(samples: sampleIDs.map {
+            SampleIdentity(canonicalID: $0, aliases: [], alignmentTrackIDs: [], readGroupIDs: [])
+        }) else {
+            classifierMetadataPresentationContext = nil
+            classifierMetadataPresentationConsumerToken = nil
+            consumer.applySampleMetadata(metadataStore)
+            inspectorController?.updateClassifierSampleState(
+                pickerState: pickerState,
+                entries: entries,
+                strippedPrefix: strippedPrefix,
+                metadata: metadataStore,
+                attachments: BundleAttachmentStore(bundleURL: resultURL)
+            )
+            return
+        }
+
+        let context = SampleMetadataPresentationContext(
+            finalResultURL: resultURL,
+            identityIndex: identityIndex,
+            sampleMetadataStore: metadataStore,
+            importContext: SampleMetadataImportContext(
+                resultID: resultURL.lastPathComponent,
+                provenanceID: "\(workflowName.lowercased()):\(resultURL.lastPathComponent)",
+                workflowName: workflowName,
+                workflowVersion: LungfishAppVersion.short
+            )
+        )
+        classifierMetadataPresentationContext = context
+        classifierMetadataPresentationConsumerToken = context.observe(consumer)
+        inspectorController?.updateClassifierSampleState(
+            pickerState: pickerState,
+            entries: entries,
+            strippedPrefix: strippedPrefix,
+            presentationContext: context,
+            attachments: BundleAttachmentStore(bundleURL: resultURL)
+        )
+    }
+
     func routeClassifierDisplay(url: URL) {
         guard let route = ClassifierDatabaseRouter.route(for: url) else {
             mainSplitLogger.warning("routeClassifierDisplay: Not a classifier directory: \(url.lastPathComponent, privacy: .public)")
@@ -89,17 +156,13 @@ extension MainSplitViewController {
                 viewerController.displayTaxonomyFromDatabase(db: db, resultURL: batchURL)
                 if let taxonomyVC = viewerController.taxonomyViewController {
                     // Load sample metadata from the bundle if available
-                    let knownIds = Set(taxonomyVC.sampleEntries.map(\.id))
-                    let metadataStore = SampleMetadataStore.load(from: batchURL, knownSampleIds: knownIds)
-                    metadataStore?.wireAutosave(bundleURL: batchURL)
-                    taxonomyVC.sampleMetadataStore = metadataStore
-
-                    self.inspectorController?.updateClassifierSampleState(
+                    self.installClassifierMetadataPresentation(
+                        resultURL: batchURL,
                         pickerState: taxonomyVC.samplePickerState,
                         entries: taxonomyVC.sampleEntries,
                         strippedPrefix: taxonomyVC.strippedPrefix,
-                        metadata: metadataStore,
-                        attachments: BundleAttachmentStore(bundleURL: batchURL)
+                        workflowName: "Kraken2",
+                        consumer: taxonomyVC
                     )
                 }
             } else {
@@ -149,17 +212,13 @@ extension MainSplitViewController {
                let db = try? EsVirituDatabase(at: dbURL) {
                 viewerController.displayEsVirituFromDatabase(db: db, resultURL: batchURL)
                 if let evVC = viewerController.esVirituViewController {
-                    let knownIds = Set(evVC.sampleEntries.map(\.id))
-                    let metadataStore = SampleMetadataStore.load(from: batchURL, knownSampleIds: knownIds)
-                    metadataStore?.wireAutosave(bundleURL: batchURL)
-                    evVC.sampleMetadataStore = metadataStore
-
-                    self.inspectorController?.updateClassifierSampleState(
+                    self.installClassifierMetadataPresentation(
+                        resultURL: batchURL,
                         pickerState: evVC.samplePickerState,
                         entries: evVC.sampleEntries,
                         strippedPrefix: evVC.strippedPrefix,
-                        metadata: metadataStore,
-                        attachments: BundleAttachmentStore(bundleURL: batchURL)
+                        workflowName: "EsViritu",
+                        consumer: evVC
                     )
                 }
             } else {
@@ -205,17 +264,13 @@ extension MainSplitViewController {
                let db = try? TaxTriageDatabase(at: dbURL) {
                 viewerController.displayTaxTriageFromDatabase(db: db, resultURL: batchURL)
                 if let ttVC = viewerController.taxTriageViewController {
-                    let knownIds = Set(ttVC.sampleEntries.map(\.id))
-                    let metadataStore = SampleMetadataStore.load(from: batchURL, knownSampleIds: knownIds)
-                    metadataStore?.wireAutosave(bundleURL: batchURL)
-                    ttVC.sampleMetadataStore = metadataStore
-
-                    self.inspectorController?.updateClassifierSampleState(
+                    self.installClassifierMetadataPresentation(
+                        resultURL: batchURL,
                         pickerState: ttVC.samplePickerState,
                         entries: ttVC.sampleEntries,
                         strippedPrefix: ttVC.strippedPrefix,
-                        metadata: metadataStore,
-                        attachments: BundleAttachmentStore(bundleURL: batchURL)
+                        workflowName: "TaxTriage",
+                        consumer: ttVC
                     )
                 }
             } else {
@@ -682,17 +737,13 @@ extension MainSplitViewController {
                 inspectorController?.updateNaoMgsManifest(manifest)
 
                 // Wire sample picker state to Inspector for embedded sample selector
-                let knownIds = Set(placeholderVC.sampleEntries.map(\.id))
-                let metadataStore = SampleMetadataStore.load(from: bundleURL, knownSampleIds: knownIds)
-                metadataStore?.wireAutosave(bundleURL: bundleURL)
-                let attachmentStore = BundleAttachmentStore(bundleURL: bundleURL)
-                placeholderVC.sampleMetadataStore = metadataStore
-                inspectorController?.updateClassifierSampleState(
+                installClassifierMetadataPresentation(
+                    resultURL: bundleURL,
                     pickerState: placeholderVC.samplePickerState,
                     entries: placeholderVC.sampleEntries,
                     strippedPrefix: placeholderVC.strippedPrefix,
-                    metadata: metadataStore,
-                    attachments: attachmentStore
+                    workflowName: "NAO-MGS",
+                    consumer: placeholderVC
                 )
 
                 let totalHits = (try? database.totalHitCount()) ?? manifest.hitCount
@@ -789,17 +840,13 @@ extension MainSplitViewController {
                 inspectorController?.updateNvdManifest(manifest)
 
                 // Wire sample picker state to Inspector for embedded sample selector
-                let knownIds = Set(placeholderVC.sampleEntries.map(\.id))
-                let metadataStore = SampleMetadataStore.load(from: bundleURL, knownSampleIds: knownIds)
-                metadataStore?.wireAutosave(bundleURL: bundleURL)
-                let attachmentStore = BundleAttachmentStore(bundleURL: bundleURL)
-                placeholderVC.sampleMetadataStore = metadataStore
-                inspectorController?.updateClassifierSampleState(
+                installClassifierMetadataPresentation(
+                    resultURL: bundleURL,
                     pickerState: placeholderVC.samplePickerState,
                     entries: placeholderVC.sampleEntries,
                     strippedPrefix: placeholderVC.strippedPrefix,
-                    metadata: metadataStore,
-                    attachments: attachmentStore
+                    workflowName: "NVD",
+                    consumer: placeholderVC
                 )
 
                 let totalHits = (try? database.totalHitCount()) ?? manifest.hitCount

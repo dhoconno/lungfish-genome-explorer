@@ -46,7 +46,7 @@ private typealias DBAccessionSummary = LungfishIO.NaoMgsAccessionSummary
 /// This class is `@MainActor` isolated and manages its `NSSplitView` directly
 /// so pane sizing and selection state stay local to this controller.
 @MainActor
-public final class NaoMgsResultViewController: NSViewController, NSSplitViewDelegate, NSPopoverDelegate {
+public final class NaoMgsResultViewController: NSViewController, NSSplitViewDelegate, NSPopoverDelegate, SampleMetadataPresentationConsumer {
 
     // MARK: - Data (Database-backed)
 
@@ -235,6 +235,10 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         didSet {
             updateMetadataColumnsForCurrentSamples()
         }
+    }
+
+    public func applySampleMetadata(_ store: SampleMetadataStore?) {
+        sampleMetadataStore = store
     }
 
     /// Controller for dynamic sample metadata columns (from imported CSV/TSV).

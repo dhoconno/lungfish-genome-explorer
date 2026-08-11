@@ -9,11 +9,28 @@ import LungfishCore
 import LungfishIO
 import LungfishGenotypeUI
 import LungfishPhylogeneticsUI
+import LungfishKit
 import LungfishWorkflow
 import os.log
 
 extension InspectorViewController {
     // MARK: - Public API
+
+    /// Detaches the Inspector mirror when navigation leaves a classifier result.
+    func clearClassifierSampleMetadataState() {
+        if let context = classifierMetadataPresentationContext,
+           let token = classifierMetadataPresentationObserverToken {
+            context.removeObserver(token)
+        }
+        classifierMetadataPresentationContext = nil
+        classifierMetadataPresentationObserverToken = nil
+        viewModel.documentSectionViewModel.classifierPickerState = nil
+        viewModel.documentSectionViewModel.classifierSampleEntries = []
+        viewModel.documentSectionViewModel.classifierStrippedPrefix = ""
+        viewModel.documentSectionViewModel.sampleMetadataStore = nil
+        viewModel.documentSectionViewModel.sampleMetadataPresentationContext = nil
+        viewModel.documentSectionViewModel.bundleAttachmentStore = nil
+    }
 
     /// Updates the document tab with bundle metadata from a loaded reference bundle.
     ///
@@ -910,12 +927,24 @@ extension InspectorViewController {
         entries: [any ClassifierSampleEntry],
         strippedPrefix: String,
         metadata: SampleMetadataStore? = nil,
+        presentationContext: SampleMetadataPresentationContext? = nil,
         attachments: BundleAttachmentStore? = nil
     ) {
+        if classifierMetadataPresentationContext !== presentationContext {
+            if let existing = classifierMetadataPresentationContext,
+               let token = classifierMetadataPresentationObserverToken {
+                existing.removeObserver(token)
+            }
+            classifierMetadataPresentationContext = presentationContext
+            classifierMetadataPresentationObserverToken = presentationContext?.observe { [weak self] store in
+                self?.viewModel.documentSectionViewModel.sampleMetadataStore = store
+            }
+        }
         viewModel.documentSectionViewModel.classifierPickerState = pickerState
         viewModel.documentSectionViewModel.classifierSampleEntries = entries
         viewModel.documentSectionViewModel.classifierStrippedPrefix = strippedPrefix
-        viewModel.documentSectionViewModel.sampleMetadataStore = metadata
+        viewModel.documentSectionViewModel.sampleMetadataStore = presentationContext?.sampleMetadataStore ?? metadata
+        viewModel.documentSectionViewModel.sampleMetadataPresentationContext = presentationContext
         viewModel.documentSectionViewModel.bundleAttachmentStore = attachments
     }
 

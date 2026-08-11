@@ -380,6 +380,11 @@ public class MainSplitViewController: NSSplitViewController {
     /// The inspector panel (selection details)
     public private(set) var inspectorController: InspectorViewController!
 
+    /// One result-owned source of truth for the displayed classifier's sample
+    /// metadata. Replaced whenever classifier routing changes.
+    var classifierMetadataPresentationContext: SampleMetadataPresentationContext?
+    var classifierMetadataPresentationConsumerToken: SampleMetadataPresentationContext.ObserverToken?
+
     /// Composition-root factory for classifier adapters.  Leaf classifier
     /// modules receive only the Kit protocol; this App-owned factory binds the
     /// detached viewport to this window's Inspector.

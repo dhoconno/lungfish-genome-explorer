@@ -94,6 +94,11 @@ public class InspectorViewController: NSViewController {
     var onTwelveSResultDisplayStateChanged: ((TwelveSResultDisplayState) -> Void)?
     var onGenotypeSampleMetadataImported: ((SampleMetadataStore) -> Void)?
 
+    /// The Inspector mirrors this result-owned context; it never owns the
+    /// classifier store itself.
+    var classifierMetadataPresentationContext: SampleMetadataPresentationContext?
+    var classifierMetadataPresentationObserverToken: SampleMetadataPresentationContext.ObserverToken?
+
     /// Public access to the FASTQ metadata section view model.
     public var fastqMetadataSectionViewModel: FASTQMetadataSectionViewModel {
         viewModel.fastqMetadataSectionViewModel
