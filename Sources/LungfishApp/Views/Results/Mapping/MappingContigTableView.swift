@@ -30,6 +30,7 @@ final class MappingContigTableView: BatchTableView<MappingContigSummary> {
 
     override var columnSpecs: [BatchColumnSpec] {
         [
+            .init(identifier: .init("sample"), title: "Sample", width: 130, minWidth: 90, defaultAscending: true),
             .init(identifier: .init("contig"), title: "Contig", width: 220, minWidth: 140, defaultAscending: true),
             .init(identifier: .init("length"), title: "Length", width: 90, minWidth: 70, defaultAscending: false),
             .init(identifier: .init("reads"), title: "Mapped Reads", width: 110, minWidth: 88, defaultAscending: false),
@@ -55,6 +56,7 @@ final class MappingContigTableView: BatchTableView<MappingContigSummary> {
 
     override var columnTypeHints: [String: Bool] {
         [
+            "sample": false,
             "contig": false,
             "length": true,
             "reads": true,
@@ -88,6 +90,8 @@ final class MappingContigTableView: BatchTableView<MappingContigSummary> {
         row: MappingContigSummary
     ) -> (text: String, alignment: NSTextAlignment, font: NSFont?) {
         switch column.rawValue {
+        case "sample":
+            return (row.sampleID ?? "—", .left, .systemFont(ofSize: 12))
         case "contig":
             return (bundleDisplayName ?? row.contigName, .left, .systemFont(ofSize: 12))
         case "length":
@@ -123,6 +127,8 @@ final class MappingContigTableView: BatchTableView<MappingContigSummary> {
 
     override func columnValue(for columnId: String, row: MappingContigSummary) -> String {
         switch columnId {
+        case "sample":
+            return row.sampleID ?? ""
         case "contig":
             return row.contigName
         case "length":
@@ -149,6 +155,7 @@ final class MappingContigTableView: BatchTableView<MappingContigSummary> {
         guard !query.isEmpty else { return true }
 
         var haystack = [
+            row.sampleID ?? "",
             row.contigName,
             row.contigLength.formatted(),
             row.mappedReads.formatted(),
@@ -176,6 +183,8 @@ final class MappingContigTableView: BatchTableView<MappingContigSummary> {
     ) -> Bool {
         let comparison: ComparisonResult
         switch key {
+        case "sample":
+            comparison = (lhs.sampleID ?? "").localizedCaseInsensitiveCompare(rhs.sampleID ?? "")
         case "contig":
             comparison = lhs.contigName.localizedCaseInsensitiveCompare(rhs.contigName)
         case "length":
@@ -205,6 +214,12 @@ final class MappingContigTableView: BatchTableView<MappingContigSummary> {
         }
 
         return ascending ? comparison == .orderedAscending : comparison == .orderedDescending
+    }
+
+    override func sampleId(for row: MappingContigSummary) -> String? { row.sampleID }
+
+    override func rowIdentity(for row: MappingContigSummary) -> String? {
+        [resultIdentity ?? "mapping", row.sampleID ?? "unmatched", row.contigName].joined(separator: "\u{1F}")
     }
 
     private var numericFont: NSFont {

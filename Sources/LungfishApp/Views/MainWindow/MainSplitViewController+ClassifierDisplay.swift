@@ -14,6 +14,85 @@ import LungfishWorkflow
 import os.log
 
 extension MainSplitViewController {
+    private struct BAMInspectorSampleEntry: ClassifierSampleEntry {
+        let id: String
+        var displayName: String { id }
+        let metricLabel = ""
+        let metricValue = ""
+    }
+
+    func clearBAMMetadataPresentation() {
+        if let context = bamMetadataPresentationContext,
+           let token = bamMetadataPresentationConsumerToken {
+            context.removeObserver(token)
+        }
+        bamMetadataPresentationContext = nil
+        bamMetadataPresentationConsumerToken = nil
+    }
+
+    /// Installs a result-scoped metadata context for a mapping BAM.  Identity
+    /// comes only from each persisted alignment metadata database; filenames
+    /// are intentionally absent from this path.
+    func installMappingBAMMetadataPresentation(resultURL: URL, result: MappingResult) {
+        clearBAMMetadataPresentation()
+        guard let consumer = viewerController.referenceBundleViewportController,
+              let bundleURL = result.viewerBundleURL,
+              let manifest = try? BundleManifest.load(from: bundleURL)
+        else { return }
+
+        var readGroupsBySample: [String: Set<String>] = [:]
+        var tracksBySample: [String: Set<String>] = [:]
+        for track in manifest.alignments {
+            guard let metadataDBPath = track.metadataDBPath,
+                  let database = try? AlignmentMetadataDatabase(
+                    url: bundleURL.appendingPathComponent(metadataDBPath)
+                  )
+            else { continue }
+            let groups = database.readGroups()
+            let sampleIDs = Set(groups.compactMap { group -> String? in
+                guard let sample = group.sample?.trimmingCharacters(in: .whitespacesAndNewlines), !sample.isEmpty else { return nil }
+                readGroupsBySample[sample, default: []].insert(group.id)
+                return sample
+            })
+            if sampleIDs.count == 1, let sampleID = sampleIDs.first {
+                tracksBySample[sampleID, default: []].insert(track.id)
+            }
+        }
+        let identities = readGroupsBySample.keys.sorted().map { sampleID in
+            SampleIdentity(
+                canonicalID: sampleID,
+                aliases: [],
+                alignmentTrackIDs: Array(tracksBySample[sampleID] ?? []).sorted(),
+                readGroupIDs: Array(readGroupsBySample[sampleID] ?? []).sorted()
+            )
+        }
+        guard !identities.isEmpty,
+              let index = try? SampleIdentityIndex(samples: identities)
+        else { return }
+        let store = SampleMetadataStore.load(from: resultURL, knownSampleIds: index.canonicalSampleIDs)
+        store?.wireAutosave(bundleURL: resultURL)
+        let context = SampleMetadataPresentationContext(
+            finalResultURL: resultURL,
+            identityIndex: index,
+            sampleMetadataStore: store,
+            importContext: .init(
+                resultID: resultURL.lastPathComponent,
+                provenanceID: "mapping:\(resultURL.lastPathComponent)",
+                workflowName: "Mapping",
+                workflowVersion: LungfishAppVersion.short
+            )
+        )
+        bamMetadataPresentationContext = context
+        bamMetadataPresentationConsumerToken = context.observe(consumer)
+        inspectorController?.updateClassifierSampleState(
+            pickerState: .init(allSamples: index.canonicalSampleIDs),
+            entries: index.canonicalSampleIDs.sorted().map(BAMInspectorSampleEntry.init(id:)),
+            strippedPrefix: "",
+            presentationContext: context,
+            attachments: BundleAttachmentStore(bundleURL: resultURL)
+        )
+    }
+
     func clearClassifierMetadataPresentation() {
         if let context = classifierMetadataPresentationContext,
            let token = classifierMetadataPresentationConsumerToken {

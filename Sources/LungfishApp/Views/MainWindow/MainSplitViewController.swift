@@ -385,6 +385,10 @@ public class MainSplitViewController: NSSplitViewController {
     var classifierMetadataPresentationContext: SampleMetadataPresentationContext?
     var classifierMetadataPresentationConsumerToken: SampleMetadataPresentationContext.ObserverToken?
 
+    /// Result-owned metadata state for mapping/reference BAM viewports.
+    var bamMetadataPresentationContext: SampleMetadataPresentationContext?
+    var bamMetadataPresentationConsumerToken: SampleMetadataPresentationContext.ObserverToken?
+
     /// Composition-root factory for classifier adapters.  Leaf classifier
     /// modules receive only the Kit protocol; this App-owned factory binds the
     /// detached viewport to this window's Inspector.

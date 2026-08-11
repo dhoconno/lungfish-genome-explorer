@@ -9,7 +9,7 @@ import LungfishWorkflow
 import LungfishKit
 
 @MainActor
-public class ReferenceBundleViewportController: NSViewController {
+public class ReferenceBundleViewportController: NSViewController, SampleMetadataPresentationConsumer {
     enum PresentationMode: Equatable {
         case listDetail
         case focusedDetail
@@ -23,12 +23,13 @@ public class ReferenceBundleViewportController: NSViewController {
     private var sequenceRows: [ReferenceBundleRecordRow] = []
     private var usesRecordStoreTable = false
     private var recordStoreWarning: String?
-    private typealias AlignmentTrackSummaryBuilder = (URL, Int) async throws -> [MappingContigSummary]
-    private lazy var alignmentTrackSummaryBuilder: AlignmentTrackSummaryBuilder = { [weak self] bamURL, totalReads in
+    private typealias AlignmentTrackSummaryBuilder = (URL, Int, Set<String>) async throws -> [MappingContigSummary]
+    private lazy var alignmentTrackSummaryBuilder: AlignmentTrackSummaryBuilder = { [weak self] bamURL, totalReads, readGroupIDs in
         let refreshID = await self?.alignmentTrackSummaryRefreshID
         return try await MappingSummaryBuilder.build(
             sortedBAMURL: bamURL,
             totalReads: totalReads,
+            readGroupIDs: readGroupIDs,
             reportWarning: { warning in
                 // MappingSummaryBuilder's own memory guard warning (see its
                 // sortedBAMMemoryGuardBytes doc comment) previously had no
@@ -55,6 +56,9 @@ public class ReferenceBundleViewportController: NSViewController {
     private var alignmentTrackSummaryWarning: String?
     private var alignmentTrackSummaryRefreshID = UUID()
     private var visibleAlignmentSummaryOverride: VisibleAlignmentSummary?
+    private var bamSampleIdentityIndex: SampleIdentityIndex?
+    private var metadataPresentationContext: SampleMetadataPresentationContext?
+    private var metadataPresentationObserverToken: SampleMetadataPresentationContext.ObserverToken?
 
     var onEmbeddedReferenceBundleLoaded: ((ReferenceBundle) -> Void)?
     var onSequenceSelectionStateChanged: ((SequenceRegionSelectionState?) -> Void)?
@@ -155,6 +159,27 @@ public class ReferenceBundleViewportController: NSViewController {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+    }
+
+    /// Connects this BAM list to its owning result's shared metadata store.
+    /// Replacing a context unregisters the old result before the new store is
+    /// delivered, so navigation cannot leave stale metadata columns behind.
+    public func installSampleMetadataPresentation(
+        _ context: SampleMetadataPresentationContext?
+    ) {
+        if metadataPresentationContext === context { return }
+        if let metadataPresentationContext, let metadataPresentationObserverToken {
+            metadataPresentationContext.removeObserver(metadataPresentationObserverToken)
+        }
+        metadataPresentationContext = context
+        metadataPresentationObserverToken = context?.observe(self)
+        if context == nil {
+            applySampleMetadata(nil)
+        }
+    }
+
+    public func applySampleMetadata(_ store: SampleMetadataStore?) {
+        contigTableView.metadataColumns.update(store: store, sampleId: nil)
     }
 
     private func setupSummaryBar() {
@@ -891,6 +916,13 @@ public class ReferenceBundleViewportController: NSViewController {
         }
 
         do {
+            if let canonicalSampleID = selectedContig.sampleID,
+               let bamSampleIdentityIndex {
+                embeddedViewerController.applyReadDisplaySettings([
+                    NotificationUserInfoKey.selectedReadGroups:
+                        bamSampleIdentityIndex.readGroupIDs(forCanonicalSampleID: canonicalSampleID)
+                ])
+            }
             try loadViewerBundleIfNeeded(
                 from: viewerBundleURL,
                 sequenceName: selectedContig.contigName
@@ -988,6 +1020,7 @@ public class ReferenceBundleViewportController: NSViewController {
         visibleAlignmentSummaryOverride = nil
         alignmentTrackSummaryWarning = nil
         updateSummaryBar()
+        bamSampleIdentityIndex = nil
         contigTableView.configure(rows: currentResult?.contigs ?? [])
         refreshSelection(preferredSelectionName: preferredSelectionName)
     }
@@ -1020,17 +1053,33 @@ public class ReferenceBundleViewportController: NSViewController {
         let mappedReads = Int(clamping: track.mappedReadCount ?? 0)
         let totalReads = mappedReads + Int(clamping: track.unmappedReadCount ?? 0)
         let summaryBuilder = alignmentTrackSummaryBuilder
+        let resolution = sampleIdentityResolution(for: track, bundleURL: bundleURL)
+        let sampleReadGroups: [(sampleID: String?, readGroupIDs: Set<String>)]
+        if let resolution, !resolution.identityIndex.canonicalSampleIDs.isEmpty {
+            sampleReadGroups = resolution.identityIndex.canonicalSampleIDs.sorted().map { sampleID in
+                (sampleID, resolution.identityIndex.readGroupIDs(forCanonicalSampleID: sampleID))
+            }
+        } else {
+            sampleReadGroups = [(nil, [])]
+        }
 
         Task { @MainActor [weak self] in
             do {
-                let summaries = try await summaryBuilder(bamURL, totalReads)
+                var sampleSummaries: [(sampleID: String?, summaries: [MappingContigSummary])] = []
+                for sample in sampleReadGroups {
+                    // A no-RG sample is valid only when persisted identity proved
+                    // this is the explicit single-sample fallback; aggregate
+                    // metrics are then truthful for that one sample.
+                    let summaries = try await summaryBuilder(bamURL, totalReads, sample.readGroupIDs)
+                    sampleSummaries.append((sample.sampleID, summaries))
+                }
                 guard let self,
                       self.alignmentTrackSummaryRefreshID == refreshID
                 else {
                     return
                 }
                 self.applyVisibleAlignmentRows(
-                    summaries,
+                    sampleSummaries,
                     track: track,
                     mappedReads: mappedReads,
                     totalReads: totalReads,
@@ -1049,7 +1098,7 @@ public class ReferenceBundleViewportController: NSViewController {
                     totalReads: totalReads
                 ) {
                     self.applyVisibleAlignmentRows(
-                        fallbackRows,
+                        [(nil, fallbackRows)],
                         track: track,
                         mappedReads: mappedReads,
                         totalReads: totalReads,
@@ -1063,13 +1112,27 @@ public class ReferenceBundleViewportController: NSViewController {
     }
 
     private func applyVisibleAlignmentRows(
-        _ summaries: [MappingContigSummary],
+        _ sampleSummaries: [(sampleID: String?, summaries: [MappingContigSummary])],
         track: AlignmentTrackInfo,
         mappedReads: Int,
         totalReads: Int,
         preferredSelectionName: String?
     ) {
-        let filteredSummaries = summaries.filter { $0.mappedReads > 0 }
+        let filteredSummaries = sampleSummaries.flatMap { sample in
+            sample.summaries.filter { $0.mappedReads > 0 }.map { summary in
+                MappingContigSummary(
+                    sampleID: sample.sampleID,
+                    contigName: summary.contigName,
+                    contigLength: summary.contigLength,
+                    mappedReads: summary.mappedReads,
+                    mappedReadPercent: summary.mappedReadPercent,
+                    meanDepth: summary.meanDepth,
+                    coverageBreadth: summary.coverageBreadth,
+                    medianMAPQ: summary.medianMAPQ,
+                    meanIdentity: summary.meanIdentity
+                )
+            }
+        }
         let computedMappedReads = filteredSummaries.reduce(0) { $0 + $1.mappedReads }
         let displayMappedReads = mappedReads > 0 ? mappedReads : computedMappedReads
         let displayTotalReads = totalReads > 0 ? totalReads : displayMappedReads
@@ -1079,8 +1142,32 @@ public class ReferenceBundleViewportController: NSViewController {
             totalReads: displayTotalReads
         )
         updateSummaryBar()
+        let resolution = sampleIdentityResolution(for: track, bundleURL: currentInput?.renderedBundleURL)
+        bamSampleIdentityIndex = resolution?.identityIndex
         contigTableView.configure(rows: filteredSummaries)
         refreshSelection(preferredSelectionName: preferredSelectionName)
+    }
+
+    private func sampleIdentityResolution(
+        for track: AlignmentTrackInfo,
+        bundleURL: URL?
+    ) -> BAMSampleIdentityResolver.Resolution? {
+        guard let bundleURL,
+              let metadataDBPath = track.metadataDBPath,
+              let database = try? AlignmentMetadataDatabase(
+                url: resolvedTrackURL(metadataDBPath, bundleURL: bundleURL)
+              )
+        else {
+            return nil
+        }
+        let explicitSampleID = track.sampleNames.count == 1 ? track.sampleNames[0] : nil
+        let trackSampleIDs = explicitSampleID.map { [track.id: $0] } ?? [:]
+        return try? BAMSampleIdentityResolver.resolve(
+            readGroups: database.readGroups(),
+            trackIDs: [track.id],
+            explicitResultSampleID: explicitSampleID,
+            trackSampleIDs: trackSampleIDs
+        )
     }
 
     private func metadataFallbackRows(
@@ -1437,7 +1524,17 @@ extension ReferenceBundleViewportController {
     func setAlignmentTrackSummaryBuilderForTesting(
         _ builder: @escaping (URL, Int) async throws -> [MappingContigSummary]
     ) {
+        alignmentTrackSummaryBuilder = { bamURL, totalReads, _ in
+            try await builder(bamURL, totalReads)
+        }
+    }
+
+    func setAlignmentTrackSummaryBuilderForTesting(
+        _ builder: @escaping (URL, Int, Set<String>) async throws -> [MappingContigSummary]
+    ) {
         alignmentTrackSummaryBuilder = builder
     }
+
+    var testSelectedReadGroups: Set<String> { embeddedViewerController.viewerView.selectedReadGroupsSetting }
 }
 #endif

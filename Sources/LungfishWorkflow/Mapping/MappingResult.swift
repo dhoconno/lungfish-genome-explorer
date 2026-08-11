@@ -5,6 +5,8 @@
 import Foundation
 
 public struct MappingContigSummary: Sendable, Codable, Equatable {
+    /// Explicit canonical sample identity for a sample × contig row.
+    public let sampleID: String?
     public let contigName: String
     public let contigLength: Int
     public let mappedReads: Int
@@ -15,6 +17,7 @@ public struct MappingContigSummary: Sendable, Codable, Equatable {
     public let meanIdentity: Double
 
     public init(
+        sampleID: String? = nil,
         contigName: String,
         contigLength: Int,
         mappedReads: Int,
@@ -24,6 +27,7 @@ public struct MappingContigSummary: Sendable, Codable, Equatable {
         medianMAPQ: Double,
         meanIdentity: Double
     ) {
+        self.sampleID = sampleID
         self.contigName = contigName
         self.contigLength = contigLength
         self.mappedReads = mappedReads

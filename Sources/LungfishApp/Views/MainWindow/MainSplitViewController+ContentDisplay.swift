@@ -26,6 +26,7 @@ extension MainSplitViewController {
             return
         }
         clearClassifierMetadataPresentation()
+        clearBAMMetadataPresentation()
         mainSplitLogger.info("displayContent: Selected '\(item.title, privacy: .public)' type=\(String(describing: item.type))")
         let displayIdentity = contentSelectionIdentity(for: item)
         let displayToken = beginDisplayRequest(identity: displayIdentity)
@@ -1074,6 +1075,7 @@ extension MainSplitViewController {
                 )
             )
             try viewerController.display(route)
+            installMappingBAMMetadataPresentation(resultURL: url, result: result)
             wireMappingReferenceViewportInspectorUpdates()
             recordUITestEvent(
                 "mapping.display.succeeded tool=\(result.mapper.rawValue) contigs=\(result.contigs.count)"

@@ -33,19 +33,30 @@ public enum MappingSummaryBuilder {
     public static func build(
         sortedBAMURL: URL,
         totalReads: Int,
+        readGroupIDs: Set<String> = [],
         runner: NativeToolRunner = .shared,
         timeout: TimeInterval = 3_600,
         includeUnmappedReferenceRows: Bool = true,
         reportWarning: (@Sendable (String) -> Void)? = nil
     ) async throws -> [MappingContigSummary] {
-        let coverageResult = try await runner.run(
-            .samtools,
-            arguments: ["coverage", sortedBAMURL.path],
-            workingDirectory: sortedBAMURL.deletingLastPathComponent(),
-            timeout: timeout
-        )
-        guard coverageResult.isSuccess else {
-            throw MappingSummaryBuilderError.samtoolsCoverageFailed(coverageResult.stderr)
+        let coverageOutput: String
+        if readGroupIDs.isEmpty {
+            let coverageResult = try await runner.run(
+                .samtools,
+                arguments: ["coverage", sortedBAMURL.path],
+                workingDirectory: sortedBAMURL.deletingLastPathComponent(),
+                timeout: timeout
+            )
+            guard coverageResult.isSuccess else {
+                throw MappingSummaryBuilderError.samtoolsCoverageFailed(coverageResult.stderr)
+            }
+            coverageOutput = coverageResult.stdout
+        } else {
+            coverageOutput = try await filteredCoverageOutput(
+                sortedBAMURL: sortedBAMURL,
+                readGroupIDs: readGroupIDs,
+                runner: runner
+            )
         }
 
         let sortedBAMSizeBytes = (try? ProvenanceFileHasher.fileSize(of: sortedBAMURL)) ?? 0
@@ -57,7 +68,7 @@ public enum MappingSummaryBuilder {
                 "identity and MAPQ columns are omitted for this file."
             )
             return try buildSummaries(
-                coverageOutput: coverageResult.stdout,
+                coverageOutput: coverageOutput,
                 viewOutput: "",
                 totalReads: totalReads,
                 includeUnmappedReferenceRows: includeUnmappedReferenceRows
@@ -67,11 +78,12 @@ public enum MappingSummaryBuilder {
         let viewOutput = try await streamSAMView(
             sortedBAMURL: sortedBAMURL,
             runner: runner,
-            timeout: timeout
+            timeout: timeout,
+            readGroupIDs: readGroupIDs
         )
 
         return try buildSummaries(
-            coverageOutput: coverageResult.stdout,
+            coverageOutput: coverageOutput,
             viewOutput: viewOutput,
             totalReads: totalReads,
             includeUnmappedReferenceRows: includeUnmappedReferenceRows
@@ -158,17 +170,80 @@ public enum MappingSummaryBuilder {
     private static func streamSAMView(
         sortedBAMURL: URL,
         runner: NativeToolRunner,
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        readGroupIDs: Set<String> = []
     ) async throws -> String {
         let samtoolsPath = try await runner.findTool(.samtools)
         let workingDirectory = sortedBAMURL.deletingLastPathComponent()
+        if readGroupIDs.isEmpty {
+            return try await runProcessCapturingOutput(
+                executableURL: samtoolsPath,
+                arguments: ["view", sortedBAMURL.path],
+                workingDirectory: workingDirectory,
+                timeout: timeout
+            )
+        }
+        return try await withReadGroupList(readGroupIDs) { listURL in
+            try await runProcessCapturingOutput(
+                executableURL: samtoolsPath,
+                arguments: ["view", "-R", listURL.path, sortedBAMURL.path],
+                workingDirectory: workingDirectory,
+                timeout: timeout
+            )
+        }
+    }
 
-        return try await runProcessCapturingOutput(
-            executableURL: samtoolsPath,
-            arguments: ["view", sortedBAMURL.path],
-            workingDirectory: workingDirectory,
-            timeout: timeout
-        )
+    /// `samtools coverage` has no read-group option.  Feed it the exact
+    /// `samtools view -R` stream instead, keeping multiple RGs for one SM in
+    /// one unioned calculation (not a sum of separately-covered regions).
+    private static func filteredCoverageOutput(
+        sortedBAMURL: URL,
+        readGroupIDs: Set<String>,
+        runner: NativeToolRunner
+    ) async throws -> String {
+        let samtoolsPath = try await runner.findTool(.samtools)
+        return try await withReadGroupList(readGroupIDs) { listURL in
+            try await Task.detached {
+                let coverage = Process()
+                coverage.executableURL = samtoolsPath
+                coverage.arguments = ["coverage", "-"]
+                coverage.currentDirectoryURL = sortedBAMURL.deletingLastPathComponent()
+                let output = Pipe()
+                let error = Pipe()
+                coverage.standardOutput = output
+                coverage.standardError = error
+
+                let view = Process()
+                view.executableURL = samtoolsPath
+                view.arguments = ["view", "-h", "-R", listURL.path, sortedBAMURL.path]
+                view.currentDirectoryURL = sortedBAMURL.deletingLastPathComponent()
+                view.standardOutput = coverage.standardInput
+
+                try coverage.run()
+                try view.run()
+                view.waitUntilExit()
+                (coverage.standardInput as? Pipe)?.fileHandleForWriting.closeFile()
+                coverage.waitUntilExit()
+                let stdout = String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                let stderr = String(data: error.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                guard view.terminationStatus == 0, coverage.terminationStatus == 0 else {
+                    throw MappingSummaryBuilderError.samtoolsCoverageFailed(stderr)
+                }
+                return stdout
+            }.value
+        }
+    }
+
+    private static func withReadGroupList<T: Sendable>(
+        _ readGroupIDs: Set<String>,
+        operation: @escaping @Sendable (URL) async throws -> T
+    ) async throws -> T {
+        let listURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lungfish-read-groups-\(UUID().uuidString).txt")
+        try readGroupIDs.sorted().joined(separator: "\n").appending("\n")
+            .write(to: listURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: listURL) }
+        return try await operation(listURL)
     }
 
     /// Runs a process and captures stdout, draining stdout and stderr concurrently on

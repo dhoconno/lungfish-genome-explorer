@@ -32,7 +32,7 @@ final class MappingResultViewControllerTests: XCTestCase {
 
         XCTAssertEqual(
             vc.testContigTableView.testTableView.tableColumns.map(\.title),
-            ["Contig", "Length", "Mapped Reads", "% Mapped", "Mean Depth", "Coverage Breadth", "Median MAPQ", "Mean Identity"]
+            ["Sample", "Contig", "Length", "Mapped Reads", "% Mapped", "Mean Depth", "Coverage Breadth", "Median MAPQ", "Mean Identity"]
         )
         XCTAssertEqual(vc.testContigTableView.record(at: 0)?.contigName, "beta")
     }
@@ -122,9 +122,9 @@ final class MappingResultViewControllerTests: XCTestCase {
         table.testTableView.sortDescriptors = [NSSortDescriptor(key: "contig", ascending: true)]
         XCTAssertEqual(table.displayedRows.map(\.contigName), ["alpha", "beta"])
 
-        // rowIdentity (used for stable selection restore) is unaffected by the
-        // display-label decoration — this table has no override, so it stays nil.
-        XCTAssertNil(table.rowIdentity(for: makeContigs()[0]))
+        // Row identity remains keyed to the canonical sample plus contig, not
+        // the display-label decoration.
+        XCTAssertEqual(table.rowIdentity(for: makeContigs()[0]), "mapping\u{1F}unmatched\u{1F}alpha")
     }
 
     func testFilterMatchesBundleDisplayLabel() {
@@ -509,6 +509,37 @@ final class MappingResultViewControllerTests: XCTestCase {
 
         XCTAssertEqual(vc.testContigTableView.displayedRows.map(\.contigName), ["beta", "alpha"])
         XCTAssertEqual(vc.testSummaryText, "minimap2 Mapping — 198 / 200 reads mapped (99.0%)")
+    }
+
+    func testMultiSampleTrackBuildsRGFilteredRowsAndSelectionAppliesEverySampleRG() async throws {
+        let vc = MappingResultViewController()
+        _ = vc.view
+        let bundleURL = try makeReferenceBundleWithAlignmentTracks(includeSampleMetadata: true)
+        let result = makeMappingResult(viewerBundleURL: bundleURL)
+        var requestedReadGroups: [Set<String>] = []
+        vc.setAlignmentTrackSummaryBuilderForTesting { _, _, readGroups in
+            requestedReadGroups.append(readGroups)
+            let reads = readGroups == Set(["S1-A", "S1-B"]) ? 4 : 1
+            return [
+                MappingContigSummary(
+                    contigName: "gamma", contigLength: 100, mappedReads: reads,
+                    mappedReadPercent: Double(reads) * 10, meanDepth: Double(reads),
+                    coverageBreadth: 0.1, medianMAPQ: 60, meanIdentity: 99
+                )
+            ]
+        }
+        vc.configureForTesting(result: result)
+        vc.applyEmbeddedReadDisplaySettings([
+            NotificationUserInfoKey.visibleAlignmentTrackID: "filtered-track"
+        ])
+        try await waitUntil {
+            Set(vc.testContigTableView.displayedRows.compactMap(\.sampleID)) == Set(["S1", "S2"])
+        }
+
+        XCTAssertEqual(Set(requestedReadGroups), Set([Set(["S1-A", "S1-B"]), Set(["S2-A"])]))
+        XCTAssertEqual(vc.testContigTableView.displayedRows.first { $0.sampleID == "S1" }?.mappedReads, 4)
+        vc.testSelectContig(named: "gamma")
+        XCTAssertEqual(vc.testSelectedReadGroups, Set(["S1-A", "S1-B"]))
     }
 
     func testConsensusExportUsesSelectedContigNameInSuggestedStem() throws {
@@ -1040,7 +1071,7 @@ final class MappingResultViewControllerTests: XCTestCase {
         return bundleURL
     }
 
-    private func makeReferenceBundleWithAlignmentTracks() throws -> URL {
+    private func makeReferenceBundleWithAlignmentTracks(includeSampleMetadata: Bool = false) throws -> URL {
         let bundleURL = tempDir.appendingPathComponent("alignment-tracks.lungfishref", isDirectory: true)
         let genomeURL = bundleURL.appendingPathComponent("genome", isDirectory: true)
         let alignmentsURL = bundleURL.appendingPathComponent("alignments", isDirectory: true)
@@ -1055,6 +1086,13 @@ final class MappingResultViewControllerTests: XCTestCase {
         try Data().write(to: alignmentsURL.appendingPathComponent("original.bam.bai"))
         try Data().write(to: filteredURL.appendingPathComponent("filtered.bam"))
         try Data().write(to: filteredURL.appendingPathComponent("filtered.bam.bai"))
+        let metadataPath = "alignments/filtered/filtered.stats.db"
+        if includeSampleMetadata {
+            let database = try AlignmentMetadataDatabase.create(at: bundleURL.appendingPathComponent(metadataPath))
+            database.addReadGroup(id: "S1-A", sample: "S1")
+            database.addReadGroup(id: "S1-B", sample: "S1")
+            database.addReadGroup(id: "S2-A", sample: "S2")
+        }
 
         let manifest = BundleManifest(
             formatVersion: "1.0",
@@ -1085,6 +1123,7 @@ final class MappingResultViewControllerTests: XCTestCase {
                     name: "Exact matches",
                     sourcePath: "alignments/filtered/filtered.bam",
                     indexPath: "alignments/filtered/filtered.bam.bai",
+                    metadataDBPath: includeSampleMetadata ? metadataPath : nil,
                     mappedReadCount: 4,
                     unmappedReadCount: 0
                 ),
