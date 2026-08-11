@@ -130,7 +130,7 @@ private func makeTaxTriageDatabasePageSnapshot(
 ///
 /// ## Left Pane: BAM Alignment Viewer
 ///
-/// Shows the ``MiniBAMViewController`` when an organism is selected, displaying
+/// Shows detached full alignment evidence when an organism is selected, displaying
 /// read alignments for the organism's primary reference accession. When no BAM
 /// data is available, the pane is empty.
 ///
@@ -350,7 +350,11 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     private let sampleFilterControl = NSSegmentedControl()
     public let splitView = TrackedDividerSplitView()
     private let leftPaneContainer = FlippedSplitPaneFillContainerView()
-    private var miniBAMController: MiniBAMViewController?
+    /// Supplied by the App composition root; leaf tests use the safe fallback.
+    public var classifierAlignmentViewerFactory: @MainActor () -> any ClassifierAlignmentViewerProviding = {
+        UnavailableClassifierAlignmentViewer()
+    }
+    private var alignmentEvidenceViewer: (any ClassifierAlignmentViewerProviding)?
     private let organismTableView = TaxTriageOrganismTableView()
     private let batchOverviewView = TaxTriageBatchOverviewView()
     let actionBar = ClassifierActionBar()
@@ -992,63 +996,21 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     }
 
     private func setupMiniBAMViewer() {
-        let bamVC = MiniBAMViewController()
-        bamVC.subjectNoun = "organism"
-        bamVC.onReadStatsUpdated = { [weak self] totalReads, uniqueReads in
-            guard let self else { return }
-
-            // Ignore the clear() callback (0, 0) — this fires when switching
-            // organisms and should not zero out the cached value.
-            guard totalReads > 0 else { return }
-
-            if (self.isBatchGroupMode || self.isMultiSampleSingleResultMode),
-               let sampleId = self.selectedBatchSampleId,
-               let organism = self.selectedBatchOrganismName {
-                // For segmented organisms, the miniBAM shows one segment.
-                // Keep table totals stable for multi-accession organisms.
-                if (self.accessions(for: organism, sampleId: sampleId)?.count ?? 0) > 1 {
-                    return
-                }
-                self.applyBatchFlatTableReadStats(
-                    sampleId: sampleId,
-                    organism: organism,
-                    totalReads: totalReads,
-                    uniqueReads: uniqueReads
-                )
-                return
-            }
-
-            guard let selectedOrganismName = self.selectedOrganismName else { return }
-
-            // For segmented organisms, the BAM viewer shows only one segment.
-            // Don't overwrite the assembly total with a single segment's count.
-            if (self.accessions(for: selectedOrganismName)?.count ?? 1) > 1 {
-                return
-            }
-
-            // Don't overwrite DB-cached unique reads with miniBAM-computed values.
-            let normalized = self.normalizedOrganismName(selectedOrganismName)
-            if self.deduplicatedReadCounts[normalized] != nil {
-                return
-            }
-
-            self.applyReadStats(totalReads: totalReads, uniqueReads: uniqueReads, for: selectedOrganismName)
-        }
-        addChild(bamVC)
-        miniBAMController = bamVC
-
-        let bamView = bamVC.view
-        bamView.translatesAutoresizingMaskIntoConstraints = false
-        bamView.isHidden = false
-        bamView.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        bamView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        leftPaneContainer.addSubview(bamView)
-        leftPaneContainer.fillSubview = bamView
+        let viewer = classifierAlignmentViewerFactory()
+        addChild(viewer.viewController)
+        alignmentEvidenceViewer = viewer
+        let evidenceView = viewer.viewController.view
+        evidenceView.translatesAutoresizingMaskIntoConstraints = false
+        evidenceView.isHidden = false
+        evidenceView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        evidenceView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        leftPaneContainer.addSubview(evidenceView)
+        leftPaneContainer.fillSubview = evidenceView
         NSLayoutConstraint.activate([
-            bamView.topAnchor.constraint(equalTo: leftPaneContainer.topAnchor),
-            bamView.bottomAnchor.constraint(equalTo: leftPaneContainer.bottomAnchor),
-            bamView.leadingAnchor.constraint(equalTo: leftPaneContainer.leadingAnchor),
-            bamView.trailingAnchor.constraint(equalTo: leftPaneContainer.trailingAnchor),
+            evidenceView.topAnchor.constraint(equalTo: leftPaneContainer.topAnchor),
+            evidenceView.bottomAnchor.constraint(equalTo: leftPaneContainer.bottomAnchor),
+            evidenceView.leadingAnchor.constraint(equalTo: leftPaneContainer.leadingAnchor),
+            evidenceView.trailingAnchor.constraint(equalTo: leftPaneContainer.trailingAnchor),
         ])
     }
 
@@ -2275,42 +2237,10 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             $0.lastPathComponent == "\(bamURL.lastPathComponent).bai"
                 || $0.lastPathComponent == "\(bamURL.lastPathComponent).csi"
         }) {
-            let desired = URL(fileURLWithPath: bamURL.path + ".\(externalIndex.pathExtension)")
-            if !fm.fileExists(atPath: desired.path) {
-                do {
-                    try fm.createSymbolicLink(at: desired, withDestinationURL: externalIndex)
-                    logger.info("Linked BAM index \(externalIndex.lastPathComponent, privacy: .public) -> \(desired.lastPathComponent, privacy: .public)")
-                } catch {
-                    logger.warning("Failed to link BAM index: \(error.localizedDescription, privacy: .public)")
-                }
-            }
-            if fm.fileExists(atPath: desired.path) {
-                return desired
-            }
             return externalIndex
         }
-
-        guard let samtoolsPath = ManagedToolLocator.managedToolExecutablePath(.samtools) else {
-            logger.warning("Cannot generate BAM index: samtools not found")
-            return nil
-        }
-        let samtools = URL(fileURLWithPath: samtoolsPath)
-
-        let proc = Process()
-        proc.executableURL = samtools
-        proc.arguments = ["index", bamURL.path]
-        proc.standardOutput = FileHandle.nullDevice
-        proc.standardError = FileHandle.nullDevice
-        do {
-            try proc.run()
-            proc.waitUntilExit()
-        } catch {
-            logger.warning("samtools index failed: \(error.localizedDescription, privacy: .public)")
-            return nil
-        }
-
-        if fm.fileExists(atPath: adjacentBAI.path) { return adjacentBAI }
-        if fm.fileExists(atPath: adjacentCSI.path) { return adjacentCSI }
+        // Display never materializes an index.  Only a final retained BAI/CSI
+        // can be passed to the detached evidence validator.
         return nil
     }
 
@@ -2449,7 +2379,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         let generation = bamReferenceLengthLoadGeneration
 
         guard !accessions.isEmpty else {
-            miniBAMController?.clear()
+            alignmentEvidenceViewer?.clear()
             return
         }
 
@@ -2462,7 +2392,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         }
 
         guard let samtoolsPath = ManagedToolLocator.managedToolExecutablePath(.samtools) else {
-            miniBAMController?.clear()
+            alignmentEvidenceViewer?.clear()
             logger.warning("Cannot resolve BAM reference lengths for selected TaxTriage row: samtools not found")
             return
         }
@@ -2486,7 +2416,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                         indexURL: indexURL,
                         accessions: accessions
                     ) {
-                        self.miniBAMController?.clear()
+                        self.alignmentEvidenceViewer?.clear()
                     }
                 }
             }
@@ -2504,14 +2434,50 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             return false
         }
 
-        miniBAMController?.displayContig(
-            bamURL: bamURL,
-            contig: resolvedAccession,
-            contigLength: contigLength,
-            indexURL: indexURL
-        )
-        miniBAMController?.view.isHidden = false
+        guard let indexURL, let viewer = alignmentEvidenceViewer else {
+            alignmentEvidenceViewer?.clear()
+            return false
+        }
+        let sampleID = selectedBatchSampleId
+            ?? (selectedSampleIndex > 0 && selectedSampleIndex <= sampleIds.count
+                ? sampleIds[selectedSampleIndex - 1]
+                : "selected-sample")
+        let kind: ClassifierAlignmentIndex.Kind = indexURL.pathExtension.lowercased() == "csi" ? .csi : .bai
+        do {
+            let resultURL = batchGroupURL ?? bamURL.deletingLastPathComponent()
+            let reference = downloadedReferenceCandidate(
+                sampleID: sampleID,
+                accession: resolvedAccession,
+                expectedLength: contigLength,
+                resultURL: resultURL
+            )
+            let request = try ClassifierAlignmentEvidenceRequest(
+                workflow: .taxTriage,
+                resultIdentity: .init(stableID: resultURL.standardizedFileURL.path, finalResultURL: resultURL, provenanceID: "taxtriage:\(resultURL.lastPathComponent)"),
+                bamURL: bamURL, index: .init(url: indexURL, kind: kind),
+                sample: .init(canonicalID: sampleID),
+                contig: .init(name: resolvedAccession, expectedLength: contigLength),
+                referenceCandidate: reference,
+                presentation: .init(workflowLabel: "TaxTriage", resultLabel: resultURL.lastPathComponent, sampleLabel: sampleID, contigLabel: resolvedAccession)
+            )
+            viewer.display(request)
+        } catch { viewer.clear(); return false }
         return true
+    }
+
+    private func downloadedReferenceCandidate(
+        sampleID: String,
+        accession: String,
+        expectedLength: Int,
+        resultURL: URL
+    ) -> ClassifierAlignmentReferenceCandidate? {
+        let name = "\(sampleID).dwnld.references.fasta"
+        guard let storedMember = taxTriageResult?.allOutputFiles.first(where: {
+            $0.lastPathComponent == name && $0.standardizedFileURL.path.hasPrefix(resultURL.standardizedFileURL.path)
+        }), FileManager.default.fileExists(atPath: storedMember.path) else {
+            return nil
+        }
+        return .init(fastaURL: storedMember, recordName: accession, expectedLength: expectedLength)
     }
 
     // MARK: - Setup: BLAST Drawer
@@ -2696,7 +2662,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                     accessions: accessions
                 )
             } else {
-                self.miniBAMController?.clear()
+                self.alignmentEvidenceViewer?.clear()
                 self.collapseMiniBAMDetailPane()
             }
         }
@@ -2719,7 +2685,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             self.hideMultiSelectionPlaceholder()
             self.selectedBatchSampleId = nil
             self.selectedBatchOrganismName = nil
-            self.miniBAMController?.clear()
+            self.alignmentEvidenceViewer?.clear()
             // Nothing selected -> collapse the empty detail pane so the organism
             // table keeps the full viewport.
             self.collapseMiniBAMDetailPane()
@@ -2982,7 +2948,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                     accessions: accessions
                 )
             } else {
-                self.miniBAMController?.clear()
+                self.alignmentEvidenceViewer?.clear()
                 self.collapseMiniBAMDetailPane()
             }
         }
@@ -3004,7 +2970,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             self.hideMultiSelectionPlaceholder()
             self.selectedBatchSampleId = nil
             self.selectedBatchOrganismName = nil
-            self.miniBAMController?.clear()
+            self.alignmentEvidenceViewer?.clear()
             // Nothing selected -> collapse the empty detail pane.
             self.collapseMiniBAMDetailPane()
         }
@@ -3151,11 +3117,11 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                         accessions: accessions
                     )
                 } else {
-                    self.miniBAMController?.clear()
+                    self.alignmentEvidenceViewer?.clear()
                     logger.debug("No accession mapping for organism: \(organismName, privacy: .public)")
                 }
             } else {
-                self.miniBAMController?.clear()
+                self.alignmentEvidenceViewer?.clear()
             }
         }
 
@@ -3555,7 +3521,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         multiSelectionPrimaryLabel.setAccessibilityValue(
             multiSelectionPrimaryLabel.stringValue
         )
-        miniBAMController?.view.isHidden = true
+        alignmentEvidenceViewer?.viewController.view.isHidden = true
         multiSelectionPlaceholder.isHidden = false
     }
 
@@ -4130,7 +4096,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             && !frames[0].intersects(frames[1])
     }
     var testingMiniBAMControllerIdentity: ObjectIdentifier? {
-        miniBAMController.map(ObjectIdentifier.init)
+        alignmentEvidenceViewer.map { ObjectIdentifier($0) }
     }
     var testingMiniBAMLoadCount: Int { miniBAMLoadCount }
 

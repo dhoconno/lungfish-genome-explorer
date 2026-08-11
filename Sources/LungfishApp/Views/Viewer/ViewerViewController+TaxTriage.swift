@@ -48,6 +48,12 @@ extension ViewerViewController {
         contentMode = .metagenomics
 
         let controller = TaxTriageResultViewController()
+        controller.classifierAlignmentViewerFactory = { [weak self] in
+            guard let split = self?.parent as? MainSplitViewController else {
+                return UnavailableClassifierAlignmentViewer()
+            }
+            return split.makeClassifierAlignmentEvidenceViewport()
+        }
         addChild(controller)
 
         annotationDrawerView?.isHidden = true

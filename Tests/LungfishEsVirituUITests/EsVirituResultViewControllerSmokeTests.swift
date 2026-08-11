@@ -11,6 +11,13 @@ import LungfishKit
 import LungfishCore
 
 final class EsVirituResultViewControllerSmokeTests: XCTestCase {
+    func testEsVirituLeafDoesNotDependOnMiniBAM() throws {
+        let source = try String(contentsOfFile: "Sources/LungfishEsVirituUI/EsVirituResultViewController.swift", encoding: .utf8)
+        XCTAssertFalse(source.contains("MiniBAMViewController"))
+        XCTAssertTrue(source.contains("currentBAMSampleID"))
+        XCTAssertTrue(source.contains("sample: .init(canonicalID: sampleID)"))
+    }
+
     @MainActor func testViewControllerInstantiates() {
         let vc = EsVirituResultViewController()
         XCTAssertNotNil(vc.view)

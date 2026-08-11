@@ -382,7 +382,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         setupSummaryBar()
         setupSplitView()
         setupBatchTableView()
-        setupMiniBAMViewer()
+        setupAlignmentEvidenceViewer()
         setupActionBar()
         layoutSubviews()
         wireCallbacks()
@@ -400,23 +400,55 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         )
     }
 
-    // MARK: - Mini BAM Viewer
+    // MARK: - Detached alignment evidence
 
-    private var miniBAMController: MiniBAMViewController?
+    /// Supplied by LungfishApp at composition time; the default is leaf-safe.
+    public var classifierAlignmentViewerFactory: @MainActor () -> any ClassifierAlignmentViewerProviding = {
+        UnavailableClassifierAlignmentViewer()
+    }
+    private var alignmentEvidenceViewer: (any ClassifierAlignmentViewerProviding)?
 
     /// The assembly accession currently displayed in the mini BAM viewer.
     private var currentBAMAssemblyAccession: String?
     /// The contig accession currently displayed in the mini BAM viewer.
     private var currentBAMContigAccession: String?
+    private var currentBAMSampleID: String?
 
-    private func setupMiniBAMViewer() {
-        let bamVC = MiniBAMViewController()
-        // MiniBAM stats describe the currently displayed alignment pane. The
-        // EsViritu table's Unique Reads column is loaded from the persisted
-        // markdup-derived result data and must not change as rows are selected.
-        addChild(bamVC)
-        miniBAMController = bamVC
-        detailPane.miniBAMViewController = bamVC
+    private func setupAlignmentEvidenceViewer() {
+        let viewer = classifierAlignmentViewerFactory()
+        addChild(viewer.viewController)
+        alignmentEvidenceViewer = viewer
+        detailPane.alignmentEvidenceView = viewer.viewController.view
+        detailPane.onDisplayAlignmentEvidence = { [weak self] contig, length in
+            self?.displayEsVirituAlignmentEvidence(contig: contig, length: length)
+        }
+    }
+
+    private func displayEsVirituAlignmentEvidence(contig: String, length: Int) {
+        guard let viewer = alignmentEvidenceViewer,
+              !contig.isEmpty, length > 0,
+              let bamURL, let indexURL = bamIndexURL,
+              let sampleID = currentBAMSampleID else {
+            alignmentEvidenceViewer?.clear()
+            return
+        }
+        let kind: ClassifierAlignmentIndex.Kind = indexURL.pathExtension.lowercased() == "csi" ? .csi : .bai
+        do {
+            let resultURL = batchURL ?? bamURL.deletingLastPathComponent()
+            let request = try ClassifierAlignmentEvidenceRequest(
+                workflow: .esViritu,
+                resultIdentity: .init(stableID: resultURL.standardizedFileURL.path, finalResultURL: resultURL, provenanceID: "esviritu:\(resultURL.lastPathComponent)"),
+                bamURL: bamURL,
+                index: .init(url: indexURL, kind: kind),
+                sample: .init(canonicalID: sampleID),
+                contig: .init(name: contig, expectedLength: length),
+                referenceCandidate: nil,
+                presentation: .init(workflowLabel: "EsViritu", resultLabel: resultURL.lastPathComponent, sampleLabel: sampleID, contigLabel: contig)
+            )
+            viewer.display(request)
+        } catch {
+            viewer.clear()
+        }
     }
 
     public override func viewDidLayout() {
@@ -1488,6 +1520,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
 
         let selectedContig = assembly.contigs.first { $0.accession == focusedContigAccession } ?? assembly.contigs.first
         currentBAMContigAccession = selectedContig?.accession
+        currentBAMSampleID = selectedContig?.sampleId
 
         detailPane.showVirusDetail(
             assembly: assembly,
@@ -1500,6 +1533,8 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     private func showOverview() {
         currentBAMAssemblyAccession = nil
         currentBAMContigAccession = nil
+        currentBAMSampleID = nil
+        alignmentEvidenceViewer?.clear()
         guard let result = esVirituResult else { return }
         detailPane.configureOverview(
             result: result,

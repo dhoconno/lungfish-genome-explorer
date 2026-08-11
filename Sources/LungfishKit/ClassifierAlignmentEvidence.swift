@@ -246,3 +246,36 @@ public protocol ClassifierAlignmentViewerProviding: AnyObject {
     func display(_ request: ClassifierAlignmentEvidenceRequest)
     func clear()
 }
+
+/// Leaf-safe placeholder used until the App composition root supplies the real
+/// detached viewer.  It never attempts to open, create, or transform evidence.
+@MainActor
+public final class UnavailableClassifierAlignmentViewer: NSObject, ClassifierAlignmentViewerProviding {
+    private let controller = NSViewController()
+    private let label = NSTextField(labelWithString: "Alignment evidence is unavailable.")
+    public private(set) var status: ClassifierAlignmentViewerStatus = .idle {
+        didSet { label.stringValue = status.message; onStatusChanged?(status) }
+    }
+    public var onStatusChanged: (@MainActor @Sendable (ClassifierAlignmentViewerStatus) -> Void)?
+
+    public override init() {
+        super.init()
+        let view = NSView()
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.textColor = .secondaryLabelColor
+        label.maximumNumberOfLines = 0
+        view.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            label.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            label.topAnchor.constraint(equalTo: view.topAnchor, constant: 12),
+        ])
+        controller.view = view
+    }
+
+    public var viewController: NSViewController { controller }
+    public func display(_ request: ClassifierAlignmentEvidenceRequest) {
+        status = .unavailable("The full alignment evidence viewer is not available in this host window.")
+    }
+    public func clear() { status = .idle }
+}

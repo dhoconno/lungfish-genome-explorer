@@ -10,6 +10,13 @@ import LungfishWorkflow
 import LungfishKit
 
 final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
+    func testTaxTriageLeafDoesNotDependOnMiniBAM() throws {
+        let source = try String(contentsOfFile: "Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift", encoding: .utf8)
+        XCTAssertFalse(source.contains("MiniBAMViewController"))
+        XCTAssertFalse(source.contains("createSymbolicLink"))
+        XCTAssertTrue(source.contains("let name = \"\\(sampleID).dwnld.references.fasta\""))
+    }
+
     @MainActor func testViewControllerInstantiates() {
         let vc = TaxTriageResultViewController()
         XCTAssertNotNil(vc.view)

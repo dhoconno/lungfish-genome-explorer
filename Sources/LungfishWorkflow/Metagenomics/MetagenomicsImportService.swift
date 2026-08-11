@@ -2171,6 +2171,7 @@ private func nvdManifest(
             hitCount: sample.hitCount,
             totalReads: sample.totalReads,
             bamRelativePath: sample.bamPath,
+            bamIndexRelativePath: sample.bamIndexPath,
             fastaRelativePath: sample.fastaPath
         )
     }

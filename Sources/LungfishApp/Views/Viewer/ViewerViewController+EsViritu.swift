@@ -49,6 +49,12 @@ extension ViewerViewController {
         contentMode = .metagenomics
 
         let controller = EsVirituResultViewController()
+        controller.classifierAlignmentViewerFactory = { [weak self] in
+            guard let split = self?.parent as? MainSplitViewController else {
+                return UnavailableClassifierAlignmentViewer()
+            }
+            return split.makeClassifierAlignmentEvidenceViewport()
+        }
         addChild(controller)
 
         annotationDrawerView?.isHidden = true

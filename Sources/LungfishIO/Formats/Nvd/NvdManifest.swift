@@ -96,6 +96,10 @@ public struct NvdSampleSummary: Codable, Sendable {
     /// Path to the BAM alignment file, relative to the bundle root.
     public let bamRelativePath: String
 
+    /// Explicit final stored BAM index path, relative to the bundle root.
+    /// Optional for backward-compatible decoding of pre-index manifests.
+    public let bamIndexRelativePath: String?
+
     /// Path to the assembled FASTA file, relative to the bundle root.
     public let fastaRelativePath: String
 
@@ -105,6 +109,7 @@ public struct NvdSampleSummary: Codable, Sendable {
         hitCount: Int,
         totalReads: Int,
         bamRelativePath: String,
+        bamIndexRelativePath: String? = nil,
         fastaRelativePath: String
     ) {
         self.sampleId = sampleId
@@ -112,7 +117,29 @@ public struct NvdSampleSummary: Codable, Sendable {
         self.hitCount = hitCount
         self.totalReads = totalReads
         self.bamRelativePath = bamRelativePath
+        self.bamIndexRelativePath = bamIndexRelativePath
         self.fastaRelativePath = fastaRelativePath
+    }
+
+    /// Source-compatible initializer retained for clients built against the
+    /// original manifest schema.
+    public init(
+        sampleId: String,
+        contigCount: Int,
+        hitCount: Int,
+        totalReads: Int,
+        bamRelativePath: String,
+        fastaRelativePath: String
+    ) {
+        self.init(
+            sampleId: sampleId,
+            contigCount: contigCount,
+            hitCount: hitCount,
+            totalReads: totalReads,
+            bamRelativePath: bamRelativePath,
+            bamIndexRelativePath: nil,
+            fastaRelativePath: fastaRelativePath
+        )
     }
 }
 

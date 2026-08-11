@@ -53,6 +53,13 @@ extension ViewerViewController {
         hideAlignmentTreeBundleViews()
         contentMode = .metagenomics
 
+        controller.classifierAlignmentViewerFactory = { [weak self] in
+            guard let split = self?.parent as? MainSplitViewController else {
+                return UnavailableClassifierAlignmentViewer()
+            }
+            return split.makeClassifierAlignmentEvidenceViewport()
+        }
+
         addChild(controller)
 
         // Wire BLAST verification callback.

@@ -97,7 +97,7 @@ private func nvdHasAncestor<T: NSView>(of type: T.Type, from view: NSView) -> Bo
 /// +----------------------------------------------------------+
 /// | Detail Pane (40%)    |  NSOutlineView (60%)               |
 /// |  [Summary info]      |  Search: [________________]        |
-/// |  [MiniBAM viewer]    |  > NODE_1183 (227bp) ...           |
+/// |  [Alignment evidence]|  > NODE_1183 (227bp) ...           |
 /// +----------------------------------------------------------+
 /// | Action Bar (36pt)  [BLAST Verify] [Export]                |
 /// +----------------------------------------------------------+
@@ -244,7 +244,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
                 || candidate === self.actionBar
                 || candidate === self.outlineView
                 || candidate === self.blastDrawerContainer
-                || candidate === self.miniBAMController?.view
+                || candidate === self.alignmentEvidenceViewer?.viewController.view
                 || candidate is NSButton
                 || candidate is NSSegmentedControl
                 || candidate is NSPopUpButton
@@ -265,7 +265,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     private var outlineReloadCount = 0
     private var childHitLoadCount = 0
     private var detailRebuildCount = 0
-    private var miniBAMLoadCount = 0
+    private var alignmentEvidenceLoadCount = 0
     private var typographyDisplayedContigScanCount = 0
     private var typographyTaxonGroupScanCount = 0
     private var typographyRealizedCellResolutionCount = 0
@@ -343,13 +343,15 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         return container
     }()
 
-    // MARK: - MiniBAM
+    // MARK: - Detached alignment evidence
 
-    private var miniBAMController: MiniBAMViewController?
-    private var miniBAMHeightConstraint: NSLayoutConstraint?
-    private let miniBAMDefaultHeight: CGFloat = 220
-    private let miniBAMMinHeight: CGFloat = 140
-    private let miniBAMMaxHeight: CGFloat = 900
+    /// The App composition root replaces this leaf-safe default with the full
+    /// ViewerViewController-backed provider for the current window.
+    public var classifierAlignmentViewerFactory: @MainActor () -> any ClassifierAlignmentViewerProviding = {
+        UnavailableClassifierAlignmentViewer()
+    }
+    private var alignmentEvidenceViewer: (any ClassifierAlignmentViewerProviding)?
+    private var alignmentEvidenceHeightConstraint: NSLayoutConstraint?
 
     // MARK: - Loading State
 
@@ -411,15 +413,15 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
                         ? first.frame.maxX
                         : first.frame.maxY
                 }
-                if self.miniBAMHeightConstraint == nil,
-                   let bamView = self.miniBAMController?.view,
-                   bamView.bounds.height > 0 {
-                    let fixedHeight = bamView.heightAnchor.constraint(
-                        equalToConstant: bamView.bounds.height
+                if self.alignmentEvidenceHeightConstraint == nil,
+                   let evidenceView = self.alignmentEvidenceViewer?.viewController.view,
+                   evidenceView.bounds.height > 0 {
+                    let fixedHeight = evidenceView.heightAnchor.constraint(
+                        equalToConstant: evidenceView.bounds.height
                     )
                     fixedHeight.priority = .required - 2
                     fixedHeight.isActive = true
-                    self.miniBAMHeightConstraint = fixedHeight
+                    self.alignmentEvidenceHeightConstraint = fixedHeight
                 }
                 self.updateDetailTypographyLayout()
             },
@@ -662,7 +664,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
 #if DEBUG
         detailRebuildCount += 1
 #endif
-        teardownMiniBAM()
+        teardownAlignmentEvidence()
         hideMultiSelectionPlaceholder()
 
         for subview in detailContentView.subviews {
@@ -706,7 +708,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
 #if DEBUG
         detailRebuildCount += 1
 #endif
-        teardownMiniBAM()
+        teardownAlignmentEvidence()
         hideMultiSelectionPlaceholder()
 
         for subview in detailContentView.subviews {
@@ -751,9 +753,8 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         let metricsView = buildMetricsView(for: hit)
         detailContentView.addSubview(metricsView)
 
-        // MiniBAM panel (if BAM file available)
-        let miniBAMContainer = buildMiniBAMPanel(for: hit)
-        detailContentView.addSubview(miniBAMContainer)
+        let alignmentContainer = buildAlignmentEvidencePanel(for: hit)
+        detailContentView.addSubview(alignmentContainer)
 
         NSLayoutConstraint.activate([
             nameLabel.topAnchor.constraint(equalTo: detailContentView.topAnchor, constant: 12),
@@ -768,13 +769,13 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
             metricsView.leadingAnchor.constraint(equalTo: detailContentView.leadingAnchor, constant: 16),
             metricsView.trailingAnchor.constraint(equalTo: detailContentView.trailingAnchor, constant: -16),
 
-            miniBAMContainer.topAnchor.constraint(equalTo: metricsView.bottomAnchor, constant: 12),
-            miniBAMContainer.leadingAnchor.constraint(equalTo: detailContentView.leadingAnchor, constant: 8),
-            miniBAMContainer.trailingAnchor.constraint(equalTo: detailContentView.trailingAnchor, constant: -8),
+            alignmentContainer.topAnchor.constraint(equalTo: metricsView.bottomAnchor, constant: 12),
+            alignmentContainer.leadingAnchor.constraint(equalTo: detailContentView.leadingAnchor, constant: 8),
+            alignmentContainer.trailingAnchor.constraint(equalTo: detailContentView.trailingAnchor, constant: -8),
         ])
 
-        // Pin miniBAM container to bottom of detail pane so it fills available vertical space
-        let bottomConstraint = miniBAMContainer.bottomAnchor.constraint(
+        // Pin the evidence container to the bottom of the detail pane.
+        let bottomConstraint = alignmentContainer.bottomAnchor.constraint(
             equalTo: detailContentView.bottomAnchor, constant: -8
         )
         bottomConstraint.priority = .required - 1
@@ -850,9 +851,9 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         return String(format: "%.2g", evalue)
     }
 
-    // MARK: - MiniBAM Panel
+    // MARK: - Detached alignment evidence panel
 
-    private func buildMiniBAMPanel(for hit: NvdBlastHit) -> NSView {
+    private func buildAlignmentEvidencePanel(for hit: NvdBlastHit) -> NSView {
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
 
@@ -892,24 +893,14 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         accessionLabel.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(accessionLabel)
 
-        // Create MiniBAM
-        let miniBAM = MiniBAMViewController()
-        miniBAM.subjectNoun = "contig"
-        miniBAM.keyboardShortcutsEnabled = true
-        addChild(miniBAM)
-        miniBAMController = miniBAM
-
-        let bamView = miniBAM.view
-        bamView.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(bamView)
-
-        // Use a minimum height but allow the view to grow to fill available space
-        let heightConstraint = bamView.heightAnchor.constraint(greaterThanOrEqualToConstant: miniBAMMinHeight)
-        miniBAMHeightConstraint = nil  // No fixed height — fills available space
-
-        miniBAM.onResizeBy = { [weak self] deltaY in
-            self?.adjustMiniBAMHeight(by: deltaY)
+        let evidenceViewer = alignmentEvidenceViewer ?? classifierAlignmentViewerFactory()
+        if alignmentEvidenceViewer == nil {
+            alignmentEvidenceViewer = evidenceViewer
+            addChild(evidenceViewer.viewController)
         }
+        let evidenceView = evidenceViewer.viewController.view
+        evidenceView.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(evidenceView)
 
         NSLayoutConstraint.activate([
             headerLabel.topAnchor.constraint(equalTo: container.topAnchor),
@@ -920,66 +911,84 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
             accessionLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
             accessionLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
 
-            bamView.topAnchor.constraint(equalTo: accessionLabel.bottomAnchor, constant: 6),
-            bamView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 4),
-            bamView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -4),
-            bamView.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -4),
-            heightConstraint,
+            evidenceView.topAnchor.constraint(equalTo: accessionLabel.bottomAnchor, constant: 6),
+            evidenceView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 4),
+            evidenceView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -4),
+            evidenceView.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -4),
+            evidenceView.heightAnchor.constraint(greaterThanOrEqualToConstant: 140),
         ])
 
-        // Load BAM asynchronously
-#if DEBUG
-        if !testDisableMiniBAMLoading {
-            loadMiniBAM(miniBAM: miniBAM, hit: hit, database: database, bundleURL: bundleURL)
-        }
-#else
-        loadMiniBAM(miniBAM: miniBAM, hit: hit, database: database, bundleURL: bundleURL)
-#endif
+        displayNvdAlignmentEvidence(for: hit, database: database, bundleURL: bundleURL)
 
         return container
     }
 
-    private func loadMiniBAM(miniBAM: MiniBAMViewController, hit: NvdBlastHit, database: NvdDatabase, bundleURL: URL) {
+    private func displayNvdAlignmentEvidence(for hit: NvdBlastHit, database: NvdDatabase, bundleURL: URL) {
 #if DEBUG
-        miniBAMLoadCount += 1
+        alignmentEvidenceLoadCount += 1
 #endif
-        // Get BAM path from database
+        guard let viewer = alignmentEvidenceViewer else { return }
         do {
             guard let bamRelPath = try database.bamPath(forSample: hit.sampleId) else {
-                logger.warning("No BAM path found for sample \(hit.sampleId, privacy: .public)")
+                viewer.clear()
                 return
             }
             let bamURL = bundleURL.appendingPathComponent(bamRelPath)
-            guard FileManager.default.fileExists(atPath: bamURL.path) else {
-                logger.warning("BAM file not found: \(bamURL.path, privacy: .public)")
+            let indexRelative = try database.bamIndexPath(forSample: hit.sampleId)
+            let indexURL = resolveNvdIndex(bamURL: bamURL, storedIndexPath: indexRelative, bundleURL: bundleURL)
+            guard let indexURL else {
+                viewer.clear()
                 return
             }
-
-            // The contig name IS the reference name in the BAM
-            miniBAM.displayContig(
+            let indexKind: ClassifierAlignmentIndex.Kind = indexURL.pathExtension.lowercased() == "csi" ? .csi : .bai
+            let sample = allSamples.first(where: { $0.sampleId == hit.sampleId })
+            let reference = sample.map { metadata in
+                ClassifierAlignmentReferenceCandidate(
+                    fastaURL: bundleURL.appendingPathComponent(metadata.fastaPath),
+                    recordName: hit.qseqid,
+                    expectedLength: max(hit.qlen, 1)
+                )
+            }
+            let request = try ClassifierAlignmentEvidenceRequest(
+                workflow: .nvd,
+                resultIdentity: .init(
+                    stableID: bundleURL.standardizedFileURL.path,
+                    finalResultURL: bundleURL,
+                    provenanceID: "nvd:\(manifest?.experiment ?? bundleURL.lastPathComponent)"
+                ),
                 bamURL: bamURL,
-                contig: hit.qseqid,
-                contigLength: max(hit.qlen, 1)
+                index: .init(url: indexURL, kind: indexKind),
+                sample: .init(canonicalID: hit.sampleId),
+                contig: .init(name: hit.qseqid, expectedLength: max(hit.qlen, 1)),
+                referenceCandidate: reference,
+                presentation: .init(workflowLabel: "NVD", resultLabel: manifest?.experiment ?? bundleURL.lastPathComponent, sampleLabel: hit.sampleId, contigLabel: hit.qseqid)
             )
+            viewer.display(request)
         } catch {
-            logger.error("Failed to get BAM path: \(error.localizedDescription, privacy: .public)")
+            viewer.clear()
         }
     }
 
-    private func adjustMiniBAMHeight(by deltaY: CGFloat) {
-        guard let constraint = miniBAMHeightConstraint else { return }
-        let next = min(max(miniBAMMinHeight, constraint.constant + deltaY), miniBAMMaxHeight)
-        constraint.constant = next
-        detailContentView.layoutSubtreeIfNeeded()
+    private func resolveNvdIndex(bamURL: URL, storedIndexPath: String?, bundleURL: URL) -> URL? {
+        if let storedIndexPath, !storedIndexPath.isEmpty {
+            return storedIndexPath.hasPrefix("/")
+                ? URL(fileURLWithPath: storedIndexPath)
+                : bundleURL.appendingPathComponent(storedIndexPath)
+        }
+        // Legacy manifests/databases may omit the stored field.  Resolve only
+        // an index stored beside the final BAM; never create one in the viewer.
+        for suffix in [".bai", ".csi"] {
+            let candidate = URL(fileURLWithPath: bamURL.path + suffix)
+            if FileManager.default.fileExists(atPath: candidate.path) { return candidate }
+        }
+        return nil
     }
 
-    private func teardownMiniBAM() {
-        if let controller = miniBAMController {
-            controller.view.removeFromSuperview()
-            controller.removeFromParent()
-            miniBAMController = nil
-        }
-        miniBAMHeightConstraint = nil
+    private func teardownAlignmentEvidence() {
+        alignmentEvidenceViewer?.clear()
+        alignmentEvidenceViewer?.viewController.view.removeFromSuperview()
+        alignmentEvidenceHeightConstraint?.isActive = false
+        alignmentEvidenceHeightConstraint = nil
     }
 
     // MARK: - Detail Content Sizing
@@ -2060,7 +2069,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     // MARK: - Multi-Selection Helpers
 
     private func showMultiSelectionPlaceholder(count: Int) {
-        teardownMiniBAM()
+        teardownAlignmentEvidence()
 
         if let stack = multiSelectionPlaceholder.subviews.first as? NSStackView,
            let primary = stack.arrangedSubviews.first as? NSTextField {
@@ -2649,7 +2658,7 @@ extension NvdResultViewController {
     var testOutlineReloadCount: Int { outlineReloadCount }
     var testChildHitLoadCount: Int { childHitLoadCount }
     var testDetailRebuildCount: Int { detailRebuildCount }
-    var testMiniBAMLoadCount: Int { miniBAMLoadCount }
+    var testMiniBAMLoadCount: Int { alignmentEvidenceLoadCount }
     var testTypographyDisplayedContigScanCount: Int {
         typographyDisplayedContigScanCount
     }
@@ -2660,9 +2669,9 @@ extension NvdResultViewController {
         typographyRealizedCellResolutionCount
     }
     var testMiniBAMControllerIdentity: ObjectIdentifier? {
-        miniBAMController.map(ObjectIdentifier.init)
+        alignmentEvidenceViewer.map { ObjectIdentifier($0) }
     }
-    var testMiniBAMViewHeight: CGFloat? { miniBAMController?.view.bounds.height }
+    var testMiniBAMViewHeight: CGFloat? { alignmentEvidenceViewer?.viewController.view.bounds.height }
     var testMetricStackOrientation: NSUserInterfaceLayoutOrientation? {
         detailMetricsStack?.orientation
     }
@@ -2676,7 +2685,7 @@ extension NvdResultViewController {
         }
     }
     var testDetailPrimaryPointSizes: [CGFloat] {
-        let miniRoot = miniBAMController?.view
+        let miniRoot = alignmentEvidenceViewer?.viewController.view
         return nvdDescendants(of: NSTextField.self, in: detailContentView)
             .filter { field in
                 !(miniRoot.map { field.isDescendant(of: $0) } ?? false)
@@ -2685,7 +2694,7 @@ extension NvdResultViewController {
             .compactMap { $0.font?.pointSize }
     }
     var testDetailPrimaryFieldsAreContained: Bool {
-        let miniRoot = miniBAMController?.view
+        let miniRoot = alignmentEvidenceViewer?.viewController.view
         return nvdDescendants(of: NSTextField.self, in: detailContentView)
             .filter { field in
                 !(miniRoot.map { field.isDescendant(of: $0) } ?? false)
@@ -2698,7 +2707,7 @@ extension NvdResultViewController {
             }
     }
     var testDetailFullTextAccessibility: Bool {
-        let miniRoot = miniBAMController?.view
+        let miniRoot = alignmentEvidenceViewer?.viewController.view
         return nvdDescendants(of: NSTextField.self, in: detailContentView)
             .filter { field in
                 !field.stringValue.isEmpty
@@ -2724,7 +2733,7 @@ extension NvdResultViewController {
     }
     var testLoadingPointSize: CGFloat? { loadingLabel.font?.pointSize }
     func testDetailPrimaryPointSize(containing text: String) -> CGFloat? {
-        let miniRoot = miniBAMController?.view
+        let miniRoot = alignmentEvidenceViewer?.viewController.view
         return nvdDescendants(of: NSTextField.self, in: detailContentView)
             .first { field in
                 field.stringValue.contains(text)

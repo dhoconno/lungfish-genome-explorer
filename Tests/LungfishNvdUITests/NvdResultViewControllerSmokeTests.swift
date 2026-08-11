@@ -10,4 +10,9 @@ final class NvdResultViewControllerSmokeTests: XCTestCase {
         let vc = NvdResultViewController()
         XCTAssertNotNil(vc.view)
     }
+
+    func testNvdLeafDoesNotDependOnMiniBAM() throws {
+        let source = try String(contentsOfFile: "Sources/LungfishNvdUI/NvdResultViewController.swift", encoding: .utf8)
+        XCTAssertFalse(source.contains("MiniBAMViewController"))
+    }
 }

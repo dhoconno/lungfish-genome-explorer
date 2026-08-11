@@ -56,13 +56,18 @@ public final class EsVirituDetailPane: NSView {
     private var selectedCoverageWindows: [String: [ViralCoverageWindow]] = [:]
     private var bamAvailable: Bool = false
 
-    /// The mini BAM view controller (child VC managed by the parent result VC).
-    /// Set by the parent so we can embed the BAM pileup in the detail pane.
+    /// The detached evidence view (child lifecycle is owned by the parent VC).
+    public var alignmentEvidenceView: NSView?
+
+    /// Compatibility seam for older layout tests. Production wiring uses
+    /// `alignmentEvidenceView`; this value is never displayed by the result VC.
+    @available(*, deprecated, message: "Use alignmentEvidenceView")
     public var miniBAMViewController: MiniBAMViewController?
 
     /// Called when the user selects a virus and BAM is available — triggers
     /// automatic alignment loading in the detail pane.
     public var onLoadAlignments: ((URL, String) -> Void)?  // bamURL, accession
+    public var onDisplayAlignmentEvidence: ((String, Int) -> Void)?
 
     // MARK: - Subviews
 
@@ -88,7 +93,7 @@ public final class EsVirituDetailPane: NSView {
             || view === self?.coveragePlotView
             || view === self?.topVirusesView
             || view is SegmentCompletenessView
-            || view === self?.miniBAMViewController?.view
+            || view === self?.alignmentEvidenceView
     }
     private var contentTypographyObservation: ContentTypographyViewObservation?
     private weak var activeMetricsView: NSStackView?
@@ -184,13 +189,9 @@ public final class EsVirituDetailPane: NSView {
 
         // Automatically load BAM pileup for the selected contig.
         if let bamURL, let selectedContig {
-            miniBAMViewController?.displayContig(
-                bamURL: bamURL,
-                contig: selectedContig.accession,
-                contigLength: selectedContig.length
-            )
+            onDisplayAlignmentEvidence?(selectedContig.accession, selectedContig.length)
         } else {
-            miniBAMViewController?.clear()
+            onDisplayAlignmentEvidence?("", 0)
         }
     }
 
@@ -215,7 +216,7 @@ public final class EsVirituDetailPane: NSView {
             buildDetailContent()
         }
 
-        // Keep the primary content (mini-BAM when present) visible at the top.
+        // Keep the primary alignment evidence visible at the top.
         scrollView.contentView.scroll(to: .zero)
         scrollView.reflectScrolledClipView(scrollView.contentView)
         contentTypographyObservation?.refresh()
@@ -265,13 +266,12 @@ public final class EsVirituDetailPane: NSView {
 
     private func buildDetailContent() {
         guard let assembly = selectedAssembly else { return }
-        if bamAvailable, let miniBAM = miniBAMViewController {
-            buildMiniBAMOnlyDetailContent(using: miniBAM)
+        if bamAvailable, let evidenceView = alignmentEvidenceView ?? miniBAMViewController?.view {
+            buildAlignmentEvidenceOnlyDetailContent(using: evidenceView)
             return
         }
 
         let isSegmented = assembly.contigs.count > 1 && assembly.contigs.contains(where: { $0.segment != nil })
-        miniBAMViewController?.onResizeBy = nil
 
         // 2. Confidence badge + Virus name + Family
         let headerStack = NSView()
@@ -332,7 +332,7 @@ public final class EsVirituDetailPane: NSView {
         }
 
         // 5. Per-segment coverage chart (ONLY for segmented viruses)
-        //    For non-segmented viruses, the BAM pileup's built-in depth track
+        //    For non-segmented viruses, the alignment evidence depth track
         //    already shows coverage, so the separate chart is redundant.
         if isSegmented {
             coveragePlotView.configure(
@@ -368,17 +368,15 @@ public final class EsVirituDetailPane: NSView {
         NSLayoutConstraint.activate(constraints)
     }
 
-    private func buildMiniBAMOnlyDetailContent(using miniBAM: MiniBAMViewController) {
-        let bamView = miniBAM.view
-        bamView.translatesAutoresizingMaskIntoConstraints = false
-        miniBAM.onResizeBy = nil
-        contentView.addSubview(bamView)
+    private func buildAlignmentEvidenceOnlyDetailContent(using evidenceView: NSView) {
+        evidenceView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(evidenceView)
 
         NSLayoutConstraint.activate([
-            bamView.topAnchor.constraint(equalTo: contentView.topAnchor),
-            bamView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            bamView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            bamView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            evidenceView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            evidenceView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            evidenceView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            evidenceView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
         ])
     }
 
