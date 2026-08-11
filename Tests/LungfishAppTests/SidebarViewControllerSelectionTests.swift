@@ -687,6 +687,57 @@ final class SidebarViewControllerSelectionTests: XCTestCase {
         XCTAssertFalse(sidebar.selectItem(forURL: appleDoubleReportURL))
     }
 
+    func testMinimap2BatchChildInheritsParentAnalysisToolForDisplayRouting() throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SidebarMinimap2Batch-\(UUID().uuidString)", isDirectory: true)
+        let projectURL = tempRoot.appendingPathComponent("Fixture.lungfish", isDirectory: true)
+        let batchURL = projectURL
+            .appendingPathComponent("Analyses", isDirectory: true)
+            .appendingPathComponent("minimap2-batch-2026-08-11T17-47-22", isDirectory: true)
+        let sampleURL = batchURL.appendingPathComponent("Clinic007-20260427_S44_L001", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: sampleURL, withIntermediateDirectories: true)
+        try AnalysesFolder.writeAnalysisMetadata(
+            .init(tool: "minimap2", isBatch: true, created: Date(timeIntervalSince1970: 1_776_000_000)),
+            to: batchURL
+        )
+        try """
+        {
+          "mapper": "minimap2",
+          "modeID": "short-read-default",
+          "bamPath": "Clinic007-20260427_S44_L001.sorted.bam",
+          "baiPath": "Clinic007-20260427_S44_L001.sorted.bam.bai",
+          "mappedReads": 25,
+          "totalReads": 5633919,
+          "unmappedReads": 5633894,
+          "contigs": []
+        }
+        """.write(
+            to: sampleURL.appendingPathComponent("mapping-result.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let sidebar = SidebarViewController()
+        sidebar.loadViewIfNeeded()
+
+        defer {
+            sidebar.closeProject()
+            try? FileManager.default.removeItem(at: tempRoot)
+        }
+
+        sidebar.openProject(at: projectURL)
+
+        XCTAssertTrue(sidebar.selectItem(forURL: sampleURL))
+        let sampleItem = try XCTUnwrap(sidebar.selectedItems().first)
+        XCTAssertEqual(sampleItem.type, .analysisResult)
+        XCTAssertEqual(sampleItem.userInfo["analysisTool"], "minimap2")
+        XCTAssertEqual(
+            AnalysisResultDisplayRoute.route(forToolID: try XCTUnwrap(sampleItem.userInfo["analysisTool"])),
+            .mapping
+        )
+    }
+
     func testMultiFileFASTQBundleAppearsAsBundleNotChunkFile() throws {
         let tempRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("SidebarMultiFileFASTQ-\(UUID().uuidString)", isDirectory: true)

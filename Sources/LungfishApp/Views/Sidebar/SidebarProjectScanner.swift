@@ -825,6 +825,7 @@ enum SidebarProjectScanner {
             // Identify the child as a specific sample so the routing layer can
             // filter the batch view to just this sample after display.
             childNode.userInfo["sampleId"] = child.lastPathComponent
+            childNode.userInfo["analysisTool"] = info.tool
             groupNode.children.append(childNode)
         }
         groupNode.subtitle = "\(groupNode.children.count) samples"
