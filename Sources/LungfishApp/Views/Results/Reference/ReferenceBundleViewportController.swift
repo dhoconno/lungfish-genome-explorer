@@ -56,7 +56,10 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     private var alignmentTrackSummaryWarning: String?
     private var alignmentTrackSummaryRefreshID = UUID()
     private var visibleAlignmentSummaryOverride: VisibleAlignmentSummary?
-    private var bamSampleIdentityIndex: SampleIdentityIndex?
+    /// Row identity restoration emits the normal table selection callback.
+    /// Suppress it while asynchronous mapping rows are being replaced so the
+    /// previously-focused row cannot reapply a stale track/RG predicate.
+    private var isReplacingMappingRows = false
     private var metadataPresentationContext: SampleMetadataPresentationContext?
     private var metadataPresentationObserverToken: SampleMetadataPresentationContext.ObserverToken?
 
@@ -301,10 +304,12 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         focusedBackButton.action = #selector(returnToListDetailModeFromControl)
 
         contigTableView.onRowSelected = { [weak self] row in
-            self?.displaySelectedContig(row)
+            guard let self, !self.isReplacingMappingRows else { return }
+            self.displaySelectedContig(row)
         }
         contigTableView.onSelectionCleared = { [weak self] in
-            self?.showDetailPlaceholder("Select a mapped contig to inspect mapped reads.")
+            guard let self, !self.isReplacingMappingRows else { return }
+            self.showDetailPlaceholder("Select a mapped contig to inspect mapped reads.")
         }
 
         sequenceTableView.onRowSelected = { [weak self] row in
@@ -527,7 +532,11 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                 totalReads: Int(clamping: (track.mappedReadCount ?? 0) + (track.unmappedReadCount ?? 0))
                ) {
                 applyVisibleAlignmentRows(
-                    [(sampleID, cachedRows)],
+                    [(
+                        sampleID: sampleID,
+                        readGroupIDs: resolution.identityIndex.readGroupIDs(forCanonicalSampleID: sampleID),
+                        summaries: cachedRows
+                    )],
                     track: track,
                     mappedReads: Int(clamping: track.mappedReadCount ?? 0),
                     totalReads: Int(clamping: (track.mappedReadCount ?? 0) + (track.unmappedReadCount ?? 0)),
@@ -681,11 +690,14 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         }
 
         if let preferredSelectionName,
-           selectContig(named: preferredSelectionName) {
+           selectContig(named: preferredSelectionName, appliesAlignmentIdentity: false) {
             return
         }
 
-        selectContig(at: 0)
+        // A refresh chooses a row to navigate, but it must not turn the first
+        // All Alignments row into a new track/RG filter. Explicit table
+        // selection still applies the identity carried by that row.
+        selectContig(at: 0, appliesAlignmentIdentity: false)
     }
 
     private func refreshSequenceSelection(preferredSelectionName: String? = nil) {
@@ -778,6 +790,14 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
             let tracks = currentInput?.viewerBundleManifest?.alignments ?? []
             let requestedTrackID = embeddedViewerController.viewerView.visibleAlignmentTrackIDSetting
             guard requestedTrackID != nil else {
+                // "All Alignments" is an explicit no-track/no-RG predicate.
+                // Unless a caller supplied an alternative RG value in the
+                // same atomic update, clear the prior focused row's filter.
+                if !userInfo.keys.contains(NotificationUserInfoKey.selectedReadGroups as AnyHashable) {
+                    embeddedViewerController.applyReadDisplaySettings([
+                        NotificationUserInfoKey.selectedReadGroups: Set<String>()
+                    ])
+                }
                 refreshAllMetadataTracks(tracks, preferredSelectionName: currentSelectedContig()?.contigName)
                 return
             }
@@ -803,7 +823,6 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         let refreshID = alignmentTrackSummaryRefreshID
         visibleAlignmentSummaryOverride = nil
         alignmentTrackSummaryWarning = nil
-        bamSampleIdentityIndex = nil
         updateSummaryBar()
         contigTableView.configure(rows: [])
         let builder = alignmentTrackSummaryBuilder
@@ -826,13 +845,16 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                         summaries = (try? await builder(bamURL, total, readGroups)) ?? []
                     }
                     rows += summaries.filter { $0.mappedReads > 0 }.map {
-                        MappingContigSummary(sampleID: sampleID, contigName: $0.contigName, contigLength: $0.contigLength, mappedReads: $0.mappedReads, mappedReadPercent: $0.mappedReadPercent, meanDepth: $0.meanDepth, coverageBreadth: $0.coverageBreadth, medianMAPQ: $0.medianMAPQ, meanIdentity: $0.meanIdentity)
+                        MappingContigSummary(sampleID: sampleID, alignmentTrackID: track.id, readGroupIDs: readGroups, contigName: $0.contigName, contigLength: $0.contigLength, mappedReads: $0.mappedReads, mappedReadPercent: $0.mappedReadPercent, meanDepth: $0.meanDepth, coverageBreadth: $0.coverageBreadth, medianMAPQ: $0.medianMAPQ, meanIdentity: $0.meanIdentity)
                     }
                 }
             }
             guard let self, self.alignmentTrackSummaryRefreshID == refreshID else { return }
-            self.contigTableView.configure(rows: rows)
-            self.refreshSelection(preferredSelectionName: preferredSelectionName)
+            self.configureMappingContigRows(rows)
+            // All-mode rows represent different BAM/RG predicates. Do not
+            // auto-select one while the viewer is explicitly filtered to
+            // "all"; detail is meaningful only after an explicit row choice.
+            self.clearMappingSelectionAfterAllRebuild()
         }
     }
 
@@ -989,7 +1011,10 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         onEmbeddedReferenceBundleLoaded?(bundle)
     }
 
-    private func displaySelectedContig(_ selectedContig: MappingContigSummary) {
+    private func displaySelectedContig(
+        _ selectedContig: MappingContigSummary,
+        appliesAlignmentIdentity: Bool = true
+    ) {
         guard currentResult != nil else {
             showDetailPlaceholder("No mapping result loaded.")
             return
@@ -1001,11 +1026,10 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         }
 
         do {
-            if let canonicalSampleID = selectedContig.sampleID,
-               let bamSampleIdentityIndex {
+            if appliesAlignmentIdentity {
                 embeddedViewerController.applyReadDisplaySettings([
-                    NotificationUserInfoKey.selectedReadGroups:
-                        bamSampleIdentityIndex.readGroupIDs(forCanonicalSampleID: canonicalSampleID)
+                    NotificationUserInfoKey.visibleAlignmentTrackID: selectedContig.alignmentTrackID ?? "",
+                    NotificationUserInfoKey.selectedReadGroups: selectedContig.readGroupIDs,
                 ])
             }
             try loadViewerBundleIfNeeded(
@@ -1091,16 +1115,19 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         return sequenceTableView.displayedRows[selectedRow]
     }
 
-    private func selectContig(named name: String) -> Bool {
+    private func selectContig(named name: String, appliesAlignmentIdentity: Bool = true) -> Bool {
         guard let row = contigTableView.displayedRows.firstIndex(where: { $0.contigName == name }) else { return false }
-        selectContig(at: row)
+        selectContig(at: row, appliesAlignmentIdentity: appliesAlignmentIdentity)
         return true
     }
 
-    private func selectContig(at row: Int) {
+    private func selectContig(at row: Int, appliesAlignmentIdentity: Bool = true) {
         guard row >= 0, row < contigTableView.displayedRows.count else { return }
         contigTableView.tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-        displaySelectedContig(contigTableView.displayedRows[row])
+        displaySelectedContig(
+            contigTableView.displayedRows[row],
+            appliesAlignmentIdentity: appliesAlignmentIdentity
+        )
     }
 
     private func selectSequence(named name: String) -> Bool {
@@ -1152,8 +1179,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         visibleAlignmentSummaryOverride = nil
         alignmentTrackSummaryWarning = nil
         updateSummaryBar()
-        bamSampleIdentityIndex = nil
-        contigTableView.configure(rows: currentResult?.contigs ?? [])
+        configureMappingContigRows(currentResult?.contigs ?? [])
         refreshSelection(preferredSelectionName: preferredSelectionName)
     }
 
@@ -1208,7 +1234,11 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
             totalReads: totalReads
            ) {
             applyVisibleAlignmentRows(
-                [(sampleReadGroups[0].sampleID, fallbackRows)],
+                [(
+                    sampleID: sampleReadGroups[0].sampleID,
+                    readGroupIDs: sampleReadGroups[0].readGroupIDs,
+                    summaries: fallbackRows
+                )],
                 track: track,
                 mappedReads: mappedReads,
                 totalReads: totalReads,
@@ -1218,13 +1248,13 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
 
         Task { @MainActor [weak self] in
             do {
-                var sampleSummaries: [(sampleID: String?, summaries: [MappingContigSummary])] = []
+                var sampleSummaries: [(sampleID: String?, readGroupIDs: Set<String>, summaries: [MappingContigSummary])] = []
                 for sample in sampleReadGroups {
                     // A no-RG sample is valid only when persisted identity proved
                     // this is the explicit single-sample fallback; aggregate
                     // metrics are then truthful for that one sample.
                     let summaries = try await summaryBuilder(bamURL, totalReads, sample.readGroupIDs)
-                    sampleSummaries.append((sample.sampleID, summaries))
+                    sampleSummaries.append((sample.sampleID, sample.readGroupIDs, summaries))
                 }
                 // Some managed samtools wrappers surface a failed streamed
                 // subcommand as an empty, otherwise-successful parse. For a
@@ -1242,7 +1272,11 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                     bundleURL: bundleURL,
                     totalReads: totalReads
                    ) {
-                    sampleSummaries = [(sampleReadGroups[0].sampleID, fallbackRows)]
+                    sampleSummaries = [(
+                        sampleID: sampleReadGroups[0].sampleID,
+                        readGroupIDs: sampleReadGroups[0].readGroupIDs,
+                        summaries: fallbackRows
+                    )]
                 }
                 guard let self,
                       self.alignmentTrackSummaryRefreshID == refreshID
@@ -1270,7 +1304,11 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                 ), sampleReadGroups.count == 1,
                    sampleReadGroups[0].sampleID != nil {
                     self.applyVisibleAlignmentRows(
-                        [(sampleReadGroups[0].sampleID, fallbackRows)],
+                        [(
+                            sampleID: sampleReadGroups[0].sampleID,
+                            readGroupIDs: sampleReadGroups[0].readGroupIDs,
+                            summaries: fallbackRows
+                        )],
                         track: track,
                         mappedReads: mappedReads,
                         totalReads: totalReads,
@@ -1284,7 +1322,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     }
 
     private func applyVisibleAlignmentRows(
-        _ sampleSummaries: [(sampleID: String?, summaries: [MappingContigSummary])],
+        _ sampleSummaries: [(sampleID: String?, readGroupIDs: Set<String>, summaries: [MappingContigSummary])],
         track: AlignmentTrackInfo,
         mappedReads: Int,
         totalReads: Int,
@@ -1294,6 +1332,8 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
             sample.summaries.filter { $0.mappedReads > 0 }.map { summary in
                 MappingContigSummary(
                     sampleID: sample.sampleID,
+                    alignmentTrackID: track.id,
+                    readGroupIDs: sample.readGroupIDs,
                     contigName: summary.contigName,
                     contigLength: summary.contigLength,
                     mappedReads: summary.mappedReads,
@@ -1314,10 +1354,19 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
             totalReads: displayTotalReads
         )
         updateSummaryBar()
-        let resolution = sampleIdentityResolution(for: track, bundleURL: currentInput?.renderedBundleURL)
-        bamSampleIdentityIndex = resolution?.identityIndex
-        contigTableView.configure(rows: filteredSummaries)
+        configureMappingContigRows(filteredSummaries)
         refreshSelection(preferredSelectionName: preferredSelectionName)
+    }
+
+    private func configureMappingContigRows(_ rows: [MappingContigSummary]) {
+        isReplacingMappingRows = true
+        defer { isReplacingMappingRows = false }
+        contigTableView.configure(rows: rows)
+    }
+
+    private func clearMappingSelectionAfterAllRebuild() {
+        contigTableView.tableView.deselectAll(nil)
+        showDetailPlaceholder("Select a mapped contig to inspect mapped reads.")
     }
 
     private func sampleIdentityResolution(
@@ -1650,6 +1699,15 @@ extension ReferenceBundleViewportController {
 
     func testSelectContig(named name: String) {
         _ = selectContig(named: name)
+    }
+
+    func testSelectContig(sampleID: String?, alignmentTrackID: String?, named name: String) {
+        guard let row = contigTableView.displayedRows.firstIndex(where: {
+            $0.sampleID == sampleID
+                && $0.alignmentTrackID == alignmentTrackID
+                && $0.contigName == name
+        }) else { return }
+        selectContig(at: row)
     }
 
     func testSelectSequence(named name: String) {

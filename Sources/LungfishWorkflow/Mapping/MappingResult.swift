@@ -7,6 +7,12 @@ import Foundation
 public struct MappingContigSummary: Sendable, Codable, Equatable {
     /// Explicit canonical sample identity for a sample × contig row.
     public let sampleID: String?
+    /// Persisted alignment track identity for this row, when it was derived
+    /// from a specific bundled BAM rather than the legacy mapping summary.
+    public let alignmentTrackID: String?
+    /// Exact read-group predicate used to produce this row. An empty set is
+    /// intentional: selecting the row must clear any earlier RG filter.
+    public let readGroupIDs: Set<String>
     public let contigName: String
     public let contigLength: Int
     public let mappedReads: Int
@@ -16,8 +22,24 @@ public struct MappingContigSummary: Sendable, Codable, Equatable {
     public let medianMAPQ: Double
     public let meanIdentity: Double
 
+    private enum CodingKeys: String, CodingKey {
+        case sampleID
+        case alignmentTrackID
+        case readGroupIDs
+        case contigName
+        case contigLength
+        case mappedReads
+        case mappedReadPercent
+        case meanDepth
+        case coverageBreadth
+        case medianMAPQ
+        case meanIdentity
+    }
+
     public init(
         sampleID: String? = nil,
+        alignmentTrackID: String? = nil,
+        readGroupIDs: Set<String> = [],
         contigName: String,
         contigLength: Int,
         mappedReads: Int,
@@ -28,6 +50,8 @@ public struct MappingContigSummary: Sendable, Codable, Equatable {
         meanIdentity: Double
     ) {
         self.sampleID = sampleID
+        self.alignmentTrackID = alignmentTrackID
+        self.readGroupIDs = readGroupIDs
         self.contigName = contigName
         self.contigLength = contigLength
         self.mappedReads = mappedReads
@@ -36,6 +60,24 @@ public struct MappingContigSummary: Sendable, Codable, Equatable {
         self.coverageBreadth = coverageBreadth
         self.medianMAPQ = medianMAPQ
         self.meanIdentity = meanIdentity
+    }
+
+    /// Keeps mapping-result sidecars written before row-level BAM identity was
+    /// introduced readable. Their omitted identity fields mean a legacy row
+    /// with an explicitly empty read-group predicate.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        sampleID = try container.decodeIfPresent(String.self, forKey: .sampleID)
+        alignmentTrackID = try container.decodeIfPresent(String.self, forKey: .alignmentTrackID)
+        readGroupIDs = try container.decodeIfPresent(Set<String>.self, forKey: .readGroupIDs) ?? []
+        contigName = try container.decode(String.self, forKey: .contigName)
+        contigLength = try container.decode(Int.self, forKey: .contigLength)
+        mappedReads = try container.decode(Int.self, forKey: .mappedReads)
+        mappedReadPercent = try container.decode(Double.self, forKey: .mappedReadPercent)
+        meanDepth = try container.decode(Double.self, forKey: .meanDepth)
+        coverageBreadth = try container.decode(Double.self, forKey: .coverageBreadth)
+        medianMAPQ = try container.decode(Double.self, forKey: .medianMAPQ)
+        meanIdentity = try container.decode(Double.self, forKey: .meanIdentity)
     }
 }
 

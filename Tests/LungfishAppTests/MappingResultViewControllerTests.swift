@@ -32,7 +32,7 @@ final class MappingResultViewControllerTests: XCTestCase {
 
         XCTAssertEqual(
             vc.testContigTableView.testTableView.tableColumns.map(\.title),
-            ["Sample", "Contig", "Length", "Mapped Reads", "% Mapped", "Mean Depth", "Coverage Breadth", "Median MAPQ", "Mean Identity"]
+            ["Sample", "Track", "Contig", "Length", "Mapped Reads", "% Mapped", "Mean Depth", "Coverage Breadth", "Median MAPQ", "Mean Identity"]
         )
         XCTAssertEqual(vc.testContigTableView.record(at: 0)?.contigName, "beta")
     }
@@ -124,7 +124,7 @@ final class MappingResultViewControllerTests: XCTestCase {
 
         // Row identity remains keyed to the canonical sample plus contig, not
         // the display-label decoration.
-        XCTAssertEqual(table.rowIdentity(for: makeContigs()[0]), "mapping\u{1F}unmatched\u{1F}alpha")
+        XCTAssertEqual(table.rowIdentity(for: makeContigs()[0]), "mapping\u{1F}unmatched\u{1F}legacy\u{1F}alpha")
     }
 
     func testFilterMatchesBundleDisplayLabel() {
@@ -587,6 +587,53 @@ final class MappingResultViewControllerTests: XCTestCase {
             4,
             "All Alignments must rebuild each multi-sample read-group slice instead of caching aggregate stats"
         )
+        XCTAssertNil(vc.testVisibleAlignmentTrackID)
+        XCTAssertEqual(vc.testSelectedReadGroups, [])
+
+        vc.testSelectContig(sampleID: "S2", alignmentTrackID: "filtered-track", named: "gamma")
+        XCTAssertEqual(vc.testVisibleAlignmentTrackID, "filtered-track")
+        XCTAssertEqual(vc.testSelectedReadGroups, Set(["S2-A"]))
+
+        vc.testSelectContig(sampleID: "S1", alignmentTrackID: "filtered-track", named: "gamma")
+        XCTAssertEqual(vc.testVisibleAlignmentTrackID, "filtered-track")
+        XCTAssertEqual(vc.testSelectedReadGroups, Set(["S1-A", "S1-B"]))
+    }
+
+    func testAllAlignmentRowsPreserveTrackIdentityForSameUnmatchedContig() async throws {
+        let vc = MappingResultViewController()
+        _ = vc.view
+        let bundleURL = try makeReferenceBundleWithAlignmentTracks()
+        vc.setAlignmentTrackSummaryBuilderForTesting { bamURL, totalReads in
+            [
+                MappingContigSummary(
+                    contigName: "gamma", contigLength: 100, mappedReads: totalReads,
+                    mappedReadPercent: 100, meanDepth: 1, coverageBreadth: 1,
+                    medianMAPQ: 60, meanIdentity: 1
+                )
+            ]
+        }
+        vc.configureForTesting(result: makeMappingResult(viewerBundleURL: bundleURL))
+        vc.applyEmbeddedReadDisplaySettings([
+            NotificationUserInfoKey.visibleAlignmentTrackID: ""
+        ])
+
+        try await waitUntil {
+            vc.testContigTableView.displayedRows.filter { $0.contigName == "gamma" }.count == 2
+        }
+        let gammaRows = vc.testContigTableView.displayedRows.filter { $0.contigName == "gamma" }
+        XCTAssertEqual(Set(gammaRows.map(\.alignmentTrackID)), Set(["original-track", "filtered-track"]))
+        XCTAssertEqual(Set(gammaRows.compactMap { vc.testContigTableView.rowIdentity(for: $0) }), Set([
+            "mapping\u{1F}unmatched\u{1F}original-track\u{1F}gamma",
+            "mapping\u{1F}unmatched\u{1F}filtered-track\u{1F}gamma",
+        ]))
+        XCTAssertEqual(Set(gammaRows.map { vc.testContigTableView.columnValue(for: "track", row: $0) }), Set(["original-track", "filtered-track"]))
+        XCTAssertEqual(vc.testContigTableView.testTableView.selectedRow, -1)
+        XCTAssertNil(vc.testVisibleAlignmentTrackID)
+        XCTAssertEqual(vc.testSelectedReadGroups, [])
+
+        vc.testSelectContig(sampleID: nil, alignmentTrackID: "original-track", named: "gamma")
+        XCTAssertEqual(vc.testVisibleAlignmentTrackID, "original-track")
+        XCTAssertEqual(vc.testSelectedReadGroups, [])
     }
 
     func testAllAlignmentsMissingMetadataLeavesAnExplicitUnmatchedRowInsteadOfFocusedRows() async throws {

@@ -42,9 +42,29 @@ final class BAMSampleMetadataColumnTests: XCTestCase {
         XCTAssertEqual(table.sampleId(for: s1), "S1")
     }
 
-    private func row(sampleID: String?) -> MappingContigSummary {
+    func testMappingRowsOnDifferentTracksHaveDistinctIdentitiesAndVisibleTrackValues() {
+        let table = MappingContigTableView()
+        let original = row(sampleID: "S1", alignmentTrackID: "original-track")
+        let filtered = row(sampleID: "S1", alignmentTrackID: "filtered-track")
+        table.configure(rows: [original, filtered])
+
+        XCTAssertNotEqual(table.rowIdentity(for: original), table.rowIdentity(for: filtered))
+        XCTAssertEqual(
+            table.tableView.tableColumns.map(\.identifier.rawValue).filter { $0 == "track" },
+            ["track"]
+        )
+        XCTAssertEqual(table.columnValue(for: "track", row: original), "original-track")
+        XCTAssertEqual(table.columnValue(for: "track", row: filtered), "filtered-track")
+    }
+
+    private func row(
+        sampleID: String?,
+        alignmentTrackID: String? = nil,
+        readGroupIDs: Set<String> = []
+    ) -> MappingContigSummary {
         MappingContigSummary(
-            sampleID: sampleID, contigName: "chr1", contigLength: 100, mappedReads: 10,
+            sampleID: sampleID, alignmentTrackID: alignmentTrackID, readGroupIDs: readGroupIDs,
+            contigName: "chr1", contigLength: 100, mappedReads: 10,
             mappedReadPercent: 10, meanDepth: 1, coverageBreadth: 1,
             medianMAPQ: 60, meanIdentity: 99
         )

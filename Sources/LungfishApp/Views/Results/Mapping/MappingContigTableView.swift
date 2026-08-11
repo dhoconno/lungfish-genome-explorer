@@ -31,6 +31,7 @@ final class MappingContigTableView: BatchTableView<MappingContigSummary> {
     override var columnSpecs: [BatchColumnSpec] {
         [
             .init(identifier: .init("sample"), title: "Sample", width: 130, minWidth: 90, defaultAscending: true),
+            .init(identifier: .init("track"), title: "Track", width: 150, minWidth: 100, defaultAscending: true),
             .init(identifier: .init("contig"), title: "Contig", width: 220, minWidth: 140, defaultAscending: true),
             .init(identifier: .init("length"), title: "Length", width: 90, minWidth: 70, defaultAscending: false),
             .init(identifier: .init("reads"), title: "Mapped Reads", width: 110, minWidth: 88, defaultAscending: false),
@@ -57,6 +58,7 @@ final class MappingContigTableView: BatchTableView<MappingContigSummary> {
     override var columnTypeHints: [String: Bool] {
         [
             "sample": false,
+            "track": false,
             "contig": false,
             "length": true,
             "reads": true,
@@ -92,6 +94,8 @@ final class MappingContigTableView: BatchTableView<MappingContigSummary> {
         switch column.rawValue {
         case "sample":
             return (row.sampleID ?? "—", .left, .systemFont(ofSize: 12))
+        case "track":
+            return (row.alignmentTrackID ?? "—", .left, .systemFont(ofSize: 12))
         case "contig":
             return (bundleDisplayName ?? row.contigName, .left, .systemFont(ofSize: 12))
         case "length":
@@ -129,6 +133,8 @@ final class MappingContigTableView: BatchTableView<MappingContigSummary> {
         switch columnId {
         case "sample":
             return row.sampleID ?? ""
+        case "track":
+            return row.alignmentTrackID ?? ""
         case "contig":
             return row.contigName
         case "length":
@@ -156,6 +162,7 @@ final class MappingContigTableView: BatchTableView<MappingContigSummary> {
 
         var haystack = [
             row.sampleID ?? "",
+            row.alignmentTrackID ?? "",
             row.contigName,
             row.contigLength.formatted(),
             row.mappedReads.formatted(),
@@ -185,6 +192,8 @@ final class MappingContigTableView: BatchTableView<MappingContigSummary> {
         switch key {
         case "sample":
             comparison = (lhs.sampleID ?? "").localizedCaseInsensitiveCompare(rhs.sampleID ?? "")
+        case "track":
+            comparison = (lhs.alignmentTrackID ?? "").localizedCaseInsensitiveCompare(rhs.alignmentTrackID ?? "")
         case "contig":
             comparison = lhs.contigName.localizedCaseInsensitiveCompare(rhs.contigName)
         case "length":
@@ -219,7 +228,12 @@ final class MappingContigTableView: BatchTableView<MappingContigSummary> {
     override func sampleId(for row: MappingContigSummary) -> String? { row.sampleID }
 
     override func rowIdentity(for row: MappingContigSummary) -> String? {
-        [resultIdentity ?? "mapping", row.sampleID ?? "unmatched", row.contigName].joined(separator: "\u{1F}")
+        [
+            resultIdentity ?? "mapping",
+            row.sampleID ?? "unmatched",
+            row.alignmentTrackID ?? "legacy",
+            row.contigName,
+        ].joined(separator: "\u{1F}")
     }
 
     private var numericFont: NSFont {
