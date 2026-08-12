@@ -50,6 +50,26 @@ private final class FASTABlastProgressRelay: @unchecked Sendable {
 @MainActor
 public class ViewerViewController: NSViewController {
 
+    /// Immutable evidence identity shared by all alignment actions in this
+    /// full viewer.  Replacing the evidence clears transient selections but
+    /// deliberately preserves the user's consensus scope preference.
+    var alignmentActionContext: AlignmentActionContext? {
+        didSet {
+            guard oldValue?.identity != alignmentActionContext?.identity else { return }
+            explicitAlignmentSelection = nil
+            viewerView?.clearSelection()
+        }
+    }
+
+    /// Persistent user preference for consensus actions.  A selected-region
+    /// preference remains selected when evidence changes and will require a
+    /// fresh explicit selection instead of falling back to whole-contig.
+    var alignmentConsensusScope: AlignmentConsensusScope = .wholeContig
+
+    /// The exact coordinate selection supplied by the active viewer.  This is
+    /// intentionally distinct from visible ranges and annotation inference.
+    var explicitAlignmentSelection: AlignmentCoordinateSelection?
+
     typealias FASTABlastVerificationRunner = @MainActor (
         _ request: BlastVerificationRequest,
         _ progress: @escaping @Sendable (Double, String) -> Void
