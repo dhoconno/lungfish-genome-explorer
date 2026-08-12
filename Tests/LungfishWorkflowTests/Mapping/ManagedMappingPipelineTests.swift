@@ -340,19 +340,9 @@ final class ManagedMappingPipelineTests: XCTestCase {
         XCTAssertEqual(Array(try fixture.recordedSubcommands().prefix(1)), ["index"])
     }
 
-    // MARK: - R3ML round-3 review: memory-guard warning delivery
+    // MARK: - Streaming summary for large BAMs
 
-    /// R3ML round-3 review: MappingSummaryBuilder's >2GB memory-guard
-    /// warning was constructed via `reportWarning` but `run(request:progress:)`
-    /// never passed a `reportWarning` closure at all, so the warning was
-    /// built and discarded -- it never reached the `progress` closure every
-    /// caller routes to `OperationCenter.shared.log`. This exercises the
-    /// pipeline's actual summary-stage wiring (not just MappingSummaryBuilder
-    /// in isolation) and asserts the warning is forwarded to `progress` with
-    /// the "WARNING:" prefix documented on `summarizeMappedContigs`, since
-    /// ProgressHandler has no severity channel to carry a real `.warning`
-    /// level through.
-    func testSummarizeMappedContigsForwardsMemoryGuardWarningToProgress() async throws {
+    func testSummarizeMappedContigsStreamsViewForBAMAboveFormerGuard() async throws {
         let fixture = try SamtoolsFixture()
         defer { fixture.cleanup() }
 
@@ -367,24 +357,17 @@ final class ManagedMappingPipelineTests: XCTestCase {
             nativeToolRunner: fixture.runner
         )
 
-        let progressBox = ProgressMessageBox()
         let contigs = try await pipeline.summarizeMappedContigsForTesting(
             sortedBAMURL: oversizedBAM,
             totalReads: 10,
-            progress: { fraction, message in progressBox.append((fraction, message)) }
+            progress: { _, _ in }
         )
 
-        XCTAssertEqual(contigs.map(\.contigName), ["chr1"], "coverage/depth rows should still be reported")
+        XCTAssertEqual(contigs.map(\.contigName), ["chr1"])
         XCTAssertEqual(
             Array(try fixture.recordedSubcommands()),
-            ["coverage"],
-            "the oversized-BAM memory guard must skip `samtools view` entirely"
-        )
-
-        let warningMessages = progressBox.messages.map(\.message)
-        XCTAssertTrue(
-            warningMessages.contains { $0.hasPrefix("WARNING:") && $0.localizedCaseInsensitiveContains("2") },
-            "expected a WARNING:-prefixed progress message describing the skipped summary, got: \(warningMessages)"
+            ["coverage", "view"],
+            "large compressed BAMs must still receive streaming identity/MAPQ processing"
         )
     }
 

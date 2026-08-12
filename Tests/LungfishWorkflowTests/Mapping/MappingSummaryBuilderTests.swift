@@ -1,5 +1,4 @@
 import XCTest
-import os
 import LungfishCore
 @testable import LungfishWorkflow
 
@@ -302,13 +301,9 @@ final class MappingSummaryBuilderTests: XCTestCase {
         }
     }
 
-    // MARK: - R3-R3ML-first: memory guard on oversized sorted BAM
+    // MARK: - Streaming SAM metrics
 
-    /// A sortedBAM larger than the 2GB guard threshold must skip the
-    /// samtools-view-based summary (which buffers the entire view output in
-    /// memory) rather than attempt to build it, and must report the skip via
-    /// the progress/reporter callback as a warning rather than failing silently.
-    func testBuildSkipsSummaryAndReportsWarningWhenSortedBAMExceedsMemoryGuard() async throws {
+    func testBuildStreamsSummaryWhenSortedBAMExceedsFormerMemoryGuard() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("mapping-summary-oversized-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -321,9 +316,8 @@ final class MappingSummaryBuilderTests: XCTestCase {
         try handle.truncate(atOffset: UInt64(2_147_483_648) + 1)
         try handle.close()
 
-        // Stub a managed "samtools" that succeeds trivially for `coverage` and would
-        // fail the test (by hanging / producing unexpected output) if `view` were ever
-        // invoked -- the memory guard must short-circuit before streamSAMView runs.
+        // The large compressed size is no longer a reason to omit identity/MAPQ
+        // metrics: the SAM stream is parsed incrementally.
         let managedSamtoolsDir = root
             .appendingPathComponent(".lungfish/conda/envs/samtools/bin", isDirectory: true)
         try FileManager.default.createDirectory(at: managedSamtoolsDir, withIntermediateDirectories: true)
@@ -335,31 +329,66 @@ final class MappingSummaryBuilderTests: XCTestCase {
           printf "chr1\\t1\\t1000\\t3\\t800\\t80.0\\t6.5\\t30.0\\t43.3\\n"
           exit 0
         fi
-        echo "unexpected samtools invocation: $*" >&2
+        if [[ "$1" == "view" ]]; then
+          printf 'read1\\t0\\tchr1\\t1\\t60\\t10M\\t*\\t0\\t0\\tAAAAAAAAAA\\t*\\tNM:i:1\\n'
+          exit 0
+        fi
         exit 1
         """.write(to: stubSamtools, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stubSamtools.path)
 
-        let warningBox = MappingSummaryWarningBox()
         let contigs = try await MappingSummaryBuilder.build(
             sortedBAMURL: oversizedBAM,
             totalReads: 10,
-            runner: NativeToolRunner(toolsDirectory: nil, homeDirectory: root),
-            reportWarning: { message in warningBox.append(message) }
+            runner: NativeToolRunner(toolsDirectory: nil, homeDirectory: root)
         )
-        let warnings = warningBox.messages
 
-        XCTAssertEqual(contigs.map(\.contigName), ["chr1"], "coverage/depth rows should still be reported")
-        XCTAssertEqual(contigs.first?.medianMAPQ, 0, "identity/MAPQ columns should be omitted (samtools view skipped) for an oversized BAM")
-        XCTAssertTrue(
-            warnings.contains { $0.localizedCaseInsensitiveContains("2") || $0.localizedCaseInsensitiveContains("memory") },
-            "expected a warning describing the skipped summary, got: \(warnings)"
+        XCTAssertEqual(contigs.map(\.contigName), ["chr1"])
+        XCTAssertEqual(contigs.first?.medianMAPQ, 60)
+        XCTAssertEqual(try XCTUnwrap(contigs.first?.meanIdentity), 0.9, accuracy: 0.0001)
+    }
+
+    func testBuildStreamsLargeSAMOutputFromSmallBAM() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mapping-summary-large-sam-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let bam = root.appendingPathComponent("small-compressed.bam")
+        try Data([0x1F, 0x8B]).write(to: bam)
+        let bin = root.appendingPathComponent(".lungfish/conda/envs/samtools/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let samtools = bin.appendingPathComponent("samtools")
+        try """
+        #!/bin/bash
+        if [[ "$1" == "coverage" ]]; then
+          printf '#rname\\tstartpos\\tendpos\\tnumreads\\tcovbases\\tcoverage\\tmeandepth\\tmeanbaseq\\tmeanmapq\\n'
+          printf 'chr1\\t1\\t100\\t200000\\t100\\t100.0\\t20000\\t30\\t40\\n'
+          exit 0
+        fi
+        if [[ "$1" == "view" ]]; then
+          /usr/bin/awk 'BEGIN { for (i = 1; i <= 200000; i++) print "read" i "\\t0\\tchr1\\t1\\t40\\t10M\\t*\\t0\\t0\\tAAAAAAAAAA\\t*\\tNM:i:1" }'
+          exit 0
+        fi
+        exit 1
+        """.write(to: samtools, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: samtools.path)
+
+        let summaries = try await MappingSummaryBuilder.build(
+            sortedBAMURL: bam,
+            totalReads: 200_000,
+            runner: NativeToolRunner(toolsDirectory: nil, homeDirectory: root),
+            timeout: 30
         )
+        let summary = try XCTUnwrap(summaries.first)
+
+        XCTAssertEqual(summary.medianMAPQ, 40)
+        XCTAssertEqual(summary.meanIdentity, 0.9, accuracy: 0.0001)
     }
 
     // MARK: - F36: concurrent stdout/stderr draining
 
-    /// Regression test for F36: streamSAMView's underlying process runner used to read stdout
+    /// Regression test for F36: the samtools-view process runner used to read stdout
     /// to completion before reading stderr at all. macOS pipe buffers are ~64KB, so a child
     /// process that writes more than that to stderr before (or while) stdout is still being
     /// drained can block on a full stderr pipe while nothing is reading it -- deadlocking
@@ -370,7 +399,7 @@ final class MappingSummaryBuilderTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: scriptURL) }
 
         // Race the (blocking, non-cancellable) process call against a short timeout. Pre-fix,
-        // streamSAMView's sequential stdout-then-stderr read deadlocks on this stub (it writes
+        // A sequential stdout-then-stderr read deadlocks on this stub (it writes
         // >64KB to stderr before any stdout), and the underlying synchronous pipe reads run on
         // a background thread that Task cancellation cannot interrupt -- so the only way to
         // observe the hang from a test without stalling the whole suite is to race it against
@@ -448,14 +477,3 @@ private enum MappingSummaryTestOutcome: Sendable {
 
 /// Lock-protected accumulator for warning strings reported from a `@Sendable` callback,
 /// used instead of a captured `var` to satisfy strict concurrency checking.
-private final class MappingSummaryWarningBox: Sendable {
-    private let state = OSAllocatedUnfairLock<[String]>(initialState: [])
-
-    func append(_ message: String) {
-        state.withLock { $0.append(message) }
-    }
-
-    var messages: [String] {
-        state.withLock { $0 }
-    }
-}

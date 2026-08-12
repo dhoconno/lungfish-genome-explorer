@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
-import LungfishCore
 import LungfishIO
 
 public enum MappingSummaryBuilderError: Error, LocalizedError, Sendable {
@@ -21,14 +20,11 @@ public enum MappingSummaryBuilderError: Error, LocalizedError, Sendable {
 }
 
 public enum MappingSummaryBuilder {
-    /// Above this sortedBAM size, `streamSAMView`'s `samtools view` output (roughly
-    /// proportional to file size, and buffered entirely into a single in-memory `String`
-    /// by `runProcessCapturingOutput`) is skipped rather than materialized, to avoid an
-    /// unbounded memory spike while building what is ultimately a summary/display artifact.
-    /// TODO: replace this guard with a streaming parse of `samtools view` output (accumulate
-    /// per-contig `ViewMetrics` incrementally instead of buffering the full text) so summaries
-    /// for large BAMs can still be computed instead of skipped.
-    public static let sortedBAMMemoryGuardBytes: UInt64 = 2_147_483_648 // 2 GiB
+
+    /// Historical threshold retained for source compatibility with callers that use
+    /// it to construct fixtures. It is deliberately not a processing limit: SAM
+    /// metrics are streamed regardless of compressed BAM size.
+    public static let sortedBAMMemoryGuardBytes: UInt64 = 2_147_483_648
 
     public static func build(
         sortedBAMURL: URL,
@@ -68,23 +64,7 @@ public enum MappingSummaryBuilder {
             )
         }
 
-        let sortedBAMSizeBytes = (try? ProvenanceFileHasher.fileSize(of: sortedBAMURL)) ?? 0
-        guard sortedBAMSizeBytes <= sortedBAMMemoryGuardBytes else {
-            reportWarning?(
-                "Skipping per-contig identity/MAPQ summary for \(sortedBAMURL.lastPathComponent): " +
-                "sorted BAM is \(sortedBAMSizeBytes) bytes, over the \(sortedBAMMemoryGuardBytes)-byte " +
-                "(2 GB) in-memory samtools-view guard. Coverage/depth rows are still reported below; " +
-                "identity and MAPQ columns are omitted for this file."
-            )
-            return try buildSummaries(
-                coverageOutput: coverageOutput,
-                viewOutput: "",
-                totalReads: effectiveTotalReads,
-                includeUnmappedReferenceRows: includeUnmappedReferenceRows
-            )
-        }
-
-        let viewOutput = try await streamSAMView(
+        let identities = try await streamSAMViewMetrics(
             sortedBAMURL: sortedBAMURL,
             runner: runner,
             timeout: timeout,
@@ -93,7 +73,7 @@ public enum MappingSummaryBuilder {
 
         return try buildSummaries(
             coverageOutput: coverageOutput,
-            viewOutput: viewOutput,
+            identities: identities,
             totalReads: effectiveTotalReads,
             includeUnmappedReferenceRows: includeUnmappedReferenceRows
         )
@@ -105,8 +85,22 @@ public enum MappingSummaryBuilder {
         totalReads: Int,
         includeUnmappedReferenceRows: Bool = true
     ) throws -> [MappingContigSummary] {
-        let rows = parseCoverageRows(coverageOutput)
         let identities = accumulateViewMetrics(viewOutput)
+        return try buildSummaries(
+            coverageOutput: coverageOutput,
+            identities: identities,
+            totalReads: totalReads,
+            includeUnmappedReferenceRows: includeUnmappedReferenceRows
+        )
+    }
+
+    private static func buildSummaries(
+        coverageOutput: String,
+        identities: [String: ViewMetrics],
+        totalReads: Int,
+        includeUnmappedReferenceRows: Bool
+    ) throws -> [MappingContigSummary] {
+        let rows = parseCoverageRows(coverageOutput)
         let displayedRows = includeUnmappedReferenceRows ? rows : rows.filter { $0.mappedReads > 0 }
 
         return displayedRows.map { row in
@@ -159,46 +153,40 @@ public enum MappingSummaryBuilder {
         var accumulators: [String: ViewAccumulator] = [:]
 
         for line in viewOutput.split(separator: "\n", omittingEmptySubsequences: true) {
-            guard let read = SAMParser.parseLine(line) else { continue }
-            let alignedQueryBases = read.cigar.reduce(into: 0) { partial, op in
-                guard op.consumesQuery, op.op != .softClip else { return }
-                partial += op.length
-            }
-            guard alignedQueryBases > 0 else { continue }
-            let editDistance = max(0, read.editDistance ?? 0)
-            var accumulator = accumulators[read.chromosome, default: ViewAccumulator()]
-            accumulator.mapqs.append(Int(read.mapq))
-            accumulator.alignedQueryBases += alignedQueryBases
-            accumulator.matchedBases += max(0, alignedQueryBases - editDistance)
-            accumulators[read.chromosome] = accumulator
+            appendViewMetrics(for: line, accumulators: &accumulators)
         }
 
         return accumulators.mapValues { $0.finalize() }
     }
 
-    private static func streamSAMView(
+    private static func streamSAMViewMetrics(
         sortedBAMURL: URL,
         runner: NativeToolRunner,
         timeout: TimeInterval,
         readGroupIDs: Set<String> = []
-    ) async throws -> String {
+    ) async throws -> [String: ViewMetrics] {
         let samtoolsPath = try await runner.findTool(.samtools)
         let workingDirectory = sortedBAMURL.deletingLastPathComponent()
+        let metrics = StreamingSAMMetricsAccumulator()
         if readGroupIDs.isEmpty {
-            return try await runProcessCapturingOutput(
+            try await runProcessStreamingOutput(
                 executableURL: samtoolsPath,
                 arguments: ["view", sortedBAMURL.path],
                 workingDirectory: workingDirectory,
-                timeout: timeout
+                timeout: timeout,
+                consumeStdout: { metrics.consume($0) }
             )
+            return metrics.finalize()
         }
         return try await withReadGroupList(readGroupIDs) { listURL in
-            try await runProcessCapturingOutput(
+            try await runProcessStreamingOutput(
                 executableURL: samtoolsPath,
                 arguments: ["view", "-R", listURL.path, sortedBAMURL.path],
                 workingDirectory: workingDirectory,
-                timeout: timeout
+                timeout: timeout,
+                consumeStdout: { metrics.consume($0) }
             )
+            return metrics.finalize()
         }
     }
 
@@ -343,6 +331,104 @@ public enum MappingSummaryBuilder {
         return try await operation(listURL)
     }
 
+    /// Runs a process without retaining stdout. Chunks are delivered in order
+    /// to the caller while stderr remains concurrently drained for diagnostics.
+    private static func runProcessStreamingOutput(
+        executableURL: URL,
+        arguments: [String],
+        workingDirectory: URL?,
+        timeout: TimeInterval,
+        consumeStdout: @escaping @Sendable (Data) -> Void
+    ) async throws {
+        let cancellationHandle = NativeProcessCancellationHandle()
+        let runState = NativeProcessRunState()
+
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                let process = Process()
+                process.executableURL = executableURL
+                process.arguments = arguments
+                process.currentDirectoryURL = workingDirectory
+
+                let stdoutPipe = Pipe()
+                let stderrPipe = Pipe()
+                process.standardOutput = stdoutPipe
+                process.standardError = stderrPipe
+
+                let stderrBox = MappingSummaryDataBox()
+                let group = DispatchGroup()
+                let startOutputDrain: @Sendable () -> Void = {
+                    group.enter()
+                    DispatchQueue.global().async {
+                        while true {
+                            let chunk = stdoutPipe.fileHandleForReading.availableData
+                            guard !chunk.isEmpty else { break }
+                            consumeStdout(chunk)
+                        }
+                        group.leave()
+                    }
+                    group.enter()
+                    DispatchQueue.global().async {
+                        stderrBox.value = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                        group.leave()
+                    }
+                }
+                cancellationHandle.store(process)
+
+                nonisolated(unsafe) let timeoutWorkItem = DispatchWorkItem {
+                    runState.markTimedOut()
+                    cancellationHandle.requestProcessTreeTermination()
+                }
+                DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutWorkItem)
+
+                process.terminationHandler = { terminatedProcess in
+                    group.notify(queue: .global(qos: .userInitiated)) {
+                        timeoutWorkItem.cancel()
+                        cancellationHandle.clear(terminatedProcess)
+                        runState.resumeOnce { reason in
+                            switch reason {
+                            case .cancelled, .timedOut:
+                                continuation.resume(throwing: CancellationError())
+                            case .completed:
+                                guard terminatedProcess.terminationStatus == 0 else {
+                                    let stderr = String(data: stderrBox.value, encoding: .utf8) ?? ""
+                                    continuation.resume(throwing: MappingSummaryBuilderError.samtoolsViewFailed(stderr))
+                                    return
+                                }
+                                continuation.resume()
+                            }
+                        }
+                    }
+                }
+
+                do {
+                    startOutputDrain()
+                    try process.run()
+                    cancellationHandle.terminateIfRequested()
+                    if runState.isCancelled {
+                        cancellationHandle.requestProcessTreeTermination()
+                    }
+                } catch {
+                    timeoutWorkItem.cancel()
+                    cancellationHandle.clear(process)
+                    stdoutPipe.fileHandleForWriting.closeFile()
+                    stderrPipe.fileHandleForWriting.closeFile()
+                    runState.resumeOnce { reason in
+                        switch reason {
+                        case .cancelled, .timedOut:
+                            continuation.resume(throwing: CancellationError())
+                        case .completed:
+                            continuation.resume(throwing: error)
+                        }
+                    }
+                }
+            }
+        } onCancel: {
+            runState.markCancelled()
+            cancellationHandle.requestProcessTreeTermination()
+        }
+    }
+
     /// Runs a process and captures stdout, draining stdout and stderr concurrently on
     /// background queues so that a child process which fills the ~64KB stderr pipe buffer
     /// while stdout is still being read cannot deadlock against this caller (F36).
@@ -456,6 +542,60 @@ private final class MappingSummaryDataBox: @unchecked Sendable {
     var value = Data()
 }
 
+/// Bounded incremental SAM accumulator. It retains only an incomplete final
+/// line plus compact per-contig statistics, never the full samtools stream.
+private final class StreamingSAMMetricsAccumulator: @unchecked Sendable {
+    private let lock = NSLock()
+    private var pending = Data()
+    private var accumulators: [String: ViewAccumulator] = [:]
+
+    func consume(_ chunk: Data) {
+        lock.lock()
+        pending.append(chunk)
+        var start = pending.startIndex
+        while let newline = pending[start...].firstIndex(of: 0x0A) {
+            let line = String(decoding: pending[start..<newline], as: UTF8.self)
+            appendViewMetrics(for: Substring(line), accumulators: &accumulators)
+            start = pending.index(after: newline)
+        }
+        if start != pending.startIndex {
+            pending.removeSubrange(..<start)
+        }
+        lock.unlock()
+    }
+
+    func finalize() -> [String: ViewMetrics] {
+        lock.lock()
+        defer { lock.unlock() }
+        if !pending.isEmpty {
+            let line = String(decoding: pending, as: UTF8.self)
+            appendViewMetrics(for: Substring(line), accumulators: &accumulators)
+            pending.removeAll(keepingCapacity: false)
+        }
+        return accumulators.mapValues { $0.finalize() }
+    }
+}
+
+private func appendViewMetrics(
+    for line: Substring,
+    accumulators: inout [String: ViewAccumulator]
+) {
+    guard let read = SAMParser.parseLine(line) else { return }
+    let alignedQueryBases = read.cigar.reduce(into: 0) { partial, op in
+        guard op.consumesQuery, op.op != .softClip else { return }
+        partial += op.length
+    }
+    guard alignedQueryBases > 0 else { return }
+    let editDistance = max(0, read.editDistance ?? 0)
+    var accumulator = accumulators[read.chromosome, default: ViewAccumulator()]
+    accumulator.record(
+        mapQ: Int(read.mapq),
+        alignedQueryBases: alignedQueryBases,
+        matchedBases: max(0, alignedQueryBases - editDistance)
+    )
+    accumulators[read.chromosome] = accumulator
+}
+
 private struct CoverageRow: Sendable, Equatable {
     let name: String
     let length: Int
@@ -465,20 +605,38 @@ private struct CoverageRow: Sendable, Equatable {
 }
 
 private struct ViewAccumulator: Sendable, Equatable {
-    var mapqs: [Int] = []
+    private var mapqCounts = Array(repeating: 0, count: 256)
+    private var mapqTotal = 0
     var alignedQueryBases = 0
     var matchedBases = 0
 
+    mutating func record(mapQ: Int, alignedQueryBases: Int, matchedBases: Int) {
+        mapqCounts[min(max(0, mapQ), mapqCounts.count - 1)] += 1
+        mapqTotal += 1
+        self.alignedQueryBases += alignedQueryBases
+        self.matchedBases += matchedBases
+    }
+
     func finalize() -> ViewMetrics {
-        let sortedMapqs = mapqs.sorted()
         let medianMapQ: Double
-        if sortedMapqs.isEmpty {
+        if mapqTotal == 0 {
             medianMapQ = 0
-        } else if sortedMapqs.count.isMultiple(of: 2) {
-            let upper = sortedMapqs.count / 2
-            medianMapQ = Double(sortedMapqs[upper - 1] + sortedMapqs[upper]) / 2
         } else {
-            medianMapQ = Double(sortedMapqs[sortedMapqs.count / 2])
+            let lowerRank = (mapqTotal - 1) / 2
+            let upperRank = mapqTotal / 2
+            var seen = 0
+            var lower: Int?
+            var upper: Int?
+            for (mapQ, count) in mapqCounts.enumerated() where count > 0 {
+                let next = seen + count
+                if lower == nil, lowerRank < next { lower = mapQ }
+                if upperRank < next {
+                    upper = mapQ
+                    break
+                }
+                seen = next
+            }
+            medianMapQ = Double((lower ?? 0) + (upper ?? 0)) / 2
         }
         let meanIdentity = alignedQueryBases > 0
             ? Double(matchedBases) / Double(alignedQueryBases)
