@@ -131,7 +131,7 @@ struct SampleMetadataBundleImportService {
             builder = try builder.input(
                 identityInputURL,
                 format: format(for: identityInputURL),
-                role: .input
+                role: role(for: identityInputURL)
             )
         }
 
@@ -185,8 +185,27 @@ struct SampleMetadataBundleImportService {
             return .json
         case "fa", "fasta", "fna":
             return .fasta
+        case "bam":
+            return .bam
+        case "cram":
+            return .cram
+        case "sam":
+            return .sam
+        case "sqlite", "db":
+            return .sqlite
+        case "bai", "csi", "fai", "gzi":
+            return .unknown
         default:
             return .text
+        }
+    }
+
+    private func role(for url: URL) -> FileRole {
+        switch url.pathExtension.lowercased() {
+        case "bai", "csi", "fai", "gzi":
+            return .index
+        default:
+            return .input
         }
     }
 

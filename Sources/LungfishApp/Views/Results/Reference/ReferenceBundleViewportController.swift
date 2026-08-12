@@ -167,7 +167,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
 
     deinit {
         if let metadataPresentationContext, let metadataPresentationObserverToken {
-            MainActor.assumeIsolated {
+            Task { @MainActor in
                 metadataPresentationContext.removeObserver(metadataPresentationObserverToken)
             }
         }

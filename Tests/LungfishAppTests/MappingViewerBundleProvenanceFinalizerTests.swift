@@ -584,7 +584,7 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
         case finalizationFailed
     }
 
-    private final class RemoveFailingFileManager: FileManager, @unchecked Sendable {
+    private final class RemoveFailingFileManager: FileManager {
         private let failingPath: String
 
         init(failingURL: URL) {

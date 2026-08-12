@@ -146,6 +146,12 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
             XCTAssertNotNil(descriptor.fileSize, "Missing file size for \(descriptor.path)")
             XCTAssertFalse(descriptor.path.contains("stage"))
         }
+        XCTAssertEqual(descriptors.first(where: { $0.path == bamURL.path })?.format, .bam)
+        XCTAssertEqual(descriptors.first(where: { $0.path == bamURL.path })?.role, .input)
+        XCTAssertEqual(descriptors.first(where: { $0.path == indexURL.path })?.format, .unknown)
+        XCTAssertEqual(descriptors.first(where: { $0.path == indexURL.path })?.role, .index)
+        XCTAssertEqual(descriptors.first(where: { $0.path == metadataDBURL.path })?.format, .sqlite)
+        XCTAssertEqual(descriptors.first(where: { $0.path == metadataDBURL.path })?.role, .input)
         XCTAssertEqual(
             provenance.options.resolvedDefaults["trackReadGroupMap"]?
                 .dictionaryValue?["track-a\u{1F}rg-1"]?.stringValue,
