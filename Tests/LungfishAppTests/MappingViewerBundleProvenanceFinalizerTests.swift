@@ -198,6 +198,85 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: canonicalURL), originalCanonicalData)
     }
 
+    func testPublishSucceedsWhenResultDirectoryUsesLungfishBundleLayout() throws {
+        let fixture = try makeFixture(resultDirectoryName: "Sample.lungfishresult")
+
+        try MappingViewerBundlePublicationService.publish(
+            result: fixture.preparedResult,
+            resultDirectoryURL: fixture.resultDirectory,
+            sourceReferenceBundleURL: fixture.sourceBundle,
+            viewerBundleURL: fixture.viewerBundle
+        )
+
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: fixture.resultDirectory))
+        XCTAssertEqual(envelope.steps.last?.toolName, "Lungfish.app")
+        let provenanceDirectory = fixture.resultDirectory.appendingPathComponent(
+            ProvenanceWriter.bundleProvenanceDirectoryName,
+            isDirectory: true
+        )
+        var isDirectory: ObjCBool = false
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: provenanceDirectory.path, isDirectory: &isDirectory)
+        )
+        XCTAssertTrue(isDirectory.boolValue)
+    }
+
+    func testBundleLayoutRollbackRestoresOriginalProvenanceDirectory() throws {
+        let fixture = try makeFixture(resultDirectoryName: "Sample.lungfishresult")
+        let provenanceDirectory = fixture.resultDirectory.appendingPathComponent(
+            ProvenanceWriter.bundleProvenanceDirectoryName,
+            isDirectory: true
+        )
+        let originalFiles = try regularFileContents(below: provenanceDirectory)
+
+        XCTAssertThrowsError(
+            try MappingViewerBundlePublicationService.publish(
+                result: fixture.preparedResult,
+                resultDirectoryURL: fixture.resultDirectory,
+                sourceReferenceBundleURL: fixture.sourceBundle,
+                viewerBundleURL: fixture.viewerBundle,
+                afterCanonicalRewrite: {
+                    throw CandidatePublicationTestError.finalizationFailed
+                }
+            )
+        )
+
+        XCTAssertEqual(try regularFileContents(below: provenanceDirectory), originalFiles)
+        XCTAssertNil(try MappingResult.load(from: fixture.resultDirectory).viewerBundleURL)
+    }
+
+    func testBundleLayoutRollbackPreservesConcurrentProvenanceDirectoryWriter() throws {
+        let fixture = try makeFixture(resultDirectoryName: "Sample.lungfishresult")
+        let provenanceDirectory = fixture.resultDirectory.appendingPathComponent(
+            ProvenanceWriter.bundleProvenanceDirectoryName,
+            isDirectory: true
+        )
+        let concurrentURL = provenanceDirectory.appendingPathComponent("concurrent-writer.txt")
+        let concurrentData = Data("newer-provenance-generation".utf8)
+
+        XCTAssertThrowsError(
+            try MappingViewerBundlePublicationService.publish(
+                result: fixture.preparedResult,
+                resultDirectoryURL: fixture.resultDirectory,
+                sourceReferenceBundleURL: fixture.sourceBundle,
+                viewerBundleURL: fixture.viewerBundle,
+                beforeRollback: {
+                    try concurrentData.write(to: concurrentURL, options: .atomic)
+                },
+                afterCanonicalRewrite: {
+                    throw CandidatePublicationTestError.finalizationFailed
+                }
+            )
+        ) { error in
+            guard case MappingViewerBundlePublicationError.concurrentSidecarChanges(let paths) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertEqual(paths, [provenanceDirectory.path])
+        }
+
+        XCTAssertEqual(try Data(contentsOf: concurrentURL), concurrentData)
+    }
+
     func testToolsMenuUsesTransactionalMappingViewerPublicationService() throws {
         let source = try String(
             contentsOf: packageRoot().appendingPathComponent("Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift"),
@@ -306,6 +385,35 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
 
         XCTAssertEqual(try Data(contentsOf: candidateBundle.appendingPathComponent("sentinel")), candidateData)
         XCTAssertEqual(try Data(contentsOf: actualExisting.appendingPathComponent("sentinel")), existingData)
+    }
+
+    func testPublicationPlanRejectsSymbolicLinkPayloadInsideCandidate() throws {
+        let fixture = try makeFixture()
+        let candidateBundle = fixture.resultDirectory.appendingPathComponent(
+            ".Viewer.candidate.lungfishref",
+            isDirectory: true
+        )
+        try FileManager.default.moveItem(at: fixture.viewerBundle, to: candidateBundle)
+        let genomeURL = candidateBundle.appendingPathComponent("genome/sequence.fa")
+        let alternateGenomeURL = candidateBundle.appendingPathComponent("genome/alternate.fa")
+        try FileManager.default.moveItem(at: genomeURL, to: alternateGenomeURL)
+        try FileManager.default.createSymbolicLink(at: genomeURL, withDestinationURL: alternateGenomeURL)
+
+        XCTAssertThrowsError(
+            try MappingViewerBundlePublicationService.publishCandidate(
+                candidateBundleURL: candidateBundle,
+                finalBundleURL: fixture.viewerBundle
+            ) { _, _ in
+                XCTFail("Finalization must not run for a symbolic-link candidate payload.")
+            }
+        ) { error in
+            guard case MappingViewerBundlePublicationError.invalidViewerPayloadPath = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.viewerBundle.path))
+        XCTAssertEqual(try Data(contentsOf: alternateGenomeURL), Data(">chr1\nACGT\n".utf8))
     }
 
     func testPublishCandidateAtomicallyReplacesExistingBundle() throws {
@@ -446,6 +554,61 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: candidateBundle.path))
     }
 
+    func testPlanAwarePublicationNeverTraversesFinalRootReplacedAfterRename() throws {
+        let fixture = try makeFixture()
+        let candidateBundle = fixture.resultDirectory.appendingPathComponent(
+            ".Viewer.candidate.lungfishref",
+            isDirectory: true
+        )
+        try FileManager.default.moveItem(at: fixture.viewerBundle, to: candidateBundle)
+        let externalDirectory = tempDirectory.appendingPathComponent("external-target", isDirectory: true)
+        try FileManager.default.createDirectory(at: externalDirectory, withIntermediateDirectories: true)
+        let externalSentinel = externalDirectory.appendingPathComponent("sentinel")
+        let externalData = Data("must-remain-untouched".utf8)
+        try externalData.write(to: externalSentinel)
+        let movedPublishedBundle = tempDirectory.appendingPathComponent("attacker-moved-viewer", isDirectory: true)
+        let mappingResultURL = fixture.resultDirectory.appendingPathComponent("mapping-result.json")
+        let canonicalURL = fixture.resultDirectory.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let originalResult = try Data(contentsOf: mappingResultURL)
+        let originalCanonical = try Data(contentsOf: canonicalURL)
+
+        XCTAssertThrowsError(
+            try MappingViewerBundlePublicationService.publishCandidate(
+                candidateBundleURL: candidateBundle,
+                finalBundleURL: fixture.viewerBundle
+            ) { publishedBundle, plan in
+                try MappingViewerBundlePublicationService.publish(
+                    result: fixture.preparedResult,
+                    resultDirectoryURL: fixture.resultDirectory,
+                    sourceReferenceBundleURL: fixture.sourceBundle,
+                    viewerBundleURL: publishedBundle,
+                    viewerPublicationPlan: plan,
+                    beforePublishedRootRecheck: {
+                        try FileManager.default.moveItem(at: publishedBundle, to: movedPublishedBundle)
+                        try FileManager.default.createSymbolicLink(
+                            at: publishedBundle,
+                            withDestinationURL: externalDirectory
+                        )
+                    }
+                )
+            }
+        ) { error in
+            guard case MappingViewerBundlePublicationError.publicationOwnershipConflict(let path, _) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertEqual(path, fixture.viewerBundle.path)
+        }
+
+        XCTAssertEqual(try Data(contentsOf: externalSentinel), externalData)
+        XCTAssertEqual(
+            try FileManager.default.destinationOfSymbolicLink(atPath: fixture.viewerBundle.path),
+            externalDirectory.path
+        )
+        XCTAssertEqual(try Data(contentsOf: mappingResultURL), originalResult)
+        XCTAssertEqual(try Data(contentsOf: canonicalURL), originalCanonical)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: movedPublishedBundle.path))
+    }
+
     func testPublishCandidateRestoresExistingViewerAndResultSidecarsWhenFinalizationFails() throws {
         let fixture = try makeFixture()
         let candidateBundle = fixture.resultDirectory.appendingPathComponent(
@@ -504,13 +667,15 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
         }
     }
 
-    private func makeFixture() throws -> (
+    private func makeFixture(
+        resultDirectoryName: String = "Sample"
+    ) throws -> (
         resultDirectory: URL,
         sourceBundle: URL,
         viewerBundle: URL,
         preparedResult: MappingResult
     ) {
-        let resultDirectory = tempDirectory.appendingPathComponent("Sample", isDirectory: true)
+        let resultDirectory = tempDirectory.appendingPathComponent(resultDirectoryName, isDirectory: true)
         let sourceBundle = tempDirectory.appendingPathComponent("Source.lungfishref", isDirectory: true)
         let viewerBundle = resultDirectory.appendingPathComponent("Source.lungfishref", isDirectory: true)
         let viewerAlignments = viewerBundle.appendingPathComponent("alignments", isDirectory: true)
@@ -680,7 +845,15 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
 
         try Data("viewer-bam".utf8).write(to: viewerAlignments.appendingPathComponent("viewer.bam"))
         try Data("viewer-index".utf8).write(to: viewerAlignments.appendingPathComponent("viewer.bam.bai"))
-        try Data("viewer-stats".utf8).write(to: viewerAlignments.appendingPathComponent("viewer.stats.db"))
+        do {
+            let database = try AlignmentMetadataDatabase.create(
+                at: viewerAlignments.appendingPathComponent("viewer.stats.db")
+            )
+            database.setFileInfo(
+                "source_path",
+                value: viewerAlignments.appendingPathComponent("viewer.bam").path
+            )
+        }
         let viewerManifest = BundleManifest(
             name: "Viewer",
             identifier: "org.lungfish.test.viewer",
@@ -742,6 +915,25 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
+    }
+
+    private func regularFileContents(below directory: URL) throws -> [String: Data] {
+        guard let enumerator = FileManager.default.enumerator(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: []
+        ) else {
+            return [:]
+        }
+        var result: [String: Data] = [:]
+        let prefix = directory.standardizedFileURL.path + "/"
+        for case let url as URL in enumerator {
+            guard try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else {
+                continue
+            }
+            result[String(url.standardizedFileURL.path.dropFirst(prefix.count))] = try Data(contentsOf: url)
+        }
+        return result
     }
 
     private enum CandidatePublicationTestError: Error {

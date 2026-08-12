@@ -1487,13 +1487,14 @@ extension AppDelegate {
             candidateBundleURL: candidateBundleURL,
             finalBundleURL: viewerBundleURL,
             fileManager: fm
-        ) { publishedBundleURL in
+        ) { publishedBundleURL, publicationPlan in
             try MappingViewerBundlePublicationService.publish(
                 result: preparedResult,
                 resultDirectoryURL: request.outputDirectory,
                 sourceReferenceBundleURL: sourceBundleURL,
                 viewerBundleURL: publishedBundleURL,
-                fileManager: fm
+                fileManager: fm,
+                viewerPublicationPlan: publicationPlan
             )
         }
         return preparedResult
