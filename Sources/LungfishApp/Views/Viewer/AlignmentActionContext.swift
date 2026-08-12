@@ -59,6 +59,7 @@ struct AlignmentActionContext: Sendable, Equatable {
         case unsupportedAlignmentFormat(String)
         case explicitIndexRequired(alignment: String, index: String)
         case snapshotPathMismatch(expected: URL, actual: URL)
+        case missingDecodingReferenceSnapshot(URL)
         case unexpectedDecodingReferenceSnapshot(URL)
     }
 
@@ -116,6 +117,9 @@ struct AlignmentActionContext: Sendable, Equatable {
         }
         guard indexSnapshot.url.standardizedFileURL == normalizedIndexURL else {
             throw ValidationError.snapshotPathMismatch(expected: normalizedIndexURL, actual: indexSnapshot.url)
+        }
+        if let normalizedReferenceURL, decodingReferenceSnapshot == nil {
+            throw ValidationError.missingDecodingReferenceSnapshot(normalizedReferenceURL)
         }
         if let decodingReferenceSnapshot {
             guard let normalizedReferenceURL else {
