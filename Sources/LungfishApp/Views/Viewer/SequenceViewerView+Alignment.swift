@@ -65,7 +65,9 @@ extension SequenceViewerView {
                     guard let self else { return }
                     let token = AsyncRequestToken(generation: tokenGeneration, identity: tokenIdentity)
                     guard self.commitReadFetch(token, reads: reads, region: expanded) else { return }
-                    if let notice { self.detachedEvidenceFetchMessage = notice }
+                    // A successful request supersedes any prior error or
+                    // sampling notice for this source/region.
+                    self.detachedEvidenceFetchMessage = notice
                     self.setNeedsDisplay(self.bounds)
                 }
             }
@@ -99,22 +101,17 @@ extension SequenceViewerView {
         let filters = (max(0, max(minMapQSetting, consensusMinMapQSetting)), max(0, consensusMinBaseQSetting), excludeFlagsSetting)
         detachedDepthFetchTask = Task.detached { [weak self] in
             let points: [ReadTrackRenderer.CoveragePoint]
+            let failureMessage: String?
             do {
                 points = try await provider.fetchDepth(
                     chromosome: expanded.chromosome, start: expanded.start, end: expanded.end,
                     minMapQ: filters.0, minBaseQ: filters.1, excludeFlags: filters.2
                 ).map { .init(position: $0.position, depth: $0.depth) }
+                failureMessage = nil
             } catch {
                 sequenceViewerLogger.error("fetchDetachedDepth: \(error.localizedDescription, privacy: .public)")
                 points = []
-                let message = "Coverage evidence could not be fetched: \(error.localizedDescription)"
-                DispatchQueue.main.async { [weak self] in
-                    MainActor.assumeIsolated {
-                        guard let self else { return }
-                        self.detachedEvidenceFetchMessage = message
-                        self.setNeedsDisplay(self.bounds)
-                    }
-                }
+                failureMessage = "Coverage evidence could not be fetched: \(error.localizedDescription)"
             }
             guard !Task.isCancelled else { return }
             DispatchQueue.main.async { [weak self] in
@@ -122,6 +119,10 @@ extension SequenceViewerView {
                     guard let self else { return }
                     let token = AsyncRequestToken(generation: tokenGeneration, identity: tokenIdentity)
                     guard self.commitDepthFetch(token, points: points, region: expanded) else { return }
+                    // The gate is also the stale-error guard: a cancelled or
+                    // superseded depth failure must not overwrite replacement
+                    // evidence. A successful recovery clears prior notices.
+                    self.detachedEvidenceFetchMessage = failureMessage
                     self.setNeedsDisplay(self.bounds)
                 }
             }

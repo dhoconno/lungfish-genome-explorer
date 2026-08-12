@@ -112,8 +112,8 @@ struct ClassifierAlignmentEvidenceValidator: @unchecked Sendable {
         guard fileManager.isReadableFile(atPath: request.index.url.path) else {
             throw Error.indexUnavailable(request.index.url)
         }
-        let bamSnapshot = try snapshot(request.bamURL)
-        let indexSnapshot = try snapshot(request.index.url)
+        let bamSnapshot = try await Self.snapshotOffMain(request.bamURL)
+        let indexSnapshot = try await Self.snapshotOffMain(request.index.url)
         if let expected = request.bamExpectedSnapshot, expected != bamSnapshot { throw Error.snapshotMismatch(request.bamURL) }
         if let expected = request.index.expectedSnapshot, expected != indexSnapshot { throw Error.snapshotMismatch(request.index.url) }
 
@@ -131,7 +131,7 @@ struct ClassifierAlignmentEvidenceValidator: @unchecked Sendable {
         do { try await indexQuery(request.bamURL, request.index.url, request.contig.name) }
         catch { throw Error.indexDoesNotMatchBAM(error.localizedDescription) }
 
-        let referenceValidation = validateReference(
+        let referenceValidation = await validateReference(
             request.referenceCandidate,
             bamMD5: sequence.md5,
             expectedContigLength: request.contig.expectedLength
@@ -142,6 +142,20 @@ struct ClassifierAlignmentEvidenceValidator: @unchecked Sendable {
            let referenceSnapshot,
            expected != referenceSnapshot {
             throw Error.snapshotMismatch(request.referenceCandidate!.fastaURL)
+        }
+        // The view installs only after this final off-main comparison. This
+        // closes the validation-to-display interval without asking AppKit to
+        // hash an entire BAM on its main actor.
+        guard try await Self.snapshotOffMain(request.bamURL) == bamSnapshot else {
+            throw Error.snapshotMismatch(request.bamURL)
+        }
+        guard try await Self.snapshotOffMain(request.index.url) == indexSnapshot else {
+            throw Error.snapshotMismatch(request.index.url)
+        }
+        if let candidate = request.referenceCandidate, let referenceSnapshot {
+            guard try await Self.snapshotOffMain(candidate.fastaURL) == referenceSnapshot else {
+                throw Error.snapshotMismatch(candidate.fastaURL)
+            }
         }
         return Result(
             request: request,
@@ -178,11 +192,11 @@ struct ClassifierAlignmentEvidenceValidator: @unchecked Sendable {
         _ candidate: ClassifierAlignmentReferenceCandidate?,
         bamMD5: String?,
         expectedContigLength: Int
-    ) -> (reference: Reference, snapshot: ClassifierAlignmentEvidenceFileSnapshot?) {
+    ) async -> (reference: Reference, snapshot: ClassifierAlignmentEvidenceFileSnapshot?) {
         guard let candidate else { return (Reference(status: .notProvided, sequence: nil, reason: nil), nil) }
-        guard let before = try? snapshot(candidate.fastaURL),
+        guard let before = try? await Self.snapshotOffMain(candidate.fastaURL),
               let record = try? referenceReader(candidate.fastaURL, candidate.recordName),
-              let after = try? snapshot(candidate.fastaURL),
+              let after = try? await Self.snapshotOffMain(candidate.fastaURL),
               before == after else {
             return (Reference(status: .unavailable, sequence: nil, reason: "The requested FASTA record is unavailable."), nil)
         }
@@ -205,7 +219,13 @@ struct ClassifierAlignmentEvidenceValidator: @unchecked Sendable {
         return (Reference(status: .validatedStructural, sequence: record, reason: nil), after)
     }
 
-    private func snapshot(_ url: URL) throws -> ClassifierAlignmentEvidenceFileSnapshot {
+    private static func snapshotOffMain(_ url: URL) async throws -> ClassifierAlignmentEvidenceFileSnapshot {
+        try await Task.detached(priority: .utility) {
+            try Self.snapshot(url)
+        }.value
+    }
+
+    private static func snapshot(_ url: URL) throws -> ClassifierAlignmentEvidenceFileSnapshot {
         let values = try url.resourceValues(forKeys: [.fileSizeKey])
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }

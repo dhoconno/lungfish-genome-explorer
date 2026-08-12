@@ -158,9 +158,17 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
             } catch {
                 guard !Task.isCancelled, currentGeneration == generation else { return }
                 viewer.viewerView.clearReferenceBundle()
-                availability = .unavailable(error.localizedDescription)
-                status = .unavailable(error.localizedDescription)
-                publishInspectorCapabilities(reference: .unavailable(error.localizedDescription), readGroups: [])
+                if let validationError = error as? ClassifierAlignmentEvidenceValidator.Error,
+                   case .snapshotMismatch(let url) = validationError {
+                    let reason = "Classifier alignment evidence changed on disk: \(url.lastPathComponent)."
+                    availability = .unavailable(reason)
+                    status = .stale(reason)
+                    publishInspectorCapabilities(reference: .unavailable(reason), readGroups: [])
+                } else {
+                    availability = .unavailable(error.localizedDescription)
+                    status = .unavailable(error.localizedDescription)
+                    publishInspectorCapabilities(reference: .unavailable(error.localizedDescription), readGroups: [])
+                }
             }
         }
     }

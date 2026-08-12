@@ -2218,23 +2218,26 @@ public class SequenceViewerView: NSView {
     @discardableResult
     func setDetachedAlignmentSource(_ source: DetachedAlignmentSource) -> Bool {
         clearReferenceBundle()
-        // Validation runs before this view is reached, but the files can change while
-        // it is crossing the actor boundary. Never accept a source until its current
-        // bytes match those validated snapshots.
-        guard verifyDetachedEvidenceSnapshots(source) else { return false }
+        // The App-owned validator has already compared full checksums on a
+        // background executor. Do not repeat that O(file size) work on the
+        // main actor here: a large BAM would freeze the entire window. Vnode
+        // monitors take ownership before the source is exposed and validate
+        // subsequent changes off-main.
         guard startDetachedEvidenceMonitors(for: source) else {
             markDetachedEvidenceStale("Classifier alignment evidence is unavailable for monitoring.")
             return false
         }
-        // The monitor is now live. Verify once more to close the interval between the
-        // first hash and monitor activation before exposing the source to rendering.
-        guard verifyDetachedEvidenceSnapshots(source) else { return false }
         currentReferenceBundle = nil
         detachedAlignmentSource = source
         detachedEvidenceStaleReason = nil
         detachedEvidenceFetchMessage = nil
         alignmentDataProviders = [(trackId: "detached", provider: source.provider)]
         visibleAlignmentTrackIDSetting = "detached"
+        // Establish the initial cheap signatures off the main actor as well.
+        // Until it completes, fetch paths conservatively treat the evidence as
+        // pending instead of trusting a source that could have changed during
+        // the handoff from validation to monitor activation.
+        scheduleDetachedEvidenceMonitorCheck(generation: detachedEvidenceMonitorGeneration)
         alignmentChromosomeAliasMap = [:]
         if let reference = source.referenceSequence {
             cachedBundleSequence = reference
@@ -2257,7 +2260,11 @@ public class SequenceViewerView: NSView {
         for (url, _) in expectedSnapshots {
             let fast = resourceSignature(for: url)
             guard let prior = detachedResourceSignatures[url], prior.0 == fast.0 && prior.1 == fast.1 else {
-                return verifyDetachedEvidenceSnapshots(source)
+                // Hashing a multi-gigabyte evidence BAM is intentionally never
+                // performed from an AppKit draw/fetch path. Keep this request
+                // pending while the monitor verifies the change off-main.
+                scheduleDetachedEvidenceMonitorCheck(generation: detachedEvidenceMonitorGeneration)
+                return false
             }
         }
         return true
@@ -2270,17 +2277,6 @@ public class SequenceViewerView: NSView {
         invalidateAlignmentFetchState()
         onDetachedEvidenceStale?(reason)
         needsDisplay = true
-    }
-
-    private func verifyDetachedEvidenceSnapshots(_ source: DetachedAlignmentSource) -> Bool {
-        for (url, expected) in expectedSnapshots(for: source) {
-            guard let observed = try? Self.checksumSnapshot(url), observed == expected else {
-                markDetachedEvidenceStale("Classifier alignment evidence changed on disk: \(url.lastPathComponent).")
-                return false
-            }
-            detachedResourceSignatures[url] = resourceSignature(for: url)
-        }
-        return true
     }
 
     private func startDetachedEvidenceMonitors(for source: DetachedAlignmentSource) -> Bool {

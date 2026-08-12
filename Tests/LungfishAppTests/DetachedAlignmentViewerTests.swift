@@ -260,6 +260,32 @@ final class DetachedAlignmentViewerTests: XCTestCase {
         XCTAssertEqual(controller.visibleStatusText, reason)
     }
 
+    func testPreviouslyValidatedInstallationDoesNotSynchronouslyRescanEvidence() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let bam = directory.appendingPathComponent("evidence.bam")
+        let index = directory.appendingPathComponent("evidence.bam.bai")
+        try Data(repeating: 0xA5, count: 1 << 20).write(to: bam)
+        try Data([0x01]).write(to: index)
+        let source = SequenceViewerView.DetachedAlignmentSource(
+            identityURL: bam,
+            contig: .init(name: "chr1", length: 100),
+            provider: AlignmentDataProvider(alignmentPath: bam.path, indexPath: index.path),
+            referenceSequence: nil,
+            // A direct install is only reached after validator-owned snapshot
+            // validation. A mismatching witness must therefore not be reread
+            // synchronously on the main actor during installation.
+            bamSnapshot: .init(size: 1, sha256: "stale"),
+            indexSnapshot: .init(size: 1, sha256: "stale")
+        )
+        let viewer = ViewerViewController()
+        _ = viewer.view
+
+        XCTAssertTrue(viewer.displayDetachedAlignment(source))
+        XCTAssertEqual(viewer.viewerView.testDetachedAlignmentSource?.identityURL, bam)
+    }
+
     func testNewDisplaySynchronouslyClearsInstalledEvidenceWhileValidationWaits() async throws {
         let files = try DetachedEvidenceFiles()
         let first = try files.request("installed")
@@ -398,6 +424,80 @@ final class DetachedAlignmentViewerTests: XCTestCase {
             try await Task.sleep(nanoseconds: 10_000_000)
         }
         XCTAssertEqual(view.testCachedDepthPoints.first?.depth, 5)
+    }
+
+    func testDetachedDepthRecoveryClearsPriorFailureNotice() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let mode = directory.appendingPathComponent("mode")
+        try "fail".write(to: mode, atomically: true, encoding: .utf8)
+        let script = directory.appendingPathComponent("samtools")
+        try """
+        #!/bin/sh
+        if [ "$(cat '\(mode.path)')" = "fail" ]; then
+          echo 'simulated depth failure' >&2
+          exit 1
+        fi
+        printf 'chr1\\t1\\t5\\n'
+        """.write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        let bam = directory.appendingPathComponent("evidence.bam")
+        let source = SequenceViewerView.DetachedAlignmentSource(
+            identityURL: bam,
+            contig: .init(name: "chr1", length: 100),
+            provider: AlignmentDataProvider(alignmentPath: bam.path, indexPath: "\(bam.path).bai", samtoolsPath: script.path),
+            referenceSequence: nil
+        )
+        let view = SequenceViewerView(frame: .zero)
+        XCTAssertTrue(view.setDetachedAlignmentSource(source))
+        let region = GenomicRegion(chromosome: "chr1", start: 0, end: 1)
+
+        view.fetchDetachedDepth(source: source, region: region)
+        for _ in 0..<250 where view.testDetachedEvidenceFetchMessage == nil {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertTrue(view.testDetachedEvidenceFetchMessage?.hasPrefix("Coverage evidence could not be fetched:") == true)
+
+        try "success".write(to: mode, atomically: true, encoding: .utf8)
+        view.fetchDetachedDepth(source: source, region: region)
+        for _ in 0..<250 where view.testCachedDepthPoints.isEmpty {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(view.testCachedDepthPoints.first?.depth, 5)
+        XCTAssertNil(view.testDetachedEvidenceFetchMessage)
+    }
+
+    func testSupersededDetachedDepthFailureDoesNotPublishIntoReplacementSource() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let script = directory.appendingPathComponent("samtools")
+        try "#!/bin/sh\nsleep 1\necho 'late failure' >&2\nexit 1\n".write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        let firstBAM = directory.appendingPathComponent("first.bam")
+        let secondBAM = directory.appendingPathComponent("second.bam")
+        let first = SequenceViewerView.DetachedAlignmentSource(
+            identityURL: firstBAM,
+            contig: .init(name: "chr1", length: 100),
+            provider: AlignmentDataProvider(alignmentPath: firstBAM.path, indexPath: "\(firstBAM.path).bai", samtoolsPath: script.path),
+            referenceSequence: nil
+        )
+        let replacement = SequenceViewerView.DetachedAlignmentSource(
+            identityURL: secondBAM,
+            contig: .init(name: "chr1", length: 100),
+            provider: AlignmentDataProvider(alignmentPath: secondBAM.path, indexPath: "\(secondBAM.path).bai", samtoolsPath: script.path),
+            referenceSequence: nil
+        )
+        let view = SequenceViewerView(frame: .zero)
+        XCTAssertTrue(view.setDetachedAlignmentSource(first))
+        view.fetchDetachedDepth(source: first, region: .init(chromosome: "chr1", start: 0, end: 1))
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertTrue(view.setDetachedAlignmentSource(replacement))
+
+        try await Task.sleep(nanoseconds: 1_200_000_000)
+        XCTAssertEqual(view.testDetachedAlignmentSource?.identityURL, secondBAM)
+        XCTAssertNil(view.testDetachedEvidenceFetchMessage)
     }
 
     func testDetachedReadAndDepthFailuresPublishVisibleFetchMessages() async {
