@@ -99,15 +99,14 @@ final class ReadSelectionTests: XCTestCase {
         XCTAssertEqual(vm.selectedRead?.name, "TestRead")
     }
 
-    func testViewModelClearDoesNotResetSelectedRead() {
-        // clear() resets statistics but NOT the selected read
-        // (selected read is cleared by deselection notification)
+    func testViewModelClearResetsSelectedReadForUnloadedEvidence() {
+        // Clearing a bundle or detached classifier-evidence viewport must not
+        // leave its former read selected in the Inspector.
         let vm = ReadStyleSectionViewModel()
         let read = makeRead(name: "TestRead", position: 0, cigar: "50M")
         vm.selectedRead = read
         vm.clear()
-        // selected read persists
-        XCTAssertNotNil(vm.selectedRead)
+        XCTAssertNil(vm.selectedRead)
     }
 
     // MARK: - Quality Scores in Detail

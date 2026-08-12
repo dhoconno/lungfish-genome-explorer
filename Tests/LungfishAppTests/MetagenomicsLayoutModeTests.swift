@@ -570,10 +570,12 @@ final class MetagenomicsLayoutModeTests: XCTestCase {
         )
     }
 
-    func testTaxTriageMiniBAMScrollViewTracksDetailPaneResize() throws {
+    func testTaxTriageDetachedAlignmentViewerTracksDetailPaneResize() throws {
         setLayoutPreference(.detailLeading, legacyTableOnLeft: false)
 
         let vc = TaxTriageResultViewController()
+        let evidenceViewer = ClassifierAlignmentEvidenceViewportController()
+        vc.classifierAlignmentViewerFactory = { evidenceViewer }
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1400, height: 900),
             styleMask: [.titled, .resizable, .closable],
@@ -585,13 +587,10 @@ final class MetagenomicsLayoutModeTests: XCTestCase {
         vc.view.layoutSubtreeIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
 
-        let bamView = try XCTUnwrap(
-            vc.testLeftPaneContainer.subviews.first(where: { subview in
-                subview.subviews.contains(where: { $0 is NSScrollView })
-            })
-        )
-        let scrollView = try XCTUnwrap(
-            bamView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView
+        let evidenceView = evidenceViewer.viewController.view
+        XCTAssertTrue(
+            vc.testLeftPaneContainer.subviews.contains(where: { $0 === evidenceView }),
+            "TaxTriage must embed the harmonized detached alignment viewer."
         )
 
         let minimumLeadingWidth: CGFloat = 250
@@ -611,10 +610,16 @@ final class MetagenomicsLayoutModeTests: XCTestCase {
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
 
         XCTAssertEqual(
-            scrollView.frame.width,
-            bamView.bounds.width,
+            evidenceView.frame.width,
+            vc.testLeftPaneContainer.bounds.width,
             accuracy: 2,
-            "scrollWidth=\(scrollView.frame.width) bamWidth=\(bamView.bounds.width) containerWidth=\(vc.testLeftPaneContainer.bounds.width)"
+            "evidenceWidth=\(evidenceView.frame.width) containerWidth=\(vc.testLeftPaneContainer.bounds.width)"
+        )
+        XCTAssertEqual(
+            evidenceView.frame.height,
+            vc.testLeftPaneContainer.bounds.height,
+            accuracy: 2,
+            "evidenceHeight=\(evidenceView.frame.height) containerHeight=\(vc.testLeftPaneContainer.bounds.height)"
         )
     }
 
