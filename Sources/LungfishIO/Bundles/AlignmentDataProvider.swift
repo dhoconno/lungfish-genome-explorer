@@ -757,7 +757,8 @@ public final class AlignmentDataProvider: @unchecked Sendable {
         timeout: TimeInterval,
         maxRecords: Int,
         maxBytes: Int,
-        cancellation: SamtoolsCancellation? = nil
+        cancellation: SamtoolsCancellation? = nil,
+        processStarted: ((pid_t) -> Void)? = nil
     ) throws -> BudgetedSamtoolsResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: samtoolsPath)
@@ -767,6 +768,7 @@ public final class AlignmentDataProvider: @unchecked Sendable {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
         do { try process.run() } catch { throw AlignmentFetchError.samtoolsNotFound }
+        processStarted?(process.processIdentifier)
         cancellation?.install(process)
 
         let state = BudgetedSamtoolsState(maxRecords: maxRecords, maxBytes: maxBytes)

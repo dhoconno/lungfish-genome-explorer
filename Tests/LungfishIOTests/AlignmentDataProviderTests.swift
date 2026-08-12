@@ -64,18 +64,19 @@ final class AlignmentDataProviderTests: XCTestCase {
     func testBudgetedReaderKillsTermIgnoringNoisyChildByDeadline() throws {
         let tempDir = try makeTemporaryDirectory(prefix: "alignment-budget-timeout")
         defer { try? FileManager.default.removeItem(at: tempDir) }
-        let pidFile = tempDir.appendingPathComponent("child.pid")
-        let script = try makeFakeSamtools(in: tempDir, script: "#!/bin/sh\necho $$ > '\(pidFile.path)'\ntrap '' TERM\nwhile :; do printf 'unterminated-record'; printf 'noisy stderr' >&2; done\n")
+        let script = try makeFakeSamtools(in: tempDir, script: "#!/bin/sh\ntrap '' TERM\nwhile :; do printf 'unterminated-record'; printf 'noisy stderr' >&2; done\n")
         let started = Date()
+        var childPID: pid_t?
         XCTAssertThrowsError(try AlignmentDataProvider.runSamtoolsProcessBudgeted(
             samtoolsPath: script.path, arguments: ["view", "-X", "/tmp/evidence.bam", "/tmp/evidence.bam.bai", "chr1:1-1"],
-            timeout: 0.2, maxRecords: 10, maxBytes: 256
+            timeout: 0.2, maxRecords: 10, maxBytes: 256,
+            processStarted: { childPID = $0 }
         )) { error in
             XCTAssertEqual(error.localizedDescription, "samtools timed out")
         }
         XCTAssertLessThan(Date().timeIntervalSince(started), 6)
-        let pid = try XCTUnwrap(Int(String(contentsOf: pidFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)))
-        XCTAssertEqual(kill(pid_t(pid), 0), -1, "Timed-out child must be reaped before returning")
+        let pid = try XCTUnwrap(childPID)
+        XCTAssertEqual(kill(pid, 0), -1, "Timed-out child must be reaped before returning")
     }
 
     // MARK: - Initialization
