@@ -11,17 +11,24 @@ public struct SampleIdentity: Equatable, Sendable {
     public let aliases: [String]
     public let alignmentTrackIDs: [String]
     public let readGroupIDs: [String]
+    /// Read-group identity scoped to its owning alignment track. BAM read
+    /// group IDs are only required to be unique within one BAM, so this map
+    /// preserves identity when independent tracks both use values such as
+    /// `RG1` for different samples.
+    public let readGroupIDsByAlignmentTrackID: [String: [String]]
 
     public init(
         canonicalID: String,
         aliases: [String],
         alignmentTrackIDs: [String],
-        readGroupIDs: [String]
+        readGroupIDs: [String],
+        readGroupIDsByAlignmentTrackID: [String: [String]] = [:]
     ) {
         self.canonicalID = canonicalID
         self.aliases = aliases
         self.alignmentTrackIDs = alignmentTrackIDs
         self.readGroupIDs = readGroupIDs
+        self.readGroupIDsByAlignmentTrackID = readGroupIDsByAlignmentTrackID
     }
 }
 
@@ -45,6 +52,7 @@ public struct SampleIdentityIndex: Sendable {
     private let aliases: [String: String]
     private let alignmentTrackIDToSampleID: [String: String]
     private let readGroupIDs: [String: String]
+    private let trackReadGroupIDs: [String: String]
     private let alignmentTrackIDsByCanonicalID: [String: Set<String>]
     private let readGroupsByCanonicalID: [String: Set<String>]
     private let explicitOneSampleFallbackCanonicalID: String?
@@ -60,6 +68,10 @@ public struct SampleIdentityIndex: Sendable {
     }
 
     public var readGroupMappings: [String: String] { readGroupIDs }
+
+    /// Stable track-scoped RG evidence for provenance. The unit separator
+    /// cannot collide with normalized SAM identifiers or manifest track IDs.
+    public var trackReadGroupMappings: [String: String] { trackReadGroupIDs }
 
     public init(
         samples: [SampleIdentity],
@@ -78,6 +90,9 @@ public struct SampleIdentityIndex: Sendable {
         var aliases: [String: String] = [:]
         var alignmentTrackIDToSampleID: [String: String] = [:]
         var readGroupIDs: [String: String] = [:]
+        var trackReadGroupIDs: [String: String] = [:]
+        var scopedReadGroupClaims: [String: Set<String>] = [:]
+        var unscopedReadGroupClaims: [String: Set<String>] = [:]
         var alignmentTrackIDsByCanonicalID: [String: Set<String>] = [:]
         var readGroupsByCanonicalID: [String: Set<String>] = [:]
 
@@ -106,13 +121,44 @@ public struct SampleIdentityIndex: Sendable {
             for readGroupID in sample.readGroupIDs {
                 let key = Self.normalized(readGroupID)
                 guard !key.isEmpty else { continue }
-                try Self.insert(
-                    canonicalID: sample.canonicalID,
-                    key: key,
-                    into: &readGroupIDs,
-                    ambiguousError: .ambiguousReadGroupID(key)
-                )
+                let isScoped = sample.readGroupIDsByAlignmentTrackID.values.contains { values in
+                    values.contains { Self.normalized($0) == key }
+                }
+                if isScoped {
+                    scopedReadGroupClaims[key, default: []].insert(sample.canonicalID)
+                } else {
+                    unscopedReadGroupClaims[key, default: []].insert(sample.canonicalID)
+                }
                 readGroupsByCanonicalID[sample.canonicalID, default: []].insert(readGroupID)
+            }
+            for (trackID, values) in sample.readGroupIDsByAlignmentTrackID {
+                let trackKey = Self.normalized(trackID)
+                guard !trackKey.isEmpty else { continue }
+                for readGroupID in values {
+                    let readGroupKey = Self.normalized(readGroupID)
+                    guard !readGroupKey.isEmpty else { continue }
+                    try Self.insert(
+                        canonicalID: sample.canonicalID,
+                        key: Self.trackReadGroupKey(trackID: trackKey, readGroupID: readGroupKey),
+                        into: &trackReadGroupIDs,
+                        ambiguousError: .ambiguousReadGroupID(readGroupKey)
+                    )
+                    readGroupsByCanonicalID[sample.canonicalID, default: []].insert(readGroupID)
+                }
+            }
+        }
+
+        for key in Set(scopedReadGroupClaims.keys).union(unscopedReadGroupClaims.keys) {
+            let scoped = scopedReadGroupClaims[key] ?? []
+            let unscoped = unscopedReadGroupClaims[key] ?? []
+            let allClaims = scoped.union(unscoped)
+            if unscoped.count > 1 || (!unscoped.isEmpty && allClaims.count > 1) {
+                throw SampleIdentityIndexError.ambiguousReadGroupID(key)
+            }
+            // Preserve the convenient bare-RG lookup only when it is globally
+            // unambiguous. Reused IDs remain resolvable through track scope.
+            if allClaims.count == 1, let canonicalID = allClaims.first {
+                readGroupIDs[key] = canonicalID
             }
         }
 
@@ -130,6 +176,7 @@ public struct SampleIdentityIndex: Sendable {
         self.aliases = aliases
         self.alignmentTrackIDToSampleID = alignmentTrackIDToSampleID
         self.readGroupIDs = readGroupIDs
+        self.trackReadGroupIDs = trackReadGroupIDs
         self.alignmentTrackIDsByCanonicalID = alignmentTrackIDsByCanonicalID
         self.readGroupsByCanonicalID = readGroupsByCanonicalID
         self.canonicalSampleIDs = Set(canonicalIDs.values)
@@ -154,6 +201,21 @@ public struct SampleIdentityIndex: Sendable {
         return readGroupIDs[Self.normalized(readGroupID)]
     }
 
+    /// Resolves a BAM read group within its owning track. This is the
+    /// authoritative lookup for multi-track bundles because RG IDs may be
+    /// reused by unrelated BAM files.
+    public func canonicalSampleID(
+        forReadGroupID readGroupID: String?,
+        alignmentTrackID: String?
+    ) -> String? {
+        guard let readGroupID else { return explicitOneSampleFallbackCanonicalID }
+        guard let alignmentTrackID else { return canonicalSampleID(forReadGroupID: readGroupID) }
+        return trackReadGroupIDs[Self.trackReadGroupKey(
+            trackID: Self.normalized(alignmentTrackID),
+            readGroupID: Self.normalized(readGroupID)
+        )]
+    }
+
     /// All read groups belonging to a selected canonical sample.
     public func readGroupIDs(forCanonicalSampleID canonicalID: String) -> Set<String> {
         readGroupsByCanonicalID[canonicalIDs[Self.normalized(canonicalID)] ?? canonicalID] ?? []
@@ -166,6 +228,10 @@ public struct SampleIdentityIndex: Sendable {
 
     private static func normalized(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private static func trackReadGroupKey(trackID: String, readGroupID: String) -> String {
+        "\(trackID)\u{1F}\(readGroupID)"
     }
 
     private static func insert(
@@ -217,6 +283,7 @@ public final class SampleMetadataPresentationContext {
 
     public let finalResultURL: URL
     public let identityIndex: SampleIdentityIndex
+    public let identityInputURLs: [URL]
     public private(set) var sampleMetadataStore: SampleMetadataStore?
     public let importContext: SampleMetadataImportContext
 
@@ -228,11 +295,13 @@ public final class SampleMetadataPresentationContext {
     public init(
         finalResultURL: URL,
         identityIndex: SampleIdentityIndex,
+        identityInputURLs: [URL] = [],
         sampleMetadataStore: SampleMetadataStore? = nil,
         importContext: SampleMetadataImportContext
     ) {
         self.finalResultURL = finalResultURL
         self.identityIndex = identityIndex
+        self.identityInputURLs = identityInputURLs.map(\.standardizedFileURL)
         self.sampleMetadataStore = sampleMetadataStore
         self.importContext = importContext
     }
@@ -258,6 +327,7 @@ public final class SampleMetadataPresentationContext {
 
     public func removeObserver(_ token: ObserverToken) {
         observers.removeValue(forKey: token)
+        observerTokensInRegistrationOrder.removeAll { $0 == token }
     }
 
     /// Publishes the complete imported store; column headers are never filtered here.

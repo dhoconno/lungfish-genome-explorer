@@ -1,6 +1,6 @@
 # Classifier Full BAM Viewers and General Sample Metadata
 
-**Date:** 2026-08-11  
+**Date:** 2026-08-11
 **Status:** Approved for implementation after architecture, BAM/Inspector, and metadata expert review
 
 ## Objective
@@ -133,4 +133,3 @@ Any future output-producing BAM operation must write a new result/bundle with th
 8. CSV/TSV quoting, selected non-first identity columns, malformed rows, duplicate/blank normalized headers, duplicate IDs, partial unmatched rows, and ambiguous aliases have explicit tests.
 9. Metadata provenance names final payloads and all identity inputs with checksums/sizes and rolls back on provenance failure. Merely opening a BAM makes no writes.
 10. Large-region loads remain indexed, cancellable, generation-guarded, and bounded by the existing full-viewer cache/read caps; capped/sampled coverage is visibly labelled.
-

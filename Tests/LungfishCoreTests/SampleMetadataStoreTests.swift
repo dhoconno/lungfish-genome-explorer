@@ -51,7 +51,7 @@ struct SampleMetadataStoreTests {
         let tsv = "Sample\tType\nS1\tww\n"
         let data = Data(tsv.utf8)
         let store = try SampleMetadataStore(csvData: data, knownSampleIds: Set(["S1"]))
-        store.applyEdit(sampleId: "S1", column: "Type", newValue: "clinical")
+        try store.applyEdit(sampleId: "S1", column: "Type", newValue: "clinical")
         #expect(store.records["S1"]?["Type"] == "clinical")
         #expect(store.edits.count == 1)
         #expect(store.edits[0].oldValue == "ww")
@@ -67,7 +67,7 @@ struct SampleMetadataStoreTests {
         let data = Data(tsv.utf8)
         let store = try SampleMetadataStore(csvData: data, knownSampleIds: Set(["S1"]))
 
-        store.applyEdit(sampleId: "S99-unmatched", column: "Type", newValue: "clinical")
+        try store.applyEdit(sampleId: "S99-unmatched", column: "Type", newValue: "clinical")
 
         #expect(store.edits.isEmpty, "no records entry for S99-unmatched, so no edit should have been journaled")
         #expect(store.records["S99-unmatched"] == nil)
@@ -79,7 +79,7 @@ struct SampleMetadataStoreTests {
         let data = Data(tsv.utf8)
         let store = try SampleMetadataStore(csvData: data, knownSampleIds: Set(["S1", "S2"]))
 
-        store.applyEdit(sampleId: "S2", column: "Type", newValue: "env")
+        try store.applyEdit(sampleId: "S2", column: "Type", newValue: "env")
 
         #expect(store.edits.count == 1)
         #expect(store.records["S2"]?["Type"] == "env")
@@ -90,7 +90,7 @@ struct SampleMetadataStoreTests {
         let tsv = "Sample\tType\nS1\tww\n"
         let data = Data(tsv.utf8)
         let store = try SampleMetadataStore(csvData: data, knownSampleIds: Set(["S1"]))
-        store.applyEdit(sampleId: "S1", column: "Type", newValue: "clinical")
+        try store.applyEdit(sampleId: "S1", column: "Type", newValue: "clinical")
         let json = try store.editsJSON()
         #expect(json.count > 10)
         let decoded = try JSONDecoder().decode([MetadataEdit].self, from: json)

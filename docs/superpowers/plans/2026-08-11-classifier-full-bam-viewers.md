@@ -174,4 +174,3 @@
 3. Inspect `git diff --check`, `git status --short`, and source guards for NAO-MGS exclusion, no App imports in leaf targets, and no fake bundle creation.
 4. Manually instantiate all three classifier controllers and mapping/reference viewports under tests; verify metadata import, column chooser refresh, Inspector settings, cancellation, and unavailable reasons.
 5. Request a final Sol High review against the design and provenance requirements. Fix all Critical/Important issues, re-run affected tests, and commit.
-

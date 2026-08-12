@@ -51,8 +51,9 @@ public final class SampleMetadataStore: @unchecked Sendable {
     public var unmatchedRecords: [String: [String: String]]
     public private(set) var edits: [MetadataEdit] = []
 
-    /// Called after every edit to persist changes. Set by the controller that owns the store.
-    @ObservationIgnored public var onEditsChanged: (() -> Void)?
+    /// Called before an edit is committed so the owning app can publish the
+    /// updated scientific journal and provenance transactionally.
+    @ObservationIgnored public var persistEdits: ((Data, MetadataEdit) throws -> Void)?
 
     /// Decodes CSV/TSV data into headers, data rows, and the detected delimiter.
     private static func parseCSV(_ data: Data) throws -> (headers: [String], dataRows: [[String]], delimiter: Character) {
@@ -284,18 +285,25 @@ public final class SampleMetadataStore: @unchecked Sendable {
     /// always have a records entry, so this guard is currently a no-op there; it closes
     /// the footgun for any future/CLI caller that edits an unmatched or newly-added
     /// sample id (R3-R3ML-19).
-    public func applyEdit(sampleId: String, column: String, newValue: String) {
+    public func applyEdit(sampleId: String, column: String, newValue: String) throws {
         guard records[sampleId] != nil else { return }
         let oldValue = records[sampleId]?[column]
-        records[sampleId]?[column] = newValue
-        edits.append(MetadataEdit(
+        let edit = MetadataEdit(
             sampleId: sampleId,
             columnName: column,
             oldValue: oldValue,
             newValue: newValue,
             timestamp: Date()
-        ))
-        onEditsChanged?()
+        )
+        let priorEdits = edits
+        edits.append(edit)
+        do {
+            try persistEdits?(editsJSON(), edit)
+            records[sampleId]?[column] = newValue
+        } catch {
+            edits = priorEdits
+            throw error
+        }
     }
 
     public func editsJSON() throws -> Data {
@@ -315,14 +323,22 @@ public final class SampleMetadataStore: @unchecked Sendable {
         try json.write(to: metadataDir.appendingPathComponent("sample_metadata_edits.json"))
     }
 
-    /// Wires the `onEditsChanged` callback to autosave the edit journal to the bundle.
-    public func wireAutosave(bundleURL: URL) {
-        onEditsChanged = { [weak self] in
-            guard let self else { return }
+    /// Wires journal persistence. App workflows should provide a handler that
+    /// also publishes provenance; the default is retained for non-scientific
+    /// standalone Core clients.
+    public func wireAutosave(
+        bundleURL: URL,
+        persist: ((URL, Data, MetadataEdit) throws -> Void)? = nil
+    ) {
+        persistEdits = { data, edit in
             let metadataDir = bundleURL.appendingPathComponent("metadata", isDirectory: true)
-            try? FileManager.default.createDirectory(at: metadataDir, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: metadataDir, withIntermediateDirectories: true)
             let editsURL = metadataDir.appendingPathComponent("sample_metadata_edits.json")
-            try? self.editsJSON().write(to: editsURL)
+            if let persist {
+                try persist(editsURL, data, edit)
+            } else {
+                try data.write(to: editsURL, options: .atomic)
+            }
         }
     }
 

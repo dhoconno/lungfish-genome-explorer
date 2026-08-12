@@ -810,7 +810,9 @@ extension MainSplitViewController {
             let controller = viewerController.displayTwelveSAmpliconResult(result)
             let knownSampleIDs = Set(result.samples.map(\.sampleID))
             let metadataStore = SampleMetadataStore.load(from: result.bundleURL, knownSampleIds: knownSampleIDs)
-            metadataStore?.wireAutosave(bundleURL: result.bundleURL)
+            if let metadataStore {
+                SampleMetadataEditPersistenceService().wire(store: metadataStore, bundleURL: result.bundleURL)
+            }
             controller.applyMetadataStore(metadataStore)
             inspectorController.updateTwelveSImportedSampleMetadata(metadataStore)
             let sampleEntries = result.samples.map {

@@ -47,6 +47,35 @@ final class SampleMetadataPresentationContextTests: XCTestCase {
         }
     }
 
+    func testSameReadGroupIDCanResolveDifferentlyWhenScopedToIndependentTracks() throws {
+        let index = try SampleIdentityIndex(samples: [
+            .init(
+                canonicalID: "sample-a",
+                aliases: [],
+                alignmentTrackIDs: ["track-a"],
+                readGroupIDs: ["RG1"],
+                readGroupIDsByAlignmentTrackID: ["track-a": ["RG1"]]
+            ),
+            .init(
+                canonicalID: "sample-b",
+                aliases: [],
+                alignmentTrackIDs: ["track-b"],
+                readGroupIDs: ["RG1"],
+                readGroupIDsByAlignmentTrackID: ["track-b": ["RG1"]]
+            ),
+        ])
+
+        XCTAssertEqual(
+            index.canonicalSampleID(forReadGroupID: "RG1", alignmentTrackID: "track-a"),
+            "sample-a"
+        )
+        XCTAssertEqual(
+            index.canonicalSampleID(forReadGroupID: "RG1", alignmentTrackID: "track-b"),
+            "sample-b"
+        )
+        XCTAssertNil(index.canonicalSampleID(forReadGroupID: "RG1"))
+    }
+
     func testMultipleReadGroupsResolveToTheirOneCanonicalSample() throws {
         let index = try SampleIdentityIndex(samples: [
             .init(canonicalID: "sample-a", aliases: [], alignmentTrackIDs: ["track-a"], readGroupIDs: ["rg-1", "rg-2"])

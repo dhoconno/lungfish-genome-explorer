@@ -58,7 +58,12 @@ struct BAMSampleIdentityResolver {
                         knownTrackIDs.contains(trackID) && normalized(sampleID) == normalized(canonicalID)
                             ? trackID : nil
                     },
-                readGroupIDs: readGroupsBySample[canonicalID] ?? []
+                readGroupIDs: readGroupsBySample[canonicalID] ?? [],
+                readGroupIDsByAlignmentTrackID: Dictionary(
+                    uniqueKeysWithValues: knownTrackIDs.sorted().map {
+                        ($0, readGroupsBySample[canonicalID] ?? [])
+                    }
+                )
             )
         }
         let fallback = readGroups.isEmpty ? explicitResultSampleID : nil
@@ -91,7 +96,11 @@ struct BAMSampleIdentityResolver {
                     canonicalID: current.canonicalID,
                     aliases: Array(Set(current.aliases).union(identity.aliases)).sorted(),
                     alignmentTrackIDs: Array(Set(current.alignmentTrackIDs).union(identity.alignmentTrackIDs)).sorted(),
-                    readGroupIDs: Array(Set(current.readGroupIDs).union(identity.readGroupIDs)).sorted()
+                    readGroupIDs: Array(Set(current.readGroupIDs).union(identity.readGroupIDs)).sorted(),
+                    readGroupIDsByAlignmentTrackID: mergeTrackReadGroups(
+                        current.readGroupIDsByAlignmentTrackID,
+                        identity.readGroupIDsByAlignmentTrackID
+                    )
                 )
             } else {
                 mergedByKey[key] = identity
@@ -107,7 +116,8 @@ struct BAMSampleIdentityResolver {
                 canonicalID: identity.canonicalID,
                 aliases: Array(Set(identity.aliases).union(explicitAliases)).sorted(),
                 alignmentTrackIDs: identity.alignmentTrackIDs,
-                readGroupIDs: identity.readGroupIDs
+                readGroupIDs: identity.readGroupIDs,
+                readGroupIDsByAlignmentTrackID: identity.readGroupIDsByAlignmentTrackID
             )
         }.sorted { $0.canonicalID.localizedCaseInsensitiveCompare($1.canonicalID) == .orderedAscending }
     }
@@ -120,5 +130,14 @@ struct BAMSampleIdentityResolver {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func mergeTrackReadGroups(
+        _ lhs: [String: [String]],
+        _ rhs: [String: [String]]
+    ) -> [String: [String]] {
+        lhs.merging(rhs) { left, right in
+            Array(Set(left).union(right)).sorted()
+        }
     }
 }

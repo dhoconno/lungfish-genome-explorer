@@ -298,6 +298,64 @@ final class MappingViewportRoutingTests: XCTestCase {
         XCTAssertEqual(viewport.testSelectedReadGroups, [])
     }
 
+    func testDirectReferenceBAMRouteKeepsUnmatchedReadGroupsBesideResolvedSampleInSameTrack() throws {
+        let bundleURL = try MappingRoutingFixture.makeReferenceBundle(
+            name: "Direct Mixed BAM Metadata",
+            chromosomes: [.init(name: "chr1", length: 100)]
+        )
+        defer { try? FileManager.default.removeItem(at: bundleURL.deletingLastPathComponent()) }
+        try MappingRoutingFixture.addSingleSampleAlignment(
+            to: bundleURL, sampleID: "S1", trackID: "mixed-track"
+        )
+        do {
+            let database = try AlignmentMetadataDatabase.openForUpdate(
+                at: bundleURL.appendingPathComponent("alignments/mixed-track.metadata.sqlite")
+            )
+            database.addReadGroup(id: "unmatched-rg", sample: nil)
+            XCTAssertEqual(Set(database.readGroups().map(\.id)), Set(["S1-rg", "unmatched-rg"]))
+        }
+
+        let split = MainSplitViewController(); split.loadViewIfNeeded()
+        split.displayReferenceBundleViewportFromSidebar(at: bundleURL)
+        _ = try MappingRoutingFixture.waitForBAMMetadataContext(on: split)
+        let viewport = try XCTUnwrap(split.viewerController.referenceBundleViewportController)
+
+        XCTAssertEqual(viewport.testDisplayedSequenceNames, ["chr1", "chr1"])
+        XCTAssertEqual(viewport.testDisplayedSequenceSampleIDs, ["S1", nil])
+
+        viewport.testSelectSequence(sampleID: nil, alignmentTrackID: "mixed-track", named: "chr1")
+        XCTAssertEqual(viewport.testVisibleAlignmentTrackID, "mixed-track")
+        XCTAssertEqual(viewport.testSelectedReadGroups, Set(["unmatched-rg"]))
+    }
+
+    func testMetadataContextAllowsSameReadGroupIDInIndependentTracks() throws {
+        let bundleURL = try MappingRoutingFixture.makeReferenceBundle(
+            name: "Track Scoped RG Identity",
+            chromosomes: [.init(name: "chr1", length: 100)]
+        )
+        defer { try? FileManager.default.removeItem(at: bundleURL.deletingLastPathComponent()) }
+        try MappingRoutingFixture.addSingleSampleAlignment(
+            to: bundleURL, sampleID: "S1", trackID: "track-a", readGroupID: "RG1"
+        )
+        try MappingRoutingFixture.addSingleSampleAlignment(
+            to: bundleURL, sampleID: "S2", trackID: "track-b", readGroupID: "RG1"
+        )
+
+        let split = MainSplitViewController(); split.loadViewIfNeeded()
+        split.displayReferenceBundleViewportFromSidebar(at: bundleURL)
+        let context = try MappingRoutingFixture.waitForBAMMetadataContext(on: split)
+
+        XCTAssertEqual(context.identityIndex.canonicalSampleIDs, Set(["S1", "S2"]))
+        XCTAssertEqual(
+            context.identityIndex.canonicalSampleID(forReadGroupID: "RG1", alignmentTrackID: "track-a"),
+            "S1"
+        )
+        XCTAssertEqual(
+            context.identityIndex.canonicalSampleID(forReadGroupID: "RG1", alignmentTrackID: "track-b"),
+            "S2"
+        )
+    }
+
     func testDirectSequenceNoRGFallbackClearsPreviousReadGroupFilter() throws {
         let bundleURL = try MappingRoutingFixture.makeReferenceBundle(
             name: "Direct RG Clear",
@@ -2745,7 +2803,8 @@ private enum MappingRoutingFixture {
         trackID: String = "reads-track",
         includeReadGroup: Bool = true,
         includeChromosomeStats: Bool = false,
-        manifestSampleNames: [String]? = nil
+        manifestSampleNames: [String]? = nil,
+        readGroupID: String? = nil
     ) throws {
         let alignmentsURL = bundleURL.appendingPathComponent("alignments", isDirectory: true)
         try FileManager.default.createDirectory(at: alignmentsURL, withIntermediateDirectories: true)
@@ -2756,7 +2815,7 @@ private enum MappingRoutingFixture {
             at: bundleURL.appendingPathComponent(metadataPath)
         )
         if includeReadGroup {
-            database.addReadGroup(id: "\(sampleID)-rg", sample: sampleID)
+            database.addReadGroup(id: readGroupID ?? "\(sampleID)-rg", sample: sampleID)
         }
         if includeChromosomeStats {
             database.addChromosomeStats(chromosome: "chr1", length: 100, mapped: 1, unmapped: 0)

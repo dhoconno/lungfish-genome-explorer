@@ -744,10 +744,13 @@ final class MappingResultViewControllerTests: XCTestCase {
         _ = vc.view
         let bundleURL = try makeReferenceBundleWithAlignmentTracks(includeMixedSampleMetadata: true)
         var filteredSampleRequests = 0
+        var unmatchedRequests = 0
         vc.setAlignmentTrackSummaryBuilderForTesting { bamURL, _, readGroups in
             guard bamURL.lastPathComponent == "filtered.bam" else { return [] }
             if readGroups == Set(["S1-RG"]) {
                 filteredSampleRequests += 1
+            } else if readGroups == Set(["unmatched-rg"]) {
+                unmatchedRequests += 1
             }
             try await Task.sleep(nanoseconds: 200_000_000)
             return [
@@ -769,6 +772,11 @@ final class MappingResultViewControllerTests: XCTestCase {
             vc.testContigTableView.displayedRows.contains {
                 $0.sampleID == "S1" && $0.alignmentTrackID == "filtered-track" && $0.mappedReads == 4
             }
+                && vc.testContigTableView.displayedRows.contains {
+                    $0.sampleID == nil
+                        && $0.alignmentTrackID == "filtered-track"
+                        && $0.readGroupIDs == Set(["unmatched-rg"])
+                }
         }
 
         vc.applyEmbeddedReadDisplaySettings([
@@ -776,6 +784,7 @@ final class MappingResultViewControllerTests: XCTestCase {
         ])
         try await waitUntil {
             filteredSampleRequests >= 2
+                && unmatchedRequests >= 2
                 && vc.testContigTableView.displayedRows.contains {
                     $0.sampleID == "S1" && $0.alignmentTrackID == "filtered-track" && $0.mappedReads == 4
                 }

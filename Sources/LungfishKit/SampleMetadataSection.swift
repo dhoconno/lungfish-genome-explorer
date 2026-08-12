@@ -13,6 +13,7 @@ public struct SampleMetadataSection: View {
     @State private var isExpanded = true
     @State private var editingCell: (sampleId: String, column: String)?
     @State private var editText: String = ""
+    @State private var editErrorMessage: String?
 
     public init(store: SampleMetadataStore, title: String = "Sample Metadata", isEditable: Bool = true) {
         self.store = store
@@ -36,6 +37,17 @@ public struct SampleMetadataSection: View {
             }
         }
         .font(.caption.weight(.semibold))
+        .alert(
+            "Unable to Save Metadata",
+            isPresented: Binding(
+                get: { editErrorMessage != nil },
+                set: { if !$0 { editErrorMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { editErrorMessage = nil }
+        } message: {
+            Text(editErrorMessage ?? "The metadata edit could not be saved.")
+        }
     }
 
     private var metadataTable: some View {
@@ -93,8 +105,12 @@ public struct SampleMetadataSection: View {
                     .textSelection(.enabled)
             } else if isEditing {
                 TextField("", text: $editText, onCommit: {
-                    store.applyEdit(sampleId: sampleId, column: column, newValue: editText)
-                    editingCell = nil
+                    do {
+                        try store.applyEdit(sampleId: sampleId, column: column, newValue: editText)
+                        editingCell = nil
+                    } catch {
+                        editErrorMessage = error.localizedDescription
+                    }
                 })
                 .textFieldStyle(.plain)
                 .font(.system(size: 10))

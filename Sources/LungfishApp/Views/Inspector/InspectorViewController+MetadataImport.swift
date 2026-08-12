@@ -17,6 +17,7 @@ extension InspectorViewController {
     private struct SampleMetadataImportContext {
         let knownSampleIds: Set<String>
         let identityIndex: SampleIdentityIndex?
+        let identityInputURLs: [URL]
         let bundleURL: URL?
         let applyStore: (SampleMetadataStore) -> Void
     }
@@ -199,6 +200,7 @@ extension InspectorViewController {
             return SampleMetadataImportContext(
                 knownSampleIds: Set(genotypeDocument.sampleIds),
                 identityIndex: nil,
+                identityInputURLs: [],
                 bundleURL: genotypeDocument.bundleURL,
                 applyStore: { [weak self] store in
                     guard let self,
@@ -215,6 +217,7 @@ extension InspectorViewController {
             return SampleMetadataImportContext(
                 knownSampleIds: presentationContext.identityIndex.canonicalSampleIDs,
                 identityIndex: presentationContext.identityIndex,
+                identityInputURLs: presentationContext.identityInputURLs,
                 bundleURL: presentationContext.finalResultURL,
                 applyStore: { [weak self, presentationContext] store in
                     presentationContext.updateSampleMetadataStore(store)
@@ -228,6 +231,7 @@ extension InspectorViewController {
         return SampleMetadataImportContext(
             knownSampleIds: classifierSampleIds,
             identityIndex: nil,
+            identityInputURLs: [],
             bundleURL: viewModel.documentSectionViewModel.bundleAttachmentStore?.bundleURL,
             applyStore: { [weak self] store in
                 self?.viewModel.documentSectionViewModel.sampleMetadataStore = store
@@ -278,6 +282,7 @@ extension InspectorViewController {
             sampleColumnIndex: sampleColumnIndex,
             knownSampleIds: context.knownSampleIds,
             identityIndex: context.identityIndex,
+            identityInputURLs: context.identityInputURLs,
             bundleURL: context.bundleURL
         )
         context.applyStore(result.store)

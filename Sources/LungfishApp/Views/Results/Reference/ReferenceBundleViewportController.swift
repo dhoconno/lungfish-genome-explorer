@@ -166,6 +166,11 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     }
 
     deinit {
+        if let metadataPresentationContext, let metadataPresentationObserverToken {
+            MainActor.assumeIsolated {
+                metadataPresentationContext.removeObserver(metadataPresentationObserverToken)
+            }
+        }
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -847,14 +852,24 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                     // Metadata can exist while every RG has no usable SM tag.
                     // Keep this track visible as an unmatched, no-RG row
                     // rather than silently omitting it from All Alignments.
-                    samples = [(sampleID: nil, readGroupIDs: [])]
+                    samples = [(
+                        sampleID: nil,
+                        readGroupIDs: resolution?.unmatchedReadGroupIDs ?? []
+                    )]
                 } else if let resolution {
-                    samples = canonicalSampleIDs.map { sampleID in
+                    var resolvedSamples: [(sampleID: String?, readGroupIDs: Set<String>)] = canonicalSampleIDs.map { sampleID in
                         (
                             sampleID: sampleID,
                             readGroupIDs: resolution.identityIndex.readGroupIDs(forCanonicalSampleID: sampleID)
                         )
                     }
+                    if !resolution.unmatchedReadGroupIDs.isEmpty {
+                        resolvedSamples.append((
+                            sampleID: nil,
+                            readGroupIDs: resolution.unmatchedReadGroupIDs
+                        ))
+                    }
+                    samples = resolvedSamples
                 } else {
                     samples = [(sampleID: nil, readGroupIDs: [])]
                 }
@@ -1187,9 +1202,13 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                 // merely because another track resolves to a named sample.
                 return [(nil, track.id, [])]
             }
-            return resolution.identityIndex.canonicalSampleIDs.sorted().map { sampleID in
+            var resolvedBindings: [(String?, String, Set<String>)] = resolution.identityIndex.canonicalSampleIDs.sorted().map { sampleID in
                 (sampleID, track.id, resolution.identityIndex.readGroupIDs(forCanonicalSampleID: sampleID))
             }
+            if !resolution.unmatchedReadGroupIDs.isEmpty {
+                resolvedBindings.append((nil, track.id, resolution.unmatchedReadGroupIDs))
+            }
+            return resolvedBindings
         }
         guard !bindings.isEmpty else { return baseRows }
         return bindings.flatMap { sampleID, trackID, readGroupIDs in
@@ -1245,11 +1264,15 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         let resolution = sampleIdentityResolution(for: track, bundleURL: bundleURL)
         let sampleReadGroups: [(sampleID: String?, readGroupIDs: Set<String>)]
         if let resolution, !resolution.identityIndex.canonicalSampleIDs.isEmpty {
-            sampleReadGroups = resolution.identityIndex.canonicalSampleIDs.sorted().map { sampleID in
+            var resolvedSamples: [(sampleID: String?, readGroupIDs: Set<String>)] = resolution.identityIndex.canonicalSampleIDs.sorted().map { sampleID in
                 (sampleID, resolution.identityIndex.readGroupIDs(forCanonicalSampleID: sampleID))
             }
+            if !resolution.unmatchedReadGroupIDs.isEmpty {
+                resolvedSamples.append((nil, resolution.unmatchedReadGroupIDs))
+            }
+            sampleReadGroups = resolvedSamples
         } else {
-            sampleReadGroups = [(nil, [])]
+            sampleReadGroups = [(nil, resolution?.unmatchedReadGroupIDs ?? [])]
         }
         let canUseAggregateFallback = sampleReadGroups.count == 1
             && sampleReadGroups[0].sampleID != nil

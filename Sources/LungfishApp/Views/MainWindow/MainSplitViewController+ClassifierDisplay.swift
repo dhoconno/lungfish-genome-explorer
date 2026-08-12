@@ -88,7 +88,11 @@ extension MainSplitViewController {
             aliases: aliases
         )
         guard !identities.isEmpty,
-              let index = try? SampleIdentityIndex(samples: identities)
+              let index = try? SampleIdentityIndex(samples: identities),
+              let identityInputURLs = alignmentIdentityInputURLs(
+                  manifest: manifest,
+                  bundleURL: bundleURL
+              )
         else { return }
         let metadataIdentifiers = index.canonicalSampleIDs.union(
             Set(identities.flatMap(\.aliases))
@@ -97,10 +101,13 @@ extension MainSplitViewController {
         if let store {
             rekeyBAMMetadataRecords(store, using: index)
         }
-        store?.wireAutosave(bundleURL: resultURL)
+        if let store {
+            SampleMetadataEditPersistenceService().wire(store: store, bundleURL: resultURL)
+        }
         let context = SampleMetadataPresentationContext(
             finalResultURL: resultURL,
             identityIndex: index,
+            identityInputURLs: identityInputURLs,
             sampleMetadataStore: store,
             importContext: .init(
                 resultID: resultURL.lastPathComponent,
@@ -124,6 +131,36 @@ extension MainSplitViewController {
         if path.hasPrefix("@/") { return bundleURL.appendingPathComponent(String(path.dropFirst(2))) }
         if path.hasPrefix("/") { return URL(fileURLWithPath: path) }
         return bundleURL.appendingPathComponent(path)
+    }
+
+    /// Resolves only final, contained manifest members used to establish BAM
+    /// identity. Unsafe, external, or missing members make the presentation
+    /// context unavailable instead of producing incomplete provenance later.
+    private func alignmentIdentityInputURLs(
+        manifest: BundleManifest,
+        bundleURL rawBundleURL: URL
+    ) -> [URL]? {
+        let bundleURL = rawBundleURL.standardizedFileURL
+        let resolvedBundleURL = bundleURL.resolvingSymlinksInPath()
+        var urls = [bundleURL.appendingPathComponent(BundleManifest.filename)]
+        for track in manifest.alignments {
+            var paths = [track.sourcePath, track.indexPath]
+            if let metadataDBPath = track.metadataDBPath {
+                paths.append(metadataDBPath)
+            }
+            for path in paths where !path.isEmpty {
+                let candidate = bundleMemberURL(path, in: bundleURL)
+                    .standardizedFileURL
+                    .resolvingSymlinksInPath()
+                guard candidate.pathComponents.count > resolvedBundleURL.pathComponents.count,
+                      candidate.pathComponents.starts(with: resolvedBundleURL.pathComponents),
+                      FileManager.default.fileExists(atPath: candidate.path)
+                else { return nil }
+                urls.append(candidate)
+            }
+        }
+        var seen = Set<String>()
+        return urls.map { $0.resolvingSymlinksInPath() }.filter { seen.insert($0.path).inserted }
     }
 
     /// The metadata store persists records keyed by whichever header value was
@@ -181,7 +218,9 @@ extension MainSplitViewController {
             from: resultURL,
             knownSampleIds: Set(sampleIDs)
         )
-        metadataStore?.wireAutosave(bundleURL: resultURL)
+        if let metadataStore {
+            SampleMetadataEditPersistenceService().wire(store: metadataStore, bundleURL: resultURL)
+        }
         guard let identityIndex = try? SampleIdentityIndex(samples: sampleIDs.map {
             SampleIdentity(canonicalID: $0, aliases: [], alignmentTrackIDs: [], readGroupIDs: [])
         }) else {

@@ -75,6 +75,117 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
         XCTAssertEqual(provenance.options.resolvedDefaults["readGroupMap"]?.dictionaryValue?["rg-1"]?.stringValue, "S1")
     }
 
+    func testImportRecordsExplicitFinalAlignmentIdentityInputsAndTrackScopedReadGroups() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MappingMetadataIdentityInputs-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let resultURL = root.appendingPathComponent("mapping-result", isDirectory: true)
+        let viewerBundleURL = resultURL.appendingPathComponent("Reference.lungfishref", isDirectory: true)
+        let alignmentsURL = viewerBundleURL.appendingPathComponent("alignments", isDirectory: true)
+        try FileManager.default.createDirectory(at: alignmentsURL, withIntermediateDirectories: true)
+
+        let manifestURL = viewerBundleURL.appendingPathComponent("manifest.json")
+        let bamURL = alignmentsURL.appendingPathComponent("sample.bam")
+        let indexURL = alignmentsURL.appendingPathComponent("sample.bam.bai")
+        let metadataDBURL = alignmentsURL.appendingPathComponent("sample.stats.db")
+        try Data("bam".utf8).write(to: bamURL)
+        try Data("index".utf8).write(to: indexURL)
+        try Data("alignment-metadata".utf8).write(to: metadataDBURL)
+        try BundleManifest(
+            name: "Mapping Viewer",
+            identifier: "org.lungfish.test.mapping-metadata",
+            source: SourceInfo(organism: "Test", assembly: "Test"),
+            alignments: [
+                AlignmentTrackInfo(
+                    id: "track-a",
+                    name: "Sample A",
+                    sourcePath: "alignments/sample.bam",
+                    indexPath: "alignments/sample.bam.bai",
+                    metadataDBPath: "alignments/sample.stats.db"
+                )
+            ]
+        ).save(to: viewerBundleURL)
+
+        let sourceURL = root.appendingPathComponent("metadata.tsv")
+        let metadata = Data("sample\tcohort\nS1\ttreated\n".utf8)
+        try metadata.write(to: sourceURL)
+        let identityIndex = try SampleIdentityIndex(samples: [
+            .init(
+                canonicalID: "S1",
+                aliases: [],
+                alignmentTrackIDs: ["track-a"],
+                readGroupIDs: ["rg-1"],
+                readGroupIDsByAlignmentTrackID: ["track-a": ["rg-1"]]
+            )
+        ])
+        let scan = try SampleMetadataStore.scanForSampleColumn(
+            csvData: metadata,
+            knownSampleIds: identityIndex.canonicalSampleIDs
+        )
+
+        let result = try SampleMetadataBundleImportService().importMetadata(
+            data: metadata,
+            sourceURL: sourceURL,
+            scanResult: scan,
+            sampleColumnIndex: try XCTUnwrap(scan.bestColumn).index,
+            knownSampleIds: identityIndex.canonicalSampleIDs,
+            identityIndex: identityIndex,
+            identityInputURLs: [manifestURL, bamURL, indexURL, metadataDBURL],
+            bundleURL: resultURL
+        )
+
+        let provenance = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: try XCTUnwrap(result.provenanceURL))
+        )
+        let expectedIdentityPaths = Set([manifestURL.path, bamURL.path, indexURL.path, metadataDBURL.path])
+        let descriptors = provenance.files.filter { expectedIdentityPaths.contains($0.path) }
+        XCTAssertEqual(Set(descriptors.map(\.path)), expectedIdentityPaths)
+        for descriptor in descriptors {
+            XCTAssertNotNil(descriptor.checksumSHA256, "Missing checksum for \(descriptor.path)")
+            XCTAssertNotNil(descriptor.fileSize, "Missing file size for \(descriptor.path)")
+            XCTAssertFalse(descriptor.path.contains("stage"))
+        }
+        XCTAssertEqual(
+            provenance.options.resolvedDefaults["trackReadGroupMap"]?
+                .dictionaryValue?["track-a\u{1F}rg-1"]?.stringValue,
+            "S1"
+        )
+    }
+
+    func testImportRejectsSymlinkEscapingFinalResultIdentityInputs() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MetadataIdentitySymlinkEscape-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let resultURL = root.appendingPathComponent("result", isDirectory: true)
+        let identityDirectory = resultURL.appendingPathComponent("viewer/alignments", isDirectory: true)
+        try FileManager.default.createDirectory(at: identityDirectory, withIntermediateDirectories: true)
+        let externalBAM = root.appendingPathComponent("external.bam")
+        try Data("external".utf8).write(to: externalBAM)
+        let escapedBAM = identityDirectory.appendingPathComponent("sample.bam")
+        try FileManager.default.createSymbolicLink(at: escapedBAM, withDestinationURL: externalBAM)
+        let sourceURL = root.appendingPathComponent("metadata.tsv")
+        let metadata = Data("sample\tcohort\nS1\tcase\n".utf8)
+        try metadata.write(to: sourceURL)
+        let scan = try SampleMetadataStore.scanForSampleColumn(csvData: metadata, knownSampleIds: ["S1"])
+
+        XCTAssertThrowsError(try SampleMetadataBundleImportService().importMetadata(
+            data: metadata,
+            sourceURL: sourceURL,
+            scanResult: scan,
+            sampleColumnIndex: try XCTUnwrap(scan.bestColumn).index,
+            knownSampleIds: ["S1"],
+            identityInputURLs: [escapedBAM],
+            bundleURL: resultURL
+        )) { error in
+            XCTAssertEqual(
+                error as? SampleMetadataBundleImportError,
+                .identityInputOutsideFinalResult(externalBAM.path)
+            )
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: resultURL.appendingPathComponent("metadata").path))
+    }
+
     func testImportPersistsGenotypeMetadataAndProvenanceWithFinalBundlePayload() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeSampleMetadataImportTests-\(UUID().uuidString)", isDirectory: true)
@@ -125,6 +236,134 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
         XCTAssertEqual(provenance.options.resolvedDefaults["sourceFormat"]?.stringValue, "tsv")
         XCTAssertEqual(provenance.options.resolvedDefaults["sourceDelimiter"]?.stringValue, "tab")
         XCTAssertEqual(provenance.options.resolvedDefaults["validationPolicy"]?.stringValue, "trimmed-normalized-identifiers")
+    }
+
+    func testInspectorEditRefreshesJournalProvenanceAndAppendsTimedStep() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SampleMetadataEditProvenance-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("result.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: bundleURL.appendingPathComponent("manifest.json"))
+        let sourceURL = root.appendingPathComponent("metadata.tsv")
+        let metadata = Data("sample\tcohort\nS1\tcontrol\n".utf8)
+        try metadata.write(to: sourceURL)
+        let scan = try SampleMetadataStore.scanForSampleColumn(
+            csvData: metadata,
+            knownSampleIds: ["S1"]
+        )
+        let result = try SampleMetadataBundleImportService().importMetadata(
+            data: metadata,
+            sourceURL: sourceURL,
+            scanResult: scan,
+            sampleColumnIndex: try XCTUnwrap(scan.bestColumn).index,
+            knownSampleIds: ["S1"],
+            bundleURL: bundleURL
+        )
+
+        try result.store.applyEdit(sampleId: "S1", column: "cohort", newValue: "treated")
+
+        let journalURL = bundleURL.appendingPathComponent("metadata/sample_metadata_edits.json")
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundleURL))
+        let editStep = try XCTUnwrap(envelope.steps.last)
+        XCTAssertEqual(editStep.toolName, "Sample metadata edit")
+        XCTAssertEqual(editStep.exitStatus, 0)
+        XCTAssertNotNil(editStep.startedAt)
+        XCTAssertNotNil(editStep.completedAt)
+        XCTAssertNotNil(editStep.wallTimeSeconds)
+        XCTAssertEqual(editStep.resolvedOptions["sample"]?.stringValue, "S1")
+        XCTAssertEqual(editStep.resolvedOptions["column"]?.stringValue, "cohort")
+        let output = try XCTUnwrap(envelope.outputs.first {
+            $0.path == journalURL.path && $0.role == .output
+        })
+        let current = try ProvenanceFileDescriptor.file(
+            url: journalURL,
+            format: .json,
+            role: .output
+        )
+        XCTAssertEqual(output.checksumSHA256, current.checksumSHA256)
+        XCTAssertEqual(output.fileSize, current.fileSize)
+        XCTAssertEqual(result.store.records["S1"]?["cohort"], "treated")
+    }
+
+    func testInspectorEditRollsBackJournalAndStoreWhenProvenanceWriteFails() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SampleMetadataEditRollback-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("result.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: bundleURL.appendingPathComponent("manifest.json"))
+        let sourceURL = root.appendingPathComponent("metadata.tsv")
+        let metadata = Data("sample\tcohort\nS1\tcontrol\n".utf8)
+        try metadata.write(to: sourceURL)
+        let scan = try SampleMetadataStore.scanForSampleColumn(csvData: metadata, knownSampleIds: ["S1"])
+        let result = try SampleMetadataBundleImportService().importMetadata(
+            data: metadata,
+            sourceURL: sourceURL,
+            scanResult: scan,
+            sampleColumnIndex: try XCTUnwrap(scan.bestColumn).index,
+            knownSampleIds: ["S1"],
+            bundleURL: bundleURL
+        )
+        let journalURL = bundleURL.appendingPathComponent("metadata/sample_metadata_edits.json")
+        let provenanceURL = bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let priorJournal = try Data(contentsOf: journalURL)
+        let priorProvenance = try Data(contentsOf: provenanceURL)
+        SampleMetadataEditPersistenceService { _, _ in
+            throw SampleMetadataEditTestFailure.intentional
+        }.wire(store: result.store, bundleURL: bundleURL)
+
+        XCTAssertThrowsError(
+            try result.store.applyEdit(sampleId: "S1", column: "cohort", newValue: "treated")
+        )
+        XCTAssertEqual(result.store.records["S1"]?["cohort"], "control")
+        XCTAssertTrue(result.store.edits.isEmpty)
+        XCTAssertEqual(try Data(contentsOf: journalURL), priorJournal)
+        XCTAssertEqual(try Data(contentsOf: provenanceURL), priorProvenance)
+    }
+
+    func testFailedEditPreservesNewerConcurrentJournalAndProvenance() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SampleMetadataConcurrentEdit-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("result.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: bundleURL.appendingPathComponent("manifest.json"))
+        let sourceURL = root.appendingPathComponent("metadata.tsv")
+        let metadata = Data("sample\tcohort\nS1\tcontrol\n".utf8)
+        try metadata.write(to: sourceURL)
+        let scan = try SampleMetadataStore.scanForSampleColumn(csvData: metadata, knownSampleIds: ["S1"])
+        let result = try SampleMetadataBundleImportService().importMetadata(
+            data: metadata,
+            sourceURL: sourceURL,
+            scanResult: scan,
+            sampleColumnIndex: try XCTUnwrap(scan.bestColumn).index,
+            knownSampleIds: ["S1"],
+            bundleURL: bundleURL
+        )
+        let journalURL = bundleURL.appendingPathComponent("metadata/sample_metadata_edits.json")
+        let provenanceURL = bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let newerJournal = Data("newer-journal".utf8)
+        let newerProvenance = Data("newer-provenance".utf8)
+        SampleMetadataEditPersistenceService { _, _ in
+            try newerJournal.write(to: journalURL, options: .atomic)
+            try newerProvenance.write(to: provenanceURL, options: .atomic)
+            throw SampleMetadataEditTestFailure.intentional
+        }.wire(store: result.store, bundleURL: bundleURL)
+
+        XCTAssertThrowsError(
+            try result.store.applyEdit(sampleId: "S1", column: "cohort", newValue: "treated")
+        ) { error in
+            guard case SampleMetadataEditPersistenceError.concurrentPublicationPreserved(let paths) = error else {
+                return XCTFail("Expected preserved concurrent publication, got \(error)")
+            }
+            XCTAssertTrue(paths.contains(journalURL.path))
+            XCTAssertTrue(paths.contains(provenanceURL.path))
+        }
+        XCTAssertEqual(try Data(contentsOf: journalURL), newerJournal)
+        XCTAssertEqual(try Data(contentsOf: provenanceURL), newerProvenance)
+        XCTAssertEqual(result.store.records["S1"]?["cohort"], "control")
+        XCTAssertTrue(result.store.edits.isEmpty)
     }
 
     func testImportRollsBackMetadataWhenProvenanceLayoutFails() throws {
@@ -658,4 +897,8 @@ final class GenotypeSampleMetadataImportTests: XCTestCase {
             referenceMetadata: nil
         )
     }
+}
+
+private enum SampleMetadataEditTestFailure: Error {
+    case intentional
 }

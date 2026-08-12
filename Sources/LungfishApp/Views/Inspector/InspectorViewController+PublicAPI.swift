@@ -350,7 +350,9 @@ extension InspectorViewController {
             from: result.bundleURL,
             knownSampleIds: Set(sampleIds)
         )
-        metadataStore?.wireAutosave(bundleURL: result.bundleURL)
+        if let metadataStore {
+            SampleMetadataEditPersistenceService().wire(store: metadataStore, bundleURL: result.bundleURL)
+        }
         // Haplotype-capable bundles seed the default cohorts on first open.
         // Genotype-only inspection must remain byte-preserving.
         let sidecar: GenotypeAnnotationSidecar = {
@@ -546,7 +548,9 @@ extension InspectorViewController {
         viewModel.readStyleSectionViewModel.clear()
         let knownSampleIDs = Set(result.samples.map(\.sampleID))
         let importedMetadataStore = SampleMetadataStore.load(from: result.bundleURL, knownSampleIds: knownSampleIDs)
-        importedMetadataStore?.wireAutosave(bundleURL: result.bundleURL)
+        if let importedMetadataStore {
+            SampleMetadataEditPersistenceService().wire(store: importedMetadataStore, bundleURL: result.bundleURL)
+        }
         let currentDisplay = viewModel.twelveSResultDisplaySectionViewModel.displayState
         let scientificNameRows = result.scientificNameRows
         let targetRowCount = scientificNameRows.reduce(0) { count, row in

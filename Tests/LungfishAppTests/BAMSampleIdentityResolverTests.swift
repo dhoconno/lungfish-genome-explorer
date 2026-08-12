@@ -90,4 +90,28 @@ final class BAMSampleIdentityResolverTests: XCTestCase {
             ),
         ])
     }
+
+    func testMergeRetainsTrackScopedReadGroupsWhenIDsAreReusedByDifferentSamples() throws {
+        let first = try BAMSampleIdentityResolver.resolve(
+            readGroups: [
+                .init(id: "RG1", sample: "S1", library: nil, platform: nil, platformUnit: nil, center: nil, description: nil),
+            ],
+            trackIDs: ["track-a"]
+        )
+        let second = try BAMSampleIdentityResolver.resolve(
+            readGroups: [
+                .init(id: "RG1", sample: "S2", library: nil, platform: nil, platformUnit: nil, center: nil, description: nil),
+            ],
+            trackIDs: ["track-b"]
+        )
+
+        let index = try SampleIdentityIndex(samples: BAMSampleIdentityResolver.merge(
+            first.identities + second.identities
+        ))
+
+        XCTAssertEqual(index.canonicalSampleIDs, Set(["S1", "S2"]))
+        XCTAssertEqual(index.canonicalSampleID(forReadGroupID: "RG1", alignmentTrackID: "track-a"), "S1")
+        XCTAssertEqual(index.canonicalSampleID(forReadGroupID: "RG1", alignmentTrackID: "track-b"), "S2")
+        XCTAssertNil(index.canonicalSampleID(forReadGroupID: "RG1"))
+    }
 }
