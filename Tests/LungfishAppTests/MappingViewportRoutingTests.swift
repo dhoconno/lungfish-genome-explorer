@@ -1501,19 +1501,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         let loadedResult = try await ONTGenotypeResultBundle.loadResultAsync(
             from: bundleURL
         )
-        let snapshotProbe = GenotypeResultViewController()
-        _ = snapshotProbe.view
-        var probeRequest: GenotypeCurrentWorkbookUIRequest?
-        snapshotProbe.onCurrentWorkbookSyncRequested = { probeRequest = $0 }
-        snapshotProbe.configure(result: loadedResult)
-        snapshotProbe.requestCurrentWorkbookRegistration()
-        let snapshot = try XCTUnwrap(probeRequest?.snapshot)
-        let fingerprint = try GenotypeCurrentWorkbookInputFingerprint.make(
-            calls: snapshot.calls,
-            includedLoci: snapshot.includedLoci,
-            annotationSidecar: snapshot.annotationSidecar,
-            candidateArtifacts: snapshot.candidateArtifacts
-        )
+        let registrationGate = FingerprintLoadGate()
         let currentWorkbookURL = bundleURL.appendingPathComponent("current.xlsx")
         var fingerprintLoadCount = 0
         var updateCount = 0
@@ -1521,7 +1509,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         let coordinator = GenotypeCurrentWorkbookSyncCoordinator(
             recordedFingerprintLoader: { _ in
                 fingerprintLoadCount += 1
-                return fingerprint
+                return await registrationGate.load()
             },
             currentWorkbookResolver: { _ in currentWorkbookURL },
             updateRunner: { _, _ in
@@ -1535,13 +1523,35 @@ final class MappingViewportRoutingTests: XCTestCase {
         splitController.genotypeCurrentWorkbookSyncCoordinator = coordinator
         _ = splitController.view
         await splitController.testingDisplayGenotypeResultBundleAndWait(bundleURL)
+        let displayRegistrationStarted = await eventually {
+            registrationGate.loadCount == 1
+        }
+        XCTAssertTrue(displayRegistrationStarted)
+        let resultController = try XCTUnwrap(
+            splitController.viewerController.genotypeResultViewController
+        )
+        var capturedRequest: GenotypeCurrentWorkbookUIRequest?
+        resultController.onCurrentWorkbookSyncRequested = { capturedRequest = $0 }
+        resultController.requestCurrentWorkbookRegistration()
+        let snapshot = try XCTUnwrap(capturedRequest?.snapshot)
+        let fingerprint = try GenotypeCurrentWorkbookInputFingerprint.make(
+            calls: snapshot.calls,
+            includedLoci: snapshot.includedLoci,
+            annotationSidecar: snapshot.annotationSidecar,
+            candidateArtifacts: snapshot.candidateArtifacts,
+            reviewableRowCatalog: snapshot.reviewableRowCatalog,
+            reviewableRowCatalogSchemaVersion:
+                snapshot.reviewableRowCatalogSchemaVersion,
+            haplotypeProjectionMode: snapshot.haplotypeProjectionMode
+        )
+        resultController.onCurrentWorkbookSyncRequested = { [weak splitController] request in
+            splitController?.routeGenotypeCurrentWorkbookRequest(request)
+        }
+        registrationGate.resume(with: fingerprint)
         let loadedRecordedFingerprint = await eventually {
             fingerprintLoadCount == 1
         }
         XCTAssertTrue(loadedRecordedFingerprint)
-        let resultController = try XCTUnwrap(
-            splitController.viewerController.genotypeResultViewController
-        )
         let cleanPhaseApplied = await eventually {
             resultController.testingCurrentWorkbookUpdateStatus
                 == "Current — current.xlsx represents the latest LGE review state."
