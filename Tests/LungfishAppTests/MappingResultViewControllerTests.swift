@@ -641,8 +641,12 @@ final class MappingResultViewControllerTests: XCTestCase {
         _ = vc.view
         let bundleURL = try makeReferenceBundleWithAlignmentTracks(includeBlankSampleMetadata: true)
         vc.setAlignmentTrackSummaryBuilderForTesting { bamURL, _, readGroups in
-            XCTAssertTrue(readGroups.isEmpty)
             guard bamURL.lastPathComponent == "filtered.bam" else { return [] }
+            XCTAssertEqual(
+                readGroups,
+                Set(["missing-sample", "blank-sample"]),
+                "unmatched metadata rows must remain restricted to their persisted RGs"
+            )
             return [
                 MappingContigSummary(
                     contigName: "gamma", contigLength: 100, mappedReads: 4,
@@ -664,12 +668,12 @@ final class MappingResultViewControllerTests: XCTestCase {
         let row = try XCTUnwrap(vc.testContigTableView.displayedRows.first {
             $0.alignmentTrackID == "filtered-track" && $0.sampleID == nil && $0.contigName == "gamma"
         })
-        XCTAssertEqual(row.readGroupIDs, [])
+        XCTAssertEqual(row.readGroupIDs, Set(["missing-sample", "blank-sample"]))
         XCTAssertEqual(vc.testContigTableView.columnValue(for: "track", row: row), "filtered-track")
 
         vc.testSelectContig(sampleID: nil, alignmentTrackID: "filtered-track", named: "gamma")
         XCTAssertEqual(vc.testVisibleAlignmentTrackID, "filtered-track")
-        XCTAssertEqual(vc.testSelectedReadGroups, [])
+        XCTAssertEqual(vc.testSelectedReadGroups, Set(["missing-sample", "blank-sample"]))
     }
 
     func testAllAlignmentsMissingMetadataLeavesAnExplicitUnmatchedRowInsteadOfFocusedRows() async throws {
@@ -720,7 +724,11 @@ final class MappingResultViewControllerTests: XCTestCase {
         var filteredCallCount = 0
         vc.setAlignmentTrackSummaryBuilderForTesting { bamURL, _, readGroups in
             if bamURL.lastPathComponent == "filtered.bam" {
-                XCTAssertTrue(readGroups.isEmpty, "ambiguous persisted identity must not invent an RG filter")
+                XCTAssertEqual(
+                    readGroups,
+                    Set(["unresolved-rg"]),
+                    "an unmatched row must retain its persisted RG filter"
+                )
                 filteredCallCount += 1
                 return [
                     MappingContigSummary(
