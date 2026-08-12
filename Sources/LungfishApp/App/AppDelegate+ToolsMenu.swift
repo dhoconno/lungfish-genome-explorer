@@ -1263,20 +1263,12 @@ extension AppDelegate {
             }
 
             var finalResult = result
-            do {
-                if let preparedResult = try await self.prepareMappingViewerBundleIfPossible(
-                    result: result,
-                    request: resolvedRequest,
-                    opID: opID
-                ) {
-                    finalResult = preparedResult
-                }
-            } catch {
-                OperationCenter.shared.log(
-                    id: opID,
-                    level: .warning,
-                    message: "Reference viewer bundle could not be prepared: \(error.localizedDescription)"
-                )
+            if let preparedResult = try await self.prepareMappingViewerBundleIfPossible(
+                result: result,
+                request: resolvedRequest,
+                opID: opID
+            ) {
+                finalResult = preparedResult
             }
 
             // capturedRequest carries the ORIGINAL (pre-resolve) input URLs
@@ -1440,6 +1432,20 @@ extension AppDelegate {
             isDirectory: true
         )
         let fm = FileManager.default
+        let candidateName = [
+            ".\(sourceBundleURL.deletingPathExtension().lastPathComponent)",
+            "candidate-\(UUID().uuidString)",
+            sourceBundleURL.pathExtension,
+        ].joined(separator: ".")
+        let candidateBundleURL = request.outputDirectory.appendingPathComponent(
+            candidateName,
+            isDirectory: true
+        )
+        defer {
+            if fm.fileExists(atPath: candidateBundleURL.path) {
+                try? fm.removeItem(at: candidateBundleURL)
+            }
+        }
 
         DispatchQueue.main.async { MainActor.assumeIsolated {
             _ = OperationCenter.shared.update(
@@ -1456,13 +1462,13 @@ extension AppDelegate {
 
         try MappingViewerBundlePreparer.prepareBaseBundle(
             sourceBundleURL: sourceBundleURL,
-            viewerBundleURL: viewerBundleURL,
+            viewerBundleURL: candidateBundleURL,
             fileManager: fm
         )
 
         _ = try await BAMImportService.importBAM(
             bamURL: result.bamURL,
-            bundleURL: viewerBundleURL,
+            bundleURL: candidateBundleURL,
             name: "\(request.tool.displayName) Mapping",
             progressHandler: { fraction, message in
                 let progress = 0.93 + (fraction * 0.06)
@@ -1477,12 +1483,19 @@ extension AppDelegate {
             viewerBundleURL: viewerBundleURL,
             sourceReferenceBundleURL: sourceBundleURL
         )
-        try MappingViewerBundlePublicationService.publish(
-            result: preparedResult,
-            resultDirectoryURL: request.outputDirectory,
-            sourceReferenceBundleURL: sourceBundleURL,
-            viewerBundleURL: viewerBundleURL
-        )
+        try MappingViewerBundlePublicationService.publishCandidate(
+            candidateBundleURL: candidateBundleURL,
+            finalBundleURL: viewerBundleURL,
+            fileManager: fm
+        ) { publishedBundleURL in
+            try MappingViewerBundlePublicationService.publish(
+                result: preparedResult,
+                resultDirectoryURL: request.outputDirectory,
+                sourceReferenceBundleURL: sourceBundleURL,
+                viewerBundleURL: publishedBundleURL,
+                fileManager: fm
+            )
+        }
         return preparedResult
     }
 
