@@ -47,6 +47,21 @@ Reusable imported-analysis fixtures for UI, integration, and sidebar tests.
 |------|-------------|
 | `spades-2026-01-15T13-00-00/` | Small SPAdes result fixture used to seed `Analyses/` in deterministic project fixtures |
 
+## classifier-full-viewer/
+
+A wholly synthetic, coordinate-sorted BAM/BAI pair for exercising classifier
+evidence through the real detached alignment viewer. The fixture has one generic
+120-base track, two primary records, and duplicate/secondary/supplementary/unmapped
+records that verify the viewer's default `0xD04` filtering. `source.sam` and
+`.lungfish-provenance.json` make the tiny binary fixture reproducible without a
+mounted external volume or copied clinical data.
+
+Regenerate it from the repository root with:
+
+```sh
+python3 scripts/testing/generate-classifier-full-viewer-fixture.py
+```
+
 ## assembly-ui/
 
 Small read fixtures used by deterministic assembly UI and XCUI coverage.
@@ -83,6 +98,8 @@ let reads = TestFixtures.sarscov2.pairedFastq  // (r1: URL, r2: URL)
 2. Prefer SARS-CoV-2 or PhiX174 genomes (tiny, well-known)
 3. Document in this README
 4. Add accessor to `TestFixtures.swift`
+5. Keep generated scientific fixtures repo-owned and record their complete,
+   reproducible provenance in `.lungfish-provenance.json`
 
 ## License
 

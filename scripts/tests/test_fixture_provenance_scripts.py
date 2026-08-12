@@ -1,6 +1,7 @@
 import json
 import os
 import hashlib
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -19,7 +20,9 @@ RETAINED_FIXTURES = [
     "Tests/Fixtures/analyses/taxtriage-2026-01-15T12-00-00",
     "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish",
     "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa",
+    "Tests/Fixtures/classifier-full-viewer",
 ]
+CLASSIFIER_FULL_VIEWER_FIXTURE = "Tests/Fixtures/classifier-full-viewer"
 REQUIRED_MSA_PAYLOAD_FILES = [
     "alignment/input.unaligned.fasta",
     "alignment/primary.aligned.fasta",
@@ -378,6 +381,142 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
             self.assertIn("expected workflowName", result.stderr)
             self.assertIn("must preserve scientific workflow provenance", result.stderr)
 
+    def test_audit_fails_when_classifier_fixture_loses_scientific_generation_details(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._make_retained_fixtures(root)
+            sidecar = root / CLASSIFIER_FULL_VIEWER_FIXTURE / ".lungfish-provenance.json"
+            provenance = json.loads(sidecar.read_text(encoding="utf-8"))
+            provenance["workflowName"] = "test-fixture-provenance"
+            provenance["toolName"] = "test-tool"
+            provenance["syntheticData"] = False
+            provenance["externalToolInvocations"] = []
+            sidecar.write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
+
+            result = subprocess.run(
+                ["/bin/bash", str(AUDIT_SCRIPT), str(root)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("expected workflowName 'classifier-full-bam-viewer-fixture-generation'", result.stderr)
+            self.assertIn("classifier full-viewer fixture must be declared wholly synthetic", result.stderr)
+            self.assertIn("missing samtools externalToolInvocations", result.stderr)
+
+    def test_audit_fails_when_classifier_fixture_input_checksum_is_wrong(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._make_retained_fixtures(root)
+            sidecar = root / CLASSIFIER_FULL_VIEWER_FIXTURE / ".lungfish-provenance.json"
+            provenance = json.loads(sidecar.read_text(encoding="utf-8"))
+            provenance["input"]["fileSize"] = 999
+            provenance["input"]["checksumSHA256"] = "wrong"
+            sidecar.write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
+
+            result = subprocess.run(
+                ["/bin/bash", str(AUDIT_SCRIPT), str(root)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("classifier full-viewer input fileSize mismatch", result.stderr)
+            self.assertIn("classifier full-viewer input checksum mismatch", result.stderr)
+
+    def test_audit_fails_when_classifier_fixture_runtime_and_options_are_incomplete(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._make_retained_fixtures(root)
+            sidecar = root / CLASSIFIER_FULL_VIEWER_FIXTURE / ".lungfish-provenance.json"
+            provenance = json.loads(sidecar.read_text(encoding="utf-8"))
+            provenance.pop("executedShellCommand", None)
+            provenance["options"].pop("requested", None)
+            provenance["options"].pop("defaults", None)
+            provenance["options"].pop("resolved", None)
+            provenance["runtimeIdentity"].pop("samtoolsExecutableChecksumSHA256", None)
+            provenance["externalToolInvocations"] = [
+                invocation
+                for invocation in provenance["externalToolInvocations"]
+                if invocation["subcommand"] != "version"
+            ]
+            provenance["externalToolInvocations"][0]["runtimeIdentity"] = {}
+            sidecar.write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
+
+            result = subprocess.run(
+                ["/bin/bash", str(AUDIT_SCRIPT), str(root)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("missing classifier full-viewer executedShellCommand", result.stderr)
+            self.assertIn("missing classifier full-viewer requested options", result.stderr)
+            self.assertIn("missing classifier full-viewer default options", result.stderr)
+            self.assertIn("missing classifier full-viewer resolved options", result.stderr)
+            self.assertIn("missing classifier full-viewer samtools executable checksum", result.stderr)
+            self.assertIn("missing samtools version externalToolInvocation", result.stderr)
+            self.assertIn("invalid samtools view runtimeIdentity", result.stderr)
+
+    def test_audit_fails_when_classifier_payload_and_self_reported_checksums_are_replaced(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._make_retained_fixtures(root)
+            fixture = root / CLASSIFIER_FULL_VIEWER_FIXTURE
+            (fixture / "evidence.bam").write_bytes(b"replacement placeholder BAM\n")
+            sidecar = self._valid_sidecar(root, fixture, CLASSIFIER_FULL_VIEWER_FIXTURE)
+            (fixture / ".lungfish-provenance.json").write_text(
+                json.dumps(sidecar, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                ["/bin/bash", str(AUDIT_SCRIPT), str(root)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(
+                "classifier full-viewer payload evidence.bam checksum does not match deterministic fixture",
+                result.stderr,
+            )
+
+    def test_audit_fails_when_classifier_tool_command_or_runtime_context_disagrees_with_argv(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._make_retained_fixtures(root)
+            sidecar = root / CLASSIFIER_FULL_VIEWER_FIXTURE / ".lungfish-provenance.json"
+            provenance = json.loads(sidecar.read_text(encoding="utf-8"))
+            view = next(
+                invocation
+                for invocation in provenance["externalToolInvocations"]
+                if invocation["subcommand"] == "view"
+            )
+            view["reproducibleCommand"] = "samtools view source-other.sam"
+            view["runtimeIdentity"]["samtoolsExecutable"] = "PATH:other-samtools"
+            sidecar.write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
+
+            result = subprocess.run(
+                ["/bin/bash", str(AUDIT_SCRIPT), str(root)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("samtools view reproducibleCommand does not match argv", result.stderr)
+            self.assertIn("samtools view executable identity disagrees with workflow runtime", result.stderr)
+
     def test_audit_fails_when_root_alignment_sidecar_omits_mafft_workflow_step(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -602,6 +741,20 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
             )
             original_existing_sidecar = existing_sidecar.read_text(encoding="utf-8")
 
+            classifier_fixture = root / CLASSIFIER_FULL_VIEWER_FIXTURE
+            self._write_classifier_fixture_payload(classifier_fixture)
+            classifier_sidecar = classifier_fixture / ".lungfish-provenance.json"
+            classifier_sidecar.write_text(
+                json.dumps(
+                    self._valid_sidecar(root, classifier_fixture, CLASSIFIER_FULL_VIEWER_FIXTURE),
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            original_classifier_sidecar = classifier_sidecar.read_text(encoding="utf-8")
+
             result = subprocess.run(
                 [str(BACKFILL_SCRIPT), "--root", str(root), "--created-at", "2026-05-10T12:00:00Z"],
                 text=True,
@@ -615,6 +768,7 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
             self.assertIn("backfilled", result.stdout)
             self.assertIn("repaired", result.stdout)
             self.assertEqual(existing_sidecar.read_text(encoding="utf-8"), original_existing_sidecar)
+            self.assertEqual(classifier_sidecar.read_text(encoding="utf-8"), original_classifier_sidecar)
 
             provenance = json.loads((missing_fixture / ".lungfish-provenance.json").read_text(encoding="utf-8"))
             self.assertEqual(provenance["schemaVersion"], 1)
@@ -658,6 +812,27 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(audit.returncode, 0, audit.stderr)
+
+    def test_backfill_refuses_to_invent_classifier_fixture_generation_provenance(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._make_retained_fixtures(root)
+            sidecar = root / CLASSIFIER_FULL_VIEWER_FIXTURE / ".lungfish-provenance.json"
+            sidecar.unlink()
+
+            result = subprocess.run(
+                [str(BACKFILL_SCRIPT), "--root", str(root), "--created-at", "2026-05-10T12:00:00Z"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                env={**os.environ, "GIT_AUTHOR_NAME": "Test User"},
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("cannot backfill classifier full-viewer generation provenance", result.stderr)
+            self.assertIn("generate-classifier-full-viewer-fixture.py", result.stderr)
+            self.assertFalse(sidecar.exists())
 
     def test_backfill_fails_when_required_alignment_payload_is_missing(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -728,8 +903,11 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
         for fixture in RETAINED_FIXTURES:
             fixture_path = root / fixture
             fixture_path.mkdir(parents=True)
-            payload = fixture_path / "payload.txt"
-            payload.write_text(f"{fixture}\n", encoding="utf-8")
+            if fixture == CLASSIFIER_FULL_VIEWER_FIXTURE:
+                self._write_classifier_fixture_payload(fixture_path)
+            else:
+                payload = fixture_path / "payload.txt"
+                payload.write_text(f"{fixture}\n", encoding="utf-8")
             if fixture.endswith(".lungfishmsa"):
                 self._write_complete_msa_payload(fixture_path)
                 input_dir = root / "Tests" / "Fixtures" / "alignment" / "sarscov2-mafft-e2e.lungfish" / "Inputs"
@@ -742,6 +920,11 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
                 json.dumps(sidecar, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
             )
+
+    def _write_classifier_fixture_payload(self, fixture_path):
+        committed_fixture = PROJECT_ROOT / CLASSIFIER_FULL_VIEWER_FIXTURE
+        for name in ["source.sam", "evidence.bam", "evidence.bam.bai"]:
+            shutil.copyfile(committed_fixture / name, fixture_path / name)
 
     def _write_root_alignment_source(self, root):
         source = root / "Tests" / "Fixtures" / "sarscov2"
@@ -843,6 +1026,96 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
                     "workflowName": "multiple-sequence-alignment-mafft",
                 },
             ]
+        elif relative_fixture == CLASSIFIER_FULL_VIEWER_FIXTURE:
+            source_path = fixture_path / "source.sam"
+            source_data = source_path.read_bytes()
+            samtools_runtime = {
+                "samtoolsExecutable": "PATH:samtools",
+                "samtoolsExecutableChecksumSHA256": "0" * 64,
+                "samtoolsCondaEnvironment": "test",
+            }
+            record.update(
+                {
+                    "workflowName": "classifier-full-bam-viewer-fixture-generation",
+                    "toolName": "generate-classifier-full-viewer-fixture.py",
+                    "toolVersion": "1.0.0",
+                    "argv": ["python3", "scripts/testing/generate-classifier-full-viewer-fixture.py"],
+                    "executedShellCommand": (
+                        "python3 scripts/testing/generate-classifier-full-viewer-fixture.py"
+                    ),
+                    "reproducibleShellCommand": (
+                        "python3 scripts/testing/generate-classifier-full-viewer-fixture.py "
+                        f"--output-dir {CLASSIFIER_FULL_VIEWER_FIXTURE}"
+                    ),
+                    "syntheticData": True,
+                    "options": {
+                        "syntheticData": True,
+                        "contigName": "synthetic-track-A",
+                        "contigLength": 120,
+                        "excludeFlags": 3332,
+                        "retainedRecordNames": ["item-A", "item-B"],
+                        "outputDirectory": CLASSIFIER_FULL_VIEWER_FIXTURE,
+                        "requested": {"outputDirectory": None, "samtools": None},
+                        "defaults": {
+                            "outputDirectory": CLASSIFIER_FULL_VIEWER_FIXTURE,
+                            "samtools": "managed samtools if installed, otherwise PATH samtools",
+                        },
+                        "resolved": {
+                            "outputDirectory": CLASSIFIER_FULL_VIEWER_FIXTURE,
+                            "samtools": "PATH:samtools",
+                        },
+                    },
+                    "runtimeIdentity": {"pythonVersion": "test", **samtools_runtime},
+                    "status": "completed",
+                    "input": {
+                        "path": "source.sam",
+                        "fileSize": len(source_data),
+                        "checksumSHA256": hashlib.sha256(source_data).hexdigest(),
+                    },
+                    "inputFiles": [
+                        {
+                            "path": "source.sam",
+                            "fileSize": len(source_data),
+                            "checksumSHA256": hashlib.sha256(source_data).hexdigest(),
+                        }
+                    ],
+                    "externalToolInvocations": [
+                        {
+                            "name": "samtools",
+                            "subcommand": "version",
+                            "version": "samtools 1.0",
+                            "argv": ["samtools", "--version"],
+                            "reproducibleCommand": "samtools --version",
+                            "runtimeIdentity": samtools_runtime,
+                            "exitStatus": 0,
+                            "wallTimeSeconds": 0.0,
+                            "stderr": "",
+                        },
+                        {
+                            "name": "samtools",
+                            "subcommand": "view",
+                            "version": "1.0",
+                            "argv": ["samtools", "view", "--no-PG", "-b", "-o", "evidence.bam", "source.sam"],
+                            "reproducibleCommand": "samtools view --no-PG -b -o evidence.bam source.sam",
+                            "runtimeIdentity": samtools_runtime,
+                            "exitStatus": 0,
+                            "wallTimeSeconds": 0.0,
+                            "stderr": "",
+                        },
+                        {
+                            "name": "samtools",
+                            "subcommand": "index",
+                            "version": "1.0",
+                            "argv": ["samtools", "index", "evidence.bam", "evidence.bam.bai"],
+                            "reproducibleCommand": "samtools index evidence.bam evidence.bam.bai",
+                            "runtimeIdentity": samtools_runtime,
+                            "exitStatus": 0,
+                            "wallTimeSeconds": 0.0,
+                            "stderr": "",
+                        },
+                    ],
+                }
+            )
         elif relative_fixture.endswith(".lungfishmsa"):
             record["workflowName"] = "multiple-sequence-alignment-mafft"
             record["toolName"] = "lungfish align mafft"

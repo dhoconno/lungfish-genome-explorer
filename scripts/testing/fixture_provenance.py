@@ -1,5 +1,6 @@
 import hashlib
 import json
+import shlex
 from pathlib import Path
 
 
@@ -44,6 +45,12 @@ RETAINED_FIXTURES = {
         "fixtureToolName": "mafft",
         "purpose": "Retained nested MAFFT multiple-sequence alignment output bundle.",
     },
+    "Tests/Fixtures/classifier-full-viewer": {
+        "fixtureWorkflowName": "classifier-full-bam-viewer-fixture-generation",
+        "fixtureToolName": "generate-classifier-full-viewer-fixture.py",
+        "purpose": "Wholly synthetic indexed BAM fixture for the detached classifier evidence viewer.",
+        "historicalBackfillAllowed": False,
+    },
 }
 
 REQUIRED_TOP_LEVEL_FIELDS = [
@@ -67,6 +74,7 @@ STALE_SUBSTRING_MARKERS = [
     "alignment" + "-tree-viewers",
 ]
 STALE_PATH_ROOTS = [
+    "/" + "Volumes",
     "/" + "private" + "/" + "tmp",
     "/" + "var/folders",
     "/" + "tmp",
@@ -85,10 +93,15 @@ SCIENTIFIC_PROVENANCE_EXPECTATIONS = {
         "workflowName": "multiple-sequence-alignment-mafft",
         "toolName": "lungfish align mafft",
     },
+    "Tests/Fixtures/classifier-full-viewer": {
+        "workflowName": "classifier-full-bam-viewer-fixture-generation",
+        "toolName": "generate-classifier-full-viewer-fixture.py",
+    },
 }
 RETAINED_PAYLOAD_SCAN_ROOTS = [
     "Tests/Fixtures/analyses",
     "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish",
+    "Tests/Fixtures/classifier-full-viewer",
 ]
 REQUIRED_MSA_PAYLOAD_FILES = [
     "alignment/input.unaligned.fasta",
@@ -104,6 +117,20 @@ REQUIRED_MSA_PAYLOAD_FILES = [
     "metadata/annotations.json",
     "metadata/annotations.sqlite",
 ]
+CLASSIFIER_FULL_VIEWER_PAYLOADS = {
+    "source.sam": {
+        "fileSize": 468,
+        "checksumSHA256": "d35f0a6d52588829004c73d0ae2398d31637cebb4cfa3c6c392839c9fd1435f8",
+    },
+    "evidence.bam": {
+        "fileSize": 291,
+        "checksumSHA256": "0fff054fb3274836dec421488631e475501afe40215457439c6e36cf415035c3",
+    },
+    "evidence.bam.bai": {
+        "fileSize": 96,
+        "checksumSHA256": "621d2c295d30d032069a9371b8117a891540de0dfa566d97c640684ddbf494a2",
+    },
+}
 
 
 def sha256_file(path):
@@ -341,7 +368,9 @@ def validate_fixture_specific_provenance(root, fixture_path, relative_fixture, r
             errors.append(f"expected {field} {expected_value!r}: {sidecar_path}")
     if record.get("historicalBackfill") is True or record.get("toolName") == "write-analysis-fixture-provenance.py":
         errors.append(f"{sidecar_path} must preserve scientific workflow provenance")
-    if relative_fixture.endswith(".lungfishmsa"):
+    if relative_fixture == "Tests/Fixtures/classifier-full-viewer":
+        errors.extend(validate_classifier_full_viewer_provenance(root, fixture_path, record, sidecar_path))
+    elif relative_fixture.endswith(".lungfishmsa"):
         invocations = record.get("externalToolInvocations")
         if not isinstance(invocations, list) or not invocations:
             errors.append(f"missing externalToolInvocations for MAFFT provenance: {sidecar_path}")
@@ -386,6 +415,203 @@ def validate_fixture_specific_provenance(root, fixture_path, relative_fixture, r
         if not isinstance(warnings, list) or not any(expected_warning in str(warning) for warning in warnings):
             errors.append(f"missing deterministic derivative warning in root alignment provenance: {sidecar_path}")
     return errors
+
+
+def validate_classifier_full_viewer_provenance(root, fixture_path, record, sidecar_path):
+    errors = []
+    if record.get("syntheticData") is not True:
+        errors.append(f"classifier full-viewer fixture must be declared wholly synthetic: {sidecar_path}")
+
+    options = record.get("options")
+    if not isinstance(options, dict):
+        options = {}
+    expected_options = {
+        "syntheticData": True,
+        "contigName": "synthetic-track-A",
+        "contigLength": 120,
+        "excludeFlags": 3332,
+        "retainedRecordNames": ["item-A", "item-B"],
+    }
+    for field, expected_value in expected_options.items():
+        if options.get(field) != expected_value:
+            errors.append(
+                f"invalid classifier full-viewer option {field}: expected {expected_value!r}: {sidecar_path}"
+            )
+
+    argv = record.get("argv")
+    expected_executed_command = shlex.join(argv) if isinstance(argv, list) else None
+    executed_command = record.get("executedShellCommand")
+    if not is_non_empty_string(executed_command):
+        errors.append(f"missing classifier full-viewer executedShellCommand: {sidecar_path}")
+    elif executed_command != expected_executed_command:
+        errors.append(f"classifier full-viewer executedShellCommand does not match argv: {sidecar_path}")
+
+    requested = options.get("requested")
+    if not isinstance(requested, dict):
+        errors.append(f"missing classifier full-viewer requested options: {sidecar_path}")
+    else:
+        for option, field in [("--output-dir", "outputDirectory"), ("--samtools", "samtools")]:
+            expected_value = argv_option_value(argv, option)
+            if requested.get(field) != expected_value:
+                errors.append(
+                    f"classifier full-viewer requested option {field} does not match argv: {sidecar_path}"
+                )
+
+    defaults = options.get("defaults")
+    if not isinstance(defaults, dict):
+        errors.append(f"missing classifier full-viewer default options: {sidecar_path}")
+    else:
+        if defaults.get("outputDirectory") != "Tests/Fixtures/classifier-full-viewer":
+            errors.append(f"invalid classifier full-viewer default outputDirectory: {sidecar_path}")
+        if not is_non_empty_string(defaults.get("samtools")):
+            errors.append(f"invalid classifier full-viewer default samtools resolution: {sidecar_path}")
+
+    resolved = options.get("resolved")
+    if not isinstance(resolved, dict):
+        errors.append(f"missing classifier full-viewer resolved options: {sidecar_path}")
+    else:
+        if resolved.get("outputDirectory") != "Tests/Fixtures/classifier-full-viewer":
+            errors.append(f"invalid classifier full-viewer resolved outputDirectory: {sidecar_path}")
+        if not is_non_empty_string(resolved.get("samtools")):
+            errors.append(f"invalid classifier full-viewer resolved samtools: {sidecar_path}")
+
+    runtime = record.get("runtimeIdentity")
+    if not isinstance(runtime, dict):
+        runtime = {}
+    if not is_non_empty_string(runtime.get("samtoolsExecutable")):
+        errors.append(f"missing classifier full-viewer samtools executable identity: {sidecar_path}")
+    if not is_sha256(runtime.get("samtoolsExecutableChecksumSHA256")):
+        errors.append(f"missing classifier full-viewer samtools executable checksum: {sidecar_path}")
+    if record.get("status") != "completed" or record.get("exitStatus") != 0:
+        errors.append(f"classifier full-viewer retained fixture generation did not complete successfully: {sidecar_path}")
+
+    input_record = record.get("input")
+    if not isinstance(input_record, dict):
+        errors.append(f"missing input object for classifier full-viewer provenance: {sidecar_path}")
+    else:
+        if input_record.get("path") != "source.sam":
+            errors.append(f"classifier full-viewer input must be source.sam: {sidecar_path}")
+        errors.extend(
+            validate_referenced_file_entry(
+                root,
+                fixture_path,
+                input_record,
+                sidecar_path,
+                "input",
+                "classifier full-viewer",
+            )
+        )
+
+    required_payloads = set(CLASSIFIER_FULL_VIEWER_PAYLOADS)
+    actual_payloads = {
+        path.relative_to(fixture_path).as_posix()
+        for path in fixture_path.rglob("*")
+        if path.is_file() and path.name != ".lungfish-provenance.json"
+    }
+    for missing in sorted(required_payloads - actual_payloads):
+        errors.append(f"missing classifier full-viewer payload file {missing}: {sidecar_path}")
+    for relative_path, expected in CLASSIFIER_FULL_VIEWER_PAYLOADS.items():
+        payload = fixture_path / relative_path
+        if not payload.is_file():
+            continue
+        if payload.stat().st_size != expected["fileSize"]:
+            errors.append(
+                f"classifier full-viewer payload {relative_path} size does not match deterministic fixture: "
+                f"{sidecar_path}"
+            )
+        if sha256_file(payload) != expected["checksumSHA256"]:
+            errors.append(
+                f"classifier full-viewer payload {relative_path} checksum does not match deterministic fixture: "
+                f"{sidecar_path}"
+            )
+
+    invocations = record.get("externalToolInvocations")
+    if not isinstance(invocations, list) or not invocations:
+        errors.append(f"missing samtools externalToolInvocations: {sidecar_path}")
+    else:
+        for subcommand in ["version", "view", "index"]:
+            invocation = next(
+                (
+                    candidate
+                    for candidate in invocations
+                    if isinstance(candidate, dict)
+                    and candidate.get("name") == "samtools"
+                    and candidate.get("subcommand") == subcommand
+                ),
+                None,
+            )
+            if invocation is None:
+                errors.append(f"missing samtools {subcommand} externalToolInvocation: {sidecar_path}")
+            else:
+                errors.extend(
+                    validate_samtools_external_invocation(
+                        invocation,
+                        subcommand,
+                        runtime,
+                        sidecar_path,
+                    )
+                )
+    return errors
+
+
+def validate_samtools_external_invocation(invocation, subcommand, workflow_runtime, sidecar_path):
+    errors = []
+    if not is_non_empty_string(invocation.get("version")):
+        errors.append(f"invalid samtools {subcommand} version: {sidecar_path}")
+    argv = invocation.get("argv")
+    expected_argv = {
+        "version": ["samtools", "--version"],
+        "view": ["samtools", "view", "--no-PG", "-b", "-o", "evidence.bam", "source.sam"],
+        "index": ["samtools", "index", "evidence.bam", "evidence.bam.bai"],
+    }[subcommand]
+    if argv != expected_argv:
+        errors.append(f"invalid samtools {subcommand} argv: {sidecar_path}")
+    command = invocation.get("reproducibleCommand")
+    if not is_non_empty_string(command):
+        errors.append(f"invalid samtools {subcommand} reproducibleCommand: {sidecar_path}")
+    elif isinstance(argv, list) and command != shlex.join(argv):
+        errors.append(f"samtools {subcommand} reproducibleCommand does not match argv: {sidecar_path}")
+    runtime = invocation.get("runtimeIdentity")
+    if not isinstance(runtime, dict) or not runtime:
+        errors.append(f"invalid samtools {subcommand} runtimeIdentity: {sidecar_path}")
+    else:
+        if not is_non_empty_string(runtime.get("samtoolsExecutable")):
+            errors.append(f"invalid samtools {subcommand} executable identity: {sidecar_path}")
+        if not is_sha256(runtime.get("samtoolsExecutableChecksumSHA256")):
+            errors.append(f"invalid samtools {subcommand} executable checksum: {sidecar_path}")
+        if runtime.get("samtoolsExecutable") != workflow_runtime.get("samtoolsExecutable"):
+            errors.append(
+                f"samtools {subcommand} executable identity disagrees with workflow runtime: {sidecar_path}"
+            )
+        if runtime.get("samtoolsExecutableChecksumSHA256") != workflow_runtime.get(
+            "samtoolsExecutableChecksumSHA256"
+        ):
+            errors.append(
+                f"samtools {subcommand} executable checksum disagrees with workflow runtime: {sidecar_path}"
+            )
+    if not is_integer(invocation.get("exitStatus")) or invocation.get("exitStatus") != 0:
+        errors.append(f"invalid samtools {subcommand} exitStatus: {sidecar_path}")
+    if not is_number(invocation.get("wallTimeSeconds")):
+        errors.append(f"invalid samtools {subcommand} wallTimeSeconds: {sidecar_path}")
+    if not isinstance(invocation.get("stderr"), str):
+        errors.append(f"invalid samtools {subcommand} stderr: {sidecar_path}")
+    return errors
+
+
+def argv_option_value(argv, option):
+    if not isinstance(argv, list):
+        return None
+    try:
+        index = argv.index(option)
+    except ValueError:
+        return None
+    return argv[index + 1] if index + 1 < len(argv) else None
+
+
+def is_sha256(value):
+    if not isinstance(value, str) or len(value) != 64:
+        return False
+    return all(character in "0123456789abcdef" for character in value.lower())
 
 
 def validate_root_alignment_composite_workflow(record, sidecar_path):

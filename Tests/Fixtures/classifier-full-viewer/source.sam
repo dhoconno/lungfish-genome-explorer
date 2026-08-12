@@ -1,0 +1,8 @@
+@HD	VN:1.6	SO:coordinate
+@SQ	SN:synthetic-track-A	LN:120
+item-A	0	synthetic-track-A	10	60	10M	*	0	0	NNNNNNNNNN	**********
+filtered-duplicate	1024	synthetic-track-A	10	60	10M	*	0	0	NNNNNNNNNN	**********
+filtered-secondary	256	synthetic-track-A	10	60	10M	*	0	0	NNNNNNNNNN	**********
+filtered-supplementary	2048	synthetic-track-A	10	60	10M	*	0	0	NNNNNNNNNN	**********
+item-B	0	synthetic-track-A	15	60	10M	*	0	0	NNNNNNNNNN	**********
+filtered-unmapped	4	*	0	0	*	*	0	0	*	*

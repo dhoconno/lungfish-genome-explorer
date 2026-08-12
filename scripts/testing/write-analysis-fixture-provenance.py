@@ -407,6 +407,13 @@ def main():
         if had_sidecar and not validation_errors and not args.overwrite:
             skipped.append(relative_fixture)
             continue
+        if metadata.get("historicalBackfillAllowed") is False:
+            print(
+                "cannot backfill classifier full-viewer generation provenance; "
+                "rerun scripts/testing/generate-classifier-full-viewer-fixture.py",
+                file=sys.stderr,
+            )
+            return 1
 
         try:
             record = build_record(root, relative_fixture, metadata, created_at, executed_argv, args.overwrite)

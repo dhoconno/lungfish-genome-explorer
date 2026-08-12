@@ -1,0 +1,161 @@
+{
+  "argv": [
+    "python3",
+    "scripts/testing/generate-classifier-full-viewer-fixture.py"
+  ],
+  "createdAt": "2026-08-12T14:44:09Z",
+  "executedShellCommand": "python3 scripts/testing/generate-classifier-full-viewer-fixture.py",
+  "exitStatus": 0,
+  "externalToolInvocations": [
+    {
+      "argv": [
+        "samtools",
+        "--version"
+      ],
+      "exitStatus": 0,
+      "name": "samtools",
+      "operation": "version",
+      "reproducibleCommand": "samtools --version",
+      "runtimeIdentity": {
+        "samtoolsCondaEnvironment": "samtools",
+        "samtoolsExecutable": "$HOME/.lungfish/conda/envs/samtools/bin/samtools",
+        "samtoolsExecutableChecksumSHA256": "0691b5c0d87ed3e15fa9f8c87ea751fe359f723c8189909b3d376f8e469cdec0"
+      },
+      "stderr": "",
+      "subcommand": "version",
+      "version": "samtools 1.23.1",
+      "wallTimeSeconds": 0.024255,
+      "workingDirectory": null
+    },
+    {
+      "argv": [
+        "samtools",
+        "view",
+        "--no-PG",
+        "-b",
+        "-o",
+        "evidence.bam",
+        "source.sam"
+      ],
+      "exitStatus": 0,
+      "name": "samtools",
+      "operation": "view",
+      "reproducibleCommand": "samtools view --no-PG -b -o evidence.bam source.sam",
+      "runtimeIdentity": {
+        "samtoolsCondaEnvironment": "samtools",
+        "samtoolsExecutable": "$HOME/.lungfish/conda/envs/samtools/bin/samtools",
+        "samtoolsExecutableChecksumSHA256": "0691b5c0d87ed3e15fa9f8c87ea751fe359f723c8189909b3d376f8e469cdec0"
+      },
+      "stderr": "",
+      "subcommand": "view",
+      "version": "samtools 1.23.1",
+      "wallTimeSeconds": 0.013438,
+      "workingDirectory": "Tests/Fixtures/classifier-full-viewer"
+    },
+    {
+      "argv": [
+        "samtools",
+        "index",
+        "evidence.bam",
+        "evidence.bam.bai"
+      ],
+      "exitStatus": 0,
+      "name": "samtools",
+      "operation": "index",
+      "reproducibleCommand": "samtools index evidence.bam evidence.bam.bai",
+      "runtimeIdentity": {
+        "samtoolsCondaEnvironment": "samtools",
+        "samtoolsExecutable": "$HOME/.lungfish/conda/envs/samtools/bin/samtools",
+        "samtoolsExecutableChecksumSHA256": "0691b5c0d87ed3e15fa9f8c87ea751fe359f723c8189909b3d376f8e469cdec0"
+      },
+      "stderr": "",
+      "subcommand": "index",
+      "version": "samtools 1.23.1",
+      "wallTimeSeconds": 0.013818,
+      "workingDirectory": "Tests/Fixtures/classifier-full-viewer"
+    }
+  ],
+  "files": [
+    {
+      "checksumSHA256": "d35f0a6d52588829004c73d0ae2398d31637cebb4cfa3c6c392839c9fd1435f8",
+      "fileSize": 468,
+      "path": "source.sam"
+    },
+    {
+      "checksumSHA256": "0fff054fb3274836dec421488631e475501afe40215457439c6e36cf415035c3",
+      "fileSize": 291,
+      "path": "evidence.bam"
+    },
+    {
+      "checksumSHA256": "621d2c295d30d032069a9371b8117a891540de0dfa566d97c640684ddbf494a2",
+      "fileSize": 96,
+      "path": "evidence.bam.bai"
+    }
+  ],
+  "input": {
+    "checksumSHA256": "d35f0a6d52588829004c73d0ae2398d31637cebb4cfa3c6c392839c9fd1435f8",
+    "fileSize": 468,
+    "path": "source.sam"
+  },
+  "inputFiles": [
+    {
+      "checksumSHA256": "d35f0a6d52588829004c73d0ae2398d31637cebb4cfa3c6c392839c9fd1435f8",
+      "fileSize": 468,
+      "path": "source.sam"
+    }
+  ],
+  "options": {
+    "contigLength": 120,
+    "contigName": "synthetic-track-A",
+    "defaults": {
+      "outputDirectory": "Tests/Fixtures/classifier-full-viewer",
+      "samtools": "managed samtools if installed, otherwise PATH samtools"
+    },
+    "excludeFlags": 3332,
+    "outputDirectory": "Tests/Fixtures/classifier-full-viewer",
+    "requested": {
+      "outputDirectory": null,
+      "samtools": null
+    },
+    "resolved": {
+      "outputDirectory": "Tests/Fixtures/classifier-full-viewer",
+      "samtools": "$HOME/.lungfish/conda/envs/samtools/bin/samtools"
+    },
+    "retainedRecordNames": [
+      "item-A",
+      "item-B"
+    ],
+    "samtools": "samtools",
+    "syntheticData": true
+  },
+  "output": {
+    "checksumSHA256": "84dba177b0c289a3e89964194cc05c5137c37437067a6584f232a6bacd19da8d",
+    "fileSize": 855,
+    "path": "Tests/Fixtures/classifier-full-viewer"
+  },
+  "reproducibleCommand": "python3 scripts/testing/generate-classifier-full-viewer-fixture.py --output-dir Tests/Fixtures/classifier-full-viewer",
+  "reproducibleShellCommand": "python3 scripts/testing/generate-classifier-full-viewer-fixture.py --output-dir Tests/Fixtures/classifier-full-viewer",
+  "runtimeIdentity": {
+    "containerImage": null,
+    "machine": "arm64",
+    "operatingSystem": "Darwin",
+    "operatingSystemRelease": "25.5.0",
+    "pythonCondaEnvironment": "base",
+    "pythonExecutable": "python3.14",
+    "pythonVersion": "3.14.6",
+    "samtoolsCondaEnvironment": "samtools",
+    "samtoolsExecutable": "$HOME/.lungfish/conda/envs/samtools/bin/samtools",
+    "samtoolsExecutableChecksumSHA256": "0691b5c0d87ed3e15fa9f8c87ea751fe359f723c8189909b3d376f8e469cdec0"
+  },
+  "schemaVersion": 1,
+  "status": "completed",
+  "stderr": "",
+  "syntheticData": true,
+  "toolName": "generate-classifier-full-viewer-fixture.py",
+  "toolVersion": "1.0.0",
+  "wallTimeSeconds": 0.053323,
+  "warnings": [
+    "Wholly synthetic generic alignment records for viewer behavior tests; no external volume, biological sample, or reference payload is used."
+  ],
+  "workflowName": "classifier-full-bam-viewer-fixture-generation"
+}
