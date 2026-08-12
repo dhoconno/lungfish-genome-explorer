@@ -35,6 +35,23 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
         let mappingDescriptor = try XCTUnwrap(envelope.outputs.first { $0.path == mappingResultURL.path })
         XCTAssertEqual(mappingDescriptor.checksumSHA256, try ProvenanceFileHasher.sha256(of: mappingResultURL))
         XCTAssertEqual(mappingDescriptor.fileSize, try ProvenanceFileHasher.fileSize(of: mappingResultURL))
+        let mappingProvenanceURL = fixture.resultDirectory.appendingPathComponent(MappingProvenance.filename)
+        let mappingProvenanceDescriptor = try XCTUnwrap(
+            envelope.outputs.first { $0.path == mappingProvenanceURL.path }
+        )
+        XCTAssertEqual(envelope.outputs.filter { $0.path == mappingProvenanceURL.path }.count, 1)
+        XCTAssertEqual(
+            mappingProvenanceDescriptor.checksumSHA256,
+            try ProvenanceFileHasher.sha256(of: mappingProvenanceURL)
+        )
+        XCTAssertEqual(
+            mappingProvenanceDescriptor.fileSize,
+            try ProvenanceFileHasher.fileSize(of: mappingProvenanceURL)
+        )
+        let canonicalURL = fixture.resultDirectory.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        XCTAssertFalse(envelope.files.contains { $0.path == canonicalURL.path })
+        XCTAssertFalse(envelope.outputs.contains { $0.path == canonicalURL.path })
+        XCTAssertFalse(envelope.steps.flatMap(\.outputs).contains { $0.path == canonicalURL.path })
 
         let finalPayloadPaths = Set(envelope.outputs.map(\.path))
         let expectedViewerPayloadPaths = Set([
@@ -89,7 +106,11 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
             XCTAssertNotNil(input.checksumSHA256, "Missing checksum for \(input.path)")
             XCTAssertNotNil(input.fileSize, "Missing file size for \(input.path)")
         }
-        XCTAssertEqual(Set(publicationStep.outputs.map(\.path)), expectedViewerPayloadPaths.union([mappingResultURL.path]))
+        XCTAssertEqual(
+            Set(publicationStep.outputs.map(\.path)),
+            expectedViewerPayloadPaths.union([mappingResultURL.path, mappingProvenanceURL.path])
+        )
+        XCTAssertFalse(publicationStep.outputs.contains { $0.path == canonicalURL.path })
         for output in publicationStep.outputs where output.path != fixture.viewerBundle.path {
             XCTAssertNotNil(output.checksumSHA256, "Missing checksum for \(output.path)")
             XCTAssertNotNil(output.fileSize, "Missing file size for \(output.path)")
@@ -148,6 +169,35 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
         XCTAssertNil(try MappingResult.load(from: fixture.resultDirectory).viewerBundleURL)
     }
 
+    func testPublishRollbackPreservesConcurrentSidecarReplacement() throws {
+        let fixture = try makeFixture()
+        let mappingResultURL = fixture.resultDirectory.appendingPathComponent("mapping-result.json")
+        let canonicalURL = fixture.resultDirectory.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let originalCanonicalData = try Data(contentsOf: canonicalURL)
+        let concurrentData = Data("concurrent-writer-generation".utf8)
+        try FileManager.default.removeItem(at: fixture.viewerBundle.appendingPathComponent("manifest.json"))
+
+        XCTAssertThrowsError(
+            try MappingViewerBundlePublicationService.publish(
+                result: fixture.preparedResult,
+                resultDirectoryURL: fixture.resultDirectory,
+                sourceReferenceBundleURL: fixture.sourceBundle,
+                viewerBundleURL: fixture.viewerBundle,
+                beforeRollback: {
+                    try concurrentData.write(to: mappingResultURL, options: .atomic)
+                }
+            )
+        ) { error in
+            guard case MappingViewerBundlePublicationError.concurrentSidecarChanges(let paths) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertEqual(paths, [mappingResultURL.path])
+        }
+
+        XCTAssertEqual(try Data(contentsOf: mappingResultURL), concurrentData)
+        XCTAssertEqual(try Data(contentsOf: canonicalURL), originalCanonicalData)
+    }
+
     func testToolsMenuUsesTransactionalMappingViewerPublicationService() throws {
         let source = try String(
             contentsOf: packageRoot().appendingPathComponent("Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift"),
@@ -197,6 +247,65 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: finalBundle.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: candidateBundle.path))
+    }
+
+    func testPublishCandidateRejectsSymbolicLinkCandidateRoot() throws {
+        let finalBundle = tempDirectory.appendingPathComponent("Viewer.lungfishref", isDirectory: true)
+        let actualCandidate = tempDirectory.appendingPathComponent("actual-candidate", isDirectory: true)
+        let candidateLink = tempDirectory.appendingPathComponent(".Viewer.candidate", isDirectory: true)
+        try FileManager.default.createDirectory(at: actualCandidate, withIntermediateDirectories: true)
+        try Data("new-viewer".utf8).write(to: actualCandidate.appendingPathComponent("sentinel"))
+        try FileManager.default.createSymbolicLink(at: candidateLink, withDestinationURL: actualCandidate)
+
+        XCTAssertThrowsError(
+            try MappingViewerBundlePublicationService.publishCandidate(
+                candidateBundleURL: candidateLink,
+                finalBundleURL: finalBundle
+            ) { _ in
+                XCTFail("Finalization must not run for a symbolic-link candidate root.")
+            }
+        ) { error in
+            guard case MappingViewerBundlePublicationError.unsafePublicationRoot(let path) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertEqual(path, candidateLink.path)
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: finalBundle.path))
+        XCTAssertEqual(
+            try Data(contentsOf: actualCandidate.appendingPathComponent("sentinel")),
+            Data("new-viewer".utf8)
+        )
+    }
+
+    func testPublishCandidateRejectsSymbolicLinkExistingFinalRoot() throws {
+        let candidateBundle = tempDirectory.appendingPathComponent(".Viewer.candidate", isDirectory: true)
+        let actualExisting = tempDirectory.appendingPathComponent("actual-existing", isDirectory: true)
+        let finalLink = tempDirectory.appendingPathComponent("Viewer.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: candidateBundle, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: actualExisting, withIntermediateDirectories: true)
+        let candidateData = Data("new-viewer".utf8)
+        let existingData = Data("old-viewer".utf8)
+        try candidateData.write(to: candidateBundle.appendingPathComponent("sentinel"))
+        try existingData.write(to: actualExisting.appendingPathComponent("sentinel"))
+        try FileManager.default.createSymbolicLink(at: finalLink, withDestinationURL: actualExisting)
+
+        XCTAssertThrowsError(
+            try MappingViewerBundlePublicationService.publishCandidate(
+                candidateBundleURL: candidateBundle,
+                finalBundleURL: finalLink
+            ) { _ in
+                XCTFail("Finalization must not run for a symbolic-link final root.")
+            }
+        ) { error in
+            guard case MappingViewerBundlePublicationError.unsafePublicationRoot(let path) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertEqual(path, finalLink.path)
+        }
+
+        XCTAssertEqual(try Data(contentsOf: candidateBundle.appendingPathComponent("sentinel")), candidateData)
+        XCTAssertEqual(try Data(contentsOf: actualExisting.appendingPathComponent("sentinel")), existingData)
     }
 
     func testPublishCandidateAtomicallyReplacesExistingBundle() throws {
@@ -485,12 +594,49 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
             contigs: []
         )
         try initialResult.save(to: resultDirectory)
+        try MappingProvenance(
+            mapper: .minimap2,
+            modeID: "short-read-default",
+            sampleName: "Sample",
+            pairedEnd: false,
+            threads: 4,
+            minimumMappingQuality: 0,
+            includeSecondary: true,
+            includeSupplementary: true,
+            advancedArguments: [],
+            inputFASTQURLs: [],
+            referenceFASTAURL: sourceBundle.appendingPathComponent("genome/sequence.fa"),
+            sourceReferenceBundleURL: sourceBundle,
+            mapperInvocation: MappingCommandInvocation(
+                label: "minimap2 mapping",
+                argv: ["minimap2", "-a"]
+            ),
+            normalizationInvocations: [],
+            mapperVersion: "2.30",
+            samtoolsVersion: "1.22",
+            wallClockSeconds: 139.5,
+            exitStatus: 0
+        ).save(to: resultDirectory)
 
         let mappingResultURL = resultDirectory.appendingPathComponent("mapping-result.json")
+        let mappingProvenanceURL = resultDirectory.appendingPathComponent(MappingProvenance.filename)
+        let canonicalURL = resultDirectory.appendingPathComponent(ProvenanceWriter.provenanceFilename)
         let bamDescriptor = try ProvenanceFileDescriptor.file(url: bamURL, format: .bam, role: .output)
         let baiDescriptor = try ProvenanceFileDescriptor.file(url: baiURL, role: .index)
         let staleResultDescriptor = try ProvenanceFileDescriptor.file(
             url: mappingResultURL,
+            format: .json,
+            role: .output
+        )
+        let staleMappingProvenanceDescriptor = try ProvenanceFileDescriptor.file(
+            url: mappingProvenanceURL,
+            format: .json,
+            role: .output
+        )
+        let invalidSelfDescriptor = ProvenanceFileDescriptor(
+            path: canonicalURL.path,
+            checksumSHA256: "not-a-stable-self-checksum",
+            fileSize: 0,
             format: .json,
             role: .output
         )
@@ -499,7 +645,13 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
             toolVersion: "2.30",
             argv: ["minimap2", "-a"],
             inputs: [],
-            outputs: [bamDescriptor, baiDescriptor, staleResultDescriptor],
+            outputs: [
+                bamDescriptor,
+                baiDescriptor,
+                staleResultDescriptor,
+                staleMappingProvenanceDescriptor,
+                invalidSelfDescriptor,
+            ],
             exitStatus: 0
         )
         let initialEnvelope = ProvenanceEnvelope(
@@ -507,8 +659,20 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
             toolName: "minimap2",
             toolVersion: "2.30",
             argv: ["minimap2", "-a"],
-            files: [bamDescriptor, baiDescriptor, staleResultDescriptor],
-            outputs: [bamDescriptor, baiDescriptor, staleResultDescriptor],
+            files: [
+                bamDescriptor,
+                baiDescriptor,
+                staleResultDescriptor,
+                staleMappingProvenanceDescriptor,
+                invalidSelfDescriptor,
+            ],
+            outputs: [
+                bamDescriptor,
+                baiDescriptor,
+                staleResultDescriptor,
+                staleMappingProvenanceDescriptor,
+                invalidSelfDescriptor,
+            ],
             steps: [mappingStep],
             exitStatus: 0
         )

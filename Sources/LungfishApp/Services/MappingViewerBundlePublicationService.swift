@@ -13,7 +13,9 @@ enum MappingViewerBundlePublicationError: Error, LocalizedError {
     case invalidViewerPayloadPath(String)
     case missingViewerPayload(URL)
     case invalidCandidateLocation(URL, URL)
+    case unsafePublicationRoot(String)
     case atomicPublicationFailed(URL, URL, String)
+    case concurrentSidecarChanges([String])
     case rollbackFailed(URL, String)
 
     var errorDescription: String? {
@@ -28,8 +30,12 @@ enum MappingViewerBundlePublicationError: Error, LocalizedError {
             return "The mapping viewer bundle payload is missing at \(url.path)."
         case .invalidCandidateLocation(let candidate, let final):
             return "The mapping viewer candidate \(candidate.path) must be adjacent to its final bundle \(final.path)."
+        case .unsafePublicationRoot(let path):
+            return "The mapping viewer publication root is not a no-follow directory: \(path)."
         case .atomicPublicationFailed(let candidate, let final, let detail):
             return "Could not atomically publish \(candidate.lastPathComponent) as \(final.lastPathComponent): \(detail)"
+        case .concurrentSidecarChanges(let paths):
+            return "Mapping viewer rollback preserved newer sidecar generations at: \(paths.joined(separator: ", "))."
         case .rollbackFailed(let url, let detail):
             return "Could not restore \(url.lastPathComponent) after mapping viewer publication failed: \(detail)"
         }
@@ -52,13 +58,22 @@ enum MappingViewerBundlePublicationService {
             throw MappingViewerBundlePublicationError.invalidCandidateLocation(candidate, final)
         }
 
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: candidate.path, isDirectory: &isDirectory),
-              isDirectory.boolValue else {
+        guard try validatePublicationRoot(
+            candidate,
+            allowMissing: false
+        ) else {
             throw MappingViewerBundlePublicationError.missingViewerBundle(candidate)
         }
-
-        let replacingExisting = fileManager.fileExists(atPath: final.path)
+        let replacingExisting = try validatePublicationRoot(
+            final,
+            allowMissing: true
+        )
+        let resolvedCandidate = candidate.resolvingSymlinksInPath()
+        let resolvedFinal = final.resolvingSymlinksInPath()
+        guard resolvedCandidate.deletingLastPathComponent()
+                == resolvedFinal.deletingLastPathComponent() else {
+            throw MappingViewerBundlePublicationError.invalidCandidateLocation(candidate, final)
+        }
         try atomicRename(
             candidate,
             final,
@@ -66,6 +81,7 @@ enum MappingViewerBundlePublicationService {
         )
 
         do {
+            _ = try validatePublicationRoot(final, allowMissing: false)
             try rehydrateImportedBAMProvenance(
                 in: final,
                 replacingRoot: candidate,
@@ -107,7 +123,8 @@ enum MappingViewerBundlePublicationService {
         resultDirectoryURL: URL,
         sourceReferenceBundleURL: URL,
         viewerBundleURL: URL,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        beforeRollback: (() throws -> Void)? = nil
     ) throws {
         let resultDirectory = resultDirectoryURL.standardizedFileURL
         let sourceBundle = sourceReferenceBundleURL.standardizedFileURL
@@ -115,29 +132,80 @@ enum MappingViewerBundlePublicationService {
         let mappingResultURL = resultDirectory.appendingPathComponent(mappingResultFilename)
         let mappingProvenanceURL = resultDirectory.appendingPathComponent(MappingProvenance.filename)
         let canonicalProvenanceURL = resultDirectory.appendingPathComponent(ProvenanceWriter.provenanceFilename)
-        let snapshots = try [mappingResultURL, mappingProvenanceURL, canonicalProvenanceURL].map {
-            SidecarSnapshot(url: $0, data: fileManager.fileExists(atPath: $0.path) ? try Data(contentsOf: $0) : nil)
+        let snapshot = try ProvenancePublicationSnapshot(
+            urls: [mappingResultURL, mappingProvenanceURL]
+                + ProvenancePublicationArtifacts.sidecarArtifacts(for: canonicalProvenanceURL),
+            backupNamePrefix: "lungfish-mapping-viewer-publication",
+            fileManager: fileManager
+        )
+        defer { snapshot.discard() }
+        let tracker = try MappingViewerRollbackWitnessTracker(snapshot: snapshot)
+        let stagingDirectory = resultDirectory.appendingPathComponent(
+            ".mapping-viewer-publication-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        var displacedURLs: [URL] = []
+        defer {
+            try? fileManager.removeItem(at: stagingDirectory)
+            for displacedURL in displacedURLs {
+                try? fileManager.removeItem(at: displacedURL)
+            }
         }
 
         do {
-            try result.save(to: resultDirectory)
+            try fileManager.createDirectory(at: stagingDirectory, withIntermediateDirectories: false)
+            try result.save(to: stagingDirectory)
+            let mappingResultPublication = try snapshot.publishReplacement(
+                from: stagingDirectory.appendingPathComponent(mappingResultFilename),
+                to: mappingResultURL,
+                replacingExisting: fileManager.fileExists(atPath: mappingResultURL.path),
+                witness: tracker.currentWitness
+            )
+            tracker.replaceWitness(mappingResultPublication.witness)
+            if let displacedURL = mappingResultPublication.displacedURL {
+                displacedURLs.append(displacedURL)
+            }
             if let provenance = MappingProvenance.load(from: resultDirectory) {
                 try provenance
                     .withViewerBundleURL(viewerBundle)
                     .withSourceReferenceBundleURL(sourceBundle)
-                    .save(to: resultDirectory)
+                    .save(to: stagingDirectory)
+                let mappingProvenancePublication = try snapshot.publishReplacement(
+                    from: stagingDirectory.appendingPathComponent(MappingProvenance.filename),
+                    to: mappingProvenanceURL,
+                    replacingExisting: true,
+                    witness: tracker.currentWitness
+                )
+                tracker.replaceWitness(mappingProvenancePublication.witness)
+                if let displacedURL = mappingProvenancePublication.displacedURL {
+                    displacedURLs.append(displacedURL)
+                }
             }
             try rewriteCanonicalProvenance(
                 result: result,
                 resultDirectoryURL: resultDirectory,
                 sourceReferenceBundleURL: sourceBundle,
                 viewerBundleURL: viewerBundle,
-                fileManager: fileManager
+                fileManager: fileManager,
+                writer: ProvenanceWriter(
+                    publicationMutationDidOccur: tracker.observe,
+                    signingProvider: nil
+                )
             )
         } catch {
             do {
-                try restore(snapshots, fileManager: fileManager)
+                try beforeRollback?()
+                let preserved = try snapshot.restore(ifCurrentMatches: tracker.currentWitness)
+                guard preserved.isEmpty else {
+                    throw MappingViewerBundlePublicationError.concurrentSidecarChanges(
+                        preserved.map(\.path)
+                    )
+                }
             } catch let rollbackError {
+                if let concurrencyError = rollbackError as? MappingViewerBundlePublicationError,
+                   case .concurrentSidecarChanges = concurrencyError {
+                    throw concurrencyError
+                }
                 throw MappingViewerBundlePublicationError.rollbackFailed(
                     resultDirectory,
                     rollbackError.localizedDescription
@@ -152,7 +220,8 @@ enum MappingViewerBundlePublicationService {
         resultDirectoryURL: URL,
         sourceReferenceBundleURL: URL,
         viewerBundleURL: URL,
-        fileManager: FileManager
+        fileManager: FileManager,
+        writer: ProvenanceWriter
     ) throws {
         let publicationStartedAt = Date()
         let canonicalURL = resultDirectoryURL.appendingPathComponent(ProvenanceWriter.provenanceFilename)
@@ -171,19 +240,46 @@ enum MappingViewerBundlePublicationService {
             format: .json,
             role: .output
         )
+        let mappingProvenanceURL = resultDirectoryURL.appendingPathComponent(MappingProvenance.filename)
+        let mappingProvenanceDescriptor = fileManager.fileExists(atPath: mappingProvenanceURL.path)
+            ? try ProvenanceFileDescriptor.file(
+                url: mappingProvenanceURL,
+                format: .json,
+                role: .output
+            )
+            : nil
         let viewerDescriptors = try viewerOutputDescriptors(
             viewerBundleURL: viewerBundleURL,
             fileManager: fileManager
         )
-        let publicationOutputs = deduplicated([mappingResultDescriptor] + viewerDescriptors)
-        let refreshedFiles = try envelope.files.map {
-            try refreshedMappingResultDescriptor($0, mappingResultURL: mappingResultURL)
-        }
-        let refreshedOutputs = try envelope.outputs.map {
-            try refreshedMappingResultDescriptor($0, mappingResultURL: mappingResultURL)
-        }
-        let refreshedPrimaryOutput = try envelope.output.map {
-            try refreshedMappingResultDescriptor($0, mappingResultURL: mappingResultURL)
+        let publicationOutputs = deduplicated(
+            [mappingResultDescriptor] + [mappingProvenanceDescriptor].compactMap { $0 } + viewerDescriptors
+        )
+        let refreshedFiles = try envelope.files
+            .filter { $0.path != canonicalURL.path }
+            .map {
+                try refreshedPublicationSidecarDescriptor(
+                    $0,
+                    mappingResultURL: mappingResultURL,
+                    mappingProvenanceURL: mappingProvenanceURL
+                )
+            }
+        let refreshedOutputs = try envelope.outputs
+            .filter { $0.path != canonicalURL.path }
+            .map {
+                try refreshedPublicationSidecarDescriptor(
+                    $0,
+                    mappingResultURL: mappingResultURL,
+                    mappingProvenanceURL: mappingProvenanceURL
+                )
+            }
+        let refreshedPrimaryOutput: ProvenanceFileDescriptor? = try envelope.output.flatMap { descriptor in
+            guard descriptor.path != canonicalURL.path else { return nil }
+            return try refreshedPublicationSidecarDescriptor(
+                descriptor,
+                mappingResultURL: mappingResultURL,
+                mappingProvenanceURL: mappingProvenanceURL
+            )
         }
         let refreshedSteps = try envelope.steps.map { step in
             ProvenanceStep(
@@ -197,8 +293,14 @@ enum MappingViewerBundlePublicationService {
                 resolvedOptions: step.resolvedOptions,
                 runtimeIdentity: step.runtimeIdentity,
                 inputs: step.inputs,
-                outputs: try step.outputs.map {
-                    try refreshedMappingResultDescriptor($0, mappingResultURL: mappingResultURL)
+                outputs: try step.outputs
+                    .filter { $0.path != canonicalURL.path }
+                    .map {
+                        try refreshedPublicationSidecarDescriptor(
+                            $0,
+                            mappingResultURL: mappingResultURL,
+                            mappingProvenanceURL: mappingProvenanceURL
+                        )
                 },
                 exitStatus: step.exitStatus,
                 wallTimeSeconds: step.wallTimeSeconds,
@@ -278,7 +380,39 @@ enum MappingViewerBundlePublicationService {
             legacyWorkflowRun: nil
         )
 
-        try ProvenanceWriter(signingProvider: nil).write(updatedEnvelope, to: resultDirectoryURL)
+        try writer.write(updatedEnvelope, to: resultDirectoryURL)
+    }
+
+    private static func validatePublicationRoot(
+        _ url: URL,
+        allowMissing: Bool
+    ) throws -> Bool {
+        var information = stat()
+        let status = url.path.withCString { Darwin.lstat($0, &information) }
+        if status != 0 {
+            if errno == ENOENT, allowMissing {
+                return false
+            }
+            if errno == ENOENT {
+                return false
+            }
+            throw MappingViewerBundlePublicationError.atomicPublicationFailed(
+                url,
+                url,
+                POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO).localizedDescription
+            )
+        }
+        guard information.st_mode & S_IFMT == S_IFDIR else {
+            throw MappingViewerBundlePublicationError.unsafePublicationRoot(url.path)
+        }
+        let resolvedRoot = url.resolvingSymlinksInPath()
+        let expectedRoot = url.deletingLastPathComponent()
+            .resolvingSymlinksInPath()
+            .appendingPathComponent(url.lastPathComponent, isDirectory: true)
+        guard resolvedRoot == expectedRoot else {
+            throw MappingViewerBundlePublicationError.unsafePublicationRoot(url.path)
+        }
+        return true
     }
 
     private static func atomicRename(
@@ -803,15 +937,22 @@ enum MappingViewerBundlePublicationService {
         return try ProvenanceFileDescriptor.file(url: candidate, format: format, role: role)
     }
 
-    private static func refreshedMappingResultDescriptor(
+    private static func refreshedPublicationSidecarDescriptor(
         _ descriptor: ProvenanceFileDescriptor,
-        mappingResultURL: URL
+        mappingResultURL: URL,
+        mappingProvenanceURL: URL
     ) throws -> ProvenanceFileDescriptor {
-        guard URL(fileURLWithPath: descriptor.path).standardizedFileURL == mappingResultURL.standardizedFileURL else {
+        let descriptorURL = URL(fileURLWithPath: descriptor.path).standardizedFileURL
+        let refreshedURL: URL
+        if descriptorURL == mappingResultURL.standardizedFileURL {
+            refreshedURL = mappingResultURL
+        } else if descriptorURL == mappingProvenanceURL.standardizedFileURL {
+            refreshedURL = mappingProvenanceURL
+        } else {
             return descriptor
         }
         return try ProvenanceFileDescriptor.file(
-            url: mappingResultURL,
+            url: refreshedURL,
             format: descriptor.format ?? .json,
             role: descriptor.role,
             originPath: descriptor.originPath,
@@ -826,31 +967,29 @@ enum MappingViewerBundlePublicationService {
         return descriptors.filter { seen.insert($0.path).inserted }
     }
 
-    private static func restore(
-        _ snapshots: [SidecarSnapshot],
-        fileManager: FileManager
-    ) throws {
-        var firstError: Error?
-        for snapshot in snapshots {
-            do {
-                if let data = snapshot.data {
-                    try data.write(to: snapshot.url, options: .atomic)
-                } else if fileManager.fileExists(atPath: snapshot.url.path) {
-                    try fileManager.removeItem(at: snapshot.url)
-                }
-            } catch {
-                if firstError == nil {
-                    firstError = error
-                }
-            }
-        }
-        if let firstError {
-            throw firstError
-        }
+}
+
+private final class MappingViewerRollbackWitnessTracker: @unchecked Sendable {
+    private let lock = NSLock()
+    private let snapshot: ProvenancePublicationSnapshot
+    private var witness: ProvenancePublicationRollbackWitness
+
+    init(snapshot: ProvenancePublicationSnapshot) throws {
+        self.snapshot = snapshot
+        self.witness = try snapshot.captureRollbackWitness()
     }
 
-    private struct SidecarSnapshot {
-        let url: URL
-        let data: Data?
+    var currentWitness: ProvenancePublicationRollbackWitness {
+        lock.withLock { witness }
+    }
+
+    func replaceWitness(_ witness: ProvenancePublicationRollbackWitness) {
+        lock.withLock { self.witness = witness }
+    }
+
+    func observe(_ mutation: ProvenanceWriterMutation) throws {
+        try lock.withLock {
+            witness = try snapshot.refreshingRollbackWitness(witness, after: mutation)
+        }
     }
 }
