@@ -264,12 +264,23 @@ private final class MappingViewerSecureBundleRoot {
         return names.sorted()
     }
 
-    func replaceFile(relativePath: String, data: Data, namedRootURL: URL) throws {
+    func replaceFile(
+        relativePath: String,
+        data: Data,
+        namedRootURL: URL,
+        beforeRename: (() throws -> Void)? = nil
+    ) throws {
         guard matchesNamedRoot(at: namedRootURL) else {
             throw MappingViewerBundlePublicationError.publicationOwnershipConflict(namedRootURL.path, nil)
         }
         let (parent, name) = try openParent(relativePath: relativePath)
         defer { Darwin.close(parent) }
+        let source = name.withCString {
+            Darwin.openat(parent, $0, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        }
+        guard source >= 0 else { throw posixFailure(relativePath) }
+        defer { Darwin.close(source) }
+        let original = try Self.stableFingerprint(descriptor: source)
         let temporaryName = ".lungfish-rehydrate-\(UUID().uuidString)"
         let temporary = temporaryName.withCString {
             Darwin.openat(parent, $0, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
@@ -287,12 +298,20 @@ private final class MappingViewerSecureBundleRoot {
               matchesNamedRoot(at: namedRootURL) else {
             throw MappingViewerBundlePublicationError.publicationOwnershipConflict(namedRootURL.path, nil)
         }
+        try beforeRename?()
+        guard matchesNamedRoot(at: namedRootURL) else {
+            throw MappingViewerBundlePublicationError.publicationOwnershipConflict(namedRootURL.path, nil)
+        }
+        try verifyCurrentFileFingerprint(
+            relativePath: relativePath,
+            expected: original
+        )
         let status = temporaryName.withCString { temporaryPath in
             name.withCString { destinationPath in
                 Darwin.renameat(parent, temporaryPath, parent, destinationPath)
             }
         }
-        guard status == 0 else { throw posixFailure(relativePath) }
+        guard status == 0, Darwin.fsync(parent) == 0 else { throw posixFailure(relativePath) }
         removeTemporary = false
         guard matchesNamedRoot(at: namedRootURL) else {
             throw MappingViewerBundlePublicationError.publicationOwnershipConflict(namedRootURL.path, nil)
@@ -320,7 +339,7 @@ private final class MappingViewerSecureBundleRoot {
               sourceInformation.st_mode & S_IFMT == S_IFREG else {
             throw posixFailure(relativePath)
         }
-        let sourceIdentity = Self.identity(sourceInformation)
+        let sourceFingerprint = try Self.stableFingerprint(descriptor: source)
 
         let temporaryName = ".lungfish-rehydrate-db-\(UUID().uuidString)"
         let temporary = temporaryName.withCString {
@@ -352,17 +371,17 @@ private final class MappingViewerSecureBundleRoot {
               matchesNamedRoot(at: namedRootURL) else {
             throw MappingViewerBundlePublicationError.publicationOwnershipConflict(namedRootURL.path, nil)
         }
-        try verifyCurrentFileIdentity(
+        try verifyCurrentFileFingerprint(
             relativePath: relativePath,
-            expected: sourceIdentity
+            expected: sourceFingerprint
         )
         try beforeRename?()
         guard matchesNamedRoot(at: namedRootURL) else {
             throw MappingViewerBundlePublicationError.publicationOwnershipConflict(namedRootURL.path, nil)
         }
-        try verifyCurrentFileIdentity(
+        try verifyCurrentFileFingerprint(
             relativePath: relativePath,
-            expected: sourceIdentity
+            expected: sourceFingerprint
         )
         let status = temporaryName.withCString { temporaryPath in
             name.withCString { destinationPath in
@@ -409,6 +428,21 @@ private final class MappingViewerSecureBundleRoot {
         )
     }
 
+    private struct StableFingerprint: Equatable {
+        let state: MappingViewerBundleStableFileState
+        let checksum: String
+    }
+
+    private static func stableFingerprint(descriptor: Int32) throws -> StableFingerprint {
+        let before = try stableState(descriptor: descriptor)
+        let digest = try stableDigest(descriptor: descriptor)
+        let after = try stableState(descriptor: descriptor)
+        guard before == after, digest.size == after.size else {
+            throw MappingViewerBundlePublicationError.invalidViewerPayloadPath("payload changed while hashing")
+        }
+        return StableFingerprint(state: after, checksum: digest.checksum)
+    }
+
     private func openParent(relativePath: String) throws -> (Int32, String) {
         var components = try validatedComponents(relativePath)
         let name = components.removeLast()
@@ -430,13 +464,13 @@ private final class MappingViewerSecureBundleRoot {
         }
     }
 
-    private func verifyCurrentFileIdentity(
+    private func verifyCurrentFileFingerprint(
         relativePath: String,
-        expected: MappingViewerBundleFileIdentity
+        expected: StableFingerprint
     ) throws {
         let current = try openRegularFile(relativePath: relativePath, flags: O_RDONLY)
         defer { Darwin.close(current) }
-        guard try Self.fileIdentity(descriptor: current) == expected else {
+        guard try Self.stableFingerprint(descriptor: current) == expected else {
             throw MappingViewerBundlePublicationError.invalidViewerPayloadPath(relativePath)
         }
     }
@@ -554,6 +588,7 @@ enum MappingViewerBundlePublicationService {
         fileManager: FileManager = .default,
         beforeCandidateRehydration: (() throws -> Void)? = nil,
         beforeStagedDatabaseRename: (() throws -> Void)? = nil,
+        beforeStagedJSONRename: (() throws -> Void)? = nil,
         finalize: (URL, MappingViewerBundlePublicationPlan) throws -> Void
     ) throws {
         let candidate = candidateBundleURL.standardizedFileURL
@@ -584,7 +619,8 @@ enum MappingViewerBundlePublicationService {
             finalBundleURL: final,
             fileManager: fileManager,
             beforeCandidateRehydration: beforeCandidateRehydration,
-            beforeStagedDatabaseRename: beforeStagedDatabaseRename
+            beforeStagedDatabaseRename: beforeStagedDatabaseRename,
+            beforeStagedJSONRename: beforeStagedJSONRename
         )
         guard plan.bundleRoot.matchesNamedRoot(at: candidate) else {
             throw MappingViewerBundlePublicationError.publicationOwnershipConflict(candidate.path, nil)
@@ -966,7 +1002,8 @@ enum MappingViewerBundlePublicationService {
         finalBundleURL: URL,
         fileManager: FileManager,
         beforeCandidateRehydration: (() throws -> Void)?,
-        beforeStagedDatabaseRename: (() throws -> Void)?
+        beforeStagedDatabaseRename: (() throws -> Void)?,
+        beforeStagedJSONRename: (() throws -> Void)?
     ) throws -> MappingViewerBundlePublicationPlan {
         let bundleRoot = try MappingViewerSecureBundleRoot(url: candidateBundleURL)
         try beforeCandidateRehydration?()
@@ -978,7 +1015,8 @@ enum MappingViewerBundlePublicationService {
             replacingRoot: candidateBundleURL,
             with: finalBundleURL,
             namedRootURL: candidateBundleURL,
-            beforeStagedDatabaseRename: beforeStagedDatabaseRename
+            beforeStagedDatabaseRename: beforeStagedDatabaseRename,
+            beforeStagedJSONRename: beforeStagedJSONRename
         )
         let includesManifest: Bool
         let payloads: [MappingViewerPlannedPayload]
@@ -1090,7 +1128,8 @@ enum MappingViewerBundlePublicationService {
         replacingRoot candidateBundleURL: URL,
         with finalBundleURL: URL,
         namedRootURL: URL,
-        beforeStagedDatabaseRename: (() throws -> Void)?
+        beforeStagedDatabaseRename: (() throws -> Void)?,
+        beforeStagedJSONRename: (() throws -> Void)?
     ) throws {
         let names: [String]
         do {
@@ -1131,7 +1170,8 @@ enum MappingViewerBundlePublicationService {
             try bundleRoot.replaceFile(
                 relativePath: relativePath,
                 data: encoded,
-                namedRootURL: namedRootURL
+                namedRootURL: namedRootURL,
+                beforeRename: beforeStagedJSONRename
             )
         }
     }

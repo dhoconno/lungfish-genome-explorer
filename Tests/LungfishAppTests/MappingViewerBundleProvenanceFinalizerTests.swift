@@ -649,6 +649,88 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
         )
     }
 
+    func testConcurrentJSONReplacementBeforeRenameIsPreserved() throws {
+        let fixture = try makeFixture()
+        let candidateBundle = fixture.resultDirectory.appendingPathComponent(
+            ".Viewer.candidate.lungfishref",
+            isDirectory: true
+        )
+        try FileManager.default.moveItem(at: fixture.viewerBundle, to: candidateBundle)
+        let candidateBAM = candidateBundle.appendingPathComponent("alignments/viewer.bam")
+        let descriptor = try ProvenanceFileDescriptor.file(
+            url: candidateBAM,
+            format: .bam,
+            role: .output
+        )
+        let sidecar = candidateBundle.appendingPathComponent(
+            "alignments/viewer.import.lungfish-provenance.json"
+        )
+        try ProvenanceWriter(signingProvider: nil).write(
+            ProvenanceEnvelope(
+                workflowName: "BAM import",
+                toolName: "Lungfish.app",
+                argv: ["import-bam", candidateBAM.path],
+                output: descriptor,
+                outputs: [descriptor],
+                exitStatus: 0
+            ),
+            toSidecar: sidecar
+        )
+        let concurrentData = Data("{\"concurrent\":true}".utf8)
+        var injected = false
+
+        XCTAssertThrowsError(
+            try MappingViewerBundlePublicationService.publishCandidate(
+                candidateBundleURL: candidateBundle,
+                finalBundleURL: fixture.viewerBundle,
+                beforeStagedJSONRename: {
+                    guard !injected else { return }
+                    injected = true
+                    try concurrentData.write(to: sidecar, options: .atomic)
+                }
+            ) { _, _ in
+                XCTFail("Finalization must not run after a concurrent JSON replacement.")
+            }
+        )
+
+        XCTAssertTrue(injected)
+        XCTAssertEqual(try Data(contentsOf: sidecar), concurrentData)
+    }
+
+    func testConcurrentSameInodeSQLiteEditBeforeRenameIsPreserved() throws {
+        let fixture = try makeFixture()
+        let candidateBundle = fixture.resultDirectory.appendingPathComponent(
+            ".Viewer.candidate.lungfishref",
+            isDirectory: true
+        )
+        try FileManager.default.moveItem(at: fixture.viewerBundle, to: candidateBundle)
+        let databaseURL = candidateBundle.appendingPathComponent("alignments/viewer.stats.db")
+        var concurrentData = Data()
+        var injected = false
+
+        XCTAssertThrowsError(
+            try MappingViewerBundlePublicationService.publishCandidate(
+                candidateBundleURL: candidateBundle,
+                finalBundleURL: fixture.viewerBundle,
+                beforeStagedDatabaseRename: {
+                    guard !injected else { return }
+                    injected = true
+                    let handle = try FileHandle(forWritingTo: databaseURL)
+                    defer { try? handle.close() }
+                    try handle.truncate(atOffset: 0)
+                    concurrentData = Data("concurrent-sqlite-bytes".utf8)
+                    try handle.write(contentsOf: concurrentData)
+                    try handle.synchronize()
+                }
+            ) { _, _ in
+                XCTFail("Finalization must not run after a concurrent SQLite edit.")
+            }
+        )
+
+        XCTAssertTrue(injected)
+        XCTAssertEqual(try Data(contentsOf: databaseURL), concurrentData)
+    }
+
     func testPublishCandidateAtomicallyReplacesExistingBundle() throws {
         let finalBundle = tempDirectory.appendingPathComponent("Viewer.lungfishref", isDirectory: true)
         let candidateBundle = tempDirectory.appendingPathComponent(".Viewer.candidate", isDirectory: true)
