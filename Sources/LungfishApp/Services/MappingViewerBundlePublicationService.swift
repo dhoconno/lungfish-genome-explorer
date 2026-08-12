@@ -57,13 +57,24 @@ struct MappingViewerBundlePublicationPlan {
         bundleRoot.matchesNamedRoot(at: finalBundleURL)
     }
 
-    fileprivate func validatedViewerOutputDescriptors() throws -> [ProvenanceFileDescriptor] {
+    fileprivate func validatedViewerOutputDescriptors(
+        beforePayloadHash: ((String) throws -> Void)?
+    ) throws -> [ProvenanceFileDescriptor] {
         guard matchesPublishedRoot() else {
             throw MappingViewerBundlePublicationError.publicationOwnershipConflict(finalBundleURL.path, nil)
         }
         guard includesManifest else { return [] }
-        return [ProvenanceFileDescriptor(path: finalBundleURL.path, role: .output)]
-            + (try payloads.map { try $0.validatedDescriptor(from: bundleRoot) })
+        let descriptors = [ProvenanceFileDescriptor(path: finalBundleURL.path, role: .output)]
+            + (try payloads.map {
+                try $0.validatedDescriptor(
+                    from: bundleRoot,
+                    beforeHash: beforePayloadHash
+                )
+            })
+        guard matchesPublishedRoot() else {
+            throw MappingViewerBundlePublicationError.publicationOwnershipConflict(finalBundleURL.path, nil)
+        }
+        return descriptors
     }
 }
 
@@ -115,14 +126,22 @@ private final class MappingViewerPlannedPayload {
     }
 
     func validatedDescriptor(
-        from bundleRoot: MappingViewerSecureBundleRoot
+        from bundleRoot: MappingViewerSecureBundleRoot,
+        beforeHash: ((String) throws -> Void)?
     ) throws -> ProvenanceFileDescriptor {
         let currentDescriptor = try bundleRoot.openRegularFile(relativePath: relativePath, flags: O_RDONLY)
         defer { Darwin.close(currentDescriptor) }
-        guard try MappingViewerSecureBundleRoot.fileIdentity(descriptor: currentDescriptor) == identity else {
+        let currentIdentity = try MappingViewerSecureBundleRoot.fileIdentity(descriptor: currentDescriptor)
+        guard currentIdentity == identity else {
             throw MappingViewerBundlePublicationError.invalidViewerPayloadPath(relativePath)
         }
-        let captured = try MappingViewerSecureBundleRoot.stableDigest(descriptor: descriptor)
+        try beforeHash?(relativePath)
+        let captured = try MappingViewerSecureBundleRoot.stableDigest(descriptor: currentDescriptor)
+        let recheckedDescriptor = try bundleRoot.openRegularFile(relativePath: relativePath, flags: O_RDONLY)
+        defer { Darwin.close(recheckedDescriptor) }
+        guard try MappingViewerSecureBundleRoot.fileIdentity(descriptor: recheckedDescriptor) == currentIdentity else {
+            throw MappingViewerBundlePublicationError.invalidViewerPayloadPath(relativePath)
+        }
         return ProvenanceFileDescriptor(
             path: publishedPath,
             checksumSHA256: captured.checksum,
@@ -280,6 +299,85 @@ private final class MappingViewerSecureBundleRoot {
         }
     }
 
+    func replaceSQLiteFile(
+        relativePath: String,
+        namedRootURL: URL,
+        beforeRename: (() throws -> Void)?,
+        mutation: (Data) throws -> Data
+    ) throws {
+        guard matchesNamedRoot(at: namedRootURL) else {
+            throw MappingViewerBundlePublicationError.publicationOwnershipConflict(namedRootURL.path, nil)
+        }
+        let (parent, name) = try openParent(relativePath: relativePath)
+        defer { Darwin.close(parent) }
+        let source = name.withCString {
+            Darwin.openat(parent, $0, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        }
+        guard source >= 0 else { throw posixFailure(relativePath) }
+        defer { Darwin.close(source) }
+        var sourceInformation = stat()
+        guard Darwin.fstat(source, &sourceInformation) == 0,
+              sourceInformation.st_mode & S_IFMT == S_IFREG else {
+            throw posixFailure(relativePath)
+        }
+        let sourceIdentity = Self.identity(sourceInformation)
+
+        let temporaryName = ".lungfish-rehydrate-db-\(UUID().uuidString)"
+        let temporary = temporaryName.withCString {
+            Darwin.openat(parent, $0, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        }
+        guard temporary >= 0 else { throw posixFailure(relativePath) }
+        var removeTemporary = true
+        defer {
+            Darwin.close(temporary)
+            if removeTemporary {
+                for suffix in ["", "-journal", "-wal", "-shm"] {
+                    (temporaryName + suffix).withCString { _ = Darwin.unlinkat(parent, $0, 0) }
+                }
+            }
+        }
+        try Self.copyAll(from: source, to: temporary)
+        guard Darwin.fsync(temporary) == 0,
+              matchesNamedRoot(at: namedRootURL) else {
+            throw MappingViewerBundlePublicationError.publicationOwnershipConflict(namedRootURL.path, nil)
+        }
+
+        let transformed = try mutation(Self.readAll(descriptor: temporary))
+        guard Darwin.ftruncate(temporary, 0) == 0,
+              Darwin.lseek(temporary, 0, SEEK_SET) >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        try Self.writeAll(transformed, descriptor: temporary)
+        guard Darwin.fsync(temporary) == 0,
+              matchesNamedRoot(at: namedRootURL) else {
+            throw MappingViewerBundlePublicationError.publicationOwnershipConflict(namedRootURL.path, nil)
+        }
+        try verifyCurrentFileIdentity(
+            relativePath: relativePath,
+            expected: sourceIdentity
+        )
+        try beforeRename?()
+        guard matchesNamedRoot(at: namedRootURL) else {
+            throw MappingViewerBundlePublicationError.publicationOwnershipConflict(namedRootURL.path, nil)
+        }
+        try verifyCurrentFileIdentity(
+            relativePath: relativePath,
+            expected: sourceIdentity
+        )
+        let status = temporaryName.withCString { temporaryPath in
+            name.withCString { destinationPath in
+                Darwin.renameat(parent, temporaryPath, parent, destinationPath)
+            }
+        }
+        guard status == 0, Darwin.fsync(parent) == 0 else {
+            throw posixFailure(relativePath)
+        }
+        removeTemporary = false
+        guard matchesNamedRoot(at: namedRootURL) else {
+            throw MappingViewerBundlePublicationError.publicationOwnershipConflict(namedRootURL.path, nil)
+        }
+    }
+
     fileprivate static func fileIdentity(descriptor: Int32) throws -> MappingViewerBundleFileIdentity {
         var information = stat()
         guard Darwin.fstat(descriptor, &information) == 0 else {
@@ -329,6 +427,17 @@ private final class MappingViewerSecureBundleRoot {
         } catch {
             Darwin.close(current)
             throw error
+        }
+    }
+
+    private func verifyCurrentFileIdentity(
+        relativePath: String,
+        expected: MappingViewerBundleFileIdentity
+    ) throws {
+        let current = try openRegularFile(relativePath: relativePath, flags: O_RDONLY)
+        defer { Darwin.close(current) }
+        guard try Self.fileIdentity(descriptor: current) == expected else {
+            throw MappingViewerBundlePublicationError.invalidViewerPayloadPath(relativePath)
         }
     }
 
@@ -390,6 +499,32 @@ private final class MappingViewerSecureBundleRoot {
         }
     }
 
+    private static func copyAll(from source: Int32, to destination: Int32) throws {
+        guard Darwin.lseek(source, 0, SEEK_SET) >= 0,
+              Darwin.lseek(destination, 0, SEEK_SET) >= 0,
+              Darwin.ftruncate(destination, 0) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        var buffer = [UInt8](repeating: 0, count: 1_048_576)
+        while true {
+            let count = Darwin.read(source, &buffer, buffer.count)
+            guard count >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+            guard count > 0 else { return }
+            var offset = 0
+            while offset < count {
+                let written = buffer.withUnsafeBytes { rawBuffer in
+                    Darwin.write(
+                        destination,
+                        rawBuffer.baseAddress!.advanced(by: offset),
+                        count - offset
+                    )
+                }
+                guard written > 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+                offset += written
+            }
+        }
+    }
+
     private func posixFailure(_ path: String) -> Error {
         MappingViewerBundlePublicationError.invalidViewerPayloadPath(path)
     }
@@ -418,6 +553,7 @@ enum MappingViewerBundlePublicationService {
         finalBundleURL: URL,
         fileManager: FileManager = .default,
         beforeCandidateRehydration: (() throws -> Void)? = nil,
+        beforeStagedDatabaseRename: (() throws -> Void)? = nil,
         finalize: (URL, MappingViewerBundlePublicationPlan) throws -> Void
     ) throws {
         let candidate = candidateBundleURL.standardizedFileURL
@@ -447,7 +583,8 @@ enum MappingViewerBundlePublicationService {
             candidateBundleURL: candidate,
             finalBundleURL: final,
             fileManager: fileManager,
-            beforeCandidateRehydration: beforeCandidateRehydration
+            beforeCandidateRehydration: beforeCandidateRehydration,
+            beforeStagedDatabaseRename: beforeStagedDatabaseRename
         )
         guard plan.bundleRoot.matchesNamedRoot(at: candidate) else {
             throw MappingViewerBundlePublicationError.publicationOwnershipConflict(candidate.path, nil)
@@ -510,7 +647,8 @@ enum MappingViewerBundlePublicationService {
         beforeRollback: (() throws -> Void)? = nil,
         afterCanonicalRewrite: (() throws -> Void)? = nil,
         viewerPublicationPlan: MappingViewerBundlePublicationPlan? = nil,
-        beforePublishedRootRecheck: (() throws -> Void)? = nil
+        beforePublishedRootRecheck: (() throws -> Void)? = nil,
+        beforePlannedPayloadHash: ((String) throws -> Void)? = nil
     ) throws {
         let resultDirectory = resultDirectoryURL.standardizedFileURL
         let sourceBundle = sourceReferenceBundleURL.standardizedFileURL
@@ -581,6 +719,7 @@ enum MappingViewerBundlePublicationService {
                 viewerBundleURL: viewerBundle,
                 fileManager: fileManager,
                 viewerPublicationPlan: viewerPublicationPlan,
+                beforePlannedPayloadHash: beforePlannedPayloadHash,
                 writer: ProvenanceWriter(
                     publicationMutationDidOccur: tracker.observe,
                     signingProvider: nil
@@ -622,6 +761,7 @@ enum MappingViewerBundlePublicationService {
         viewerBundleURL: URL,
         fileManager: FileManager,
         viewerPublicationPlan: MappingViewerBundlePublicationPlan?,
+        beforePlannedPayloadHash: ((String) throws -> Void)?,
         writer: ProvenanceWriter
     ) throws {
         let publicationStartedAt = Date()
@@ -722,7 +862,9 @@ enum MappingViewerBundlePublicationService {
             try ProvenanceFileDescriptor.file(url: result.bamURL, format: .bam, role: .input),
             try ProvenanceFileDescriptor.file(url: result.baiURL, format: .unknown, role: .index),
         ]
-        let viewerDescriptors = try viewerPublicationPlan?.validatedViewerOutputDescriptors()
+        let viewerDescriptors = try viewerPublicationPlan?.validatedViewerOutputDescriptors(
+            beforePayloadHash: beforePlannedPayloadHash
+        )
             ?? viewerOutputDescriptors(
                 viewerBundleURL: viewerBundleURL,
                 fileManager: fileManager
@@ -823,7 +965,8 @@ enum MappingViewerBundlePublicationService {
         candidateBundleURL: URL,
         finalBundleURL: URL,
         fileManager: FileManager,
-        beforeCandidateRehydration: (() throws -> Void)?
+        beforeCandidateRehydration: (() throws -> Void)?,
+        beforeStagedDatabaseRename: (() throws -> Void)?
     ) throws -> MappingViewerBundlePublicationPlan {
         let bundleRoot = try MappingViewerSecureBundleRoot(url: candidateBundleURL)
         try beforeCandidateRehydration?()
@@ -834,7 +977,8 @@ enum MappingViewerBundlePublicationService {
             in: bundleRoot,
             replacingRoot: candidateBundleURL,
             with: finalBundleURL,
-            namedRootURL: candidateBundleURL
+            namedRootURL: candidateBundleURL,
+            beforeStagedDatabaseRename: beforeStagedDatabaseRename
         )
         let includesManifest: Bool
         let payloads: [MappingViewerPlannedPayload]
@@ -945,7 +1089,8 @@ enum MappingViewerBundlePublicationService {
         in bundleRoot: MappingViewerSecureBundleRoot,
         replacingRoot candidateBundleURL: URL,
         with finalBundleURL: URL,
-        namedRootURL: URL
+        namedRootURL: URL,
+        beforeStagedDatabaseRename: (() throws -> Void)?
     ) throws {
         let names: [String]
         do {
@@ -965,7 +1110,8 @@ enum MappingViewerBundlePublicationService {
                 bundleRoot: bundleRoot,
                 replacingRoot: candidateBundleURL,
                 with: finalBundleURL,
-                namedRootURL: namedRootURL
+                namedRootURL: namedRootURL,
+                beforeStagedDatabaseRename: beforeStagedDatabaseRename
             )
         }
 
@@ -995,88 +1141,110 @@ enum MappingViewerBundlePublicationService {
         bundleRoot: MappingViewerSecureBundleRoot,
         replacingRoot candidateBundleURL: URL,
         with finalBundleURL: URL,
-        namedRootURL: URL
+        namedRootURL: URL,
+        beforeStagedDatabaseRename: (() throws -> Void)?
     ) throws {
-        guard bundleRoot.matchesNamedRoot(at: namedRootURL) else {
-            throw MappingViewerBundlePublicationError.publicationOwnershipConflict(namedRootURL.path, nil)
-        }
-        let databaseDescriptor = try bundleRoot.openRegularFile(relativePath: relativePath, flags: O_RDWR)
-        defer { Darwin.close(databaseDescriptor) }
-        var database: OpaquePointer?
-        let openStatus = sqlite3_open_v2(
-            "/dev/fd/\(databaseDescriptor)",
-            &database,
-            SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX,
-            nil
-        )
-        guard openStatus == SQLITE_OK, let database else {
-            let detail = database.map { String(cString: sqlite3_errmsg($0)) } ?? "unknown SQLite error"
-            sqlite3_close(database)
-            throw MappingViewerBundlePublicationError.atomicPublicationFailed(
-                candidateBundleURL,
-                finalBundleURL,
-                "Could not open imported BAM metadata for path rehydration: \(detail)"
+        try bundleRoot.replaceSQLiteFile(
+            relativePath: relativePath,
+            namedRootURL: namedRootURL,
+            beforeRename: beforeStagedDatabaseRename
+        ) { stagedDatabaseData in
+            var database: OpaquePointer?
+            let openStatus = sqlite3_open_v2(":memory:", &database, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nil)
+            guard openStatus == SQLITE_OK, let database else {
+                let detail = database.map { String(cString: sqlite3_errmsg($0)) } ?? "unknown SQLite error"
+                sqlite3_close(database)
+                throw MappingViewerBundlePublicationError.atomicPublicationFailed(
+                    candidateBundleURL,
+                    finalBundleURL,
+                    "Could not open staged BAM metadata for path rehydration: \(detail)"
+                )
+            }
+            defer { sqlite3_close_v2(database) }
+            let allocation = sqlite3_malloc64(sqlite3_uint64(stagedDatabaseData.count))
+            guard let allocation else {
+                throw MappingViewerBundlePublicationError.atomicPublicationFailed(
+                    candidateBundleURL,
+                    finalBundleURL,
+                    "Could not allocate staged BAM metadata image."
+                )
+            }
+            stagedDatabaseData.copyBytes(
+                to: allocation.assumingMemoryBound(to: UInt8.self),
+                count: stagedDatabaseData.count
             )
-        }
-        defer { sqlite3_close_v2(database) }
-
-        guard sqlite3_exec(database, "PRAGMA journal_mode=MEMORY", nil, nil, nil) == SQLITE_OK else {
-            throw sqliteRehydrationError(
-                database: database,
-                candidateBundleURL: candidateBundleURL,
-                finalBundleURL: finalBundleURL
+            let deserializeStatus = sqlite3_deserialize(
+                database,
+                "main",
+                allocation.assumingMemoryBound(to: UInt8.self),
+                sqlite3_int64(stagedDatabaseData.count),
+                sqlite3_int64(stagedDatabaseData.count),
+                UInt32(SQLITE_DESERIALIZE_FREEONCLOSE | SQLITE_DESERIALIZE_RESIZEABLE)
             )
-        }
-
-        guard sqlite3_exec(database, "BEGIN IMMEDIATE", nil, nil, nil) == SQLITE_OK else {
-            throw sqliteRehydrationError(
-                database: database,
-                candidateBundleURL: candidateBundleURL,
-                finalBundleURL: finalBundleURL
-            )
-        }
-        do {
-            try executePathReplacement(
-                """
-                UPDATE file_info
-                SET value = replace(value, ?1, ?2)
-                WHERE instr(value, ?1) > 0
-                """,
-                database: database,
-                candidatePath: candidateBundleURL.standardizedFileURL.path,
-                finalPath: finalBundleURL.standardizedFileURL.path,
-                candidateBundleURL: candidateBundleURL,
-                finalBundleURL: finalBundleURL
-            )
-            try executePathReplacement(
-                """
-                UPDATE provenance
-                SET command = replace(command, ?1, ?2),
-                    input_file = replace(input_file, ?1, ?2),
-                    output_file = replace(output_file, ?1, ?2)
-                WHERE instr(command, ?1) > 0
-                   OR instr(COALESCE(input_file, ''), ?1) > 0
-                   OR instr(COALESCE(output_file, ''), ?1) > 0
-                """,
-                database: database,
-                candidatePath: candidateBundleURL.standardizedFileURL.path,
-                finalPath: finalBundleURL.standardizedFileURL.path,
-                candidateBundleURL: candidateBundleURL,
-                finalBundleURL: finalBundleURL
-            )
-            guard sqlite3_exec(database, "COMMIT", nil, nil, nil) == SQLITE_OK else {
+            guard deserializeStatus == SQLITE_OK else {
                 throw sqliteRehydrationError(
                     database: database,
                     candidateBundleURL: candidateBundleURL,
                     finalBundleURL: finalBundleURL
                 )
             }
-            guard bundleRoot.matchesNamedRoot(at: namedRootURL) else {
-                throw MappingViewerBundlePublicationError.publicationOwnershipConflict(namedRootURL.path, nil)
+            guard sqlite3_exec(database, "BEGIN IMMEDIATE", nil, nil, nil) == SQLITE_OK else {
+                throw sqliteRehydrationError(
+                    database: database,
+                    candidateBundleURL: candidateBundleURL,
+                    finalBundleURL: finalBundleURL
+                )
             }
-        } catch {
-            sqlite3_exec(database, "ROLLBACK", nil, nil, nil)
-            throw error
+            do {
+                try executePathReplacement(
+                    """
+                    UPDATE file_info
+                    SET value = replace(value, ?1, ?2)
+                    WHERE instr(value, ?1) > 0
+                    """,
+                    database: database,
+                    candidatePath: candidateBundleURL.standardizedFileURL.path,
+                    finalPath: finalBundleURL.standardizedFileURL.path,
+                    candidateBundleURL: candidateBundleURL,
+                    finalBundleURL: finalBundleURL
+                )
+                try executePathReplacement(
+                    """
+                    UPDATE provenance
+                    SET command = replace(command, ?1, ?2),
+                        input_file = replace(input_file, ?1, ?2),
+                        output_file = replace(output_file, ?1, ?2)
+                    WHERE instr(command, ?1) > 0
+                       OR instr(COALESCE(input_file, ''), ?1) > 0
+                       OR instr(COALESCE(output_file, ''), ?1) > 0
+                    """,
+                    database: database,
+                    candidatePath: candidateBundleURL.standardizedFileURL.path,
+                    finalPath: finalBundleURL.standardizedFileURL.path,
+                    candidateBundleURL: candidateBundleURL,
+                    finalBundleURL: finalBundleURL
+                )
+                guard sqlite3_exec(database, "COMMIT", nil, nil, nil) == SQLITE_OK else {
+                    throw sqliteRehydrationError(
+                        database: database,
+                        candidateBundleURL: candidateBundleURL,
+                        finalBundleURL: finalBundleURL
+                    )
+                }
+            } catch {
+                sqlite3_exec(database, "ROLLBACK", nil, nil, nil)
+                throw error
+            }
+            var serializedSize: sqlite3_int64 = 0
+            guard let serialized = sqlite3_serialize(database, "main", &serializedSize, 0) else {
+                throw sqliteRehydrationError(
+                    database: database,
+                    candidateBundleURL: candidateBundleURL,
+                    finalBundleURL: finalBundleURL
+                )
+            }
+            defer { sqlite3_free(serialized) }
+            return Data(bytes: serialized, count: Int(serializedSize))
         }
     }
 

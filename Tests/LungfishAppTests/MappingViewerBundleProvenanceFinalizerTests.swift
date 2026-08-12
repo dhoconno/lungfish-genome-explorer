@@ -463,6 +463,48 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
         XCTAssertEqual(descriptor.fileSize, try ProvenanceFileHasher.fileSize(of: publishedPayload))
     }
 
+    func testPublicationPlanRejectsAtomicPayloadReplacementDuringDescriptorValidation() throws {
+        let fixture = try makeFixture()
+        let candidateBundle = fixture.resultDirectory.appendingPathComponent(
+            ".Viewer.candidate.lungfishref",
+            isDirectory: true
+        )
+        try FileManager.default.moveItem(at: fixture.viewerBundle, to: candidateBundle)
+        let relativePayloadPath = "genome/sequence.fa"
+        let mappingResultURL = fixture.resultDirectory.appendingPathComponent("mapping-result.json")
+        let canonicalURL = fixture.resultDirectory.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let originalResult = try Data(contentsOf: mappingResultURL)
+        let originalCanonical = try Data(contentsOf: canonicalURL)
+        var replacedPayload = false
+
+        XCTAssertThrowsError(
+            try MappingViewerBundlePublicationService.publishCandidate(
+                candidateBundleURL: candidateBundle,
+                finalBundleURL: fixture.viewerBundle
+            ) { publishedBundle, plan in
+                try MappingViewerBundlePublicationService.publish(
+                    result: fixture.preparedResult,
+                    resultDirectoryURL: fixture.resultDirectory,
+                    sourceReferenceBundleURL: fixture.sourceBundle,
+                    viewerBundleURL: publishedBundle,
+                    viewerPublicationPlan: plan,
+                    beforePlannedPayloadHash: { path in
+                        guard path == relativePayloadPath, !replacedPayload else { return }
+                        replacedPayload = true
+                        try Data(">chr1\nAAAA\n".utf8).write(
+                            to: publishedBundle.appendingPathComponent(path),
+                            options: .atomic
+                        )
+                    }
+                )
+            }
+        )
+
+        XCTAssertTrue(replacedPayload)
+        XCTAssertEqual(try Data(contentsOf: mappingResultURL), originalResult)
+        XCTAssertEqual(try Data(contentsOf: canonicalURL), originalCanonical)
+    }
+
     func testPublicationPlanRejectsSymbolicLinkAlignmentsWithoutMutatingExternalTarget() throws {
         let fixture = try makeFixture()
         let candidateBundle = fixture.resultDirectory.appendingPathComponent(
@@ -562,6 +604,49 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
         )
 
         XCTAssertEqual(try regularFileContents(below: externalBundle), externalFiles)
+    }
+
+    func testStagedDatabaseFailureBeforeRenameLeavesOriginalDatabaseUnchangedAndValid() throws {
+        let fixture = try makeFixture()
+        let candidateBundle = fixture.resultDirectory.appendingPathComponent(
+            ".Viewer.candidate.lungfishref",
+            isDirectory: true
+        )
+        try FileManager.default.moveItem(at: fixture.viewerBundle, to: candidateBundle)
+        let candidateDatabase = candidateBundle.appendingPathComponent("alignments/viewer.stats.db")
+        let candidateBAM = candidateBundle.appendingPathComponent("alignments/viewer.bam")
+        do {
+            let database = try AlignmentMetadataDatabase.openForUpdate(at: candidateDatabase)
+            database.setFileInfo("source_path", value: candidateBAM.path)
+        }
+        let originalData = try Data(contentsOf: candidateDatabase)
+        var injectedFailure = false
+
+        XCTAssertThrowsError(
+            try MappingViewerBundlePublicationService.publishCandidate(
+                candidateBundleURL: candidateBundle,
+                finalBundleURL: fixture.viewerBundle,
+                beforeStagedDatabaseRename: {
+                    injectedFailure = true
+                    throw CandidatePublicationTestError.finalizationFailed
+                }
+            ) { _, _ in
+                XCTFail("Finalization must not run when staged database publication fails.")
+            }
+        ) { error in
+            guard case CandidatePublicationTestError.finalizationFailed = error else {
+                return XCTFail("Unexpected staged publication error: \(error)")
+            }
+        }
+
+        XCTAssertTrue(injectedFailure)
+        XCTAssertEqual(try Data(contentsOf: candidateDatabase), originalData)
+        let database = try AlignmentMetadataDatabase(url: candidateDatabase)
+        XCTAssertEqual(database.getFileInfo("source_path"), candidateBAM.path)
+        XCTAssertFalse(
+            try FileManager.default.contentsOfDirectory(atPath: candidateDatabase.deletingLastPathComponent().path)
+                .contains { $0.hasPrefix(".lungfish-rehydrate-db-") }
+        )
     }
 
     func testPublishCandidateAtomicallyReplacesExistingBundle() throws {
