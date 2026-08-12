@@ -24,6 +24,33 @@
 - Permanent tests and fixture generation must run without `/Volumes` and without skip-on-missing behavior.
 - Preserve the user's unrelated uncommitted change in `Sources/LungfishIO/Bundles/AlignmentDataProvider.swift` byte-for-byte when integrating the branch.
 
+### Approved Task 1 command correction (2026-08-12)
+
+The installed `samtools 1.23.1` interface does not support the originally
+written direct consensus/index/read-group argv: `consensus -X` selects a
+caller configuration preset, and `consensus` has no read-group selector.
+The approved implementation therefore materializes one request-scoped
+filtered BAM, indexes it, and runs both consensus and depth against that exact
+snapshot:
+
+- `samtools view -b -h -o <filtered.bam> -X <source.bam|cram> <explicit-index> [-T <decode-reference>] [-q <minimumMapQ>] [-F <excludedFlags>] [-R <sorted-read-groups-file> -n] <contig:start-end>`
+- `samtools index <filtered.bam> <filtered.bam.bai>`
+- `samtools consensus ... -r <contig:start-end> <filtered.bam>`
+- `samtools depth ... -r <contig:start-end> -X <filtered.bam> <filtered.bam.bai>`
+
+For a nonempty read-group selection, `-R <file> -n` is required so reads
+without an RG are excluded; an empty set applies no RG filter and includes all
+groups plus ungrouped reads. Consensus and depth apply identical remaining
+base-quality and reference-coordinate policies, and the normalizer still
+post-masks every below-depth coordinate to `N`. A CRAM reference is used only
+while decoding the source into the filtered BAM. Record success/failure
+execution details for view, index, consensus, and depth, including exact argv
+and command, executable/version/runtime identity, input/output paths plus
+checksums and sizes, stderr, status, timing, read-group file content/hash, and
+resolved semantic defaults. Temporary paths may appear in staging execution
+records but never as final payload descriptors. No invalid direct
+`consensus -X` or direct consensus read-group arguments may remain.
+
 ---
 
 ## File Structure
@@ -119,17 +146,26 @@ Normalize the caller string to the exact reference interval, build a zero-filled
 
 - [ ] **Step 4: Add failing subprocess argument/filter parity tests**
 
-Use the existing injectable samtools runner seam to capture invocations. Assert `fetchConsensus(_ request:)` launches `samtools consensus` and `samtools depth` with the same `chrSynthetic:11-15`, explicit `-X <bam> <index>`, MAPQ, base-quality, excluded flags, sorted read groups, and CRAM `--reference` when applicable. Assert the final result comes from the normalizer and remains `N` at low depth even if the CRAM decoding FASTA contains a different base.
+Use the existing injectable samtools runner seam to capture invocations.
+Assert `fetchConsensus(_ request:)` launches the approved request-scoped
+`samtools view`, `samtools index`, `samtools consensus`, and `samtools depth`
+pipeline above. Verify the source view alone uses explicit `-X <bam> <index>`
+and CRAM `-T <reference>` when applicable; a nonempty RG selection uses a
+stable sorted RG file plus `-n`; downstream consensus and depth use the same
+filtered BAM, interval, and base-quality/reference-coordinate policy. Assert
+the returned execution records cover all four stages and the final result
+comes from the normalizer and remains `N` at low depth even if the CRAM
+decoding FASTA contains a different base.
 
 - [ ] **Step 5: Run the focused tests and verify RED**
 
 Run: `swift test --filter AlignmentDataProviderTests`
 
-Expected: the new request overload is absent or the depth/caller invocations are not filter-identical.
+Expected: the new request overload or request-scoped filtered-snapshot pipeline is absent.
 
 - [ ] **Step 6: Implement the request overload and identical filters**
 
-Add `public func fetchConsensus(_ request: AlignmentConsensusRequest) async throws -> AlignmentConsensusResult`. Build both samtools argv arrays from one private filter encoder. Add explicit index use to consensus (`-X alignment index`) and read-group arguments to both commands. Capture caller output, fetch depth, normalize, and return only the evidence-derived result. Keep the existing signature as a compatibility wrapper that constructs a request with empty read groups.
+Add `public func fetchConsensus(_ request: AlignmentConsensusRequest) async throws -> AlignmentConsensusResult`. Materialize the approved request-scoped filtered BAM with the caller-supplied source index and filters, index it explicitly, and build both downstream argv arrays from that one immutable snapshot. Apply identical remaining base-quality/reference-coordinate policies to caller and depth, capture execution records for all four stages (including failures), normalize, and return only the evidence-derived result. Keep the existing signature as a compatibility wrapper that constructs a request with empty read groups.
 
 - [ ] **Step 7: Verify GREEN and regressions**
 
