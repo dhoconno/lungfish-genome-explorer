@@ -753,6 +753,8 @@ public final class AlignmentDataProvider: @unchecked Sendable {
 
         let filteredBAM = stagingDirectory.appendingPathComponent("filtered.bam")
         let filteredIndex = stagingDirectory.appendingPathComponent("filtered.bam.bai")
+        let consensusOutput = stagingDirectory.appendingPathComponent("consensus.fasta")
+        let depthOutput = stagingDirectory.appendingPathComponent("depth.tsv")
         let readGroupFile = try writeReadGroupFile(filters: request.filters, in: stagingDirectory)
         let region = Self.regionString(chromosome: request.chromosome, start: request.start, end: request.end)
         let defaults = consensusResolvedDefaults(request: request)
@@ -812,7 +814,8 @@ public final class AlignmentDataProvider: @unchecked Sendable {
             timeout: 45,
             samtoolsPath: samtoolsPath, samtoolsVersion: samtoolsVersion,
             inputs: [filteredBAM, filteredIndex],
-            outputs: [],
+            outputs: [consensusOutput],
+            capturedStdoutURL: consensusOutput,
             readGroupFile: readGroupFile,
             defaults: defaults,
             records: &records
@@ -828,17 +831,23 @@ public final class AlignmentDataProvider: @unchecked Sendable {
             timeout: 30,
             samtoolsPath: samtoolsPath, samtoolsVersion: samtoolsVersion,
             inputs: [filteredBAM, filteredIndex],
-            outputs: [],
+            outputs: [depthOutput],
+            capturedStdoutURL: depthOutput,
             readGroupFile: readGroupFile,
             defaults: defaults,
             records: &records
         )
 
-        let normalized = try AlignmentConsensusNormalizer.normalize(
-            caller: Self.parseConsensusFASTA(callerRun.stdout),
-            depth: Self.parseDepthOutput(depthRun.stdout),
-            request: request
-        )
+        let normalized: AlignmentConsensusResult
+        do {
+            normalized = try AlignmentConsensusNormalizer.normalize(
+                caller: Self.parseConsensusFASTA(callerRun.stdout),
+                depth: Self.parseDepthOutput(depthRun.stdout),
+                request: request
+            )
+        } catch AlignmentFetchError.consensusCoordinateMismatch {
+            throw AlignmentFetchError.consensusCoordinateMismatchWithRecords(records)
+        }
         return AlignmentConsensusResult(
             sequence: normalized.sequence,
             referenceLength: normalized.referenceLength,
@@ -900,6 +909,7 @@ public final class AlignmentDataProvider: @unchecked Sendable {
         samtoolsVersion: String,
         inputs: [URL],
         outputs: [URL],
+        capturedStdoutURL: URL? = nil,
         readGroupFile: AlignmentConsensusReadGroupFile?,
         defaults: [String: String],
         records: inout [AlignmentConsensusExecutionRecord]
@@ -907,6 +917,9 @@ public final class AlignmentDataProvider: @unchecked Sendable {
         let startedAt = Date()
         do {
             let result = try await runSamtools(arguments: arguments, timeout: timeout)
+            if let capturedStdoutURL {
+                try Data(result.stdout.utf8).write(to: capturedStdoutURL, options: .atomic)
+            }
             let endedAt = Date()
             let record = consensusExecutionRecord(
                 stage: stage, samtoolsPath: samtoolsPath, samtoolsVersion: samtoolsVersion, arguments: arguments,
@@ -921,6 +934,16 @@ public final class AlignmentDataProvider: @unchecked Sendable {
             return result
         } catch let error as AlignmentFetchError {
             if case .consensusExecutionFailed = error { throw error }
+            let endedAt = Date()
+            records.append(consensusExecutionRecord(
+                stage: stage, samtoolsPath: samtoolsPath, samtoolsVersion: samtoolsVersion, arguments: arguments,
+                inputs: inputs, outputs: outputs, readGroupFile: readGroupFile,
+                defaults: defaults, exitStatus: nil,
+                startedAt: startedAt, endedAt: endedAt,
+                stderr: error.localizedDescription
+            ))
+            throw AlignmentFetchError.consensusExecutionFailed(records)
+        } catch {
             let endedAt = Date()
             records.append(consensusExecutionRecord(
                 stage: stage, samtoolsPath: samtoolsPath, samtoolsVersion: samtoolsVersion, arguments: arguments,
@@ -1290,6 +1313,7 @@ public enum AlignmentFetchError: Error, LocalizedError, Sendable {
     case samtoolsFailed(String)
     case invalidRegion(String)
     case consensusCoordinateMismatch
+    case consensusCoordinateMismatchWithRecords([AlignmentConsensusExecutionRecord])
     case consensusExecutionFailed([AlignmentConsensusExecutionRecord])
     case timeout
 
@@ -1303,6 +1327,8 @@ public enum AlignmentFetchError: Error, LocalizedError, Sendable {
             return "Invalid region: \(region)"
         case .consensusCoordinateMismatch:
             return "Consensus output does not project exactly onto the requested reference interval."
+        case .consensusCoordinateMismatchWithRecords:
+            return "Consensus output does not project exactly onto the requested reference interval; execution records are attached."
         case .consensusExecutionFailed(let records):
             let stage = records.last?.stage.rawValue ?? "unknown"
             let stderr = records.last?.stderr ?? ""

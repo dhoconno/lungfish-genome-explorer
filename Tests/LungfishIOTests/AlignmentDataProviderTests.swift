@@ -693,6 +693,131 @@ final class AlignmentDataProviderTests: XCTestCase {
         XCTAssertEqual(result.executionRecords.first?.readGroupFile?.contents, "alpha\nzeta\n")
     }
 
+    func testFetchConsensusRecordsChecksummedStdoutArtifacts() async throws {
+        // Would fail if consensus or depth stdout were consumed without being
+        // represented as a checksummed, sized scientific output artifact.
+        let tempDir = try makeTemporaryDirectory(prefix: "alignment-consensus-stdout-provenance")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let sourceURL = tempDir.appendingPathComponent("evidence.bam")
+        let sourceIndexURL = tempDir.appendingPathComponent("evidence.bam.bai")
+        try Data("source".utf8).write(to: sourceURL)
+        try Data("index".utf8).write(to: sourceIndexURL)
+        let script = try makeFakeSamtools(in: tempDir, script: """
+        #!/bin/sh
+        case "$1" in
+        --version)
+            printf 'samtools 1.23.1\n'
+            ;;
+        view)
+            while [ "$#" -gt 0 ]; do
+                if [ "$1" = "-o" ]; then
+                    printf 'filtered BAM' > "$2"
+                    break
+                fi
+                shift
+            done
+            ;;
+        index)
+            printf 'filtered index' > "$3"
+            ;;
+        consensus)
+            printf '>chrSynthetic:11-15\nACGTA\n'
+            ;;
+        depth)
+            printf 'chrSynthetic\t11\t3\nchrSynthetic\t13\t7\nchrSynthetic\t14\t1\n'
+            ;;
+        *)
+            exit 9
+            ;;
+        esac
+        """)
+        let provider = AlignmentDataProvider(
+            alignmentPath: sourceURL.path,
+            indexPath: sourceIndexURL.path,
+            samtoolsPath: script.path
+        )
+
+        let result = try await provider.fetchConsensus(
+            consensusRequest(start: 10, end: 15, minimumDepth: 3)
+        )
+
+        let consensusRecord = try XCTUnwrap(result.executionRecords.first { $0.stage == .consensus })
+        XCTAssertEqual(consensusRecord.outputs.count, 1)
+        let consensusOutput = try XCTUnwrap(consensusRecord.outputs.first)
+        XCTAssertTrue(consensusOutput.path.hasSuffix("/consensus.fasta"))
+        XCTAssertEqual(consensusOutput.checksumSHA256, "31b000b699089c4e51432c9d46559dc9393a9870b35fcabadba8ae237d1da9df")
+        XCTAssertEqual(consensusOutput.fileSize, 26)
+
+        let depthRecord = try XCTUnwrap(result.executionRecords.first { $0.stage == .depth })
+        XCTAssertEqual(depthRecord.outputs.count, 1)
+        let depthOutput = try XCTUnwrap(depthRecord.outputs.first)
+        XCTAssertTrue(depthOutput.path.hasSuffix("/depth.tsv"))
+        XCTAssertEqual(depthOutput.checksumSHA256, "d6cf71c1dcdd6167715b14f3e94237c637a7cbd7fcae04227916eeb179d80c76")
+        XCTAssertEqual(depthOutput.fileSize, 54)
+    }
+
+    func testFetchConsensusCoordinateMismatchPreservesStageRecords() async throws {
+        // Would fail if post-subprocess projection validation discarded the
+        // four successful scientific execution records from the thrown error.
+        let tempDir = try makeTemporaryDirectory(prefix: "alignment-consensus-mismatch-provenance")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let sourceURL = tempDir.appendingPathComponent("evidence.bam")
+        let sourceIndexURL = tempDir.appendingPathComponent("evidence.bam.bai")
+        try Data("source".utf8).write(to: sourceURL)
+        try Data("index".utf8).write(to: sourceIndexURL)
+        let script = try makeFakeSamtools(in: tempDir, script: """
+        #!/bin/sh
+        case "$1" in
+        --version)
+            printf 'samtools 1.23.1\n'
+            ;;
+        view)
+            while [ "$#" -gt 0 ]; do
+                if [ "$1" = "-o" ]; then
+                    printf 'filtered BAM' > "$2"
+                    break
+                fi
+                shift
+            done
+            ;;
+        index)
+            printf 'filtered index' > "$3"
+            ;;
+        consensus)
+            printf '>chrSynthetic:11-14\nACGT\n'
+            ;;
+        depth)
+            printf 'chrSynthetic\t11\t3\nchrSynthetic\t12\t3\nchrSynthetic\t13\t3\nchrSynthetic\t14\t3\n'
+            ;;
+        *)
+            exit 9
+            ;;
+        esac
+        """)
+        let provider = AlignmentDataProvider(
+            alignmentPath: sourceURL.path,
+            indexPath: sourceIndexURL.path,
+            samtoolsPath: script.path
+        )
+
+        do {
+            _ = try await provider.fetchConsensus(
+                consensusRequest(start: 10, end: 15, minimumDepth: 3)
+            )
+            XCTFail("Expected coordinate mismatch")
+        } catch let AlignmentFetchError.consensusCoordinateMismatchWithRecords(records) {
+            XCTAssertEqual(records.map(\.stage), [.view, .index, .consensus, .depth])
+            XCTAssertTrue(records.allSatisfy { $0.exitStatus == 0 })
+            XCTAssertTrue(records.suffix(2).allSatisfy {
+                $0.outputs.count == 1
+                    && $0.outputs[0].checksumSHA256 != nil
+                    && $0.outputs[0].fileSize != nil
+            })
+        } catch {
+            XCTFail("Expected coordinate mismatch with records, got \(error)")
+        }
+    }
+
     // MARK: - AlignmentMetadataDatabase Parsing (inline data tests)
 
     func testIdxstatsParsingViaMetadataDatabase() throws {
