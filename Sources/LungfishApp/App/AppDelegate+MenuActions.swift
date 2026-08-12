@@ -388,19 +388,19 @@ extension AppDelegate {
     }
 
     @objc func zoomIn(_ sender: Any?) {
-        activeMainWindowController(sender: sender)?.mainSplitViewController?.viewerController?.zoomIn()
+        activeMainWindowController(sender: sender)?.mainSplitViewController?.activeFullSequenceViewerController?.zoomIn()
     }
 
     @objc func zoomOut(_ sender: Any?) {
-        activeMainWindowController(sender: sender)?.mainSplitViewController?.viewerController?.zoomOut()
+        activeMainWindowController(sender: sender)?.mainSplitViewController?.activeFullSequenceViewerController?.zoomOut()
     }
 
     @objc func zoomToFit(_ sender: Any?) {
-        activeMainWindowController(sender: sender)?.mainSplitViewController?.viewerController?.zoomToFit()
+        activeMainWindowController(sender: sender)?.mainSplitViewController?.activeFullSequenceViewerController?.zoomToFit()
     }
 
     @objc func zoomReset(_ sender: Any?) {
-        activeMainWindowController(sender: sender)?.mainSplitViewController?.viewerController?.zoomReset()
+        activeMainWindowController(sender: sender)?.mainSplitViewController?.activeFullSequenceViewerController?.zoomReset()
     }
 
     @objc func increaseContentTextSize(_ sender: Any?) {

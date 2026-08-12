@@ -1777,16 +1777,14 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         if menuItem.action == #selector(goToPosition(_:)) {
             let viewerController = activeMainWindowController()?
                 .mainSplitViewController?
-                .viewerController?
-                .activeSequenceViewerController
+                .activeFullSequenceViewerController
             return canNavigateToPosition(viewerController: viewerController)
         }
 
         if menuItem.action == #selector(goToGene(_:)) {
             let viewerController = activeMainWindowController()?
                 .mainSplitViewController?
-                .viewerController?
-                .activeSequenceViewerController
+                .activeFullSequenceViewerController
             return canNavigateToGene(viewerController: viewerController)
         }
 
@@ -1796,8 +1794,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             || menuItem.action == #selector(copySelectionFASTA(_:)) {
             guard let activeSequenceViewer = activeMainWindowController()?
                 .mainSplitViewController?
-                .viewerController?
-                .activeSequenceViewerController else {
+                .activeFullSequenceViewerController else {
                 return false
             }
             return activeSequenceViewer.viewerView.canRunSelectedSequenceFASTAOperation()
@@ -1808,8 +1805,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         if menuItem.action == #selector(extractSelection(_:)) {
             let viewerController = activeMainWindowController()?
                 .mainSplitViewController?
-                .viewerController?
-                .activeSequenceViewerController
+                .activeFullSequenceViewerController
             return canExtractSelection(viewerController: viewerController)
         }
 
@@ -1820,7 +1816,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             || menuItem.action == #selector(zoomReset(_:)) {
             let viewerController = activeMainWindowController()?
                 .mainSplitViewController?
-                .viewerController
+                .activeFullSequenceViewerController
             return canZoom(viewerController: viewerController)
         }
 

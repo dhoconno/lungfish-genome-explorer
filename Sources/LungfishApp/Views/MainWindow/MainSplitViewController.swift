@@ -394,6 +394,23 @@ public class MainSplitViewController: NSSplitViewController {
     /// reference so callers still own its lifetime.
     weak var classifierAlignmentEvidenceViewport: ClassifierAlignmentEvidenceViewportController?
 
+    /// The full sequence viewer currently receiving window-level alignment
+    /// actions. Detached classifier evidence is presented above embedded
+    /// mapping/reference detail, which in turn takes precedence over the
+    /// root viewer. MSA remains a root-viewer concern and is handled by that
+    /// viewer's own zoom methods.
+    var activeFullSequenceViewerController: ViewerViewController? {
+        if let detached = classifierAlignmentEvidenceViewport,
+           detached.isAvailableForFullViewerActions {
+            return detached.viewer
+        }
+        if let embedded = viewerController?.activeMappingViewportController?.activeSequenceViewerController
+            ?? viewerController?.referenceBundleViewportController?.activeSequenceViewerController {
+            return embedded
+        }
+        return viewerController
+    }
+
     /// Composition-root factory for classifier adapters.  Leaf classifier
     /// modules receive only the Kit protocol; this App-owned factory binds the
     /// detached viewport to this window's Inspector.

@@ -41,6 +41,17 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
     }
     var onInspectorCapabilitiesChanged: (@MainActor (ClassifierAlignmentInspectorCapabilities?) -> Void)?
 
+    var isAvailableForFullViewerActions: Bool {
+        if case .available = availability { return true }
+        return false
+    }
+
+#if DEBUG
+    func testSetAvailability(_ availability: Availability) {
+        self.availability = availability
+    }
+#endif
+
     init(validator: ClassifierAlignmentEvidenceValidator = .init()) {
         self.validator = validator
         super.init()

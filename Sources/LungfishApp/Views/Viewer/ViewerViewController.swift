@@ -70,6 +70,15 @@ public class ViewerViewController: NSViewController {
     /// intentionally distinct from visible ranges and annotation inference.
     var explicitAlignmentSelection: AlignmentCoordinateSelection?
 
+    /// Records an explicit coordinate choice made in this full viewer. This
+    /// is the only source used by selected-region alignment actions; visible
+    /// ranges are deliberately not treated as user selections.
+    func setExplicitAlignmentSelection(contig: String, start: Int, end: Int) {
+        explicitAlignmentSelection = start < end
+            ? .init(contig: contig, start: start, end: end)
+            : nil
+    }
+
     typealias FASTABlastVerificationRunner = @MainActor (
         _ request: BlastVerificationRequest,
         _ progress: @escaping @Sendable (Double, String) -> Void
@@ -3673,9 +3682,25 @@ public class ViewerViewController: NSViewController {
             multipleSequenceAlignmentViewController.zoomToFit()
             return
         }
-        guard let sequence = viewerView.sequence else { return }
-        referenceFrame?.start = 0
-        referenceFrame?.end = Double(sequence.length)
+        guard let frame = referenceFrame else { return }
+        let length = frame.sequenceLength > 0 ? frame.sequenceLength : (viewerView.sequence?.length ?? 0)
+        guard length > 0 else { return }
+        frame.start = 0
+        frame.end = Double(length)
+        viewerView.setNeedsDisplay(viewerView.bounds)
+        enhancedRulerView.setNeedsDisplay(enhancedRulerView.bounds)
+        updateStatusBar()
+        scheduleViewStateSave()
+    }
+
+    /// Zooms exactly to the coordinate range the user explicitly selected in
+    /// the active alignment viewer.
+    func zoomToSelectedRegion() {
+        guard let selection = explicitAlignmentSelection,
+              let frame = referenceFrame,
+              selection.contig == frame.chromosome else { return }
+        frame.start = Double(selection.start)
+        frame.end = Double(selection.end)
         viewerView.setNeedsDisplay(viewerView.bounds)
         enhancedRulerView.setNeedsDisplay(enhancedRulerView.bounds)
         updateStatusBar()

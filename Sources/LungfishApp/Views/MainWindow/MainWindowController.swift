@@ -504,15 +504,15 @@ public class MainWindowController: NSWindowController {
     // MARK: - Navigation Actions
 
     @objc public func zoomIn(_ sender: Any?) {
-        mainSplitViewController.viewerController?.zoomIn()
+        mainSplitViewController.activeFullSequenceViewerController?.zoomIn()
     }
 
     @objc public func zoomOut(_ sender: Any?) {
-        mainSplitViewController.viewerController?.zoomOut()
+        mainSplitViewController.activeFullSequenceViewerController?.zoomOut()
     }
 
     @objc public func zoomToFit(_ sender: Any?) {
-        mainSplitViewController.viewerController?.zoomToFit()
+        mainSplitViewController.activeFullSequenceViewerController?.zoomToFit()
     }
 
     var hasUnsavedManualHaplotypeDraft: Bool {
