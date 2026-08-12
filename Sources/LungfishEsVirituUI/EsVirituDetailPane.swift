@@ -184,7 +184,7 @@ public final class EsVirituDetailPane: NSView {
         rebuildContent()
 
         // Automatically load BAM pileup for the selected contig.
-        if let bamURL, let selectedContig {
+        if bamURL != nil, let selectedContig {
             onDisplayAlignmentEvidence?(selectedContig.accession, selectedContig.length)
         } else {
             onDisplayAlignmentEvidence?("", 0)
