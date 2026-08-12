@@ -416,6 +416,154 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: alternateGenomeURL), Data(">chr1\nACGT\n".utf8))
     }
 
+    func testPublicationPlanRefreshesPayloadHashAfterSameInodeMutationBeforeProvenanceCommit() throws {
+        let fixture = try makeFixture()
+        let candidateBundle = fixture.resultDirectory.appendingPathComponent(
+            ".Viewer.candidate.lungfishref",
+            isDirectory: true
+        )
+        try FileManager.default.moveItem(at: fixture.viewerBundle, to: candidateBundle)
+        let relativePayloadPath = "genome/sequence.fa"
+        let candidatePayload = candidateBundle.appendingPathComponent(relativePayloadPath)
+        let originalChecksum = try ProvenanceFileHasher.sha256(of: candidatePayload)
+        let originalIdentity = try XCTUnwrap(
+            FileManager.default.attributesOfItem(atPath: candidatePayload.path)[.systemFileNumber] as? NSNumber
+        )
+        let replacementData = Data(">chr1\nTGCA\n".utf8)
+
+        try MappingViewerBundlePublicationService.publishCandidate(
+            candidateBundleURL: candidateBundle,
+            finalBundleURL: fixture.viewerBundle
+        ) { publishedBundle, plan in
+            let publishedPayload = publishedBundle.appendingPathComponent(relativePayloadPath)
+            let handle = try FileHandle(forWritingTo: publishedPayload)
+            defer { try? handle.close() }
+            try handle.truncate(atOffset: 0)
+            try handle.write(contentsOf: replacementData)
+            try handle.synchronize()
+
+            try MappingViewerBundlePublicationService.publish(
+                result: fixture.preparedResult,
+                resultDirectoryURL: fixture.resultDirectory,
+                sourceReferenceBundleURL: fixture.sourceBundle,
+                viewerBundleURL: publishedBundle,
+                viewerPublicationPlan: plan
+            )
+        }
+
+        let publishedPayload = fixture.viewerBundle.appendingPathComponent(relativePayloadPath)
+        let publishedIdentity = try XCTUnwrap(
+            FileManager.default.attributesOfItem(atPath: publishedPayload.path)[.systemFileNumber] as? NSNumber
+        )
+        XCTAssertEqual(publishedIdentity, originalIdentity, "The regression must mutate the planned inode in place.")
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: fixture.resultDirectory))
+        let descriptor = try XCTUnwrap(envelope.outputs.first { $0.path == publishedPayload.path })
+        XCTAssertNotEqual(descriptor.checksumSHA256, originalChecksum)
+        XCTAssertEqual(descriptor.checksumSHA256, try ProvenanceFileHasher.sha256(of: publishedPayload))
+        XCTAssertEqual(descriptor.fileSize, try ProvenanceFileHasher.fileSize(of: publishedPayload))
+    }
+
+    func testPublicationPlanRejectsSymbolicLinkAlignmentsWithoutMutatingExternalTarget() throws {
+        let fixture = try makeFixture()
+        let candidateBundle = fixture.resultDirectory.appendingPathComponent(
+            ".Viewer.candidate.lungfishref",
+            isDirectory: true
+        )
+        try FileManager.default.moveItem(at: fixture.viewerBundle, to: candidateBundle)
+        let candidateAlignments = candidateBundle.appendingPathComponent("alignments", isDirectory: true)
+        do {
+            let database = try AlignmentMetadataDatabase.openForUpdate(
+                at: candidateAlignments.appendingPathComponent("viewer.stats.db")
+            )
+            database.setFileInfo(
+                "source_path",
+                value: candidateAlignments.appendingPathComponent("viewer.bam").path
+            )
+        }
+        let externalAlignments = tempDirectory.appendingPathComponent("external-alignments", isDirectory: true)
+        try FileManager.default.moveItem(at: candidateAlignments, to: externalAlignments)
+        let externalBAM = externalAlignments.appendingPathComponent("viewer.bam")
+        let externalImportSidecar = externalAlignments.appendingPathComponent(
+            "viewer.import.lungfish-provenance.json"
+        )
+        try ProvenanceWriter(signingProvider: nil).write(
+            ProvenanceEnvelope(
+                workflowName: "import-bam",
+                toolName: "samtools",
+                argv: ["import-bam", candidateAlignments.appendingPathComponent("viewer.bam").path],
+                output: try ProvenanceFileDescriptor.file(
+                    url: externalBAM,
+                    format: .bam,
+                    role: .output
+                ),
+                outputs: [
+                    try ProvenanceFileDescriptor.file(
+                        url: externalBAM,
+                        format: .bam,
+                        role: .output
+                    )
+                ],
+                exitStatus: 0
+            ),
+            toSidecar: externalImportSidecar
+        )
+        try FileManager.default.createSymbolicLink(
+            at: candidateAlignments,
+            withDestinationURL: externalAlignments
+        )
+        let externalFiles = try regularFileContents(below: externalAlignments)
+
+        XCTAssertThrowsError(
+            try MappingViewerBundlePublicationService.publishCandidate(
+                candidateBundleURL: candidateBundle,
+                finalBundleURL: fixture.viewerBundle
+            ) { _, _ in
+                XCTFail("Finalization must not run for a symbolic-link alignments directory.")
+            }
+        )
+
+        XCTAssertEqual(try regularFileContents(below: externalAlignments), externalFiles)
+    }
+
+    func testCandidateRootSwapBeforeRehydrationDoesNotMutateExternalTarget() throws {
+        let fixture = try makeFixture()
+        let candidateBundle = fixture.resultDirectory.appendingPathComponent(
+            ".Viewer.candidate.lungfishref",
+            isDirectory: true
+        )
+        try FileManager.default.moveItem(at: fixture.viewerBundle, to: candidateBundle)
+        let displacedCandidate = tempDirectory.appendingPathComponent("displaced-candidate", isDirectory: true)
+        let externalBundle = tempDirectory.appendingPathComponent("external-bundle", isDirectory: true)
+        try FileManager.default.copyItem(at: candidateBundle, to: externalBundle)
+        let externalDatabase = externalBundle.appendingPathComponent("alignments/viewer.stats.db")
+        do {
+            let database = try AlignmentMetadataDatabase.openForUpdate(at: externalDatabase)
+            database.setFileInfo(
+                "source_path",
+                value: candidateBundle.appendingPathComponent("alignments/viewer.bam").path
+            )
+        }
+        let externalFiles = try regularFileContents(below: externalBundle)
+
+        XCTAssertThrowsError(
+            try MappingViewerBundlePublicationService.publishCandidate(
+                candidateBundleURL: candidateBundle,
+                finalBundleURL: fixture.viewerBundle,
+                beforeCandidateRehydration: {
+                    try FileManager.default.moveItem(at: candidateBundle, to: displacedCandidate)
+                    try FileManager.default.createSymbolicLink(
+                        at: candidateBundle,
+                        withDestinationURL: externalBundle
+                    )
+                }
+            ) { _, _ in
+                XCTFail("Finalization must not run after the candidate root is replaced.")
+            }
+        )
+
+        XCTAssertEqual(try regularFileContents(below: externalBundle), externalFiles)
+    }
+
     func testPublishCandidateAtomicallyReplacesExistingBundle() throws {
         let finalBundle = tempDirectory.appendingPathComponent("Viewer.lungfishref", isDirectory: true)
         let candidateBundle = tempDirectory.appendingPathComponent(".Viewer.candidate", isDirectory: true)
