@@ -36,6 +36,24 @@ struct MetagenomicsDatabaseInstallerTests {
         #expect(!fixture.messages.contains { $0.localizedCaseInsensitiveContains("build") || $0.contains("kraken2-build") })
     }
 
+    @Test("step evidence names the invoked executable rather than an argv value")
+    func evidenceUsesInvokedToolNames() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let installer = fixture.installer(tools: FixtureToolRunner())
+
+        _ = try await installer.prepareInstallation(
+            database: fixture.database(recipe: .kraken2Special(type: .silva)),
+            databasesBaseURL: fixture.root,
+            threads: 4,
+            progress: { _, _ in }
+        )
+
+        let attempt = try #require(fixture.writer.successes.first?.attempt)
+        #expect(attempt.steps.map(\.toolName) == ["kraken2-build", "bracken-build"])
+        #expect(attempt.steps.map(\.toolVersion) == ["1.0", "1.0"])
+    }
+
     @Test("Greengenes selects its exact special source")
     func greengenesRecipeUsesExactSpecial() async throws {
         let fixture = try Fixture()
@@ -193,6 +211,30 @@ struct MetagenomicsDatabaseInstallerTests {
         }
     }
 
+    @Test("cancellation after promotion removes the unpublished final directory and records output-free failure evidence")
+    func cancellationAfterPromotionRollsBackFinalDirectory() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        fixture.writer.cancelCurrentTaskAfterSuccessWrite = true
+        let installer = fixture.installer(tools: FixtureToolRunner())
+
+        let task = Task {
+            _ = try await installer.prepareInstallation(
+                database: fixture.database(recipe: .kraken2Special(type: .silva)),
+                databasesBaseURL: fixture.root,
+                threads: 4,
+                progress: { _, _ in }
+            )
+        }
+        await #expect(throws: CancellationError.self) { _ = try await task.value }
+
+        let final = fixture.root.appendingPathComponent("kraken2/fixture", isDirectory: true)
+        #expect(!FileManager.default.fileExists(atPath: final.path))
+        #expect(fixture.writer.successes.count == 1)
+        #expect(fixture.writer.failures.count == 1)
+        #expect(fixture.writer.failures[0].attempt.steps.allSatisfy { $0.outputs.isEmpty })
+    }
+
     @Test("cancellation before work produces no successful prepared result")
     func cancellationBeforeWork() async throws {
         let fixture = try Fixture()
@@ -335,6 +377,8 @@ private final class FixtureToolRunner: MetagenomicsDatabaseToolRunning, @uncheck
         return try #require(fixture).krakenBin
     }
 
+    func toolVersion(name: String, environment: String, workingDirectory: URL) async throws -> String { "1.0" }
+
     func run(name: String, arguments: [String], environment: String, workingDirectory: URL, timeout: TimeInterval) async throws -> MetagenomicsDatabaseToolResult {
         calls.append(.init(name: name, arguments: arguments, environment: environment))
         let fixture = try #require(fixture)
@@ -366,7 +410,12 @@ private final class FixtureProvenanceWriter: MetagenomicsDatabaseInstallProvenan
     var failures: [Failure] = []
     var successError: Error?
     var failureError: Error?
-    func writeSuccess(_ attempt: MetagenomicsDatabaseInstallAttempt, snapshot: MetagenomicsDatabasePayloadSnapshot) throws { if let successError { throw successError }; successes.append(.init(attempt: attempt, snapshot: snapshot)) }
+    var cancelCurrentTaskAfterSuccessWrite = false
+    func writeSuccess(_ attempt: MetagenomicsDatabaseInstallAttempt, snapshot: MetagenomicsDatabasePayloadSnapshot) throws {
+        if let successError { throw successError }
+        successes.append(.init(attempt: attempt, snapshot: snapshot))
+        if cancelCurrentTaskAfterSuccessWrite { withUnsafeCurrentTask { $0?.cancel() } }
+    }
     func writeFailure(_ attempt: MetagenomicsDatabaseInstallAttempt, error: MetagenomicsDatabaseInstallFailure, historyDirectory: URL) throws {
         if let failureError { throw failureError }
         failures.append(.init(attempt: attempt, error: error))

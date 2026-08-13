@@ -24,6 +24,17 @@ public struct MetagenomicsDatabaseToolResult: Sendable, Equatable {
 public protocol MetagenomicsDatabaseToolRunning: Sendable {
     func run(name: String, arguments: [String], environment: String, workingDirectory: URL, timeout: TimeInterval) async throws -> MetagenomicsDatabaseToolResult
     func executableDirectory(environment: String) async throws -> URL
+    func executableDirectory(environment: String, executable: String) async throws -> URL
+    func toolVersion(name: String, environment: String, workingDirectory: URL) async throws -> String
+}
+
+public extension MetagenomicsDatabaseToolRunning {
+    /// Compatibility default for test doubles. Production runners must verify the
+    /// named executable, rather than merely finding an environment's `bin` folder.
+    func executableDirectory(environment: String, executable: String) async throws -> URL {
+        try await executableDirectory(environment: environment)
+    }
+    func toolVersion(name: String, environment: String, workingDirectory: URL) async throws -> String { "unresolved" }
 }
 
 public protocol MetagenomicsDatabaseArchiveTransferring: Sendable {
@@ -51,9 +62,14 @@ public struct FoundationMetagenomicsDatabaseFileSystem: MetagenomicsDatabaseFile
 public struct ManagedMetagenomicsDatabaseToolRunner: MetagenomicsDatabaseToolRunning, Sendable {
     private let condaManager: CondaManager
     private let now: @Sendable () -> Date
+    private let versionResolver: @Sendable (CondaManager, String, String, URL) async throws -> String
 
-    public init(condaManager: CondaManager = .shared, now: @escaping @Sendable () -> Date = Date.init) {
-        self.condaManager = condaManager; self.now = now
+    public init(
+        condaManager: CondaManager = .shared,
+        now: @escaping @Sendable () -> Date = Date.init,
+        versionResolver: @escaping @Sendable (CondaManager, String, String, URL) async throws -> String = Self.resolveManagedToolVersion
+    ) {
+        self.condaManager = condaManager; self.now = now; self.versionResolver = versionResolver
     }
 
     public func executableDirectory(environment: String) async throws -> URL {
@@ -64,18 +80,46 @@ public struct ManagedMetagenomicsDatabaseToolRunner: MetagenomicsDatabaseToolRun
         return directory
     }
 
+    public func executableDirectory(environment: String, executable: String) async throws -> URL {
+        let directory = try await executableDirectory(environment: environment)
+        guard FileManager.default.isExecutableFile(atPath: directory.appendingPathComponent(executable).path) else {
+            throw MetagenomicsDatabaseInstallerError.missingManagedTool(name: executable)
+        }
+        return directory
+    }
+
     public func run(name: String, arguments: [String], environment: String, workingDirectory: URL, timeout: TimeInterval) async throws -> MetagenomicsDatabaseToolResult {
-        let executable = await condaManager.environmentURL(named: environment).appendingPathComponent("bin/\(name)")
-        guard FileManager.default.isExecutableFile(atPath: executable.path) else { throw MetagenomicsDatabaseInstallerError.missingManagedTool(name: name) }
+        let executableDirectory = try await executableDirectory(environment: environment, executable: name)
+        let executable = executableDirectory.appendingPathComponent(name)
         let started = now()
+        let version = try await versionResolver(condaManager, name, environment, workingDirectory)
         let result = try await condaManager.runTool(name: name, arguments: arguments, environment: environment, workingDirectory: workingDirectory, timeout: timeout)
         let completed = now()
         let argv = [await condaManager.micromambaPath.path, "run", "-n", environment, name] + arguments
         return MetagenomicsDatabaseToolResult(
             stdout: result.stdout, stderr: result.stderr, exitStatus: result.exitCode, argv: argv,
             runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: executable.path, condaEnvironment: environment, condaPrefix: await condaManager.environmentURL(named: environment).path, pluginPack: "Metagenomics"),
-            toolVersion: "unknown", startedAt: started, completedAt: completed
+            toolVersion: version, startedAt: started, completedAt: completed
         )
+    }
+
+    public func toolVersion(name: String, environment: String, workingDirectory: URL) async throws -> String {
+        _ = try await executableDirectory(environment: environment, executable: name)
+        return try await versionResolver(condaManager, name, environment, workingDirectory)
+    }
+
+    public static func resolveManagedToolVersion(_ condaManager: CondaManager, _ name: String, _ environment: String, _ workingDirectory: URL) async throws -> String {
+        let packageName: String
+        switch name {
+        case "kraken2-build": packageName = "kraken2"
+        case "bracken-build": packageName = "bracken"
+        default: packageName = name
+        }
+        guard let version = try await condaManager.listInstalled(in: environment).first(where: { $0.name == packageName })?.version,
+              !version.isEmpty else {
+            throw MetagenomicsDatabaseInstallerError.missingManagedTool(name: name)
+        }
+        return version
     }
 }
 
@@ -84,9 +128,22 @@ public struct URLSessionTarDatabaseArchiveTransfer: MetagenomicsDatabaseArchiveT
 
     public func download(from source: URL, progress: @Sendable @escaping (Double) -> Void) async throws -> URL {
         try Task.checkCancellation()
-        let (temporary, response) = try await URLSession.shared.download(from: source)
+        let taskBox = DownloadTaskCancellationBox()
+        let temporary = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
+                let delegate = InstallerDownloadDelegate(progress: progress) { result in
+                    switch result {
+                    case .success(let url): continuation.resume(returning: url)
+                    case .failure(let error): continuation.resume(throwing: error)
+                    }
+                }
+                let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+                let task = session.downloadTask(with: source)
+                taskBox.store(task)
+                task.resume()
+            }
+        } onCancel: { taskBox.cancel() }
         try Task.checkCancellation()
-        guard (response as? HTTPURLResponse).map({ 200 ..< 300 ~= $0.statusCode }) ?? true else { throw MetagenomicsDatabaseInstallerError.archiveTransferFailed("HTTP download failed") }
         let destination = FileManager.default.temporaryDirectory.appendingPathComponent("lungfish-database-\(UUID().uuidString).tar.gz")
         try FileManager.default.moveItem(at: temporary, to: destination)
         progress(1)
@@ -94,25 +151,125 @@ public struct URLSessionTarDatabaseArchiveTransfer: MetagenomicsDatabaseArchiveT
     }
 
     public func extract(archive: URL, destination: URL) async throws -> MetagenomicsDatabaseToolResult {
+        try Task.checkCancellation()
         let started = Date()
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
         process.arguments = ["xzf", archive.path, "-C", destination.path]
         let stdout = Pipe(); let stderr = Pipe()
         process.standardOutput = stdout; process.standardError = stderr
+        let cancellation = TarProcessCancellationBox()
+        let state = TarProcessResultState()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 process.terminationHandler = { terminated in
-                    let output = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-                    let error = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-                    continuation.resume(returning: MetagenomicsDatabaseToolResult(stdout: output, stderr: error, exitStatus: terminated.terminationStatus, argv: ["/usr/bin/tar", "xzf", archive.path, "-C", destination.path], runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: "/usr/bin/tar"), toolVersion: "bsdtar", startedAt: started, completedAt: Date()))
+                    state.waitForDrains {
+                        guard state.finishOnce() else { return }
+                        continuation.resume(returning: MetagenomicsDatabaseToolResult(stdout: state.stdout, stderr: state.stderr, exitStatus: terminated.terminationStatus, argv: ["/usr/bin/tar", "xzf", archive.path, "-C", destination.path], runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: "/usr/bin/tar"), toolVersion: "bsdtar", startedAt: started, completedAt: Date()))
+                    }
                 }
-                do { try process.run() } catch { continuation.resume(throwing: error) }
+                state.drain(stdout.fileHandleForReading, into: .stdout)
+                state.drain(stderr.fileHandleForReading, into: .stderr)
+                do {
+                    try Task.checkCancellation()
+                    guard try cancellation.launch(process) else { throw CancellationError() }
+                } catch {
+                    guard state.finishOnce() else { return }
+                    continuation.resume(throwing: error)
+                }
             }
         } onCancel: {
-            if process.isRunning { process.terminate() }
+            cancellation.cancel()
         }
     }
+}
+
+private final class InstallerDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    private let progress: @Sendable (Double) -> Void
+    private let completion: @Sendable (Result<URL, Error>) -> Void
+    private let fired = InstallerLockedFlag()
+
+    init(progress: @Sendable @escaping (Double) -> Void, completion: @Sendable @escaping (Result<URL, Error>) -> Void) {
+        self.progress = progress; self.completion = completion
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+        let total = totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : totalBytesWritten
+        guard total > 0 else { return }
+        progress(min(Double(totalBytesWritten) / Double(total), 1))
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        guard fired.testAndSet() else { return }
+        let stable = FileManager.default.temporaryDirectory.appendingPathComponent("lungfish-database-\(UUID().uuidString).tar.gz")
+        do { try FileManager.default.copyItem(at: location, to: stable); completion(.success(stable)) }
+        catch { completion(.failure(error)) }
+        session.invalidateAndCancel()
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        guard let error, fired.testAndSet() else { return }
+        completion(.failure(error)); session.invalidateAndCancel()
+    }
+}
+
+private final class InstallerLockedFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    func testAndSet() -> Bool { lock.lock(); defer { lock.unlock() }; guard !value else { return false }; value = true; return true }
+}
+
+private final class TarProcessCancellationBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var process: Process?
+    private var cancelled = false
+
+    /// The check and launch share a lock with cancellation, so cancellation can
+    /// either prevent launch or terminate an already-running tar process.
+    func launch(_ process: Process) throws -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard !cancelled else { return false }
+        try process.run()
+        self.process = process
+        return true
+    }
+
+    func cancel() {
+        lock.lock(); cancelled = true
+        let running = process
+        lock.unlock()
+        if running?.isRunning == true { running?.terminate() }
+    }
+}
+
+private final class TarProcessResultState: @unchecked Sendable {
+    enum Stream { case stdout, stderr }
+    private let lock = NSLock()
+    private let drains = DispatchGroup()
+    private var stdoutData = Data()
+    private var stderrData = Data()
+    private var completed = false
+
+    func drain(_ handle: FileHandle, into stream: Stream) {
+        drains.enter()
+        DispatchQueue.global(qos: .utility).async {
+            let data = handle.readDataToEndOfFile()
+            self.lock.lock()
+            switch stream {
+            case .stdout: self.stdoutData.append(data)
+            case .stderr:
+                let remaining = max(0, 16_384 - self.stderrData.count)
+                self.stderrData.append(data.prefix(remaining))
+            }
+            self.lock.unlock()
+            self.drains.leave()
+        }
+    }
+
+    func waitForDrains(_ body: @escaping @Sendable () -> Void) { drains.notify(queue: .global(qos: .utility), execute: body) }
+    func finishOnce() -> Bool { lock.lock(); defer { lock.unlock() }; guard !completed else { return false }; completed = true; return true }
+    var stdout: String { lock.lock(); defer { lock.unlock() }; return String(data: stdoutData, encoding: .utf8) ?? "" }
+    var stderr: String { lock.lock(); defer { lock.unlock() }; return String(data: stderrData, encoding: .utf8) ?? "" }
 }
 
 public struct MetagenomicsDatabaseInstallResult: Sendable {
@@ -184,33 +341,33 @@ public struct MetagenomicsDatabaseInstaller: Sendable {
                 let descriptor = try ProvenanceFileDescriptor.file(url: archive, role: .input)
                 progress(0.4, "Preparing…")
                 let extraction = try await archiveTransfer.extract(archive: archive, destination: staging)
-                steps.append(evidence(from: extraction, inputs: [descriptor], options: resolved))
+                steps.append(evidence(from: extraction, toolName: "tar", inputs: [descriptor], options: resolved))
                 try throwOnFailure(extraction, tool: "tar")
             case .kraken2Special(let type):
                 recipeSource = type.rawValue
                 progress(0, "Downloading…")
                 try Task.checkCancellation()
-                _ = try await executableDirectory(environment: "kraken2", executable: "kraken2-build")
                 let krakenBin = try await executableDirectory(environment: "kraken2", executable: "kraken2-build")
-                _ = try await executableDirectory(environment: "bracken", executable: "bracken-build")
+                let brackenBin = try await executableDirectory(environment: "bracken", executable: "bracken-build")
+                let krakenVersion = try await toolRunner.toolVersion(name: "kraken2-build", environment: "kraken2", workingDirectory: staging)
+                let brackenVersion = try await toolRunner.toolVersion(name: "bracken-build", environment: "bracken", workingDirectory: staging)
                 progress(0.35, "Preparing…")
                 let specialArguments = ["--db", staging.path, "--special", type.rawValue]
                 steps.append(plannedEvidence(
                     name: "kraken2-build", arguments: specialArguments, environment: "kraken2",
-                    executableDirectory: krakenBin, options: resolved, startedAt: now()
+                    executableDirectory: krakenBin, toolVersion: krakenVersion, options: resolved, startedAt: now()
                 ))
                 let special = try await toolRunner.run(name: "kraken2-build", arguments: specialArguments, environment: "kraken2", workingDirectory: staging, timeout: 86_400)
-                steps[steps.count - 1] = evidence(from: special, inputs: [], options: resolved)
+                steps[steps.count - 1] = evidence(from: special, toolName: "kraken2-build", inputs: [], options: resolved)
                 try throwOnFailure(special, tool: "kraken2-build")
                 try Task.checkCancellation()
                 let brackenArguments = ["-d", staging.path, "-t", String(threads), "-k", "35", "-l", "150", "-x", krakenBin.path, "-y", "kraken2"]
-                let brackenBin = try await executableDirectory(environment: "bracken", executable: "bracken-build")
                 steps.append(plannedEvidence(
                     name: "bracken-build", arguments: brackenArguments, environment: "bracken",
-                    executableDirectory: brackenBin, options: resolved, startedAt: now()
+                    executableDirectory: brackenBin, toolVersion: brackenVersion, options: resolved, startedAt: now()
                 ))
                 let bracken = try await toolRunner.run(name: "bracken-build", arguments: brackenArguments, environment: "bracken", workingDirectory: staging, timeout: 86_400)
-                steps[steps.count - 1] = evidence(from: bracken, inputs: [], options: resolved)
+                steps[steps.count - 1] = evidence(from: bracken, toolName: "bracken-build", inputs: [], options: resolved)
                 try throwOnFailure(bracken, tool: "bracken-build")
             }
             try Task.checkCancellation()
@@ -234,6 +391,7 @@ public struct MetagenomicsDatabaseInstaller: Sendable {
             return PreparedMetagenomicsDatabaseInstallation(result: .init(finalURL: finalURL, version: version, payloadDigest: snapshot.aggregateSHA256, sizeOnDisk: Int64(clamping: snapshot.totalSizeBytes)), stagingURL: staging)
         } catch let originalError {
             try? fileSystem.removeItemIfPresent(at: staging)
+            try? fileSystem.removeItemIfPresent(at: finalURL)
             let failure = failureRecord(for: originalError)
             if !steps.isEmpty {
                 let attempt = MetagenomicsDatabaseInstallAttempt(database: database, finalURL: finalURL, recipeSource: database.installationRecipe.map(Self.recipeSource) ?? "unknown", explicitOptions: ["threads": .integer(threads)], defaultOptions: defaults, resolvedOptions: resolved, steps: steps, startedAt: started, completedAt: now())
@@ -248,16 +406,16 @@ public struct MetagenomicsDatabaseInstaller: Sendable {
     public func rollback(_ prepared: PreparedMetagenomicsDatabaseInstallation) throws { try fileSystem.removeItemIfPresent(at: prepared.result.finalURL); if let backup = prepared.backupURL { try fileSystem.moveItem(at: backup, to: prepared.result.finalURL) } }
 
     private func executableDirectory(environment: String, executable: String) async throws -> URL {
-        do { return try await toolRunner.executableDirectory(environment: environment) }
+        do { return try await toolRunner.executableDirectory(environment: environment, executable: executable) }
         catch { throw MetagenomicsDatabaseInstallerError.missingManagedTool(name: executable) }
     }
-    private func evidence(from result: MetagenomicsDatabaseToolResult, inputs: [ProvenanceFileDescriptor], options: [String: ParameterValue]) -> MetagenomicsDatabaseInstallStepEvidence {
-        .init(toolName: result.argv.last(where: { !$0.hasPrefix("-") }) ?? "unknown", toolVersion: result.toolVersion, argv: result.argv, durableReplayArgv: result.argv, resolvedOptions: options, runtimeIdentity: result.runtimeIdentity, inputs: inputs, outputs: [], exitStatus: result.exitStatus, startedAt: result.startedAt, completedAt: result.completedAt, stderr: Self.bounded(result.stderr))
+    private func evidence(from result: MetagenomicsDatabaseToolResult, toolName: String, inputs: [ProvenanceFileDescriptor], options: [String: ParameterValue]) -> MetagenomicsDatabaseInstallStepEvidence {
+        .init(toolName: toolName, toolVersion: result.toolVersion, argv: result.argv, durableReplayArgv: result.argv, resolvedOptions: options, runtimeIdentity: result.runtimeIdentity, inputs: inputs, outputs: [], exitStatus: result.exitStatus, startedAt: result.startedAt, completedAt: result.completedAt, stderr: Self.bounded(result.stderr))
     }
-    private func plannedEvidence(name: String, arguments: [String], environment: String, executableDirectory: URL, options: [String: ParameterValue], startedAt: Date) -> MetagenomicsDatabaseInstallStepEvidence {
+    private func plannedEvidence(name: String, arguments: [String], environment: String, executableDirectory: URL, toolVersion: String, options: [String: ParameterValue], startedAt: Date) -> MetagenomicsDatabaseInstallStepEvidence {
         let argv = [name] + arguments
         return .init(
-            toolName: name, toolVersion: "unknown", argv: argv, durableReplayArgv: argv,
+            toolName: name, toolVersion: toolVersion, argv: argv, durableReplayArgv: argv,
             resolvedOptions: options,
             runtimeIdentity: .init(
                 executablePath: executableDirectory.appendingPathComponent(name).path,
