@@ -66,6 +66,7 @@ import XCTest
 
     func testStaleSecondValidationCleansTransactionAndNeverPublishes() async throws {
         let transaction = try makeTransaction()
+        transaction.appendExecutionRecord(executionRecord(stderr: "staged evidence"))
         var validationCount = 0
         var didPublish = false
         let capturedIdentity = try context().identity
@@ -90,14 +91,64 @@ import XCTest
                 outputBaseName: "x"
             )
             XCTFail("Expected stale evidence validation to fail before publication")
-        } catch {
-            XCTAssertEqual(error as? AlignmentActionContext.EvidenceError, .staleEvidence(URL(fileURLWithPath: "/evidence/a.bam")))
+        } catch let failure as AlignmentReadExtractionFailure {
+            XCTAssertEqual(failure.kind, .staleInput)
+            XCTAssertEqual(failure.executionRecords.count, 1)
+            XCTAssertTrue(failure.message.contains("workflow=map;resultID=r;sampleID=s;evidenceID=e"))
+            XCTAssertTrue(failure.message.contains("a.bam"))
         }
 
         XCTAssertEqual(capturedIdentity, try context().identity)
         XCTAssertEqual(validationCount, 2)
         XCTAssertFalse(didPublish)
         XCTAssertTrue(transaction.isCleanedUp)
+    }
+
+    func testLaunchReportsCapturedIdentityAndStagedRecordsWhenSecondGateIsStale() async throws {
+        let transaction = try makeTransaction()
+        transaction.appendExecutionRecord(executionRecord(stderr: "staged evidence"))
+        var validationCount = 0
+        var didPublish = false
+        var logs: [String] = []
+        var terminals: [AlignmentScientificActionReporter.Terminal] = []
+        let coordinator = AlignmentScientificActionCoordinator(
+            validator: { _ in
+                validationCount += 1
+                if validationCount == 2 {
+                    throw AlignmentActionContext.EvidenceError.staleEvidence(URL(fileURLWithPath: "/evidence/a.bam"))
+                }
+            },
+            regionStager: { _ in transaction },
+            publisher: { _ in
+                didPublish = true
+                throw AlignmentScientificActionError.contextUnavailable
+            }
+        )
+        let reporter = AlignmentScientificActionReporter(
+            start: { _, _ in UUID() },
+            installCancellation: { _, _ in },
+            log: { _, message in logs.append(message) },
+            finish: { _, terminal in terminals.append(terminal) }
+        )
+
+        let task = coordinator.launchRegion(
+            context: try context(),
+            region: .init(scope: .selectedRegion, contig: "chrSynthetic", start: 4, end: 9),
+            destination: .bundle(URL(fileURLWithPath: "/out/final.lungfishfastq")),
+            outputBaseName: "x",
+            reporter: reporter
+        )
+        _ = await task.result
+
+        XCTAssertFalse(didPublish)
+        XCTAssertTrue(transaction.isCleanedUp)
+        XCTAssertTrue(logs.contains { $0.contains("workflow=map;resultID=r;sampleID=s;evidenceID=e") })
+        XCTAssertTrue(logs.contains { $0.contains("samtools") && $0.contains("staged evidence") })
+        guard case .failure(let message)? = terminals.first else {
+            return XCTFail("Expected one stale-input failure")
+        }
+        XCTAssertEqual(terminals.count, 1)
+        XCTAssertTrue(message.contains("workflow=map;resultID=r;sampleID=s;evidenceID=e"))
     }
 
     func testSelectedReadsPreferCapturedSourceFASTQsAndFallbackToCapturedBAM() async throws {

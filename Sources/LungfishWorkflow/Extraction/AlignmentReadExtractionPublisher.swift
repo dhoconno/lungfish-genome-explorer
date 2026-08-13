@@ -12,11 +12,25 @@ import LungfishIO
 /// provenance sidecar as one rollback-safe pair.
 public final class AlignmentReadExtractionPublisher: @unchecked Sendable {
     private let beforeFinalInstall: (@Sendable () throws -> Void)?
+    private let promotionEvent: (@Sendable (AlignmentReadExtractionPromotionEvent) throws -> Void)?
 
     /// The injection point is intentionally at the final-install boundary so
     /// callers can exercise rollback without corrupting a real destination.
     public init(beforeFinalInstall: (@Sendable () throws -> Void)? = nil) {
         self.beforeFinalInstall = beforeFinalInstall
+        self.promotionEvent = nil
+    }
+
+    /// A test-only fault boundary for failures that happen after an existing
+    /// destination has been backed up. Keeping this initializer internal lets
+    /// Workflow tests exercise incomplete rollback without expanding the
+    /// public publication API or depending on platform-specific file faults.
+    init(
+        beforeFinalInstall: (@Sendable () throws -> Void)? = nil,
+        promotionEvent: @escaping @Sendable (AlignmentReadExtractionPromotionEvent) throws -> Void
+    ) {
+        self.beforeFinalInstall = beforeFinalInstall
+        self.promotionEvent = promotionEvent
     }
 
     public func publish(
@@ -560,6 +574,7 @@ public final class AlignmentReadExtractionPublisher: @unchecked Sendable {
             }
             try fileManager.moveItem(at: stagingURL, to: finalURL)
             installedNew = true
+            try promotionEvent?(.directoryAfterInstall)
             if movedExisting {
                 try fileManager.removeItem(at: backupURL)
             }
@@ -570,16 +585,17 @@ public final class AlignmentReadExtractionPublisher: @unchecked Sendable {
                 catch { rollbackErrors.append("remove new bundle: \(error.localizedDescription)") }
             }
             if movedExisting, fileManager.fileExists(atPath: backupURL.path) {
-                do { try fileManager.moveItem(at: backupURL, to: finalURL) }
+                do {
+                    try promotionEvent?(.directoryBeforeBackupRestore)
+                    try fileManager.moveItem(at: backupURL, to: finalURL)
+                }
                 catch { rollbackErrors.append("restore previous bundle: \(error.localizedDescription)") }
             }
             if rollbackErrors.isEmpty {
                 throw error
             }
-            throw AlignmentReadExtractionFailure(
-                kind: .publicationFailed,
-                message: "Publication failed and rollback was incomplete: \(rollbackErrors.joined(separator: "; "))",
-                executionRecords: []
+            throw AlignmentReadExtractionRollbackError(
+                message: "Publication failed and rollback was incomplete: \(rollbackErrors.joined(separator: "; "))"
             )
         }
     }
@@ -609,6 +625,7 @@ public final class AlignmentReadExtractionPublisher: @unchecked Sendable {
             }
             try fileManager.moveItem(at: stagedPayloadURL, to: finalURL)
             payloadInstalled = true
+            try promotionEvent?(.fileAfterPayloadInstall)
             try fileManager.moveItem(at: stagedSidecarURL, to: finalSidecarURL)
             sidecarInstalled = true
             if payloadBackedUp { try fileManager.removeItem(at: backupPayloadURL) }
@@ -624,20 +641,24 @@ public final class AlignmentReadExtractionPublisher: @unchecked Sendable {
                 catch { rollbackErrors.append("remove new file: \(error.localizedDescription)") }
             }
             if payloadBackedUp, fileManager.fileExists(atPath: backupPayloadURL.path) {
-                do { try fileManager.moveItem(at: backupPayloadURL, to: finalURL) }
+                do {
+                    try promotionEvent?(.fileBeforePayloadBackupRestore)
+                    try fileManager.moveItem(at: backupPayloadURL, to: finalURL)
+                }
                 catch { rollbackErrors.append("restore previous file: \(error.localizedDescription)") }
             }
             if sidecarBackedUp, fileManager.fileExists(atPath: backupSidecarURL.path) {
-                do { try fileManager.moveItem(at: backupSidecarURL, to: finalSidecarURL) }
+                do {
+                    try promotionEvent?(.fileBeforeSidecarBackupRestore)
+                    try fileManager.moveItem(at: backupSidecarURL, to: finalSidecarURL)
+                }
                 catch { rollbackErrors.append("restore previous sidecar: \(error.localizedDescription)") }
             }
             if rollbackErrors.isEmpty {
                 throw error
             }
-            throw AlignmentReadExtractionFailure(
-                kind: .publicationFailed,
-                message: "File publication failed and rollback was incomplete: \(rollbackErrors.joined(separator: "; "))",
-                executionRecords: []
+            throw AlignmentReadExtractionRollbackError(
+                message: "File publication failed and rollback was incomplete: \(rollbackErrors.joined(separator: "; "))"
             )
         }
     }
@@ -671,6 +692,19 @@ public final class AlignmentReadExtractionPublisher: @unchecked Sendable {
             seen.insert("\(descriptor.role.rawValue)\u{0}\(descriptor.path)").inserted
         }
     }
+}
+
+enum AlignmentReadExtractionPromotionEvent: Sendable, Equatable {
+    case directoryAfterInstall
+    case directoryBeforeBackupRestore
+    case fileAfterPayloadInstall
+    case fileBeforePayloadBackupRestore
+    case fileBeforeSidecarBackupRestore
+}
+
+private struct AlignmentReadExtractionRollbackError: LocalizedError {
+    let message: String
+    var errorDescription: String? { message }
 }
 
 private struct PublishedBundleMetadata: Codable {

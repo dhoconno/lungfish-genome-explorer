@@ -448,4 +448,101 @@ final class BAMRegionExtractionTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: sidecar, encoding: .utf8), "old-sidecar")
         XCTAssertTrue(fileTransaction.isCleanedUp)
     }
+
+    func testIncompleteRollbackPreservesStagingAndPublicationExecutionRecords() throws {
+        enum FixtureError: Error { case injectedFailure }
+
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("alignment-publication-incomplete-rollback-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+
+        func makeTransaction(named name: String) throws -> AlignmentReadExtractionTransaction {
+            let staging = root.appendingPathComponent(".\(name)-staging", isDirectory: true)
+            try fileManager.createDirectory(at: staging, withIntermediateDirectories: true)
+            let payload = staging.appendingPathComponent("selected.fastq")
+            try "@selected\nACGT\n+\n!!!!\n".write(to: payload, atomically: true, encoding: .utf8)
+            let transaction = try AlignmentReadExtractionTransaction(
+                stagingDirectoryURL: staging,
+                stagedFiles: [.init(stagedURL: payload, relativeFinalPath: "selected.fastq", format: .fastq)],
+                readCount: 1,
+                pairedEnd: false
+            )
+            transaction.appendExecutionRecord(
+                .init(
+                    stage: .payloadStaging,
+                    toolName: "fixture-stager",
+                    toolVersion: "1",
+                    argv: ["fixture-stager", payload.path],
+                    inputs: [],
+                    outputs: [],
+                    exitStatus: 0,
+                    startedAt: Date(timeIntervalSince1970: 10),
+                    completedAt: Date(timeIntervalSince1970: 11)
+                )
+            )
+            return transaction
+        }
+
+        func assertFailureRecords(
+            _ transaction: AlignmentReadExtractionTransaction,
+            destination: AlignmentReadExtractionPublicationDestination,
+            publisher: AlignmentReadExtractionPublisher,
+            file: StaticString = #filePath,
+            line: UInt = #line
+        ) {
+            do {
+                _ = try publisher.publish(
+                    .init(
+                        transaction: transaction,
+                        destination: destination,
+                        provenance: .init(workflowName: "fixture", argv: ["fixture"], inputURLs: [])
+                    )
+                )
+                XCTFail("Expected incomplete rollback failure", file: file, line: line)
+            } catch let failure as AlignmentReadExtractionFailure {
+                XCTAssertEqual(failure.kind, .publicationFailed, file: file, line: line)
+                XCTAssertEqual(failure.executionRecords.count, 2, file: file, line: line)
+                XCTAssertEqual(failure.executionRecords.first?.stage, .payloadStaging, file: file, line: line)
+                XCTAssertEqual(failure.executionRecords.last?.stage, .publication, file: file, line: line)
+                XCTAssertEqual(failure.executionRecords.last?.exitStatus, 1, file: file, line: line)
+                XCTAssertTrue(
+                    failure.executionRecords.last?.stderr?.contains("rollback was incomplete") == true,
+                    file: file,
+                    line: line
+                )
+            } catch {
+                XCTFail("Unexpected error: \(error)", file: file, line: line)
+            }
+            XCTAssertTrue(transaction.isCleanedUp, file: file, line: line)
+        }
+
+        let bundle = root.appendingPathComponent("selected.lungfishfastq", isDirectory: true)
+        try fileManager.createDirectory(at: bundle, withIntermediateDirectories: true)
+        try "old".write(
+            to: bundle.appendingPathComponent("retained.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let bundleTransaction = try makeTransaction(named: "bundle")
+        let bundlePublisher = AlignmentReadExtractionPublisher { event in
+            if event == .directoryAfterInstall || event == .directoryBeforeBackupRestore {
+                throw FixtureError.injectedFailure
+            }
+        }
+        assertFailureRecords(bundleTransaction, destination: .bundle(bundle), publisher: bundlePublisher)
+
+        let finalFile = root.appendingPathComponent("selected.fastq")
+        let finalSidecar = ProvenanceRecorder.fileSidecarURL(for: finalFile)
+        try "old-payload".write(to: finalFile, atomically: true, encoding: .utf8)
+        try "old-sidecar".write(to: finalSidecar, atomically: true, encoding: .utf8)
+        let fileTransaction = try makeTransaction(named: "file")
+        let filePublisher = AlignmentReadExtractionPublisher { event in
+            if event == .fileAfterPayloadInstall || event == .fileBeforePayloadBackupRestore {
+                throw FixtureError.injectedFailure
+            }
+        }
+        assertFailureRecords(fileTransaction, destination: .file(finalFile), publisher: filePublisher)
+    }
 }

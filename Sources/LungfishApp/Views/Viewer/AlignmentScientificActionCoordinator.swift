@@ -143,6 +143,7 @@ final class AlignmentScientificActionCoordinator {
         reporter: AlignmentScientificActionReporter
     ) -> Task<Void, Never> {
         let operationID = reporter.start("Extract Reads in Selected Region", "Preparing alignment read extraction…")
+        reporter.log(operationID, "alignment evidence: \(evidenceIdentityLabel(context.identity))")
         let task = Task {
             do {
                 let result = try await self.extractRegion(context: context, region: region, destination: destination, outputBaseName: outputBaseName)
@@ -173,6 +174,7 @@ final class AlignmentScientificActionCoordinator {
         reporter: AlignmentScientificActionReporter
     ) -> Task<Void, Never> {
         let operationID = reporter.start("Extract Selected Reads", "Preparing selected-read extraction…")
+        reporter.log(operationID, "alignment evidence: \(evidenceIdentityLabel(context.identity))")
         let task = Task {
             do {
                 let result = try await self.extractSelectedReads(context: context, records: records, destination: destination, outputBaseName: outputBaseName)
@@ -213,7 +215,11 @@ final class AlignmentScientificActionCoordinator {
         try validator(context) // scientific gate 1: immediately before staging
         let transaction = try await regionStager(config)
         do {
-            try validator(context) // scientific gate 2: immediately before publication
+            do {
+                try validator(context) // scientific gate 2: immediately before publication
+            } catch {
+                throw staleInputFailure(error, context: context, transaction: transaction)
+            }
             return try await publisher(.init(transaction: transaction, destination: destination, provenance: provenance))
         } catch {
             transaction.cleanup()
@@ -240,7 +246,11 @@ final class AlignmentScientificActionCoordinator {
             transaction = try await bamStager(.init(bamURL: context.alignmentURL, readIDs: names, includeSecondary: false, excludeDuplicates: false, outputDirectory: destination.finalURL.deletingLastPathComponent(), outputBaseName: outputBaseName), missing, missingMessage)
         }
         do {
-            try validator(context)
+            do {
+                try validator(context)
+            } catch {
+                throw staleInputFailure(error, context: context, transaction: transaction)
+            }
             return try await publisher(.init(transaction: transaction, destination: destination, provenance: provenance(context: context, argv: ["Lungfish.app", "alignment", "extract-selected-reads"])))
         } catch {
             transaction.cleanup()
@@ -250,6 +260,22 @@ final class AlignmentScientificActionCoordinator {
 
     private func provenance(context: AlignmentActionContext, argv: [String]) -> AlignmentReadExtractionProvenance {
         .init(workflowName: "lungfish alignment read extraction", argv: argv, inputURLs: [context.alignmentURL, context.indexURL] + (context.decodingReferenceURL.map { [$0] } ?? []))
+    }
+
+    private func staleInputFailure(
+        _ error: Error,
+        context: AlignmentActionContext,
+        transaction: AlignmentReadExtractionTransaction
+    ) -> AlignmentReadExtractionFailure {
+        AlignmentReadExtractionFailure(
+            kind: .staleInput,
+            message: "Alignment evidence changed before publication (\(evidenceIdentityLabel(context.identity));alignment=\(context.alignmentURL.path)): \(error.localizedDescription)",
+            executionRecords: transaction.executionRecords
+        )
+    }
+
+    private func evidenceIdentityLabel(_ identity: AlignmentEvidenceIdentity) -> String {
+        "workflow=\(identity.workflow);resultID=\(identity.resultID);sampleID=\(identity.sampleID);evidenceID=\(identity.evidenceID)"
     }
 
     private func normalizedBundleURL(_ url: URL) -> URL {
