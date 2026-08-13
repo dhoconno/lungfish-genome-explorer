@@ -309,7 +309,10 @@ public final class AlignmentReadExtractionStager: @unchecked Sendable {
 
         let readNameURL = transactionDirectory.appendingPathComponent("selected_read_names.txt")
         do {
-            try config.readIDs.sorted().joined(separator: "\n")
+            let patterns = config.keepReadPairs
+                ? config.readIDs.map(Self.pairedReadPattern)
+                : Array(config.readIDs)
+            try patterns.sorted().joined(separator: "\n")
                 .write(to: readNameURL, atomically: true, encoding: .utf8)
         } catch {
             throw failure(.launchFailed, "Could not stage selected read names: \(error.localizedDescription)", records: records)
@@ -324,15 +327,21 @@ public final class AlignmentReadExtractionStager: @unchecked Sendable {
         let resolvedDefaults: [String: ParameterValue] = [
             "sourcePreference": .string("retained-source-fastq"),
             "seqkitThreads": .integer(4),
-            "readNameMatching": .string("seqkit identifier field"),
+            "readNameMatching": .string(
+                config.keepReadPairs
+                    ? "anchored seqkit identifier regex with optional /1 or /2 mate suffix"
+                    : "exact seqkit identifier field"
+            ),
         ]
 
         for (index, sourceURL) in config.sourceFASTQs.enumerated() {
             let suffix = config.sourceFASTQs.count == 1 ? "" : "_R\(index + 1)"
             let relativePath = "\(baseName)\(suffix).fastq.gz"
             let outputURL = transactionDirectory.appendingPathComponent(relativePath)
-            let arguments = [
-                "grep", "-f", readNameURL.path, sourceURL.path,
+            var arguments = ["grep"]
+            if config.keepReadPairs { arguments.append("-r") }
+            arguments += [
+                "-f", readNameURL.path, sourceURL.path,
                 "-o", outputURL.path, "--threads", "4",
             ]
             let execution = try await runCollectingFailures(
@@ -712,6 +721,16 @@ public final class AlignmentReadExtractionStager: @unchecked Sendable {
         let values = lines[1].split(separator: "\t").map(String.init)
         guard let index = headers.firstIndex(of: "num_seqs"), index < values.count else { return 0 }
         return Int(values[index].replacingOccurrences(of: ",", with: "")) ?? 0
+    }
+
+    private static func pairedReadPattern(_ readID: String) -> String {
+        let baseID: String
+        if readID.hasSuffix("/1") || readID.hasSuffix("/2") {
+            baseID = String(readID.dropLast(2))
+        } else {
+            baseID = readID
+        }
+        return "^\(NSRegularExpression.escapedPattern(for: baseID))(?:/[12])?$"
     }
 
     private func descriptors(

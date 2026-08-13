@@ -199,7 +199,7 @@ final class BAMRegionExtractionTests: XCTestCase {
         try Data(repeating: 0x32, count: 32).write(to: sourceR2)
         let config = ReadIDExtractionConfig(
             sourceFASTQs: [sourceR1, sourceR2],
-            readIDs: ["selected"],
+            readIDs: ["selected/1"],
             keepReadPairs: true,
             outputDirectory: root.appendingPathComponent("caller-output", isDirectory: true),
             outputBaseName: "selected"
@@ -208,6 +208,12 @@ final class BAMRegionExtractionTests: XCTestCase {
         let stager = AlignmentReadExtractionStager(
             processRunner: { tool, arguments, _ in
                 if tool == .seqkit, arguments.first == "grep" {
+                    XCTAssertTrue(arguments.contains("-r"))
+                    let patternURL = URL(fileURLWithPath: arguments[arguments.firstIndex(of: "-f")! + 1])
+                    XCTAssertEqual(
+                        try String(contentsOf: patternURL, encoding: .utf8),
+                        "^selected(?:/[12])?$"
+                    )
                     let output = URL(fileURLWithPath: arguments[arguments.firstIndex(of: "-o")! + 1])
                     try "@selected\nACGT\n+\n!!!!\n".write(to: output, atomically: true, encoding: .utf8)
                     return .init(exitCode: 0, stdout: "", stderr: "", arguments: ["/fixture/seqkit"] + arguments)
@@ -544,5 +550,81 @@ final class BAMRegionExtractionTests: XCTestCase {
             }
         }
         assertFailureRecords(fileTransaction, destination: .file(finalFile), publisher: filePublisher)
+    }
+
+    func testPublisherValidationFailuresAppendFailedPublicationRecords() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("alignment-publication-validation-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+
+        func makeTransaction(named name: String, payloadCount: Int) throws -> AlignmentReadExtractionTransaction {
+            let staging = root.appendingPathComponent(".\(name)-staging", isDirectory: true)
+            try fileManager.createDirectory(at: staging, withIntermediateDirectories: true)
+            var stagedFiles: [AlignmentReadExtractionStagedFile] = []
+            for index in 0..<payloadCount {
+                let payload = staging.appendingPathComponent("selected-\(index).fastq")
+                try "@selected\nACGT\n+\n!!!!\n".write(to: payload, atomically: true, encoding: .utf8)
+                stagedFiles.append(.init(stagedURL: payload, relativeFinalPath: payload.lastPathComponent, format: .fastq))
+            }
+            let transaction = try AlignmentReadExtractionTransaction(
+                stagingDirectoryURL: staging,
+                stagedFiles: stagedFiles,
+                readCount: 1,
+                pairedEnd: false
+            )
+            transaction.appendExecutionRecord(
+                .init(
+                    stage: .payloadStaging,
+                    toolName: "fixture-stager",
+                    toolVersion: "1",
+                    argv: ["fixture-stager"],
+                    inputs: [],
+                    outputs: [],
+                    exitStatus: 0,
+                    startedAt: Date(timeIntervalSince1970: 10),
+                    completedAt: Date(timeIntervalSince1970: 11)
+                )
+            )
+            return transaction
+        }
+
+        func assertValidationFailure(
+            transaction: AlignmentReadExtractionTransaction,
+            destination: AlignmentReadExtractionPublicationDestination,
+            file: StaticString = #filePath,
+            line: UInt = #line
+        ) {
+            do {
+                _ = try AlignmentReadExtractionPublisher().publish(
+                    .init(
+                        transaction: transaction,
+                        destination: destination,
+                        provenance: .init(workflowName: "fixture", argv: ["fixture"], inputURLs: [])
+                    )
+                )
+                XCTFail("Expected publication validation failure", file: file, line: line)
+            } catch let failure as AlignmentReadExtractionFailure {
+                XCTAssertEqual(failure.kind, .publicationFailed, file: file, line: line)
+                XCTAssertEqual(failure.executionRecords.count, 2, file: file, line: line)
+                XCTAssertEqual(failure.executionRecords.first?.stage, .payloadStaging, file: file, line: line)
+                XCTAssertEqual(failure.executionRecords.last?.stage, .publication, file: file, line: line)
+                XCTAssertEqual(failure.executionRecords.last?.exitStatus, 1, file: file, line: line)
+                XCTAssertFalse(failure.executionRecords.last?.stderr?.isEmpty ?? true, file: file, line: line)
+            } catch {
+                XCTFail("Unexpected error: \(error)", file: file, line: line)
+            }
+            XCTAssertTrue(transaction.isCleanedUp, file: file, line: line)
+        }
+
+        assertValidationFailure(
+            transaction: try makeTransaction(named: "bundle", payloadCount: 1),
+            destination: .bundle(root.appendingPathComponent("invalid-extension"))
+        )
+        assertValidationFailure(
+            transaction: try makeTransaction(named: "file", payloadCount: 2),
+            destination: .file(root.appendingPathComponent("selected.fastq"))
+        )
     }
 }

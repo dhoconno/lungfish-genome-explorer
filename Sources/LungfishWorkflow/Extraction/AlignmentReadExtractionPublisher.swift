@@ -90,17 +90,14 @@ public final class AlignmentReadExtractionPublisher: @unchecked Sendable {
     ) throws -> AlignmentReadExtractionPublicationResult {
         let fileManager = FileManager.default
         let finalBundleURL = request.destination.finalURL
-        guard finalBundleURL.pathExtension.lowercased() == FASTQBundle.directoryExtension else {
-            throw AlignmentReadExtractionFailure(
-                kind: .publicationFailed,
-                message: "Alignment read bundles must end in .\(FASTQBundle.directoryExtension).",
-                executionRecords: request.transaction.executionRecords
-            )
-        }
-
         let startedAt = Date()
         let publicationStagingURL = siblingStagingDirectory(for: finalBundleURL)
         do {
+            guard finalBundleURL.pathExtension.lowercased() == FASTQBundle.directoryExtension else {
+                throw AlignmentReadExtractionPublicationValidationError(
+                    message: "Alignment read bundles must end in .\(FASTQBundle.directoryExtension)."
+                )
+            }
             try fileManager.createDirectory(
                 at: finalBundleURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
@@ -211,18 +208,15 @@ public final class AlignmentReadExtractionPublisher: @unchecked Sendable {
     ) throws -> AlignmentReadExtractionPublicationResult {
         let fileManager = FileManager.default
         let finalURL = request.destination.finalURL
-        guard request.transaction.stagedFiles.count == 1 else {
-            throw AlignmentReadExtractionFailure(
-                kind: .publicationFailed,
-                message: "Standalone alignment extraction requires exactly one staged payload.",
-                executionRecords: request.transaction.executionRecords
-            )
-        }
-
         let startedAt = Date()
         let stagedPayloadURL = siblingStagingFile(for: finalURL)
         let stagedSidecarURL = ProvenanceRecorder.fileSidecarURL(for: stagedPayloadURL)
         do {
+            guard request.transaction.stagedFiles.count == 1 else {
+                throw AlignmentReadExtractionPublicationValidationError(
+                    message: "Standalone alignment extraction requires exactly one staged payload."
+                )
+            }
             try fileManager.createDirectory(
                 at: finalURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
@@ -703,6 +697,11 @@ enum AlignmentReadExtractionPromotionEvent: Sendable, Equatable {
 }
 
 private struct AlignmentReadExtractionRollbackError: LocalizedError {
+    let message: String
+    var errorDescription: String? { message }
+}
+
+private struct AlignmentReadExtractionPublicationValidationError: LocalizedError {
     let message: String
     var errorDescription: String? { message }
 }
