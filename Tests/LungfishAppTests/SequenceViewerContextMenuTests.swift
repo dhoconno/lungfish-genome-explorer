@@ -9,8 +9,15 @@ import XCTest
 
 @MainActor
 final class SequenceViewerContextMenuTests: XCTestCase {
+    private var retainedViewerControllers: [ViewerViewController] = []
+
+    override func tearDown() async throws {
+        retainedViewerControllers.removeAll()
+        try await super.tearDown()
+    }
+
     func testSequenceTargetWithSelectionContainsSharedCommandsOnce() {
-        let viewer = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        let viewer = makeViewer()
         viewer.testSetUserSelectionRange(100..<200)
 
         let menu = viewer.testBuildContextMenu(
@@ -22,7 +29,7 @@ final class SequenceViewerContextMenuTests: XCTestCase {
     }
 
     func testEmptyAlignmentTargetWithSelectionContainsOnlySharedActionsAndValidSeparators() {
-        let viewer = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        let viewer = makeViewer()
         viewer.testSetUserSelectionRange(100..<200)
 
         let menu = viewer.testBuildContextMenu(for: .alignment([]), genomicPosition: 123)
@@ -32,6 +39,7 @@ final class SequenceViewerContextMenuTests: XCTestCase {
             "<separator>",
             "Copy Visible Region as FASTA",
             "Extract Visible Region…",
+            "Extract Reads in Selected Region…",
             "<separator>",
             "Center View Here",
             "Zoom to Selected Region",
@@ -42,7 +50,7 @@ final class SequenceViewerContextMenuTests: XCTestCase {
     }
 
     func testSequenceTargetWithSelectionContainsOnlySharedSelectedRangeActions() {
-        let viewer = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        let viewer = makeViewer()
         viewer.testSetUserSelectionRange(100..<200)
 
         let menu = viewer.testBuildContextMenu(for: .sequence, genomicPosition: 123)
@@ -53,6 +61,7 @@ final class SequenceViewerContextMenuTests: XCTestCase {
                 "Copy Visible Region",
                 "Copy Visible Region as FASTA",
                 "Extract Visible Region…",
+                "Extract Reads in Selected Region…",
                 "Center View Here",
                 "Zoom to Selected Region",
             ]
@@ -63,7 +72,7 @@ final class SequenceViewerContextMenuTests: XCTestCase {
     }
 
     func testSelectedRangeMenuPreservesExtractionAndCenterAdjacency() {
-        let viewer = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        let viewer = makeViewer()
         viewer.testSetUserSelectionRange(100..<200)
 
         let menu = viewer.testBuildContextMenu(for: .sequence, genomicPosition: 123)
@@ -74,6 +83,7 @@ final class SequenceViewerContextMenuTests: XCTestCase {
             "<separator>",
             "Copy Visible Region as FASTA",
             "Extract Visible Region…",
+            "Extract Reads in Selected Region…",
             "<separator>",
             "Center View Here",
             "Zoom to Selected Region",
@@ -81,7 +91,7 @@ final class SequenceViewerContextMenuTests: XCTestCase {
     }
 
     func testSequenceTargetWithoutSelectionPreservesBackgroundCommands() {
-        let viewer = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        let viewer = makeViewer()
 
         let menu = viewer.testBuildContextMenu(for: .sequence, genomicPosition: 123)
 
@@ -93,7 +103,7 @@ final class SequenceViewerContextMenuTests: XCTestCase {
     }
 
     func testAnnotationTargetWithoutSelectionDisambiguatesInspectorActions() throws {
-        let viewer = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        let viewer = makeViewer()
         let annotation = makeAnnotation()
 
         let menu = viewer.testBuildContextMenu(for: .annotation(annotation), genomicPosition: 123)
@@ -107,7 +117,7 @@ final class SequenceViewerContextMenuTests: XCTestCase {
     }
 
     func testNoSelectionCompositionAppendsGeneralCommandsAfterSpecializedTarget() throws {
-        let viewer = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        let viewer = makeViewer()
         viewer.testSetUserSelectionRange(100..<200)
         viewer.selectionRange = nil
 
@@ -154,7 +164,7 @@ final class SequenceViewerContextMenuTests: XCTestCase {
     }
 
     func testAlignmentTargetPreservesRevealActionPayloadAndSharedCommands() {
-        let viewer = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        let viewer = makeViewer()
         viewer.testSetUserSelectionRange(100..<200)
         let url = URL(fileURLWithPath: "/tmp/example.bam")
 
@@ -176,7 +186,7 @@ final class SequenceViewerContextMenuTests: XCTestCase {
     }
 
     func testReadTargetPreservesSpecializedActionsAndSharedCommands() {
-        let viewer = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        let viewer = makeViewer()
         let read = makeRead()
         viewer.testSetCachedPackedReads([(0, read)])
         viewer.testSetUserSelectionRange(100..<200)
@@ -195,7 +205,7 @@ final class SequenceViewerContextMenuTests: XCTestCase {
     }
 
     func testVariantTargetPreservesTableAndGenotypeActionsAndSharedCommands() {
-        let viewer = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        let viewer = makeViewer()
         viewer.testSetUserSelectionRange(100..<200)
         let variant = makeVariant()
 
@@ -214,7 +224,7 @@ final class SequenceViewerContextMenuTests: XCTestCase {
     }
 
     func testSelectedRangeSectionIsSeparatedFromVariantActions() {
-        let viewer = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        let viewer = makeViewer()
         viewer.testSetUserSelectionRange(100..<200)
 
         let menu = viewer.testBuildContextMenu(for: .variant(makeVariant()), genomicPosition: 123)
@@ -228,7 +238,7 @@ final class SequenceViewerContextMenuTests: XCTestCase {
     }
 
     func testAnnotationTargetPreservesAnnotationActionsAndSharedCommands() {
-        let viewer = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        let viewer = makeViewer()
         viewer.testSetUserSelectionRange(100..<200)
         let annotation = makeAnnotation()
 
@@ -295,6 +305,21 @@ final class SequenceViewerContextMenuTests: XCTestCase {
             sequence: String(repeating: "A", count: 10),
             qualities: []
         )
+    }
+
+    private func makeViewer() -> SequenceViewerView {
+        let controller = ViewerViewController()
+        controller.loadView()
+        controller.viewerView.frame = NSRect(x: 0, y: 0, width: 800, height: 300)
+        controller.referenceFrame = ReferenceFrame(
+            chromosome: "chr1",
+            start: 0,
+            end: 800,
+            pixelWidth: 800,
+            sequenceLength: 10_000
+        )
+        retainedViewerControllers.append(controller)
+        return controller.viewerView
     }
 
     private func makeVariant() -> AnnotationSearchIndex.SearchResult {

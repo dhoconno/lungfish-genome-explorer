@@ -50,6 +50,55 @@ private final class FASTABlastProgressRelay: @unchecked Sendable {
 @MainActor
 public class ViewerViewController: NSViewController {
 
+    /// Immutable evidence identity shared by all alignment actions in this
+    /// full viewer.  Replacing the evidence clears transient selections but
+    /// deliberately preserves the user's consensus scope preference.
+    var alignmentActionContext: AlignmentActionContext? {
+        didSet {
+            if oldValue?.identity != alignmentActionContext?.identity {
+                explicitAlignmentSelection = nil
+                viewerView?.clearSelection()
+            }
+            viewerView?.needsDisplay = true
+            onAlignmentConsensusActionStateChanged?()
+        }
+    }
+
+    /// Persistent user preference for consensus actions.  A selected-region
+    /// preference remains selected when evidence changes and will require a
+    /// fresh explicit selection instead of falling back to whole-contig.
+    var alignmentConsensusScope: AlignmentConsensusScope = .wholeContig {
+        didSet {
+            guard oldValue != alignmentConsensusScope else { return }
+            viewerView?.invalidateConsensusScientificRequest()
+            onAlignmentConsensusActionStateChanged?()
+        }
+    }
+
+    /// The exact coordinate selection supplied by the active viewer.  This is
+    /// intentionally distinct from visible ranges and annotation inference.
+    var explicitAlignmentSelection: AlignmentCoordinateSelection? {
+        didSet {
+            guard oldValue != explicitAlignmentSelection else { return }
+            viewerView?.invalidateConsensusScientificRequest()
+            onAlignmentConsensusActionStateChanged?()
+        }
+    }
+
+    /// Window-local notification used by Inspector bindings. It fires for
+    /// evidence, scope, and explicit-selection changes so action availability
+    /// cannot become stale while the user drags or clears a selection.
+    var onAlignmentConsensusActionStateChanged: (() -> Void)?
+
+    /// Records an explicit coordinate choice made in this full viewer. This
+    /// is the only source used by selected-region alignment actions; visible
+    /// ranges are deliberately not treated as user selections.
+    func setExplicitAlignmentSelection(contig: String, start: Int, end: Int) {
+        explicitAlignmentSelection = start < end
+            ? .init(contig: contig, start: start, end: end)
+            : nil
+    }
+
     typealias FASTABlastVerificationRunner = @MainActor (
         _ request: BlastVerificationRequest,
         _ progress: @escaping @Sendable (Double, String) -> Void
@@ -73,42 +122,10 @@ public class ViewerViewController: NSViewController {
         _ message: String
     ) -> Void
 
-    /// Result of `extractSelectedReads`, generalizing the source-FASTQ and
-    /// BAM-derived provenance paths so a single completion handler can report
-    /// either one.
-    enum SelectedReadsExtractionOutcome: Sendable {
-        case sourceFASTQ(LungfishWorkflow.ExtractionResult)
-        case bamDerived(ReadIDBAMExtractionResult)
-
-        var outputURLs: [URL] {
-            switch self {
-            case .sourceFASTQ(let result): return result.fastqURLs
-            case .bamDerived(let result): return result.outputURLs
-            }
-        }
-
-        var readCount: Int {
-            switch self {
-            case .sourceFASTQ(let result): return result.readCount
-            case .bamDerived(let result): return result.readCount
-            }
-        }
-
-        /// Provenance label recorded in the bundle metadata + completion message.
-        var provenanceLabel: String {
-            switch self {
-            case .sourceFASTQ: return "source-fastq"
-            case .bamDerived: return "bam-derived"
-            }
-        }
-    }
-
-    typealias SelectedReadsExtractionRunner = @Sendable (
-        _ readNames: Set<String>,
-        _ mappingResult: MappingResult,
-        _ outputDirectory: URL,
-        _ outputBaseName: String
-    ) async throws -> SelectedReadsExtractionOutcome
+    typealias AlignmentConsensusAllLowDepthConfirmation = @MainActor (
+        _ message: String,
+        _ window: NSWindow
+    ) async -> Bool
 
     // MARK: - UI Components
 
@@ -175,23 +192,13 @@ public class ViewerViewController: NSViewController {
     /// WindowServer when nothing dismisses the sheet, which hangs headless-style
     /// tests only when run in an interactive session.
     var extractionFailureAlertPresenter: ExtractionFailureAlertPresenter?
+    var alignmentExtractionSavePanelPresenter: SavePanelPresenting = DefaultSavePanelPresenter()
 
-    /// Runs the selected-reads extraction (read-track multi-select "Extract
-    /// Reads…" action): resolves source FASTQs via `FASTQSourceResolver`
-    /// when possible, falling back to `ReadExtractionService.extractByReadIDsFromBAM`
-    /// when no source FASTQ can be resolved (the common case for a mapping
-    /// viewport — `MappingResult` retains no FASTQ bundle reference).
-    /// Overridable in tests to inject failures/results without a real
-    /// samtools/seqkit environment.
-    var selectedReadsExtractionRunner: SelectedReadsExtractionRunner = { readNames, mappingResult, outputDirectory, outputBaseName in
-        try await ViewerViewController.defaultSelectedReadsExtraction(
-            readNames: readNames,
-            mappingResult: mappingResult,
-            outputDirectory: outputDirectory,
-            outputBaseName: outputBaseName
-        )
-    }
     var activeSelectedReadsExtractionTask: Task<Void, Never>?
+    var activeConsensusGenerationTask: Task<Void, Never>?
+    var activeConsensusGenerationOperationID: UUID?
+    var alignmentConsensusAllLowDepthConfirmation: AlignmentConsensusAllLowDepthConfirmation?
+    var activeConsensusShareSessions: [UUID: AlignmentConsensusShareSession] = [:]
 
     /// Taxonomy classification browser (shown in place of sequence viewer for kreport results)
     var taxonomyViewController: TaxonomyViewController?
@@ -3653,9 +3660,25 @@ public class ViewerViewController: NSViewController {
             multipleSequenceAlignmentViewController.zoomToFit()
             return
         }
-        guard let sequence = viewerView.sequence else { return }
-        referenceFrame?.start = 0
-        referenceFrame?.end = Double(sequence.length)
+        guard let frame = referenceFrame else { return }
+        let length = frame.sequenceLength > 0 ? frame.sequenceLength : (viewerView.sequence?.length ?? 0)
+        guard length > 0 else { return }
+        frame.start = 0
+        frame.end = Double(length)
+        viewerView.setNeedsDisplay(viewerView.bounds)
+        enhancedRulerView.setNeedsDisplay(enhancedRulerView.bounds)
+        updateStatusBar()
+        scheduleViewStateSave()
+    }
+
+    /// Zooms exactly to the coordinate range the user explicitly selected in
+    /// the active alignment viewer.
+    func zoomToSelectedRegion() {
+        guard let selection = explicitAlignmentSelection,
+              let frame = referenceFrame,
+              selection.contig == frame.chromosome else { return }
+        frame.start = Double(selection.start)
+        frame.end = Double(selection.end)
         viewerView.setNeedsDisplay(viewerView.bounds)
         enhancedRulerView.setNeedsDisplay(enhancedRulerView.bounds)
         updateStatusBar()

@@ -331,6 +331,13 @@ public final class ReadStyleSectionViewModel {
     /// Whether mapping mode should expose biological consensus export.
     public var supportsConsensusExtraction: Bool = false
 
+    /// Display mirror of the active full viewer's persistent preference. The
+    /// viewer is authoritative; hosts write user changes through the callback.
+    var consensusScope: AlignmentConsensusScope = .wholeContig
+
+    /// Non-nil when the active scope cannot yet resolve to a scientific range.
+    public var consensusExtractionAvailabilityMessage: String?
+
     /// Non-nil only while the Inspector is presenting explicit detached
     /// classifier evidence rather than a mutable reference bundle.
     var classifierEvidenceCapabilities: ClassifierAlignmentInspectorCapabilities?
@@ -339,6 +346,9 @@ public final class ReadStyleSectionViewModel {
 
     /// Called to export biological consensus from the active mapping viewer.
     public var onExtractConsensusRequested: (() -> Void)?
+
+    /// Writes Inspector scope changes back to the active full viewer.
+    var onConsensusScopeChanged: ((AlignmentConsensusScope) -> Void)?
 
     /// Whether duplicate workflow is currently running.
     public var isDuplicateWorkflowRunning: Bool = false
@@ -376,6 +386,9 @@ public final class ReadStyleSectionViewModel {
         resetMappedReadsAnnotationState()
         primerTrimProvenance = nil
         classifierEvidenceCapabilities = nil
+        consensusScope = .wholeContig
+        consensusExtractionAvailabilityMessage = nil
+        onConsensusScopeChanged = nil
     }
 
     /// Configures the existing read controls for a single, detached classifier
@@ -2404,6 +2417,15 @@ public struct AnalysisSection: View {
                 viewModel.onSettingsChanged?()
             }
 
+            Picker("Consensus scope", selection: $viewModel.consensusScope) {
+                Text("Whole contig").tag(AlignmentConsensusScope.wholeContig)
+                Text("Selected region").tag(AlignmentConsensusScope.selectedRegion)
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: viewModel.consensusScope) { _, scope in
+                viewModel.onConsensusScopeChanged?(scope)
+            }
+
             Toggle("Use IUPAC ambiguity codes", isOn: $viewModel.consensusUseAmbiguity)
                 .onChange(of: viewModel.consensusUseAmbiguity) { _, _ in
                     viewModel.onSettingsChanged?()
@@ -2483,8 +2505,14 @@ public struct AnalysisSection: View {
                 Button("Extract Consensus…") {
                     viewModel.onExtractConsensusRequested?()
                 }
-                .disabled(!viewModel.hasAlignmentTracks)
-                .help("Exports consensus for the selected bases when present; otherwise exports the visible viewport.")
+                .disabled(!viewModel.hasAlignmentTracks || viewModel.consensusExtractionAvailabilityMessage != nil)
+                .help("Generates consensus for the explicit scope selected above.")
+
+                if let message = viewModel.consensusExtractionAvailabilityMessage {
+                    Text(message)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }

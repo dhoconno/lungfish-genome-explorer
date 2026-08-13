@@ -90,6 +90,44 @@ final class SequenceViewerFetchInvalidationTests: XCTestCase {
         XCTAssertNil(view.cachedConsensusRegion)
     }
 
+    func testConsensusScopeAndSelectionChangesInvalidateCachedScientificRequest() throws {
+        let viewer = ViewerViewController()
+        _ = viewer.view
+        let bam = URL(fileURLWithPath: "/tmp/scope.bam")
+        let bai = URL(fileURLWithPath: "/tmp/scope.bam.bai")
+        viewer.alignmentActionContext = try AlignmentActionContext(
+            identity: .init(workflow: "mapping", resultID: "r", sampleID: "s", evidenceID: "e"),
+            alignmentURL: bam, indexURL: bai, decodingReferenceURL: nil,
+            contig: "chr1", contigLength: 100,
+            alignmentSnapshot: .init(url: bam, byteCount: 1, sha256: "bam"),
+            indexSnapshot: .init(url: bai, byteCount: 1, sha256: "bai"),
+            decodingReferenceSnapshot: nil,
+            filters: .init(minimumDepth: 3, minimumMapQ: 20, minimumBaseQuality: 12, excludedFlags: 0x904, readGroups: ["rg1"]),
+            outputCapability: .userSelectedDestination, sourceReads: .bamFallback,
+            presentationLabel: "s chr1"
+        )
+        let whole = GenomicRegion(chromosome: "chr1", start: 0, end: 100)
+        let fetch = viewer.viewerView.testBeginConsensusFetch(bundleURL: bundleURL("A"), trackID: nil, region: whole)
+        XCTAssertTrue(viewer.viewerView.testCommitConsensusFetch(fetch, sequence: String(repeating: "A", count: 100), region: whole))
+
+        viewer.alignmentConsensusScope = .selectedRegion
+        XCTAssertNil(viewer.viewerView.cachedConsensusRegion)
+        XCTAssertNil(viewer.viewerView.testCachedConsensusSequence)
+        XCTAssertNil(viewer.viewerView.resolvedConsensusScientificRegion())
+
+        viewer.setExplicitAlignmentSelection(contig: "chr1", start: 10, end: 20)
+        XCTAssertEqual(viewer.viewerView.resolvedConsensusScientificRegion(), .init(chromosome: "chr1", start: 10, end: 20))
+        let selectedFetch = viewer.viewerView.testBeginConsensusFetch(bundleURL: bundleURL("A"), trackID: nil, region: .init(chromosome: "chr1", start: 10, end: 20))
+        XCTAssertTrue(viewer.viewerView.testCommitConsensusFetch(selectedFetch, sequence: String(repeating: "C", count: 10), region: .init(chromosome: "chr1", start: 10, end: 20)))
+        let stableGeneration = viewer.viewerView.testConsensusFetchGeneration
+        XCTAssertEqual(viewer.viewerView.cachedConsensusRegion, viewer.viewerView.resolvedConsensusScientificRegion())
+        XCTAssertEqual(stableGeneration, viewer.viewerView.testConsensusFetchGeneration)
+
+        viewer.setExplicitAlignmentSelection(contig: "chr1", start: 30, end: 40)
+        XCTAssertNil(viewer.viewerView.cachedConsensusRegion)
+        XCTAssertFalse(viewer.viewerView.testCommitConsensusFetch(selectedFetch, sequence: "stale", region: .init(chromosome: "chr1", start: 10, end: 20)))
+    }
+
     func testThreeRapidDetachedRequestsInvalidateEarlierCompletions() {
         let view = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 800, height: 320))
         let region = GenomicRegion(chromosome: "chr1", start: 0, end: 50)

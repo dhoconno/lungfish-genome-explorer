@@ -580,7 +580,10 @@ extension InspectorViewController {
     /// path intentionally does not call any bundle or mapping setup method.
     func updateClassifierAlignmentInspector(
         capabilities: ClassifierAlignmentInspectorCapabilities,
-        applySettings: @escaping ([AnyHashable: Any]) -> Void
+        applySettings: @escaping ([AnyHashable: Any]) -> Void,
+        consensusScopeState: @escaping () -> (scope: AlignmentConsensusScope, unavailableMessage: String?) = { (.wholeContig, nil) },
+        setConsensusScope: @escaping (AlignmentConsensusScope) -> Void = { _ in },
+        extractConsensus: @escaping () -> Void = {}
     ) {
         let readStyle = viewModel.readStyleSectionViewModel
         let sameEvidence = readStyle.classifierEvidenceCapabilities?.bamPath == capabilities.bamPath
@@ -607,6 +610,17 @@ extension InspectorViewController {
             }
             applySettings(makeReadDisplaySettingsPayload(from: readStyle))
         }
+        let scopeState = consensusScopeState()
+        readStyle.consensusScope = scopeState.scope
+        readStyle.consensusExtractionAvailabilityMessage = scopeState.unavailableMessage
+        readStyle.onConsensusScopeChanged = { scope in
+            setConsensusScope(scope)
+            let updated = consensusScopeState()
+            readStyle.consensusScope = updated.scope
+            readStyle.consensusExtractionAvailabilityMessage = updated.unavailableMessage
+        }
+        readStyle.supportsConsensusExtraction = true
+        readStyle.onExtractConsensusRequested = extractConsensus
         if case .available = capabilities.status, let provenanceURL = capabilities.provenanceSourceURL {
             viewModel.provenanceSectionViewModel.load(
                 item: .init(url: provenanceURL, sidebarType: nil, contentMode: .metagenomics, displayName: capabilities.result),
@@ -827,16 +841,47 @@ extension InspectorViewController {
         viewModel.readStyleSectionViewModel.loadStatistics(from: bundle)
         syncAlignmentTrackInventory(from: bundle)
         viewModel.readStyleSectionViewModel.supportsConsensusExtraction = true
+        let mappingScopeState: () -> (scope: AlignmentConsensusScope, unavailableMessage: String?) = { [weak self] in
+            guard let split = self?.parent as? MainSplitViewController,
+                  let controller = split.viewerController.activeMappingViewportController else {
+                return (.wholeContig, AlignmentScientificActionError.contextUnavailable.localizedDescription)
+            }
+            return controller.consensusScopeState()
+        }
+        let scopeState = mappingScopeState()
+        viewModel.readStyleSectionViewModel.consensusScope = scopeState.scope
+        viewModel.readStyleSectionViewModel.consensusExtractionAvailabilityMessage = scopeState.unavailableMessage
+        viewModel.readStyleSectionViewModel.onConsensusScopeChanged = { [weak self] scope in
+            guard let split = self?.parent as? MainSplitViewController,
+                  let controller = split.viewerController.activeMappingViewportController else { return }
+            controller.setConsensusScope(scope)
+            let updated = mappingScopeState()
+            self?.viewModel.readStyleSectionViewModel.consensusScope = updated.scope
+            self?.viewModel.readStyleSectionViewModel.consensusExtractionAvailabilityMessage = updated.unavailableMessage
+        }
+        if let split = parent as? MainSplitViewController,
+           let controller = split.viewerController.activeMappingViewportController {
+            controller.onConsensusActionStateChanged = { [weak self] in
+                guard let self else { return }
+                let updated = mappingScopeState()
+                self.viewModel.readStyleSectionViewModel.consensusScope = updated.scope
+                self.viewModel.readStyleSectionViewModel.consensusExtractionAvailabilityMessage = updated.unavailableMessage
+            }
+        }
         viewModel.readStyleSectionViewModel.onSettingsChanged = { [weak self] in
             guard let self else { return }
             self.viewModel.documentSectionViewModel.visibleAlignmentTrackID =
                 self.viewModel.readStyleSectionViewModel.selectedVisibleAlignmentTrackID
             applySettings(self.makeReadDisplaySettingsPayload(from: self.viewModel.readStyleSectionViewModel))
+            if let split = self.parent as? MainSplitViewController {
+                split.viewerController.activeMappingViewportController?.refreshAlignmentActionContextFilters()
+            }
         }
         viewModel.readStyleSectionViewModel.onExtractConsensusRequested = { [weak self] in
             guard let self,
                   let split = self.parent as? MainSplitViewController else { return }
-            split.viewerController.presentMappingConsensusExtraction()
+            split.viewerController.activeMappingViewportController?.activeSequenceViewerController
+                .presentAlignmentConsensusGeneration()
         }
         viewModel.readStyleSectionViewModel.onMarkDuplicatesRequested = { [weak self] in
             self?.runMarkDuplicatesWorkflow()
@@ -870,13 +915,48 @@ extension InspectorViewController {
             bundle: bundle
         )
         updateAlignmentSection(from: bundle)
-        viewModel.readStyleSectionViewModel.supportsConsensusExtraction = false
-        viewModel.readStyleSectionViewModel.onExtractConsensusRequested = nil
+        let referenceScopeState: () -> (scope: AlignmentConsensusScope, unavailableMessage: String?) = { [weak self] in
+            guard let split = self?.parent as? MainSplitViewController,
+                  let controller = split.viewerController.referenceBundleViewportController else {
+                return (.wholeContig, AlignmentScientificActionError.contextUnavailable.localizedDescription)
+            }
+            return controller.consensusScopeState()
+        }
+        let scopeState = referenceScopeState()
+        viewModel.readStyleSectionViewModel.supportsConsensusExtraction = true
+        viewModel.readStyleSectionViewModel.consensusScope = scopeState.scope
+        viewModel.readStyleSectionViewModel.consensusExtractionAvailabilityMessage = scopeState.unavailableMessage
+        viewModel.readStyleSectionViewModel.onConsensusScopeChanged = { [weak self] scope in
+            guard let self,
+                  let split = self.parent as? MainSplitViewController,
+                  let controller = split.viewerController.referenceBundleViewportController else { return }
+            controller.setConsensusScope(scope)
+            let updated = referenceScopeState()
+            self.viewModel.readStyleSectionViewModel.consensusScope = updated.scope
+            self.viewModel.readStyleSectionViewModel.consensusExtractionAvailabilityMessage = updated.unavailableMessage
+        }
+        if let split = parent as? MainSplitViewController,
+           let controller = split.viewerController.referenceBundleViewportController {
+            controller.onConsensusActionStateChanged = { [weak self] in
+                guard let self else { return }
+                let updated = referenceScopeState()
+                self.viewModel.readStyleSectionViewModel.consensusScope = updated.scope
+                self.viewModel.readStyleSectionViewModel.consensusExtractionAvailabilityMessage = updated.unavailableMessage
+            }
+        }
+        viewModel.readStyleSectionViewModel.onExtractConsensusRequested = { [weak self] in
+            guard let self, let split = self.parent as? MainSplitViewController else { return }
+            split.viewerController.referenceBundleViewportController?.activeSequenceViewerController
+                .presentAlignmentConsensusGeneration()
+        }
         viewModel.readStyleSectionViewModel.onSettingsChanged = { [weak self] in
             guard let self else { return }
             self.viewModel.documentSectionViewModel.visibleAlignmentTrackID =
                 self.viewModel.readStyleSectionViewModel.selectedVisibleAlignmentTrackID
             applySettings(self.makeReadDisplaySettingsPayload(from: self.viewModel.readStyleSectionViewModel))
+            if let split = self.parent as? MainSplitViewController {
+                split.viewerController.referenceBundleViewportController?.refreshAlignmentActionContextFilters()
+            }
         }
         applySettings(makeReadDisplaySettingsPayload(from: viewModel.readStyleSectionViewModel))
         inspectorLogger.info("updateReferenceBundleTrackSections: \(bundle.alignmentTrackIds.count) alignment tracks loaded")

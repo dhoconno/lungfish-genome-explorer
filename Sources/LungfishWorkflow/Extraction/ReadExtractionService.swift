@@ -436,16 +436,11 @@ public actor ReadExtractionService {
             throw ExtractionError.bamFileNotFound(config.bamURL)
         }
 
-        // Check for BAM index
-        let baiPath1 = config.bamURL.path + ".bai"
-        let baiPath2 = config.bamURL.deletingPathExtension().path + ".bai"
-        let csiPath = config.bamURL.path + ".csi"
-        let hasIndex = fm.fileExists(atPath: baiPath1)
-            || fm.fileExists(atPath: baiPath2)
-            || fm.fileExists(atPath: csiPath)
-
-        guard hasIndex else {
-            throw ExtractionError.bamNotIndexed(config.bamURL)
+        guard let indexURL = config.indexURL else {
+            throw ExtractionError.explicitIndexRequired(config.bamURL)
+        }
+        guard fm.fileExists(atPath: indexURL.path) else {
+            throw ExtractionError.bamNotIndexed(indexURL)
         }
 
         try fm.createDirectory(at: config.outputDirectory, withIntermediateDirectories: true)
@@ -540,13 +535,20 @@ public actor ReadExtractionService {
 
             let tempBAM = tempDir.appendingPathComponent("extracted.bam")
 
-            // samtools view -b [-F 1024] -o extracted.bam bam.bam region1 region2 ...
-            var viewArgs = ["view", "-b"]
-            if config.deduplicateReads {
-                viewArgs.append(contentsOf: ["-F", String(flagFilter)])
-            }
-            viewArgs.append(contentsOf: ["-o", tempBAM.path, config.bamURL.path])
-            viewArgs.append(contentsOf: matchResult.matchedRegions)
+            let explicitConfig = BAMRegionExtractionConfig(
+                bamURL: config.bamURL,
+                indexURL: indexURL,
+                decodingReferenceURL: config.decodingReferenceURL,
+                regions: matchResult.matchedRegions,
+                fallbackToAll: false,
+                minMapQ: config.minMapQ,
+                excludedFlags: config.excludedFlags ?? (config.deduplicateReads ? flagFilter : 0),
+                readGroups: config.readGroups,
+                outputDirectory: config.outputDirectory,
+                outputBaseName: config.outputBaseName,
+                deduplicateReads: config.deduplicateReads
+            )
+            let viewArgs = explicitConfig.explicitViewArguments(outputBAM: tempBAM)
 
             let viewResult = try await toolRunner.run(
                 .samtools,
@@ -562,9 +564,7 @@ public actor ReadExtractionService {
             let tempBAMSize = (try? fm.attributesOfItem(atPath: tempBAM.path)[.size] as? Int64) ?? 0
 
             if tempBAMSize < 100 {
-                logger.warning("Region extraction produced empty BAM (\(tempBAMSize) bytes). Trying fallback: extract all reads.")
-                // Fall through to full extraction — convert all reads in the source BAM
-                try await convertBAMToFASTQSingleFile(inputBAM: config.bamURL, outputFASTQ: outputURL)
+                throw ExtractionError.emptyExtraction
             } else {
                 progress?(0.6, "Converting BAM to FASTQ...")
 

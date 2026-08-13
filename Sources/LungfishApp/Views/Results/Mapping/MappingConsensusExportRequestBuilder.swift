@@ -1,115 +1,88 @@
 import Foundation
-import LungfishCore
 import LungfishIO
-import LungfishWorkflow
 
-enum MappingConsensusExportRequestBuilderError: Error {
-    case noTargetChromosome
-}
-
+/// Presentation metadata paired with the immutable scientific request.  The
+/// scientific request is deliberately built from the evidence context and an
+/// already-resolved region; it has no viewport, annotation, or table fallback.
 struct MappingConsensusExportRequest: Equatable {
-    let chromosome: String
-    let start: Int
-    let end: Int
+    let consensusRequest: AlignmentConsensusRequest
+    let region: ResolvedAlignmentRegion
     let recordName: String
     let suggestedName: String
-    let mode: AlignmentConsensusMode
-    let minDepth: Int
-    let minMapQ: Int
-    let minBaseQ: Int
-    let excludeFlags: UInt16
-    let useAmbiguity: Bool
-    let showDeletions: Bool
-    let showInsertions: Bool
+
+    var chromosome: String { consensusRequest.chromosome }
+    var start: Int { consensusRequest.start }
+    var end: Int { consensusRequest.end }
+    var mode: AlignmentConsensusMode { consensusRequest.mode }
+    var minDepth: Int { consensusRequest.filters.minimumDepth }
+    var minMapQ: Int { consensusRequest.filters.minimumMapQ }
+    var minBaseQ: Int { consensusRequest.filters.minimumBaseQuality }
+    var excludeFlags: UInt16 { consensusRequest.filters.excludedFlags }
+    var useAmbiguity: Bool { consensusRequest.useAmbiguity }
+    var showDeletions: Bool { consensusRequest.deletionPolicy == .n }
+    var showInsertions: Bool { consensusRequest.insertionPolicy == .include }
 }
 
 enum MappingConsensusExportRequestBuilder {
-    struct ExplicitRegion: Equatable {
-        let chromosome: String
-        let start: Int
-        let end: Int
-        let label: String
-    }
-
     static func build(
         sampleName: String,
-        selectedContig: MappingContigSummary?,
-        fallbackChromosome: ChromosomeInfo?,
-        explicitRegion: ExplicitRegion? = nil,
+        context: AlignmentActionContext,
+        region: ResolvedAlignmentRegion,
         consensusMode: AlignmentConsensusMode,
-        consensusMinDepth: Int,
-        consensusMinMapQ: Int,
-        consensusMinBaseQ: Int,
-        excludeFlags: UInt16,
         useAmbiguity: Bool
     ) throws -> MappingConsensusExportRequest {
-        if let explicitRegion {
-            let start = max(0, explicitRegion.start)
-            let end = max(start + 1, explicitRegion.end)
-            let displayStart = start + 1
-            let safeLabel = sanitizedNameComponent(explicitRegion.label)
-            let labelSuffix = safeLabel.isEmpty ? "" : "-\(safeLabel)"
-            let recordLabel = explicitRegion.label.trimmingCharacters(in: .whitespacesAndNewlines)
-            let recordSuffix = recordLabel.isEmpty ? "" : " \(recordLabel)"
-            return MappingConsensusExportRequest(
-                chromosome: explicitRegion.chromosome,
-                start: start,
-                end: end,
-                recordName: "\(sampleName) \(explicitRegion.chromosome):\(displayStart)-\(end)\(recordSuffix) consensus",
-                suggestedName: "\(sampleName)-\(explicitRegion.chromosome)-\(displayStart)-\(end)\(labelSuffix)-consensus",
-                mode: consensusMode,
-                minDepth: consensusMinDepth,
-                minMapQ: consensusMinMapQ,
-                minBaseQ: consensusMinBaseQ,
-                excludeFlags: excludeFlags,
-                useAmbiguity: useAmbiguity,
-                showDeletions: false,
-                showInsertions: true
+        guard region.contig == context.contig,
+              region.start >= 0,
+              region.end > region.start,
+              region.end <= context.contigLength else {
+            throw AlignmentConsensusScopeError.emptySelection(
+                contig: region.contig,
+                start: region.start,
+                end: region.end
             )
         }
 
-        if let contig = selectedContig {
-            return MappingConsensusExportRequest(
-                chromosome: contig.contigName,
-                start: 0,
-                end: contig.contigLength,
-                recordName: "\(sampleName) \(contig.contigName) consensus",
-                suggestedName: "\(sampleName)-\(contig.contigName)-consensus",
-                mode: consensusMode,
-                minDepth: consensusMinDepth,
-                minMapQ: consensusMinMapQ,
-                minBaseQ: consensusMinBaseQ,
-                excludeFlags: excludeFlags,
-                useAmbiguity: useAmbiguity,
-                showDeletions: false,
-                showInsertions: true
-            )
-        }
-
-        guard let chromosome = fallbackChromosome else {
-            throw MappingConsensusExportRequestBuilderError.noTargetChromosome
-        }
-
-        return MappingConsensusExportRequest(
-            chromosome: chromosome.name,
-            start: 0,
-            end: Int(chromosome.length),
-            recordName: "\(sampleName) \(chromosome.name) consensus",
-            suggestedName: "\(sampleName)-\(chromosome.name)-consensus",
-            mode: consensusMode,
-            minDepth: consensusMinDepth,
-            minMapQ: consensusMinMapQ,
-            minBaseQ: consensusMinBaseQ,
-            excludeFlags: excludeFlags,
-            useAmbiguity: useAmbiguity,
-            showDeletions: false,
-            showInsertions: true
+        let request = AlignmentConsensusRequestFactory.build(
+            context: context,
+            region: region,
+            consensusMode: consensusMode,
+            useAmbiguity: useAmbiguity
+        )
+        let displayStart = region.start + 1
+        let isWholeContig = region.scope == .wholeContig
+        let selectedScopeLabel = region.scope == .selectedRegion ? "selected" : region.scope.rawValue
+        let scopeLabel = isWholeContig ? "" : " \(selectedScopeLabel)"
+        let nameSuffix = isWholeContig ? "" : "-\(region.scope.rawValue)"
+        let coordinateLabel = isWholeContig ? "" : ":\(displayStart)-\(region.end)"
+        return .init(
+            consensusRequest: request,
+            region: region,
+            recordName: "\(sampleName) \(region.contig)\(coordinateLabel)\(scopeLabel) consensus",
+            suggestedName: "\(sampleName)-\(region.contig)\(isWholeContig ? "" : "-\(displayStart)-\(region.end)")\(nameSuffix)-consensus"
         )
     }
+}
 
-    private static func sanitizedNameComponent(_ value: String) -> String {
-        value.trimmingCharacters(in: .whitespacesAndNewlines)
-            .split { !$0.isLetter && !$0.isNumber && $0 != "_" && $0 != "-" }
-            .joined(separator: "-")
+/// The sole builder for scientific BAM/CRAM consensus requests. Consensus is
+/// always a one-base-per-reference-coordinate projection: insertions are
+/// omitted and deletions are represented as N. Display-only indel preferences
+/// must never alter this evidence-only request.
+enum AlignmentConsensusRequestFactory {
+    static func build(
+        context: AlignmentActionContext,
+        region: ResolvedAlignmentRegion,
+        consensusMode: AlignmentConsensusMode,
+        useAmbiguity: Bool
+    ) -> AlignmentConsensusRequest {
+        AlignmentConsensusRequest(
+            chromosome: region.contig,
+            start: region.start,
+            end: region.end,
+            filters: context.filters,
+            mode: consensusMode,
+            useAmbiguity: useAmbiguity,
+            insertionPolicy: .omit,
+            deletionPolicy: .n
+        )
     }
 }

@@ -89,11 +89,18 @@ public struct BAMRegionExtractionConfig: Sendable {
 
     /// The sorted, indexed BAM file to extract reads from.
     public let bamURL: URL
+    /// Explicit evidence index. Region workflows must never discover one.
+    public let indexURL: URL?
+    /// CRAM decoding reference; it is not an index substitute.
+    public let decodingReferenceURL: URL?
 
     /// Genomic regions to extract, in samtools region notation.
     ///
     /// Empty means no region filter; behaviour is controlled by ``fallbackToAll``.
     public let regions: [String]
+    public let minMapQ: Int?
+    public let excludedFlags: Int?
+    public let readGroups: [String]
 
     /// When `true` and ``regions`` is empty, extract all reads from the BAM.
     ///
@@ -126,18 +133,44 @@ public struct BAMRegionExtractionConfig: Sendable {
     ///   - deduplicateReads: Exclude PCR duplicate-flagged reads (default: `true`).
     public init(
         bamURL: URL,
+        indexURL: URL? = nil,
+        decodingReferenceURL: URL? = nil,
         regions: [String],
         fallbackToAll: Bool = false,
+        minMapQ: Int? = nil,
+        excludedFlags: Int? = nil,
+        readGroups: [String] = [],
         outputDirectory: URL,
         outputBaseName: String,
         deduplicateReads: Bool = true
     ) {
         self.bamURL = bamURL
+        self.indexURL = indexURL
+        self.decodingReferenceURL = decodingReferenceURL
         self.regions = regions
         self.fallbackToAll = fallbackToAll
+        self.minMapQ = minMapQ
+        self.excludedFlags = excludedFlags
+        self.readGroups = readGroups
         self.outputDirectory = outputDirectory
         self.outputBaseName = outputBaseName
         self.deduplicateReads = deduplicateReads
+    }
+
+    /// Exact explicit-index samtools invocation. Options precede `-X`'s
+    /// positional BAM/index pair so samtools does not interpret them as regions.
+    public func explicitViewArguments(outputBAM: URL) -> [String] {
+        var arguments = ["view", "-b"]
+        if let decodingReferenceURL, bamURL.pathExtension.lowercased() == "cram" {
+            arguments += ["-T", decodingReferenceURL.path]
+        }
+        if let minMapQ { arguments += ["-q", String(minMapQ)] }
+        let flags = excludedFlags ?? (deduplicateReads ? 0x400 : 0)
+        if flags != 0 { arguments += ["-F", String(flags)] }
+        for group in readGroups { arguments += ["-r", group] }
+        arguments += ["-o", outputBAM.path]
+        guard let indexURL else { return arguments + [bamURL.path] + regions }
+        return arguments + ["-X", bamURL.path, indexURL.path] + regions
     }
 }
 
@@ -622,6 +655,7 @@ public enum ExtractionError: Error, LocalizedError, Sendable {
 
     /// The BAM file is not indexed (missing `.bai` or `.csi` index).
     case bamNotIndexed(URL)
+    case explicitIndexRequired(URL)
 
     /// None of the requested regions could be matched to BAM reference names.
     case noMatchingRegions([String])
@@ -661,6 +695,8 @@ public enum ExtractionError: Error, LocalizedError, Sendable {
             return "BAM file not found: \(url.lastPathComponent)"
         case .bamNotIndexed(let url):
             return "BAM file is not indexed: \(url.lastPathComponent)"
+        case .explicitIndexRequired(let url):
+            return "An explicit index is required for \(url.lastPathComponent)"
         case .noMatchingRegions(let regions):
             let preview = regions.prefix(3).joined(separator: ", ")
             let suffix = regions.count > 3 ? " (and \(regions.count - 3) more)" : ""

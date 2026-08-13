@@ -21,6 +21,44 @@ final class ClassifierAlignmentEvidenceValidatorTests: XCTestCase {
         XCTAssertEqual(result.provider.indexPath, files.index.path)
     }
 
+    func testCRAMRequiresValidatedDecodeReferenceAndInstallsItOnProvider() async throws {
+        let files = try FixtureFiles()
+        let cram = files.directory.appendingPathComponent("evidence.cram")
+        let crai = files.directory.appendingPathComponent("evidence.cram.crai")
+        try Data([0x43, 0x52, 0x41, 0x4d]).write(to: cram)
+        try Data([0x43, 0x52, 0x41, 0x49]).write(to: crai)
+        let request = try files.request(
+            reference: true,
+            indexURL: crai,
+            indexKind: .crai,
+            bamURL: cram
+        )
+        let validator = ClassifierAlignmentEvidenceValidator(
+            headerReader: { _ in "@SQ\tSN:chr1\tLN:4\n" },
+            indexQuery: { actualCRAM, actualCRAI, contig in
+                XCTAssertEqual(actualCRAM, cram)
+                XCTAssertEqual(actualCRAI, crai)
+                XCTAssertEqual(contig, "chr1")
+            },
+            fileManager: files.fileManager
+        )
+
+        let result = try await validator.validate(request)
+        XCTAssertEqual(result.provider.format, .cram)
+        XCTAssertEqual(result.provider.referenceFastaPath, files.fasta.path)
+        XCTAssertNotNil(result.referenceSnapshot)
+
+        let missingReference = try files.request(
+            reference: false,
+            indexURL: crai,
+            indexKind: .crai,
+            bamURL: cram
+        )
+        await XCTAssertThrowsErrorAsync(try await validator.validate(missingReference)) { error in
+            XCTAssertEqual(error as? ClassifierAlignmentEvidenceValidator.Error, .decodingReferenceRequired(cram))
+        }
+    }
+
     func testAcceptsValidDescendantEvidenceForEveryClassifierLeaf() async throws {
         let files = try FixtureFiles()
         let validator = ClassifierAlignmentEvidenceValidator(

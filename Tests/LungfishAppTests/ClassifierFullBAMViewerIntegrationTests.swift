@@ -96,7 +96,13 @@ final class ClassifierFullBAMViewerIntegrationTests: XCTestCase {
         provider.display(request)
         for _ in 0..<100 where provider.status == .loading { await Task.yield() }
         XCTAssertEqual(provider.status, .available(referenceStrength: "not provided", reason: nil))
+        let actionContext = try XCTUnwrap(provider.viewer.alignmentActionContext)
+        XCTAssertEqual(actionContext.identity.workflow, "nvd")
+        XCTAssertEqual(actionContext.identity.resultID, "result")
+        XCTAssertEqual(actionContext.identity.sampleID, "S1")
+        XCTAssertEqual(actionContext.identity.evidenceID, "prov:ctg")
         provider.clear()
+        XCTAssertNil(provider.viewer.alignmentActionContext)
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted(), before)
         XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("result.lungfishref").path))
     }
@@ -149,6 +155,23 @@ final class ClassifierFullBAMViewerIntegrationTests: XCTestCase {
         XCTAssertEqual(controller.viewer.viewerView.excludeFlagsSetting, 0xD04)
         XCTAssertEqual(controller.inspectorCapabilities?.indexPath, indexURL.path)
         XCTAssertEqual(controller.inspectorCapabilities?.readGroups, [])
+
+        let actionContext = try XCTUnwrap(controller.viewer.alignmentActionContext)
+        XCTAssertEqual(actionContext.identity.workflow, "esViritu")
+        XCTAssertEqual(actionContext.identity.resultID, "fixture-result")
+        XCTAssertEqual(actionContext.identity.sampleID, "fixture-sample")
+        XCTAssertEqual(actionContext.identity.evidenceID, "fixture-provenance:synthetic-track-A")
+        XCTAssertEqual(actionContext.alignmentURL, bamURL.standardizedFileURL)
+        XCTAssertEqual(actionContext.indexURL, indexURL.standardizedFileURL)
+        XCTAssertNil(actionContext.decodingReferenceURL)
+        XCTAssertEqual(actionContext.contig, "synthetic-track-A")
+        XCTAssertEqual(actionContext.contigLength, 120)
+        XCTAssertEqual(actionContext.filters.minimumMapQ, 0)
+        XCTAssertEqual(actionContext.filters.excludedFlags, 0xD04)
+        XCTAssertEqual(actionContext.filters.readGroups, [])
+        XCTAssertEqual(actionContext.outputCapability, .userSelectedDestination)
+        XCTAssertEqual(actionContext.sourceReads, .bamFallback)
+        try actionContext.validateCurrentSnapshots()
 
         let region = GenomicRegion(chromosome: "synthetic-track-A", start: 0, end: 120)
         for _ in 0..<500 where !controller.viewer.viewerView.detachedEvidenceIsCurrent(source) {

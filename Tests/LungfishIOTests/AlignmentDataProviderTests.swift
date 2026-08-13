@@ -491,6 +491,333 @@ final class AlignmentDataProviderTests: XCTestCase {
         XCTAssertNil(result.headerStart)
     }
 
+    // MARK: - Evidence-Only Consensus
+
+    func testConsensusNormalizerMasksSparseAndLowDepthCoordinates() throws {
+        // Would fail if the normalizer ever emits a caller base where filtered
+        // depth is missing or below the requested threshold.
+        let request = AlignmentConsensusRequest(
+            chromosome: "chrSynthetic", start: 10, end: 15,
+            filters: .init(minimumDepth: 3, minimumMapQ: 20, minimumBaseQuality: 12,
+                           excludedFlags: 0x904, readGroups: []),
+            mode: .bayesian, useAmbiguity: false,
+            insertionPolicy: .omit, deletionPolicy: .n
+        )
+
+        let result = try AlignmentConsensusNormalizer.normalize(
+            caller: .init(sequence: "ACGTA", headerStart: 10),
+            depth: [
+                .init(chromosome: "chrSynthetic", position: 10, depth: 3),
+                .init(chromosome: "chrSynthetic", position: 12, depth: 7),
+                .init(chromosome: "chrSynthetic", position: 13, depth: 1),
+            ],
+            request: request
+        )
+
+        XCTAssertEqual(result.sequence, "ANGNN")
+        XCTAssertEqual(result.referenceLength, 5)
+        XCTAssertFalse(result.allLowDepth)
+    }
+
+    func testConsensusNormalizerAcceptsAllLowDepthResult() throws {
+        // Would fail if all-N evidence-only consensus were incorrectly treated
+        // as an empty or invalid result.
+        let request = consensusRequest(start: 10, end: 15, minimumDepth: 3)
+
+        let result = try AlignmentConsensusNormalizer.normalize(
+            caller: .init(sequence: "ACGTA", headerStart: 10),
+            depth: [],
+            request: request
+        )
+
+        XCTAssertEqual(result.sequence, "NNNNN")
+        XCTAssertTrue(result.allLowDepth)
+    }
+
+    func testConsensusNormalizerUsesCallerMinimumDepthFloorOfOne() throws {
+        // Would fail if the normalizer treated a zero-depth coordinate as
+        // adequately covered when the caller is invoked with its `-d 1` floor.
+        let request = consensusRequest(start: 10, end: 15, minimumDepth: 0)
+
+        let result = try AlignmentConsensusNormalizer.normalize(
+            caller: .init(sequence: "ACGTA", headerStart: 10),
+            depth: [],
+            request: request
+        )
+
+        XCTAssertEqual(result.sequence, "NNNNN")
+        XCTAssertTrue(result.allLowDepth)
+    }
+
+    func testConsensusNormalizerAlignsCallerUsingHeaderStart() throws {
+        // Would fail if the caller's header coordinate were ignored and its
+        // bases were shifted into the requested interval.
+        let request = consensusRequest(start: 10, end: 15, minimumDepth: 1)
+
+        let result = try AlignmentConsensusNormalizer.normalize(
+            caller: .init(sequence: "TACGTA", headerStart: 9),
+            depth: (10..<15).map { .init(chromosome: "chrSynthetic", position: $0, depth: 1) },
+            request: request
+        )
+
+        XCTAssertEqual(result.sequence, "ACGTA")
+    }
+
+    func testConsensusNormalizerRejectsMissingOrExtraCoordinateProjection() {
+        // Would fail if a truncated or overlong caller result were silently
+        // shifted into a reference-coordinate consensus.
+        let request = consensusRequest(start: 10, end: 15, minimumDepth: 1)
+        let depth = (10..<15).map { DepthPoint(chromosome: "chrSynthetic", position: $0, depth: 1) }
+
+        for caller in [
+            AlignmentDataProvider.ConsensusFASTAResult(sequence: "ACGT", headerStart: 10),
+            AlignmentDataProvider.ConsensusFASTAResult(sequence: "AACGTA", headerStart: 10),
+        ] {
+            XCTAssertThrowsError(
+                try AlignmentConsensusNormalizer.normalize(caller: caller, depth: depth, request: request)
+            ) { error in
+                guard case AlignmentFetchError.consensusCoordinateMismatch = error else {
+                    return XCTFail("Expected consensusCoordinateMismatch, got \(error)")
+                }
+            }
+        }
+    }
+
+    private func consensusRequest(start: Int, end: Int, minimumDepth: Int) -> AlignmentConsensusRequest {
+        AlignmentConsensusRequest(
+            chromosome: "chrSynthetic", start: start, end: end,
+            filters: .init(minimumDepth: minimumDepth, minimumMapQ: 20, minimumBaseQuality: 12,
+                           excludedFlags: 0x904, readGroups: []),
+            mode: .bayesian, useAmbiguity: false,
+            insertionPolicy: .omit, deletionPolicy: .n
+        )
+    }
+
+    func testFetchConsensusRequestUsesIdenticalEvidenceFiltersForCRAM() async throws {
+        // Would fail if the four-stage snapshot pipeline regressed to direct
+        // consensus/depth on the source, if source and remaining filters leaked
+        // across stage boundaries, or if caller output bypassed depth masking.
+        let tempDir = try makeTemporaryDirectory(prefix: "alignment-consensus-parity")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let invocationsURL = tempDir.appendingPathComponent("invocations.txt")
+        let sourceURL = tempDir.appendingPathComponent("evidence.cram")
+        let sourceIndexURL = tempDir.appendingPathComponent("evidence.cram.crai")
+        let decodingReferenceURL = tempDir.appendingPathComponent("decoding-reference.fa")
+        try Data("source".utf8).write(to: sourceURL)
+        try Data("index".utf8).write(to: sourceIndexURL)
+        try Data(">chrSynthetic\nTTTTT\n".utf8).write(to: decodingReferenceURL)
+        let script = try makeFakeSamtools(in: tempDir, script: """
+        #!/bin/sh
+        printf '%s\\n' "$*" >> "\(invocationsURL.path)"
+        case "$1" in
+        --version)
+            printf 'samtools 1.23.1\\n'
+            ;;
+        view)
+            while [ "$#" -gt 0 ]; do
+                if [ "$1" = "-o" ]; then
+                    printf 'filtered BAM' > "$2"
+                    break
+                fi
+                shift
+            done
+            ;;
+        index)
+            printf 'filtered index' > "$3"
+            ;;
+        consensus)
+            printf '>chrSynthetic:11-15\\nACGTA\\n'
+            ;;
+        depth)
+            printf 'chrSynthetic\\t11\\t3\\nchrSynthetic\\t13\\t7\\nchrSynthetic\\t14\\t1\\n'
+            ;;
+        *)
+            exit 9
+            ;;
+        esac
+        """)
+        let provider = AlignmentDataProvider(
+            alignmentPath: sourceURL.path,
+            indexPath: sourceIndexURL.path,
+            format: .cram,
+            referenceFastaPath: decodingReferenceURL.path,
+            samtoolsPath: script.path
+        )
+        let request = AlignmentConsensusRequest(
+            chromosome: "chrSynthetic", start: 10, end: 15,
+            filters: .init(minimumDepth: 3, minimumMapQ: 20, minimumBaseQuality: 12,
+                           excludedFlags: 0x904, readGroups: ["zeta", "alpha"]),
+            mode: .bayesian, useAmbiguity: false,
+            insertionPolicy: .omit, deletionPolicy: .n
+        )
+
+        let result = try await provider.fetchConsensus(request)
+
+        XCTAssertEqual(result.sequence, "ANGNN")
+        let invocations = try String(contentsOf: invocationsURL, encoding: .utf8)
+            .split(separator: "\n")
+            .map(String.init)
+        XCTAssertEqual(invocations.count, 5)
+        let view = try XCTUnwrap(invocations.first { $0.hasPrefix("view ") })
+        let index = try XCTUnwrap(invocations.first { $0.hasPrefix("index ") })
+        let consensus = try XCTUnwrap(invocations.first { $0.hasPrefix("consensus ") })
+        let depth = try XCTUnwrap(invocations.first { $0.hasPrefix("depth ") })
+        XCTAssertTrue(view.contains("-b -h -o"))
+        XCTAssertTrue(view.contains("-X \(sourceURL.path) \(sourceIndexURL.path)"))
+        XCTAssertTrue(view.contains("-T \(decodingReferenceURL.path)"))
+        XCTAssertTrue(view.contains("-q 20 -F 2308"))
+        XCTAssertTrue(view.contains("-R"))
+        XCTAssertTrue(view.contains("-n"))
+        XCTAssertTrue(view.contains("chrSynthetic:11-15"))
+        XCTAssertTrue(index.contains("filtered.bam"))
+
+        for invocation in [consensus, depth] {
+            XCTAssertTrue(invocation.contains("chrSynthetic:11-15"))
+            XCTAssertTrue(invocation.contains("filtered.bam"))
+            XCTAssertFalse(invocation.contains(sourceURL.path))
+            XCTAssertFalse(invocation.contains("alpha"))
+            XCTAssertFalse(invocation.contains("zeta"))
+            XCTAssertFalse(invocation.contains("-T \(decodingReferenceURL.path)"))
+        }
+        XCTAssertTrue(consensus.contains("--min-BQ 12"))
+        XCTAssertFalse(consensus.contains("--min-MQ"))
+        XCTAssertFalse(consensus.contains("-X"))
+        XCTAssertTrue(depth.contains("-q 12"))
+        XCTAssertFalse(depth.contains("-Q"))
+
+        XCTAssertEqual(result.executionRecords.map(\.stage), [.view, .index, .consensus, .depth])
+        XCTAssertTrue(result.executionRecords.allSatisfy { $0.exitStatus == 0 })
+        XCTAssertTrue(result.executionRecords.allSatisfy { !$0.reproducibleCommand.isEmpty })
+        XCTAssertTrue(result.executionRecords.allSatisfy { !$0.runtimeIdentity.isEmpty })
+        XCTAssertEqual(result.executionRecords.first?.executableVersion, "samtools 1.23.1")
+        XCTAssertEqual(result.executionRecords.first?.readGroupFile?.contents, "alpha\nzeta\n")
+    }
+
+    func testFetchConsensusRecordsChecksummedStdoutArtifacts() async throws {
+        // Would fail if consensus or depth stdout were consumed without being
+        // represented as a checksummed, sized scientific output artifact.
+        let tempDir = try makeTemporaryDirectory(prefix: "alignment-consensus-stdout-provenance")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let sourceURL = tempDir.appendingPathComponent("evidence.bam")
+        let sourceIndexURL = tempDir.appendingPathComponent("evidence.bam.bai")
+        try Data("source".utf8).write(to: sourceURL)
+        try Data("index".utf8).write(to: sourceIndexURL)
+        let script = try makeFakeSamtools(in: tempDir, script: """
+        #!/bin/sh
+        case "$1" in
+        --version)
+            printf 'samtools 1.23.1\n'
+            ;;
+        view)
+            while [ "$#" -gt 0 ]; do
+                if [ "$1" = "-o" ]; then
+                    printf 'filtered BAM' > "$2"
+                    break
+                fi
+                shift
+            done
+            ;;
+        index)
+            printf 'filtered index' > "$3"
+            ;;
+        consensus)
+            printf '>chrSynthetic:11-15\nACGTA\n'
+            ;;
+        depth)
+            printf 'chrSynthetic\t11\t3\nchrSynthetic\t13\t7\nchrSynthetic\t14\t1\n'
+            ;;
+        *)
+            exit 9
+            ;;
+        esac
+        """)
+        let provider = AlignmentDataProvider(
+            alignmentPath: sourceURL.path,
+            indexPath: sourceIndexURL.path,
+            samtoolsPath: script.path
+        )
+
+        let result = try await provider.fetchConsensus(
+            consensusRequest(start: 10, end: 15, minimumDepth: 3)
+        )
+
+        let consensusRecord = try XCTUnwrap(result.executionRecords.first { $0.stage == .consensus })
+        XCTAssertEqual(consensusRecord.outputs.count, 1)
+        let consensusOutput = try XCTUnwrap(consensusRecord.outputs.first)
+        XCTAssertTrue(consensusOutput.path.hasSuffix("/consensus.fasta"))
+        XCTAssertEqual(consensusOutput.checksumSHA256, "31b000b699089c4e51432c9d46559dc9393a9870b35fcabadba8ae237d1da9df")
+        XCTAssertEqual(consensusOutput.fileSize, 26)
+
+        let depthRecord = try XCTUnwrap(result.executionRecords.first { $0.stage == .depth })
+        XCTAssertEqual(depthRecord.outputs.count, 1)
+        let depthOutput = try XCTUnwrap(depthRecord.outputs.first)
+        XCTAssertTrue(depthOutput.path.hasSuffix("/depth.tsv"))
+        XCTAssertEqual(depthOutput.checksumSHA256, "d6cf71c1dcdd6167715b14f3e94237c637a7cbd7fcae04227916eeb179d80c76")
+        XCTAssertEqual(depthOutput.fileSize, 54)
+    }
+
+    func testFetchConsensusCoordinateMismatchPreservesStageRecords() async throws {
+        // Would fail if post-subprocess projection validation discarded the
+        // four successful scientific execution records from the thrown error.
+        let tempDir = try makeTemporaryDirectory(prefix: "alignment-consensus-mismatch-provenance")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let sourceURL = tempDir.appendingPathComponent("evidence.bam")
+        let sourceIndexURL = tempDir.appendingPathComponent("evidence.bam.bai")
+        try Data("source".utf8).write(to: sourceURL)
+        try Data("index".utf8).write(to: sourceIndexURL)
+        let script = try makeFakeSamtools(in: tempDir, script: """
+        #!/bin/sh
+        case "$1" in
+        --version)
+            printf 'samtools 1.23.1\n'
+            ;;
+        view)
+            while [ "$#" -gt 0 ]; do
+                if [ "$1" = "-o" ]; then
+                    printf 'filtered BAM' > "$2"
+                    break
+                fi
+                shift
+            done
+            ;;
+        index)
+            printf 'filtered index' > "$3"
+            ;;
+        consensus)
+            printf '>chrSynthetic:11-14\nACGT\n'
+            ;;
+        depth)
+            printf 'chrSynthetic\t11\t3\nchrSynthetic\t12\t3\nchrSynthetic\t13\t3\nchrSynthetic\t14\t3\n'
+            ;;
+        *)
+            exit 9
+            ;;
+        esac
+        """)
+        let provider = AlignmentDataProvider(
+            alignmentPath: sourceURL.path,
+            indexPath: sourceIndexURL.path,
+            samtoolsPath: script.path
+        )
+
+        do {
+            _ = try await provider.fetchConsensus(
+                consensusRequest(start: 10, end: 15, minimumDepth: 3)
+            )
+            XCTFail("Expected coordinate mismatch")
+        } catch let AlignmentFetchError.consensusCoordinateMismatchWithRecords(records) {
+            XCTAssertEqual(records.map(\.stage), [.view, .index, .consensus, .depth])
+            XCTAssertTrue(records.allSatisfy { $0.exitStatus == 0 })
+            XCTAssertTrue(records.suffix(2).allSatisfy {
+                $0.outputs.count == 1
+                    && $0.outputs[0].checksumSHA256 != nil
+                    && $0.outputs[0].fileSize != nil
+            })
+        } catch {
+            XCTFail("Expected coordinate mismatch with records, got \(error)")
+        }
+    }
+
     // MARK: - AlignmentMetadataDatabase Parsing (inline data tests)
 
     func testIdxstatsParsingViaMetadataDatabase() throws {

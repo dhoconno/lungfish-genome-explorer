@@ -164,6 +164,71 @@ final class MappingViewportRoutingTests: XCTestCase {
         XCTAssertNil(vc.mappingResultController)
     }
 
+    func testLegacyMappingSelectionInstallsAlignmentActionContext() throws {
+        let resultDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mapping-action-context-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: resultDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: resultDirectory) }
+        let bundleURL = try MappingRoutingFixture.makeReferenceBundle(
+            name: "Legacy Mapping Actions",
+            chromosomes: [.init(name: "chr1", length: 100)]
+        )
+        defer { try? FileManager.default.removeItem(at: bundleURL.deletingLastPathComponent()) }
+        let bamURL = resultDirectory.appendingPathComponent("sample.sorted.bam")
+        let indexURL = resultDirectory.appendingPathComponent("sample.sorted.bam.bai")
+        try Data("bam-evidence".utf8).write(to: bamURL)
+        try Data("index-evidence".utf8).write(to: indexURL)
+        let result = MappingResult(
+            mapper: .minimap2,
+            modeID: MappingMode.defaultShortRead.id,
+            viewerBundleURL: bundleURL,
+            bamURL: bamURL,
+            baiURL: indexURL,
+            totalReads: 10,
+            mappedReads: 9,
+            unmappedReads: 1,
+            wallClockSeconds: 1,
+            contigs: [.init(
+                sampleID: "S1",
+                readGroupIDs: ["S1-rg"],
+                contigName: "chr1",
+                contigLength: 100,
+                mappedReads: 9,
+                mappedReadPercent: 90,
+                meanDepth: 1,
+                coverageBreadth: 50,
+                medianMAPQ: 40,
+                meanIdentity: 99
+            )]
+        )
+        let viewport = ReferenceBundleViewportController()
+        _ = viewport.view
+
+        viewport.configureForTesting(result: result, resultDirectoryURL: resultDirectory)
+        viewport.testSelectContig(sampleID: "S1", alignmentTrackID: nil, named: "chr1")
+
+        let context = try MappingRoutingFixture.waitForAlignmentActionContext(on: viewport)
+        XCTAssertEqual(context.identity.workflow, "mapping")
+        XCTAssertEqual(context.identity.sampleID, "S1")
+        XCTAssertEqual(context.alignmentURL, bamURL.standardizedFileURL)
+        XCTAssertEqual(context.indexURL, indexURL.standardizedFileURL)
+        XCTAssertEqual(context.contig, "chr1")
+        XCTAssertEqual(context.filters.readGroups, ["S1-rg"])
+        XCTAssertEqual(context.outputCapability, .projectDerivedRoot(resultDirectory.standardizedFileURL))
+        XCTAssertEqual(context.sourceReads, .bamFallback)
+
+        viewport.applyEmbeddedReadDisplaySettings([
+            NotificationUserInfoKey.minMapQ: 23,
+            NotificationUserInfoKey.consensusMinMapQ: 29,
+        ])
+        let updatedContext = try MappingRoutingFixture.waitForAlignmentActionContext(
+            on: viewport,
+            where: { $0.filters.minimumMapQ == 29 }
+        )
+        XCTAssertEqual(updatedContext.identity, context.identity)
+        XCTAssertEqual(updatedContext.filters.minimumMapQ, 29)
+    }
+
     func testReferenceBundlesRouteThroughHarmonizedReferenceViewport() throws {
         let bundleURL = try MappingRoutingFixture.makeReferenceBundle(
             name: "Reference Viewport Route",
@@ -270,6 +335,29 @@ final class MappingViewportRoutingTests: XCTestCase {
         viewport.testSelectSequence(sampleID: "S2", named: "chr1")
         XCTAssertEqual(viewport.testVisibleAlignmentTrackID, "reads-s2")
         XCTAssertEqual(viewport.testSelectedReadGroups, Set(["S2-rg"]))
+        let actionContext = try MappingRoutingFixture.waitForAlignmentActionContext(on: viewport)
+        XCTAssertEqual(actionContext.identity.workflow, "reference-bundle")
+        XCTAssertEqual(actionContext.identity.sampleID, "S2")
+        XCTAssertEqual(actionContext.identity.evidenceID, "reads-s2:chr1")
+        XCTAssertEqual(actionContext.alignmentURL, bundleURL.appendingPathComponent("alignments/reads-s2.bam"))
+        XCTAssertEqual(actionContext.indexURL, bundleURL.appendingPathComponent("alignments/reads-s2.bam.bai"))
+        XCTAssertEqual(actionContext.contig, "chr1")
+        XCTAssertEqual(actionContext.filters.readGroups, Set(["S2-rg"]))
+        XCTAssertEqual(actionContext.outputCapability, .userSelectedDestination)
+        XCTAssertEqual(actionContext.sourceReads, .bamFallback)
+
+        viewport.applyEmbeddedReadDisplaySettings([
+            NotificationUserInfoKey.visibleAlignmentTrackID: "reads-s2",
+            NotificationUserInfoKey.selectedReadGroups: Set(["S2-rg"]),
+            NotificationUserInfoKey.minMapQ: 37,
+            NotificationUserInfoKey.consensusMinMapQ: 41,
+        ])
+        let updatedContext = try MappingRoutingFixture.waitForAlignmentActionContext(
+            on: viewport,
+            where: { $0.filters.minimumMapQ == 41 }
+        )
+        XCTAssertEqual(updatedContext.identity, actionContext.identity)
+        XCTAssertEqual(updatedContext.filters.minimumMapQ, 41)
     }
 
     func testDirectReferenceBAMRouteKeepsUnresolvedTrackRowsAlongsideResolvedTracks() throws {
@@ -2946,6 +3034,23 @@ private enum MappingRoutingFixture {
         let visibleTrack = split.viewerController.referenceBundleViewportController?.testVisibleAlignmentTrackID
         throw NSError(domain: "MappingRoutingFixture", code: 2, userInfo: [
             NSLocalizedDescriptionKey: "Timed out waiting for initial sample × contig rows; rendered=\(input?.renderedBundleURL?.path ?? "nil") manifest=\(input?.viewerBundleManifest?.name ?? "nil") tracks=\(input?.viewerBundleManifest?.alignments.map(\.id) ?? []) track=\(visibleTrack ?? "nil") rows=\(rows ?? [])"
+        ])
+    }
+
+    @MainActor
+    static func waitForAlignmentActionContext(
+        on viewport: ReferenceBundleViewportController,
+        where predicate: (AlignmentActionContext) -> Bool = { _ in true }
+    ) throws -> AlignmentActionContext {
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline {
+            if let context = viewport.testAlignmentActionContext, predicate(context) {
+                return context
+            }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        throw NSError(domain: "MappingRoutingFixture", code: 3, userInfo: [
+            NSLocalizedDescriptionKey: "Timed out installing the alignment action context"
         ])
     }
 

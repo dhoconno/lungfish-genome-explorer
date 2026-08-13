@@ -128,7 +128,11 @@ final class InspectorMappingModeTests: XCTestCase {
         )
         XCTAssertEqual(vc.viewModel.documentSectionViewModel.selectedChromosome?.name, "chr1")
         XCTAssertEqual(deliveredPayload?[NotificationUserInfoKey.showReads] as? Bool, vc.readStyleSectionViewModel.showReads)
-        XCTAssertFalse(vc.readStyleSectionViewModel.supportsConsensusExtraction)
+        XCTAssertTrue(vc.readStyleSectionViewModel.supportsConsensusExtraction)
+        XCTAssertEqual(
+            vc.readStyleSectionViewModel.consensusExtractionAvailabilityMessage,
+            AlignmentScientificActionError.contextUnavailable.localizedDescription
+        )
         XCTAssertEqual(vc.viewModel.provenanceSectionViewModel.currentItem?.url, bundle.url)
         XCTAssertEqual(vc.viewModel.provenanceSectionViewModel.currentItem?.sidebarType, .referenceBundle)
     }

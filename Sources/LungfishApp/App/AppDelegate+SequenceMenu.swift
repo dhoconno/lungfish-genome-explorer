@@ -17,8 +17,7 @@ extension AppDelegate {
     @objc func reverseComplement(_ sender: Any?) {
         guard let viewerView = activeMainWindowController(sender: sender)?
             .mainSplitViewController?
-            .viewerController?
-            .activeSequenceViewerController
+            .activeFullSequenceViewerController?
             .viewerView else {
             showAlert(title: "No Viewer", message: "Open a sequence to use Reverse Complement.")
             return
@@ -29,8 +28,7 @@ extension AppDelegate {
     @objc func translate(_ sender: Any?) {
         guard let viewerView = activeMainWindowController(sender: sender)?
             .mainSplitViewController?
-            .viewerController?
-            .activeSequenceViewerController
+            .activeFullSequenceViewerController?
             .viewerView else {
             showAlert(title: "No Viewer", message: "Open a sequence to use Translate.")
             return
@@ -42,17 +40,28 @@ extension AppDelegate {
     @objc func goToPosition(_ sender: Any?) {
         // Ensure we have a viewer controller
         guard let originController = activeMainWindowController(sender: sender),
-              let rootViewerController = originController.mainSplitViewController?.viewerController else {
+              let viewerController = originController.mainSplitViewController?.activeFullSequenceViewerController else {
             showAlert(title: "No Viewer", message: "No sequence viewer is available.")
             return
         }
-        let viewerController = rootViewerController.activeSequenceViewerController
-
         // Ensure a sequence is loaded
         guard viewerController.referenceFrame != nil else {
             showAlert(title: "No Sequence", message: "Please load a sequence before navigating to a position.")
             return
         }
+
+#if DEBUG
+        if let input = goToPositionInputForTesting {
+            let result = parseAndNavigate(input: input, viewerController: viewerController)
+            if !result.success {
+                showAlert(
+                    title: "Navigation Error",
+                    message: result.errorMessage ?? "Failed to navigate to the specified position."
+                )
+            }
+            return
+        }
+#endif
 
         // Show go-to-position dialog
         let alert = NSAlert()
@@ -91,12 +100,10 @@ extension AppDelegate {
     @objc func goToGene(_ sender: Any?) {
         // Ensure we have a viewer controller with annotations loaded
         guard let originController = activeMainWindowController(sender: sender),
-              let rootViewerController = originController.mainSplitViewController?.viewerController else {
+              let viewerController = originController.mainSplitViewController?.activeFullSequenceViewerController else {
             showAlert(title: "No Viewer", message: "No sequence viewer is available.")
             return
         }
-        let viewerController = rootViewerController.activeSequenceViewerController
-
         guard viewerController.referenceFrame != nil else {
             showAlert(title: "No Sequence", message: "Please load a sequence before searching for genes.")
             return
@@ -424,8 +431,7 @@ extension AppDelegate {
     @objc func copySelectionFASTA(_ sender: Any?) {
         guard let viewerView = activeMainWindowController(sender: sender)?
             .mainSplitViewController?
-            .viewerController?
-            .activeSequenceViewerController
+            .activeFullSequenceViewerController?
             .viewerView else {
             NSSound.beep()
             return
@@ -436,8 +442,7 @@ extension AppDelegate {
     @objc func extractSelection(_ sender: Any?) {
         guard let viewerView = activeMainWindowController(sender: sender)?
             .mainSplitViewController?
-            .viewerController?
-            .activeSequenceViewerController
+            .activeFullSequenceViewerController?
             .viewerView else {
             NSSound.beep()
             return
@@ -635,12 +640,10 @@ extension AppDelegate {
 
     private func presentFindORFsOperation(sender: Any?) {
         guard let originController = activeMainWindowController(sender: sender),
-              let rootViewerController = originController.mainSplitViewController?.viewerController else {
+              let viewerController = originController.mainSplitViewController?.activeFullSequenceViewerController else {
             showAlert(title: "No Viewer", message: "Open a reference sequence bundle before running Find ORFs.")
             return
         }
-        let viewerController = rootViewerController.activeSequenceViewerController
-
         guard let context = viewerController.currentSequenceAnnotationOperationContext(),
               let bundleURL = context.bundleURL else {
             showAlert(

@@ -119,16 +119,32 @@ REQUIRED_MSA_PAYLOAD_FILES = [
 ]
 CLASSIFIER_FULL_VIEWER_PAYLOADS = {
     "source.sam": {
-        "fileSize": 468,
-        "checksumSHA256": "d35f0a6d52588829004c73d0ae2398d31637cebb4cfa3c6c392839c9fd1435f8",
+        "fileSize": 535,
+        "checksumSHA256": "652bcb4ce3ce4d21a0ecdf68f58e0225b8b2e6498dc59dbf658b8866f8719aa7",
+    },
+    "conflicting-reference.fasta": {
+        "fileSize": 140,
+        "checksumSHA256": "36e2d1088b5810e73fdfb3a6470accf0942d50ea9cbf986b3d110c6822bba8a4",
+    },
+    "conflicting-reference.fasta.fai": {
+        "fileSize": 33,
+        "checksumSHA256": "b846c3762ca6d66fe5076673e805eb03b44a52206b11c1ad27e1c1793730d845",
     },
     "evidence.bam": {
-        "fileSize": 291,
-        "checksumSHA256": "0fff054fb3274836dec421488631e475501afe40215457439c6e36cf415035c3",
+        "fileSize": 354,
+        "checksumSHA256": "03fb3647860e1716bf31117e1d0e9c82af25fa1f764b2c6b1b9a94a8f0a35f64",
     },
     "evidence.bam.bai": {
         "fileSize": 96,
-        "checksumSHA256": "621d2c295d30d032069a9371b8117a891540de0dfa566d97c640684ddbf494a2",
+        "checksumSHA256": "9bb70dd9b082b6457415a6126ecafdf005818a8a9852d623241fe7e454bdebde",
+    },
+    "evidence.cram": {
+        "fileSize": 970,
+        "checksumSHA256": "e16d8f5963cf5410f7d4756e3a219cdedba1d10dd749120ff985d2bacbc4cad6",
+    },
+    "evidence.cram.crai": {
+        "fileSize": 56,
+        "checksumSHA256": "4f71a0de79300eac70837d06ef3115b684a89b3b53fd3b5adb1aa67d64cba6b6",
     },
 }
 
@@ -431,6 +447,11 @@ def validate_classifier_full_viewer_provenance(root, fixture_path, record, sidec
         "contigLength": 120,
         "excludeFlags": 3332,
         "retainedRecordNames": ["item-A", "item-B"],
+        "conflictingReference": {
+            "path": "conflicting-reference.fasta",
+            "base": "C",
+            "coveredReadBase": "A",
+        },
     }
     for field, expected_value in expected_options.items():
         if options.get(field) != expected_value:
@@ -529,7 +550,7 @@ def validate_classifier_full_viewer_provenance(root, fixture_path, record, sidec
     if not isinstance(invocations, list) or not invocations:
         errors.append(f"missing samtools externalToolInvocations: {sidecar_path}")
     else:
-        for subcommand in ["version", "view", "index"]:
+        for subcommand in ["version", "faidx", "view-bam", "index-bam", "view-cram", "index-cram", "quickcheck"]:
             invocation = next(
                 (
                     candidate
@@ -548,24 +569,57 @@ def validate_classifier_full_viewer_provenance(root, fixture_path, record, sidec
                         invocation,
                         subcommand,
                         runtime,
+                        fixture_path,
                         sidecar_path,
                     )
                 )
     return errors
 
 
-def validate_samtools_external_invocation(invocation, subcommand, workflow_runtime, sidecar_path):
+def validate_samtools_external_invocation(invocation, subcommand, workflow_runtime, fixture_path, sidecar_path):
     errors = []
     if not is_non_empty_string(invocation.get("version")):
         errors.append(f"invalid samtools {subcommand} version: {sidecar_path}")
     argv = invocation.get("argv")
     expected_argv = {
         "version": ["samtools", "--version"],
-        "view": ["samtools", "view", "--no-PG", "-b", "-o", "evidence.bam", "source.sam"],
-        "index": ["samtools", "index", "evidence.bam", "evidence.bam.bai"],
+        "faidx": ["samtools", "faidx", "conflicting-reference.fasta"],
+        "view-bam": ["samtools", "view", "--no-PG", "-b", "-o", "evidence.bam", "source.sam"],
+        "index-bam": ["samtools", "index", "evidence.bam", "evidence.bam.bai"],
+        "view-cram": ["samtools", "view", "--no-PG", "-C", "-o", "evidence.cram", "evidence.bam"],
+        "index-cram": ["samtools", "index", "evidence.cram", "evidence.cram.crai"],
+        "quickcheck": ["samtools", "quickcheck", "evidence.bam", "evidence.cram"],
+    }[subcommand]
+    expected_inputs = {
+        "version": [],
+        "faidx": ["conflicting-reference.fasta"],
+        "view-bam": ["source.sam"],
+        "index-bam": ["evidence.bam"],
+        "view-cram": ["evidence.bam", "conflicting-reference.fasta"],
+        "index-cram": ["evidence.cram"],
+        "quickcheck": ["evidence.bam", "evidence.cram"],
+    }[subcommand]
+    expected_outputs = {
+        "version": [],
+        "faidx": ["conflicting-reference.fasta.fai"],
+        "view-bam": ["evidence.bam"],
+        "index-bam": ["evidence.bam.bai"],
+        "view-cram": ["evidence.cram"],
+        "index-cram": ["evidence.cram.crai"],
+        "quickcheck": [],
     }[subcommand]
     if argv != expected_argv:
         errors.append(f"invalid samtools {subcommand} argv: {sidecar_path}")
+    errors.extend(
+        validate_invocation_file_records(
+            invocation.get("inputFiles"), expected_inputs, fixture_path, subcommand, "input", sidecar_path
+        )
+    )
+    errors.extend(
+        validate_invocation_file_records(
+            invocation.get("outputFiles"), expected_outputs, fixture_path, subcommand, "output", sidecar_path
+        )
+    )
     command = invocation.get("reproducibleCommand")
     if not is_non_empty_string(command):
         errors.append(f"invalid samtools {subcommand} reproducibleCommand: {sidecar_path}")
@@ -595,6 +649,22 @@ def validate_samtools_external_invocation(invocation, subcommand, workflow_runti
         errors.append(f"invalid samtools {subcommand} wallTimeSeconds: {sidecar_path}")
     if not isinstance(invocation.get("stderr"), str):
         errors.append(f"invalid samtools {subcommand} stderr: {sidecar_path}")
+    return errors
+
+
+def validate_invocation_file_records(records, expected_paths, fixture_path, subcommand, label, sidecar_path):
+    if not isinstance(records, list):
+        return [f"missing samtools {subcommand} {label}Files: {sidecar_path}"]
+    actual_paths = [record.get("path") for record in records if isinstance(record, dict)]
+    if actual_paths != expected_paths or len(records) != len(expected_paths):
+        return [f"invalid samtools {subcommand} {label}Files paths: {sidecar_path}"]
+    errors = []
+    for record in records:
+        path = fixture_path / record["path"]
+        if record.get("fileSize") != path.stat().st_size:
+            errors.append(f"samtools {subcommand} {label}Files size mismatch: {sidecar_path}")
+        if record.get("checksumSHA256") != sha256_file(path):
+            errors.append(f"samtools {subcommand} {label}Files checksum mismatch: {sidecar_path}")
     return errors
 
 

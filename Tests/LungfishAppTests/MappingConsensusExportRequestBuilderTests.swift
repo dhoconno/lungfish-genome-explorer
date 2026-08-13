@@ -3,108 +3,98 @@ import XCTest
 @testable import LungfishCore
 
 final class MappingConsensusExportRequestBuilderTests: XCTestCase {
-    func testBuildPrefersSelectedContigAndUsesBiologicalConsensusFlags() {
+    func testBuildUsesOnlyTheRequiredResolvedRegionAndContextFilters() throws {
+        let context = try makeContext()
         let request = try! MappingConsensusExportRequestBuilder.build(
             sampleName: "sample",
-            selectedContig: .init(
-                contigName: "NC_045512",
-                contigLength: 29_903,
-                mappedReads: 197,
-                mappedReadPercent: 98.5,
-                meanDepth: 0.9,
-                coverageBreadth: 43.0,
-                medianMAPQ: 60.0,
-                meanIdentity: 99.5
-            ),
-            fallbackChromosome: nil,
+            context: context,
+            region: .init(scope: .selectedRegion, contig: "NC_045512", start: 120, end: 480),
             consensusMode: .bayesian,
-            consensusMinDepth: 12,
-            consensusMinMapQ: 0,
-            consensusMinBaseQ: 0,
-            excludeFlags: 0xD04,
-            useAmbiguity: false
+            useAmbiguity: true
+        )
+
+        XCTAssertEqual(request.chromosome, "NC_045512")
+        XCTAssertEqual(request.start, 120)
+        XCTAssertEqual(request.end, 480)
+        XCTAssertEqual(request.consensusRequest.filters, context.filters)
+        XCTAssertTrue(request.showDeletions)
+        XCTAssertFalse(request.showInsertions)
+        XCTAssertEqual(request.recordName, "sample NC_045512:121-480 selected consensus")
+        XCTAssertEqual(request.suggestedName, "sample-NC_045512-121-480-selectedRegion-consensus")
+    }
+
+    func testBuildWholeContigUsesExplicitWholeContigResolution() throws {
+        let context = try makeContext()
+        let request = try! MappingConsensusExportRequestBuilder.build(
+            sampleName: "sample",
+            context: context,
+            region: try AlignmentConsensusScope.wholeContig.resolve(in: context, selection: nil),
+            consensusMode: .simple,
+            useAmbiguity: true
         )
 
         XCTAssertEqual(request.chromosome, "NC_045512")
         XCTAssertEqual(request.start, 0)
         XCTAssertEqual(request.end, 29_903)
-        XCTAssertFalse(request.showDeletions)
-        XCTAssertTrue(request.showInsertions)
-        XCTAssertEqual(request.recordName, "sample NC_045512 consensus")
-        XCTAssertEqual(request.suggestedName, "sample-NC_045512-consensus")
-    }
-
-    func testBuildFallsBackToVisibleChromosomeWhenNoTableSelectionExists() {
-        let request = try! MappingConsensusExportRequestBuilder.build(
-            sampleName: "sample",
-            selectedContig: nil,
-            fallbackChromosome: ChromosomeInfo(
-                name: "chr2",
-                length: 512,
-                offset: 0,
-                lineBases: 80,
-                lineWidth: 81
-            ),
-            consensusMode: .simple,
-            consensusMinDepth: 5,
-            consensusMinMapQ: 7,
-            consensusMinBaseQ: 9,
-            excludeFlags: 0x904,
-            useAmbiguity: true
-        )
-
-        XCTAssertEqual(request.chromosome, "chr2")
-        XCTAssertEqual(request.end, 512)
         XCTAssertEqual(request.mode, .simple)
         XCTAssertTrue(request.useAmbiguity)
+        XCTAssertTrue(request.showDeletions)
+        XCTAssertFalse(request.showInsertions)
     }
 
-    func testBuildPrefersExplicitRegionForVisibleViewport() {
-        let request = try! MappingConsensusExportRequestBuilder.build(
+    func testBuildRejectsARegionOutsideTheActionContextInsteadOfFallingBack() throws {
+        let context = try makeContext()
+        XCTAssertThrowsError(try MappingConsensusExportRequestBuilder.build(
             sampleName: "sample",
-            selectedContig: .init(
-                contigName: "whole",
-                contigLength: 10_000,
-                mappedReads: 100,
-                mappedReadPercent: 100,
-                meanDepth: 12,
-                coverageBreadth: 100,
-                medianMAPQ: 60,
-                meanIdentity: 99
-            ),
-            fallbackChromosome: nil,
-            explicitRegion: .init(chromosome: "chr2", start: 120, end: 480, label: "visible"),
+            context: context,
+            region: .init(scope: .selectedRegion, contig: "other", start: 1, end: 2),
             consensusMode: .simple,
-            consensusMinDepth: 5,
-            consensusMinMapQ: 7,
-            consensusMinBaseQ: 9,
-            excludeFlags: 0x904,
+            useAmbiguity: false
+        ))
+    }
+
+    func testScientificFactoryAndExportUseIdenticalContextFiltersAndProjection() throws {
+        let context = try makeContext()
+        let region = ResolvedAlignmentRegion(
+            scope: .selectedRegion,
+            contig: "NC_045512",
+            start: 10,
+            end: 20
+        )
+        let trackRequest = AlignmentConsensusRequestFactory.build(
+            context: context,
+            region: region,
+            consensusMode: .bayesian,
+            useAmbiguity: true
+        )
+        let export = try MappingConsensusExportRequestBuilder.build(
+            sampleName: "sample",
+            context: context,
+            region: region,
+            consensusMode: .bayesian,
             useAmbiguity: true
         )
 
-        XCTAssertEqual(request.chromosome, "chr2")
-        XCTAssertEqual(request.start, 120)
-        XCTAssertEqual(request.end, 480)
-        XCTAssertEqual(request.recordName, "sample chr2:121-480 visible consensus")
-        XCTAssertEqual(request.suggestedName, "sample-chr2-121-480-visible-consensus")
+        XCTAssertEqual(trackRequest, export.consensusRequest)
+        XCTAssertEqual(trackRequest.filters.readGroups, ["rg1"])
+        XCTAssertEqual(trackRequest.filters.excludedFlags, 0xD04)
+        XCTAssertEqual(trackRequest.insertionPolicy, .omit)
+        XCTAssertEqual(trackRequest.deletionPolicy, .n)
     }
 
-    func testBuildClampsExplicitRegionToNonEmptyInterval() {
-        let request = try! MappingConsensusExportRequestBuilder.build(
-            sampleName: "sample",
-            selectedContig: nil,
-            fallbackChromosome: nil,
-            explicitRegion: .init(chromosome: "chr2", start: -10, end: -1, label: "selection"),
-            consensusMode: .simple,
-            consensusMinDepth: 5,
-            consensusMinMapQ: 7,
-            consensusMinBaseQ: 9,
-            excludeFlags: 0x904,
-            useAmbiguity: true
+    private func makeContext() throws -> AlignmentActionContext {
+        let bam = URL(fileURLWithPath: "/tmp/sample.bam")
+        let index = URL(fileURLWithPath: "/tmp/sample.bam.bai")
+        return try .init(
+            identity: .init(workflow: "mapping", resultID: "result", sampleID: "sample", evidenceID: "track"),
+            alignmentURL: bam, indexURL: index, decodingReferenceURL: nil,
+            contig: "NC_045512", contigLength: 29_903,
+            alignmentSnapshot: .init(url: bam, byteCount: 1, sha256: "bam"),
+            indexSnapshot: .init(url: index, byteCount: 1, sha256: "index"),
+            decodingReferenceSnapshot: nil,
+            filters: .init(minimumDepth: 12, minimumMapQ: 7, minimumBaseQuality: 9, excludedFlags: 0xD04, readGroups: ["rg1"]),
+            outputCapability: .userSelectedDestination, sourceReads: .bamFallback,
+            presentationLabel: "sample NC_045512"
         )
-
-        XCTAssertEqual(request.start, 0)
-        XCTAssertEqual(request.end, 1)
-        XCTAssertEqual(request.suggestedName, "sample-chr2-1-1-selection-consensus")
     }
 }

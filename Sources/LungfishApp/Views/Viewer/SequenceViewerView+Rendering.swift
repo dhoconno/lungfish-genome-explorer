@@ -403,9 +403,8 @@ extension SequenceViewerView {
             var rowsY = coverageRect.maxY + coverageToConsensusGap
             if showsConsensusAtCurrentScale {
                 let consensusOptions = currentConsensusOptionsSignature()
-                let consensusCovered = cachedConsensusRegion?.chromosome == visibleRegion.chromosome
-                    && (cachedConsensusRegion?.start ?? Int.max) <= visibleRegion.start
-                    && (cachedConsensusRegion?.end ?? Int.min) >= visibleRegion.end
+                let requestedConsensusRegion = resolvedConsensusScientificRegion()
+                let consensusCovered = cachedConsensusRegion == requestedConsensusRegion
                     && cachedConsensusOptionsSignature == consensusOptions
                 if !consensusCovered && !isFetchingConsensus {
                     fetchConsensusAsync(bundle: bundle, region: visibleRegion)

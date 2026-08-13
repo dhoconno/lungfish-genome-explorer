@@ -710,12 +710,27 @@ extension SequenceViewerView {
         menu.addItem(copyItem)
 
         addSelectionExtractionMenuItems(to: menu)
+        if viewController?.explicitAlignmentSelection != nil {
+            let extractReads = NSMenuItem(
+                title: "Extract Reads in Selected Region…",
+                action: #selector(extractReadsInSelectedAlignmentRegion(_:)),
+                keyEquivalent: ""
+            )
+            extractReads.target = self
+            menu.addItem(extractReads)
+        }
         menu.addItem(NSMenuItem.separator())
         addCenterViewMenuItem(to: menu)
 
-        let zoomItem = NSMenuItem(title: "Zoom to Selected Region", action: #selector(zoomToSelectionAction(_:)), keyEquivalent: "")
-        zoomItem.target = self
-        menu.addItem(zoomItem)
+        if viewController?.explicitAlignmentSelection != nil {
+            let zoomItem = NSMenuItem(title: "Zoom to Selected Region", action: #selector(zoomToSelectionAction(_:)), keyEquivalent: "")
+            zoomItem.target = self
+            menu.addItem(zoomItem)
+        }
+    }
+
+    @objc private func extractReadsInSelectedAlignmentRegion(_ sender: NSMenuItem?) {
+        viewController?.extractReadsInSelectedAlignmentRegion()
     }
 
     private func normalizeContextMenuSeparators(in menu: NSMenu) {
@@ -1108,13 +1123,7 @@ extension SequenceViewerView {
     }
 
     @objc func zoomToSelectionAction(_ sender: Any?) {
-        guard let range = selectionRange,
-              let frame = viewController?.referenceFrame else { return }
-        frame.start = Double(range.lowerBound)
-        frame.end = Double(range.upperBound)
-        setNeedsDisplay(bounds)
-        viewController?.enhancedRulerView.setNeedsDisplay(viewController?.enhancedRulerView.bounds ?? .zero)
-        viewController?.updateStatusBar()
+        viewController?.zoomToSelectedRegion()
     }
 
     @objc func viewVariantInTableAction(_ sender: NSMenuItem?) {
@@ -1854,6 +1863,7 @@ extension SequenceViewerView {
         selectionStartBase = nil
         isUserColumnSelection = false
         columnDragStartBase = nil
+        viewController?.explicitAlignmentSelection = nil
         if !selectedReadIDs.isEmpty {
             selectedReadIDs.removeAll()
             NotificationCenter.default.post(name: .readSelected, object: self, userInfo: windowScopedUserInfo())
@@ -1869,6 +1879,7 @@ extension SequenceViewerView {
         isSelecting = false
         isUserColumnSelection = false
         columnDragStartBase = nil
+        viewController?.explicitAlignmentSelection = nil
         setNeedsDisplay(bounds)
         updateSelectionStatus()
     }
@@ -1902,6 +1913,15 @@ extension SequenceViewerView {
 
     /// Updates the status bar with selection info.
     func updateSelectionStatus() {
+        if isUserColumnSelection,
+           let range = selectionRange,
+           let frame = viewController?.referenceFrame {
+            viewController?.setExplicitAlignmentSelection(
+                contig: frame.chromosome,
+                start: range.lowerBound,
+                end: range.upperBound
+            )
+        }
         let selectionText = currentSelectionStatusText()
         viewController?.statusBar.update(
             position: viewController?.statusBar.positionLabel.stringValue,

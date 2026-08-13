@@ -61,6 +61,7 @@ public struct ClassifierAlignmentIndex: Equatable, Sendable {
     public enum Kind: String, Sendable {
         case bai
         case csi
+        case crai
     }
 
     public let url: URL

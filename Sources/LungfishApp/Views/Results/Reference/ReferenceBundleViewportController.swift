@@ -67,9 +67,25 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     private var isReplacingMappingRows = false
     private var metadataPresentationContext: SampleMetadataPresentationContext?
     private var metadataPresentationObserverToken: SampleMetadataPresentationContext.ObserverToken?
+    private var alignmentActionContextGeneration = 0
+    private var alignmentActionContextTask: Task<Void, Never>?
+
+    private struct AlignmentActionContextSeed: Sendable {
+        let identity: AlignmentEvidenceIdentity
+        let alignmentURL: URL
+        let indexURL: URL
+        let decodingReferenceURL: URL?
+        let contig: String
+        let contigLength: Int
+        let filters: AlignmentConsensusFilters
+        let outputCapability: AlignmentOutputCapability
+        let sourceReads: AlignmentSourceReadResolution
+        let presentationLabel: String
+    }
 
     var onEmbeddedReferenceBundleLoaded: ((ReferenceBundle) -> Void)?
     var onSequenceSelectionStateChanged: ((SequenceRegionSelectionState?) -> Void)?
+    var onConsensusActionStateChanged: (() -> Void)?
 
     private let embeddedViewerController = ViewerViewController()
     private let splitCoordinator = TwoPaneTrackedSplitCoordinator()
@@ -334,6 +350,9 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         embeddedViewerController.onSequenceRegionSelectionChanged = { [weak self] state in
             self?.onSequenceSelectionStateChanged?(state)
         }
+        embeddedViewerController.onAlignmentConsensusActionStateChanged = { [weak self] in
+            self?.onConsensusActionStateChanged?()
+        }
 
         NotificationCenter.default.addObserver(
             self,
@@ -491,6 +510,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     }
 
     private func configure(input: ReferenceBundleViewportInput, preferredSelectionName: String?) throws {
+        clearAlignmentActionContext()
         currentInput = input
         currentResult = input.mappingResult
         currentResultDirectoryURL = input.mappingResultDirectoryURL
@@ -797,7 +817,18 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     }
 
     func applyEmbeddedReadDisplaySettings(_ userInfo: [AnyHashable: Any]) {
+        // The context is an immutable scientific snapshot. Never leave it
+        // installed while any display/scientific filter is being replaced.
+        clearAlignmentActionContext()
         embeddedViewerController.applyReadDisplaySettings(userInfo)
+
+        guard currentInput?.kind == .mappingResult else {
+            if let row = currentSelectedSequence(),
+               row.alignmentTrackID == embeddedViewerController.viewerView.visibleAlignmentTrackIDSetting {
+                installAlignmentActionContext(for: row)
+            }
+            return
+        }
 
         if userInfo.keys.contains(NotificationUserInfoKey.visibleAlignmentTrackID as AnyHashable) {
             let tracks = currentInput?.viewerBundleManifest?.alignments ?? []
@@ -819,6 +850,9 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                 effectiveTrackID,
                 preferredSelectionName: currentSelectedContig()?.contigName
             )
+        } else if let row = currentSelectedContig(),
+                  let bundleURL = currentInput?.renderedBundleURL {
+            installAlignmentActionContext(for: row, bundleURL: bundleURL)
         }
     }
 
@@ -928,113 +962,66 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     }
 
     func buildConsensusExportRequest() throws -> MappingConsensusExportRequest {
-        try buildConsensusExportRequest(explicitRegion: nil)
+        try buildConsensusExportRequest(scope: .wholeContig)
     }
 
     func buildVisibleViewportConsensusExportRequest() throws -> MappingConsensusExportRequest {
-        try buildConsensusExportRequest(explicitRegion: visibleViewportConsensusRegion())
+        // Compatibility adapter for callers that historically named this
+        // method after viewport state. Scientific scope is now explicit.
+        try buildConsensusExportRequest(scope: .wholeContig)
     }
 
     func buildSelectedRegionConsensusExportRequest() throws -> MappingConsensusExportRequest {
-        guard let region = selectedConsensusRegion() else {
-            throw NSError(
-                domain: "Lungfish",
-                code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "No selected region is available"]
-            )
-        }
-        return try buildConsensusExportRequest(explicitRegion: region)
+        try buildConsensusExportRequest(scope: .selectedRegion)
     }
 
     func buildSelectedAnnotationConsensusExportRequest() throws -> MappingConsensusExportRequest {
-        guard let region = selectedAnnotationConsensusRegion() else {
-            throw NSError(
-                domain: "Lungfish",
-                code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "No selected annotation is available"]
-            )
-        }
-        return try buildConsensusExportRequest(explicitRegion: region)
+        // Annotation selection is a display convenience, not a scientific
+        // consensus scope. It may only act through an explicit column range.
+        try buildConsensusExportRequest(scope: .selectedRegion)
     }
 
     func buildInspectorConsensusExportRequest() throws -> MappingConsensusExportRequest {
-        guard let viewer = embeddedViewerController.viewerView else {
-            return try buildVisibleViewportConsensusExportRequest()
-        }
-        if viewer.isUserColumnSelection,
-           viewer.selectionRange?.isEmpty == false {
-            return try buildSelectedRegionConsensusExportRequest()
-        }
-        return try buildVisibleViewportConsensusExportRequest()
+        try buildConsensusExportRequest(scope: embeddedViewerController.alignmentConsensusScope)
     }
 
-    private func buildConsensusExportRequest(
-        explicitRegion: MappingConsensusExportRequestBuilder.ExplicitRegion?
-    ) throws -> MappingConsensusExportRequest {
-        guard let result = currentResult else {
-            throw NSError(
-                domain: "Lungfish",
-                code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "No mapping result loaded"]
-            )
+    func consensusScopeState() -> (scope: AlignmentConsensusScope, unavailableMessage: String?) {
+        let scope = embeddedViewerController.alignmentConsensusScope
+        guard let context = embeddedViewerController.alignmentActionContext else {
+            return (scope, AlignmentScientificActionError.contextUnavailable.localizedDescription)
         }
+        do {
+            _ = try scope.resolve(in: context, selection: embeddedViewerController.explicitAlignmentSelection)
+            return (scope, nil)
+        } catch {
+            return (scope, error.localizedDescription)
+        }
+    }
 
-        let fallbackChromosome = embeddedViewerController.currentBundleDataProvider?
-            .chromosomeInfo(named: embeddedViewerController.referenceFrame?.chromosome ?? "")
+    func setConsensusScope(_ scope: AlignmentConsensusScope) {
+        embeddedViewerController.alignmentConsensusScope = scope
+    }
 
+    func refreshAlignmentActionContextFilters() {
+        guard let context = embeddedViewerController.alignmentActionContext,
+              let filters = currentAlignmentFilters() else { return }
+        embeddedViewerController.alignmentActionContext = try? context.replacingFilters(filters)
+    }
+
+    private func buildConsensusExportRequest(scope: AlignmentConsensusScope) throws -> MappingConsensusExportRequest {
+        guard let context = embeddedViewerController.alignmentActionContext else {
+            throw AlignmentScientificActionError.contextUnavailable
+        }
+        let region = try scope.resolve(
+            in: context,
+            selection: embeddedViewerController.explicitAlignmentSelection
+        )
         return try MappingConsensusExportRequestBuilder.build(
-            sampleName: result.bamURL.deletingPathExtension().deletingPathExtension().lastPathComponent,
-            selectedContig: currentSelectedContig(),
-            fallbackChromosome: fallbackChromosome,
-            explicitRegion: explicitRegion,
+            sampleName: context.identity.sampleID,
+            context: context,
+            region: region,
             consensusMode: embeddedViewerController.viewerView.consensusModeSetting,
-            consensusMinDepth: embeddedViewerController.viewerView.consensusMinDepthSetting,
-            consensusMinMapQ: max(
-                embeddedViewerController.viewerView.minMapQSetting,
-                embeddedViewerController.viewerView.consensusMinMapQSetting
-            ),
-            consensusMinBaseQ: embeddedViewerController.viewerView.consensusMinBaseQSetting,
-            excludeFlags: embeddedViewerController.viewerView.excludeFlagsSetting,
             useAmbiguity: embeddedViewerController.viewerView.consensusUseAmbiguitySetting
-        )
-    }
-
-    private func visibleViewportConsensusRegion() -> MappingConsensusExportRequestBuilder.ExplicitRegion? {
-        guard let frame = embeddedViewerController.referenceFrame else { return nil }
-        return .init(
-            chromosome: frame.chromosome,
-            start: Int(floor(frame.start)),
-            end: Int(ceil(frame.end)),
-            label: "visible"
-        )
-    }
-
-    private func selectedConsensusRegion() -> MappingConsensusExportRequestBuilder.ExplicitRegion? {
-        guard let range = embeddedViewerController.viewerView.selectionRange else { return nil }
-        let chromosome = embeddedViewerController.referenceFrame?.chromosome
-            ?? embeddedViewerController.currentBundleDataProvider?.chromosomes.first?.name
-            ?? ""
-        guard !chromosome.isEmpty else { return nil }
-        return .init(
-            chromosome: chromosome,
-            start: range.lowerBound,
-            end: range.upperBound,
-            label: "selection"
-        )
-    }
-
-    private func selectedAnnotationConsensusRegion() -> MappingConsensusExportRequestBuilder.ExplicitRegion? {
-        guard let annotation = embeddedViewerController.viewerView.selectedAnnotation else { return nil }
-        let chromosome = annotation.chromosome
-            ?? embeddedViewerController.referenceFrame?.chromosome
-            ?? embeddedViewerController.currentBundleDataProvider?.chromosomes.first?.name
-            ?? ""
-        guard !chromosome.isEmpty else { return nil }
-        return .init(
-            chromosome: chromosome,
-            start: annotation.start,
-            end: annotation.end,
-            label: "annotation \(annotation.name)"
         )
     }
 
@@ -1088,6 +1075,10 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                 start: 0,
                 end: max(1, Int(chromosome.length))
             )
+            installAlignmentActionContext(
+                for: selectedContig,
+                bundleURL: viewerBundleURL
+            )
         } catch {
             showDetailPlaceholder("Unable to load the reference mapping viewer.")
         }
@@ -1104,20 +1095,22 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
             ]
             embeddedViewerController.applyReadDisplaySettings(settings)
         }
-        displaySelectedSequence(row.summary)
+        guard displaySelectedSequence(row.summary) else { return }
+        installAlignmentActionContext(for: row)
     }
 
-    private func displaySelectedSequence(_ selectedSequence: BundleBrowserSequenceSummary) {
+    @discardableResult
+    private func displaySelectedSequence(_ selectedSequence: BundleBrowserSequenceSummary) -> Bool {
         guard let bundleURL = currentInput?.renderedBundleURL else {
             showDetailPlaceholder("Reference bundle viewer unavailable for this mapping result.")
-            return
+            return false
         }
 
         do {
             try loadViewerBundleIfNeeded(from: bundleURL, sequenceName: selectedSequence.name)
             guard let chromosome = embeddedViewerController.currentBundleDataProvider?.chromosomeInfo(named: selectedSequence.name) else {
                 showDetailPlaceholder("Selected sequence is not present in the reference bundle.")
-                return
+                return false
             }
 
             showDetailViewer()
@@ -1127,8 +1120,10 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                 start: 0,
                 end: max(1, Int(chromosome.length))
             )
+            return true
         } catch {
             showDetailPlaceholder("Unable to load sequence detail for \(selectedSequence.name).")
+            return false
         }
     }
 
@@ -1138,6 +1133,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     }
 
     private func showDetailPlaceholder(_ message: String) {
+        clearAlignmentActionContext()
         detailPlaceholderLabel.stringValue = message
         detailPlaceholderLabel.isHidden = false
         embeddedViewerController.view.isHidden = true
@@ -1530,6 +1526,170 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         }
         return bundleURL.appendingPathComponent(path)
     }
+
+    private func installAlignmentActionContext(
+        for row: MappingContigSummary,
+        bundleURL: URL
+    ) {
+        guard let result = currentResult else {
+            clearAlignmentActionContext()
+            return
+        }
+        guard let filters = currentAlignmentFilters() else {
+            clearAlignmentActionContext()
+            return
+        }
+        let track = row.alignmentTrackID.flatMap { trackID in
+            currentInput?.viewerBundleManifest?.alignments.first { $0.id == trackID }
+        }
+        guard track?.format != .sam else {
+            clearAlignmentActionContext()
+            return
+        }
+        let alignmentURL = track.map { resolvedTrackURL($0.sourcePath, bundleURL: bundleURL) }
+            ?? result.bamURL
+        let indexURL = track.map { resolvedTrackURL($0.indexPath, bundleURL: bundleURL) }
+            ?? result.baiURL
+        let outputCapability: AlignmentOutputCapability = if let root = currentResultDirectoryURL
+            ?? ProjectTempDirectory.findProjectRoot(alignmentURL) {
+            .projectDerivedRoot(root)
+        } else {
+            .userSelectedDestination
+        }
+        let resultID = currentResultDirectoryURL?.lastPathComponent
+            ?? result.bamURL.deletingLastPathComponent().lastPathComponent
+        let evidenceID = "\(track?.id ?? alignmentURL.lastPathComponent):\(row.contigName)"
+        scheduleAlignmentActionContext(.init(
+            identity: .init(
+                workflow: "mapping",
+                resultID: resultID,
+                sampleID: row.sampleID ?? "all-alignments",
+                evidenceID: evidenceID
+            ),
+            alignmentURL: alignmentURL,
+            indexURL: indexURL,
+            decodingReferenceURL: decodingReferenceURL(for: track, manifest: currentInput?.viewerBundleManifest, bundleURL: bundleURL),
+            contig: row.contigName,
+            contigLength: row.contigLength,
+            filters: filters,
+            outputCapability: outputCapability,
+            sourceReads: mappingSourceReads(),
+            presentationLabel: "\(row.sampleID ?? "All alignments") — \(row.contigName)"
+        ))
+    }
+
+    private func installAlignmentActionContext(for row: ReferenceBundleRecordRow) {
+        guard let input = currentInput,
+              input.kind == .directBundle,
+              let bundleURL = input.renderedBundleURL,
+              let manifest = input.manifest,
+              let trackID = row.alignmentTrackID,
+              let track = manifest.alignments.first(where: { $0.id == trackID }),
+              track.format != .sam,
+              let filters = currentAlignmentFilters()
+        else {
+            clearAlignmentActionContext()
+            return
+        }
+        let outputCapability = ProjectTempDirectory.findProjectRoot(bundleURL)
+            .map(AlignmentOutputCapability.projectDerivedRoot)
+            ?? .userSelectedDestination
+        scheduleAlignmentActionContext(.init(
+            identity: .init(
+                workflow: "reference-bundle",
+                resultID: manifest.identifier,
+                sampleID: row.sampleID ?? "all-alignments",
+                evidenceID: "\(track.id):\(row.summary.name)"
+            ),
+            alignmentURL: resolvedTrackURL(track.sourcePath, bundleURL: bundleURL),
+            indexURL: resolvedTrackURL(track.indexPath, bundleURL: bundleURL),
+            decodingReferenceURL: decodingReferenceURL(for: track, manifest: manifest, bundleURL: bundleURL),
+            contig: row.summary.name,
+            contigLength: Int(row.summary.length),
+            filters: filters,
+            outputCapability: outputCapability,
+            sourceReads: .bamFallback,
+            presentationLabel: "\(row.sampleID ?? track.name) — \(row.summary.name)"
+        ))
+    }
+
+    private func mappingSourceReads() -> AlignmentSourceReadResolution {
+        let urls = currentInput?.mappingProvenance?.inputFASTQPaths
+            .map(URL.init(fileURLWithPath:))
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+            ?? []
+        return urls.isEmpty ? .bamFallback : .sourceFASTQs(urls)
+    }
+
+    private func decodingReferenceURL(
+        for track: AlignmentTrackInfo?,
+        manifest: BundleManifest?,
+        bundleURL: URL
+    ) -> URL? {
+        guard track?.format == .cram, let path = manifest?.genome?.path else { return nil }
+        return resolvedTrackURL(path, bundleURL: bundleURL)
+    }
+
+    private func currentAlignmentFilters() -> AlignmentConsensusFilters? {
+        guard let settings = embeddedViewerController.viewerView else { return nil }
+        return .init(
+            minimumDepth: settings.consensusMinDepthSetting,
+            minimumMapQ: max(settings.minMapQSetting, settings.consensusMinMapQSetting),
+            minimumBaseQuality: settings.consensusMinBaseQSetting,
+            excludedFlags: settings.excludeFlagsSetting,
+            readGroups: settings.selectedReadGroupsSetting
+        )
+    }
+
+    private func scheduleAlignmentActionContext(_ seed: AlignmentActionContextSeed) {
+        clearAlignmentActionContext()
+        let generation = alignmentActionContextGeneration
+        alignmentActionContextTask = Task { @MainActor [weak self] in
+            do {
+                let context = try await Task.detached(priority: .userInitiated) {
+                    func snapshot(_ url: URL) throws -> AlignmentEvidenceFileSnapshot {
+                        AlignmentEvidenceFileSnapshot(
+                            url: url,
+                            byteCount: try ProvenanceFileHasher.fileSize(of: url),
+                            sha256: try ProvenanceFileHasher.sha256(of: url)
+                        )
+                    }
+                    let referenceSnapshot = try seed.decodingReferenceURL.map(snapshot)
+                    return try AlignmentActionContext(
+                        identity: seed.identity,
+                        alignmentURL: seed.alignmentURL,
+                        indexURL: seed.indexURL,
+                        decodingReferenceURL: seed.decodingReferenceURL,
+                        contig: seed.contig,
+                        contigLength: seed.contigLength,
+                        alignmentSnapshot: try snapshot(seed.alignmentURL),
+                        indexSnapshot: try snapshot(seed.indexURL),
+                        decodingReferenceSnapshot: referenceSnapshot,
+                        filters: seed.filters,
+                        outputCapability: seed.outputCapability,
+                        sourceReads: seed.sourceReads,
+                        presentationLabel: seed.presentationLabel
+                    )
+                }.value
+                guard let self,
+                      !Task.isCancelled,
+                      self.alignmentActionContextGeneration == generation
+                else { return }
+                self.embeddedViewerController.alignmentActionContext = context
+            } catch {
+                guard let self, self.alignmentActionContextGeneration == generation else { return }
+                self.embeddedViewerController.alignmentActionContext = nil
+            }
+        }
+    }
+
+
+    private func clearAlignmentActionContext() {
+        alignmentActionContextGeneration += 1
+        alignmentActionContextTask?.cancel()
+        alignmentActionContextTask = nil
+        embeddedViewerController.alignmentActionContext = nil
+    }
 }
 
 private struct VisibleAlignmentSummary: Equatable {
@@ -1797,6 +1957,14 @@ extension ReferenceBundleViewportController {
         currentSequenceAnnotationOperationContext()
     }
     var testAnnotationRecordScope: Set<String>? { embeddedViewerController.annotationRecordScope }
+    var testAlignmentActionContext: AlignmentActionContext? {
+        embeddedViewerController.alignmentActionContext
+    }
+
+    func testAwaitAlignmentActionContext() async {
+        await alignmentActionContextTask?.value
+    }
+
 
     func testSelectContig(named name: String) {
         _ = selectContig(named: name)
@@ -1862,6 +2030,15 @@ extension ReferenceBundleViewportController {
     func testSetEmbeddedSelectionRange(_ range: Range<Int>, isUserColumnSelection: Bool = true) {
         embeddedViewerController.viewerView.selectionRange = range
         embeddedViewerController.viewerView.isUserColumnSelection = isUserColumnSelection
+        if isUserColumnSelection, let contig = embeddedViewerController.alignmentActionContext?.contig {
+            embeddedViewerController.setExplicitAlignmentSelection(
+                contig: contig,
+                start: range.lowerBound,
+                end: range.upperBound
+            )
+        } else {
+            embeddedViewerController.explicitAlignmentSelection = nil
+        }
     }
 
     func testSetEmbeddedReadDisplaySettings(minMapQ: Int, consensusMinMapQ: Int) {

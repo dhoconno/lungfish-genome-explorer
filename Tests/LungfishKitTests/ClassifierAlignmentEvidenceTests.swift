@@ -46,6 +46,20 @@ final class ClassifierAlignmentEvidenceTests: XCTestCase {
         XCTAssertEqual(request.presentation.contigLabel, "chr1")
     }
 
+    func testCRAIIndexKindAcceptsExplicitCRAMIndex() throws {
+        let request = try ClassifierAlignmentEvidenceRequest(
+            workflow: .esViritu,
+            resultIdentity: .init(stableID: "run", finalResultURL: URL(fileURLWithPath: "/results/run"), provenanceID: "prov"),
+            bamURL: URL(fileURLWithPath: "/results/run/evidence.cram"),
+            index: .init(url: URL(fileURLWithPath: "/results/run/evidence.cram.crai"), kind: .crai),
+            sample: .init(canonicalID: "sample"),
+            contig: .init(name: "virus", expectedLength: 40),
+            referenceCandidate: .init(fastaURL: URL(fileURLWithPath: "/results/run/reference.fasta"), recordName: "virus", expectedLength: 40),
+            presentation: .init(workflowLabel: "EsViritu", resultLabel: "run", sampleLabel: "sample", contigLabel: "virus")
+        )
+        XCTAssertEqual(request.index.kind, .crai)
+    }
+
     func testEvidenceRequestRejectsWhitespaceRequiredIdentityFields() {
         XCTAssertThrowsError(try makeRequest(stableID: " ")) { error in
             XCTAssertEqual(

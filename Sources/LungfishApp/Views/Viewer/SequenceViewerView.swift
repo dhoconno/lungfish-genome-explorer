@@ -1186,6 +1186,26 @@ public class SequenceViewerView: NSView {
         invalidateAlignmentFetchState(invalidateDepth: true, invalidateConsensus: true)
     }
 
+    func invalidateConsensusScientificRequest() {
+        consensusFetchGeneration += 1
+        consensusFetchGate.invalidate()
+        cachedConsensusSequence = nil
+        cachedConsensusRegion = nil
+        cachedConsensusOptionsSignature = ""
+        isFetchingConsensus = false
+        needsDisplay = true
+    }
+
+    func resolvedConsensusScientificRegion() -> GenomicRegion? {
+        guard let controller = viewController,
+              let context = controller.alignmentActionContext,
+              let resolved = try? controller.alignmentConsensusScope.resolve(
+                in: context,
+                selection: controller.explicitAlignmentSelection
+              ) else { return nil }
+        return .init(chromosome: resolved.contig, start: resolved.start, end: resolved.end)
+    }
+
     func invalidateAlignmentFetchState(
         invalidateDepth: Bool,
         invalidateConsensus: Bool,
@@ -1413,6 +1433,7 @@ public class SequenceViewerView: NSView {
 
 #if DEBUG
     var testReadFetchGeneration: Int { readFetchGeneration }
+    var testConsensusFetchGeneration: Int { consensusFetchGeneration }
     var testCachedAlignedReads: [AlignedRead] { cachedAlignedReads }
     var testCachedDepthPoints: [ReadTrackRenderer.CoveragePoint] { cachedDepthPoints }
     var testCachedConsensusSequence: String? { cachedConsensusSequence }

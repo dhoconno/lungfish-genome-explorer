@@ -10,7 +10,15 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 GENERATOR = Path("scripts/testing/generate-classifier-full-viewer-fixture.py")
-PAYLOADS = ("source.sam", "evidence.bam", "evidence.bam.bai")
+PAYLOADS = (
+    "source.sam",
+    "conflicting-reference.fasta",
+    "conflicting-reference.fasta.fai",
+    "evidence.bam",
+    "evidence.bam.bai",
+    "evidence.cram",
+    "evidence.cram.crai",
+)
 
 
 class GenerateClassifierFullViewerFixtureTests(unittest.TestCase):
@@ -29,6 +37,21 @@ class GenerateClassifierFullViewerFixtureTests(unittest.TestCase):
             for name in PAYLOADS:
                 self.assertEqual(self._sha256(first / name), self._sha256(second / name), name)
 
+            reference = (first / "conflicting-reference.fasta").read_text(encoding="utf-8")
+            self.assertEqual(reference, ">synthetic-track-A\n" + "C" * 120 + "\n")
+            sam = (first / "source.sam").read_text(encoding="utf-8")
+            self.assertNotIn("C" * 10, sam)
+            self.assertIn("A" * 10, sam)
+            quickcheck = subprocess.run(
+                [samtools, "quickcheck", str(first / "evidence.bam"), str(first / "evidence.cram")],
+                cwd=PROJECT_ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(quickcheck.returncode, 0, quickcheck.stderr)
+
             provenance = json.loads((first / ".lungfish-provenance.json").read_text(encoding="utf-8"))
             self.assertEqual(provenance["argv"], ["python3", str(GENERATOR), *first_args])
             self.assertEqual(provenance["status"], "completed")
@@ -42,7 +65,11 @@ class GenerateClassifierFullViewerFixtureTests(unittest.TestCase):
             self.assertIn("samtoolsExecutableChecksumSHA256", provenance["runtimeIdentity"])
             self.assertEqual(
                 [item["subcommand"] for item in provenance["externalToolInvocations"]],
-                ["version", "view", "index"],
+                ["version", "faidx", "view-bam", "index-bam", "view-cram", "index-cram", "quickcheck"],
+            )
+            self.assertEqual(
+                [item["path"] for item in provenance["files"]],
+                list(PAYLOADS),
             )
 
     def test_failed_transformation_replaces_stale_outputs_and_records_failure(self):
@@ -90,10 +117,13 @@ class GenerateClassifierFullViewerFixtureTests(unittest.TestCase):
             self.assertEqual(provenance["status"], "failed")
             self.assertEqual(provenance["exitStatus"], 23)
             self.assertIn("intentional synthetic failure", provenance["stderr"])
-            self.assertEqual([item["path"] for item in provenance["files"]], ["source.sam"])
+            self.assertEqual(
+                [item["path"] for item in provenance["files"]],
+                ["source.sam", "conflicting-reference.fasta"],
+            )
             self.assertEqual(
                 [item["subcommand"] for item in provenance["externalToolInvocations"]],
-                ["version", "view"],
+                ["version", "faidx"],
             )
             self.assertEqual(provenance["externalToolInvocations"][-1]["exitStatus"], 23)
 
@@ -137,7 +167,10 @@ class GenerateClassifierFullViewerFixtureTests(unittest.TestCase):
             self.assertGreaterEqual(invocation["wallTimeSeconds"], 0)
             self.assertIn("failed to launch", invocation["stderr"])
             self.assertIn("samtoolsExecutableChecksumSHA256", invocation["runtimeIdentity"])
-            self.assertEqual([item["path"] for item in provenance["files"]], ["source.sam"])
+            self.assertEqual(
+                [item["path"] for item in provenance["files"]],
+                ["source.sam", "conflicting-reference.fasta"],
+            )
 
     def _run_generator(self, output: Path, samtools: str) -> list[str]:
         arguments = [

@@ -2,6 +2,7 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import CryptoKit
 import Foundation
 import Darwin
 import LungfishCore
@@ -59,6 +60,234 @@ public struct DepthPoint: Sendable, Equatable {
 public enum AlignmentConsensusMode: String, Sendable, CaseIterable {
     case bayesian
     case simple
+}
+
+/// The effective read filters applied to both consensus calling and depth.
+public struct AlignmentConsensusFilters: Sendable, Equatable {
+    public let minimumDepth: Int
+    public let minimumMapQ: Int
+    public let minimumBaseQuality: Int
+    public let excludedFlags: UInt16
+    public let readGroups: Set<String>
+
+    public init(
+        minimumDepth: Int,
+        minimumMapQ: Int,
+        minimumBaseQuality: Int,
+        excludedFlags: UInt16,
+        readGroups: Set<String>
+    ) {
+        self.minimumDepth = minimumDepth
+        self.minimumMapQ = minimumMapQ
+        self.minimumBaseQuality = minimumBaseQuality
+        self.excludedFlags = excludedFlags
+        self.readGroups = readGroups
+    }
+}
+
+/// A reference-coordinate consensus request and its evidence filters.
+public struct AlignmentConsensusRequest: Sendable, Equatable {
+    public enum InsertionPolicy: String, Sendable {
+        case omit
+        case include
+    }
+
+    public enum DeletionPolicy: String, Sendable {
+        case n
+        case omit
+    }
+
+    public let chromosome: String
+    public let start: Int
+    public let end: Int
+    public let filters: AlignmentConsensusFilters
+    public let mode: AlignmentConsensusMode
+    public let useAmbiguity: Bool
+    public let insertionPolicy: InsertionPolicy
+    public let deletionPolicy: DeletionPolicy
+
+    public init(
+        chromosome: String,
+        start: Int,
+        end: Int,
+        filters: AlignmentConsensusFilters,
+        mode: AlignmentConsensusMode,
+        useAmbiguity: Bool,
+        insertionPolicy: InsertionPolicy,
+        deletionPolicy: DeletionPolicy
+    ) {
+        self.chromosome = chromosome
+        self.start = start
+        self.end = end
+        self.filters = filters
+        self.mode = mode
+        self.useAmbiguity = useAmbiguity
+        self.insertionPolicy = insertionPolicy
+        self.deletionPolicy = deletionPolicy
+    }
+}
+
+/// An evidence-derived consensus projected onto the requested reference range.
+public struct AlignmentConsensusResult: Sendable, Equatable {
+    public let sequence: String
+    public let referenceLength: Int
+    public let allLowDepth: Bool
+    /// Staging-only subprocess evidence for a consensus request. Durable output
+    /// provenance must copy these records while replacing staging paths.
+    public let executionRecords: [AlignmentConsensusExecutionRecord]
+
+    public init(
+        sequence: String,
+        referenceLength: Int,
+        allLowDepth: Bool,
+        executionRecords: [AlignmentConsensusExecutionRecord] = []
+    ) {
+        self.sequence = sequence
+        self.referenceLength = referenceLength
+        self.allLowDepth = allLowDepth
+        self.executionRecords = executionRecords
+    }
+}
+
+/// A checksummed input or staging artifact involved in consensus execution.
+public struct AlignmentConsensusFileDescriptor: Sendable, Equatable {
+    public let path: String
+    public let checksumSHA256: String?
+    public let fileSize: UInt64?
+
+    public init(path: String, checksumSHA256: String?, fileSize: UInt64?) {
+        self.path = path
+        self.checksumSHA256 = checksumSHA256
+        self.fileSize = fileSize
+    }
+}
+
+/// The contents and checksum of the deterministic read-group selection file.
+public struct AlignmentConsensusReadGroupFile: Sendable, Equatable {
+    public let path: String
+    public let contents: String
+    public let checksumSHA256: String
+
+    public init(path: String, contents: String, checksumSHA256: String) {
+        self.path = path
+        self.contents = contents
+        self.checksumSHA256 = checksumSHA256
+    }
+}
+
+/// A reproducible execution record for one request-scoped samtools stage.
+public struct AlignmentConsensusExecutionRecord: Sendable, Equatable {
+    public enum Stage: String, Sendable, Equatable {
+        case view
+        case index
+        case consensus
+        case depth
+    }
+
+    public let stage: Stage
+    public let executablePath: String
+    /// The provider deliberately avoids a fifth scientific subprocess solely to
+    /// probe a version; Task 7 can replace this provenance hint with its tool
+    /// registry's resolved version when publishing a durable output.
+    public let executableVersion: String
+    public let runtimeIdentity: String
+    public let argv: [String]
+    public let reproducibleCommand: String
+    public let inputs: [AlignmentConsensusFileDescriptor]
+    public let outputs: [AlignmentConsensusFileDescriptor]
+    public let readGroupFile: AlignmentConsensusReadGroupFile?
+    public let resolvedDefaults: [String: String]
+    public let exitStatus: Int32?
+    public let startedAt: Date
+    public let endedAt: Date
+    public let wallTimeSeconds: TimeInterval
+    public let stderr: String?
+
+    public init(
+        stage: Stage,
+        executablePath: String,
+        executableVersion: String,
+        runtimeIdentity: String,
+        argv: [String],
+        reproducibleCommand: String,
+        inputs: [AlignmentConsensusFileDescriptor],
+        outputs: [AlignmentConsensusFileDescriptor],
+        readGroupFile: AlignmentConsensusReadGroupFile?,
+        resolvedDefaults: [String: String],
+        exitStatus: Int32?,
+        startedAt: Date,
+        endedAt: Date,
+        wallTimeSeconds: TimeInterval,
+        stderr: String?
+    ) {
+        self.stage = stage
+        self.executablePath = executablePath
+        self.executableVersion = executableVersion
+        self.runtimeIdentity = runtimeIdentity
+        self.argv = argv
+        self.reproducibleCommand = reproducibleCommand
+        self.inputs = inputs
+        self.outputs = outputs
+        self.readGroupFile = readGroupFile
+        self.resolvedDefaults = resolvedDefaults
+        self.exitStatus = exitStatus
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.wallTimeSeconds = wallTimeSeconds
+        self.stderr = stderr
+    }
+}
+
+/// Enforces the evidence-only postcondition for a caller's reference projection.
+public enum AlignmentConsensusNormalizer {
+    /// Aligns caller bases to the request and masks every coordinate below the
+    /// effective depth threshold. This operation never accepts reference bases.
+    public static func normalize(
+        caller: AlignmentDataProvider.ConsensusFASTAResult,
+        depth: [DepthPoint],
+        request: AlignmentConsensusRequest
+    ) throws -> AlignmentConsensusResult {
+        guard request.insertionPolicy == .omit,
+              request.deletionPolicy == .n,
+              let callerStart = caller.headerStart,
+              !request.chromosome.isEmpty,
+              request.start >= 0,
+              request.end > request.start else {
+            throw AlignmentFetchError.consensusCoordinateMismatch
+        }
+
+        let callerBases = Array(caller.sequence)
+        let callerEnd = callerStart + callerBases.count
+        guard callerStart <= request.start, callerEnd == request.end else {
+            throw AlignmentFetchError.consensusCoordinateMismatch
+        }
+
+        let referenceLength = request.end - request.start
+        let callerOffset = request.start - callerStart
+        guard callerOffset >= 0, callerOffset + referenceLength == callerBases.count else {
+            throw AlignmentFetchError.consensusCoordinateMismatch
+        }
+
+        var depths = Array(repeating: 0, count: referenceLength)
+        for point in depth where point.chromosome == request.chromosome && point.position >= request.start && point.position < request.end {
+            depths[point.position - request.start] = point.depth
+        }
+
+        // Keep the postcondition threshold identical to `samtools consensus`,
+        // whose `-d` value is clamped to one at process construction.
+        let minimumDepth = max(1, request.filters.minimumDepth)
+        let normalizedBases = (0..<referenceLength).map { offset -> Character in
+            guard depths[offset] >= minimumDepth else { return "N" }
+            let callerBase = callerBases[callerOffset + offset]
+            return callerBase == "*" ? "N" : callerBase
+        }
+        let sequence = String(normalizedBases)
+        return AlignmentConsensusResult(
+            sequence: sequence,
+            referenceLength: referenceLength,
+            allLowDepth: depths.allSatisfy { $0 < minimumDepth }
+        )
+    }
 }
 
 /// A bounded, representative read set for fast first-pass alignment rendering.
@@ -510,6 +739,285 @@ public final class AlignmentDataProvider: @unchecked Sendable {
         return Self.parseDepthOutput(result.stdout)
     }
 
+    /// Fetches a consensus that is guaranteed to contain only caller evidence
+    /// at adequately covered reference coordinates.
+    public func fetchConsensus(_ request: AlignmentConsensusRequest) async throws -> AlignmentConsensusResult {
+        guard !request.chromosome.isEmpty, request.start >= 0, request.end > request.start else {
+            throw AlignmentFetchError.invalidRegion("\(request.chromosome):\(request.start)-\(request.end)")
+        }
+
+        let stagingDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lungfish-consensus-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: stagingDirectory) }
+
+        let filteredBAM = stagingDirectory.appendingPathComponent("filtered.bam")
+        let filteredIndex = stagingDirectory.appendingPathComponent("filtered.bam.bai")
+        let consensusOutput = stagingDirectory.appendingPathComponent("consensus.fasta")
+        let depthOutput = stagingDirectory.appendingPathComponent("depth.tsv")
+        let readGroupFile = try writeReadGroupFile(filters: request.filters, in: stagingDirectory)
+        let region = Self.regionString(chromosome: request.chromosome, start: request.start, end: request.end)
+        let defaults = consensusResolvedDefaults(request: request)
+        let samtoolsPath = try findSamtools()
+        let samtoolsVersion = try await resolvedSamtoolsVersion()
+        var records: [AlignmentConsensusExecutionRecord] = []
+
+        var viewArguments = ["view", "-b", "-h", "-o", filteredBAM.path]
+        viewArguments += sourceDecodingArguments()
+        if request.filters.minimumMapQ > 0 {
+            viewArguments += ["-q", String(request.filters.minimumMapQ)]
+        }
+        if request.filters.excludedFlags != 0 {
+            viewArguments += ["-F", String(request.filters.excludedFlags)]
+        }
+        if let readGroupFile {
+            viewArguments += ["-R", readGroupFile.path, "-n"]
+        }
+        viewArguments += ["-X", alignmentPath, indexPath, region]
+        _ = try await executeConsensusStage(
+            .view,
+            arguments: viewArguments,
+            timeout: 45,
+            samtoolsPath: samtoolsPath, samtoolsVersion: samtoolsVersion,
+            inputs: [URL(fileURLWithPath: alignmentPath), URL(fileURLWithPath: indexPath)] + (referenceFastaPath.map { [URL(fileURLWithPath: $0)] } ?? []),
+            outputs: [filteredBAM],
+            readGroupFile: readGroupFile,
+            defaults: defaults,
+            records: &records
+        )
+
+        _ = try await executeConsensusStage(
+            .index,
+            arguments: ["index", filteredBAM.path, filteredIndex.path],
+            timeout: 45,
+            samtoolsPath: samtoolsPath, samtoolsVersion: samtoolsVersion,
+            inputs: [filteredBAM],
+            outputs: [filteredIndex],
+            readGroupFile: readGroupFile,
+            defaults: defaults,
+            records: &records
+        )
+
+        var callerArguments = ["consensus", "-r", region, "-a", "-f", "FASTA", "-m", request.mode.rawValue]
+        callerArguments += ["--min-BQ", String(max(0, request.filters.minimumBaseQuality))]
+        // The snapshot owns MAPQ, flag, and read-group selection. Clear the
+        // caller's implicit flag filter so it cannot silently change evidence.
+        callerArguments += ["--ff", "0", "-d", String(max(1, request.filters.minimumDepth))]
+        callerArguments += ["--show-del", "yes", "--show-ins", "no"]
+        if request.useAmbiguity {
+            callerArguments.append("-A")
+        }
+        callerArguments.append(filteredBAM.path)
+        let callerRun = try await executeConsensusStage(
+            .consensus,
+            arguments: callerArguments,
+            timeout: 45,
+            samtoolsPath: samtoolsPath, samtoolsVersion: samtoolsVersion,
+            inputs: [filteredBAM, filteredIndex],
+            outputs: [consensusOutput],
+            capturedStdoutURL: consensusOutput,
+            readGroupFile: readGroupFile,
+            defaults: defaults,
+            records: &records
+        )
+
+        var depthArguments = ["depth", "-q", String(max(0, request.filters.minimumBaseQuality))]
+        // Clear depth's implicit exclusion flags; it must observe precisely the
+        // same immutable filtered snapshot as consensus.
+        depthArguments += ["-g", "1796", "-r", region, "-X", filteredBAM.path, filteredIndex.path]
+        let depthRun = try await executeConsensusStage(
+            .depth,
+            arguments: depthArguments,
+            timeout: 30,
+            samtoolsPath: samtoolsPath, samtoolsVersion: samtoolsVersion,
+            inputs: [filteredBAM, filteredIndex],
+            outputs: [depthOutput],
+            capturedStdoutURL: depthOutput,
+            readGroupFile: readGroupFile,
+            defaults: defaults,
+            records: &records
+        )
+
+        let normalized: AlignmentConsensusResult
+        do {
+            normalized = try AlignmentConsensusNormalizer.normalize(
+                caller: Self.parseConsensusFASTA(callerRun.stdout),
+                depth: Self.parseDepthOutput(depthRun.stdout),
+                request: request
+            )
+        } catch AlignmentFetchError.consensusCoordinateMismatch {
+            throw AlignmentFetchError.consensusCoordinateMismatchWithRecords(records)
+        }
+        return AlignmentConsensusResult(
+            sequence: normalized.sequence,
+            referenceLength: normalized.referenceLength,
+            allLowDepth: normalized.allLowDepth,
+            executionRecords: records
+        )
+    }
+
+    private func sourceDecodingArguments() -> [String] {
+        guard format == .cram, let referenceFastaPath else { return [] }
+        return ["-T", referenceFastaPath]
+    }
+
+    private func resolvedSamtoolsVersion() async throws -> String {
+        let result = try await runSamtools(arguments: ["--version"], timeout: 15)
+        guard result.exitCode == 0,
+              let firstLine = result.stdout.split(separator: "\n").first,
+              !firstLine.isEmpty else {
+            throw AlignmentFetchError.samtoolsFailed(
+                result.stderr.isEmpty ? "samtools --version failed" : result.stderr
+            )
+        }
+        return String(firstLine)
+    }
+
+    private func writeReadGroupFile(
+        filters: AlignmentConsensusFilters,
+        in stagingDirectory: URL
+    ) throws -> AlignmentConsensusReadGroupFile? {
+        guard !filters.readGroups.isEmpty else { return nil }
+        let contents = filters.readGroups.sorted().joined(separator: "\n") + "\n"
+        let url = stagingDirectory.appendingPathComponent("read-groups.txt")
+        try Data(contents.utf8).write(to: url, options: .atomic)
+        return AlignmentConsensusReadGroupFile(
+            path: url.path,
+            contents: contents,
+            checksumSHA256: Self.sha256(of: Data(contents.utf8))
+        )
+    }
+
+    private func consensusResolvedDefaults(request: AlignmentConsensusRequest) -> [String: String] {
+        [
+            "lowDepthPolicy": "N",
+            "referenceFillPolicy": "never",
+            "sourceMAPQ": String(max(0, request.filters.minimumMapQ)),
+            "sourceExcludedFlags": String(request.filters.excludedFlags),
+            "remainingBaseQuality": String(max(0, request.filters.minimumBaseQuality)),
+            "readGroupSelection": request.filters.readGroups.isEmpty ? "all-including-ungrouped" : "listed-only-excluding-ungrouped",
+            "insertionPolicy": request.insertionPolicy.rawValue,
+            "deletionPolicy": request.deletionPolicy.rawValue,
+        ]
+    }
+
+    private func executeConsensusStage(
+        _ stage: AlignmentConsensusExecutionRecord.Stage,
+        arguments: [String],
+        timeout: TimeInterval,
+        samtoolsPath: String,
+        samtoolsVersion: String,
+        inputs: [URL],
+        outputs: [URL],
+        capturedStdoutURL: URL? = nil,
+        readGroupFile: AlignmentConsensusReadGroupFile?,
+        defaults: [String: String],
+        records: inout [AlignmentConsensusExecutionRecord]
+    ) async throws -> (exitCode: Int32, stdout: String, stderr: String) {
+        let startedAt = Date()
+        do {
+            let result = try await runSamtools(arguments: arguments, timeout: timeout)
+            if let capturedStdoutURL {
+                try Data(result.stdout.utf8).write(to: capturedStdoutURL, options: .atomic)
+            }
+            let endedAt = Date()
+            let record = consensusExecutionRecord(
+                stage: stage, samtoolsPath: samtoolsPath, samtoolsVersion: samtoolsVersion, arguments: arguments,
+                inputs: inputs, outputs: outputs, readGroupFile: readGroupFile,
+                defaults: defaults, exitStatus: result.exitCode,
+                startedAt: startedAt, endedAt: endedAt, stderr: result.stderr
+            )
+            records.append(record)
+            guard result.exitCode == 0 else {
+                throw AlignmentFetchError.consensusExecutionFailed(records)
+            }
+            return result
+        } catch let error as AlignmentFetchError {
+            if case .consensusExecutionFailed = error { throw error }
+            let endedAt = Date()
+            records.append(consensusExecutionRecord(
+                stage: stage, samtoolsPath: samtoolsPath, samtoolsVersion: samtoolsVersion, arguments: arguments,
+                inputs: inputs, outputs: outputs, readGroupFile: readGroupFile,
+                defaults: defaults, exitStatus: nil,
+                startedAt: startedAt, endedAt: endedAt,
+                stderr: error.localizedDescription
+            ))
+            throw AlignmentFetchError.consensusExecutionFailed(records)
+        } catch {
+            let endedAt = Date()
+            records.append(consensusExecutionRecord(
+                stage: stage, samtoolsPath: samtoolsPath, samtoolsVersion: samtoolsVersion, arguments: arguments,
+                inputs: inputs, outputs: outputs, readGroupFile: readGroupFile,
+                defaults: defaults, exitStatus: nil,
+                startedAt: startedAt, endedAt: endedAt,
+                stderr: error.localizedDescription
+            ))
+            throw AlignmentFetchError.consensusExecutionFailed(records)
+        }
+    }
+
+    private func consensusExecutionRecord(
+        stage: AlignmentConsensusExecutionRecord.Stage,
+        samtoolsPath: String,
+        samtoolsVersion: String,
+        arguments: [String],
+        inputs: [URL],
+        outputs: [URL],
+        readGroupFile: AlignmentConsensusReadGroupFile?,
+        defaults: [String: String],
+        exitStatus: Int32?,
+        startedAt: Date,
+        endedAt: Date,
+        stderr: String
+    ) -> AlignmentConsensusExecutionRecord {
+        AlignmentConsensusExecutionRecord(
+            stage: stage,
+            executablePath: samtoolsPath,
+            executableVersion: samtoolsVersion,
+            runtimeIdentity: ProcessInfo.processInfo.operatingSystemVersionString,
+            argv: arguments,
+            reproducibleCommand: ([samtoolsPath] + arguments).map(Self.shellEscape).joined(separator: " "),
+            inputs: inputs.map(Self.consensusFileDescriptor),
+            outputs: outputs.map(Self.consensusFileDescriptor),
+            readGroupFile: readGroupFile,
+            resolvedDefaults: defaults,
+            exitStatus: exitStatus,
+            startedAt: startedAt,
+            endedAt: endedAt,
+            wallTimeSeconds: endedAt.timeIntervalSince(startedAt),
+            stderr: stderr.isEmpty ? nil : stderr
+        )
+    }
+
+    private static func consensusFileDescriptor(_ url: URL) -> AlignmentConsensusFileDescriptor {
+        let path = url.standardizedFileURL.path
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: path),
+              let size = attributes[.size] as? NSNumber,
+              let data = try? Data(contentsOf: url) else {
+            return AlignmentConsensusFileDescriptor(path: path, checksumSHA256: nil, fileSize: nil)
+        }
+        return AlignmentConsensusFileDescriptor(
+            path: path,
+            checksumSHA256: sha256(of: data),
+            fileSize: size.uint64Value
+        )
+    }
+
+    private static func sha256(of data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func shellEscape(_ value: String) -> String {
+        guard !value.isEmpty else { return "''" }
+        let safe = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_/:=-.,+")
+        guard !value.unicodeScalars.allSatisfy(safe.contains) else { return value }
+        return "'\(value.replacingOccurrences(of: "'", with: "'\\\\''"))'"
+    }
+
+    private static func regionString(chromosome: String, start: Int, end: Int) -> String {
+        "\(chromosome):\(start + 1)-\(end)"
+    }
+
     /// Fetches a consensus sequence for a region using `samtools consensus`.
     ///
     /// - Parameters:
@@ -538,45 +1046,24 @@ public final class AlignmentDataProvider: @unchecked Sendable {
         showDeletions: Bool = true,
         showInsertions: Bool = false
     ) async throws -> ConsensusFASTAResult {
-        guard !chromosome.isEmpty, start >= 0, end > start else {
-            throw AlignmentFetchError.invalidRegion("\(chromosome):\(start)-\(end)")
-        }
-
-        var arguments = ["consensus"]
-        let regionStr = "\(chromosome):\(start + 1)-\(end)"
-        arguments += ["-r", regionStr]
-        // -a: output ALL positions including those with no coverage.
-        // Without this flag, samtools 1.22+ drops uncovered positions from
-        // region queries, shifting the output string relative to the requested
-        // coordinates and causing consensus bases to render at wrong positions.
-        arguments += ["-a"]
-        arguments += ["-f", "FASTA"]
-        arguments += ["-m", mode.rawValue]
-        arguments += ["--min-MQ", String(max(0, minMapQ))]
-        arguments += ["--min-BQ", String(max(0, minBaseQ))]
-        arguments += ["-d", String(max(1, minDepth))]
-        if excludeFlags != 0 {
-            arguments += ["--ff", String(excludeFlags)]
-        }
-        // Keep deleted reference columns so consensus coordinates remain 1:1 with
-        // reference coordinates across the full region (prevents progressive drift).
-        arguments += ["--show-del", showDeletions ? "yes" : "no"]
-        arguments += ["--show-ins", showInsertions ? "yes" : "no"]
-        if useAmbiguity {
-            arguments.append("-A")
-        }
-        if format == .cram, let refPath = referenceFastaPath {
-            arguments += ["--reference", refPath]
-        }
-        arguments.append(alignmentPath)
-
-        alignmentLogger.debug("Fetching consensus: samtools \(arguments.joined(separator: " "))")
-        let result = try await runSamtools(arguments: arguments, timeout: 45)
-        guard result.exitCode == 0 else {
-            let errorMsg = result.stderr.isEmpty ? "exit code \(result.exitCode)" : result.stderr
-            throw AlignmentFetchError.samtoolsFailed(errorMsg)
-        }
-        return Self.parseConsensusFASTA(result.stdout)
+        let request = AlignmentConsensusRequest(
+            chromosome: chromosome,
+            start: start,
+            end: end,
+            filters: AlignmentConsensusFilters(
+                minimumDepth: minDepth,
+                minimumMapQ: minMapQ,
+                minimumBaseQuality: minBaseQ,
+                excludedFlags: excludeFlags,
+                readGroups: []
+            ),
+            mode: mode,
+            useAmbiguity: useAmbiguity,
+            insertionPolicy: showInsertions ? .include : .omit,
+            deletionPolicy: showDeletions ? .n : .omit
+        )
+        let result = try await fetchConsensus(request)
+        return ConsensusFASTAResult(sequence: result.sequence, headerStart: start)
     }
 
     /// Parses `samtools depth` output into typed depth points.
@@ -825,6 +1312,9 @@ public enum AlignmentFetchError: Error, LocalizedError, Sendable {
     case samtoolsNotFound
     case samtoolsFailed(String)
     case invalidRegion(String)
+    case consensusCoordinateMismatch
+    case consensusCoordinateMismatchWithRecords([AlignmentConsensusExecutionRecord])
+    case consensusExecutionFailed([AlignmentConsensusExecutionRecord])
     case timeout
 
     public var errorDescription: String? {
@@ -835,6 +1325,14 @@ public enum AlignmentFetchError: Error, LocalizedError, Sendable {
             return "samtools failed: \(msg)"
         case .invalidRegion(let region):
             return "Invalid region: \(region)"
+        case .consensusCoordinateMismatch:
+            return "Consensus output does not project exactly onto the requested reference interval."
+        case .consensusCoordinateMismatchWithRecords:
+            return "Consensus output does not project exactly onto the requested reference interval; execution records are attached."
+        case .consensusExecutionFailed(let records):
+            let stage = records.last?.stage.rawValue ?? "unknown"
+            let stderr = records.last?.stderr ?? ""
+            return "Consensus \(stage) stage failed\(stderr.isEmpty ? "" : ": \(stderr)")"
         case .timeout:
             return "samtools timed out"
         }

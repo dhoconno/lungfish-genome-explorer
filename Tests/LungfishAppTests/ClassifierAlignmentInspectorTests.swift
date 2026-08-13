@@ -123,8 +123,8 @@ final class ClassifierAlignmentInspectorTests: XCTestCase {
         controller.display(request)
         XCTAssertEqual(inspector.readStyleSectionViewModel.classifierEvidenceCapabilities?.status, .loading)
         XCTAssertEqual(inspector.readStyleSectionViewModel.classifierEvidenceCapabilities?.referenceValidation, .unavailable("Reference validation is pending."))
-        for _ in 0..<100 where inspector.readStyleSectionViewModel.classifierEvidenceCapabilities?.status != .available(referenceStrength: "structurally validated", reason: nil) {
-            await Task.yield()
+        for _ in 0..<200 where inspector.readStyleSectionViewModel.classifierEvidenceCapabilities?.status != .available(referenceStrength: "structurally validated", reason: nil) {
+            try await Task.sleep(nanoseconds: 5_000_000)
         }
         XCTAssertEqual(inspector.readStyleSectionViewModel.classifierEvidenceCapabilities?.referenceValidation, .structural)
         XCTAssertEqual(inspector.readStyleSectionViewModel.classifierEvidenceCapabilities?.availability(of: .referenceMismatch), .available)
@@ -235,6 +235,74 @@ final class ClassifierAlignmentInspectorTests: XCTestCase {
         inspector.readStyleSectionViewModel.minMapQ = 47
         inspector.readStyleSectionViewModel.onSettingsChanged?()
         XCTAssertEqual(controller.viewer.viewerView.minMapQSetting, 0)
+    }
+
+    func testReadableClassifierEvidenceSuppliesConsensusExtractionCallback() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let bam = directory.appendingPathComponent("final.bam")
+        let index = directory.appendingPathComponent("final.bam.bai")
+        try Data([1]).write(to: bam)
+        try Data([2]).write(to: index)
+        let request = try ClassifierAlignmentEvidenceRequest(
+            workflow: .taxTriage,
+            resultIdentity: .init(stableID: "result", finalResultURL: directory, provenanceID: "prov"),
+            bamURL: bam,
+            index: .init(url: index, kind: .bai),
+            sample: .init(canonicalID: "S1"),
+            contig: .init(name: "virus", expectedLength: 4),
+            referenceCandidate: nil,
+            presentation: .init(workflowLabel: "TaxTriage", resultLabel: "result", sampleLabel: "S1", contigLabel: "virus")
+        )
+        let controller = ClassifierAlignmentEvidenceViewportController(
+            validator: .init(headerReader: { _ in "@SQ\tSN:virus\tLN:4\n" }, indexQuery: { _, _, _ in })
+        )
+        let inspector = InspectorViewController()
+        _ = inspector.view
+        controller.bindInspector(inspector)
+
+        controller.display(request)
+        for _ in 0..<500 where controller.status == .loading {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(controller.status, .available(referenceStrength: "not provided", reason: nil), controller.visibleStatusText)
+        XCTAssertNotNil(controller.viewer.alignmentActionContext, String(describing: controller.availability))
+
+        XCTAssertNotNil(inspector.readStyleSectionViewModel.onExtractConsensusRequested)
+    }
+
+    func testSelectedRegionScopeRemainsPreferredAcrossClassifierEvidenceAndRequiresExplicitSelection() async throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let directory = repositoryRoot.appendingPathComponent("Tests/Fixtures/classifier-full-viewer", isDirectory: true)
+        let bam = directory.appendingPathComponent("evidence.bam")
+        let index = directory.appendingPathComponent("evidence.bam.bai")
+        let request = try ClassifierAlignmentEvidenceRequest(
+            workflow: .taxTriage,
+            resultIdentity: .init(stableID: "result", finalResultURL: directory, provenanceID: "prov"),
+            bamURL: bam, index: .init(url: index, kind: .bai), sample: .init(canonicalID: "S1"),
+            contig: .init(name: "synthetic-track-A", expectedLength: 120), referenceCandidate: nil,
+            presentation: .init(workflowLabel: "TaxTriage", resultLabel: "result", sampleLabel: "S1", contigLabel: "synthetic-track-A")
+        )
+        let controller = ClassifierAlignmentEvidenceViewportController()
+        let inspector = InspectorViewController(); _ = inspector.view
+        controller.bindInspector(inspector)
+        controller.viewer.alignmentConsensusScope = .selectedRegion
+        controller.display(request)
+        for _ in 0..<500 where controller.status == .loading {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(controller.status, .available(referenceStrength: "not provided", reason: nil), controller.visibleStatusText)
+        XCTAssertNotNil(controller.viewer.alignmentActionContext, String(describing: controller.availability))
+
+        let readStyle = inspector.readStyleSectionViewModel
+        XCTAssertEqual(readStyle.consensusScope, .selectedRegion)
+        XCTAssertEqual(readStyle.consensusExtractionAvailabilityMessage, "Select a region in the viewer first")
+        XCTAssertTrue(readStyle.supportsConsensusExtraction)
+
+        controller.viewer.setExplicitAlignmentSelection(contig: "synthetic-track-A", start: 10, end: 20)
+        XCTAssertNil(readStyle.consensusExtractionAvailabilityMessage)
     }
     func testReferenceFreeCapabilityMatrixDisablesReferenceAndOutputOperations() {
         let capabilities = ClassifierAlignmentInspectorCapabilities.detachedEvidence(

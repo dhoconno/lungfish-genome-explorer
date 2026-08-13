@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishIO
 import LungfishKit
 
 /// Bridges classifier leaf requests to the existing App-owned full viewer.
@@ -41,6 +42,17 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
     }
     var onInspectorCapabilitiesChanged: (@MainActor (ClassifierAlignmentInspectorCapabilities?) -> Void)?
 
+    var isAvailableForFullViewerActions: Bool {
+        if case .available = availability { return true }
+        return false
+    }
+
+#if DEBUG
+    func testSetAvailability(_ availability: Availability) {
+        self.availability = availability
+    }
+#endif
+
     init(validator: ClassifierAlignmentEvidenceValidator = .init()) {
         self.validator = validator
         super.init()
@@ -52,6 +64,12 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
     /// Connects this App-owned viewport to the active Inspector.  The callback
     /// is direct and window-local, avoiding global notification cross-talk.
     func bindInspector(_ inspector: InspectorViewController) {
+        viewer.onAlignmentConsensusActionStateChanged = { [weak self, weak inspector] in
+            guard let self, let inspector else { return }
+            let state = self.consensusScopeState()
+            inspector.readStyleSectionViewModel.consensusScope = state.scope
+            inspector.readStyleSectionViewModel.consensusExtractionAvailabilityMessage = state.unavailableMessage
+        }
         onInspectorCapabilitiesChanged = { [weak self, weak inspector] capabilities in
             guard let inspector else { return }
             guard let capabilities else {
@@ -65,7 +83,13 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
             inspector.viewModel.selectedTab = .view
             inspector.updateClassifierAlignmentInspector(
                 capabilities: capabilities,
-                applySettings: { [weak self] payload in self?.viewer.applyReadDisplaySettings(payload) }
+                applySettings: { [weak self] payload in
+                    self?.viewer.applyReadDisplaySettings(payload)
+                    self?.refreshActionContextFilters()
+                },
+                consensusScopeState: { [weak self] in self?.consensusScopeState() ?? (.wholeContig, AlignmentScientificActionError.contextUnavailable.localizedDescription) },
+                setConsensusScope: { [weak self] in self?.viewer.alignmentConsensusScope = $0 },
+                extractConsensus: { [weak self] in self?.requestClassifierConsensusGeneration() }
             )
         }
         if let inspectorCapabilities { onInspectorCapabilitiesChanged?(inspectorCapabilities) }
@@ -106,6 +130,7 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
         _ = viewer.view
         installStatusLabel()
         viewer.viewerView.onDetachedEvidenceStale = { [weak self] reason in
+            self?.viewer.alignmentActionContext = nil
             self?.availability = .unavailable(reason)
             self?.status = .stale(reason)
             self?.publishInspectorCapabilities(reference: .unavailable(reason), readGroups: [])
@@ -113,6 +138,7 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
         // A new request must never leave prior evidence visible while its own
         // validation is pending; this also tears down the old vnode monitors.
         viewer.viewerView.clearReferenceBundle()
+        viewer.alignmentActionContext = nil
         generation += 1
         let currentGeneration = generation
         task?.cancel()
@@ -137,12 +163,17 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
                     referenceSnapshot: validated.referenceSnapshot
                 )
                 guard viewer.displayDetachedAlignment(source) else {
+                    viewer.alignmentActionContext = nil
                     let reason = viewer.viewerView.detachedEvidenceStaleReason ?? "Classifier alignment evidence could not be verified."
                     availability = .unavailable(reason)
                     status = .stale(reason)
                     publishInspectorCapabilities(reference: .unavailable(reason), readGroups: [])
                     return
                 }
+                viewer.alignmentActionContext = try makeActionContext(
+                    request: request,
+                    validated: validated
+                )
                 availability = .available(reference: validated.reference.status, reason: validated.reference.reason)
                 status = .available(referenceStrength: referenceStrengthText(validated.reference.status), reason: validated.reference.reason)
                 observedInspectorSnapshots = .init(
@@ -157,6 +188,7 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
                 )
             } catch {
                 guard !Task.isCancelled, currentGeneration == generation else { return }
+                viewer.alignmentActionContext = nil
                 viewer.viewerView.clearReferenceBundle()
                 if let validationError = error as? ClassifierAlignmentEvidenceValidator.Error,
                    case .snapshotMismatch(let url) = validationError {
@@ -180,10 +212,93 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
         activeRequest = nil
         observedInspectorSnapshots = nil
         viewer.viewerView.clearReferenceBundle()
+        viewer.alignmentActionContext = nil
         viewer.viewerView.onDetachedEvidenceStale = nil
         availability = .idle
         status = .idle
         inspectorCapabilities = nil
+    }
+
+    private func makeActionContext(
+        request: ClassifierAlignmentEvidenceRequest,
+        validated: ClassifierAlignmentEvidenceValidator.Result
+    ) throws -> AlignmentActionContext {
+        guard let settings = viewer.viewerView else {
+            throw AlignmentScientificActionError.contextUnavailable
+        }
+        let isCRAM = request.bamURL.pathExtension.lowercased() == "cram"
+        let decodingReferenceURL = isCRAM ? request.referenceCandidate?.fastaURL : nil
+        let decodingReferenceSnapshot: AlignmentEvidenceFileSnapshot? = if isCRAM,
+                                                                          let referenceURL = decodingReferenceURL,
+                                                                          let snapshot = validated.referenceSnapshot {
+            .init(url: referenceURL, byteCount: UInt64(snapshot.size), sha256: snapshot.sha256)
+        } else {
+            nil
+        }
+        return try AlignmentActionContext(
+            identity: .init(
+                workflow: request.workflow.rawValue,
+                resultID: request.resultIdentity.stableID,
+                sampleID: request.sample.canonicalID,
+                evidenceID: "\(request.resultIdentity.provenanceID):\(request.contig.name)"
+            ),
+            alignmentURL: request.bamURL,
+            indexURL: request.index.url,
+            decodingReferenceURL: decodingReferenceURL,
+            contig: validated.contig.name,
+            contigLength: validated.contig.length,
+            alignmentSnapshot: .init(
+                url: request.bamURL,
+                byteCount: UInt64(validated.bamSnapshot.size),
+                sha256: validated.bamSnapshot.sha256
+            ),
+            indexSnapshot: .init(
+                url: request.index.url,
+                byteCount: UInt64(validated.indexSnapshot.size),
+                sha256: validated.indexSnapshot.sha256
+            ),
+            decodingReferenceSnapshot: decodingReferenceSnapshot,
+            filters: .init(
+                minimumDepth: settings.consensusMinDepthSetting,
+                minimumMapQ: max(settings.minMapQSetting, settings.consensusMinMapQSetting),
+                minimumBaseQuality: settings.consensusMinBaseQSetting,
+                excludedFlags: settings.excludeFlagsSetting,
+                readGroups: settings.selectedReadGroupsSetting
+            ),
+            outputCapability: .userSelectedDestination,
+            sourceReads: .bamFallback,
+            presentationLabel: "\(request.presentation.sampleLabel) — \(request.presentation.contigLabel)"
+        )
+    }
+
+    private func refreshActionContextFilters() {
+        guard let context = viewer.alignmentActionContext else { return }
+        guard let settings = viewer.viewerView else { return }
+        let filters = AlignmentConsensusFilters(
+            minimumDepth: settings.consensusMinDepthSetting,
+            minimumMapQ: max(settings.minMapQSetting, settings.consensusMinMapQSetting),
+            minimumBaseQuality: settings.consensusMinBaseQSetting,
+            excludedFlags: settings.excludeFlagsSetting,
+            readGroups: settings.selectedReadGroupsSetting
+        )
+        viewer.alignmentActionContext = try? context.replacingFilters(filters)
+    }
+
+    private func consensusScopeState() -> (scope: AlignmentConsensusScope, unavailableMessage: String?) {
+        let scope = viewer.alignmentConsensusScope
+        guard let context = viewer.alignmentActionContext else {
+            return (scope, AlignmentScientificActionError.contextUnavailable.localizedDescription)
+        }
+        do {
+            _ = try scope.resolve(in: context, selection: viewer.explicitAlignmentSelection)
+            return (scope, nil)
+        } catch {
+            return (scope, error.localizedDescription)
+        }
+    }
+
+    private func requestClassifierConsensusGeneration() {
+        viewer.presentAlignmentConsensusGeneration()
     }
 
     private func referenceStrengthText(_ status: ClassifierAlignmentEvidenceValidator.ReferenceStatus) -> String {

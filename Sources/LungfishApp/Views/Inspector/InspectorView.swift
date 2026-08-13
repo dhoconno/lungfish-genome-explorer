@@ -818,6 +818,15 @@ private struct InspectorConsensusWorkflowSection: View {
                     viewModel.onSettingsChanged?()
                 }
 
+                Picker("Consensus scope", selection: $viewModel.consensusScope) {
+                    Text("Whole contig").tag(AlignmentConsensusScope.wholeContig)
+                    Text("Selected region").tag(AlignmentConsensusScope.selectedRegion)
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: viewModel.consensusScope) { _, scope in
+                    viewModel.onConsensusScopeChanged?(scope)
+                }
+
                 Toggle("Use IUPAC ambiguity codes", isOn: $viewModel.consensusUseAmbiguity)
                     .onChange(of: viewModel.consensusUseAmbiguity) { _, _ in
                         viewModel.onSettingsChanged?()
@@ -896,7 +905,13 @@ private struct InspectorConsensusWorkflowSection: View {
                 Button("Extract Consensus…") {
                     viewModel.onExtractConsensusRequested?()
                 }
-                .disabled(!viewModel.supportsConsensusExtraction)
+                .disabled(!viewModel.supportsConsensusExtraction || viewModel.consensusExtractionAvailabilityMessage != nil)
+
+                if let message = viewModel.consensusExtractionAvailabilityMessage {
+                    Text(message)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
 
                 if !viewModel.supportsConsensusExtraction {
                     Text("Consensus extraction is available from the active mapping viewer.")

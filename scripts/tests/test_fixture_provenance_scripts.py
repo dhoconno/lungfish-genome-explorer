@@ -462,7 +462,7 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
             self.assertIn("missing classifier full-viewer resolved options", result.stderr)
             self.assertIn("missing classifier full-viewer samtools executable checksum", result.stderr)
             self.assertIn("missing samtools version externalToolInvocation", result.stderr)
-            self.assertIn("invalid samtools view runtimeIdentity", result.stderr)
+            self.assertIn("invalid samtools faidx runtimeIdentity", result.stderr)
 
     def test_audit_fails_when_classifier_payload_and_self_reported_checksums_are_replaced(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -499,7 +499,7 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
             view = next(
                 invocation
                 for invocation in provenance["externalToolInvocations"]
-                if invocation["subcommand"] == "view"
+                if invocation["subcommand"] == "view-bam"
             )
             view["reproducibleCommand"] = "samtools view source-other.sam"
             view["runtimeIdentity"]["samtoolsExecutable"] = "PATH:other-samtools"
@@ -514,8 +514,8 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
             )
 
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn("samtools view reproducibleCommand does not match argv", result.stderr)
-            self.assertIn("samtools view executable identity disagrees with workflow runtime", result.stderr)
+            self.assertIn("samtools view-bam reproducibleCommand does not match argv", result.stderr)
+            self.assertIn("samtools view-bam executable identity disagrees with workflow runtime", result.stderr)
 
     def test_audit_fails_when_root_alignment_sidecar_omits_mafft_workflow_step(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -923,7 +923,15 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
 
     def _write_classifier_fixture_payload(self, fixture_path):
         committed_fixture = PROJECT_ROOT / CLASSIFIER_FULL_VIEWER_FIXTURE
-        for name in ["source.sam", "evidence.bam", "evidence.bam.bai"]:
+        for name in [
+            "source.sam",
+            "conflicting-reference.fasta",
+            "conflicting-reference.fasta.fai",
+            "evidence.bam",
+            "evidence.bam.bai",
+            "evidence.cram",
+            "evidence.cram.crai",
+        ]:
             shutil.copyfile(committed_fixture / name, fixture_path / name)
 
     def _write_root_alignment_source(self, root):
@@ -1038,7 +1046,7 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
                 {
                     "workflowName": "classifier-full-bam-viewer-fixture-generation",
                     "toolName": "generate-classifier-full-viewer-fixture.py",
-                    "toolVersion": "1.0.0",
+                    "toolVersion": "1.1.0",
                     "argv": ["python3", "scripts/testing/generate-classifier-full-viewer-fixture.py"],
                     "executedShellCommand": (
                         "python3 scripts/testing/generate-classifier-full-viewer-fixture.py"
@@ -1054,6 +1062,11 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
                         "contigLength": 120,
                         "excludeFlags": 3332,
                         "retainedRecordNames": ["item-A", "item-B"],
+                        "conflictingReference": {
+                            "path": "conflicting-reference.fasta",
+                            "base": "C",
+                            "coveredReadBase": "A",
+                        },
                         "outputDirectory": CLASSIFIER_FULL_VIEWER_FIXTURE,
                         "requested": {"outputDirectory": None, "samtools": None},
                         "defaults": {
@@ -1093,7 +1106,18 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
                         },
                         {
                             "name": "samtools",
-                            "subcommand": "view",
+                            "subcommand": "faidx",
+                            "version": "1.0",
+                            "argv": ["samtools", "faidx", "conflicting-reference.fasta"],
+                            "reproducibleCommand": "samtools faidx conflicting-reference.fasta",
+                            "runtimeIdentity": samtools_runtime,
+                            "exitStatus": 0,
+                            "wallTimeSeconds": 0.0,
+                            "stderr": "",
+                        },
+                        {
+                            "name": "samtools",
+                            "subcommand": "view-bam",
                             "version": "1.0",
                             "argv": ["samtools", "view", "--no-PG", "-b", "-o", "evidence.bam", "source.sam"],
                             "reproducibleCommand": "samtools view --no-PG -b -o evidence.bam source.sam",
@@ -1104,7 +1128,7 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
                         },
                         {
                             "name": "samtools",
-                            "subcommand": "index",
+                            "subcommand": "index-bam",
                             "version": "1.0",
                             "argv": ["samtools", "index", "evidence.bam", "evidence.bam.bai"],
                             "reproducibleCommand": "samtools index evidence.bam evidence.bam.bai",
@@ -1113,9 +1137,56 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
                             "wallTimeSeconds": 0.0,
                             "stderr": "",
                         },
+                        {
+                            "name": "samtools",
+                            "subcommand": "view-cram",
+                            "version": "1.0",
+                            "argv": ["samtools", "view", "--no-PG", "-C", "-o", "evidence.cram", "evidence.bam"],
+                            "reproducibleCommand": "samtools view --no-PG -C -o evidence.cram evidence.bam",
+                            "runtimeIdentity": samtools_runtime,
+                            "exitStatus": 0,
+                            "wallTimeSeconds": 0.0,
+                            "stderr": "",
+                        },
+                        {
+                            "name": "samtools",
+                            "subcommand": "index-cram",
+                            "version": "1.0",
+                            "argv": ["samtools", "index", "evidence.cram", "evidence.cram.crai"],
+                            "reproducibleCommand": "samtools index evidence.cram evidence.cram.crai",
+                            "runtimeIdentity": samtools_runtime,
+                            "exitStatus": 0,
+                            "wallTimeSeconds": 0.0,
+                            "stderr": "",
+                        },
+                        {
+                            "name": "samtools",
+                            "subcommand": "quickcheck",
+                            "version": "1.0",
+                            "argv": ["samtools", "quickcheck", "evidence.bam", "evidence.cram"],
+                            "reproducibleCommand": "samtools quickcheck evidence.bam evidence.cram",
+                            "runtimeIdentity": samtools_runtime,
+                            "exitStatus": 0,
+                            "wallTimeSeconds": 0.0,
+                            "stderr": "",
+                        },
                     ],
                 }
             )
+            invocation_paths = {
+                "version": ([], []),
+                "faidx": (["conflicting-reference.fasta"], ["conflicting-reference.fasta.fai"]),
+                "view-bam": (["source.sam"], ["evidence.bam"]),
+                "index-bam": (["evidence.bam"], ["evidence.bam.bai"]),
+                "view-cram": (["evidence.bam", "conflicting-reference.fasta"], ["evidence.cram"]),
+                "index-cram": (["evidence.cram"], ["evidence.cram.crai"]),
+                "quickcheck": (["evidence.bam", "evidence.cram"], []),
+            }
+            payloads_by_path = {entry["path"]: entry for entry in files}
+            for invocation in record["externalToolInvocations"]:
+                inputs, outputs = invocation_paths[invocation["subcommand"]]
+                invocation["inputFiles"] = [payloads_by_path[path] for path in inputs]
+                invocation["outputFiles"] = [payloads_by_path[path] for path in outputs]
         elif relative_fixture.endswith(".lungfishmsa"):
             record["workflowName"] = "multiple-sequence-alignment-mafft"
             record["toolName"] = "lungfish align mafft"
