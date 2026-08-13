@@ -1039,8 +1039,8 @@ final class EsVirituDatabaseErrorTests: XCTestCase {
 
 // MARK: - PluginPackTests
 
-/// Tests that the metagenomics plugin pack includes esviritu.
-final class EsVirituPluginPackTests: XCTestCase {
+/// Tests for the pinned tools exposed by the metagenomics plugin pack.
+final class MetagenomicsPluginPackTests: XCTestCase {
 
     func testMetagenomicsPackIncludesEsViritu() {
         let metagenomicsPack = PluginPack.builtIn.first { $0.id == "metagenomics" }
@@ -1049,5 +1049,19 @@ final class EsVirituPluginPackTests: XCTestCase {
             metagenomicsPack?.packages.contains("esviritu") == true,
             "Metagenomics pack should include esviritu"
         )
+    }
+
+    func testKraken2AndBrackenRequirementsIncludeDatabaseBuildExecutables() throws {
+        let pack = try XCTUnwrap(PluginPack.builtIn.first { $0.id == "metagenomics" })
+        let kraken2 = try XCTUnwrap(pack.requirements.first { $0.id == "kraken2" })
+        let bracken = try XCTUnwrap(pack.requirements.first { $0.id == "bracken" })
+
+        XCTAssertEqual(kraken2.environment, "kraken2")
+        XCTAssertEqual(kraken2.installPackages, ["bioconda::kraken2=2.17.1"])
+        XCTAssertEqual(kraken2.executables, ["kraken2", "kraken2-build"])
+        XCTAssertEqual(bracken.environment, "bracken")
+        XCTAssertEqual(bracken.installPackages, ["bioconda::bracken=1.0.0"])
+        XCTAssertEqual(bracken.executables, ["bracken", "bracken-build"])
+        XCTAssertNotEqual(kraken2.environment, bracken.environment)
     }
 }
