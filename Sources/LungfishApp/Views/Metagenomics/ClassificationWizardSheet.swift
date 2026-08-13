@@ -653,6 +653,7 @@ struct ClassificationWizardSheet: View {
                 databaseName: db.name,
                 databaseVersion: db.version ?? "unknown",
                 databasePath: dbPath,
+                databaseDigest: db.payloadDigest,
                 confidence: confidence,
                 minimumHitGroups: minimumHitGroups,
                 threads: threads,

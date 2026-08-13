@@ -220,6 +220,20 @@ final class ClassificationWizardTests: XCTestCase {
     }
 
     @MainActor
+    func testSpecialRRNADatabasesUseUnchangedReadySelection() {
+        let silva = makeDatabaseInfo(name: "SILVA", status: .ready)
+        let greengenes = makeDatabaseInfo(name: "Greengenes", status: .ready)
+
+        XCTAssertEqual(
+            ClassificationWizardSheet.databaseSelectionAfterRefresh(
+                currentSelection: "Greengenes",
+                databases: [silva, greengenes]
+            ),
+            "Greengenes"
+        )
+    }
+
+    @MainActor
     func testDatabaseSelectionAfterRefreshKeepsCurrentReadyDatabase() {
         let current = makeDatabaseInfo(name: "Viral", status: .ready, sizeBytes: 536_870_912)
         let newer = makeDatabaseInfo(name: "Standard-8", status: .ready)

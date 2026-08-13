@@ -133,6 +133,8 @@ public actor MetagenomicsDatabaseRegistry {
     private let bookmarkResolver: @Sendable (Data) throws -> BookmarkResolution
     private let securityScopedAccessStarter: @Sendable (URL) -> Bool
     private let securityScopedAccessStopper: @Sendable (URL) -> Void
+    private let databaseInstaller: any MetagenomicsDatabaseInstalling
+    private let manifestWriter: @Sendable (Data, URL) throws -> Void
     private var activeSecurityScopedURLs: [String: URL] = [:]
 
     /// Files required for a valid Kraken2 database directory.
@@ -152,6 +154,8 @@ public actor MetagenomicsDatabaseRegistry {
         self.bookmarkResolver = Self.defaultBookmarkResolution
         self.securityScopedAccessStarter = { $0.startAccessingSecurityScopedResource() }
         self.securityScopedAccessStopper = { $0.stopAccessingSecurityScopedResource() }
+        self.databaseInstaller = Self.productionDatabaseInstaller()
+        self.manifestWriter = Self.defaultManifestWriter
     }
 
     init(storageConfigStore: ManagedStorageConfigStore) {
@@ -164,6 +168,8 @@ public actor MetagenomicsDatabaseRegistry {
         self.bookmarkResolver = Self.defaultBookmarkResolution
         self.securityScopedAccessStarter = { $0.startAccessingSecurityScopedResource() }
         self.securityScopedAccessStopper = { $0.stopAccessingSecurityScopedResource() }
+        self.databaseInstaller = Self.productionDatabaseInstaller()
+        self.manifestWriter = Self.defaultManifestWriter
     }
 
     /// Creates a registry backed by a custom directory.
@@ -180,6 +186,8 @@ public actor MetagenomicsDatabaseRegistry {
         self.bookmarkResolver = Self.defaultBookmarkResolution
         self.securityScopedAccessStarter = { $0.startAccessingSecurityScopedResource() }
         self.securityScopedAccessStopper = { $0.stopAccessingSecurityScopedResource() }
+        self.databaseInstaller = Self.productionDatabaseInstaller()
+        self.manifestWriter = Self.defaultManifestWriter
     }
 
     init(
@@ -188,7 +196,9 @@ public actor MetagenomicsDatabaseRegistry {
         bookmarkCreator: @escaping @Sendable (URL) throws -> Data = MetagenomicsDatabaseRegistry.defaultBookmarkData,
         bookmarkResolver: @escaping @Sendable (Data) throws -> BookmarkResolution = MetagenomicsDatabaseRegistry.defaultBookmarkResolution,
         securityScopedAccessStarter: @escaping @Sendable (URL) -> Bool = { $0.startAccessingSecurityScopedResource() },
-        securityScopedAccessStopper: @escaping @Sendable (URL) -> Void = { $0.stopAccessingSecurityScopedResource() }
+        securityScopedAccessStopper: @escaping @Sendable (URL) -> Void = { $0.stopAccessingSecurityScopedResource() },
+        databaseInstaller: (any MetagenomicsDatabaseInstalling)? = nil,
+        manifestWriter: @escaping @Sendable (Data, URL) throws -> Void = MetagenomicsDatabaseRegistry.defaultManifestWriter
     ) {
         self.storageConfigStore = nil
         self.databasesBaseURL = baseDirectory
@@ -198,6 +208,8 @@ public actor MetagenomicsDatabaseRegistry {
         self.bookmarkResolver = bookmarkResolver
         self.securityScopedAccessStarter = securityScopedAccessStarter
         self.securityScopedAccessStopper = securityScopedAccessStopper
+        self.databaseInstaller = databaseInstaller ?? Self.productionDatabaseInstaller()
+        self.manifestWriter = manifestWriter
     }
 
     deinit {
@@ -322,7 +334,10 @@ public actor MetagenomicsDatabaseRegistry {
             // persisted manifest (e.g., EsViritu DB added in a newer version).
             var addedCount = 0
             for entry in MetagenomicsDatabaseInfo.builtInCatalog {
-                if databases[entry.name] == nil {
+                let alreadyPresent = databases.values.contains { persisted in
+                    Self.matchesCatalogEntry(persisted, catalog: entry)
+                }
+                if !alreadyPresent {
                     databases[entry.name] = entry
                     addedCount += 1
                 }
@@ -481,19 +496,18 @@ public actor MetagenomicsDatabaseRegistry {
     public func removeDatabase(name: String) throws {
         try loadIfNeeded()
 
-        guard databases[name] != nil else {
+        guard let existing = databases[name] else {
             throw MetagenomicsDatabaseRegistryError.databaseNotFound(name: name)
         }
 
         // If this is a catalog entry, reset to undownloaded state rather than deleting.
-        if let collection = databases[name]?.collection {
-            if let catalogEntry = MetagenomicsDatabaseInfo.catalogEntry(for: collection) {
-                endSecurityScopedAccess(for: name)
-                databases[name] = catalogEntry
-                try saveManifest()
-                logger.info("Reset catalog database '\(name, privacy: .public)' to undownloaded state")
-                return
-            }
+        let catalogEntry = Self.catalogEntry(matching: existing)
+        if let catalogEntry {
+            endSecurityScopedAccess(for: name)
+            databases[name] = catalogEntry
+            try saveManifest()
+            logger.info("Reset catalog database '\(name, privacy: .public)' to undownloaded state")
+            return
         }
 
         endSecurityScopedAccess(for: name)
@@ -534,7 +548,10 @@ public actor MetagenomicsDatabaseRegistry {
         }
 
         let missing = Self.missingRequiredFiles(in: path, tool: db.tool)
-        if missing.isEmpty {
+        let managedPayloadIsValid = db.payloadDigest.map {
+            Self.validateManagedPayload(database: db, at: path, expectedDigest: $0)
+        } ?? true
+        if missing.isEmpty && managedPayloadIsValid {
             db.status = .ready
             db.lastUpdated = Date()
         } else {
@@ -871,51 +888,36 @@ public actor MetagenomicsDatabaseRegistry {
     ) async throws -> URL {
         try loadIfNeeded()
 
-        guard var db = databases[name] else {
+        guard let prior = databases[name] else {
             throw MetagenomicsDatabaseRegistryError.databaseNotFound(name: name)
         }
-
-        guard let urlString = db.downloadURL, let url = URL(string: urlString) else {
+        guard prior.installationRecipe != nil else {
             throw MetagenomicsDatabaseRegistryError.downloadFailed(
-                name: name, reason: "No download URL available"
+                name: name, reason: "No installation recipe available"
             )
         }
 
-        // Determine destination directory, organized by tool.
-        let toolSubdir = db.tool.isEmpty ? "other" : db.tool
-        let destDir = databasesBaseURL
-            .appendingPathComponent(toolSubdir)
-            .appendingPathComponent(name.lowercased().replacingOccurrences(of: " ", with: "-"))
-
-        let fm = FileManager.default
-        try fm.createDirectory(at: destDir, withIntermediateDirectories: true)
-
-        // Update status.
+        var db = prior
         db.status = .downloading
         databases[name] = db
-        try saveManifest()
-
-        progress(0.0, "Starting download of \(name)...")
-
-        // Download using URLSession delegate for progress.
-        let tarballURL: URL
         do {
-            tarballURL = try await downloadFile(
-                from: url,
-                progress: { fraction, bytesWritten, totalBytes in
-                    let mbWritten = Double(bytesWritten) / 1_048_576.0
-                    let mbTotal = Double(totalBytes) / 1_048_576.0
-                    progress(
-                        fraction * 0.8, // 80% for download, 20% for extraction
-                        String(format: "Downloading %.0f / %.0f MB", mbWritten, mbTotal)
-                    )
-                }
+            try saveManifest()
+        } catch {
+            databases[name] = prior
+            throw error
+        }
+
+        let prepared: PreparedMetagenomicsDatabaseInstallation
+        do {
+            prepared = try await databaseInstaller.prepareInstallation(
+                database: db,
+                databasesBaseURL: databasesBaseURL,
+                threads: 4,
+                progress: progress
             )
         } catch {
-            db.status = .missing
-            databases[name] = db
+            databases[name] = prior
             try? saveManifest()
-
             if error is CancellationError || (error as NSError).code == NSURLErrorCancelled {
                 throw MetagenomicsDatabaseRegistryError.downloadCancelled(name: name)
             }
@@ -924,47 +926,52 @@ public actor MetagenomicsDatabaseRegistry {
             )
         }
 
-        // Extract tarball.
-        progress(0.8, "Extracting database...")
-        do {
-            try await extractTarball(tarballURL, to: destDir)
-        } catch {
-            db.status = .missing
-            databases[name] = db
-            try? saveManifest()
-            throw MetagenomicsDatabaseRegistryError.downloadFailed(
-                name: name, reason: "Extraction failed: \(error.localizedDescription)"
-            )
-        }
-
-        // Clean up tarball.
-        try? fm.removeItem(at: tarballURL)
-
-        // Verify the extracted database using tool-specific validation.
-        let missing = Self.missingRequiredFiles(in: destDir, tool: db.tool)
-        if !missing.isEmpty {
-            db.status = .corrupt
-            databases[name] = db
-            try? saveManifest()
-            throw MetagenomicsDatabaseRegistryError.invalidDatabaseDirectory(
-                path: destDir.path, missingFiles: missing
-            )
-        }
-
-        // Update registry.
-        let installedAt = db.installedAt ?? Date()
-        db.path = destDir
-        db.status = .ready
+        let installedAt = prior.installedAt ?? Date()
+        db.path = prepared.result.finalURL
+        db.version = prepared.result.version
+        db.payloadDigest = prepared.result.payloadDigest
+        db.sizeOnDisk = prepared.result.sizeOnDisk
         db.installedAt = installedAt
         db.lastUpdated = Date()
-        db.sizeOnDisk = Self.directorySize(at: destDir)
+        db.status = .ready
+        db.isExternal = false
+        db.bookmarkData = nil
         databases[name] = db
-        try saveManifest()
 
-        progress(1.0, "Database \(name) installed successfully")
-        logger.info("Installed database '\(name, privacy: .public)' at \(destDir.path, privacy: .public)")
+        do {
+            try saveManifest()
+        } catch let persistenceError {
+            let rollbackError: Error?
+            do {
+                try databaseInstaller.rollback(prepared)
+                rollbackError = nil
+            } catch {
+                rollbackError = error
+            }
+            databases[name] = prior
+            do {
+                try saveManifest()
+            } catch {
+                throw MetagenomicsDatabaseRegistryError.manifestIOError(
+                    operation: "restore after failed installation publication",
+                    underlying: error
+                )
+            }
+            if let rollbackError {
+                throw MetagenomicsDatabaseRegistryError.downloadFailed(
+                    name: name,
+                    reason: "Manifest persistence failed and rollback also failed: \(rollbackError.localizedDescription)"
+                )
+            }
+            throw persistenceError
+        }
 
-        return destDir
+        // Cleanup occurs after the durable ready row. A cleanup diagnostic must
+        // not roll back scientifically valid, already-published data.
+        try databaseInstaller.finalize(prepared)
+        logger.info("Installed database '\(name, privacy: .public)' at \(prepared.result.finalURL.path, privacy: .public)")
+
+        return prepared.result.finalURL
     }
 
     // MARK: - Private Helpers
@@ -986,12 +993,108 @@ public actor MetagenomicsDatabaseRegistry {
                 at: manifestURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            try data.write(to: manifestURL, options: .atomic)
+            try manifestWriter(data, manifestURL)
         } catch {
             throw MetagenomicsDatabaseRegistryError.manifestIOError(
                 operation: "save", underlying: error
             )
         }
+    }
+
+    private static func productionDatabaseInstaller() -> any MetagenomicsDatabaseInstalling {
+        MetagenomicsDatabaseInstaller(
+            toolRunner: ManagedMetagenomicsDatabaseToolRunner(),
+            archiveTransfer: URLSessionTarDatabaseArchiveTransfer(),
+            provenanceWriter: CanonicalMetagenomicsDatabaseInstallProvenanceWriter()
+        )
+    }
+
+    static func defaultManifestWriter(_ data: Data, _ url: URL) throws {
+        try data.write(to: url, options: .atomic)
+    }
+
+    private static func matchesCatalogEntry(
+        _ persisted: MetagenomicsDatabaseInfo,
+        catalog: MetagenomicsDatabaseInfo
+    ) -> Bool {
+        if let catalogID = catalog.catalogID, let persistedID = persisted.catalogID {
+            return catalogID == persistedID
+        }
+        // Old manifests have no catalogID. An exact built-in display name is the
+        // safe compatibility key; collection alone is also set on imported rows.
+        return persisted.catalogID == nil
+            && persisted.name == catalog.name
+            && (persisted.collection == nil || persisted.collection == catalog.collection)
+    }
+
+    private static func catalogEntry(
+        matching database: MetagenomicsDatabaseInfo
+    ) -> MetagenomicsDatabaseInfo? {
+        if let catalogID = database.catalogID {
+            return MetagenomicsDatabaseInfo.catalogEntry(catalogID: catalogID)
+        }
+        return MetagenomicsDatabaseInfo.builtInCatalog.first {
+            database.name == $0.name
+                && (database.collection == nil || database.collection == $0.collection)
+        }
+    }
+
+    private static func validateManagedPayload(
+        database: MetagenomicsDatabaseInfo,
+        at path: URL,
+        expectedDigest: String
+    ) -> Bool {
+        do {
+            if database.tool == MetagenomicsTool.kraken2.rawValue {
+                let distribution = path.appendingPathComponent("database150mers.kmer_distrib")
+                guard isNonEmptyRegularFile(distribution) else { return false }
+                if case .kraken2Special = database.installationRecipe {
+                    guard isNonEmptyRegularFile(path.appendingPathComponent("taxonomy/nodes.dmp")),
+                          isNonEmptyRegularFile(path.appendingPathComponent("taxonomy/names.dmp")),
+                          hasNonEmptyRegularLibraryFile(at: path.appendingPathComponent("library", isDirectory: true)) else {
+                        return false
+                    }
+                }
+            }
+
+            let snapshot = try MetagenomicsDatabasePayloadDigester.snapshot(at: path)
+            guard snapshot.aggregateSHA256 == expectedDigest else { return false }
+            let sidecar = path.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+            guard let envelope = try ProvenanceEnvelopeReader.loadCanonical(fromSidecar: sidecar),
+                  envelope.exitStatus == 0,
+                  envelope.options.resolvedDefaults["payloadAggregateSHA256"]?.stringValue == expectedDigest,
+                  envelope.options.resolvedDefaults["intendedFinalPath"]?.stringValue == path.standardizedFileURL.path,
+                  !envelope.outputs.isEmpty else {
+                return false
+            }
+            let rootPrefix = path.standardizedFileURL.path + "/"
+            return envelope.outputs.allSatisfy {
+                $0.path.hasPrefix(rootPrefix)
+                    && $0.checksumSHA256?.isEmpty == false
+                    && $0.fileSize != nil
+            }
+        } catch {
+            return false
+        }
+    }
+
+    private static func isNonEmptyRegularFile(_ url: URL) -> Bool {
+        guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .isSymbolicLinkKey]) else {
+            return false
+        }
+        return values.isRegularFile == true && values.isSymbolicLink != true && (values.fileSize ?? 0) > 0
+    }
+
+    private static func hasNonEmptyRegularLibraryFile(at root: URL) -> Bool {
+        guard let enumerator = FileManager.default.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey, .isSymbolicLinkKey],
+            options: [.skipsHiddenFiles]
+        ) else { return false }
+        for case let url as URL in enumerator where isNonEmptyRegularFile(url) {
+            return true
+        }
+        return false
     }
 
     private func refreshStorageLocationFromConfigIfNeeded(resetLoadedState: Bool = true) {

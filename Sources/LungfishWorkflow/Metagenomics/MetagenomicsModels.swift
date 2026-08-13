@@ -175,6 +175,22 @@ public enum DatabaseCollection: String, Codable, Sendable, CaseIterable {
     }
 }
 
+// MARK: - MetagenomicsDatabaseInstallationRecipe
+
+/// A reproducible recipe for installing a metagenomics reference database.
+///
+/// Archive downloads identify a fixed payload URL, while Kraken2 special
+/// databases are built locally from their named upstream reference source.
+public enum Kraken2SpecialDatabase: String, Codable, Sendable, CaseIterable {
+    case silva
+    case greengenes
+}
+
+public enum MetagenomicsDatabaseInstallationRecipe: Codable, Sendable, Equatable {
+    case archive(url: URL)
+    case kraken2Special(type: Kraken2SpecialDatabase)
+}
+
 // MARK: - DatabaseLocation
 
 /// Where a database is stored on disk.

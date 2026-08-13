@@ -169,6 +169,31 @@ private actor OperationReportingPluginPackStatusProvider: PluginPackStatusProvid
 @MainActor
 final class PluginPackVisibilityTests: XCTestCase {
 
+    func testMetagenomicsPackHealthIsNotReadyWhenDatabaseBuildExecutableIsMissing() throws {
+        let pack = try XCTUnwrap(PluginPack.builtInPack(id: "metagenomics"))
+        let cases = [
+            ("kraken2", "kraken2-build"),
+            ("bracken", "bracken-build"),
+        ]
+
+        for (requirementID, missingExecutable) in cases {
+            let requirement = try XCTUnwrap(
+                pack.toolRequirements.first { $0.id == requirementID }
+            )
+            XCTAssertTrue(requirement.executables.contains(missingExecutable))
+
+            let health = PackToolStatus(
+                requirement: requirement,
+                environmentExists: true,
+                missingExecutables: [missingExecutable],
+                smokeTestFailure: nil,
+                storageUnavailablePath: nil
+            )
+            XCTAssertFalse(health.isReady)
+            XCTAssertEqual(health.statusText, "Needs reinstall")
+        }
+    }
+
     func testPluginManagerCallbacksUseMainQueueBridgeInsteadOfMainActorTasks() throws {
         let source = try String(contentsOf: pluginManagerViewModelSourceURL(), encoding: .utf8)
         let storageObserver = try sourceSection(

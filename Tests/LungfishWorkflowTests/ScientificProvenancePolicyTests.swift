@@ -147,6 +147,17 @@ struct ScientificProvenancePolicyTests {
         #expect(debugFastqIngest.writer == "FASTQIngestSubcommand")
     }
 
+    @Test("metagenomics database downloads are provenance-blocking scientific writes")
+    func metagenomicsDatabaseDownloadsRequireConcreteFinalWriter() throws {
+        let policy = try #require(ScientificProvenancePolicy.cliCommand(path: ["conda", "db", "download"]))
+        #expect(policy.id == "cli.conda.db.download")
+        #expect(policy.workflowKind == .dataWriting)
+        #expect(policy.createsOrModifiesScientificData)
+        #expect(policy.requiresProvenance)
+        #expect(policy.outputPathExpectation == .finalStoredPayload)
+        #expect(policy.writer == "CanonicalMetagenomicsDatabaseInstallProvenanceWriter")
+    }
+
     @Test("non-data-writing policies do not claim scientific payload mutation")
     func nonDataWritingPoliciesDoNotClaimScientificPayloadMutation() {
         let policies = Array(ScientificProvenancePolicy.cliCommandPolicies.values)

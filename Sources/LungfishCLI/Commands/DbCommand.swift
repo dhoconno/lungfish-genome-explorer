@@ -26,9 +26,9 @@ struct DbCommand: AsyncParsableCommand {
         commandName: "db",
         abstract: "Manage metagenomics reference databases",
         discussion: """
-        Manage Kraken2 databases for taxonomic classification. Databases are
-        downloaded from Ben Langmead's pre-built index collection and stored
-        in ~/.lungfish/databases/kraken2/.
+        Manage Kraken2 databases for taxonomic classification. Databases may
+        be downloaded or prepared from managed upstream sources and are stored
+        in Lungfish's managed database storage.
         """,
         subcommands: [
             DbListSubcommand.self,
@@ -148,14 +148,14 @@ extension DbCommand {
 
 extension DbCommand {
 
-    /// Downloads a database from the built-in catalog.
+    /// Downloads or prepares a database from the built-in catalog.
     struct DbDownloadSubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "download",
-            abstract: "Download a database from the catalog"
+            abstract: "Download or prepare a database from the catalog"
         )
 
-        @Argument(help: "Database name (e.g., 'Viral', 'Standard-8', 'PlusPF')")
+        @Argument(help: "Database name (e.g., 'Viral', 'SILVA', 'Greengenes')")
         var name: String
 
         @OptionGroup var globalOptions: GlobalOptions
