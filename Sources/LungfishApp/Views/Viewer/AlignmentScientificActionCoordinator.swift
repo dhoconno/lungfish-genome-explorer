@@ -110,6 +110,26 @@ final class AlignmentScientificActionCoordinator {
         try destinationResolver(capability, outputBaseName)
     }
 
+    /// Resolves destinations that require user interaction before any
+    /// Operation Center row or scientific subprocess is started.
+    func resolveDestination(
+        for capability: AlignmentOutputCapability,
+        outputBaseName: String,
+        userDestinationChooser: (String) async -> URL?
+    ) async throws -> AlignmentReadExtractionPublicationDestination {
+        switch capability {
+        case .projectDerivedRoot:
+            return try destinationResolver(capability, outputBaseName)
+        case .userSelectedDestination:
+            guard let chosenURL = await userDestinationChooser(outputBaseName) else {
+                throw AlignmentScientificActionError.destinationCancelled(
+                    "Alignment read extraction was cancelled before launch."
+                )
+            }
+            return .bundle(normalizedBundleURL(chosenURL))
+        }
+    }
+
     /// Registers one visible operation before validation/staging. The adapter is
     /// deliberately injected so AppKit/OperationCenter composition stays out of
     /// the scientific transaction boundary and every terminal transition is
@@ -230,6 +250,14 @@ final class AlignmentScientificActionCoordinator {
 
     private func provenance(context: AlignmentActionContext, argv: [String]) -> AlignmentReadExtractionProvenance {
         .init(workflowName: "lungfish alignment read extraction", argv: argv, inputURLs: [context.alignmentURL, context.indexURL] + (context.decodingReferenceURL.map { [$0] } ?? []))
+    }
+
+    private func normalizedBundleURL(_ url: URL) -> URL {
+        let normalized = url.standardizedFileURL
+        guard normalized.pathExtension.lowercased() != FASTQBundle.directoryExtension else {
+            return normalized
+        }
+        return normalized.appendingPathExtension(FASTQBundle.directoryExtension)
     }
 }
 

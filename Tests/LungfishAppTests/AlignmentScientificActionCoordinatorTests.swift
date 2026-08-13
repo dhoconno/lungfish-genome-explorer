@@ -134,6 +134,51 @@ import XCTest
         XCTAssertEqual(try coordinator.resolveDestination(for: .userSelectedDestination, outputBaseName: "reads").finalURL.path, "/chosen/reads.fastq")
     }
 
+    func testAsyncUserDestinationChooserNormalizesBundleExtensionBeforeLaunch() async throws {
+        let coordinator = AlignmentScientificActionCoordinator()
+
+        let destination = try await coordinator.resolveDestination(
+            for: .userSelectedDestination,
+            outputBaseName: "selected reads",
+            userDestinationChooser: { _ in URL(fileURLWithPath: "/chosen/selected reads") }
+        )
+
+        XCTAssertEqual(destination.finalURL.path, "/chosen/selected reads.lungfishfastq")
+    }
+
+    func testAsyncUserDestinationCancellationIsTypedBeforeLaunch() async throws {
+        let coordinator = AlignmentScientificActionCoordinator()
+        do {
+            _ = try await coordinator.resolveDestination(
+                for: .userSelectedDestination,
+                outputBaseName: "selected reads",
+                userDestinationChooser: { _ in nil }
+            )
+            XCTFail("Expected destination cancellation")
+        } catch let error as AlignmentScientificActionError {
+            guard case .destinationCancelled = error else {
+                return XCTFail("Expected typed destination cancellation, got \(error)")
+            }
+        }
+    }
+
+    func testProjectDestinationBypassesUserChooser() async throws {
+        var chooserCalls = 0
+        let coordinator = AlignmentScientificActionCoordinator()
+        let destination = try await coordinator.resolveDestination(
+            for: .projectDerivedRoot(URL(fileURLWithPath: "/project")),
+            outputBaseName: "selected reads",
+            userDestinationChooser: { _ in
+                chooserCalls += 1
+                return URL(fileURLWithPath: "/must-not-be-used")
+            }
+        )
+
+        XCTAssertEqual(chooserCalls, 0)
+        XCTAssertTrue(destination.finalURL.path.hasPrefix("/project/alignment-read-extractions/selected_reads-"))
+        XCTAssertEqual(destination.finalURL.pathExtension, "lungfishfastq")
+    }
+
     func testLaunchReportsOneSuccessWithFinalURLsAndExecutionArgv() async throws {
         let transaction = try makeTransaction()
         let record = executionRecord(stderr: "useful stderr")
@@ -207,9 +252,12 @@ import XCTest
             encoding: .utf8
         )
 
-        XCTAssertTrue(source.contains("coordinator.resolveDestination(for: context.outputCapability"))
-        XCTAssertTrue(source.contains("coordinator.launchRegion("))
-        XCTAssertTrue(source.contains("coordinator.launchSelectedReads("))
+        XCTAssertTrue(source.contains("resolveDestination(\n            for: context.outputCapability"))
+        XCTAssertTrue(source.contains("resolveAlignmentExtractionDestination("))
+        XCTAssertTrue(source.contains("alignmentExtractionSavePanelPresenter.present("))
+        XCTAssertTrue(source.contains("catch AlignmentScientificActionError.destinationCancelled"))
+        XCTAssertTrue(source.contains("AlignmentScientificActionCoordinator().launchRegion("))
+        XCTAssertTrue(source.contains("AlignmentScientificActionCoordinator().launchSelectedReads("))
         XCTAssertFalse(source.contains("selectedReadsExtractionRunner"))
         XCTAssertFalse(source.contains("defaultSelectedReadsExtraction"))
         let selectedReadRoute = String(source[source.range(of: "func extractSelectedReads(_ reads: [AlignedRead])")!.lowerBound...])

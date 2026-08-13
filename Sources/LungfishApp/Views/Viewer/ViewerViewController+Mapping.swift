@@ -23,18 +23,25 @@ extension ViewerViewController {
             return
         }
         let region = ResolvedAlignmentRegion(scope: .selectedRegion, contig: selection.contig, start: selection.start, end: selection.end)
-        let coordinator = AlignmentScientificActionCoordinator()
-        do {
-            let destination = try coordinator.resolveDestination(for: context.outputCapability, outputBaseName: "selected-region")
-            activeSelectedReadsExtractionTask = coordinator.launchRegion(
-                context: context,
-                region: region,
-                destination: destination,
-                outputBaseName: "selected-region",
-                reporter: .operationCenter
-            )
-        } catch {
-            presentExtractionFailureAlert(title: "Extract Selected Region Failed", message: error.localizedDescription)
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let destination = try await resolveAlignmentExtractionDestination(
+                    context: context,
+                    outputBaseName: "selected-region"
+                )
+                activeSelectedReadsExtractionTask = AlignmentScientificActionCoordinator().launchRegion(
+                    context: context,
+                    region: region,
+                    destination: destination,
+                    outputBaseName: "selected-region",
+                    reporter: .operationCenter
+                )
+            } catch AlignmentScientificActionError.destinationCancelled {
+                return
+            } catch {
+                presentExtractionFailureAlert(title: "Extract Selected Region Failed", message: error.localizedDescription)
+            }
         }
     }
     func display(_ route: ViewerDisplayRoute) throws {
@@ -353,13 +360,55 @@ extension ViewerViewController {
             return
         }
         let outputBaseName = "\(ExtractionBundleNaming.sanitizeFilename(context.presentationLabel))_selected_\(Set(reads.map(\.name)).count)reads"
-        let coordinator = AlignmentScientificActionCoordinator()
-        do {
-            let destination = try coordinator.resolveDestination(for: context.outputCapability, outputBaseName: outputBaseName)
-            activeSelectedReadsExtractionTask = coordinator.launchSelectedReads(context: context, records: reads, destination: destination, outputBaseName: outputBaseName, reporter: .operationCenter)
-        } catch {
-            presentExtractionFailureAlert(title: "Extract Selected Reads Failed", message: error.localizedDescription)
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let destination = try await resolveAlignmentExtractionDestination(
+                    context: context,
+                    outputBaseName: outputBaseName
+                )
+                activeSelectedReadsExtractionTask = AlignmentScientificActionCoordinator().launchSelectedReads(
+                    context: context,
+                    records: reads,
+                    destination: destination,
+                    outputBaseName: outputBaseName,
+                    reporter: .operationCenter
+                )
+            } catch AlignmentScientificActionError.destinationCancelled {
+                return
+            } catch {
+                presentExtractionFailureAlert(title: "Extract Selected Reads Failed", message: error.localizedDescription)
+            }
         }
+    }
+
+    private func resolveAlignmentExtractionDestination(
+        context: AlignmentActionContext,
+        outputBaseName: String
+    ) async throws -> AlignmentReadExtractionPublicationDestination {
+        let window: NSWindow?
+        switch context.outputCapability {
+        case .projectDerivedRoot:
+            window = nil
+        case .userSelectedDestination:
+            guard let hostWindow = view.window else {
+                throw AlignmentScientificActionError.destinationUnavailable(
+                    "An application window is required to choose an extraction destination."
+                )
+            }
+            window = hostWindow
+        }
+        return try await AlignmentScientificActionCoordinator().resolveDestination(
+            for: context.outputCapability,
+            outputBaseName: outputBaseName,
+            userDestinationChooser: { [alignmentExtractionSavePanelPresenter] suggestedName in
+                guard let window else { return nil }
+                return await alignmentExtractionSavePanelPresenter.present(
+                    suggestedName: "\(ExtractionBundleNaming.sanitizeFilename(suggestedName)).lungfishfastq",
+                    on: window
+                )
+            }
+        )
     }
 
     private func presentExtractSelectedReadsFailureAlert(_ error: Error) {

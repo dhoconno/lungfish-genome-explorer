@@ -167,6 +167,7 @@ public class ViewerViewController: NSViewController {
     /// WindowServer when nothing dismisses the sheet, which hangs headless-style
     /// tests only when run in an interactive session.
     var extractionFailureAlertPresenter: ExtractionFailureAlertPresenter?
+    var alignmentExtractionSavePanelPresenter: SavePanelPresenting = DefaultSavePanelPresenter()
 
     var activeSelectedReadsExtractionTask: Task<Void, Never>?
 
