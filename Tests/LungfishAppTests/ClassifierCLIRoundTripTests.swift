@@ -421,6 +421,41 @@ final class ClassifierCLIRoundTripTests: XCTestCase {
         )
     }
 
+    func testCLI_byRegion_recordsBasenameBAIAsResolvedIndex() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cli-byregion-basename-bai-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let bamURL = root.appendingPathComponent("alternate.bam")
+        let indexURL = root.appendingPathComponent("alternate.bai")
+        try FileManager.default.copyItem(at: ClassifierExtractionFixtures.sarscov2BAM, to: bamURL)
+        try FileManager.default.copyItem(at: ClassifierExtractionFixtures.sarscov2BAMIndex, to: indexURL)
+
+        try await assertBAMRegionProvenance(bamURL: bamURL, indexURL: indexURL, outputRoot: root)
+    }
+
+    func testCLI_byRegion_recordsCSIAsResolvedIndex() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cli-byregion-csi-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let bamURL = root.appendingPathComponent("alternate-csi.bam")
+        let indexURL = root.appendingPathComponent("alternate-csi.bam.csi")
+        try FileManager.default.copyItem(at: ClassifierExtractionFixtures.sarscov2BAM, to: bamURL)
+
+        let samtoolsPath = await ClassifierExtractionFixtures.resolveSamtoolsPath()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: samtoolsPath)
+        process.arguments = ["index", "-c", bamURL.path, indexURL.path]
+        try process.run()
+        process.waitUntilExit()
+        XCTAssertEqual(process.terminationStatus, 0, "samtools must create the repository-local CSI test index")
+
+        try await assertBAMRegionProvenance(bamURL: bamURL, indexURL: indexURL, outputRoot: root)
+    }
+
     // MARK: - Test helpers
 
     /// Counts FASTQ records by dividing the total line count by 4.
@@ -439,5 +474,51 @@ final class ClassifierCLIRoundTripTests: XCTestCase {
             effectiveCount -= 1
         }
         return effectiveCount / 4
+    }
+
+    private func assertBAMRegionProvenance(
+        bamURL: URL,
+        indexURL: URL,
+        outputRoot: URL
+    ) async throws {
+        let reference = try await ClassifierExtractionFixtures.sarscov2FirstReference()
+        let outputURL = outputRoot.appendingPathComponent("out.fastq")
+        let argv = [
+            "--by-region",
+            "--bam", bamURL.path,
+            "--region", reference,
+            "--output", outputURL.path,
+            "--quiet"
+        ]
+        var command = try ExtractReadsSubcommand.parse(argv)
+        command.testingRawArgs = argv
+        try command.validate()
+        try await command.run()
+
+        let sidecarURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
+        let indexRecord = try XCTUnwrap(
+            envelope.files.first {
+                $0.role == .index
+                    && URL(fileURLWithPath: $0.path).standardizedFileURL == indexURL.standardizedFileURL
+            },
+            "Provenance must identify the exact companion index used for extraction"
+        )
+        XCTAssertEqual(indexRecord.checksumSHA256, ProvenanceRecorder.sha256(of: indexURL))
+        let expectedSize = try XCTUnwrap(
+            FileManager.default.attributesOfItem(atPath: indexURL.path)[.size] as? NSNumber
+        ).uint64Value
+        XCTAssertEqual(indexRecord.fileSize, expectedSize)
+        XCTAssertEqual(
+            envelope.options.resolvedDefaults["alignmentIndex"],
+            .file(indexURL.standardizedFileURL)
+        )
+        XCTAssertEqual(envelope.options.resolvedDefaults["alignmentFormat"]?.stringValue, "bam")
+        XCTAssertEqual(
+            envelope.files.first {
+                URL(fileURLWithPath: $0.path).standardizedFileURL == bamURL.standardizedFileURL
+            }?.format,
+            .bam
+        )
     }
 }

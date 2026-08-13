@@ -337,6 +337,9 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         // Create output directory if needed
         try fm.createDirectory(at: outputDir, withIntermediateDirectories: true)
 
+        let alignmentIndexURL = byRegion
+            ? bamFile.flatMap { companionAlignmentIndex(for: URL(fileURLWithPath: $0)) }
+            : nil
         let result: ReadExtractionResult
 
         if byId {
@@ -351,7 +354,8 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
                 service: service,
                 formatter: formatter,
                 outputDir: outputDir,
-                outputBase: outputBase
+                outputBase: outputBase,
+                indexURL: alignmentIndexURL
             )
         } else if byDb {
             result = try await runByDatabase(
@@ -394,7 +398,8 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
             result: result,
             outputURL: outputURL,
             bundleURL: bundleURL,
-            startedAt: startedAt
+            startedAt: startedAt,
+            alignmentIndexURL: alignmentIndexURL
         )
 
         // Print summary
@@ -418,9 +423,10 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         result: ReadExtractionResult,
         outputURL: URL,
         bundleURL: URL?,
-        startedAt: Date
+        startedAt: Date,
+        alignmentIndexURL: URL?
     ) async throws {
-        var parameters = strategyParameterValues()
+        var parameters = strategyParameterValues(alignmentIndexURL: alignmentIndexURL)
         parameters["output"] = .file(outputURL)
         parameters["createBundle"] = .boolean(createBundle || bundleName != nil)
         parameters["bundleName"] = bundleName.map(ParameterValue.string) ?? .null
@@ -432,21 +438,26 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
 
         let outputRecords = outputFileRecords(for: result, bundleURL: bundleURL)
 
+        var defaults: [String: ParameterValue] = [
+            "createBundle": .boolean(false),
+            "keepReadPairs": .boolean(true),
+            "excludeUnmapped": .boolean(false),
+            "readFormat": .string("fastq"),
+            "includeUnmappedMates": .boolean(false)
+        ]
+        if byRegion {
+            defaults["alignmentIndex"] = .null
+        }
+
         try await CLIProvenanceSupport.recordSingleStepRun(
             name: "lungfish extract reads",
             parameters: parameters,
-            defaults: [
-                "createBundle": .boolean(false),
-                "keepReadPairs": .boolean(true),
-                "excludeUnmapped": .boolean(false),
-                "readFormat": .string("fastq"),
-                "includeUnmappedMates": .boolean(false)
-            ],
+            defaults: defaults,
             resolved: parameters,
             toolName: "lungfish extract reads",
             toolVersion: WorkflowRun.currentAppVersion,
             command: provenanceCommand(outputURL: outputURL),
-            inputs: provenanceInputRecords(),
+            inputs: provenanceInputRecords(alignmentIndexURL: alignmentIndexURL),
             outputs: outputRecords,
             exitCode: 0,
             wallTime: Date().timeIntervalSince(startedAt),
@@ -616,7 +627,8 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         service: ReadExtractionService,
         formatter: TerminalFormatter,
         outputDir: URL,
-        outputBase: String
+        outputBase: String,
+        indexURL: URL?
     ) async throws -> ReadExtractionResult {
         let fm = FileManager.default
 
@@ -625,8 +637,6 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
             print(formatter.error("BAM file not found: \(bamFile!)"))
             throw CLIExitCode.inputError.exitCode
         }
-        let indexURL = companionAlignmentIndex(for: bamURL)
-
         let config = BAMRegionExtractionConfig(
             bamURL: bamURL,
             indexURL: indexURL,
@@ -669,7 +679,11 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
                 URL(fileURLWithPath: "\(alignmentURL.path).csi")
             ]
         }
-        return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
+        return candidates.first { FileManager.default.fileExists(atPath: $0.path) }?.standardizedFileURL
+    }
+
+    private func alignmentFileFormat(for alignmentURL: URL) -> FileFormat {
+        alignmentURL.pathExtension.lowercased() == "cram" ? .cram : .bam
     }
 
     private func runByDatabase(
@@ -1012,8 +1026,13 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         return params
     }
 
-    private func strategyParameterValues() -> [String: ParameterValue] {
+    private func strategyParameterValues(alignmentIndexURL: URL?) -> [String: ParameterValue] {
         var values = strategyParameters.mapValues(ParameterValue.string)
+        if byRegion, let bamFile {
+            let alignmentURL = URL(fileURLWithPath: bamFile).standardizedFileURL
+            values["alignmentFormat"] = .string(alignmentFileFormat(for: alignmentURL).rawValue)
+            values["alignmentIndex"] = alignmentIndexURL.map(ParameterValue.file) ?? .null
+        }
         if byClassifier {
             let rawArgs = effectiveClassifierRawArguments()
             values["selectionArgv"] = .array(
@@ -1034,7 +1053,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         ])
     }
 
-    private func provenanceInputRecords() -> [FileRecord] {
+    private func provenanceInputRecords(alignmentIndexURL: URL?) -> [FileRecord] {
         if byId {
             let idRecords = idsFile
                 .map { provenanceRecords(for: URL(fileURLWithPath: $0), format: .text, role: .input) }
@@ -1051,11 +1070,14 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
 
         if byRegion {
             guard let bamFile else { return [] }
-            let bamURL = URL(fileURLWithPath: bamFile)
-            var records = provenanceRecords(for: bamURL, format: .bam, role: .input)
-            let baiURL = URL(fileURLWithPath: "\(bamFile).bai")
-            if FileManager.default.fileExists(atPath: baiURL.path) {
-                records += provenanceRecords(for: baiURL, role: .index)
+            let alignmentURL = URL(fileURLWithPath: bamFile).standardizedFileURL
+            var records = provenanceRecords(
+                for: alignmentURL,
+                format: alignmentFileFormat(for: alignmentURL),
+                role: .input
+            )
+            if let indexURL = alignmentIndexURL {
+                records += provenanceRecords(for: indexURL, role: .index)
             }
             return records
         }
