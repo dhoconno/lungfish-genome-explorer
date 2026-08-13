@@ -51,6 +51,24 @@ resolved semantic defaults. Temporary paths may appear in staging execution
 records but never as final payload descriptors. No invalid direct
 `consensus -X` or direct consensus read-group arguments may remain.
 
+### Approved Task 4 extraction ownership clarification (2026-08-12)
+
+Workflow owns a staged `AlignmentReadExtractionTransaction` and its atomic
+publisher. The transaction carries all attempted subprocess execution records
+and staged payload descriptors; typed Workflow failures and cancellation carry
+the records accumulated before failure. The publisher writes the final
+`.lungfishfastq` bundle or FASTA output plus canonical provenance, atomically,
+including a staging-to-final mapping; every durable output descriptor and
+sidecar refers only to final paths.
+
+The App-owned `AlignmentScientificActionCoordinator` captures the immutable
+`AlignmentActionContext`, revalidates snapshots immediately before subprocess
+launch and again immediately before publication, resolves the destination, and
+owns durable Operation Center success, failure, and cancellation presentation.
+Launch, scientific execution, and publication failures all retain useful
+failure provenance. Raw unprovenanced viewer output may never escape the
+staging transaction.
+
 ---
 
 ## File Structure
@@ -362,7 +380,7 @@ Expected: config lacks explicit index/filter/reference fields.
 
 - [ ] **Step 3: Implement explicit-index region extraction**
 
-Add the fields with no implicit index lookup. Generate the exact one-based inclusive samtools region from the resolved zero-based half-open region. Record the BAM/index/reference descriptors, exact argv/command, defaults, runtime, stderr, timing, exit, and final payload descriptors. Revalidate snapshots before launch and publication; publish by staging-directory rename or existing atomic publication primitive.
+Add the fields with no implicit index lookup. Generate the exact one-based inclusive samtools region from the resolved zero-based half-open region. Implement the approved Workflow-owned staged `AlignmentReadExtractionTransaction` plus atomic publisher. Record the BAM/index/reference descriptors, exact argv/command, defaults, runtime, stderr, timing, exit, staged payload descriptors, final payload descriptors, and staging-to-final mapping. Typed Workflow failure/cancellation carries all attempted execution records. The App coordinator revalidates captured snapshots immediately before launch and again before invoking publication. Durable descriptors and sidecars use final paths only; raw unprovenanced viewer output cannot escape staging.
 
 - [ ] **Step 4: Write failing shared-action tests**
 
@@ -376,7 +394,7 @@ Expected: existing selected-read action requires `activeMappingViewportControlle
 
 - [ ] **Step 6: Implement the shared coordinator and context menus**
 
-Implement an injected coordinator whose requests capture an immutable context/snapshots before launching. Replace the mapping-only guard in `extractSelectedReads`. Add `Extract Reads in Selected Region…` only for an explicit coordinate selection and keep any visible-range variant titled `Visible Region`. Continue using `ReadSelectionActionMenuBuilder` for `Copy as FASTA (aligned orientation)` and `Extract Reads… (original reads)`. Report selected records without sequence explicitly.
+Implement an injected coordinator whose requests capture an immutable context/snapshots before launching. It owns destination resolution, the two snapshot revalidation gates, and durable Operation Center success/failure/cancellation presentation while Workflow owns the staged transaction and atomic publisher. Replace the mapping-only guard in `extractSelectedReads`. Add `Extract Reads in Selected Region…` only for an explicit coordinate selection and keep any visible-range variant titled `Visible Region`. Continue using `ReadSelectionActionMenuBuilder` for `Copy as FASTA (aligned orientation)` and `Extract Reads… (original reads)`. Report selected records without sequence explicitly.
 
 - [ ] **Step 7: Verify GREEN and commit**
 
