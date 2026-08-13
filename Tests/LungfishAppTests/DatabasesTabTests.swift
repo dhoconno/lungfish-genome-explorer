@@ -106,6 +106,14 @@ final class DatabasesTabTests: XCTestCase {
         XCTAssertTrue(names.contains("Viral"), "Catalog should contain Viral")
         XCTAssertTrue(names.contains("MinusB"), "Catalog should contain MinusB")
         XCTAssertTrue(names.contains("EuPathDB46"), "Catalog should contain EuPathDB46")
+        XCTAssertTrue(names.contains("SILVA"), "Kraken2 section should contain SILVA")
+        XCTAssertTrue(names.contains("Greengenes"), "Kraken2 section should contain Greengenes")
+
+        for name in ["SILVA", "Greengenes"] {
+            let database = catalog.first { $0.name == name }
+            XCTAssertEqual(database?.tool, MetagenomicsTool.kraken2.rawValue)
+            XCTAssertNil(database?.collection, "Specialist rRNA databases must not receive the general recommendation badge")
+        }
 
         // All catalog entries should start as missing
         for db in catalog {
@@ -114,14 +122,34 @@ final class DatabasesTabTests: XCTestCase {
         }
     }
 
-    /// Verifies that each catalog entry has a download URL.
-    func testCatalogEntriesHaveDownloadURLs() {
+    func testSpecialDatabaseRowsUseTheExistingGenericControlsAndCopy() throws {
+        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let viewSource = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/PluginManager/PluginManagerView.swift"),
+            encoding: .utf8
+        )
+        let modelSource = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/PluginManager/PluginManagerViewModel.swift"),
+            encoding: .utf8
+        )
+        let combined = viewSource + modelSource
+
+        XCTAssertTrue(viewSource.contains("PluginManagerAccessibilityID.databaseDownloadButton(database.name)"))
+        XCTAssertTrue(viewSource.contains("PluginManagerAccessibilityID.databaseCancelButton(database.name)"))
+        XCTAssertTrue(viewSource.contains("PluginManagerAccessibilityID.databaseRemoveButton(database.name)"))
+        XCTAssertTrue(viewSource.contains("Text(\"Download\")"))
+        for specialistCopy in ["kraken2-build", "bracken-build", "local build", "recipe type"] {
+            XCTAssertFalse(combined.localizedCaseInsensitiveContains(specialistCopy))
+        }
+    }
+
+    /// Verifies that each catalog entry has a resolvable installation recipe.
+    func testCatalogEntriesHaveInstallationRecipes() {
         for db in MetagenomicsDatabaseInfo.builtInCatalog {
-            XCTAssertNotNil(db.downloadURL, "\(db.name) should have a download URL")
-            XCTAssertTrue(
-                db.downloadURL?.hasPrefix("https://") ?? false,
-                "\(db.name) download URL should be HTTPS"
-            )
+            XCTAssertNotNil(db.installationRecipe, "\(db.name) should have an installation recipe")
+            if case .archive(let url) = db.installationRecipe {
+                XCTAssertEqual(url.scheme, "https", "\(db.name) archive URL should be HTTPS")
+            }
         }
     }
 

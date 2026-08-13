@@ -40,6 +40,12 @@ final class DbCommandParsingTests: XCTestCase {
         XCTAssertEqual(download.name, "Viral")
     }
 
+    func testDbDownloadPreservesSpecialDatabaseName() throws {
+        let command = try DbCommand.parseAsRoot(["download", "SILVA"])
+        let download = try XCTUnwrap(command as? DbCommand.DbDownloadSubcommand)
+        XCTAssertEqual(download.name, "SILVA")
+    }
+
     /// Verifies that `db remove <name>` parses correctly.
     func testDbRemoveParsing() throws {
         let args = ["remove", "Standard-8"]

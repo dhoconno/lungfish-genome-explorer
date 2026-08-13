@@ -3236,6 +3236,7 @@ final class DbCommandRegressionTests: XCTestCase {
     func testHelpTextIsNonEmpty() {
         let help = DbCommand.helpMessage()
         XCTAssertFalse(help.isEmpty)
+        XCTAssertTrue(help.contains("downloaded or prepared from managed upstream sources"))
     }
 
     func testSubcommands() {
