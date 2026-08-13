@@ -100,6 +100,55 @@ struct MetagenomicsDatabaseInstallerTests {
         #expect(prepared.result.payloadDigest.isEmpty == false)
     }
 
+    @Test("a pre-existing destination survives an installer failure before promotion")
+    func existingDestinationSurvivesFailureBeforePromotion() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let final = fixture.root.appendingPathComponent("kraken2/fixture", isDirectory: true)
+        try FileManager.default.createDirectory(at: final, withIntermediateDirectories: true)
+        let sentinel = final.appendingPathComponent("keep-me")
+        try Data("sentinel".utf8).write(to: sentinel)
+
+        await #expect(throws: MetagenomicsDatabaseInstallerError.invalidPayload(reason: "destination already exists")) {
+            _ = try await fixture.installer(tools: FixtureToolRunner()).prepareInstallation(
+                database: fixture.database(recipe: .kraken2Special(type: .silva)),
+                databasesBaseURL: fixture.root,
+                threads: 4,
+                progress: { _, _ in }
+            )
+        }
+
+        #expect(FileManager.default.fileExists(atPath: sentinel.path))
+    }
+
+    @Test("tar extraction records its injected tar version")
+    func extractionUsesInjectedTarVersion() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let archive = fixture.root.appendingPathComponent("fixture.tar.gz")
+        try Data().write(to: archive)
+        let destination = fixture.root.appendingPathComponent("extracted", isDirectory: true)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        let transfer = URLSessionTarDatabaseArchiveTransfer(tarVersion: { "bsdtar 3.7.0 - libarchive" })
+
+        let result = try await transfer.extract(archive: archive, destination: destination)
+
+        #expect(result.toolVersion == "bsdtar 3.7.0")
+        #expect(result.runtimeIdentity.executablePath == "/usr/bin/tar")
+    }
+
+    @Test("HTTP archive responses reject non-success status codes")
+    func archiveHTTPResponseValidationRejectsNonSuccessStatus() throws {
+        let url = try #require(URL(string: "https://example.test/database.tar.gz"))
+        let notFound = try #require(HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil, headerFields: nil))
+        let success = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+
+        #expect(throws: MetagenomicsDatabaseInstallerError.archiveTransferFailed("HTTP 404 while downloading https://example.test/database.tar.gz")) {
+            try URLSessionTarDatabaseArchiveTransfer.validateHTTPResponse(notFound)
+        }
+        try URLSessionTarDatabaseArchiveTransfer.validateHTTPResponse(success)
+    }
+
     @Test("special recipe rejects malformed required payload evidence")
     func specialPayloadValidationRejectsMissingFiles() async throws {
         for mutation in Fixture.PayloadMutation.allCases {

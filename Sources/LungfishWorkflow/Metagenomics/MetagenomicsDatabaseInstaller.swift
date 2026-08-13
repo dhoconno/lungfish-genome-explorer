@@ -124,7 +124,62 @@ public struct ManagedMetagenomicsDatabaseToolRunner: MetagenomicsDatabaseToolRun
 }
 
 public struct URLSessionTarDatabaseArchiveTransfer: MetagenomicsDatabaseArchiveTransferring, Sendable {
-    public init() {}
+    private let tarVersion: @Sendable () async throws -> String
+
+    public init(
+        tarVersion: @escaping @Sendable () async throws -> String = URLSessionTarDatabaseArchiveTransfer.detectTarVersion
+    ) {
+        self.tarVersion = tarVersion
+    }
+
+    public static func validateHTTPResponse(_ response: HTTPURLResponse) throws {
+        guard 200 ..< 300 ~= response.statusCode else {
+            throw MetagenomicsDatabaseInstallerError.archiveTransferFailed(
+                "HTTP \(response.statusCode) while downloading \(response.url?.absoluteString ?? "archive")"
+            )
+        }
+    }
+
+    public static func detectTarVersion() async throws -> String {
+        try await Task.detached {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+            process.arguments = ["--version"]
+            let output = Pipe()
+            process.standardOutput = output
+            process.standardError = output
+            try process.run()
+            process.waitUntilExit()
+            let text = String(
+                data: output.fileHandleForReading.readDataToEndOfFile(),
+                encoding: .utf8
+            ) ?? ""
+            guard process.terminationStatus == 0 else {
+                throw MetagenomicsDatabaseInstallerError.toolFailed(
+                    tool: "tar",
+                    exitStatus: process.terminationStatus,
+                    stderr: String(text.prefix(16_384))
+                )
+            }
+            let tokens = text.split(whereSeparator: { $0.isWhitespace })
+            guard tokens.count >= 2 else {
+                throw MetagenomicsDatabaseInstallerError.invalidPayload(
+                    reason: "/usr/bin/tar did not report a version"
+                )
+            }
+            return tokens.prefix(2).joined(separator: " ")
+        }.value
+    }
+
+    static func normalizedTarVersion(_ text: String) throws -> String {
+        let tokens = text.split(whereSeparator: { $0.isWhitespace })
+        guard tokens.count >= 2 else {
+            throw MetagenomicsDatabaseInstallerError.invalidPayload(
+                reason: "/usr/bin/tar did not report a version"
+            )
+        }
+        return tokens.prefix(2).joined(separator: " ")
+    }
 
     public func download(from source: URL, progress: @Sendable @escaping (Double) -> Void) async throws -> URL {
         try Task.checkCancellation()
@@ -153,6 +208,7 @@ public struct URLSessionTarDatabaseArchiveTransfer: MetagenomicsDatabaseArchiveT
     public func extract(archive: URL, destination: URL) async throws -> MetagenomicsDatabaseToolResult {
         try Task.checkCancellation()
         let started = Date()
+        let resolvedTarVersion = try Self.normalizedTarVersion(await tarVersion())
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
         process.arguments = ["xzf", archive.path, "-C", destination.path]
@@ -165,7 +221,7 @@ public struct URLSessionTarDatabaseArchiveTransfer: MetagenomicsDatabaseArchiveT
                 process.terminationHandler = { terminated in
                     state.waitForDrains {
                         guard state.finishOnce() else { return }
-                        continuation.resume(returning: MetagenomicsDatabaseToolResult(stdout: state.stdout, stderr: state.stderr, exitStatus: terminated.terminationStatus, argv: ["/usr/bin/tar", "xzf", archive.path, "-C", destination.path], runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: "/usr/bin/tar"), toolVersion: "bsdtar", startedAt: started, completedAt: Date()))
+                        continuation.resume(returning: MetagenomicsDatabaseToolResult(stdout: state.stdout, stderr: state.stderr, exitStatus: terminated.terminationStatus, argv: ["/usr/bin/tar", "xzf", archive.path, "-C", destination.path], runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: "/usr/bin/tar"), toolVersion: resolvedTarVersion, startedAt: started, completedAt: Date()))
                     }
                 }
                 state.drain(stdout.fileHandleForReading, into: .stdout)
@@ -202,7 +258,13 @@ private final class InstallerDownloadDelegate: NSObject, URLSessionDownloadDeleg
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         guard fired.testAndSet() else { return }
         let stable = FileManager.default.temporaryDirectory.appendingPathComponent("lungfish-database-\(UUID().uuidString).tar.gz")
-        do { try FileManager.default.copyItem(at: location, to: stable); completion(.success(stable)) }
+        do {
+            if let response = downloadTask.response as? HTTPURLResponse {
+                try URLSessionTarDatabaseArchiveTransfer.validateHTTPResponse(response)
+            }
+            try FileManager.default.copyItem(at: location, to: stable)
+            completion(.success(stable))
+        }
         catch { completion(.failure(error)) }
         session.invalidateAndCancel()
     }
@@ -256,7 +318,9 @@ private final class TarProcessResultState: @unchecked Sendable {
             let data = handle.readDataToEndOfFile()
             self.lock.lock()
             switch stream {
-            case .stdout: self.stdoutData.append(data)
+            case .stdout:
+                let remaining = max(0, 16_384 - self.stdoutData.count)
+                self.stdoutData.append(data.prefix(remaining))
             case .stderr:
                 let remaining = max(0, 16_384 - self.stderrData.count)
                 self.stderrData.append(data.prefix(remaining))
@@ -325,6 +389,7 @@ public struct MetagenomicsDatabaseInstaller: Sendable {
         let finalURL = databasesBaseURL.standardizedFileURL.appendingPathComponent("kraken2", isDirectory: true).appendingPathComponent(Self.safePathComponent(database.catalogID ?? database.name), isDirectory: true)
         let staging = finalURL.deletingLastPathComponent().appendingPathComponent(".install-\(uuid().uuidString)", isDirectory: true)
         var steps: [MetagenomicsDatabaseInstallStepEvidence] = []
+        var didPromoteStaging = false
         let defaults: [String: ParameterValue] = ["threads": .integer(4), "kmerLength": .integer(35), "readLength": .integer(150)]
         let resolved: [String: ParameterValue] = ["threads": .integer(threads), "kmerLength": .integer(35), "readLength": .integer(150), "databaseRoot": .file(staging)]
         let recipeSource: String
@@ -382,6 +447,7 @@ public struct MetagenomicsDatabaseInstaller: Sendable {
             try fileSystem.createDirectory(at: finalURL.deletingLastPathComponent())
             guard !fileSystem.fileExists(at: finalURL) else { throw MetagenomicsDatabaseInstallerError.invalidPayload(reason: "destination already exists") }
             try fileSystem.moveItem(at: staging, to: finalURL)
+            didPromoteStaging = true
             let attempt = MetagenomicsDatabaseInstallAttempt(database: database, finalURL: finalURL, recipeSource: recipeSource, explicitOptions: ["threads": .integer(threads)], defaultOptions: defaults, resolvedOptions: resolved, steps: steps, startedAt: started, completedAt: now())
             let finalSnapshot = MetagenomicsDatabasePayloadSnapshot(rootURL: staging, files: snapshot.files, aggregateSHA256: snapshot.aggregateSHA256, totalSizeBytes: snapshot.totalSizeBytes)
             do { try provenanceWriter.writeSuccess(attempt, snapshot: finalSnapshot) } catch { try? fileSystem.removeItemIfPresent(at: finalURL); throw error }
@@ -391,7 +457,9 @@ public struct MetagenomicsDatabaseInstaller: Sendable {
             return PreparedMetagenomicsDatabaseInstallation(result: .init(finalURL: finalURL, version: version, payloadDigest: snapshot.aggregateSHA256, sizeOnDisk: Int64(clamping: snapshot.totalSizeBytes)), stagingURL: staging)
         } catch let originalError {
             try? fileSystem.removeItemIfPresent(at: staging)
-            try? fileSystem.removeItemIfPresent(at: finalURL)
+            if didPromoteStaging {
+                try? fileSystem.removeItemIfPresent(at: finalURL)
+            }
             let failure = failureRecord(for: originalError)
             if !steps.isEmpty {
                 let attempt = MetagenomicsDatabaseInstallAttempt(database: database, finalURL: finalURL, recipeSource: database.installationRecipe.map(Self.recipeSource) ?? "unknown", explicitOptions: ["threads": .integer(threads)], defaultOptions: defaults, resolvedOptions: resolved, steps: steps, startedAt: started, completedAt: now())
