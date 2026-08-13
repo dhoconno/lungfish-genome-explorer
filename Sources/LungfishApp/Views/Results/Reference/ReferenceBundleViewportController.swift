@@ -67,6 +67,21 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     private var isReplacingMappingRows = false
     private var metadataPresentationContext: SampleMetadataPresentationContext?
     private var metadataPresentationObserverToken: SampleMetadataPresentationContext.ObserverToken?
+    private var alignmentActionContextGeneration = 0
+    private var alignmentActionContextTask: Task<Void, Never>?
+
+    private struct AlignmentActionContextSeed: Sendable {
+        let identity: AlignmentEvidenceIdentity
+        let alignmentURL: URL
+        let indexURL: URL
+        let decodingReferenceURL: URL?
+        let contig: String
+        let contigLength: Int
+        let filters: AlignmentConsensusFilters
+        let outputCapability: AlignmentOutputCapability
+        let sourceReads: AlignmentSourceReadResolution
+        let presentationLabel: String
+    }
 
     var onEmbeddedReferenceBundleLoaded: ((ReferenceBundle) -> Void)?
     var onSequenceSelectionStateChanged: ((SequenceRegionSelectionState?) -> Void)?
@@ -491,6 +506,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     }
 
     private func configure(input: ReferenceBundleViewportInput, preferredSelectionName: String?) throws {
+        clearAlignmentActionContext()
         currentInput = input
         currentResult = input.mappingResult
         currentResultDirectoryURL = input.mappingResultDirectoryURL
@@ -797,7 +813,18 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     }
 
     func applyEmbeddedReadDisplaySettings(_ userInfo: [AnyHashable: Any]) {
+        // The context is an immutable scientific snapshot. Never leave it
+        // installed while any display/scientific filter is being replaced.
+        clearAlignmentActionContext()
         embeddedViewerController.applyReadDisplaySettings(userInfo)
+
+        guard currentInput?.kind == .mappingResult else {
+            if let row = currentSelectedSequence(),
+               row.alignmentTrackID == embeddedViewerController.viewerView.visibleAlignmentTrackIDSetting {
+                installAlignmentActionContext(for: row)
+            }
+            return
+        }
 
         if userInfo.keys.contains(NotificationUserInfoKey.visibleAlignmentTrackID as AnyHashable) {
             let tracks = currentInput?.viewerBundleManifest?.alignments ?? []
@@ -819,6 +846,9 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                 effectiveTrackID,
                 preferredSelectionName: currentSelectedContig()?.contigName
             )
+        } else if let row = currentSelectedContig(),
+                  let bundleURL = currentInput?.renderedBundleURL {
+            installAlignmentActionContext(for: row, bundleURL: bundleURL)
         }
     }
 
@@ -1088,6 +1118,10 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                 start: 0,
                 end: max(1, Int(chromosome.length))
             )
+            installAlignmentActionContext(
+                for: selectedContig,
+                bundleURL: viewerBundleURL
+            )
         } catch {
             showDetailPlaceholder("Unable to load the reference mapping viewer.")
         }
@@ -1104,20 +1138,22 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
             ]
             embeddedViewerController.applyReadDisplaySettings(settings)
         }
-        displaySelectedSequence(row.summary)
+        guard displaySelectedSequence(row.summary) else { return }
+        installAlignmentActionContext(for: row)
     }
 
-    private func displaySelectedSequence(_ selectedSequence: BundleBrowserSequenceSummary) {
+    @discardableResult
+    private func displaySelectedSequence(_ selectedSequence: BundleBrowserSequenceSummary) -> Bool {
         guard let bundleURL = currentInput?.renderedBundleURL else {
             showDetailPlaceholder("Reference bundle viewer unavailable for this mapping result.")
-            return
+            return false
         }
 
         do {
             try loadViewerBundleIfNeeded(from: bundleURL, sequenceName: selectedSequence.name)
             guard let chromosome = embeddedViewerController.currentBundleDataProvider?.chromosomeInfo(named: selectedSequence.name) else {
                 showDetailPlaceholder("Selected sequence is not present in the reference bundle.")
-                return
+                return false
             }
 
             showDetailViewer()
@@ -1127,8 +1163,10 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                 start: 0,
                 end: max(1, Int(chromosome.length))
             )
+            return true
         } catch {
             showDetailPlaceholder("Unable to load sequence detail for \(selectedSequence.name).")
+            return false
         }
     }
 
@@ -1138,6 +1176,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     }
 
     private func showDetailPlaceholder(_ message: String) {
+        clearAlignmentActionContext()
         detailPlaceholderLabel.stringValue = message
         detailPlaceholderLabel.isHidden = false
         embeddedViewerController.view.isHidden = true
@@ -1530,6 +1569,169 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         }
         return bundleURL.appendingPathComponent(path)
     }
+
+    private func installAlignmentActionContext(
+        for row: MappingContigSummary,
+        bundleURL: URL
+    ) {
+        guard let result = currentResult else {
+            clearAlignmentActionContext()
+            return
+        }
+        guard let filters = currentAlignmentFilters() else {
+            clearAlignmentActionContext()
+            return
+        }
+        let track = row.alignmentTrackID.flatMap { trackID in
+            currentInput?.viewerBundleManifest?.alignments.first { $0.id == trackID }
+        }
+        guard track?.format != .sam else {
+            clearAlignmentActionContext()
+            return
+        }
+        let alignmentURL = track.map { resolvedTrackURL($0.sourcePath, bundleURL: bundleURL) }
+            ?? result.bamURL
+        let indexURL = track.map { resolvedTrackURL($0.indexPath, bundleURL: bundleURL) }
+            ?? result.baiURL
+        let outputCapability: AlignmentOutputCapability = if let root = currentResultDirectoryURL
+            ?? ProjectTempDirectory.findProjectRoot(alignmentURL) {
+            .projectDerivedRoot(root)
+        } else {
+            .userSelectedDestination
+        }
+        let resultID = currentResultDirectoryURL?.lastPathComponent
+            ?? result.bamURL.deletingLastPathComponent().lastPathComponent
+        let evidenceID = "\(track?.id ?? alignmentURL.lastPathComponent):\(row.contigName)"
+        scheduleAlignmentActionContext(.init(
+            identity: .init(
+                workflow: "mapping",
+                resultID: resultID,
+                sampleID: row.sampleID ?? "all-alignments",
+                evidenceID: evidenceID
+            ),
+            alignmentURL: alignmentURL,
+            indexURL: indexURL,
+            decodingReferenceURL: decodingReferenceURL(for: track, manifest: currentInput?.viewerBundleManifest, bundleURL: bundleURL),
+            contig: row.contigName,
+            contigLength: row.contigLength,
+            filters: filters,
+            outputCapability: outputCapability,
+            sourceReads: mappingSourceReads(),
+            presentationLabel: "\(row.sampleID ?? "All alignments") — \(row.contigName)"
+        ))
+    }
+
+    private func installAlignmentActionContext(for row: ReferenceBundleRecordRow) {
+        guard let input = currentInput,
+              input.kind == .directBundle,
+              let bundleURL = input.renderedBundleURL,
+              let manifest = input.manifest,
+              let trackID = row.alignmentTrackID,
+              let track = manifest.alignments.first(where: { $0.id == trackID }),
+              track.format != .sam,
+              let filters = currentAlignmentFilters()
+        else {
+            clearAlignmentActionContext()
+            return
+        }
+        let outputCapability = ProjectTempDirectory.findProjectRoot(bundleURL)
+            .map(AlignmentOutputCapability.projectDerivedRoot)
+            ?? .userSelectedDestination
+        scheduleAlignmentActionContext(.init(
+            identity: .init(
+                workflow: "reference-bundle",
+                resultID: manifest.identifier,
+                sampleID: row.sampleID ?? "all-alignments",
+                evidenceID: "\(track.id):\(row.summary.name)"
+            ),
+            alignmentURL: resolvedTrackURL(track.sourcePath, bundleURL: bundleURL),
+            indexURL: resolvedTrackURL(track.indexPath, bundleURL: bundleURL),
+            decodingReferenceURL: decodingReferenceURL(for: track, manifest: manifest, bundleURL: bundleURL),
+            contig: row.summary.name,
+            contigLength: Int(row.summary.length),
+            filters: filters,
+            outputCapability: outputCapability,
+            sourceReads: .bamFallback,
+            presentationLabel: "\(row.sampleID ?? track.name) — \(row.summary.name)"
+        ))
+    }
+
+    private func mappingSourceReads() -> AlignmentSourceReadResolution {
+        let urls = currentInput?.mappingProvenance?.inputFASTQPaths
+            .map(URL.init(fileURLWithPath:))
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+            ?? []
+        return urls.isEmpty ? .bamFallback : .sourceFASTQs(urls)
+    }
+
+    private func decodingReferenceURL(
+        for track: AlignmentTrackInfo?,
+        manifest: BundleManifest?,
+        bundleURL: URL
+    ) -> URL? {
+        guard track?.format == .cram, let path = manifest?.genome?.path else { return nil }
+        return resolvedTrackURL(path, bundleURL: bundleURL)
+    }
+
+    private func currentAlignmentFilters() -> AlignmentConsensusFilters? {
+        guard let settings = embeddedViewerController.viewerView else { return nil }
+        return .init(
+            minimumDepth: settings.consensusMinDepthSetting,
+            minimumMapQ: max(settings.minMapQSetting, settings.consensusMinMapQSetting),
+            minimumBaseQuality: settings.consensusMinBaseQSetting,
+            excludedFlags: settings.excludeFlagsSetting,
+            readGroups: settings.selectedReadGroupsSetting
+        )
+    }
+
+    private func scheduleAlignmentActionContext(_ seed: AlignmentActionContextSeed) {
+        clearAlignmentActionContext()
+        let generation = alignmentActionContextGeneration
+        alignmentActionContextTask = Task { @MainActor [weak self] in
+            do {
+                let context = try await Task.detached(priority: .userInitiated) {
+                    func snapshot(_ url: URL) throws -> AlignmentEvidenceFileSnapshot {
+                        AlignmentEvidenceFileSnapshot(
+                            url: url,
+                            byteCount: try ProvenanceFileHasher.fileSize(of: url),
+                            sha256: try ProvenanceFileHasher.sha256(of: url)
+                        )
+                    }
+                    let referenceSnapshot = try seed.decodingReferenceURL.map(snapshot)
+                    return try AlignmentActionContext(
+                        identity: seed.identity,
+                        alignmentURL: seed.alignmentURL,
+                        indexURL: seed.indexURL,
+                        decodingReferenceURL: seed.decodingReferenceURL,
+                        contig: seed.contig,
+                        contigLength: seed.contigLength,
+                        alignmentSnapshot: try snapshot(seed.alignmentURL),
+                        indexSnapshot: try snapshot(seed.indexURL),
+                        decodingReferenceSnapshot: referenceSnapshot,
+                        filters: seed.filters,
+                        outputCapability: seed.outputCapability,
+                        sourceReads: seed.sourceReads,
+                        presentationLabel: seed.presentationLabel
+                    )
+                }.value
+                guard let self,
+                      !Task.isCancelled,
+                      self.alignmentActionContextGeneration == generation
+                else { return }
+                self.embeddedViewerController.alignmentActionContext = context
+            } catch {
+                guard let self, self.alignmentActionContextGeneration == generation else { return }
+                self.embeddedViewerController.alignmentActionContext = nil
+            }
+        }
+    }
+
+    private func clearAlignmentActionContext() {
+        alignmentActionContextGeneration += 1
+        alignmentActionContextTask?.cancel()
+        alignmentActionContextTask = nil
+        embeddedViewerController.alignmentActionContext = nil
+    }
 }
 
 private struct VisibleAlignmentSummary: Equatable {
@@ -1797,6 +1999,9 @@ extension ReferenceBundleViewportController {
         currentSequenceAnnotationOperationContext()
     }
     var testAnnotationRecordScope: Set<String>? { embeddedViewerController.annotationRecordScope }
+    var testAlignmentActionContext: AlignmentActionContext? {
+        embeddedViewerController.alignmentActionContext
+    }
 
     func testSelectContig(named name: String) {
         _ = selectContig(named: name)
