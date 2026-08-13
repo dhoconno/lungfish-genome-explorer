@@ -117,6 +117,7 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
         _ = viewer.view
         installStatusLabel()
         viewer.viewerView.onDetachedEvidenceStale = { [weak self] reason in
+            self?.viewer.alignmentActionContext = nil
             self?.availability = .unavailable(reason)
             self?.status = .stale(reason)
             self?.publishInspectorCapabilities(reference: .unavailable(reason), readGroups: [])
@@ -124,6 +125,7 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
         // A new request must never leave prior evidence visible while its own
         // validation is pending; this also tears down the old vnode monitors.
         viewer.viewerView.clearReferenceBundle()
+        viewer.alignmentActionContext = nil
         generation += 1
         let currentGeneration = generation
         task?.cancel()
@@ -148,12 +150,17 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
                     referenceSnapshot: validated.referenceSnapshot
                 )
                 guard viewer.displayDetachedAlignment(source) else {
+                    viewer.alignmentActionContext = nil
                     let reason = viewer.viewerView.detachedEvidenceStaleReason ?? "Classifier alignment evidence could not be verified."
                     availability = .unavailable(reason)
                     status = .stale(reason)
                     publishInspectorCapabilities(reference: .unavailable(reason), readGroups: [])
                     return
                 }
+                viewer.alignmentActionContext = try makeActionContext(
+                    request: request,
+                    validated: validated
+                )
                 availability = .available(reference: validated.reference.status, reason: validated.reference.reason)
                 status = .available(referenceStrength: referenceStrengthText(validated.reference.status), reason: validated.reference.reason)
                 observedInspectorSnapshots = .init(
@@ -168,6 +175,7 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
                 )
             } catch {
                 guard !Task.isCancelled, currentGeneration == generation else { return }
+                viewer.alignmentActionContext = nil
                 viewer.viewerView.clearReferenceBundle()
                 if let validationError = error as? ClassifierAlignmentEvidenceValidator.Error,
                    case .snapshotMismatch(let url) = validationError {
@@ -191,10 +199,54 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
         activeRequest = nil
         observedInspectorSnapshots = nil
         viewer.viewerView.clearReferenceBundle()
+        viewer.alignmentActionContext = nil
         viewer.viewerView.onDetachedEvidenceStale = nil
         availability = .idle
         status = .idle
         inspectorCapabilities = nil
+    }
+
+    private func makeActionContext(
+        request: ClassifierAlignmentEvidenceRequest,
+        validated: ClassifierAlignmentEvidenceValidator.Result
+    ) throws -> AlignmentActionContext {
+        guard let settings = viewer.viewerView else {
+            throw AlignmentScientificActionError.contextUnavailable
+        }
+        return try AlignmentActionContext(
+            identity: .init(
+                workflow: request.workflow.rawValue,
+                resultID: request.resultIdentity.stableID,
+                sampleID: request.sample.canonicalID,
+                evidenceID: "\(request.resultIdentity.provenanceID):\(request.contig.name)"
+            ),
+            alignmentURL: request.bamURL,
+            indexURL: request.index.url,
+            decodingReferenceURL: nil,
+            contig: validated.contig.name,
+            contigLength: validated.contig.length,
+            alignmentSnapshot: .init(
+                url: request.bamURL,
+                byteCount: UInt64(validated.bamSnapshot.size),
+                sha256: validated.bamSnapshot.sha256
+            ),
+            indexSnapshot: .init(
+                url: request.index.url,
+                byteCount: UInt64(validated.indexSnapshot.size),
+                sha256: validated.indexSnapshot.sha256
+            ),
+            decodingReferenceSnapshot: nil,
+            filters: .init(
+                minimumDepth: settings.consensusMinDepthSetting,
+                minimumMapQ: max(settings.minMapQSetting, settings.consensusMinMapQSetting),
+                minimumBaseQuality: settings.consensusMinBaseQSetting,
+                excludedFlags: settings.excludeFlagsSetting,
+                readGroups: settings.selectedReadGroupsSetting
+            ),
+            outputCapability: .userSelectedDestination,
+            sourceReads: .bamFallback,
+            presentationLabel: "\(request.presentation.sampleLabel) — \(request.presentation.contigLabel)"
+        )
     }
 
     private func referenceStrengthText(_ status: ClassifierAlignmentEvidenceValidator.ReferenceStatus) -> String {
