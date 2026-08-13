@@ -23,20 +23,18 @@ extension ViewerViewController {
             return
         }
         let region = ResolvedAlignmentRegion(scope: .selectedRegion, contig: selection.contig, start: selection.start, end: selection.end)
-        let outputDirectory: URL
-        switch context.outputCapability {
-        case .projectDerivedRoot(let root):
-            outputDirectory = root.appendingPathComponent("alignment-read-extractions", isDirectory: true)
-        case .userSelectedDestination:
-            presentExtractionFailureAlert(title: "Extract Selected Region Failed", message: "Choose an output destination before extracting reads.")
-            return
-        }
-        Task { [weak self] in
-            do {
-                _ = try await AlignmentScientificActionCoordinator().extractRegion(context: context, region: region, outputDirectory: outputDirectory, outputBaseName: "selected-region")
-            } catch {
-                self?.presentExtractionFailureAlert(title: "Extract Selected Region Failed", message: error.localizedDescription)
-            }
+        let coordinator = AlignmentScientificActionCoordinator()
+        do {
+            let destination = try coordinator.resolveDestination(for: context.outputCapability, outputBaseName: "selected-region")
+            activeSelectedReadsExtractionTask = coordinator.launchRegion(
+                context: context,
+                region: region,
+                destination: destination,
+                outputBaseName: "selected-region",
+                reporter: .operationCenter
+            )
+        } catch {
+            presentExtractionFailureAlert(title: "Extract Selected Region Failed", message: error.localizedDescription)
         }
     }
     func display(_ route: ViewerDisplayRoute) throws {
@@ -346,87 +344,22 @@ extension ViewerViewController {
     /// in the completion message; the selection may span multiple contigs,
     /// so the distinct contig set is logged.
     func extractSelectedReads(_ reads: [AlignedRead]) {
-        guard !reads.isEmpty else { return }
-        guard let result = activeMappingViewportController?.currentResult else { return }
-
-        let readNames = Set(reads.map(\.name))
-        let selectionCount = reads.count
-        let contigs = Set(reads.map(\.chromosome)).sorted()
-        let bundleName = activeMappingViewportController?.currentInput?.viewerBundleManifest?.name
-            ?? result.bamURL.deletingPathExtension().lastPathComponent
-        let sanitizedBundleName = ExtractionBundleNaming.sanitizeFilename(bundleName)
-        let outputBaseName = "\(sanitizedBundleName)_selected_\(readNames.count)reads"
-        let outputDirectory = result.bamURL.deletingLastPathComponent()
-            .appendingPathComponent("selected-reads-extractions", isDirectory: true)
-
-        let command = "# Extract Selected Reads (\(readNames.count) read name\(readNames.count == 1 ? "" : "s") from \(selectionCount) selected record\(selectionCount == 1 ? "" : "s") across contig(s) \(contigs.joined(separator: ", "))); see output provenance for replay details"
-        let opID = OperationCenter.shared.start(
-            title: "Extract Selected Reads",
-            detail: "Extracting \(readNames.count) selected read\(readNames.count == 1 ? "" : "s")…",
-            operationType: .taxonomyExtraction,
-            cliCommand: command
-        )
-        OperationCenter.shared.log(
-            id: opID,
-            level: .info,
-            message: "Selection spans contig(s): \(contigs.joined(separator: ", "))"
-        )
-
-        let runner = selectedReadsExtractionRunner
-        let task = Task { [weak self] in
-            do {
-                let outcome = try await runner(readNames, result, outputDirectory, outputBaseName)
-                DispatchQueue.main.async { MainActor.assumeIsolated {
-                    OperationCenter.shared.log(
-                        id: opID,
-                        level: .info,
-                        message: "Provenance: \(outcome.provenanceLabel)"
-                    )
-                    _ = OperationCenter.shared.complete(
-                        id: opID,
-                        detail: "Extracted \(outcome.readCount) record\(outcome.readCount == 1 ? "" : "s") for \(selectionCount) selected read\(selectionCount == 1 ? "" : "s") (\(outcome.provenanceLabel))",
-                        outputURLs: outcome.outputURLs
-                    )
-                }}
-            } catch {
-                mappingDisplayLogger.error("extractSelectedReads failed: \(error.localizedDescription, privacy: .public)")
-                DispatchQueue.main.async { [weak self] in MainActor.assumeIsolated {
-                    _ = OperationCenter.shared.fail(
-                        id: opID,
-                        detail: "Extract Selected Reads failed",
-                        errorMessage: error.localizedDescription
-                    )
-                    self?.presentExtractSelectedReadsFailureAlert(error)
-                }}
-            }
+        guard let context = alignmentActionContext else {
+            presentExtractionFailureAlert(title: "Extract Selected Reads Failed", message: AlignmentScientificActionError.contextUnavailable.localizedDescription)
+            return
         }
-        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
-        activeSelectedReadsExtractionTask = task
-    }
-
-    /// Default `selectedReadsExtractionRunner`: attempts source-FASTQ
-    /// resolution first (structurally present for when `MappingResult` gains
-    /// a retained FASTQ source reference), falling back to BAM-derived
-    /// extraction against the mapping's own BAM when no source is resolvable.
-    nonisolated static func defaultSelectedReadsExtraction(
-        readNames: Set<String>,
-        mappingResult: MappingResult,
-        outputDirectory: URL,
-        outputBaseName: String
-    ) async throws -> SelectedReadsExtractionOutcome {
-        // MappingResult retains no FASTQ bundle reference today, so source
-        // resolution has nothing to resolve against; this always falls
-        // through to the BAM-derived path. Structured as a guard (rather than
-        // omitted) so a future MappingResult.sourceFASTQBundleURL-style field
-        // only needs a resolver call inserted here, not a call-site change.
-        let config = ReadIDBAMExtractionConfig(
-            bamURL: mappingResult.bamURL,
-            readIDs: readNames,
-            outputDirectory: outputDirectory,
-            outputBaseName: outputBaseName
-        )
-        let result = try await ReadExtractionService().extractByReadIDsFromBAM(config: config)
-        return .bamDerived(result)
+        guard !reads.isEmpty else {
+            presentExtractionFailureAlert(title: "Extract Selected Reads Failed", message: AlignmentScientificActionError.emptySelection.localizedDescription)
+            return
+        }
+        let outputBaseName = "\(ExtractionBundleNaming.sanitizeFilename(context.presentationLabel))_selected_\(Set(reads.map(\.name)).count)reads"
+        let coordinator = AlignmentScientificActionCoordinator()
+        do {
+            let destination = try coordinator.resolveDestination(for: context.outputCapability, outputBaseName: outputBaseName)
+            activeSelectedReadsExtractionTask = coordinator.launchSelectedReads(context: context, records: reads, destination: destination, outputBaseName: outputBaseName, reporter: .operationCenter)
+        } catch {
+            presentExtractionFailureAlert(title: "Extract Selected Reads Failed", message: error.localizedDescription)
+        }
     }
 
     private func presentExtractSelectedReadsFailureAlert(_ error: Error) {

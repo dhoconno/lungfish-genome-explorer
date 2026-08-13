@@ -102,43 +102,6 @@ public class ViewerViewController: NSViewController {
         _ message: String
     ) -> Void
 
-    /// Result of `extractSelectedReads`, generalizing the source-FASTQ and
-    /// BAM-derived provenance paths so a single completion handler can report
-    /// either one.
-    enum SelectedReadsExtractionOutcome: Sendable {
-        case sourceFASTQ(LungfishWorkflow.ExtractionResult)
-        case bamDerived(ReadIDBAMExtractionResult)
-
-        var outputURLs: [URL] {
-            switch self {
-            case .sourceFASTQ(let result): return result.fastqURLs
-            case .bamDerived(let result): return result.outputURLs
-            }
-        }
-
-        var readCount: Int {
-            switch self {
-            case .sourceFASTQ(let result): return result.readCount
-            case .bamDerived(let result): return result.readCount
-            }
-        }
-
-        /// Provenance label recorded in the bundle metadata + completion message.
-        var provenanceLabel: String {
-            switch self {
-            case .sourceFASTQ: return "source-fastq"
-            case .bamDerived: return "bam-derived"
-            }
-        }
-    }
-
-    typealias SelectedReadsExtractionRunner = @Sendable (
-        _ readNames: Set<String>,
-        _ mappingResult: MappingResult,
-        _ outputDirectory: URL,
-        _ outputBaseName: String
-    ) async throws -> SelectedReadsExtractionOutcome
-
     // MARK: - UI Components
 
     /// The custom view for rendering sequences and tracks
@@ -205,21 +168,6 @@ public class ViewerViewController: NSViewController {
     /// tests only when run in an interactive session.
     var extractionFailureAlertPresenter: ExtractionFailureAlertPresenter?
 
-    /// Runs the selected-reads extraction (read-track multi-select "Extract
-    /// Reads…" action): resolves source FASTQs via `FASTQSourceResolver`
-    /// when possible, falling back to `ReadExtractionService.extractByReadIDsFromBAM`
-    /// when no source FASTQ can be resolved (the common case for a mapping
-    /// viewport — `MappingResult` retains no FASTQ bundle reference).
-    /// Overridable in tests to inject failures/results without a real
-    /// samtools/seqkit environment.
-    var selectedReadsExtractionRunner: SelectedReadsExtractionRunner = { readNames, mappingResult, outputDirectory, outputBaseName in
-        try await ViewerViewController.defaultSelectedReadsExtraction(
-            readNames: readNames,
-            mappingResult: mappingResult,
-            outputDirectory: outputDirectory,
-            outputBaseName: outputBaseName
-        )
-    }
     var activeSelectedReadsExtractionTask: Task<Void, Never>?
 
     /// Taxonomy classification browser (shown in place of sequence viewer for kreport results)
