@@ -4,6 +4,88 @@ import Testing
 
 @Suite("Metagenomics database installer")
 struct MetagenomicsDatabaseInstallerTests {
+    @Test("replacement stays reversible until finalize and rollback restores the prior bytes")
+    func replacementTransactionFinalizesOrRollsBack() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let final = fixture.root.appendingPathComponent("kraken2/fixture", isDirectory: true)
+        try Fixture.writeKrakenPayload(to: final)
+        try Data("old provenance".utf8).write(
+            to: final.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        )
+        let oldBytes = try Fixture.directoryBytes(at: final)
+
+        let first = try await fixture.installer(tools: FixtureToolRunner()).prepareInstallation(
+            database: fixture.database(recipe: .kraken2Special(type: .silva)),
+            databasesBaseURL: fixture.root,
+            threads: 4,
+            progress: { _, _ in }
+        )
+        #expect(try Fixture.directoryBytes(at: final) != oldBytes)
+        #expect(try Fixture.transactionDirectories(beside: final).filter { $0.lastPathComponent.hasPrefix(".backup-") }.count == 1)
+
+        try fixture.installer(tools: FixtureToolRunner()).rollback(first)
+        #expect(try Fixture.directoryBytes(at: final) == oldBytes)
+        #expect(try Fixture.transactionDirectories(beside: final).isEmpty)
+
+        let second = try await fixture.installer(tools: FixtureToolRunner()).prepareInstallation(
+            database: fixture.database(recipe: .kraken2Special(type: .silva)),
+            databasesBaseURL: fixture.root,
+            threads: 4,
+            progress: { _, _ in }
+        )
+        let stagingRoots = fixture.writer.successes.compactMap {
+            $0.attempt.resolvedOptions["databaseRoot"]?.fileValue?.path
+        }
+        #expect(stagingRoots.count == 2)
+        #expect(Set(stagingRoots).count == 2)
+        #expect(stagingRoots.allSatisfy { $0.contains("/.install-") })
+        try fixture.installer(tools: FixtureToolRunner()).finalize(second)
+        #expect(FileManager.default.fileExists(atPath: final.path))
+        #expect(try Fixture.transactionDirectories(beside: final).isEmpty)
+    }
+
+    @Test("prepared success requires a decodable final receipt with its payload digest")
+    func preparedSuccessVerifiesFinalReceiptDigest() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        fixture.writer.omitSuccessReceipt = true
+
+        await #expect(throws: MetagenomicsDatabaseInstallerError.self) {
+            _ = try await fixture.installer(tools: FixtureToolRunner()).prepareInstallation(
+                database: fixture.database(recipe: .kraken2Special(type: .silva)),
+                databasesBaseURL: fixture.root,
+                threads: 4,
+                progress: { _, _ in }
+            )
+        }
+        let final = fixture.root.appendingPathComponent("kraken2/fixture", isDirectory: true)
+        #expect(!FileManager.default.fileExists(atPath: final.path))
+        #expect(try Fixture.transactionDirectories(beside: final).isEmpty)
+    }
+
+    @Test("backup cleanup failure reports a diagnostic without reverting the valid payload")
+    func backupCleanupFailureKeepsCommittedPayload() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let final = fixture.root.appendingPathComponent("kraken2/fixture", isDirectory: true)
+        try Fixture.writeKrakenPayload(to: final)
+        let fileSystem = FailingCleanupFileSystem()
+        let installer = fixture.installer(tools: FixtureToolRunner(), fileSystem: fileSystem)
+        let prepared = try await installer.prepareInstallation(
+            database: fixture.database(recipe: .kraken2Special(type: .silva)),
+            databasesBaseURL: fixture.root,
+            threads: 4,
+            progress: { _, _ in }
+        )
+
+        #expect(throws: MetagenomicsDatabaseInstallerError.self) {
+            try installer.finalize(prepared)
+        }
+        #expect(FileManager.default.fileExists(atPath: final.appendingPathComponent("hash.k2d").path))
+        #expect(try ProvenanceEnvelopeReader.loadCanonical(from: final) != nil)
+    }
+
     @Test("SILVA uses the managed special and Bracken recipes with generic progress")
     func silvaRecipeUsesExactCommands() async throws {
         let fixture = try Fixture()
@@ -180,14 +262,14 @@ struct MetagenomicsDatabaseInstallerTests {
 
     @Test("a pre-existing destination survives an installer failure before promotion")
     func existingDestinationSurvivesFailureBeforePromotion() async throws {
-        let fixture = try Fixture()
+        let fixture = try Fixture(mutation: .missingCore)
         defer { fixture.cleanup() }
         let final = fixture.root.appendingPathComponent("kraken2/fixture", isDirectory: true)
         try FileManager.default.createDirectory(at: final, withIntermediateDirectories: true)
         let sentinel = final.appendingPathComponent("keep-me")
         try Data("sentinel".utf8).write(to: sentinel)
 
-        await #expect(throws: MetagenomicsDatabaseInstallerError.invalidPayload(reason: "destination already exists")) {
+        await #expect(throws: MetagenomicsDatabaseInstallerError.self) {
             _ = try await fixture.installer(tools: FixtureToolRunner()).prepareInstallation(
                 database: fixture.database(recipe: .kraken2Special(type: .silva)),
                 databasesBaseURL: fixture.root,
@@ -449,9 +531,13 @@ private final class Fixture: @unchecked Sendable {
         )
     }
 
-    func installer(tools: FixtureToolRunner, transfer: FixtureArchiveTransfer = FixtureArchiveTransfer()) -> MetagenomicsDatabaseInstaller {
+    func installer(
+        tools: FixtureToolRunner,
+        transfer: FixtureArchiveTransfer = FixtureArchiveTransfer(),
+        fileSystem: any MetagenomicsDatabaseFileSystem = FoundationMetagenomicsDatabaseFileSystem()
+    ) -> MetagenomicsDatabaseInstaller {
         tools.fixture = self
-        return MetagenomicsDatabaseInstaller(toolRunner: tools, archiveTransfer: transfer, provenanceWriter: writer)
+        return MetagenomicsDatabaseInstaller(toolRunner: tools, archiveTransfer: transfer, provenanceWriter: writer, fileSystem: fileSystem)
     }
 
     static func writeKrakenPayload(to root: URL, special: Bool = true, mutation: PayloadMutation? = nil) throws {
@@ -477,6 +563,31 @@ private final class Fixture: @unchecked Sendable {
             try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("hash.k2d"), withDestinationURL: root.deletingLastPathComponent())
         case nil: break
         }
+    }
+
+    static func directoryBytes(at root: URL) throws -> [String: Data] {
+        let enumerator = try #require(FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil))
+        var result: [String: Data] = [:]
+        for case let url as URL in enumerator where !url.hasDirectoryPath {
+            result[String(url.path.dropFirst(root.path.count + 1))] = try Data(contentsOf: url)
+        }
+        return result
+    }
+
+    static func transactionDirectories(beside final: URL) throws -> [URL] {
+        try FileManager.default.contentsOfDirectory(at: final.deletingLastPathComponent(), includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.hasPrefix(".install-") || $0.lastPathComponent.hasPrefix(".backup-") }
+    }
+}
+
+private struct FailingCleanupFileSystem: MetagenomicsDatabaseFileSystem {
+    private let base = FoundationMetagenomicsDatabaseFileSystem()
+    func fileExists(at url: URL) -> Bool { base.fileExists(at: url) }
+    func createDirectory(at url: URL) throws { try base.createDirectory(at: url) }
+    func moveItem(at source: URL, to destination: URL) throws { try base.moveItem(at: source, to: destination) }
+    func removeItemIfPresent(at url: URL) throws {
+        if url.lastPathComponent.hasPrefix(".backup-") { throw FixtureError.cleanup }
+        try base.removeItemIfPresent(at: url)
     }
 }
 
@@ -562,9 +673,13 @@ private final class FixtureProvenanceWriter: MetagenomicsDatabaseInstallProvenan
     var successError: Error?
     var failureError: Error?
     var cancelCurrentTaskAfterSuccessWrite = false
+    var omitSuccessReceipt = false
     func writeSuccess(_ attempt: MetagenomicsDatabaseInstallAttempt, snapshot: MetagenomicsDatabasePayloadSnapshot) throws {
         if let successError { throw successError }
         successes.append(.init(attempt: attempt, snapshot: snapshot))
+        if !omitSuccessReceipt {
+            try CanonicalMetagenomicsDatabaseInstallProvenanceWriter().writeSuccess(attempt, snapshot: snapshot)
+        }
         if cancelCurrentTaskAfterSuccessWrite { withUnsafeCurrentTask { $0?.cancel() } }
     }
     func writeFailure(_ attempt: MetagenomicsDatabaseInstallAttempt, error: MetagenomicsDatabaseInstallFailure, historyDirectory: URL) throws {
@@ -574,7 +689,7 @@ private final class FixtureProvenanceWriter: MetagenomicsDatabaseInstallProvenan
 }
 
 private enum FixtureError: Error, LocalizedError {
-    case missing, provenance, receipt, transfer
+    case missing, provenance, receipt, transfer, cleanup
     var errorDescription: String? { self == .receipt ? "receipt fixture failure" : nil }
 }
 

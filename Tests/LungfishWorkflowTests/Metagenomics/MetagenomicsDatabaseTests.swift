@@ -756,6 +756,27 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
         }
     }
 
+    func testRemoveSimilarlyNamedImportedDatabaseDoesNotResetToCatalog() async throws {
+        let custom = MetagenomicsDatabaseInfo(
+            name: "Viral custom database",
+            tool: MetagenomicsTool.kraken2.rawValue,
+            sizeBytes: 1,
+            description: "User-imported database whose inferred collection resembles Viral",
+            collection: .viral,
+            status: .missing,
+            recommendedRAM: 1
+        )
+        try writeManifest([custom])
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
+
+        try await registry.removeDatabase(name: custom.name)
+
+        let removed = try await registry.database(named: custom.name)
+        let viral = try await registry.database(named: "Viral")
+        XCTAssertNil(removed)
+        XCTAssertNotNil(viral)
+    }
+
     func testDatabaseNotFoundError() async throws {
         let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
         _ = try await registry.availableDatabases()
@@ -781,6 +802,134 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
 
         let status = try await registry.verify(name: "ValidDB")
         XCTAssertEqual(status, .ready)
+    }
+
+    func testVerifyManagedDatabaseRequiresMatchingDigestAndFinalProvenance() async throws {
+        let dbDir = createMockSpecialKraken2Database(name: "managed-digest")
+        let snapshot = try MetagenomicsDatabasePayloadDigester.snapshot(at: dbDir)
+        let catalog = try XCTUnwrap(MetagenomicsDatabaseInfo.catalogEntry(catalogID: "kraken2-special-silva"))
+        let attempt = MetagenomicsDatabaseInstallAttempt(
+            database: catalog,
+            finalURL: dbDir,
+            recipeSource: "silva",
+            explicitOptions: ["threads": .integer(4)],
+            defaultOptions: ["threads": .integer(4)],
+            resolvedOptions: ["threads": .integer(4), "databaseRoot": .file(dbDir)],
+            steps: [],
+            startedAt: Date(timeIntervalSince1970: 1),
+            completedAt: Date(timeIntervalSince1970: 2)
+        )
+        try CanonicalMetagenomicsDatabaseInstallProvenanceWriter().writeSuccess(attempt, snapshot: snapshot)
+        var managed = catalog
+        managed.path = dbDir
+        managed.status = .ready
+        managed.payloadDigest = snapshot.aggregateSHA256
+        try writeManifest([managed])
+
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
+        let initialStatus = try await registry.verify(name: managed.name)
+        XCTAssertEqual(initialStatus, .ready)
+
+        try Data("tampered".utf8).write(to: dbDir.appendingPathComponent("hash.k2d"))
+        let tamperedStatus = try await registry.verify(name: managed.name)
+        XCTAssertEqual(tamperedStatus, .corrupt)
+    }
+
+    func testVerifyManagedDatabaseRejectsMissingFinalProvenanceSidecar() async throws {
+        let dbDir = createMockSpecialKraken2Database(name: "managed-no-sidecar")
+        let snapshot = try MetagenomicsDatabasePayloadDigester.snapshot(at: dbDir)
+        var managed = try XCTUnwrap(
+            MetagenomicsDatabaseInfo.catalogEntry(catalogID: "kraken2-special-greengenes")
+        )
+        managed.path = dbDir
+        managed.status = .ready
+        managed.payloadDigest = snapshot.aggregateSHA256
+        try writeManifest([managed])
+
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
+
+        let status = try await registry.verify(name: managed.name)
+        XCTAssertEqual(status, .corrupt)
+    }
+
+    func testVerifyLegacyReadyDatabaseRetainsThreeFileCompatibility() async throws {
+        let dbDir = createMockKraken2Database(name: "legacy-ready")
+        var legacy = try XCTUnwrap(MetagenomicsDatabaseInfo.catalogEntry(for: .viral))
+        legacy.path = dbDir
+        legacy.status = .ready
+        legacy.payloadDigest = nil
+        try writeManifest([legacy])
+
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
+        let status = try await registry.verify(name: legacy.name)
+        XCTAssertEqual(status, .ready)
+    }
+
+    func testCatalogReconciliationUsesStableCatalogIDWithoutDuplicatingRenamedRow() async throws {
+        var renamed = try XCTUnwrap(MetagenomicsDatabaseInfo.catalogEntry(catalogID: "kraken2-special-silva"))
+        let encoded = try JSONEncoder().encode(renamed)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object["name"] = "Legacy SILVA Label"
+        renamed = try JSONDecoder().decode(MetagenomicsDatabaseInfo.self, from: JSONSerialization.data(withJSONObject: object))
+        let custom = MetagenomicsDatabaseInfo(
+            name: "SILVA Custom", tool: "kraken2", sizeBytes: 1,
+            description: "imported", status: .missing, recommendedRAM: 1
+        )
+        try writeManifest([renamed, custom])
+
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
+        let databases = try await registry.availableDatabases()
+        XCTAssertEqual(databases.filter { $0.catalogID == "kraken2-special-silva" }.count, 1)
+        XCTAssertNotNil(databases.first { $0.name == "SILVA Custom" && $0.catalogID == nil })
+    }
+
+    func testRecipeDownloadUsesInjectedInstallerAndPersistsBeforeFinalize() async throws {
+        let installer = RegistryInstallerSpy()
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir, databaseInstaller: installer)
+
+        let final = try await registry.downloadDatabase(name: "SILVA", progress: { _, _ in })
+
+        XCTAssertEqual(installer.threads, [4])
+        XCTAssertEqual(installer.finalized.count, 1)
+        XCTAssertTrue(installer.manifestWasReadyWhenFinalized)
+        let storedValue = try await registry.database(named: "SILVA")
+        let stored = try XCTUnwrap(storedValue)
+        XCTAssertEqual(stored.status, .ready)
+        XCTAssertEqual(stored.path?.standardizedFileURL, final.standardizedFileURL)
+        XCTAssertEqual(stored.payloadDigest, installer.digest)
+        XCTAssertEqual(stored.version, installer.version)
+        let manifestText = try String(
+            contentsOf: tempDir.appendingPathComponent("metagenomics-db-registry.json"),
+            encoding: .utf8
+        )
+        XCTAssertFalse(manifestText.contains(".install-"))
+        XCTAssertFalse(manifestText.contains(".backup-"))
+    }
+
+    func testManifestFailureRollsBackPreparedInstallAndRestoresPriorRow() async throws {
+        let installer = RegistryInstallerSpy()
+        let writes = LockedCounter()
+        let registry = MetagenomicsDatabaseRegistry(
+            baseDirectory: tempDir,
+            databaseInstaller: installer,
+            manifestWriter: { data, url in
+                writes.increment()
+                if writes.value == 3 { throw TestManifestFailure() }
+                try data.write(to: url, options: .atomic)
+            }
+        )
+
+        do {
+            _ = try await registry.downloadDatabase(name: "SILVA", progress: { _, _ in })
+            XCTFail("Expected manifest failure")
+        } catch {}
+
+        XCTAssertEqual(installer.rolledBack.count, 1)
+        let storedValue = try await registry.database(named: "SILVA")
+        let stored = try XCTUnwrap(storedValue)
+        XCTAssertEqual(stored.status, .missing)
+        XCTAssertNil(stored.path)
+        XCTAssertNil(stored.payloadDigest)
     }
 
     func testVerifyMissingFilesReturnsCorrupt() async throws {
@@ -1299,6 +1448,83 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
         }
 
         return dbDir
+    }
+
+    private func createMockSpecialKraken2Database(name: String) -> URL {
+        let dbDir = createMockKraken2Database(name: name)
+        FileManager.default.createFile(
+            atPath: dbDir.appendingPathComponent("database150mers.kmer_distrib").path,
+            contents: Data([0x42])
+        )
+        let taxonomy = dbDir.appendingPathComponent("taxonomy", isDirectory: true)
+        let library = dbDir.appendingPathComponent("library", isDirectory: true)
+        try! FileManager.default.createDirectory(at: taxonomy, withIntermediateDirectories: true)
+        try! FileManager.default.createDirectory(at: library, withIntermediateDirectories: true)
+        FileManager.default.createFile(
+            atPath: taxonomy.appendingPathComponent("nodes.dmp").path,
+            contents: Data([0x42])
+        )
+        FileManager.default.createFile(
+            atPath: taxonomy.appendingPathComponent("names.dmp").path,
+            contents: Data([0x42])
+        )
+        FileManager.default.createFile(
+            atPath: library.appendingPathComponent("library.fna").path,
+            contents: Data([0x42])
+        )
+        return dbDir
+    }
+
+    private func writeManifest(_ databases: [MetagenomicsDatabaseInfo]) throws {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(DatabaseManifest(version: 1, databases: databases)).write(
+            to: tempDir.appendingPathComponent("metagenomics-db-registry.json"),
+            options: .atomic
+        )
+    }
+}
+
+private struct TestManifestFailure: Error {}
+
+private final class RegistryInstallerSpy: MetagenomicsDatabaseInstalling, @unchecked Sendable {
+    let digest = String(repeating: "a", count: 64)
+    let version = "built-20260812-aaaaaaaaaaaa"
+    var threads: [Int] = []
+    var finalized: [URL] = []
+    var rolledBack: [URL] = []
+    var manifestWasReadyWhenFinalized = false
+
+    func prepareInstallation(database: MetagenomicsDatabaseInfo, databasesBaseURL: URL, threads: Int, progress: @Sendable @escaping (Double, String) -> Void) async throws -> PreparedMetagenomicsDatabaseInstallation {
+        self.threads.append(threads)
+        let final = databasesBaseURL.appendingPathComponent("kraken2/kraken2-special-silva", isDirectory: true)
+        try FileManager.default.createDirectory(at: final, withIntermediateDirectories: true)
+        for file in MetagenomicsDatabaseRegistry.requiredKraken2Files {
+            try Data("new".utf8).write(to: final.appendingPathComponent(file))
+        }
+        return PreparedMetagenomicsDatabaseInstallation(
+            result: .init(finalURL: final, version: version, payloadDigest: digest, sizeOnDisk: 9),
+            stagingURL: databasesBaseURL.appendingPathComponent("kraken2/.install-spy")
+        )
+    }
+
+    func finalize(_ prepared: PreparedMetagenomicsDatabaseInstallation) throws {
+        finalized.append(prepared.result.finalURL)
+        let manifestURL = prepared.result.finalURL.deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("metagenomics-db-registry.json")
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        if let data = try? Data(contentsOf: manifestURL),
+           let manifest = try? decoder.decode(DatabaseManifest.self, from: data) {
+            manifestWasReadyWhenFinalized = manifest.databases.contains {
+                $0.name == "SILVA" && $0.status == .ready && $0.payloadDigest == digest
+            }
+        }
+    }
+
+    func rollback(_ prepared: PreparedMetagenomicsDatabaseInstallation) throws {
+        rolledBack.append(prepared.result.finalURL)
+        try? FileManager.default.removeItem(at: prepared.result.finalURL)
     }
 }
 

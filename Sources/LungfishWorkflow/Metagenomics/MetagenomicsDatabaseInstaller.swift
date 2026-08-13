@@ -362,7 +362,18 @@ public struct PreparedMetagenomicsDatabaseInstallation: Sendable {
     public let result: MetagenomicsDatabaseInstallResult
     fileprivate let stagingURL: URL
     fileprivate let backupURL: URL?
-    fileprivate init(result: MetagenomicsDatabaseInstallResult, stagingURL: URL, backupURL: URL? = nil) { self.result = result; self.stagingURL = stagingURL; self.backupURL = backupURL }
+    init(result: MetagenomicsDatabaseInstallResult, stagingURL: URL, backupURL: URL? = nil) { self.result = result; self.stagingURL = stagingURL; self.backupURL = backupURL }
+}
+
+protocol MetagenomicsDatabaseInstalling: Sendable {
+    func prepareInstallation(
+        database: MetagenomicsDatabaseInfo,
+        databasesBaseURL: URL,
+        threads: Int,
+        progress: @Sendable @escaping (Double, String) -> Void
+    ) async throws -> PreparedMetagenomicsDatabaseInstallation
+    func finalize(_ prepared: PreparedMetagenomicsDatabaseInstallation) throws
+    func rollback(_ prepared: PreparedMetagenomicsDatabaseInstallation) throws
 }
 
 public enum MetagenomicsDatabaseInstallerError: Error, Equatable, LocalizedError, Sendable {
@@ -372,6 +383,7 @@ public enum MetagenomicsDatabaseInstallerError: Error, Equatable, LocalizedError
     case invalidPayload(reason: String)
     case archiveTransferFailed(String)
     case failureReceiptDiagnostic(original: String, receipt: String)
+    case cleanupDiagnostic(path: String, reason: String)
 
     public var errorDescription: String? {
         switch self {
@@ -381,11 +393,12 @@ public enum MetagenomicsDatabaseInstallerError: Error, Equatable, LocalizedError
         case .invalidPayload(let reason): return "Prepared database payload is invalid: \(reason)"
         case .archiveTransferFailed(let message): return message
         case .failureReceiptDiagnostic(let original, let receipt): return "\(original) (also could not write installation failure receipt: \(receipt))"
+        case .cleanupDiagnostic(let path, let reason): return "The database is ready, but obsolete transaction data at '\(path)' could not be removed: \(reason)"
         }
     }
 }
 
-public struct MetagenomicsDatabaseInstaller: Sendable {
+public struct MetagenomicsDatabaseInstaller: MetagenomicsDatabaseInstalling, Sendable {
     private let toolRunner: any MetagenomicsDatabaseToolRunning
     private let archiveTransfer: any MetagenomicsDatabaseArchiveTransferring
     private let provenanceWriter: any MetagenomicsDatabaseInstallProvenanceWriting
@@ -405,6 +418,7 @@ public struct MetagenomicsDatabaseInstaller: Sendable {
         var steps: [MetagenomicsDatabaseInstallStepEvidence] = []
         var didPromoteStaging = false
         var didResolveRecipe = false
+        var backupURL: URL?
         let defaults: [String: ParameterValue] = ["threads": .integer(4), "kmerLength": .integer(35), "readLength": .integer(150)]
         let resolved: [String: ParameterValue] = ["threads": .integer(threads), "kmerLength": .integer(35), "readLength": .integer(150), "databaseRoot": .file(staging)]
         let recipeSource: String
@@ -471,20 +485,29 @@ public struct MetagenomicsDatabaseInstaller: Sendable {
             // nevertheless must target the durable final path, so stage promotion occurs
             // before the success receipt and can be undone by rollback.
             try fileSystem.createDirectory(at: finalURL.deletingLastPathComponent())
-            guard !fileSystem.fileExists(at: finalURL) else { throw MetagenomicsDatabaseInstallerError.invalidPayload(reason: "destination already exists") }
+            if fileSystem.fileExists(at: finalURL) {
+                let backup = finalURL.deletingLastPathComponent()
+                    .appendingPathComponent(".backup-\(uuid().uuidString)", isDirectory: true)
+                try fileSystem.moveItem(at: finalURL, to: backup)
+                backupURL = backup
+            }
             try fileSystem.moveItem(at: staging, to: finalURL)
             didPromoteStaging = true
             let attempt = MetagenomicsDatabaseInstallAttempt(database: database, finalURL: finalURL, recipeSource: recipeSource, explicitOptions: ["threads": .integer(threads)], defaultOptions: defaults, resolvedOptions: resolved, steps: steps, startedAt: started, completedAt: now())
             let finalSnapshot = MetagenomicsDatabasePayloadSnapshot(rootURL: staging, files: snapshot.files, aggregateSHA256: snapshot.aggregateSHA256, totalSizeBytes: snapshot.totalSizeBytes)
-            do { try provenanceWriter.writeSuccess(attempt, snapshot: finalSnapshot) } catch { try? fileSystem.removeItemIfPresent(at: finalURL); throw error }
+            try provenanceWriter.writeSuccess(attempt, snapshot: finalSnapshot)
+            try verifySuccessProvenance(at: finalURL, payloadDigest: snapshot.aggregateSHA256)
             try Task.checkCancellation()
             progress(1, "Verifying…")
             let version = "built-\(Self.dayString(started))-\(snapshot.aggregateSHA256.prefix(12))"
-            return PreparedMetagenomicsDatabaseInstallation(result: .init(finalURL: finalURL, version: version, payloadDigest: snapshot.aggregateSHA256, sizeOnDisk: Int64(clamping: snapshot.totalSizeBytes)), stagingURL: staging)
+            return PreparedMetagenomicsDatabaseInstallation(result: .init(finalURL: finalURL, version: version, payloadDigest: snapshot.aggregateSHA256, sizeOnDisk: Int64(clamping: snapshot.totalSizeBytes)), stagingURL: staging, backupURL: backupURL)
         } catch let originalError {
             try? fileSystem.removeItemIfPresent(at: staging)
             if didPromoteStaging {
                 try? fileSystem.removeItemIfPresent(at: finalURL)
+            }
+            if let backupURL, fileSystem.fileExists(at: backupURL), !fileSystem.fileExists(at: finalURL) {
+                try? fileSystem.moveItem(at: backupURL, to: finalURL)
             }
             let failure = failureRecord(for: originalError)
             if didResolveRecipe {
@@ -496,8 +519,45 @@ public struct MetagenomicsDatabaseInstaller: Sendable {
         }
     }
 
-    public func finalize(_ prepared: PreparedMetagenomicsDatabaseInstallation) throws { _ = prepared }
+    public func finalize(_ prepared: PreparedMetagenomicsDatabaseInstallation) throws {
+        guard let backup = prepared.backupURL else { return }
+        do { try fileSystem.removeItemIfPresent(at: backup) }
+        catch {
+            throw MetagenomicsDatabaseInstallerError.cleanupDiagnostic(
+                path: backup.path,
+                reason: error.localizedDescription
+            )
+        }
+    }
     public func rollback(_ prepared: PreparedMetagenomicsDatabaseInstallation) throws { try fileSystem.removeItemIfPresent(at: prepared.result.finalURL); if let backup = prepared.backupURL { try fileSystem.moveItem(at: backup, to: prepared.result.finalURL) } }
+
+    private func verifySuccessProvenance(at finalURL: URL, payloadDigest: String) throws {
+        let sidecar = finalURL.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        guard let envelope = try ProvenanceEnvelopeReader.loadCanonical(fromSidecar: sidecar) else {
+            throw MetagenomicsDatabaseInstallerError.invalidPayload(reason: "missing final provenance sidecar")
+        }
+        let durableSnapshot = try MetagenomicsDatabasePayloadDigester.snapshot(at: finalURL)
+        guard durableSnapshot.aggregateSHA256 == payloadDigest else {
+            throw MetagenomicsDatabaseInstallerError.invalidPayload(reason: "final payload digest does not match prepared payload")
+        }
+        guard envelope.exitStatus == 0,
+              envelope.options.resolvedDefaults["payloadAggregateSHA256"]?.stringValue == payloadDigest,
+              envelope.outputs.count == durableSnapshot.files.count else {
+            throw MetagenomicsDatabaseInstallerError.invalidPayload(reason: "final provenance payload digest does not match")
+        }
+        let expectedFiles = Dictionary(uniqueKeysWithValues: durableSnapshot.files.map { descriptor in
+            (
+                finalURL.appendingPathComponent(descriptor.path).standardizedFileURL.path,
+                "\(descriptor.checksumSHA256 ?? ""):\(descriptor.fileSize ?? 0)"
+            )
+        })
+        guard envelope.outputs.allSatisfy({ output in
+            expectedFiles[URL(fileURLWithPath: output.path).standardizedFileURL.path]
+                == "\(output.checksumSHA256 ?? ""):\(output.fileSize ?? 0)"
+        }) else {
+            throw MetagenomicsDatabaseInstallerError.invalidPayload(reason: "final provenance outputs do not match prepared payload")
+        }
+    }
 
     private func executableDirectory(environment: String, executable: String) async throws -> URL {
         do { return try await toolRunner.executableDirectory(environment: environment, executable: executable) }

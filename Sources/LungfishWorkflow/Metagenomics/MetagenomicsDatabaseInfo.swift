@@ -41,7 +41,7 @@ public struct MetagenomicsDatabaseInfo: Sendable, Codable, Identifiable, Equatab
     public let tool: String
 
     /// Database version or build date (e.g., "2024-09-04").
-    public let version: String?
+    public var version: String?
 
     /// Download size in bytes (compressed tarball).
     public let sizeBytes: Int64
