@@ -481,19 +481,22 @@ public actor MetagenomicsDatabaseRegistry {
     public func removeDatabase(name: String) throws {
         try loadIfNeeded()
 
-        guard databases[name] != nil else {
+        guard let existing = databases[name] else {
             throw MetagenomicsDatabaseRegistryError.databaseNotFound(name: name)
         }
 
         // If this is a catalog entry, reset to undownloaded state rather than deleting.
-        if let collection = databases[name]?.collection {
-            if let catalogEntry = MetagenomicsDatabaseInfo.catalogEntry(for: collection) {
-                endSecurityScopedAccess(for: name)
-                databases[name] = catalogEntry
-                try saveManifest()
-                logger.info("Reset catalog database '\(name, privacy: .public)' to undownloaded state")
-                return
-            }
+        let catalogEntry = existing.catalogID.flatMap {
+            MetagenomicsDatabaseInfo.catalogEntry(catalogID: $0)
+        } ?? existing.collection.flatMap {
+            MetagenomicsDatabaseInfo.catalogEntry(for: $0)
+        }
+        if let catalogEntry {
+            endSecurityScopedAccess(for: name)
+            databases[name] = catalogEntry
+            try saveManifest()
+            logger.info("Reset catalog database '\(name, privacy: .public)' to undownloaded state")
+            return
         }
 
         endSecurityScopedAccess(for: name)

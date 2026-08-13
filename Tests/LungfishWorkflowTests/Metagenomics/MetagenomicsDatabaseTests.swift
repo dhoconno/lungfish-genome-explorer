@@ -732,6 +732,30 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
         XCTAssertFalse(viral?.isDownloaded ?? true)
     }
 
+    func testRemoveSpecialCatalogDatabasesResetsToCatalogState() async throws {
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
+        let specialCatalogIDs = ["kraken2-special-silva", "kraken2-special-greengenes"]
+
+        for catalogID in specialCatalogIDs {
+            let catalogEntry = try XCTUnwrap(
+                MetagenomicsDatabaseInfo.catalogEntry(catalogID: catalogID)
+            )
+            let dbDir = createMockKraken2Database(name: catalogID)
+            let registered = try await registry.registerExisting(at: dbDir, name: catalogEntry.name)
+            XCTAssertEqual(registered.status, .ready)
+            XCTAssertNotNil(registered.path)
+
+            try await registry.removeDatabase(name: catalogEntry.name)
+
+            let stored = try await registry.database(named: catalogEntry.name)
+            let reset = try XCTUnwrap(stored)
+            XCTAssertEqual(reset.status, .missing)
+            XCTAssertNil(reset.path)
+            XCTAssertEqual(reset.catalogID, catalogID)
+            XCTAssertEqual(reset.installationRecipe, catalogEntry.installationRecipe)
+        }
+    }
+
     func testDatabaseNotFoundError() async throws {
         let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
         _ = try await registry.availableDatabases()
