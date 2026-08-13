@@ -11,6 +11,34 @@ import os.log
 private let mappingDisplayLogger = Logger(subsystem: LogSubsystem.app, category: "ViewerMapping")
 
 extension ViewerViewController {
+    /// Starts a selected-region action exclusively from immutable full-viewer
+    /// evidence; missing evidence/selection is reported instead of ignored.
+    func extractReadsInSelectedAlignmentRegion() {
+        guard let context = alignmentActionContext else {
+            presentExtractionFailureAlert(title: "Extract Selected Region Failed", message: AlignmentScientificActionError.contextUnavailable.localizedDescription)
+            return
+        }
+        guard let selection = explicitAlignmentSelection else {
+            presentExtractionFailureAlert(title: "Extract Selected Region Failed", message: "Select a non-empty region first.")
+            return
+        }
+        let region = ResolvedAlignmentRegion(scope: .selectedRegion, contig: selection.contig, start: selection.start, end: selection.end)
+        let outputDirectory: URL
+        switch context.outputCapability {
+        case .projectDerivedRoot(let root):
+            outputDirectory = root.appendingPathComponent("alignment-read-extractions", isDirectory: true)
+        case .userSelectedDestination:
+            presentExtractionFailureAlert(title: "Extract Selected Region Failed", message: "Choose an output destination before extracting reads.")
+            return
+        }
+        Task { [weak self] in
+            do {
+                _ = try await AlignmentScientificActionCoordinator().extractRegion(context: context, region: region, outputDirectory: outputDirectory, outputBaseName: "selected-region")
+            } catch {
+                self?.presentExtractionFailureAlert(title: "Extract Selected Region Failed", message: error.localizedDescription)
+            }
+        }
+    }
     func display(_ route: ViewerDisplayRoute) throws {
         switch route {
         case .referenceBundle(let input):

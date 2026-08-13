@@ -710,6 +710,15 @@ extension SequenceViewerView {
         menu.addItem(copyItem)
 
         addSelectionExtractionMenuItems(to: menu)
+        if viewController?.explicitAlignmentSelection != nil {
+            let extractReads = NSMenuItem(
+                title: "Extract Reads in Selected Region…",
+                action: #selector(extractReadsInSelectedAlignmentRegion(_:)),
+                keyEquivalent: ""
+            )
+            extractReads.target = self
+            menu.addItem(extractReads)
+        }
         menu.addItem(NSMenuItem.separator())
         addCenterViewMenuItem(to: menu)
 
@@ -718,6 +727,10 @@ extension SequenceViewerView {
             zoomItem.target = self
             menu.addItem(zoomItem)
         }
+    }
+
+    @objc private func extractReadsInSelectedAlignmentRegion(_ sender: NSMenuItem?) {
+        viewController?.extractReadsInSelectedAlignmentRegion()
     }
 
     private func normalizeContextMenuSeparators(in menu: NSMenu) {
