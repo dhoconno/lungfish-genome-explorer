@@ -61,6 +61,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     public var checkForUpdatesHandler: ((Any?) -> Void)?
     public var canCheckForUpdatesHandler: (() -> Bool)?
 
+#if DEBUG
+    /// Deterministic input seam for exercising the real Go to Location menu
+    /// action without presenting an AppKit sheet in tests.
+    var goToPositionInputForTesting: String?
+#endif
+
     /// AI assistant service (lazy singleton), hosted inside Inspector.
     internal var aiAssistantService: AIAssistantService?
     internal var helpWindowController: HelpWindowController?

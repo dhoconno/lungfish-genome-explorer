@@ -34,40 +34,144 @@ final class ActiveAlignmentViewerRoutingTests: XCTestCase {
         XCTAssertTrue(split.activeFullSequenceViewerController === root)
     }
 
-    func testActiveFullSequenceViewerActionsMutateOnlyResolvedViewer() {
-        let split = MainSplitViewController()
+    func testAppDelegateMenuValidationAndDispatchUseResolvedEmbeddedViewer() throws {
+        let windowController = MainWindowController()
+        defer { windowController.close() }
+        let split = windowController.mainSplitViewController!
         _ = split.view
         let root = split.viewerController!
-        root.referenceFrame = frame(start: 5, end: 15)
+        root.referenceFrame = frame(start: 50, end: 150)
 
         let embedded = ReferenceBundleViewportController()
         _ = embedded.view
-        embedded.activeSequenceViewerController.referenceFrame = frame(start: 20, end: 30)
+        let target = embedded.activeSequenceViewerController
+        target.referenceFrame = frame(start: 2_000, end: 6_000)
         root.referenceBundleViewportController = embedded
 
-        let target = try! XCTUnwrap(split.activeFullSequenceViewerController)
-        target.zoomToFit()
+        let delegate = AppDelegate()
+        delegate.mainWindowController = windowController
+        windowController.window?.makeKeyAndOrderFront(nil)
+
+        for action in [
+            #selector(AppDelegate.zoomIn(_:)),
+            #selector(AppDelegate.zoomOut(_:)),
+            #selector(AppDelegate.zoomToFit(_:)),
+            #selector(AppDelegate.zoomReset(_:)),
+            #selector(AppDelegate.goToPosition(_:)),
+        ] {
+            let item = NSMenuItem(title: "Test", action: action, keyEquivalent: "")
+            XCTAssertTrue(delegate.validateMenuItem(item), NSStringFromSelector(action))
+        }
+
+        delegate.zoomToFit(split.view)
         XCTAssertEqual(target.referenceFrame?.start, 0)
-        XCTAssertEqual(target.referenceFrame?.end, 40)
-        XCTAssertEqual(root.referenceFrame?.start, 5)
-        XCTAssertEqual(root.referenceFrame?.end, 15)
+        XCTAssertEqual(target.referenceFrame?.end, 20_000)
 
-        target.zoomIn()
-        XCTAssertEqual(target.referenceFrame?.start, 10)
-        XCTAssertEqual(target.referenceFrame?.end, 30)
+        target.referenceFrame = frame(start: 2_000, end: 6_000)
+        windowController.zoomIn(nil)
+        XCTAssertEqual(target.referenceFrame?.start, 3_000)
+        XCTAssertEqual(target.referenceFrame?.end, 5_000)
 
-        target.zoomOut()
-        target.zoomReset()
-        target.setExplicitAlignmentSelection(contig: "chr1", start: 11, end: 19)
-        target.zoomToSelectedRegion()
+        target.referenceFrame = frame(start: 3_000, end: 5_000)
+        delegate.zoomOut(split.view)
+        XCTAssertEqual(target.referenceFrame?.start, 2_000)
+        XCTAssertEqual(target.referenceFrame?.end, 6_000)
 
+        target.referenceFrame = frame(start: 4_000, end: 8_000)
+        delegate.zoomReset(split.view)
+        XCTAssertEqual(target.referenceFrame?.start, 1_000)
+        XCTAssertEqual(target.referenceFrame?.end, 11_000)
+
+        delegate.goToPositionInputForTesting = "chr1:120-180"
+        delegate.goToPosition(split.view)
+        XCTAssertEqual(target.referenceFrame?.start, 119)
+        XCTAssertEqual(target.referenceFrame?.end, 180)
+
+        target.viewerView.testSetUserSelectionRange(11..<19)
+        target.referenceFrame = frame(start: 119, end: 180)
+        let menu = target.viewerView.testBuildContextMenu(for: .sequence, genomicPosition: 12)
+        let zoomItem = try XCTUnwrap(menu.items.first { $0.title == "Zoom to Selected Region" })
+        XCTAssertTrue(NSApp.sendAction(try XCTUnwrap(zoomItem.action), to: zoomItem.target, from: zoomItem))
         XCTAssertEqual(target.referenceFrame?.start, 11)
         XCTAssertEqual(target.referenceFrame?.end, 19)
-        XCTAssertEqual(root.referenceFrame?.start, 5)
-        XCTAssertEqual(root.referenceFrame?.end, 15)
+
+        XCTAssertEqual(root.referenceFrame?.start, 50)
+        XCTAssertEqual(root.referenceFrame?.end, 150)
+    }
+
+    func testAppDelegateAndMainWindowDispatchUseAvailableDetachedViewerAheadOfEmbeddedViewer() throws {
+        let windowController = MainWindowController()
+        defer { windowController.close() }
+        let split = windowController.mainSplitViewController!
+        _ = split.view
+        let root = split.viewerController!
+        root.referenceFrame = frame(start: 50, end: 150)
+
+        let embedded = ReferenceBundleViewportController()
+        _ = embedded.view
+        embedded.activeSequenceViewerController.referenceFrame = frame(start: 200, end: 400)
+        root.referenceBundleViewportController = embedded
+
+        let detached = ClassifierAlignmentEvidenceViewportController()
+        _ = detached.viewController.view
+        detached.viewer.referenceFrame = frame(start: 2_000, end: 6_000)
+        detached.testSetAvailability(.available(reference: .notProvided, reason: nil))
+        split.classifierAlignmentEvidenceViewport = detached
+
+        let delegate = AppDelegate()
+        delegate.mainWindowController = windowController
+        windowController.window?.makeKeyAndOrderFront(nil)
+
+        for action in [
+            #selector(AppDelegate.zoomIn(_:)),
+            #selector(AppDelegate.zoomOut(_:)),
+            #selector(AppDelegate.zoomToFit(_:)),
+            #selector(AppDelegate.zoomReset(_:)),
+            #selector(AppDelegate.goToPosition(_:)),
+        ] {
+            let item = NSMenuItem(title: "Test", action: action, keyEquivalent: "")
+            XCTAssertTrue(delegate.validateMenuItem(item), NSStringFromSelector(action))
+        }
+
+        windowController.zoomToFit(nil)
+        XCTAssertEqual(detached.viewer.referenceFrame?.start, 0)
+        XCTAssertEqual(detached.viewer.referenceFrame?.end, 20_000)
+
+        detached.viewer.referenceFrame = frame(start: 2_000, end: 6_000)
+        windowController.zoomIn(nil)
+        XCTAssertEqual(detached.viewer.referenceFrame?.start, 3_000)
+        XCTAssertEqual(detached.viewer.referenceFrame?.end, 5_000)
+
+        detached.viewer.referenceFrame = frame(start: 3_000, end: 5_000)
+        windowController.zoomOut(nil)
+        XCTAssertEqual(detached.viewer.referenceFrame?.start, 2_000)
+        XCTAssertEqual(detached.viewer.referenceFrame?.end, 6_000)
+
+        detached.viewer.referenceFrame = frame(start: 4_000, end: 8_000)
+        delegate.zoomReset(split.view)
+        XCTAssertEqual(detached.viewer.referenceFrame?.start, 1_000)
+        XCTAssertEqual(detached.viewer.referenceFrame?.end, 11_000)
+
+        delegate.goToPositionInputForTesting = "chr1:300-350"
+        delegate.goToPosition(split.view)
+        XCTAssertEqual(detached.viewer.referenceFrame?.start, 299)
+        XCTAssertEqual(detached.viewer.referenceFrame?.end, 350)
+
+        detached.viewer.viewerView.testSetUserSelectionRange(21..<29)
+        detached.viewer.referenceFrame = frame(start: 299, end: 350)
+        let menu = detached.viewer.viewerView.testBuildContextMenu(for: .sequence, genomicPosition: 24)
+        let zoomItem = try XCTUnwrap(menu.items.first { $0.title == "Zoom to Selected Region" })
+        XCTAssertTrue(NSApp.sendAction(try XCTUnwrap(zoomItem.action), to: zoomItem.target, from: zoomItem))
+        XCTAssertEqual(detached.viewer.referenceFrame?.start, 21)
+        XCTAssertEqual(detached.viewer.referenceFrame?.end, 29)
+
+        XCTAssertEqual(embedded.activeSequenceViewerController.referenceFrame?.start, 200)
+        XCTAssertEqual(embedded.activeSequenceViewerController.referenceFrame?.end, 400)
+        XCTAssertEqual(root.referenceFrame?.start, 50)
+        XCTAssertEqual(root.referenceFrame?.end, 150)
     }
 
     private func frame(start: Double, end: Double) -> ReferenceFrame {
-        ReferenceFrame(chromosome: "chr1", start: start, end: end, pixelWidth: 800, sequenceLength: 40)
+        ReferenceFrame(chromosome: "chr1", start: start, end: end, pixelWidth: 800, sequenceLength: 20_000)
     }
 }

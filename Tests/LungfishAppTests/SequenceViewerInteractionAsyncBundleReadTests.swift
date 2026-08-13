@@ -225,6 +225,37 @@ final class SequenceViewerInteractionAsyncBundleReadTests: XCTestCase {
         XCTAssertEqual(viewerController.referenceFrame?.end, 19)
     }
 
+    func testZoomToSelectedContextActionRequiresExplicitSelection() throws {
+        let viewerController = ViewerViewController()
+        viewerController.loadView()
+        viewerController.referenceFrame = ReferenceFrame(
+            chromosome: "chr1", start: 5, end: 15, pixelWidth: 400, sequenceLength: 40
+        )
+
+        viewerController.viewerView.selectVisibleRegion()
+        let visibleRangeMenu = viewerController.viewerView.testBuildContextMenu(
+            for: .sequence,
+            genomicPosition: 9
+        )
+
+        XCTAssertNil(
+            visibleRangeMenu.items.first { $0.title == "Zoom to Selected Region" },
+            "A visible-range fallback must not expose an action that requires an explicit selection"
+        )
+
+        viewerController.viewerView.testSetUserSelectionRange(8..<19)
+        let explicitRangeMenu = viewerController.viewerView.testBuildContextMenu(
+            for: .sequence,
+            genomicPosition: 9
+        )
+        let zoomItem = try XCTUnwrap(
+            explicitRangeMenu.items.first { $0.title == "Zoom to Selected Region" }
+        )
+
+        XCTAssertEqual(zoomItem.action, #selector(SequenceViewerView.zoomToSelectionAction(_:)))
+        XCTAssertTrue(zoomItem.target === viewerController.viewerView)
+    }
+
     // MARK: - Generation guard (stale fetch cannot commit after a newer request begins)
     //
     // Controlled-ordering regression tests in the style of

@@ -50,6 +50,19 @@ extension AppDelegate {
             return
         }
 
+#if DEBUG
+        if let input = goToPositionInputForTesting {
+            let result = parseAndNavigate(input: input, viewerController: viewerController)
+            if !result.success {
+                showAlert(
+                    title: "Navigation Error",
+                    message: result.errorMessage ?? "Failed to navigate to the specified position."
+                )
+            }
+            return
+        }
+#endif
+
         // Show go-to-position dialog
         let alert = NSAlert()
         alert.messageText = "Go to Location"

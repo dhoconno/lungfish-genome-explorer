@@ -713,9 +713,11 @@ extension SequenceViewerView {
         menu.addItem(NSMenuItem.separator())
         addCenterViewMenuItem(to: menu)
 
-        let zoomItem = NSMenuItem(title: "Zoom to Selected Region", action: #selector(zoomToSelectionAction(_:)), keyEquivalent: "")
-        zoomItem.target = self
-        menu.addItem(zoomItem)
+        if viewController?.explicitAlignmentSelection != nil {
+            let zoomItem = NSMenuItem(title: "Zoom to Selected Region", action: #selector(zoomToSelectionAction(_:)), keyEquivalent: "")
+            zoomItem.target = self
+            menu.addItem(zoomItem)
+        }
     }
 
     private func normalizeContextMenuSeparators(in menu: NSMenu) {
