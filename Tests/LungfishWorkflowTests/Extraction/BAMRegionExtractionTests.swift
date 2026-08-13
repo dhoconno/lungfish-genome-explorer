@@ -212,7 +212,7 @@ final class BAMRegionExtractionTests: XCTestCase {
                     let patternURL = URL(fileURLWithPath: arguments[arguments.firstIndex(of: "-f")! + 1])
                     XCTAssertEqual(
                         try String(contentsOf: patternURL, encoding: .utf8),
-                        "^selected(?:/[12])?$"
+                        "^selected(/[12])?$"
                     )
                     let output = URL(fileURLWithPath: arguments[arguments.firstIndex(of: "-o")! + 1])
                     try "@selected\nACGT\n+\n!!!!\n".write(to: output, atomically: true, encoding: .utf8)
@@ -254,6 +254,50 @@ final class BAMRegionExtractionTests: XCTestCase {
         XCTAssertEqual(transaction.executionRecords[0].visibleOptions["keepReadPairs"], .boolean(true))
         XCTAssertEqual(transaction.executionRecords[0].resolvedDefaults["sourcePreference"], .string("retained-source-fastq"))
         transaction.cleanup()
+    }
+
+    /// Exercises seqkit's real RE2 parser so mate-retention patterns cannot
+    /// silently drift to unsupported regular-expression syntax.
+    func testSourceFASTQStagerKeepsBothMatesWithManagedSeqkit() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("alignment-source-seqkit-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let sourceR1 = root.appendingPathComponent("source_R1.fastq")
+        let sourceR2 = root.appendingPathComponent("source_R2.fastq")
+        try "@selected/1\nACGT\n+\n!!!!\n@other/1\nAAAA\n+\n!!!!\n"
+            .write(to: sourceR1, atomically: true, encoding: .utf8)
+        try "@selected/2\nTGCA\n+\n!!!!\n@other/2\nCCCC\n+\n!!!!\n"
+            .write(to: sourceR2, atomically: true, encoding: .utf8)
+
+        let transaction = try await AlignmentReadExtractionStager().stageReadIDsFromSourceFASTQs(
+            config: .init(
+                sourceFASTQs: [sourceR1, sourceR2],
+                readIDs: ["selected/1"],
+                keepReadPairs: true,
+                outputDirectory: root.appendingPathComponent("caller-output", isDirectory: true),
+                outputBaseName: "selected"
+            )
+        )
+        defer { transaction.cleanup() }
+
+        XCTAssertEqual(transaction.readCount, 1)
+        XCTAssertEqual(transaction.stagedFiles.count, 2)
+        let runner = NativeToolRunner.shared
+        let r1Names = try await runner.run(
+            .seqkit,
+            arguments: ["seq", "-n", transaction.stagedFiles[0].stagedURL.path]
+        )
+        let r2Names = try await runner.run(
+            .seqkit,
+            arguments: ["seq", "-n", transaction.stagedFiles[1].stagedURL.path]
+        )
+        XCTAssertTrue(r1Names.isSuccess, r1Names.stderr)
+        XCTAssertTrue(r2Names.isSuccess, r2Names.stderr)
+        XCTAssertEqual(r1Names.stdout.trimmingCharacters(in: .whitespacesAndNewlines), "selected/1")
+        XCTAssertEqual(r2Names.stdout.trimmingCharacters(in: .whitespacesAndNewlines), "selected/2")
     }
 
     /// QNAME staging is the evidence-preserving fallback when no retained

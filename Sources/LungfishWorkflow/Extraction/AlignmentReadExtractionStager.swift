@@ -730,7 +730,7 @@ public final class AlignmentReadExtractionStager: @unchecked Sendable {
         } else {
             baseID = readID
         }
-        return "^\(NSRegularExpression.escapedPattern(for: baseID))(?:/[12])?$"
+        return "^\(NSRegularExpression.escapedPattern(for: baseID))(/[12])?$"
     }
 
     private func descriptors(
