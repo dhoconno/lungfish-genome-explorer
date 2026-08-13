@@ -39,7 +39,12 @@ public extension MetagenomicsDatabaseToolRunning {
 
 public protocol MetagenomicsDatabaseArchiveTransferring: Sendable {
     func download(from source: URL, progress: @Sendable @escaping (Double) -> Void) async throws -> URL
+    func extractionToolVersion() async throws -> String
     func extract(archive: URL, destination: URL) async throws -> MetagenomicsDatabaseToolResult
+}
+
+public extension MetagenomicsDatabaseArchiveTransferring {
+    func extractionToolVersion() async throws -> String { "unavailable" }
 }
 
 public protocol MetagenomicsDatabaseFileSystem: Sendable {
@@ -171,6 +176,10 @@ public struct URLSessionTarDatabaseArchiveTransfer: MetagenomicsDatabaseArchiveT
         }.value
     }
 
+    public func extractionToolVersion() async throws -> String {
+        try Self.normalizedTarVersion(await tarVersion())
+    }
+
     static func normalizedTarVersion(_ text: String) throws -> String {
         let tokens = text.split(whereSeparator: { $0.isWhitespace })
         guard tokens.count >= 2 else {
@@ -208,7 +217,7 @@ public struct URLSessionTarDatabaseArchiveTransfer: MetagenomicsDatabaseArchiveT
     public func extract(archive: URL, destination: URL) async throws -> MetagenomicsDatabaseToolResult {
         try Task.checkCancellation()
         let started = Date()
-        let resolvedTarVersion = try Self.normalizedTarVersion(await tarVersion())
+        let resolvedTarVersion = try await extractionToolVersion()
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
         process.arguments = ["xzf", archive.path, "-C", destination.path]
@@ -390,6 +399,7 @@ public struct MetagenomicsDatabaseInstaller: Sendable {
         let staging = finalURL.deletingLastPathComponent().appendingPathComponent(".install-\(uuid().uuidString)", isDirectory: true)
         var steps: [MetagenomicsDatabaseInstallStepEvidence] = []
         var didPromoteStaging = false
+        var didResolveRecipe = false
         let defaults: [String: ParameterValue] = ["threads": .integer(4), "kmerLength": .integer(35), "readLength": .integer(150)]
         let resolved: [String: ParameterValue] = ["threads": .integer(threads), "kmerLength": .integer(35), "readLength": .integer(150), "databaseRoot": .file(staging)]
         let recipeSource: String
@@ -397,6 +407,7 @@ public struct MetagenomicsDatabaseInstaller: Sendable {
             try Task.checkCancellation()
             try fileSystem.createDirectory(at: staging)
             guard let recipe = database.installationRecipe else { throw MetagenomicsDatabaseInstallerError.missingRecipe }
+            didResolveRecipe = true
             switch recipe {
             case .archive(let source):
                 recipeSource = source.absoluteString
@@ -405,8 +416,17 @@ public struct MetagenomicsDatabaseInstaller: Sendable {
                 try Task.checkCancellation()
                 let descriptor = try ProvenanceFileDescriptor.file(url: archive, role: .input)
                 progress(0.4, "Preparing…")
+                let extractionVersion = try await archiveTransfer.extractionToolVersion()
+                steps.append(plannedArchiveEvidence(
+                    archive: archive,
+                    destination: staging,
+                    toolVersion: extractionVersion,
+                    inputs: [descriptor],
+                    options: resolved,
+                    startedAt: now()
+                ))
                 let extraction = try await archiveTransfer.extract(archive: archive, destination: staging)
-                steps.append(evidence(from: extraction, toolName: "tar", inputs: [descriptor], options: resolved))
+                steps[steps.count - 1] = evidence(from: extraction, toolName: "tar", inputs: [descriptor], options: resolved)
                 try throwOnFailure(extraction, tool: "tar")
             case .kraken2Special(let type):
                 recipeSource = type.rawValue
@@ -461,7 +481,7 @@ public struct MetagenomicsDatabaseInstaller: Sendable {
                 try? fileSystem.removeItemIfPresent(at: finalURL)
             }
             let failure = failureRecord(for: originalError)
-            if !steps.isEmpty {
+            if didResolveRecipe {
                 let attempt = MetagenomicsDatabaseInstallAttempt(database: database, finalURL: finalURL, recipeSource: database.installationRecipe.map(Self.recipeSource) ?? "unknown", explicitOptions: ["threads": .integer(threads)], defaultOptions: defaults, resolvedOptions: resolved, steps: steps, startedAt: started, completedAt: now())
                 do { try provenanceWriter.writeFailure(attempt, error: failure, historyDirectory: databasesBaseURL.appendingPathComponent("installation-history", isDirectory: true)) }
                 catch let receiptError { throw MetagenomicsDatabaseInstallerError.failureReceiptDiagnostic(original: originalError.localizedDescription, receipt: receiptError.localizedDescription) }
@@ -493,6 +513,16 @@ public struct MetagenomicsDatabaseInstaller: Sendable {
             ),
             inputs: [], outputs: [], exitStatus: 130, startedAt: startedAt, completedAt: startedAt,
             stderr: ""
+        )
+    }
+    private func plannedArchiveEvidence(archive: URL, destination: URL, toolVersion: String, inputs: [ProvenanceFileDescriptor], options: [String: ParameterValue], startedAt: Date) -> MetagenomicsDatabaseInstallStepEvidence {
+        let argv = ["/usr/bin/tar", "xzf", archive.path, "-C", destination.path]
+        return .init(
+            toolName: "tar", toolVersion: toolVersion, argv: argv, durableReplayArgv: argv,
+            resolvedOptions: options,
+            runtimeIdentity: .init(executablePath: "/usr/bin/tar"),
+            inputs: inputs, outputs: [], exitStatus: 130,
+            startedAt: startedAt, completedAt: startedAt, stderr: ""
         )
     }
     private func throwOnFailure(_ result: MetagenomicsDatabaseToolResult, tool: String) throws { if result.exitStatus != 0 { throw MetagenomicsDatabaseInstallerError.toolFailed(tool: tool, exitStatus: result.exitStatus, stderr: Self.bounded(result.stderr)) } }

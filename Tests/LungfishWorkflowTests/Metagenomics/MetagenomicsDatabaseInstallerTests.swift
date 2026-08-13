@@ -100,6 +100,38 @@ struct MetagenomicsDatabaseInstallerTests {
         #expect(prepared.result.payloadDigest.isEmpty == false)
     }
 
+    @Test("archive extraction failures retain planned tar evidence and write an output-free receipt")
+    func archiveExtractionFailureWritesReceipt() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let archive = fixture.root.appendingPathComponent("fixture.tar.gz")
+        try Data("archive payload".utf8).write(to: archive)
+        let transfer = FixtureArchiveTransfer(
+            archive: archive,
+            extractionError: FixtureError.transfer
+        )
+
+        await #expect(throws: FixtureError.transfer) {
+            _ = try await fixture.installer(
+                tools: FixtureToolRunner(),
+                transfer: transfer
+            ).prepareInstallation(
+                database: fixture.database(recipe: .archive(url: URL(string: "https://example.test/db.tar.gz")!)),
+                databasesBaseURL: fixture.root,
+                threads: 4,
+                progress: { _, _ in }
+            )
+        }
+
+        let failure = try #require(fixture.writer.failures.only)
+        let tar = try #require(failure.attempt.steps.only)
+        #expect(tar.toolName == "tar")
+        #expect(tar.toolVersion == "bsdtar fixture")
+        #expect(tar.argv.first == "/usr/bin/tar")
+        #expect(tar.outputs.isEmpty)
+        #expect(failure.error.provenanceExitStatus != 0)
+    }
+
     @Test("a pre-existing destination survives an installer failure before promotion")
     func existingDestinationSurvivesFailureBeforePromotion() async throws {
         let fixture = try Fixture()
@@ -445,11 +477,20 @@ private final class FixtureToolRunner: MetagenomicsDatabaseToolRunning, @uncheck
 private final class FixtureArchiveTransfer: MetagenomicsDatabaseArchiveTransferring, @unchecked Sendable {
     let archive: URL?
     let onExtract: ((URL) throws -> Void)?
+    let extractionError: Error?
     var downloaded = false
     var extracted = false
-    init(archive: URL? = nil, onExtract: ((URL) throws -> Void)? = nil) { self.archive = archive; self.onExtract = onExtract }
+    init(archive: URL? = nil, onExtract: ((URL) throws -> Void)? = nil, extractionError: Error? = nil) {
+        self.archive = archive; self.onExtract = onExtract; self.extractionError = extractionError
+    }
+    func extractionToolVersion() async throws -> String { "bsdtar fixture" }
     func download(from source: URL, progress: @Sendable @escaping (Double) -> Void) async throws -> URL { downloaded = true; progress(1); return try #require(archive) }
-    func extract(archive: URL, destination: URL) async throws -> MetagenomicsDatabaseToolResult { extracted = true; try onExtract?(destination); return .init(stdout: "", stderr: "", exitStatus: 0, argv: ["/usr/bin/tar"], runtimeIdentity: .fixture(executablePath: "/usr/bin/tar"), toolVersion: "bsdtar", startedAt: .now, completedAt: .now) }
+    func extract(archive: URL, destination: URL) async throws -> MetagenomicsDatabaseToolResult {
+        extracted = true
+        if let extractionError { throw extractionError }
+        try onExtract?(destination)
+        return .init(stdout: "", stderr: "", exitStatus: 0, argv: ["/usr/bin/tar"], runtimeIdentity: .fixture(executablePath: "/usr/bin/tar"), toolVersion: "bsdtar fixture", startedAt: .now, completedAt: .now)
+    }
 }
 
 private final class FixtureProvenanceWriter: MetagenomicsDatabaseInstallProvenanceWriting, @unchecked Sendable {
@@ -472,6 +513,10 @@ private final class FixtureProvenanceWriter: MetagenomicsDatabaseInstallProvenan
 }
 
 private enum FixtureError: Error, LocalizedError {
-    case missing, provenance, receipt
+    case missing, provenance, receipt, transfer
     var errorDescription: String? { self == .receipt ? "receipt fixture failure" : nil }
+}
+
+private extension Array {
+    var only: Element? { count == 1 ? first : nil }
 }
