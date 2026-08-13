@@ -261,6 +261,9 @@ public actor ClassificationPipeline {
             name: runBracken ? "Metagenomics Profiling" : "Metagenomics Classification",
             parameters: [
                 "database": .string(effectiveConfig.databaseName),
+                "databaseVersion": .string(effectiveConfig.databaseVersion),
+                "databasePath": .file(effectiveConfig.databasePath.standardizedFileURL),
+                "databaseDigest": effectiveConfig.databaseDigest.map(ParameterValue.string) ?? .null,
                 "confidence": .number(effectiveConfig.confidence),
                 "minimumHitGroups": .integer(effectiveConfig.minimumHitGroups),
                 "threads": .integer(effectiveConfig.threads),

@@ -35,6 +35,10 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
         let provenance = try XCTUnwrap(ProvenanceRecorder.load(from: config.outputDirectory))
         XCTAssertEqual(provenance.name, "Metagenomics Classification")
         XCTAssertEqual(provenance.status, .completed)
+        XCTAssertEqual(provenance.parameters["database"]?.stringValue, config.databaseName)
+        XCTAssertEqual(provenance.parameters["databaseVersion"]?.stringValue, config.databaseVersion)
+        XCTAssertEqual(provenance.parameters["databasePath"]?.fileValue, config.databasePath.standardizedFileURL)
+        XCTAssertEqual(provenance.parameters["databaseDigest"]?.stringValue, config.databaseDigest)
         let krakenStep = try XCTUnwrap(provenance.steps.first { $0.toolName == "kraken2" })
         let gzipStep = try XCTUnwrap(provenance.steps.first { $0.toolName == "gzip" })
         let sidecarURL = config.outputDirectory.appendingPathComponent(ClassificationResult.sidecarFilename)
@@ -192,7 +196,9 @@ private struct FakeClassificationCondaFixture {
             inputFiles: [readsURL],
             isPairedEnd: false,
             databaseName: "FixtureDB",
+            databaseVersion: "fixture-v1",
             databasePath: dbURL,
+            databaseDigest: "sha256:fixture-db",
             outputDirectory: root.appendingPathComponent("output", isDirectory: true)
         )
     }

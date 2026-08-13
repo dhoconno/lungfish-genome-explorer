@@ -112,6 +112,59 @@ final class ClassificationConfigTests: XCTestCase {
         XCTAssertEqual(config.provenanceInputFileFormat, .fasta)
     }
 
+    func testClassificationConfigCarriesDatabaseDigestAndLegacyJSONDefaultsToNil() throws {
+        let dbDir = try makeFakeDatabaseDirectory()
+        let fastq = try makeFakeFastqFile()
+        let outputDir = try makeOutputDirectory()
+        let config = ClassificationConfig(
+            inputFiles: [fastq],
+            isPairedEnd: false,
+            databaseName: "SILVA",
+            databaseVersion: "kraken2-special-v1",
+            databasePath: dbDir,
+            databaseDigest: "sha256:silva-fixture",
+            outputDirectory: outputDir
+        )
+
+        XCTAssertEqual(config.databaseDigest, "sha256:silva-fixture")
+
+        var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(config)) as? [String: Any])
+        legacy.removeValue(forKey: "databaseDigest")
+        let decoded = try JSONDecoder().decode(
+            ClassificationConfig.self,
+            from: JSONSerialization.data(withJSONObject: legacy)
+        )
+        XCTAssertNil(decoded.databaseDigest)
+    }
+
+    func testPresetCarriesDatabaseDigestWithoutChangingKrakenArguments() throws {
+        let dbDir = try makeFakeDatabaseDirectory()
+        let fastq = try makeFakeFastqFile()
+        let outputDir = try makeOutputDirectory()
+        let baseline = ClassificationConfig.fromPreset(
+            .balanced,
+            inputFiles: [fastq],
+            isPairedEnd: false,
+            databaseName: "Greengenes",
+            databaseVersion: "kraken2-special-v1",
+            databasePath: dbDir,
+            outputDirectory: outputDir
+        )
+        let identified = ClassificationConfig.fromPreset(
+            .balanced,
+            inputFiles: [fastq],
+            isPairedEnd: false,
+            databaseName: "Greengenes",
+            databaseVersion: "kraken2-special-v1",
+            databasePath: dbDir,
+            databaseDigest: "sha256:greengenes-fixture",
+            outputDirectory: outputDir
+        )
+
+        XCTAssertEqual(identified.databaseDigest, "sha256:greengenes-fixture")
+        XCTAssertEqual(identified.kraken2Arguments(), baseline.kraken2Arguments())
+    }
+
     // MARK: - Presets
 
     func testClassificationConfigPresetSensitive() throws {

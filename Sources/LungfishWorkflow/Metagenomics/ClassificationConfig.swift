@@ -109,6 +109,12 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
     /// Resolved filesystem path to the Kraken2 database directory.
     public let databasePath: URL
 
+    /// Aggregate payload digest recorded by the database installation workflow.
+    ///
+    /// Classification treats this as immutable installation identity and never
+    /// re-hashes the potentially multi-gigabyte database payload.
+    public let databaseDigest: String?
+
     // MARK: - Kraken2 Parameters
 
     /// Confidence threshold for Kraken2 classification (0.0 to 1.0).
@@ -176,6 +182,7 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
         inputFormat: SequenceFormat = .fastq,
         databaseVersion: String = "",
         databasePath: URL,
+        databaseDigest: String? = nil,
         confidence: Double = 0.0,
         minimumHitGroups: Int = 2,
         threads: Int = 4,
@@ -191,6 +198,7 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
         self.databaseName = databaseName
         self.databaseVersion = databaseVersion
         self.databasePath = databasePath
+        self.databaseDigest = databaseDigest
         self.confidence = confidence
         self.minimumHitGroups = minimumHitGroups
         self.threads = threads
@@ -240,6 +248,7 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
         inputFormat: SequenceFormat = .fastq,
         databaseVersion: String = "",
         databasePath: URL,
+        databaseDigest: String? = nil,
         threads: Int = 4,
         memoryMapping: Bool = false,
         quickMode: Bool = false,
@@ -255,6 +264,7 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
             inputFormat: inputFormat,
             databaseVersion: databaseVersion,
             databasePath: databasePath,
+            databaseDigest: databaseDigest,
             confidence: confidence,
             minimumHitGroups: minHitGroups,
             threads: threads,
@@ -443,6 +453,7 @@ extension ClassificationConfig {
         case databaseName
         case databaseVersion
         case databasePath
+        case databaseDigest
         case confidence
         case minimumHitGroups
         case threads
@@ -461,6 +472,7 @@ extension ClassificationConfig {
         let databaseName = try container.decode(String.self, forKey: .databaseName)
         let databaseVersion = try container.decodeIfPresent(String.self, forKey: .databaseVersion) ?? ""
         let databasePath = try container.decode(URL.self, forKey: .databasePath)
+        let databaseDigest = try container.decodeIfPresent(String.self, forKey: .databaseDigest)
         let confidence = try container.decode(Double.self, forKey: .confidence)
         let minimumHitGroups = try container.decode(Int.self, forKey: .minimumHitGroups)
         let threads = try container.decode(Int.self, forKey: .threads)
@@ -477,6 +489,7 @@ extension ClassificationConfig {
             inputFormat: inputFormat,
             databaseVersion: databaseVersion,
             databasePath: databasePath,
+            databaseDigest: databaseDigest,
             confidence: confidence,
             minimumHitGroups: minimumHitGroups,
             threads: threads,
