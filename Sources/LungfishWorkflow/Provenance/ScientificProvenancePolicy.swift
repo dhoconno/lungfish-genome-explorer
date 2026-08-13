@@ -176,6 +176,10 @@ public enum ScientificProvenancePolicy {
     ]
 
     public static let cliCommandPathPolicies: [String: ProvenancePolicyEntry] = [
+        "conda db download": dataWriting(
+            "cli.conda.db.download",
+            writer: "CanonicalMetagenomicsDatabaseInstallProvenanceWriter"
+        ),
         "debug fastq-ingest": dataWriting("cli.debug.fastq-ingest", writer: "FASTQIngestSubcommand"),
         "fastq pbaa-cluster": dataWriting("cli.fastq.pbaa-cluster", writer: "PBAAClusteringPipeline"),
         "fastq savont-cluster": dataWriting(

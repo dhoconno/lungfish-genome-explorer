@@ -221,6 +221,104 @@ struct MetagenomicsDatabaseInstallProvenanceTests {
         #expect(MetagenomicsDatabaseInstallFailure.cancelled(message: "x", stderr: "").provenanceExitStatus == 130)
     }
 
+    @Test("archive SILVA and Greengenes fake installs publish complete canonical provenance")
+    func allRecipesPublishCompleteCanonicalProvenance() async throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let archive = root.appendingPathComponent("fixture.tar.gz")
+        try write("archive", to: archive)
+        let cases: [(String, String, MetagenomicsDatabaseInstallationRecipe)] = [
+            ("Archive", "kraken2-archive-fixture", .archive(url: URL(string: "https://example.test/archive.tar.gz")!)),
+            ("SILVA", "kraken2-special-silva-e2e", .kraken2Special(type: .silva)),
+            ("Greengenes", "kraken2-special-greengenes-e2e", .kraken2Special(type: .greengenes)),
+        ]
+
+        for (name, catalogID, recipe) in cases {
+            let writer = CanonicalMetagenomicsDatabaseInstallProvenanceWriter()
+            let installer = MetagenomicsDatabaseInstaller(
+                toolRunner: CanonicalFixtureToolRunner(),
+                archiveTransfer: CanonicalFixtureArchiveTransfer(archive: archive),
+                provenanceWriter: writer
+            )
+            let database = MetagenomicsDatabaseInfo(
+                name: name,
+                tool: "kraken2",
+                version: "fixture-v1",
+                sizeBytes: 1,
+                catalogID: catalogID,
+                installationRecipe: recipe,
+                description: "fixture",
+                recommendedRAM: 1
+            )
+
+            let prepared = try await installer.prepareInstallation(
+                database: database,
+                databasesBaseURL: root,
+                threads: 4,
+                progress: { _, _ in }
+            )
+            let final = prepared.result.finalURL
+            let envelope = try #require(try ProvenanceEnvelopeReader.loadCanonical(from: final))
+            let snapshot = try MetagenomicsDatabasePayloadDigester.snapshot(at: final)
+            let raw = try String(contentsOf: final.appendingPathComponent(ProvenanceWriter.provenanceFilename), encoding: .utf8)
+
+            #expect(envelope.exitStatus == 0)
+            #expect(envelope.options.defaults["threads"] == .integer(4))
+            #expect(envelope.options.defaults["kmerLength"] == .integer(35))
+            #expect(envelope.options.defaults["readLength"] == .integer(150))
+            #expect(envelope.options.resolvedDefaults["threads"] == .integer(4))
+            #expect(envelope.options.resolvedDefaults["kmerLength"] == .integer(35))
+            #expect(envelope.options.resolvedDefaults["readLength"] == .integer(150))
+            #expect(envelope.options.resolvedDefaults["payloadAggregateSHA256"] == .string(snapshot.aggregateSHA256))
+            #expect(envelope.outputs.count == snapshot.files.count)
+            #expect(envelope.outputs.allSatisfy { $0.checksumSHA256 != nil && $0.fileSize != nil })
+            #expect(envelope.steps.allSatisfy { $0.exitStatus == 0 && $0.wallTimeSeconds != nil })
+            #expect(envelope.steps.allSatisfy { $0.argv == $0.durableReplayArgv })
+            #expect(envelope.steps.allSatisfy { $0.stderr == "fixture stderr" })
+            #expect(!raw.contains("/.install-"))
+            if case .kraken2Special = recipe {
+                #expect(envelope.steps.map { $0.runtimeIdentity?.condaEnvironment } == ["kraken2", "bracken"])
+                #expect(envelope.steps.allSatisfy { $0.runtimeIdentity?.condaPrefix != nil })
+                #expect(envelope.steps[1].argv.contains("150"))
+            } else {
+                #expect(envelope.steps.map(\.toolName) == ["tar"])
+            }
+        }
+    }
+
+    @Test("cancelled installation receipt retains attempted context and claims no outputs")
+    func cancellationReceiptIsOutputFree() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let staging = root.appendingPathComponent(".install-cancelled", isDirectory: true)
+        let final = root.appendingPathComponent("installed", isDirectory: true)
+        let history = root.appendingPathComponent("history", isDirectory: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        let attempt = makeAttempt(staging: staging, final: final)
+
+        try CanonicalMetagenomicsDatabaseInstallProvenanceWriter(
+            now: { Self.fixedDate }, uuid: { Self.fixedUUID }
+        ).writeFailure(
+            attempt,
+            error: .cancelled(message: "cancelled", stderr: "terminated"),
+            historyDirectory: history
+        )
+
+        let receiptDirectory = history.appendingPathComponent("kraken2-special-silva", isDirectory: true)
+        let receipt = try #require(
+            try FileManager.default.contentsOfDirectory(at: receiptDirectory, includingPropertiesForKeys: nil).only
+        )
+        let envelope = try #require(try ProvenanceEnvelopeReader.load(fromSidecar: receipt))
+        #expect(envelope.exitStatus == 130)
+        #expect(envelope.stderr == "terminated")
+        #expect(envelope.output == nil)
+        #expect(envelope.outputs.isEmpty)
+        #expect(envelope.steps.allSatisfy { $0.outputs.isEmpty })
+        #expect(envelope.options.resolvedDefaults["intendedFinalPath"] == .string(final.path))
+        #expect(envelope.argv.contains(staging.path))
+        #expect(!(envelope.durableReplayArgv ?? []).contains(final.path))
+    }
+
     private static let fixedDate = Date(timeIntervalSince1970: 1_700_000_000)
     private static let fixedUUID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
 
@@ -289,6 +387,72 @@ struct MetagenomicsDatabaseInstallProvenanceTests {
     private func write(_ string: String, to url: URL) throws {
         try Data(string.utf8).write(to: url)
     }
+}
+
+private struct CanonicalFixtureToolRunner: MetagenomicsDatabaseToolRunning {
+    func executableDirectory(environment: String) async throws -> URL {
+        URL(fileURLWithPath: "/managed/\(environment)/bin", isDirectory: true)
+    }
+
+    func toolVersion(name: String, environment: String, workingDirectory: URL) async throws -> String {
+        name == "kraken2-build" ? "2.17.1" : "2.9"
+    }
+
+    func run(
+        name: String,
+        arguments: [String],
+        environment: String,
+        workingDirectory: URL,
+        timeout: TimeInterval
+    ) async throws -> MetagenomicsDatabaseToolResult {
+        if name == "bracken-build" { try writeCanonicalFixturePayload(to: workingDirectory, special: true) }
+        let now = Date()
+        return MetagenomicsDatabaseToolResult(
+            stdout: "", stderr: "fixture stderr", exitStatus: 0,
+            argv: ["/managed/micromamba", "run", "-n", environment, name] + arguments,
+            runtimeIdentity: ProvenanceRuntimeIdentity(
+                executablePath: "/managed/\(environment)/bin/\(name)",
+                condaEnvironment: environment,
+                condaPrefix: "/managed/\(environment)",
+                pluginPack: "Metagenomics"
+            ),
+            toolVersion: name == "kraken2-build" ? "2.17.1" : "2.9",
+            startedAt: now,
+            completedAt: now.addingTimeInterval(1)
+        )
+    }
+}
+
+private struct CanonicalFixtureArchiveTransfer: MetagenomicsDatabaseArchiveTransferring {
+    let archive: URL
+    func download(from source: URL, progress: @Sendable @escaping (Double) -> Void) async throws -> URL {
+        progress(1); return archive
+    }
+    func extractionToolVersion() async throws -> String { "bsdtar 3.7.0" }
+    func extract(archive: URL, destination: URL) async throws -> MetagenomicsDatabaseToolResult {
+        try writeCanonicalFixturePayload(to: destination, special: false)
+        let now = Date()
+        return MetagenomicsDatabaseToolResult(
+            stdout: "", stderr: "fixture stderr", exitStatus: 0,
+            argv: ["/usr/bin/tar", "xzf", archive.path, "-C", destination.path],
+            runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: "/usr/bin/tar"),
+            toolVersion: "bsdtar 3.7.0", startedAt: now, completedAt: now.addingTimeInterval(1)
+        )
+    }
+}
+
+private func writeCanonicalFixturePayload(to root: URL, special: Bool) throws {
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    for name in ["hash.k2d", "opts.k2d", "taxo.k2d", "database150mers.kmer_distrib"] {
+        try Data("payload".utf8).write(to: root.appendingPathComponent(name))
+    }
+    guard special else { return }
+    for directory in ["taxonomy", "library"] {
+        try FileManager.default.createDirectory(at: root.appendingPathComponent(directory), withIntermediateDirectories: true)
+    }
+    try Data("nodes".utf8).write(to: root.appendingPathComponent("taxonomy/nodes.dmp"))
+    try Data("names".utf8).write(to: root.appendingPathComponent("taxonomy/names.dmp"))
+    try Data(">seq\nACGT\n".utf8).write(to: root.appendingPathComponent("library/library.fna"))
 }
 
 private extension Array {
