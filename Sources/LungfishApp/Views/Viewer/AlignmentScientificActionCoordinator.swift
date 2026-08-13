@@ -255,7 +255,15 @@ final class AlignmentScientificActionCoordinator {
     private func normalizedBundleURL(_ url: URL) -> URL {
         let normalized = url.standardizedFileURL
         guard normalized.pathExtension.lowercased() != FASTQBundle.directoryExtension else {
-            return normalized
+            if normalized.pathExtension == FASTQBundle.directoryExtension {
+                return normalized
+            }
+            return normalized.deletingPathExtension()
+                .appendingPathExtension(FASTQBundle.directoryExtension)
+        }
+        guard normalized.pathExtension.isEmpty else {
+            return normalized.deletingPathExtension()
+                .appendingPathExtension(FASTQBundle.directoryExtension)
         }
         return normalized.appendingPathExtension(FASTQBundle.directoryExtension)
     }

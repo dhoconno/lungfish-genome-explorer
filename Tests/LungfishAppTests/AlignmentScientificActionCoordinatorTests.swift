@@ -1,14 +1,19 @@
+import AppKit
 import Foundation
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishIO
+@testable import LungfishKit
 @testable import LungfishWorkflow
 
 @MainActor final class AlignmentScientificActionCoordinatorTests: XCTestCase {
-    private func context(_ source: AlignmentSourceReadResolution = .bamFallback) throws -> AlignmentActionContext {
+    private func context(
+        _ source: AlignmentSourceReadResolution = .bamFallback,
+        outputCapability: AlignmentOutputCapability = .projectDerivedRoot(URL(fileURLWithPath: "/output"))
+    ) throws -> AlignmentActionContext {
         let bam = URL(fileURLWithPath: "/evidence/a.bam"), index = URL(fileURLWithPath: "/evidence/a.bam.bai")
-        return try .init(identity: .init(workflow: "map", resultID: "r", sampleID: "s", evidenceID: "e"), alignmentURL: bam, indexURL: index, decodingReferenceURL: nil, contig: "chrSynthetic", contigLength: 100, alignmentSnapshot: .init(url: bam, byteCount: 1, sha256: "a"), indexSnapshot: .init(url: index, byteCount: 1, sha256: "i"), decodingReferenceSnapshot: nil, filters: .init(minimumDepth: 1, minimumMapQ: 30, minimumBaseQuality: 20, excludedFlags: 0x904, readGroups: ["rg"]), outputCapability: .projectDerivedRoot(URL(fileURLWithPath: "/output")), sourceReads: source, presentationLabel: "evidence")
+        return try .init(identity: .init(workflow: "map", resultID: "r", sampleID: "s", evidenceID: "e"), alignmentURL: bam, indexURL: index, decodingReferenceURL: nil, contig: "chrSynthetic", contigLength: 100, alignmentSnapshot: .init(url: bam, byteCount: 1, sha256: "a"), indexSnapshot: .init(url: index, byteCount: 1, sha256: "i"), decodingReferenceSnapshot: nil, filters: .init(minimumDepth: 1, minimumMapQ: 30, minimumBaseQuality: 20, excludedFlags: 0x904, readGroups: ["rg"]), outputCapability: outputCapability, sourceReads: source, presentationLabel: "evidence")
     }
     func testRegionUsesContextNotMappingResult() async throws {
         var got: BAMRegionExtractionConfig?
@@ -144,6 +149,14 @@ import XCTest
         )
 
         XCTAssertEqual(destination.finalURL.path, "/chosen/selected reads.lungfishfastq")
+
+        let mixedCaseDestination = try await coordinator.resolveDestination(
+            for: .userSelectedDestination,
+            outputBaseName: "selected reads",
+            userDestinationChooser: { _ in URL(fileURLWithPath: "/chosen/selected reads.LUNGFISHFASTQ") }
+        )
+
+        XCTAssertEqual(mixedCaseDestination.finalURL.path, "/chosen/selected reads.lungfishfastq")
     }
 
     func testAsyncUserDestinationCancellationIsTypedBeforeLaunch() async throws {
@@ -177,6 +190,46 @@ import XCTest
         XCTAssertEqual(chooserCalls, 0)
         XCTAssertTrue(destination.finalURL.path.hasPrefix("/project/alignment-read-extractions/selected_reads-"))
         XCTAssertEqual(destination.finalURL.pathExtension, "lungfishfastq")
+    }
+
+    func testRealViewerRoutesCancelBeforeOperationOrScientificLaunch() async throws {
+        let operationIDsBefore = Set(OperationCenter.shared.items.map(\.id))
+        let read = AlignedRead(
+            name: "qname",
+            flag: 0,
+            chromosome: "chrSynthetic",
+            position: 4,
+            mapq: 60,
+            cigar: [],
+            sequence: "ACGT",
+            qualities: [30, 30, 30, 30]
+        )
+
+        for route in ["region", "reads"] {
+            let viewer = ViewerViewController()
+            let window = NSWindow()
+            window.contentViewController = viewer
+            _ = viewer.view
+            viewer.alignmentActionContext = try context(outputCapability: .userSelectedDestination)
+            viewer.setExplicitAlignmentSelection(contig: "chrSynthetic", start: 4, end: 9)
+            let presenter = CancellingSavePanelPresenter()
+            viewer.alignmentExtractionSavePanelPresenter = presenter
+
+            if route == "region" {
+                viewer.extractReadsInSelectedAlignmentRegion()
+            } else {
+                viewer.extractSelectedReads([read])
+            }
+
+            for _ in 0..<10 where presenter.callCount == 0 {
+                await Task.yield()
+            }
+
+            XCTAssertEqual(presenter.callCount, 1, route)
+            XCTAssertNil(viewer.activeSelectedReadsExtractionTask, route)
+            XCTAssertEqual(Set(OperationCenter.shared.items.map(\.id)), operationIDsBefore, route)
+            window.contentViewController = nil
+        }
     }
 
     func testLaunchReportsOneSuccessWithFinalURLsAndExecutionArgv() async throws {
@@ -291,5 +344,14 @@ import XCTest
 
     private func executionRecord(stderr: String? = nil) -> AlignmentReadExtractionExecutionRecord {
         .init(stage: .payloadStaging, toolName: "samtools", toolVersion: "1", argv: ["samtools", "view"], inputs: [], outputs: [], exitStatus: 0, startedAt: Date(), completedAt: Date(), stderr: stderr)
+    }
+
+    private final class CancellingSavePanelPresenter: SavePanelPresenting {
+        private(set) var callCount = 0
+
+        func present(suggestedName: String, on window: NSWindow) async -> URL? {
+            callCount += 1
+            return nil
+        }
     }
 }
