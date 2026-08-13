@@ -43,64 +43,132 @@ enum AlignmentConsensusPublicationError: LocalizedError {
     }
 }
 
+struct AlignmentConsensusPublicationAttempt: Sendable, Equatable {
+    enum Stage: String, Sendable { case validation, destinationCheck, payloadWrite, manifestWrite, provenanceWrite, sidecarPublication, payloadPublication }
+    let stage: Stage
+    let argv: [String]
+    let reproducibleCommand: String
+    let explicitOptions: [String: String]
+    let resolvedDefaults: [String: String]
+    let destinationPath: String
+    let evidence: [AlignmentEvidenceFileSnapshot]
+    let startedAt: Date
+    let endedAt: Date
+    let exitStatus: Int32
+    let stderr: String
+
+    var durableLogMessage: String {
+        let inputs = evidence.map { "\($0.url.path) size=\($0.byteCount) sha256=\($0.sha256)" }.joined(separator: "; ")
+        let explicit = explicitOptions.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
+        let defaults = resolvedDefaults.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
+        return "publication-stage=\(stage.rawValue) exit=\(exitStatus) wall=\(endedAt.timeIntervalSince(startedAt))s\nargv=\(argv.joined(separator: " "))\ncommand=\(reproducibleCommand)\ndestination=\(destinationPath)\nexplicit-options=\(explicit)\nresolved-defaults=\(defaults)\ninputs=\(inputs)\nstderr=\(stderr)"
+    }
+}
+
+struct AlignmentConsensusPublicationFailure: LocalizedError, Sendable {
+    let attempt: AlignmentConsensusPublicationAttempt
+    let underlyingDescription: String
+    var errorDescription: String? { underlyingDescription }
+}
+
 /// Publishes evidence-only consensus through a hidden sibling staging target.
 /// Every durable descriptor is constructed from its final path; staging paths
 /// survive only as `originPath`/the explicit staging-to-final audit mapping.
 struct AlignmentConsensusPublicationService {
+    typealias Mover = (URL, URL) throws -> Void
+    typealias FailureInjector = (AlignmentConsensusPublicationAttempt.Stage) throws -> Void
+    private let moveItem: Mover
+    private let failureInjector: FailureInjector
+
+    init(
+        moveItem: @escaping Mover = { source, destination in
+            try FileManager.default.moveItem(at: source, to: destination)
+        },
+        failureInjector: @escaping FailureInjector = { _ in }
+    ) {
+        self.moveItem = moveItem
+        self.failureInjector = failureInjector
+    }
+
     func publish(_ request: AlignmentConsensusPublicationRequest) throws -> AlignmentConsensusPublicationResult {
-        guard request.region.contig == request.context.contig,
+        let startedAt = Date()
+        var stage = AlignmentConsensusPublicationAttempt.Stage.validation
+        do {
+            try failureInjector(stage)
+            guard request.region.contig == request.context.contig,
               request.region.contig == request.consensusRequest.chromosome,
               request.region.start == request.consensusRequest.start,
               request.region.end == request.consensusRequest.end,
               request.region.start >= 0,
               request.region.start < request.region.end,
               request.region.end <= request.context.contigLength else {
-            throw AlignmentConsensusPublicationError.invalidRegion
-        }
-        guard request.result.referenceLength == request.region.end - request.region.start,
+                throw AlignmentConsensusPublicationError.invalidRegion
+            }
+            guard request.result.referenceLength == request.region.end - request.region.start,
               request.result.sequence.count == request.result.referenceLength else {
-            throw AlignmentConsensusPublicationError.invalidResultLength
-        }
-        let finalURL = request.destination.finalURL
-        let finalSidecarURL = ProvenanceRecorder.fileSidecarURL(for: finalURL)
-        guard !FileManager.default.fileExists(atPath: finalURL.path),
+                throw AlignmentConsensusPublicationError.invalidResultLength
+            }
+            stage = .destinationCheck
+            try failureInjector(stage)
+            let finalURL = request.destination.finalURL
+            let finalSidecarURL = ProvenanceRecorder.fileSidecarURL(for: finalURL)
+            guard !FileManager.default.fileExists(atPath: finalURL.path),
               isBundle(request.destination) || !FileManager.default.fileExists(atPath: finalSidecarURL.path) else {
-            throw AlignmentConsensusPublicationError.destinationExists(finalURL)
-        }
-        let stagingURL = finalURL.deletingLastPathComponent().appendingPathComponent(
-            ".\(finalURL.lastPathComponent).staging-\(UUID().uuidString)",
-            isDirectory: isBundle(request.destination)
-        )
-        do {
-            let prepared = try prepare(request, at: stagingURL, finalURL: finalURL)
-            try FileManager.default.moveItem(at: stagingURL, to: finalURL)
-            if !isBundle(request.destination) {
+                throw AlignmentConsensusPublicationError.destinationExists(finalURL)
+            }
+            let stagingURL = finalURL.deletingLastPathComponent().appendingPathComponent(
+                ".\(finalURL.lastPathComponent).staging-\(UUID().uuidString)",
+                isDirectory: isBundle(request.destination)
+            )
+            do {
+                let prepared = try prepare(request, at: stagingURL, finalURL: finalURL, stage: &stage)
+            if isBundle(request.destination) {
+                stage = .payloadPublication
+                try failureInjector(stage)
+                try moveItem(stagingURL, finalURL)
+            } else {
                 do {
-                    try FileManager.default.moveItem(
-                        at: prepared.physicalProvenanceURL,
-                        to: prepared.finalProvenanceURL
-                    )
+                    // The FASTA rename is the publication point. Install its
+                    // final-path sidecar first so no durable payload can ever
+                    // be observed without provenance, even across a crash.
+                    stage = .sidecarPublication
+                    try failureInjector(stage)
+                    try moveItem(prepared.physicalProvenanceURL, prepared.finalProvenanceURL)
+                    stage = .payloadPublication
+                    try failureInjector(stage)
+                    try moveItem(stagingURL, finalURL)
                 } catch {
                     try? FileManager.default.removeItem(at: finalURL)
+                    try? FileManager.default.removeItem(at: prepared.finalProvenanceURL)
                     throw error
                 }
             }
-            return .init(
+                return .init(
                 finalURL: finalURL,
                 payloadURL: prepared.finalPayloadURL,
                 provenanceURL: prepared.finalProvenanceURL
-            )
+                )
+            } catch {
+                try? FileManager.default.removeItem(at: stagingURL)
+                try? FileManager.default.removeItem(at: ProvenanceRecorder.fileSidecarURL(for: stagingURL))
+                throw error
+            }
+        } catch let failure as AlignmentConsensusPublicationFailure {
+            throw failure
         } catch {
-            try? FileManager.default.removeItem(at: stagingURL)
-            try? FileManager.default.removeItem(at: ProvenanceRecorder.fileSidecarURL(for: stagingURL))
-            throw error
+            let endedAt = Date()
+            throw AlignmentConsensusPublicationFailure(
+                attempt: publicationAttempt(request, stage: stage, startedAt: startedAt, endedAt: endedAt, error: error),
+                underlyingDescription: error.localizedDescription
+            )
         }
     }
 
     private func prepare(
         _ request: AlignmentConsensusPublicationRequest,
         at stagingURL: URL,
-        finalURL: URL
+        finalURL: URL,
+        stage: inout AlignmentConsensusPublicationAttempt.Stage
     ) throws -> (finalPayloadURL: URL, physicalProvenanceURL: URL, finalProvenanceURL: URL) {
         let fasta = ">\(sanitizedHeader(request.recordName))\n\(request.result.sequence)\n"
         let physicalPayloadURL: URL
@@ -110,6 +178,8 @@ struct AlignmentConsensusPublicationService {
         switch request.destination {
         case .fasta:
             try FileManager.default.createDirectory(at: stagingURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            stage = .payloadWrite
+            try failureInjector(stage)
             try Data(fasta.utf8).write(to: stagingURL, options: .atomic)
             physicalPayloadURL = stagingURL
             finalPayloadURL = finalURL
@@ -120,7 +190,11 @@ struct AlignmentConsensusPublicationService {
             try FileManager.default.createDirectory(at: genome, withIntermediateDirectories: true)
             physicalPayloadURL = genome.appendingPathComponent("consensus.fasta")
             finalPayloadURL = finalURL.appendingPathComponent("genome/consensus.fasta")
+            stage = .payloadWrite
+            try failureInjector(stage)
             try Data(fasta.utf8).write(to: physicalPayloadURL, options: .atomic)
+            stage = .manifestWrite
+            try failureInjector(stage)
             try writeManifest(request, to: stagingURL)
             physicalProvenanceURL = stagingURL.appendingPathComponent(ProvenanceWriter.provenanceFilename)
             finalProvenanceURL = finalURL.appendingPathComponent(ProvenanceWriter.provenanceFilename)
@@ -131,8 +205,91 @@ struct AlignmentConsensusPublicationService {
             finalPayloadURL: finalPayloadURL,
             finalProvenanceURL: finalProvenanceURL
         )
+        stage = .provenanceWrite
+        try failureInjector(stage)
         try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: physicalProvenanceURL)
         return (finalPayloadURL, physicalProvenanceURL, finalProvenanceURL)
+    }
+
+    private func publicationAttempt(
+        _ request: AlignmentConsensusPublicationRequest,
+        stage: AlignmentConsensusPublicationAttempt.Stage,
+        startedAt: Date,
+        endedAt: Date,
+        error: Error
+    ) -> AlignmentConsensusPublicationAttempt {
+        let filters = request.consensusRequest.filters
+        let argv = replayArgv(request)
+        var evidence = [request.context.alignmentSnapshot, request.context.indexSnapshot]
+        if let snapshot = request.context.decodingReferenceSnapshot { evidence.append(snapshot) }
+        return .init(
+            stage: stage,
+            argv: argv,
+            reproducibleCommand: argv.map(Self.shellQuote).joined(separator: " "),
+            explicitOptions: [
+                "scope": request.region.scope.rawValue,
+                "region": "\(request.region.contig):\(request.region.start)-\(request.region.end)",
+                "minimumDepth": "\(filters.minimumDepth)",
+                "minimumMapQ": "\(filters.minimumMapQ)",
+                "minimumBaseQuality": "\(filters.minimumBaseQuality)",
+                "excludedFlags": "\(filters.excludedFlags)",
+                "readGroups": filters.readGroups.sorted().joined(separator: ","),
+                "callerMode": request.consensusRequest.mode.rawValue,
+                "useAmbiguity": "\(request.consensusRequest.useAmbiguity)",
+                "insertionPolicy": request.consensusRequest.insertionPolicy.rawValue,
+                "deletionPolicy": request.consensusRequest.deletionPolicy.rawValue
+            ],
+            resolvedDefaults: [
+                "lowDepthPolicy": "N",
+                "referenceFillPolicy": "never",
+                "runtime": "Lungfish.app \(WorkflowRun.currentAppVersion)"
+            ],
+            destinationPath: request.destination.finalURL.path,
+            evidence: evidence,
+            startedAt: startedAt,
+            endedAt: endedAt,
+            exitStatus: 1,
+            stderr: error.localizedDescription
+        )
+    }
+
+    private func replayArgv(_ request: AlignmentConsensusPublicationRequest) -> [String] {
+        let filters = request.consensusRequest.filters
+        var argv = [
+            "Lungfish.app", "alignment", "consensus",
+            "--alignment", request.context.alignmentURL.path,
+            "--index", request.context.indexURL.path
+        ]
+        if let referenceURL = request.context.decodingReferenceURL {
+            argv += ["--decoding-reference", referenceURL.path]
+        }
+        argv += [
+            "--scope", request.region.scope.rawValue,
+            "--region", "\(request.region.contig):\(request.region.start)-\(request.region.end)",
+            "--min-depth", "\(filters.minimumDepth)",
+            "--min-mapq", "\(filters.minimumMapQ)",
+            "--min-baseq", "\(filters.minimumBaseQuality)",
+            "--exclude-flags", "\(filters.excludedFlags)"
+        ]
+        for readGroup in filters.readGroups.sorted() {
+            argv += ["--read-group", readGroup]
+        }
+        argv += [
+            "--caller-mode", request.consensusRequest.mode.rawValue,
+            "--use-ambiguity", "\(request.consensusRequest.useAmbiguity)",
+            "--insertion-policy", request.consensusRequest.insertionPolicy.rawValue,
+            "--deletion-policy", request.consensusRequest.deletionPolicy.rawValue,
+            "--reference-fill", "never",
+            "--output", request.destination.finalURL.path
+        ]
+        return argv
+    }
+
+    private static func shellQuote(_ value: String) -> String {
+        guard !value.isEmpty else { return "''" }
+        let safe = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._/:"))
+        if value.unicodeScalars.allSatisfy({ safe.contains($0) }) { return value }
+        return "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 
     private func writeManifest(_ request: AlignmentConsensusPublicationRequest, to bundleURL: URL) throws {
@@ -234,13 +391,7 @@ struct AlignmentConsensusPublicationService {
             "stagingToFinalMapping": .dictionary(mapping),
             "finalProvenancePath": .string(finalProvenanceURL.path)
         ]
-        let argv = [
-            "Lungfish.app", "alignment", "consensus",
-            "--scope", request.region.scope.rawValue,
-            "--region", "\(request.region.contig):\(request.region.start)-\(request.region.end)",
-            "--min-depth", "\(filters.minimumDepth)",
-            "--reference-fill", "never"
-        ]
+        let argv = replayArgv(request)
         let stderr = request.result.executionRecords.compactMap(\.stderr).filter { !$0.isEmpty }.joined(separator: "\n")
         return ProvenanceEnvelope(
             workflowName: "lungfish alignment consensus",

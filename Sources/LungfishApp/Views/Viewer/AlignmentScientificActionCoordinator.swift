@@ -16,6 +16,23 @@ private func defaultBAMStage(_ config: ReadIDBAMExtractionConfig, _ missing: Int
 private func defaultPublish(_ request: AlignmentReadExtractionPublicationRequest) async throws -> AlignmentReadExtractionPublicationResult {
     try AlignmentReadExtractionPublisher().publish(request)
 }
+private func defaultConsensusFetch(
+    _ context: AlignmentActionContext,
+    _ request: AlignmentConsensusRequest
+) async throws -> AlignmentConsensusResult {
+    let format: AlignmentFormat = context.alignmentURL.pathExtension.lowercased() == "cram" ? .cram : .bam
+    return try await AlignmentDataProvider(
+        alignmentPath: context.alignmentURL.path,
+        indexPath: context.indexURL.path,
+        format: format,
+        referenceFastaPath: context.decodingReferenceURL?.path
+    ).fetchConsensus(request)
+}
+private func defaultConsensusPublish(
+    _ request: AlignmentConsensusPublicationRequest
+) throws -> AlignmentConsensusPublicationResult {
+    try AlignmentConsensusPublicationService().publish(request)
+}
 private func defaultDestination(
     capability: AlignmentOutputCapability,
     outputBaseName: String
@@ -77,6 +94,8 @@ final class AlignmentScientificActionCoordinator {
     typealias BAMStager = (ReadIDBAMExtractionConfig, Int, String?) async throws -> AlignmentReadExtractionTransaction
     typealias Publisher = (AlignmentReadExtractionPublicationRequest) async throws -> AlignmentReadExtractionPublicationResult
     typealias DestinationResolver = (AlignmentOutputCapability, String) throws -> AlignmentReadExtractionPublicationDestination
+    typealias ConsensusFetcher = (AlignmentActionContext, AlignmentConsensusRequest) async throws -> AlignmentConsensusResult
+    typealias ConsensusPublisher = (AlignmentConsensusPublicationRequest) throws -> AlignmentConsensusPublicationResult
 
     private let validator: Validator
     private let regionStager: RegionStager
@@ -84,6 +103,8 @@ final class AlignmentScientificActionCoordinator {
     private let bamStager: BAMStager
     private let publisher: Publisher
     private let destinationResolver: DestinationResolver
+    private let consensusFetcher: ConsensusFetcher
+    private let consensusPublisher: ConsensusPublisher
 
     init(
         validator: @escaping Validator = { try $0.validateCurrentSnapshots() },
@@ -91,7 +112,9 @@ final class AlignmentScientificActionCoordinator {
         sourceStager: @escaping SourceStager = defaultSourceStage,
         bamStager: @escaping BAMStager = defaultBAMStage,
         publisher: @escaping Publisher = defaultPublish,
-        destinationResolver: @escaping DestinationResolver = defaultDestination
+        destinationResolver: @escaping DestinationResolver = defaultDestination,
+        consensusFetcher: @escaping ConsensusFetcher = defaultConsensusFetch,
+        consensusPublisher: @escaping ConsensusPublisher = defaultConsensusPublish
     ) {
         self.validator = validator
         self.regionStager = regionStager
@@ -99,6 +122,68 @@ final class AlignmentScientificActionCoordinator {
         self.bamStager = bamStager
         self.publisher = publisher
         self.destinationResolver = destinationResolver
+        self.consensusFetcher = consensusFetcher
+        self.consensusPublisher = consensusPublisher
+    }
+
+    struct ConsensusGeneration: Sendable {
+        let context: AlignmentActionContext
+        let exportRequest: MappingConsensusExportRequest
+        let result: AlignmentConsensusResult
+
+        var fastaRecord: String { ">\(exportRequest.recordName)\n\(result.sequence)\n" }
+        var requiresAllLowDepthWarning: Bool { result.allLowDepth }
+        var allLowDepthWarningMessage: String {
+            "Every position in the requested region is below the minimum depth of \(exportRequest.consensusRequest.filters.minimumDepth). The consensus will contain only N characters. You can continue without filling from the reference."
+        }
+        var summary: String {
+            let request = exportRequest.consensusRequest
+            let filters = request.filters
+            let groups = filters.readGroups.isEmpty ? "all" : filters.readGroups.sorted().joined(separator: ",")
+            return [
+                "Scope: \(exportRequest.region.scope.rawValue)",
+                "Region: \(exportRequest.region.contig):\(exportRequest.region.start + 1)-\(exportRequest.region.end)",
+                "Caller: \(request.mode.rawValue)",
+                "Minimum depth/MAPQ/base quality: \(filters.minimumDepth)/\(filters.minimumMapQ)/\(filters.minimumBaseQuality)",
+                "Excluded flags: \(filters.excludedFlags)",
+                "Read groups: \(groups)",
+                "Low-depth policy: N",
+                "Reference-fill policy: never",
+            ].joined(separator: "\n")
+        }
+    }
+
+    func generateConsensus(
+        context: AlignmentActionContext,
+        exportRequest: MappingConsensusExportRequest
+    ) async throws -> ConsensusGeneration {
+        guard exportRequest.region.contig == context.contig,
+              exportRequest.consensusRequest.chromosome == context.contig,
+              exportRequest.consensusRequest.filters == context.filters else {
+            throw AlignmentScientificActionError.invalidRegion
+        }
+        try validator(context)
+        try Task.checkCancellation()
+        let result = try await consensusFetcher(context, exportRequest.consensusRequest)
+        try Task.checkCancellation()
+        return .init(context: context, exportRequest: exportRequest, result: result)
+    }
+
+    func publishConsensus(
+        _ generation: ConsensusGeneration,
+        destination: AlignmentConsensusPublicationDestination
+    ) async throws -> AlignmentConsensusPublicationResult {
+        try Task.checkCancellation()
+        try validator(generation.context)
+        try Task.checkCancellation()
+        return try consensusPublisher(.init(
+            context: generation.context,
+            region: generation.exportRequest.region,
+            consensusRequest: generation.exportRequest.consensusRequest,
+            result: generation.result,
+            recordName: generation.exportRequest.recordName,
+            destination: destination
+        ))
     }
 
     /// Resolves a final destination before either scientific validation gate.

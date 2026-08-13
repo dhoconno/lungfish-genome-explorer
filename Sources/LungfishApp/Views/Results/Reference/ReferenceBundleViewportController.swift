@@ -85,6 +85,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
 
     var onEmbeddedReferenceBundleLoaded: ((ReferenceBundle) -> Void)?
     var onSequenceSelectionStateChanged: ((SequenceRegionSelectionState?) -> Void)?
+    var onConsensusActionStateChanged: (() -> Void)?
 
     private let embeddedViewerController = ViewerViewController()
     private let splitCoordinator = TwoPaneTrackedSplitCoordinator()
@@ -348,6 +349,9 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         }
         embeddedViewerController.onSequenceRegionSelectionChanged = { [weak self] state in
             self?.onSequenceSelectionStateChanged?(state)
+        }
+        embeddedViewerController.onAlignmentConsensusActionStateChanged = { [weak self] in
+            self?.onConsensusActionStateChanged?()
         }
 
         NotificationCenter.default.addObserver(
@@ -958,113 +962,66 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     }
 
     func buildConsensusExportRequest() throws -> MappingConsensusExportRequest {
-        try buildConsensusExportRequest(explicitRegion: nil)
+        try buildConsensusExportRequest(scope: .wholeContig)
     }
 
     func buildVisibleViewportConsensusExportRequest() throws -> MappingConsensusExportRequest {
-        try buildConsensusExportRequest(explicitRegion: visibleViewportConsensusRegion())
+        // Compatibility adapter for callers that historically named this
+        // method after viewport state. Scientific scope is now explicit.
+        try buildConsensusExportRequest(scope: .wholeContig)
     }
 
     func buildSelectedRegionConsensusExportRequest() throws -> MappingConsensusExportRequest {
-        guard let region = selectedConsensusRegion() else {
-            throw NSError(
-                domain: "Lungfish",
-                code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "No selected region is available"]
-            )
-        }
-        return try buildConsensusExportRequest(explicitRegion: region)
+        try buildConsensusExportRequest(scope: .selectedRegion)
     }
 
     func buildSelectedAnnotationConsensusExportRequest() throws -> MappingConsensusExportRequest {
-        guard let region = selectedAnnotationConsensusRegion() else {
-            throw NSError(
-                domain: "Lungfish",
-                code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "No selected annotation is available"]
-            )
-        }
-        return try buildConsensusExportRequest(explicitRegion: region)
+        // Annotation selection is a display convenience, not a scientific
+        // consensus scope. It may only act through an explicit column range.
+        try buildConsensusExportRequest(scope: .selectedRegion)
     }
 
     func buildInspectorConsensusExportRequest() throws -> MappingConsensusExportRequest {
-        guard let viewer = embeddedViewerController.viewerView else {
-            return try buildVisibleViewportConsensusExportRequest()
-        }
-        if viewer.isUserColumnSelection,
-           viewer.selectionRange?.isEmpty == false {
-            return try buildSelectedRegionConsensusExportRequest()
-        }
-        return try buildVisibleViewportConsensusExportRequest()
+        try buildConsensusExportRequest(scope: embeddedViewerController.alignmentConsensusScope)
     }
 
-    private func buildConsensusExportRequest(
-        explicitRegion: MappingConsensusExportRequestBuilder.ExplicitRegion?
-    ) throws -> MappingConsensusExportRequest {
-        guard let result = currentResult else {
-            throw NSError(
-                domain: "Lungfish",
-                code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "No mapping result loaded"]
-            )
+    func consensusScopeState() -> (scope: AlignmentConsensusScope, unavailableMessage: String?) {
+        let scope = embeddedViewerController.alignmentConsensusScope
+        guard let context = embeddedViewerController.alignmentActionContext else {
+            return (scope, AlignmentScientificActionError.contextUnavailable.localizedDescription)
         }
+        do {
+            _ = try scope.resolve(in: context, selection: embeddedViewerController.explicitAlignmentSelection)
+            return (scope, nil)
+        } catch {
+            return (scope, error.localizedDescription)
+        }
+    }
 
-        let fallbackChromosome = embeddedViewerController.currentBundleDataProvider?
-            .chromosomeInfo(named: embeddedViewerController.referenceFrame?.chromosome ?? "")
+    func setConsensusScope(_ scope: AlignmentConsensusScope) {
+        embeddedViewerController.alignmentConsensusScope = scope
+    }
 
+    func refreshAlignmentActionContextFilters() {
+        guard let context = embeddedViewerController.alignmentActionContext,
+              let filters = currentAlignmentFilters() else { return }
+        embeddedViewerController.alignmentActionContext = try? context.replacingFilters(filters)
+    }
+
+    private func buildConsensusExportRequest(scope: AlignmentConsensusScope) throws -> MappingConsensusExportRequest {
+        guard let context = embeddedViewerController.alignmentActionContext else {
+            throw AlignmentScientificActionError.contextUnavailable
+        }
+        let region = try scope.resolve(
+            in: context,
+            selection: embeddedViewerController.explicitAlignmentSelection
+        )
         return try MappingConsensusExportRequestBuilder.build(
-            sampleName: result.bamURL.deletingPathExtension().deletingPathExtension().lastPathComponent,
-            selectedContig: currentSelectedContig(),
-            fallbackChromosome: fallbackChromosome,
-            explicitRegion: explicitRegion,
+            sampleName: context.identity.sampleID,
+            context: context,
+            region: region,
             consensusMode: embeddedViewerController.viewerView.consensusModeSetting,
-            consensusMinDepth: embeddedViewerController.viewerView.consensusMinDepthSetting,
-            consensusMinMapQ: max(
-                embeddedViewerController.viewerView.minMapQSetting,
-                embeddedViewerController.viewerView.consensusMinMapQSetting
-            ),
-            consensusMinBaseQ: embeddedViewerController.viewerView.consensusMinBaseQSetting,
-            excludeFlags: embeddedViewerController.viewerView.excludeFlagsSetting,
             useAmbiguity: embeddedViewerController.viewerView.consensusUseAmbiguitySetting
-        )
-    }
-
-    private func visibleViewportConsensusRegion() -> MappingConsensusExportRequestBuilder.ExplicitRegion? {
-        guard let frame = embeddedViewerController.referenceFrame else { return nil }
-        return .init(
-            chromosome: frame.chromosome,
-            start: Int(floor(frame.start)),
-            end: Int(ceil(frame.end)),
-            label: "visible"
-        )
-    }
-
-    private func selectedConsensusRegion() -> MappingConsensusExportRequestBuilder.ExplicitRegion? {
-        guard let range = embeddedViewerController.viewerView.selectionRange else { return nil }
-        let chromosome = embeddedViewerController.referenceFrame?.chromosome
-            ?? embeddedViewerController.currentBundleDataProvider?.chromosomes.first?.name
-            ?? ""
-        guard !chromosome.isEmpty else { return nil }
-        return .init(
-            chromosome: chromosome,
-            start: range.lowerBound,
-            end: range.upperBound,
-            label: "selection"
-        )
-    }
-
-    private func selectedAnnotationConsensusRegion() -> MappingConsensusExportRequestBuilder.ExplicitRegion? {
-        guard let annotation = embeddedViewerController.viewerView.selectedAnnotation else { return nil }
-        let chromosome = annotation.chromosome
-            ?? embeddedViewerController.referenceFrame?.chromosome
-            ?? embeddedViewerController.currentBundleDataProvider?.chromosomes.first?.name
-            ?? ""
-        guard !chromosome.isEmpty else { return nil }
-        return .init(
-            chromosome: chromosome,
-            start: annotation.start,
-            end: annotation.end,
-            label: "annotation \(annotation.name)"
         )
     }
 
@@ -1726,6 +1683,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         }
     }
 
+
     private func clearAlignmentActionContext() {
         alignmentActionContextGeneration += 1
         alignmentActionContextTask?.cancel()
@@ -2003,6 +1961,11 @@ extension ReferenceBundleViewportController {
         embeddedViewerController.alignmentActionContext
     }
 
+    func testAwaitAlignmentActionContext() async {
+        await alignmentActionContextTask?.value
+    }
+
+
     func testSelectContig(named name: String) {
         _ = selectContig(named: name)
     }
@@ -2067,6 +2030,15 @@ extension ReferenceBundleViewportController {
     func testSetEmbeddedSelectionRange(_ range: Range<Int>, isUserColumnSelection: Bool = true) {
         embeddedViewerController.viewerView.selectionRange = range
         embeddedViewerController.viewerView.isUserColumnSelection = isUserColumnSelection
+        if isUserColumnSelection, let contig = embeddedViewerController.alignmentActionContext?.contig {
+            embeddedViewerController.setExplicitAlignmentSelection(
+                contig: contig,
+                start: range.lowerBound,
+                end: range.upperBound
+            )
+        } else {
+            embeddedViewerController.explicitAlignmentSelection = nil
+        }
     }
 
     func testSetEmbeddedReadDisplaySettings(minMapQ: Int, consensusMinMapQ: Int) {

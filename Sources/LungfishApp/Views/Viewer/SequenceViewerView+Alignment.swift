@@ -419,7 +419,25 @@ extension SequenceViewerView {
 
     /// Returns a stable cache signature for consensus options.
     func currentConsensusOptionsSignature() -> String {
-        [
+        let requestIdentity: [String]
+        if let controller = viewController,
+           let context = controller.alignmentActionContext,
+           let region = try? controller.alignmentConsensusScope.resolve(
+            in: context,
+            selection: controller.explicitAlignmentSelection
+           ) {
+            requestIdentity = [
+                context.identity.evidenceID,
+                region.scope.rawValue,
+                region.contig,
+                String(region.start),
+                String(region.end),
+                context.filters.readGroups.sorted().joined(separator: ","),
+            ]
+        } else {
+            requestIdentity = ["unavailable"]
+        }
+        return (requestIdentity + [
             consensusModeSetting.rawValue,
             showConsensusTrackSetting ? "1" : "0",
             consensusUseAmbiguitySetting ? "1" : "0",
@@ -427,7 +445,7 @@ extension SequenceViewerView {
             String(max(0, consensusMinBaseQSetting)),
             String(max(1, consensusMinDepthSetting)),
             String(excludeFlagsSetting),
-        ].joined(separator: "|")
+        ]).joined(separator: "|")
     }
 
     /// Fetches consensus sequence asynchronously for the current alignment region.
@@ -438,78 +456,47 @@ extension SequenceViewerView {
             ?? (Double(max(region.end - region.start, 1)) / max(Double(max(bounds.width, 1)), 1.0))
         guard currentScale < showLettersThreshold else { return }
 
-        let chromLength = bundle.chromosomeLength(named: region.chromosome) ?? Int64(region.end + 1000)
-        let visibleSpan = region.end - region.start
-        let expandAmount = max(5_000, visibleSpan)
-        let expandedStart = max(0, region.start - expandAmount)
-        let expandedEnd = min(Int(chromLength), region.end + expandAmount)
-        let expandedRegion = GenomicRegion(chromosome: region.chromosome, start: expandedStart, end: expandedEnd)
-
         let providers = activeAlignmentProviders()
         guard let provider = providers.first?.provider else { return }
+        guard let controller = viewController,
+              let context = controller.alignmentActionContext,
+              let resolvedRegion = try? controller.alignmentConsensusScope.resolve(
+                in: context,
+                selection: controller.explicitAlignmentSelection
+              ) else { return }
+        let scientificRequest = AlignmentConsensusRequestFactory.build(
+            context: context,
+            region: resolvedRegion,
+            consensusMode: consensusModeSetting,
+            useAmbiguity: consensusUseAmbiguitySetting
+        )
+        let requestedRegion = GenomicRegion(
+            chromosome: resolvedRegion.contig,
+            start: resolvedRegion.start,
+            end: resolvedRegion.end
+        )
         let token = beginConsensusFetch(
             bundleURL: bundle.url,
             trackID: visibleAlignmentTrackIDSetting,
-            region: expandedRegion
+            region: requestedRegion
         )
         let tokenGeneration = token.generation
         let tokenIdentity = token.identity
-        let bamChromosome = alignmentChromosomeName(for: region.chromosome)
-        let mapQFilter = max(0, max(minMapQSetting, consensusMinMapQSetting))
-        let baseQFilter = max(0, consensusMinBaseQSetting)
-        let minDepth = max(1, consensusMinDepthSetting)
-        let excludeFlags = excludeFlagsSetting
-        let mode = consensusModeSetting
-        let useAmbiguity = consensusUseAmbiguitySetting
         let optionsSignature = currentConsensusOptionsSignature()
 
         sequenceViewerLogger.info(
-            "fetchConsensusAsync: gen=\(tokenGeneration), Fetching consensus for \(expandedRegion.description) (BAM chrom: \(bamChromosome), mode: \(mode.rawValue), minMAPQ: \(mapQFilter), minBQ: \(baseQFilter), minDepth: \(minDepth))"
+            "fetchConsensusAsync: gen=\(tokenGeneration), Fetching consensus for \(requestedRegion.description) (mode: \(scientificRequest.mode.rawValue), minMAPQ: \(scientificRequest.filters.minimumMapQ), minBQ: \(scientificRequest.filters.minimumBaseQuality), minDepth: \(scientificRequest.filters.minimumDepth))"
         )
 
         Task.detached { [weak self] in
-            var result = AlignmentDataProvider.ConsensusFASTAResult(sequence: "", headerStart: nil)
+            var result: AlignmentConsensusResult?
             do {
-                result = try await provider.fetchConsensus(
-                    chromosome: bamChromosome,
-                    start: expandedStart,
-                    end: expandedEnd,
-                    mode: mode,
-                    minMapQ: mapQFilter,
-                    minBaseQ: baseQFilter,
-                    minDepth: minDepth,
-                    excludeFlags: excludeFlags,
-                    useAmbiguity: useAmbiguity,
-                    showDeletions: true,
-                    showInsertions: false
-                )
-                if result.sequence.isEmpty, bamChromosome != region.chromosome {
-                    let fallback = try await provider.fetchConsensus(
-                        chromosome: region.chromosome,
-                        start: expandedStart,
-                        end: expandedEnd,
-                        mode: mode,
-                        minMapQ: mapQFilter,
-                        minBaseQ: baseQFilter,
-                        minDepth: minDepth,
-                        excludeFlags: excludeFlags,
-                        useAmbiguity: useAmbiguity,
-                        showDeletions: true,
-                        showInsertions: false
-                    )
-                    if !fallback.sequence.isEmpty {
-                        sequenceViewerLogger.info(
-                            "fetchConsensusAsync: Fallback chromosome lookup succeeded for '\(region.chromosome, privacy: .public)' after empty alias query '\(bamChromosome, privacy: .public)'"
-                        )
-                        result = fallback
-                    }
-                }
+                result = try await provider.fetchConsensus(scientificRequest)
             } catch {
                 sequenceViewerLogger.error("fetchConsensusAsync: Failed to fetch consensus: \(error)")
             }
 
-            let consensus = result.sequence
-            let headerStart = result.headerStart
+            let consensus = result?.sequence ?? ""
 
             DispatchQueue.main.async { [weak self] in
                 MainActor.assumeIsolated {
@@ -519,27 +506,11 @@ extension SequenceViewerView {
                         sequenceViewerLogger.info("fetchConsensusAsync: Discarding stale result gen=\(tokenGeneration)")
                         return
                     }
-                    // Determine the actual start position of the consensus output.
-                    // The FASTA header (e.g., ">chr:101-200") tells us the 1-based start.
-                    // If the header start matches our requested start, all is well.
-                    // If it differs, samtools clipped to the data range and we must use
-                    // the actual start to avoid a positional shift in rendering.
-                    let actualStart: Int
-                    if let headerStart {
-                        actualStart = headerStart
-                        if headerStart != expandedStart {
-                            sequenceViewerLogger.warning(
-                                "fetchConsensusAsync: Header start (\(headerStart)) differs from requested start (\(expandedStart)) — using header value"
-                            )
-                        }
-                    } else {
-                        actualStart = expandedStart
-                    }
-
-                    let expectedLength = expandedEnd - expandedStart
+                    let actualStart = scientificRequest.start
+                    let expectedLength = scientificRequest.end - scientificRequest.start
                     if !consensus.isEmpty && consensus.count != expectedLength {
                         sequenceViewerLogger.warning(
-                            "fetchConsensusAsync: Consensus length (\(consensus.count)) differs from expected (\(expectedLength)) for region \(expandedRegion.description)"
+                            "fetchConsensusAsync: Consensus length (\(consensus.count)) differs from expected (\(expectedLength)) for region \(requestedRegion.description)"
                         )
                     }
 
@@ -552,26 +523,21 @@ extension SequenceViewerView {
                         normalizedConsensus = viewer.normalizedConsensusSequence(
                             consensus,
                             sourceStart: actualStart,
-                            targetStart: expandedStart,
-                            targetEnd: expandedEnd
+                            targetStart: scientificRequest.start,
+                            targetEnd: scientificRequest.end
                         )
                     }
-                    let committedRegion = GenomicRegion(
-                        chromosome: expandedRegion.chromosome,
-                        start: expandedStart,
-                        end: expandedEnd
-                    )
                     guard viewer.commitConsensusFetch(
                         token,
                         sequence: normalizedConsensus,
-                        region: committedRegion,
+                        region: requestedRegion,
                         optionsSignature: optionsSignature
                     ) else {
                         sequenceViewerLogger.info("fetchConsensusAsync: Discarding stale normalized result gen=\(token.generation)")
                         return
                     }
                     sequenceViewerLogger.info(
-                        "fetchConsensusAsync: Cached consensus sourceStart=\(actualStart) sourceLength=\(consensus.count) normalizedLength=\(viewer.cachedConsensusSequence?.count ?? 0) headerStart=\(headerStart.map(String.init) ?? "nil")"
+                        "fetchConsensusAsync: Cached consensus sourceStart=\(actualStart) sourceLength=\(consensus.count) normalizedLength=\(viewer.cachedConsensusSequence?.count ?? 0)"
                     )
                     viewer.setNeedsDisplay(viewer.bounds)
                 }
@@ -588,40 +554,7 @@ extension SequenceViewerView {
             )
         }
 
-        let primaryChromosome = alignmentChromosomeName(for: request.chromosome)
-        var result = try await provider.fetchConsensus(
-            chromosome: primaryChromosome,
-            start: request.start,
-            end: request.end,
-            mode: request.mode,
-            minMapQ: request.minMapQ,
-            minBaseQ: request.minBaseQ,
-            minDepth: request.minDepth,
-            excludeFlags: request.excludeFlags,
-            useAmbiguity: request.useAmbiguity,
-            showDeletions: request.showDeletions,
-            showInsertions: request.showInsertions
-        )
-
-        if result.sequence.isEmpty, primaryChromosome != request.chromosome {
-            let fallback = try await provider.fetchConsensus(
-                chromosome: request.chromosome,
-                start: request.start,
-                end: request.end,
-                mode: request.mode,
-                minMapQ: request.minMapQ,
-                minBaseQ: request.minBaseQ,
-                minDepth: request.minDepth,
-                excludeFlags: request.excludeFlags,
-                useAmbiguity: request.useAmbiguity,
-                showDeletions: request.showDeletions,
-                showInsertions: request.showInsertions
-            )
-            if !fallback.sequence.isEmpty {
-                result = fallback
-            }
-        }
-
+        let result = try await provider.fetchConsensus(request.consensusRequest)
         return result.sequence
     }
 

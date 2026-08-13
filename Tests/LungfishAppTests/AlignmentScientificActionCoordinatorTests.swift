@@ -34,6 +34,153 @@ import XCTest
         XCTAssertEqual(got?.minMapQ, 30)
     }
 
+    func testConsensusGenerationUsesExactRequestValidatesTwiceAndPublishes() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let bam = directory.appendingPathComponent("a.bam")
+        let bai = directory.appendingPathComponent("a.bam.bai")
+        try Data("bam".utf8).write(to: bam)
+        try Data("bai".utf8).write(to: bai)
+        let evidence = try AlignmentActionContext(
+            identity: .init(workflow: "EsViritu", resultID: "run", sampleID: "S1", evidenceID: "virus"),
+            alignmentURL: bam, indexURL: bai, decodingReferenceURL: nil,
+            contig: "virus", contigLength: 40,
+            alignmentSnapshot: .init(url: bam, byteCount: 3, sha256: "bam"),
+            indexSnapshot: .init(url: bai, byteCount: 3, sha256: "bai"),
+            decodingReferenceSnapshot: nil,
+            filters: .init(minimumDepth: 3, minimumMapQ: 20, minimumBaseQuality: 12, excludedFlags: 0xD04, readGroups: ["rg2", "rg1"]),
+            outputCapability: .userSelectedDestination, sourceReads: .bamFallback,
+            presentationLabel: "S1 virus"
+        )
+        let region = ResolvedAlignmentRegion(scope: .selectedRegion, contig: "virus", start: 10, end: 15)
+        let export = try MappingConsensusExportRequestBuilder.build(
+            sampleName: "S1", context: evidence, region: region,
+            consensusMode: .bayesian, useAmbiguity: true
+        )
+        var validations = 0
+        var fetched: AlignmentConsensusRequest?
+        var published: AlignmentConsensusPublicationRequest?
+        let coordinator = AlignmentScientificActionCoordinator(
+            validator: { _ in validations += 1 },
+            consensusFetcher: { _, request in
+                fetched = request
+                return .init(sequence: "ANGNN", referenceLength: 5, allLowDepth: false)
+            },
+            consensusPublisher: { request in
+                published = request
+                return .init(finalURL: request.destination.finalURL, payloadURL: request.destination.finalURL, provenanceURL: request.destination.finalURL.appendingPathExtension("provenance.json"))
+            }
+        )
+
+        let generation = try await coordinator.generateConsensus(context: evidence, exportRequest: export)
+        XCTAssertEqual(fetched, export.consensusRequest)
+        XCTAssertTrue(generation.summary.contains("Reference-fill policy: never"))
+        XCTAssertTrue(generation.summary.contains("Read groups: rg1,rg2"))
+        let destination = directory.appendingPathComponent("consensus.fasta")
+        _ = try await coordinator.publishConsensus(generation, destination: .fasta(destination))
+        XCTAssertEqual(validations, 2)
+        XCTAssertEqual(published?.consensusRequest, export.consensusRequest)
+        XCTAssertEqual(published?.region, region)
+    }
+
+    func testAllLowDepthGenerationRequiresWarningButKeepsEvidenceOnlyNs() async throws {
+        let evidence = try context()
+        let region = ResolvedAlignmentRegion(scope: .wholeContig, contig: evidence.contig, start: 0, end: evidence.contigLength)
+        let export = try MappingConsensusExportRequestBuilder.build(
+            sampleName: "s", context: evidence, region: region,
+            consensusMode: .simple, useAmbiguity: false
+        )
+        let coordinator = AlignmentScientificActionCoordinator(
+            validator: { _ in },
+            consensusFetcher: { _, _ in
+                .init(sequence: String(repeating: "N", count: evidence.contigLength), referenceLength: evidence.contigLength, allLowDepth: true)
+            }
+        )
+
+        let generation = try await coordinator.generateConsensus(context: evidence, exportRequest: export)
+
+        XCTAssertTrue(generation.requiresAllLowDepthWarning)
+        XCTAssertTrue(generation.allLowDepthWarningMessage.contains("only N"))
+        XCTAssertTrue(generation.allLowDepthWarningMessage.contains("without filling from the reference"))
+        XCTAssertEqual(generation.result.sequence, String(repeating: "N", count: evidence.contigLength))
+    }
+
+    func testConsensusGenerationCooperativelyCancelsBeforeReturningAResult() async throws {
+        let evidence = try context()
+        let region = ResolvedAlignmentRegion(scope: .wholeContig, contig: evidence.contig, start: 0, end: evidence.contigLength)
+        let export = try MappingConsensusExportRequestBuilder.build(
+            sampleName: "s", context: evidence, region: region,
+            consensusMode: .simple, useAmbiguity: false
+        )
+        let coordinator = AlignmentScientificActionCoordinator(
+            validator: { _ in },
+            consensusFetcher: { _, _ in
+                try await Task.sleep(nanoseconds: 10_000_000_000)
+                return .init(sequence: "A", referenceLength: 1, allLowDepth: false)
+            }
+        )
+        let task = Task {
+            try await coordinator.generateConsensus(context: evidence, exportRequest: export)
+        }
+
+        await Task.yield()
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            XCTFail("cancelled consensus generation returned a result")
+        } catch is CancellationError {
+            // Expected: the operation cancellation callback can stop generation.
+        }
+    }
+
+    func testConsensusCancellationAfterGenerationPreventsPublisherInvocation() async throws {
+        let evidence = try context()
+        let region = ResolvedAlignmentRegion(scope: .wholeContig, contig: evidence.contig, start: 0, end: evidence.contigLength)
+        let export = try MappingConsensusExportRequestBuilder.build(sampleName: "s", context: evidence, region: region, consensusMode: .simple, useAmbiguity: false)
+        var didPublish = false
+        let coordinator = AlignmentScientificActionCoordinator(
+            validator: { _ in },
+            consensusFetcher: { _, _ in .init(sequence: String(repeating: "N", count: 100), referenceLength: 100, allLowDepth: true) },
+            consensusPublisher: { request in
+                didPublish = true
+                return .init(finalURL: request.destination.finalURL, payloadURL: request.destination.finalURL, provenanceURL: request.destination.finalURL)
+            }
+        )
+        let generation = try await coordinator.generateConsensus(context: evidence, exportRequest: export)
+        let task = Task {
+            try await coordinator.publishConsensus(generation, destination: .fasta(URL(fileURLWithPath: "/out.fasta")))
+        }
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            XCTFail("cancelled workflow published a result")
+        } catch is CancellationError {}
+        XCTAssertFalse(didPublish)
+    }
+
+    func testConsensusShareSessionCleansOnDismissAndSuccessExactlyOnce() {
+        for outcome in [AlignmentConsensusShareSession.Outcome.cancelled, .shared] {
+            var cleanupCount = 0
+            var outcomes: [AlignmentConsensusShareSession.Outcome] = []
+            let session = AlignmentConsensusShareSession(
+                cleanup: { cleanupCount += 1 },
+                finish: { outcomes.append($0) }
+            )
+            if outcome == .cancelled {
+                session.sharingServicePicker(NSSharingServicePicker(items: []), didChoose: nil)
+            } else {
+                let service = NSSharingService(title: "test", image: NSImage(), alternateImage: nil, handler: {})
+                session.sharingService(service, didShareItems: [])
+                session.sharingService(service, didShareItems: [])
+            }
+            XCTAssertEqual(cleanupCount, 1)
+            XCTAssertEqual(outcomes, [outcome])
+        }
+    }
+
     func testRegionValidatesImmediatelyBeforeStagingAndImmediatelyBeforePublication() async throws {
         let transaction = try makeTransaction()
         var gates: [String] = []

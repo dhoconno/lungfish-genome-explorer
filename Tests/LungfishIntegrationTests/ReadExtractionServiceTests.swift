@@ -45,6 +45,7 @@ final class ReadExtractionServiceTests: XCTestCase {
         let bamURL = TestFixtures.sarscov2.sortedBam
         let config = BAMRegionExtractionConfig(
             bamURL: bamURL,
+            indexURL: TestFixtures.sarscov2.bamIndex,
             regions: ["MT192765.1"],
             fallbackToAll: false,
             outputDirectory: tempDir,
@@ -78,6 +79,7 @@ final class ReadExtractionServiceTests: XCTestCase {
         // Without dedup
         let configNormal = BAMRegionExtractionConfig(
             bamURL: bamURL,
+            indexURL: TestFixtures.sarscov2.bamIndex,
             regions: ["MT192765.1"],
             fallbackToAll: false,
             outputDirectory: tempDir.appendingPathComponent("nodedup"),
@@ -89,6 +91,7 @@ final class ReadExtractionServiceTests: XCTestCase {
         // With dedup
         let configDedup = BAMRegionExtractionConfig(
             bamURL: bamURL,
+            indexURL: TestFixtures.sarscov2.bamIndex,
             regions: ["MT192765.1"],
             fallbackToAll: false,
             outputDirectory: tempDir.appendingPathComponent("dedup"),
@@ -107,6 +110,7 @@ final class ReadExtractionServiceTests: XCTestCase {
         let bamURL = TestFixtures.sarscov2.sortedBam
         let config = BAMRegionExtractionConfig(
             bamURL: bamURL,
+            indexURL: TestFixtures.sarscov2.bamIndex,
             regions: ["NONEXISTENT_REGION"],
             fallbackToAll: false,
             outputDirectory: tempDir,
@@ -130,6 +134,7 @@ final class ReadExtractionServiceTests: XCTestCase {
         let bamURL = TestFixtures.sarscov2.sortedBam
         let config = BAMRegionExtractionConfig(
             bamURL: bamURL,
+            indexURL: TestFixtures.sarscov2.bamIndex,
             regions: ["NONEXISTENT_REGION"],
             fallbackToAll: true,
             outputDirectory: tempDir,
@@ -149,6 +154,7 @@ final class ReadExtractionServiceTests: XCTestCase {
 
         let config = BAMRegionExtractionConfig(
             bamURL: isolatedBAM,
+            indexURL: isolatedBAM.appendingPathExtension("bai"),
             regions: ["MT192765.1"],
             fallbackToAll: false,
             outputDirectory: tempDir,
@@ -172,6 +178,7 @@ final class ReadExtractionServiceTests: XCTestCase {
         let bamURL = TestFixtures.sarscov2.sortedBam
         let config = BAMRegionExtractionConfig(
             bamURL: bamURL,
+            indexURL: TestFixtures.sarscov2.bamIndex,
             regions: ["MT192765.1"],
             fallbackToAll: false,
             outputDirectory: tempDir,
@@ -265,6 +272,7 @@ final class ReadExtractionServiceTests: XCTestCase {
         let bamURL = TestFixtures.sarscov2.sortedBam
         let config = BAMRegionExtractionConfig(
             bamURL: bamURL,
+            indexURL: TestFixtures.sarscov2.bamIndex,
             regions: ["MT192765.1"],
             fallbackToAll: false,
             outputDirectory: tempDir,
@@ -448,6 +456,7 @@ final class ReadExtractionServiceTests: XCTestCase {
         let bamURL = TestFixtures.sarscov2.sortedBam
         let config = BAMRegionExtractionConfig(
             bamURL: bamURL,
+            indexURL: TestFixtures.sarscov2.bamIndex,
             regions: ["MT192765.1"],
             fallbackToAll: false,
             outputDirectory: tempDir,

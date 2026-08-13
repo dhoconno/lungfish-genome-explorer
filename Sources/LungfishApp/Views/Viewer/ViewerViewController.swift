@@ -55,20 +55,40 @@ public class ViewerViewController: NSViewController {
     /// deliberately preserves the user's consensus scope preference.
     var alignmentActionContext: AlignmentActionContext? {
         didSet {
-            guard oldValue?.identity != alignmentActionContext?.identity else { return }
-            explicitAlignmentSelection = nil
-            viewerView?.clearSelection()
+            if oldValue?.identity != alignmentActionContext?.identity {
+                explicitAlignmentSelection = nil
+                viewerView?.clearSelection()
+            }
+            viewerView?.needsDisplay = true
+            onAlignmentConsensusActionStateChanged?()
         }
     }
 
     /// Persistent user preference for consensus actions.  A selected-region
     /// preference remains selected when evidence changes and will require a
     /// fresh explicit selection instead of falling back to whole-contig.
-    var alignmentConsensusScope: AlignmentConsensusScope = .wholeContig
+    var alignmentConsensusScope: AlignmentConsensusScope = .wholeContig {
+        didSet {
+            guard oldValue != alignmentConsensusScope else { return }
+            viewerView?.invalidateConsensusScientificRequest()
+            onAlignmentConsensusActionStateChanged?()
+        }
+    }
 
     /// The exact coordinate selection supplied by the active viewer.  This is
     /// intentionally distinct from visible ranges and annotation inference.
-    var explicitAlignmentSelection: AlignmentCoordinateSelection?
+    var explicitAlignmentSelection: AlignmentCoordinateSelection? {
+        didSet {
+            guard oldValue != explicitAlignmentSelection else { return }
+            viewerView?.invalidateConsensusScientificRequest()
+            onAlignmentConsensusActionStateChanged?()
+        }
+    }
+
+    /// Window-local notification used by Inspector bindings. It fires for
+    /// evidence, scope, and explicit-selection changes so action availability
+    /// cannot become stale while the user drags or clears a selection.
+    var onAlignmentConsensusActionStateChanged: (() -> Void)?
 
     /// Records an explicit coordinate choice made in this full viewer. This
     /// is the only source used by selected-region alignment actions; visible
@@ -101,6 +121,11 @@ public class ViewerViewController: NSViewController {
         _ title: String,
         _ message: String
     ) -> Void
+
+    typealias AlignmentConsensusAllLowDepthConfirmation = @MainActor (
+        _ message: String,
+        _ window: NSWindow
+    ) async -> Bool
 
     // MARK: - UI Components
 
@@ -170,6 +195,10 @@ public class ViewerViewController: NSViewController {
     var alignmentExtractionSavePanelPresenter: SavePanelPresenting = DefaultSavePanelPresenter()
 
     var activeSelectedReadsExtractionTask: Task<Void, Never>?
+    var activeConsensusGenerationTask: Task<Void, Never>?
+    var activeConsensusGenerationOperationID: UUID?
+    var alignmentConsensusAllLowDepthConfirmation: AlignmentConsensusAllLowDepthConfirmation?
+    var activeConsensusShareSessions: [UUID: AlignmentConsensusShareSession] = [:]
 
     /// Taxonomy classification browser (shown in place of sequence viewer for kreport results)
     var taxonomyViewController: TaxonomyViewController?

@@ -3,7 +3,7 @@
     "python3",
     "scripts/testing/generate-classifier-full-viewer-fixture.py"
   ],
-  "createdAt": "2026-08-12T14:44:09Z",
+  "createdAt": "2026-08-13T04:11:18Z",
   "executedShellCommand": "python3 scripts/testing/generate-classifier-full-viewer-fixture.py",
   "exitStatus": 0,
   "externalToolInvocations": [
@@ -13,8 +13,10 @@
         "--version"
       ],
       "exitStatus": 0,
+      "inputFiles": [],
       "name": "samtools",
       "operation": "version",
+      "outputFiles": [],
       "reproducibleCommand": "samtools --version",
       "runtimeIdentity": {
         "samtoolsCondaEnvironment": "samtools",
@@ -24,8 +26,43 @@
       "stderr": "",
       "subcommand": "version",
       "version": "samtools 1.23.1",
-      "wallTimeSeconds": 0.024255,
+      "wallTimeSeconds": 0.078621,
       "workingDirectory": null
+    },
+    {
+      "argv": [
+        "samtools",
+        "faidx",
+        "conflicting-reference.fasta"
+      ],
+      "exitStatus": 0,
+      "inputFiles": [
+        {
+          "checksumSHA256": "36e2d1088b5810e73fdfb3a6470accf0942d50ea9cbf986b3d110c6822bba8a4",
+          "fileSize": 140,
+          "path": "conflicting-reference.fasta"
+        }
+      ],
+      "name": "samtools",
+      "operation": "faidx",
+      "outputFiles": [
+        {
+          "checksumSHA256": "b846c3762ca6d66fe5076673e805eb03b44a52206b11c1ad27e1c1793730d845",
+          "fileSize": 33,
+          "path": "conflicting-reference.fasta.fai"
+        }
+      ],
+      "reproducibleCommand": "samtools faidx conflicting-reference.fasta",
+      "runtimeIdentity": {
+        "samtoolsCondaEnvironment": "samtools",
+        "samtoolsExecutable": "$HOME/.lungfish/conda/envs/samtools/bin/samtools",
+        "samtoolsExecutableChecksumSHA256": "0691b5c0d87ed3e15fa9f8c87ea751fe359f723c8189909b3d376f8e469cdec0"
+      },
+      "stderr": "",
+      "subcommand": "faidx",
+      "version": "samtools 1.23.1",
+      "wallTimeSeconds": 0.006395,
+      "workingDirectory": "Tests/Fixtures/classifier-full-viewer"
     },
     {
       "argv": [
@@ -38,8 +75,22 @@
         "source.sam"
       ],
       "exitStatus": 0,
+      "inputFiles": [
+        {
+          "checksumSHA256": "652bcb4ce3ce4d21a0ecdf68f58e0225b8b2e6498dc59dbf658b8866f8719aa7",
+          "fileSize": 535,
+          "path": "source.sam"
+        }
+      ],
       "name": "samtools",
-      "operation": "view",
+      "operation": "view-bam",
+      "outputFiles": [
+        {
+          "checksumSHA256": "03fb3647860e1716bf31117e1d0e9c82af25fa1f764b2c6b1b9a94a8f0a35f64",
+          "fileSize": 354,
+          "path": "evidence.bam"
+        }
+      ],
       "reproducibleCommand": "samtools view --no-PG -b -o evidence.bam source.sam",
       "runtimeIdentity": {
         "samtoolsCondaEnvironment": "samtools",
@@ -47,9 +98,9 @@
         "samtoolsExecutableChecksumSHA256": "0691b5c0d87ed3e15fa9f8c87ea751fe359f723c8189909b3d376f8e469cdec0"
       },
       "stderr": "",
-      "subcommand": "view",
+      "subcommand": "view-bam",
       "version": "samtools 1.23.1",
-      "wallTimeSeconds": 0.013438,
+      "wallTimeSeconds": 0.007088,
       "workingDirectory": "Tests/Fixtures/classifier-full-viewer"
     },
     {
@@ -60,8 +111,22 @@
         "evidence.bam.bai"
       ],
       "exitStatus": 0,
+      "inputFiles": [
+        {
+          "checksumSHA256": "03fb3647860e1716bf31117e1d0e9c82af25fa1f764b2c6b1b9a94a8f0a35f64",
+          "fileSize": 354,
+          "path": "evidence.bam"
+        }
+      ],
       "name": "samtools",
-      "operation": "index",
+      "operation": "index-bam",
+      "outputFiles": [
+        {
+          "checksumSHA256": "9bb70dd9b082b6457415a6126ecafdf005818a8a9852d623241fe7e454bdebde",
+          "fileSize": 96,
+          "path": "evidence.bam.bai"
+        }
+      ],
       "reproducibleCommand": "samtools index evidence.bam evidence.bam.bai",
       "runtimeIdentity": {
         "samtoolsCondaEnvironment": "samtools",
@@ -69,42 +134,187 @@
         "samtoolsExecutableChecksumSHA256": "0691b5c0d87ed3e15fa9f8c87ea751fe359f723c8189909b3d376f8e469cdec0"
       },
       "stderr": "",
-      "subcommand": "index",
+      "subcommand": "index-bam",
       "version": "samtools 1.23.1",
-      "wallTimeSeconds": 0.013818,
+      "wallTimeSeconds": 0.006422,
+      "workingDirectory": "Tests/Fixtures/classifier-full-viewer"
+    },
+    {
+      "argv": [
+        "samtools",
+        "view",
+        "--no-PG",
+        "-C",
+        "-o",
+        "evidence.cram",
+        "evidence.bam"
+      ],
+      "exitStatus": 0,
+      "inputFiles": [
+        {
+          "checksumSHA256": "03fb3647860e1716bf31117e1d0e9c82af25fa1f764b2c6b1b9a94a8f0a35f64",
+          "fileSize": 354,
+          "path": "evidence.bam"
+        },
+        {
+          "checksumSHA256": "36e2d1088b5810e73fdfb3a6470accf0942d50ea9cbf986b3d110c6822bba8a4",
+          "fileSize": 140,
+          "path": "conflicting-reference.fasta"
+        }
+      ],
+      "name": "samtools",
+      "operation": "view-cram",
+      "outputFiles": [
+        {
+          "checksumSHA256": "e16d8f5963cf5410f7d4756e3a219cdedba1d10dd749120ff985d2bacbc4cad6",
+          "fileSize": 970,
+          "path": "evidence.cram"
+        }
+      ],
+      "reproducibleCommand": "samtools view --no-PG -C -o evidence.cram evidence.bam",
+      "runtimeIdentity": {
+        "samtoolsCondaEnvironment": "samtools",
+        "samtoolsExecutable": "$HOME/.lungfish/conda/envs/samtools/bin/samtools",
+        "samtoolsExecutableChecksumSHA256": "0691b5c0d87ed3e15fa9f8c87ea751fe359f723c8189909b3d376f8e469cdec0"
+      },
+      "stderr": "",
+      "subcommand": "view-cram",
+      "version": "samtools 1.23.1",
+      "wallTimeSeconds": 0.008081,
+      "workingDirectory": "Tests/Fixtures/classifier-full-viewer"
+    },
+    {
+      "argv": [
+        "samtools",
+        "index",
+        "evidence.cram",
+        "evidence.cram.crai"
+      ],
+      "exitStatus": 0,
+      "inputFiles": [
+        {
+          "checksumSHA256": "e16d8f5963cf5410f7d4756e3a219cdedba1d10dd749120ff985d2bacbc4cad6",
+          "fileSize": 970,
+          "path": "evidence.cram"
+        }
+      ],
+      "name": "samtools",
+      "operation": "index-cram",
+      "outputFiles": [
+        {
+          "checksumSHA256": "4f71a0de79300eac70837d06ef3115b684a89b3b53fd3b5adb1aa67d64cba6b6",
+          "fileSize": 56,
+          "path": "evidence.cram.crai"
+        }
+      ],
+      "reproducibleCommand": "samtools index evidence.cram evidence.cram.crai",
+      "runtimeIdentity": {
+        "samtoolsCondaEnvironment": "samtools",
+        "samtoolsExecutable": "$HOME/.lungfish/conda/envs/samtools/bin/samtools",
+        "samtoolsExecutableChecksumSHA256": "0691b5c0d87ed3e15fa9f8c87ea751fe359f723c8189909b3d376f8e469cdec0"
+      },
+      "stderr": "",
+      "subcommand": "index-cram",
+      "version": "samtools 1.23.1",
+      "wallTimeSeconds": 0.006579,
+      "workingDirectory": "Tests/Fixtures/classifier-full-viewer"
+    },
+    {
+      "argv": [
+        "samtools",
+        "quickcheck",
+        "evidence.bam",
+        "evidence.cram"
+      ],
+      "exitStatus": 0,
+      "inputFiles": [
+        {
+          "checksumSHA256": "03fb3647860e1716bf31117e1d0e9c82af25fa1f764b2c6b1b9a94a8f0a35f64",
+          "fileSize": 354,
+          "path": "evidence.bam"
+        },
+        {
+          "checksumSHA256": "e16d8f5963cf5410f7d4756e3a219cdedba1d10dd749120ff985d2bacbc4cad6",
+          "fileSize": 970,
+          "path": "evidence.cram"
+        }
+      ],
+      "name": "samtools",
+      "operation": "quickcheck",
+      "outputFiles": [],
+      "reproducibleCommand": "samtools quickcheck evidence.bam evidence.cram",
+      "runtimeIdentity": {
+        "samtoolsCondaEnvironment": "samtools",
+        "samtoolsExecutable": "$HOME/.lungfish/conda/envs/samtools/bin/samtools",
+        "samtoolsExecutableChecksumSHA256": "0691b5c0d87ed3e15fa9f8c87ea751fe359f723c8189909b3d376f8e469cdec0"
+      },
+      "stderr": "",
+      "subcommand": "quickcheck",
+      "version": "samtools 1.23.1",
+      "wallTimeSeconds": 0.005909,
       "workingDirectory": "Tests/Fixtures/classifier-full-viewer"
     }
   ],
   "files": [
     {
-      "checksumSHA256": "d35f0a6d52588829004c73d0ae2398d31637cebb4cfa3c6c392839c9fd1435f8",
-      "fileSize": 468,
+      "checksumSHA256": "652bcb4ce3ce4d21a0ecdf68f58e0225b8b2e6498dc59dbf658b8866f8719aa7",
+      "fileSize": 535,
       "path": "source.sam"
     },
     {
-      "checksumSHA256": "0fff054fb3274836dec421488631e475501afe40215457439c6e36cf415035c3",
-      "fileSize": 291,
+      "checksumSHA256": "36e2d1088b5810e73fdfb3a6470accf0942d50ea9cbf986b3d110c6822bba8a4",
+      "fileSize": 140,
+      "path": "conflicting-reference.fasta"
+    },
+    {
+      "checksumSHA256": "b846c3762ca6d66fe5076673e805eb03b44a52206b11c1ad27e1c1793730d845",
+      "fileSize": 33,
+      "path": "conflicting-reference.fasta.fai"
+    },
+    {
+      "checksumSHA256": "03fb3647860e1716bf31117e1d0e9c82af25fa1f764b2c6b1b9a94a8f0a35f64",
+      "fileSize": 354,
       "path": "evidence.bam"
     },
     {
-      "checksumSHA256": "621d2c295d30d032069a9371b8117a891540de0dfa566d97c640684ddbf494a2",
+      "checksumSHA256": "9bb70dd9b082b6457415a6126ecafdf005818a8a9852d623241fe7e454bdebde",
       "fileSize": 96,
       "path": "evidence.bam.bai"
+    },
+    {
+      "checksumSHA256": "e16d8f5963cf5410f7d4756e3a219cdedba1d10dd749120ff985d2bacbc4cad6",
+      "fileSize": 970,
+      "path": "evidence.cram"
+    },
+    {
+      "checksumSHA256": "4f71a0de79300eac70837d06ef3115b684a89b3b53fd3b5adb1aa67d64cba6b6",
+      "fileSize": 56,
+      "path": "evidence.cram.crai"
     }
   ],
   "input": {
-    "checksumSHA256": "d35f0a6d52588829004c73d0ae2398d31637cebb4cfa3c6c392839c9fd1435f8",
-    "fileSize": 468,
+    "checksumSHA256": "652bcb4ce3ce4d21a0ecdf68f58e0225b8b2e6498dc59dbf658b8866f8719aa7",
+    "fileSize": 535,
     "path": "source.sam"
   },
   "inputFiles": [
     {
-      "checksumSHA256": "d35f0a6d52588829004c73d0ae2398d31637cebb4cfa3c6c392839c9fd1435f8",
-      "fileSize": 468,
+      "checksumSHA256": "652bcb4ce3ce4d21a0ecdf68f58e0225b8b2e6498dc59dbf658b8866f8719aa7",
+      "fileSize": 535,
       "path": "source.sam"
+    },
+    {
+      "checksumSHA256": "36e2d1088b5810e73fdfb3a6470accf0942d50ea9cbf986b3d110c6822bba8a4",
+      "fileSize": 140,
+      "path": "conflicting-reference.fasta"
     }
   ],
   "options": {
+    "conflictingReference": {
+      "base": "C",
+      "coveredReadBase": "A",
+      "path": "conflicting-reference.fasta"
+    },
     "contigLength": 120,
     "contigName": "synthetic-track-A",
     "defaults": {
@@ -129,8 +339,8 @@
     "syntheticData": true
   },
   "output": {
-    "checksumSHA256": "84dba177b0c289a3e89964194cc05c5137c37437067a6584f232a6bacd19da8d",
-    "fileSize": 855,
+    "checksumSHA256": "e9d884c131e87577db9c0bb14f85dff75f1d5f4202c8ea2ddef89722deb4660f",
+    "fileSize": 2184,
     "path": "Tests/Fixtures/classifier-full-viewer"
   },
   "reproducibleCommand": "python3 scripts/testing/generate-classifier-full-viewer-fixture.py --output-dir Tests/Fixtures/classifier-full-viewer",
@@ -152,8 +362,8 @@
   "stderr": "",
   "syntheticData": true,
   "toolName": "generate-classifier-full-viewer-fixture.py",
-  "toolVersion": "1.0.0",
-  "wallTimeSeconds": 0.053323,
+  "toolVersion": "1.1.0",
+  "wallTimeSeconds": 0.122639,
   "warnings": [
     "Wholly synthetic generic alignment records for viewer behavior tests; no external volume, biological sample, or reference payload is used."
   ],

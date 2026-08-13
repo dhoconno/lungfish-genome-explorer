@@ -21,6 +21,7 @@ struct ClassifierAlignmentEvidenceValidator: @unchecked Sendable {
         case contigUnavailable(String)
         case contigLengthMismatch(expected: Int, actual: Int)
         case snapshotMismatch(URL)
+        case decodingReferenceRequired(URL)
 
         var errorDescription: String? {
             switch self {
@@ -32,6 +33,7 @@ struct ClassifierAlignmentEvidenceValidator: @unchecked Sendable {
             case .contigUnavailable(let name): "The requested BAM contig '\(name)' is unavailable."
             case .contigLengthMismatch(let expected, let actual): "The BAM contig length is \(actual), expected \(expected)."
             case .snapshotMismatch(let url): "Final evidence changed after the request was created: \(url.lastPathComponent)."
+            case .decodingReferenceRequired(let url): "A validated decoding reference is required for CRAM evidence: \(url.lastPathComponent)."
             }
         }
     }
@@ -69,26 +71,14 @@ struct ClassifierAlignmentEvidenceValidator: @unchecked Sendable {
     typealias IndexQuery = @Sendable (URL, URL, String) async throws -> Void
     typealias ReferenceReader = @Sendable (URL, String) throws -> String
 
-    private let headerReader: HeaderReader
-    private let indexQuery: IndexQuery
+    private let headerReader: HeaderReader?
+    private let indexQuery: IndexQuery?
     private let referenceReader: ReferenceReader
     private let fileManager: FileManager
 
     init(
-        headerReader: @escaping HeaderReader = { bamURL in
-            try await AlignmentDataProvider(
-                alignmentPath: bamURL.path,
-                indexPath: bamURL.appendingPathExtension("bai").path
-            ).fetchHeader()
-        },
-        indexQuery: @escaping IndexQuery = { bamURL, indexURL, contig in
-            // A one-base indexed query proves that the explicit index can be used for
-            // this BAM/contig. `AlignmentDataProvider` owns the samtools invocation.
-            _ = try await AlignmentDataProvider(
-                alignmentPath: bamURL.path,
-                indexPath: indexURL.path
-            ).fetchReads(chromosome: contig, start: 0, end: 1, maxReads: 1)
-        },
+        headerReader: HeaderReader? = nil,
+        indexQuery: IndexQuery? = nil,
         referenceReader: @escaping ReferenceReader = { url, name in
             try Self.readExactFASTARecord(at: url, named: name)
         },
@@ -117,8 +107,21 @@ struct ClassifierAlignmentEvidenceValidator: @unchecked Sendable {
         if let expected = request.bamExpectedSnapshot, expected != bamSnapshot { throw Error.snapshotMismatch(request.bamURL) }
         if let expected = request.index.expectedSnapshot, expected != indexSnapshot { throw Error.snapshotMismatch(request.index.url) }
 
+        let format: AlignmentFormat = request.bamURL.pathExtension.lowercased() == "cram" ? .cram : .bam
+        let provider = AlignmentDataProvider(
+            alignmentPath: request.bamURL.path,
+            indexPath: request.index.url.path,
+            format: format,
+            referenceFastaPath: format == .cram ? request.referenceCandidate?.fastaURL.path : nil
+        )
         let header: String
-        do { header = try await headerReader(request.bamURL) }
+        do {
+            header = if let headerReader {
+                try await headerReader(request.bamURL)
+            } else {
+                try await provider.fetchHeader()
+            }
+        }
         catch { throw Error.headerUnavailable(error.localizedDescription) }
         let sequences = SAMParser.parseReferenceSequences(from: header)
         guard let sequence = sequences.first(where: { $0.name == request.contig.name }) else {
@@ -128,7 +131,13 @@ struct ClassifierAlignmentEvidenceValidator: @unchecked Sendable {
             throw Error.contigLengthMismatch(expected: request.contig.expectedLength, actual: Int(sequence.length))
         }
 
-        do { try await indexQuery(request.bamURL, request.index.url, request.contig.name) }
+        do {
+            if let indexQuery {
+                try await indexQuery(request.bamURL, request.index.url, request.contig.name)
+            } else {
+                _ = try await provider.fetchReads(chromosome: request.contig.name, start: 0, end: 1, maxReads: 1)
+            }
+        }
         catch { throw Error.indexDoesNotMatchBAM(error.localizedDescription) }
 
         let referenceValidation = await validateReference(
@@ -138,6 +147,9 @@ struct ClassifierAlignmentEvidenceValidator: @unchecked Sendable {
         )
         let reference = referenceValidation.reference
         let referenceSnapshot = referenceValidation.snapshot
+        if format == .cram, reference.sequence == nil {
+            throw Error.decodingReferenceRequired(request.bamURL)
+        }
         if let expected = request.referenceCandidate?.expectedSnapshot,
            let referenceSnapshot,
            expected != referenceSnapshot {
@@ -160,12 +172,7 @@ struct ClassifierAlignmentEvidenceValidator: @unchecked Sendable {
         return Result(
             request: request,
             contig: Contig(name: request.contig.name, length: request.contig.expectedLength),
-            provider: AlignmentDataProvider(
-                alignmentPath: request.bamURL.path,
-                indexPath: request.index.url.path,
-                format: .bam,
-                referenceFastaPath: reference.sequence == nil ? nil : request.referenceCandidate?.fastaURL.path
-            ),
+            provider: provider,
             reference: reference,
             bamSnapshot: bamSnapshot,
             indexSnapshot: indexSnapshot,

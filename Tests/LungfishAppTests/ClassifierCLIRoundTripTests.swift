@@ -366,9 +366,8 @@ final class ClassifierCLIRoundTripTests: XCTestCase {
         let bamURL = ClassifierExtractionFixtures.sarscov2BAM
         let baiURL = ClassifierExtractionFixtures.sarscov2BAMIndex
         let fm = FileManager.default
-        guard fm.fileExists(atPath: bamURL.path), fm.fileExists(atPath: baiURL.path) else {
-            throw XCTSkip("sarscov2 markers fixture BAM missing at \(bamURL.path)")
-        }
+        XCTAssertTrue(fm.fileExists(atPath: bamURL.path), "Repository BAM fixture is required at \(bamURL.path)")
+        XCTAssertTrue(fm.fileExists(atPath: baiURL.path), "Repository BAI fixture is required at \(baiURL.path)")
 
         // Read the first reference so we pass a real region value.
         let ref = try await ClassifierExtractionFixtures.sarscov2FirstReference()

@@ -191,6 +191,24 @@ struct AlignmentActionContext: Sendable, Equatable {
         }
     }
 
+    func replacingFilters(_ filters: AlignmentConsensusFilters) throws -> AlignmentActionContext {
+        try AlignmentActionContext(
+            identity: identity,
+            alignmentURL: alignmentURL,
+            indexURL: indexURL,
+            decodingReferenceURL: decodingReferenceURL,
+            contig: contig,
+            contigLength: contigLength,
+            alignmentSnapshot: alignmentSnapshot,
+            indexSnapshot: indexSnapshot,
+            decodingReferenceSnapshot: decodingReferenceSnapshot,
+            filters: filters,
+            outputCapability: outputCapability,
+            sourceReads: sourceReads,
+            presentationLabel: presentationLabel
+        )
+    }
+
     private func validateSnapshot(_ expected: AlignmentEvidenceFileSnapshot, at url: URL) throws {
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw EvidenceError.missingEvidence(url)

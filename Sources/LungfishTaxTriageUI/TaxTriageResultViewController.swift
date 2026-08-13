@@ -2476,7 +2476,11 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             ?? (selectedSampleIndex > 0 && selectedSampleIndex <= sampleIds.count
                 ? sampleIds[selectedSampleIndex - 1]
                 : "selected-sample")
-        let kind: ClassifierAlignmentIndex.Kind = indexURL.pathExtension.lowercased() == "csi" ? .csi : .bai
+        let kind: ClassifierAlignmentIndex.Kind = switch indexURL.pathExtension.lowercased() {
+        case "csi": .csi
+        case "crai": .crai
+        default: .bai
+        }
         do {
             let resultURL = batchGroupURL ?? bamURL.deletingLastPathComponent()
             let reference = downloadedReferenceCandidate(

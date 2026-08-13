@@ -949,7 +949,11 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
                 viewer.clear()
                 return
             }
-            let indexKind: ClassifierAlignmentIndex.Kind = indexURL.pathExtension.lowercased() == "csi" ? .csi : .bai
+            let indexKind: ClassifierAlignmentIndex.Kind = switch indexURL.pathExtension.lowercased() {
+            case "csi": .csi
+            case "crai": .crai
+            default: .bai
+            }
             let sample = allSamples.first(where: { $0.sampleId == hit.sampleId })
             let reference = sample.map { metadata in
                 ClassifierAlignmentReferenceCandidate(

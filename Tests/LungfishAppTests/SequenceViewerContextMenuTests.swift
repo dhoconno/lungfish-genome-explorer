@@ -39,6 +39,7 @@ final class SequenceViewerContextMenuTests: XCTestCase {
             "<separator>",
             "Copy Visible Region as FASTA",
             "Extract Visible Region…",
+            "Extract Reads in Selected Region…",
             "<separator>",
             "Center View Here",
             "Zoom to Selected Region",
@@ -60,6 +61,7 @@ final class SequenceViewerContextMenuTests: XCTestCase {
                 "Copy Visible Region",
                 "Copy Visible Region as FASTA",
                 "Extract Visible Region…",
+                "Extract Reads in Selected Region…",
                 "Center View Here",
                 "Zoom to Selected Region",
             ]
@@ -81,6 +83,7 @@ final class SequenceViewerContextMenuTests: XCTestCase {
             "<separator>",
             "Copy Visible Region as FASTA",
             "Extract Visible Region…",
+            "Extract Reads in Selected Region…",
             "<separator>",
             "Center View Here",
             "Zoom to Selected Region",

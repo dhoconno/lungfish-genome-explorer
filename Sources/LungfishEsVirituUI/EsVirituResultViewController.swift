@@ -436,7 +436,11 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
             alignmentEvidenceViewer?.clear()
             return
         }
-        let kind: ClassifierAlignmentIndex.Kind = indexURL.pathExtension.lowercased() == "csi" ? .csi : .bai
+        let kind: ClassifierAlignmentIndex.Kind = switch indexURL.pathExtension.lowercased() {
+        case "csi": .csi
+        case "crai": .crai
+        default: .bai
+        }
         do {
             let resultURL = batchURL ?? bamURL.deletingLastPathComponent()
             let request = try ClassifierAlignmentEvidenceRequest(

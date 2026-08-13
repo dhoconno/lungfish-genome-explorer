@@ -25,6 +25,165 @@ final class MappingResultViewControllerTests: XCTestCase {
         super.tearDown()
     }
 
+    func testCancellingDestinationSheetBlocksPrimaryPublicationAndFinishesOnce() async throws {
+        OperationCenter.shared.cancelAll()
+        OperationCenter.shared.clearCompleted()
+        let viewer = ViewerViewController()
+        _ = viewer.view
+        let operationID = OperationCenter.shared.start(
+            title: "Generate Alignment Consensus",
+            detail: "Choose a destination",
+            operationType: .export
+        )
+        viewer.activeConsensusGenerationOperationID = operationID
+        viewer.installConsensusDestinationCancellation(
+            operationID: operationID,
+            window: nil,
+            sheet: nil
+        )
+        let cancelledTerminalCount = LockedTestCounter()
+        let observer = NotificationCenter.default.addObserver(
+            forName: .operationStateChanged,
+            object: OperationCenter.shared,
+            queue: .main
+        ) { notification in
+            guard notification.userInfo?["operationID"] as? UUID == operationID,
+                  notification.userInfo?["operationState"] as? String == "cancelled" else { return }
+            cancelledTerminalCount.increment()
+        }
+        defer {
+            NotificationCenter.default.removeObserver(observer)
+            OperationCenter.shared.clearCompleted()
+        }
+
+        OperationCenter.shared.cancel(id: operationID)
+        var publisherInvocationCount = 0
+        let didAcceptPrimary = viewer.performConsensusDestinationPrimaryIfActive(
+            operationID: operationID
+        ) {
+            publisherInvocationCount += 1
+        }
+
+        XCTAssertFalse(didAcceptPrimary)
+        XCTAssertEqual(publisherInvocationCount, 0)
+        try await waitUntil {
+            OperationCenter.shared.items.first(where: { $0.id == operationID })?.state == .cancelled
+        }
+        XCTAssertNil(viewer.activeConsensusGenerationOperationID)
+        XCTAssertEqual(cancelledTerminalCount.value, 1)
+    }
+
+    func testCancellingAllLowDepthWarningClosesSheetAndResumesWithoutPublishing() async throws {
+        _ = NSApplication.shared
+        OperationCenter.shared.cancelAll()
+        OperationCenter.shared.clearCompleted()
+        let viewer = ViewerViewController()
+        let window = NSWindow(contentViewController: viewer)
+        _ = viewer.view
+        let operationID = OperationCenter.shared.start(
+            title: "Generate Alignment Consensus",
+            detail: "Confirm all-N consensus",
+            operationType: .export
+        )
+        viewer.activeConsensusGenerationOperationID = operationID
+        let cancelledTerminalCount = LockedTestCounter()
+        let publisherInvocationCount = LockedTestCounter()
+        let confirmationResult = LockedTestBoolean()
+        let observer = NotificationCenter.default.addObserver(
+            forName: .operationStateChanged,
+            object: OperationCenter.shared,
+            queue: .main
+        ) { notification in
+            guard notification.userInfo?["operationID"] as? UUID == operationID,
+                  notification.userInfo?["operationState"] as? String == "cancelled" else { return }
+            cancelledTerminalCount.increment()
+        }
+        defer {
+            NotificationCenter.default.removeObserver(observer)
+            if let sheet = window.attachedSheet { window.endSheet(sheet) }
+            window.contentViewController = nil
+            OperationCenter.shared.clearCompleted()
+        }
+        let task = Task { @MainActor in
+            let accepted = await viewer.presentAlignmentConsensusAllLowDepthConfirmation(
+                message: "Every requested position is below minimum depth.",
+                on: window,
+                operationID: operationID
+            )
+            confirmationResult.set(accepted)
+            if accepted { publisherInvocationCount.increment() }
+        }
+        viewer.activeConsensusGenerationTask = task
+        try await waitUntil { window.attachedSheet != nil }
+
+        OperationCenter.shared.cancel(id: operationID)
+        await task.value
+
+        XCTAssertEqual(confirmationResult.value, false)
+        XCTAssertEqual(publisherInvocationCount.value, 0)
+        try await waitUntil {
+            window.attachedSheet == nil
+                && OperationCenter.shared.items.first(where: { $0.id == operationID })?.state == .cancelled
+        }
+        XCTAssertNil(viewer.activeConsensusGenerationTask)
+        XCTAssertNil(viewer.activeConsensusGenerationOperationID)
+        XCTAssertEqual(cancelledTerminalCount.value, 1)
+    }
+
+    func testReplacingAllLowDepthWorkflowDoesNotCancelNewOperationTask() async throws {
+        _ = NSApplication.shared
+        OperationCenter.shared.cancelAll()
+        OperationCenter.shared.clearCompleted()
+        let viewer = ViewerViewController()
+        let window = NSWindow(contentViewController: viewer)
+        _ = viewer.view
+        let oldOperationID = OperationCenter.shared.start(
+            title: "Old Alignment Consensus",
+            detail: "Confirm all-N consensus",
+            operationType: .export
+        )
+        viewer.activeConsensusGenerationOperationID = oldOperationID
+        let oldTask = Task { @MainActor in
+            _ = await viewer.presentAlignmentConsensusAllLowDepthConfirmation(
+                message: "Every requested position is below minimum depth.",
+                on: window,
+                operationID: oldOperationID
+            )
+        }
+        viewer.activeConsensusGenerationTask = oldTask
+        try await waitUntil { window.attachedSheet != nil }
+
+        OperationCenter.shared.cancel(id: oldOperationID)
+        let newOperationID = OperationCenter.shared.start(
+            title: "New Alignment Consensus",
+            detail: "Generating",
+            operationType: .export
+        )
+        let newTaskWasCancelled = LockedTestBoolean()
+        let newTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            newTaskWasCancelled.set(Task.isCancelled)
+        }
+        viewer.activeConsensusGenerationOperationID = newOperationID
+        viewer.activeConsensusGenerationTask = newTask
+        defer {
+            if let sheet = window.attachedSheet { window.endSheet(sheet) }
+            _ = OperationCenter.shared.complete(id: newOperationID, detail: "test cleanup")
+            OperationCenter.shared.clearCompleted()
+            window.contentViewController = nil
+        }
+
+        await oldTask.value
+        await newTask.value
+        try await waitUntil {
+            OperationCenter.shared.items.first(where: { $0.id == oldOperationID })?.state == .cancelled
+        }
+
+        XCTAssertEqual(newTaskWasCancelled.value, false)
+        XCTAssertEqual(viewer.activeConsensusGenerationOperationID, newOperationID)
+        XCTAssertNotNil(viewer.activeConsensusGenerationTask)
+    }
+
     func testViewportUsesClassifierStyleColumnsAndDefaultMappedReadSort() {
         let vc = MappingResultViewController()
         _ = vc.view
@@ -184,7 +343,7 @@ final class MappingResultViewControllerTests: XCTestCase {
         XCTAssertEqual(table.columnValue(for: "sequence", row: row), "NC_041754.1")
     }
 
-    func testTrackHeaderShowsManifestNameForSingleContigBundle() throws {
+    func testTrackHeaderShowsManifestNameAndContigForAnnotationBundle() throws {
         let vc = MappingResultViewController()
         _ = vc.view
 
@@ -194,7 +353,7 @@ final class MappingResultViewControllerTests: XCTestCase {
         let embeddedViewer = try XCTUnwrap(
             vc.children.compactMap { $0 as? ViewerViewController }.first
         )
-        XCTAssertEqual(embeddedViewer.headerView.testTrackNames.first, "Fixture")
+        XCTAssertEqual(embeddedViewer.headerView.testTrackNames.first, "Fixture (beta)")
     }
 
     func testTrackHeaderShowsNameWithParentheticalContigForMultiContig() throws {
@@ -846,95 +1005,100 @@ final class MappingResultViewControllerTests: XCTestCase {
         XCTAssertNil(vc.testVisibleAlignmentTrackID)
     }
 
-    func testConsensusExportUsesSelectedContigNameInSuggestedStem() throws {
+    func testConsensusExportUsesSelectedContigNameInSuggestedStem() async throws {
         let vc = MappingResultViewController()
         _ = vc.view
 
         vc.configureForTesting(result: makeMappingResult(viewerBundleURL: try makeReferenceBundleWithAnnotationDatabase()))
+        await vc.testAwaitAlignmentActionContext()
 
         let request = try vc.testBuildConsensusExportRequest()
 
         XCTAssertEqual(request.chromosome, "beta")
-        XCTAssertEqual(request.suggestedName, "example-beta-consensus")
-        XCTAssertFalse(request.showDeletions)
-        XCTAssertTrue(request.showInsertions)
+        XCTAssertEqual(request.suggestedName, "all-alignments-beta-consensus")
+        XCTAssertTrue(request.showDeletions)
+        XCTAssertFalse(request.showInsertions)
     }
 
-    func testConsensusExportFallsBackToVisibleChromosomeWhenSelectionClears() throws {
+    func testConsensusExportDoesNotFallbackWhenTheActiveContigSelectionClears() async throws {
         let vc = MappingResultViewController()
         _ = vc.view
 
         vc.configureForTesting(result: makeMappingResult(viewerBundleURL: try makeReferenceBundleWithAnnotationDatabase()))
+        await vc.testAwaitAlignmentActionContext()
         vc.testClearContigSelection()
 
-        let request = try vc.testBuildConsensusExportRequest()
-
-        XCTAssertEqual(request.chromosome, "chr1")
-        XCTAssertEqual(request.suggestedName, "example-chr1-consensus")
+        XCTAssertThrowsError(try vc.testBuildConsensusExportRequest())
     }
 
-    func testConsensusExportUsesEffectiveMaximumMapQFloor() throws {
+    func testConsensusExportUsesEffectiveMaximumMapQFloor() async throws {
         let vc = MappingResultViewController()
         _ = vc.view
 
         vc.configureForTesting(result: makeMappingResult(viewerBundleURL: try makeReferenceBundleWithAnnotationDatabase()))
+        await vc.testAwaitAlignmentActionContext()
         vc.testSetEmbeddedReadDisplaySettings(
             minMapQ: 27,
             consensusMinMapQ: 11
         )
+        vc.refreshAlignmentActionContextFilters()
 
         let request = try vc.testBuildConsensusExportRequest()
 
         XCTAssertEqual(request.minMapQ, 27)
     }
 
-    func testInspectorConsensusExportUsesVisibleViewportScope() throws {
+    func testInspectorConsensusExportUsesExplicitWholeContigScope() async throws {
         let vc = MappingResultViewController()
         _ = vc.view
 
         vc.configureForTesting(result: makeMappingResult(viewerBundleURL: try makeReferenceBundleWithAnnotationDatabase()))
+        await vc.testAwaitAlignmentActionContext()
 
         let request = try vc.testBuildInspectorConsensusExportRequest()
 
-        XCTAssertEqual(request.chromosome, "chr1")
+        XCTAssertEqual(request.chromosome, "beta")
         XCTAssertEqual(request.start, 0)
-        XCTAssertEqual(request.end, 100)
-        XCTAssertEqual(request.recordName, "example chr1:1-100 visible consensus")
-        XCTAssertEqual(request.suggestedName, "example-chr1-1-100-visible-consensus")
+        XCTAssertEqual(request.end, 29_903)
+        XCTAssertEqual(request.recordName, "all-alignments beta consensus")
+        XCTAssertEqual(request.suggestedName, "all-alignments-beta-consensus")
     }
 
-    func testInspectorConsensusExportPrefersUserSelectedRegion() throws {
+    func testInspectorConsensusExportUsesExplicitSelectedRegion() async throws {
         let vc = MappingResultViewController()
         _ = vc.view
 
         vc.configureForTesting(result: makeMappingResult(viewerBundleURL: try makeReferenceBundleWithAnnotationDatabase()))
+        await vc.testAwaitAlignmentActionContext()
         vc.testSetEmbeddedSelectionRange(10..<40)
+        vc.setConsensusScope(.selectedRegion)
 
         let request = try vc.testBuildInspectorConsensusExportRequest()
 
-        XCTAssertEqual(request.chromosome, "chr1")
+        XCTAssertEqual(request.chromosome, "beta")
         XCTAssertEqual(request.start, 10)
         XCTAssertEqual(request.end, 40)
-        XCTAssertEqual(request.recordName, "example chr1:11-40 selection consensus")
-        XCTAssertEqual(request.suggestedName, "example-chr1-11-40-selection-consensus")
+        XCTAssertEqual(request.recordName, "all-alignments beta:11-40 selected consensus")
+        XCTAssertEqual(request.suggestedName, "all-alignments-beta-11-40-selectedRegion-consensus")
     }
 
-    func testInspectorConsensusExportIgnoresNonUserViewportSelectionState() throws {
+    func testInspectorConsensusExportIgnoresNonUserViewportSelectionState() async throws {
         let vc = MappingResultViewController()
         _ = vc.view
 
         vc.configureForTesting(result: makeMappingResult(viewerBundleURL: try makeReferenceBundleWithAnnotationDatabase()))
+        await vc.testAwaitAlignmentActionContext()
         vc.testSetEmbeddedSelectionRange(10..<40, isUserColumnSelection: false)
 
         let request = try vc.testBuildInspectorConsensusExportRequest()
 
-        XCTAssertEqual(request.chromosome, "chr1")
+        XCTAssertEqual(request.chromosome, "beta")
         XCTAssertEqual(request.start, 0)
-        XCTAssertEqual(request.end, 100)
-        XCTAssertEqual(request.suggestedName, "example-chr1-1-100-visible-consensus")
+        XCTAssertEqual(request.end, 29_903)
+        XCTAssertEqual(request.suggestedName, "all-alignments-beta-consensus")
     }
 
-    func testChangingMappingContigsClearsStaleUserSelectedRegionBeforeConsensusExport() throws {
+    func testChangingMappingContigsClearsStaleUserSelectedRegionWithoutFallingBack() async throws {
         let vc = MappingResultViewController()
         _ = vc.view
 
@@ -943,8 +1107,8 @@ final class MappingResultViewControllerTests: XCTestCase {
             modeID: MappingMode.defaultShortRead.id,
             sourceReferenceBundleURL: nil,
             viewerBundleURL: try makeReferenceBundleWithAlignmentTracks(),
-            bamURL: URL(fileURLWithPath: "/tmp/example.sorted.bam"),
-            baiURL: URL(fileURLWithPath: "/tmp/example.sorted.bam.bai"),
+            bamURL: tempDir.appendingPathComponent("example.sorted.bam"),
+            baiURL: tempDir.appendingPathComponent("example.sorted.bam.bai"),
             totalReads: 200,
             mappedReads: 198,
             unmappedReads: 2,
@@ -972,22 +1136,24 @@ final class MappingResultViewControllerTests: XCTestCase {
                 ),
             ]
         )
+        try Data("bam".utf8).write(to: result.bamURL)
+        try Data("bai".utf8).write(to: result.baiURL)
 
         vc.configureForTesting(result: result)
         vc.testSelectContig(named: "alpha")
+        await vc.testAwaitAlignmentActionContext()
         vc.testSetEmbeddedSelectionRange(10..<40)
+        vc.setConsensusScope(.selectedRegion)
         XCTAssertEqual(
             try vc.testBuildInspectorConsensusExportRequest().suggestedName,
-            "example-alpha-11-40-selection-consensus"
+            "all-alignments-alpha-11-40-selectedRegion-consensus"
         )
 
         vc.testSelectContig(named: "gamma")
-        let request = try vc.testBuildInspectorConsensusExportRequest()
-
-        XCTAssertEqual(request.chromosome, "gamma")
-        XCTAssertEqual(request.start, 0)
-        XCTAssertEqual(request.end, 100)
-        XCTAssertEqual(request.suggestedName, "example-gamma-1-100-visible-consensus")
+        await vc.testAwaitAlignmentActionContext()
+        XCTAssertThrowsError(try vc.testBuildInspectorConsensusExportRequest()) { error in
+            XCTAssertEqual(error.localizedDescription, "Select a region in the viewer first")
+        }
     }
 
     func testExportResultsWritesMappingSummaryCSV() throws {
@@ -1247,8 +1413,8 @@ final class MappingResultViewControllerTests: XCTestCase {
         viewerBundleURL: URL? = nil,
         resultDirectoryURL: URL? = nil
     ) -> MappingResult {
-        let directory = resultDirectoryURL ?? URL(fileURLWithPath: "/tmp", isDirectory: true)
-        return MappingResult(
+        let directory = resultDirectoryURL ?? tempDir!
+        let result = MappingResult(
             mapper: .minimap2,
             modeID: MappingMode.defaultShortRead.id,
             sourceReferenceBundleURL: nil,
@@ -1261,6 +1427,9 @@ final class MappingResultViewControllerTests: XCTestCase {
             wallClockSeconds: 1.5,
             contigs: makeContigs()
         )
+        try? Data("bam".utf8).write(to: result.bamURL)
+        try? Data("bai".utf8).write(to: result.baiURL)
+        return result
     }
 
     /// A `MappingResult` whose contigs match `makeReferenceBundleWithAlignmentTracks()`'s
@@ -1335,12 +1504,13 @@ final class MappingResultViewControllerTests: XCTestCase {
         try FileManager.default.createDirectory(at: genomeURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: annotationsURL, withIntermediateDirectories: true)
 
-        try Data().write(to: genomeURL.appendingPathComponent("sequence.fa.gz"))
-        try Data().write(to: genomeURL.appendingPathComponent("sequence.fa.gz.fai"))
-        try Data().write(to: genomeURL.appendingPathComponent("sequence.fa.gz.gzi"))
+        let fasta = ">alpha\n\(String(repeating: "A", count: 100))\n>beta\n\(String(repeating: "C", count: 100))\n"
+        try fasta.write(to: genomeURL.appendingPathComponent("sequence.fa"), atomically: true, encoding: .utf8)
+        try "alpha\t100\t7\t100\t101\nbeta\t100\t114\t100\t101\n"
+            .write(to: genomeURL.appendingPathComponent("sequence.fa.fai"), atomically: true, encoding: .utf8)
 
         let bedURL = tempDir.appendingPathComponent("annotations.bed")
-        try "chr1\t10\t40\tORF1ab\t0\t+\t10\t40\t0,0,0\t1\t30\t0\tgene\tgene=ORF1ab\n"
+        try "alpha\t10\t40\tORF1ab\t0\t+\t10\t40\t0,0,0\t1\t30\t0\tgene\tgene=ORF1ab\n"
             .write(to: bedURL, atomically: true, encoding: .utf8)
         let annotationDBURL = annotationsURL.appendingPathComponent("annotations.db")
         try AnnotationDatabase.createFromBED(bedURL: bedURL, outputURL: annotationDBURL)
@@ -1351,12 +1521,13 @@ final class MappingResultViewControllerTests: XCTestCase {
             identifier: "org.test.fixture",
             source: SourceInfo(organism: "Test organism", assembly: "fixture"),
             genome: GenomeInfo(
-                path: "genome/sequence.fa.gz",
-                indexPath: "genome/sequence.fa.gz.fai",
-                gzipIndexPath: "genome/sequence.fa.gz.gzi",
-                totalLength: 100,
+                path: "genome/sequence.fa",
+                indexPath: "genome/sequence.fa.fai",
+                gzipIndexPath: nil,
+                totalLength: 200,
                 chromosomes: [
-                    ChromosomeInfo(name: "chr1", length: 100, offset: 0, lineBases: 80, lineWidth: 81)
+                    ChromosomeInfo(name: "alpha", length: 100, offset: 7, lineBases: 100, lineWidth: 101),
+                    ChromosomeInfo(name: "beta", length: 100, offset: 114, lineBases: 100, lineWidth: 101),
                 ]
             ),
             annotations: [
@@ -1528,5 +1699,31 @@ final class MappingResultViewControllerTests: XCTestCase {
         XCTAssertEqual(leadingExtent, expectedLeadingExtent, accuracy: 4, file: file, line: line)
         XCTAssertGreaterThan(leadingExtent, CGFloat(300), file: file, line: line)
         XCTAssertGreaterThan(trailingExtent, CGFloat(300), file: file, line: line)
+    }
+}
+
+private final class LockedTestCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    var value: Int {
+        lock.withLock { count }
+    }
+
+    func increment() {
+        lock.withLock { count += 1 }
+    }
+}
+
+private final class LockedTestBoolean: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedValue: Bool?
+
+    var value: Bool? {
+        lock.withLock { storedValue }
+    }
+
+    func set(_ value: Bool) {
+        lock.withLock { storedValue = value }
     }
 }

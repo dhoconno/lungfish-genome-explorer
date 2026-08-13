@@ -625,9 +625,11 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
             print(formatter.error("BAM file not found: \(bamFile!)"))
             throw CLIExitCode.inputError.exitCode
         }
+        let indexURL = companionAlignmentIndex(for: bamURL)
 
         let config = BAMRegionExtractionConfig(
             bamURL: bamURL,
+            indexURL: indexURL,
             regions: regions,
             fallbackToAll: false,
             outputDirectory: outputDir,
@@ -650,6 +652,24 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
                 print("\r\(formatter.info(message))", terminator: "")
             }
         }
+    }
+
+    private func companionAlignmentIndex(for alignmentURL: URL) -> URL? {
+        let candidates: [URL]
+        switch alignmentURL.pathExtension.lowercased() {
+        case "cram":
+            candidates = [
+                URL(fileURLWithPath: "\(alignmentURL.path).crai"),
+                alignmentURL.deletingPathExtension().appendingPathExtension("crai")
+            ]
+        default:
+            candidates = [
+                URL(fileURLWithPath: "\(alignmentURL.path).bai"),
+                alignmentURL.deletingPathExtension().appendingPathExtension("bai"),
+                URL(fileURLWithPath: "\(alignmentURL.path).csi")
+            ]
+        }
+        return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
     }
 
     private func runByDatabase(

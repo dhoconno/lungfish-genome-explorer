@@ -17,13 +17,21 @@ import time
 from pathlib import Path
 
 
-SCRIPT_VERSION = "1.0.0"
+SCRIPT_VERSION = "1.1.0"
 SCRIPT_PATH = "scripts/testing/generate-classifier-full-viewer-fixture.py"
 DEFAULT_OUTPUT = Path("Tests/Fixtures/classifier-full-viewer")
 CONTIG_NAME = "synthetic-track-A"
 CONTIG_LENGTH = 120
 EXCLUDE_FLAGS = 0xD04
-PAYLOAD_NAMES = ("source.sam", "evidence.bam", "evidence.bam.bai")
+PAYLOAD_NAMES = (
+    "source.sam",
+    "conflicting-reference.fasta",
+    "conflicting-reference.fasta.fai",
+    "evidence.bam",
+    "evidence.bam.bai",
+    "evidence.cram",
+    "evidence.cram.crai",
+)
 
 
 def main(raw_arguments: list[str] | None = None) -> int:
@@ -52,6 +60,8 @@ def main(raw_arguments: list[str] | None = None) -> int:
     try:
         source_sam = output_dir / "source.sam"
         source_sam.write_text(source_sam_text(), encoding="utf-8")
+        conflicting_reference = output_dir / "conflicting-reference.fasta"
+        conflicting_reference.write_text(conflicting_reference_fasta_text(), encoding="utf-8")
         samtools = resolve_samtools(args.samtools)
         runtime.update(samtools_runtime_identity(samtools))
 
@@ -59,12 +69,26 @@ def main(raw_arguments: list[str] | None = None) -> int:
         invocations.append(version_invocation)
         require_success(version_invocation)
 
+        faidx_invocation = run_samtools(
+            samtools,
+            ["faidx", "conflicting-reference.fasta"],
+            output_dir,
+            "faidx",
+            version,
+            input_paths=["conflicting-reference.fasta"],
+            output_paths=["conflicting-reference.fasta.fai"],
+        )
+        invocations.append(faidx_invocation)
+        require_success(faidx_invocation)
+
         view_invocation = run_samtools(
             samtools,
             ["view", "--no-PG", "-b", "-o", "evidence.bam", "source.sam"],
             output_dir,
-            "view",
+            "view-bam",
             version,
+            input_paths=["source.sam"],
+            output_paths=["evidence.bam"],
         )
         invocations.append(view_invocation)
         require_success(view_invocation)
@@ -73,17 +97,60 @@ def main(raw_arguments: list[str] | None = None) -> int:
             samtools,
             ["index", "evidence.bam", "evidence.bam.bai"],
             output_dir,
-            "index",
+            "index-bam",
             version,
+            input_paths=["evidence.bam"],
+            output_paths=["evidence.bam.bai"],
         )
         invocations.append(index_invocation)
         require_success(index_invocation)
+
+        cram_invocation = run_samtools(
+            samtools,
+            [
+                "view", "--no-PG", "-C", "-o", "evidence.cram", "evidence.bam",
+            ],
+            output_dir,
+            "view-cram",
+            version,
+            input_paths=["evidence.bam", "conflicting-reference.fasta"],
+            output_paths=["evidence.cram"],
+        )
+        invocations.append(cram_invocation)
+        require_success(cram_invocation)
+
+        cram_index_invocation = run_samtools(
+            samtools,
+            ["index", "evidence.cram", "evidence.cram.crai"],
+            output_dir,
+            "index-cram",
+            version,
+            input_paths=["evidence.cram"],
+            output_paths=["evidence.cram.crai"],
+        )
+        invocations.append(cram_index_invocation)
+        require_success(cram_index_invocation)
+
+        quickcheck_invocation = run_samtools(
+            samtools,
+            ["quickcheck", "evidence.bam", "evidence.cram"],
+            output_dir,
+            "quickcheck",
+            version,
+            input_paths=["evidence.bam", "evidence.cram"],
+        )
+        invocations.append(quickcheck_invocation)
+        require_success(quickcheck_invocation)
     except (OSError, RuntimeError) as error:
         exit_status = error.exit_status if isinstance(error, ToolFailure) else 1
         failure_message = str(error)
 
     payloads = existing_payload_records(output_dir)
     input_record = next((item for item in payloads if item["path"] == "source.sam"), None)
+    reference_record = next(
+        (item for item in payloads if item["path"] == "conflicting-reference.fasta"),
+        None,
+    )
     provenance = build_provenance(
         output_relative=output_relative,
         arguments=arguments,
@@ -92,6 +159,7 @@ def main(raw_arguments: list[str] | None = None) -> int:
         runtime=runtime,
         payloads=payloads,
         input_record=input_record,
+        reference_record=reference_record,
         invocations=invocations,
         exit_status=exit_status,
         wall_time=round(time.monotonic() - started, 6),
@@ -126,6 +194,7 @@ def build_provenance(
     runtime: dict[str, object],
     payloads: list[dict[str, object]],
     input_record: dict[str, object] | None,
+    reference_record: dict[str, object] | None,
     invocations: list[dict[str, object]],
     exit_status: int,
     wall_time: float,
@@ -156,6 +225,11 @@ def build_provenance(
             "contigLength": CONTIG_LENGTH,
             "excludeFlags": EXCLUDE_FLAGS,
             "retainedRecordNames": ["item-A", "item-B"],
+            "conflictingReference": {
+                "path": "conflicting-reference.fasta",
+                "base": "C",
+                "coveredReadBase": "A",
+            },
             "requested": {
                 "outputDirectory": option_value(arguments, "--output-dir"),
                 "samtools": requested_samtools,
@@ -174,7 +248,9 @@ def build_provenance(
         "runtimeIdentity": runtime,
         "syntheticData": True,
         "input": input_record,
-        "inputFiles": [input_record] if input_record is not None else [],
+        "inputFiles": [
+            record for record in [input_record, reference_record] if record is not None
+        ],
         "output": {
             "path": output_relative,
             "fileSize": sum(int(item["fileSize"]) for item in payloads),
@@ -272,17 +348,25 @@ def portable_executable_identity(executable: Path) -> str:
 def source_sam_text() -> str:
     header = [
         "@HD\tVN:1.6\tSO:coordinate",
-        f"@SQ\tSN:{CONTIG_NAME}\tLN:{CONTIG_LENGTH}",
+        (
+            f"@SQ\tSN:{CONTIG_NAME}\tLN:{CONTIG_LENGTH}"
+            "\tM5:6a622871b53c3cdd4ec7adb550ee7577"
+            "\tUR:conflicting-reference.fasta"
+        ),
     ]
     records = [
-        "item-A\t0\tsynthetic-track-A\t10\t60\t10M\t*\t0\t0\tNNNNNNNNNN\t**********",
-        "filtered-duplicate\t1024\tsynthetic-track-A\t10\t60\t10M\t*\t0\t0\tNNNNNNNNNN\t**********",
-        "filtered-secondary\t256\tsynthetic-track-A\t10\t60\t10M\t*\t0\t0\tNNNNNNNNNN\t**********",
-        "filtered-supplementary\t2048\tsynthetic-track-A\t10\t60\t10M\t*\t0\t0\tNNNNNNNNNN\t**********",
-        "item-B\t0\tsynthetic-track-A\t15\t60\t10M\t*\t0\t0\tNNNNNNNNNN\t**********",
+        "item-A\t0\tsynthetic-track-A\t10\t60\t10M\t*\t0\t0\tAAAAAAAAAA\t**********",
+        "filtered-duplicate\t1024\tsynthetic-track-A\t10\t60\t10M\t*\t0\t0\tAAAAAAAAAA\t**********",
+        "filtered-secondary\t256\tsynthetic-track-A\t10\t60\t10M\t*\t0\t0\tAAAAAAAAAA\t**********",
+        "filtered-supplementary\t2048\tsynthetic-track-A\t10\t60\t10M\t*\t0\t0\tAAAAAAAAAA\t**********",
+        "item-B\t0\tsynthetic-track-A\t15\t60\t10M\t*\t0\t0\tAAAAAAAAAA\t**********",
         "filtered-unmapped\t4\t*\t0\t0\t*\t*\t0\t0\t*\t*",
     ]
     return "\n".join([*header, *records]) + "\n"
+
+
+def conflicting_reference_fasta_text() -> str:
+    return f">{CONTIG_NAME}\n" + "C" * CONTIG_LENGTH + "\n"
 
 
 def query_samtools_version(samtools: str) -> tuple[str, dict[str, object]]:
@@ -299,6 +383,8 @@ def run_samtools(
     cwd: Path | None,
     operation: str,
     version: str,
+    input_paths: list[str] | None = None,
+    output_paths: list[str] | None = None,
 ) -> dict[str, object]:
     started = time.monotonic()
     logical_argv = ["samtools", *arguments]
@@ -326,6 +412,8 @@ def run_samtools(
         "wallTimeSeconds": round(time.monotonic() - started, 6),
         "stdout": stdout,
         "stderr": stderr,
+        "inputFiles": invocation_file_records(cwd, input_paths or []),
+        "outputFiles": invocation_file_records(cwd, output_paths or []),
     }
 
 
@@ -350,6 +438,16 @@ def existing_payload_records(output_dir: Path) -> list[dict[str, object]]:
         file_record(output_dir / name, output_dir)
         for name in PAYLOAD_NAMES
         if (output_dir / name).is_file()
+    ]
+
+
+def invocation_file_records(cwd: Path | None, paths: list[str]) -> list[dict[str, object]]:
+    if cwd is None:
+        return []
+    return [
+        file_record(cwd / relative_path, cwd)
+        for relative_path in paths
+        if (cwd / relative_path).is_file()
     ]
 
 

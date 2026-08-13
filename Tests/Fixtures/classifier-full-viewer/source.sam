@@ -1,8 +1,8 @@
 @HD	VN:1.6	SO:coordinate
-@SQ	SN:synthetic-track-A	LN:120
-item-A	0	synthetic-track-A	10	60	10M	*	0	0	NNNNNNNNNN	**********
-filtered-duplicate	1024	synthetic-track-A	10	60	10M	*	0	0	NNNNNNNNNN	**********
-filtered-secondary	256	synthetic-track-A	10	60	10M	*	0	0	NNNNNNNNNN	**********
-filtered-supplementary	2048	synthetic-track-A	10	60	10M	*	0	0	NNNNNNNNNN	**********
-item-B	0	synthetic-track-A	15	60	10M	*	0	0	NNNNNNNNNN	**********
+@SQ	SN:synthetic-track-A	LN:120	M5:6a622871b53c3cdd4ec7adb550ee7577	UR:conflicting-reference.fasta
+item-A	0	synthetic-track-A	10	60	10M	*	0	0	AAAAAAAAAA	**********
+filtered-duplicate	1024	synthetic-track-A	10	60	10M	*	0	0	AAAAAAAAAA	**********
+filtered-secondary	256	synthetic-track-A	10	60	10M	*	0	0	AAAAAAAAAA	**********
+filtered-supplementary	2048	synthetic-track-A	10	60	10M	*	0	0	AAAAAAAAAA	**********
+item-B	0	synthetic-track-A	15	60	10M	*	0	0	AAAAAAAAAA	**********
 filtered-unmapped	4	*	0	0	*	*	0	0	*	*
