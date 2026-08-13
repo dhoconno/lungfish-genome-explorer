@@ -936,22 +936,16 @@ final class PluginPackStatusServiceTests: XCTestCase {
         )
         _ = try await manager.ensureMicromamba()
 
-        let executableNames: [String: String] = [
-            "kraken2": "kraken2",
-            "bracken": "bracken",
-            "esviritu": "EsViritu",
-            "ribodetector": "ribodetector_cpu",
-        ]
-
         for requirement in pack.toolRequirements {
-            let executable = try XCTUnwrap(executableNames[requirement.environment])
-            let executableURL = await manager.environmentURL(named: requirement.environment)
-                .appendingPathComponent("bin/\(executable)")
-            try FileManager.default.createDirectory(
-                at: executableURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            try writeSmokeReadyExecutable(for: requirement, executable: executable, at: executableURL)
+            for executable in requirement.executables {
+                let executableURL = await manager.environmentURL(named: requirement.environment)
+                    .appendingPathComponent("bin/\(executable)")
+                try FileManager.default.createDirectory(
+                    at: executableURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try writeSmokeReadyExecutable(for: requirement, executable: executable, at: executableURL)
+            }
         }
 
         let service = PluginPackStatusService(condaManager: manager)
@@ -1006,6 +1000,12 @@ final class PluginPackStatusServiceTests: XCTestCase {
             to: brackenBin.appendingPathComponent("est_abundance.py"),
             atomically: true,
             encoding: .utf8
+        )
+        let brackenRequirement = try XCTUnwrap(pack.toolRequirements.first(where: { $0.environment == "bracken" }))
+        try writeSmokeReadyExecutable(
+            for: brackenRequirement,
+            executable: "bracken-build",
+            at: brackenBin.appendingPathComponent("bracken-build")
         )
 
         let service = PluginPackStatusService(condaManager: manager)
