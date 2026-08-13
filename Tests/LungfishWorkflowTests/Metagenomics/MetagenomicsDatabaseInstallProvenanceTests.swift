@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 @testable import LungfishWorkflow
@@ -29,18 +30,32 @@ struct MetagenomicsDatabaseInstallProvenanceTests {
         #expect(snapshot.aggregateSHA256 == "a5509e76c42d8474b8c3fa50e18d900ea051c699ecc66119ad10f52b2b9c570a")
     }
 
-    @Test("payload snapshot rejects symbolic links")
-    func payloadSnapshotRejectsSymbolicLinks() throws {
+    @Test("payload snapshot rejects symbolic links that escape the root")
+    func payloadSnapshotRejectsSymbolicLinksOutsideRoot() throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
-        let target = root.appendingPathComponent("target.txt")
+        let target = root.deletingLastPathComponent().appendingPathComponent("outside-(UUID().uuidString).txt")
+        defer { try? FileManager.default.removeItem(at: target) }
         try write("target", to: target)
+        let link = root.appendingPathComponent("link.txt")
         try FileManager.default.createSymbolicLink(
-            at: root.appendingPathComponent("link.txt"),
+            at: link,
             withDestinationURL: target
         )
 
-        #expect(throws: (any Error).self) {
+        #expect(throws: MetagenomicsDatabasePayloadDigestError.unsafePayload(path: link.path)) {
+            _ = try MetagenomicsDatabasePayloadDigester.snapshot(at: root)
+        }
+    }
+
+    @Test("payload snapshot rejects nonregular filesystem entries")
+    func payloadSnapshotRejectsNonregularEntries() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fifo = root.appendingPathComponent("named-pipe")
+        #expect(Darwin.mkfifo(fifo.path, S_IRUSR | S_IWUSR) == 0)
+
+        #expect(throws: MetagenomicsDatabasePayloadDigestError.unsafePayload(path: fifo.path)) {
             _ = try MetagenomicsDatabasePayloadDigester.snapshot(at: root)
         }
     }
@@ -54,9 +69,12 @@ struct MetagenomicsDatabaseInstallProvenanceTests {
         try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: final, withIntermediateDirectories: true)
         try write("payload", to: staging.appendingPathComponent("hash.k2d"))
+        let inputURL = root.appendingPathComponent("source.fasta")
+        try write(">source\nACGT\n", to: inputURL)
+        let input = try ProvenanceFileDescriptor.file(url: inputURL, format: .fasta, role: .input)
 
         let snapshot = try MetagenomicsDatabasePayloadDigester.snapshot(at: staging)
-        let attempt = makeAttempt(staging: staging, final: final)
+        let attempt = makeAttempt(staging: staging, final: final, inputs: [input])
         let writer = CanonicalMetagenomicsDatabaseInstallProvenanceWriter(
             now: { Self.fixedDate },
             uuid: { Self.fixedUUID }
@@ -68,6 +86,9 @@ struct MetagenomicsDatabaseInstallProvenanceTests {
         let envelope = try #require(try ProvenanceEnvelopeReader.load(fromSidecar: sidecar))
         let encoded = String(decoding: try Data(contentsOf: sidecar), as: UTF8.self)
         let expectedOutput = final.appendingPathComponent("hash.k2d").path
+        let step = try #require(envelope.steps.only)
+        let inputFile = try #require(envelope.files.first { $0.role == .input })
+        let outputFile = try #require(envelope.files.first { $0.role == .output })
 
         #expect(envelope.workflowName == "metagenomics.database.install")
         #expect(envelope.workflowVersion == "kraken2-special-v1")
@@ -82,18 +103,47 @@ struct MetagenomicsDatabaseInstallProvenanceTests {
         #expect(envelope.runtimeIdentity.condaEnvironment == "kraken2")
         #expect(envelope.output?.path == expectedOutput)
         #expect(envelope.outputs.map(\.path) == [expectedOutput])
-        #expect(envelope.files.map(\.path) == [expectedOutput])
+        #expect(envelope.files.map(\.path) == [inputURL.path, expectedOutput])
+        #expect(envelope.files.map(\.role) == [.input, .output])
+        #expect(inputFile.checksumSHA256 == input.checksumSHA256)
+        #expect(inputFile.fileSize == input.fileSize)
+        #expect(outputFile.checksumSHA256 == snapshot.files[0].checksumSHA256)
+        #expect(outputFile.fileSize == snapshot.files[0].fileSize)
         #expect(envelope.steps.count == 1)
-        #expect(envelope.steps[0].argv == envelope.argv)
-        #expect(envelope.steps[0].durableReplayArgv == envelope.argv)
-        #expect(envelope.steps[0].resolvedOptions["databaseRoot"] == .string(final.path))
-        #expect(envelope.steps[0].outputs.map(\.path) == [expectedOutput])
-        #expect(envelope.steps[0].exitStatus == 0)
-        #expect(envelope.steps[0].wallTimeSeconds == 5)
-        #expect(envelope.steps[0].stderr == " completed\n")
+        #expect(step.argv == envelope.argv)
+        #expect(step.durableReplayArgv == envelope.argv)
+        #expect(step.resolvedOptions["databaseRoot"] == .string(final.path))
+        #expect(step.outputs.map(\.path) == [expectedOutput])
+        #expect(step.exitStatus == 0)
+        #expect(step.wallTimeSeconds == 5)
+        #expect(step.stderr == " completed\n")
         #expect(envelope.wallTimeSeconds == 5)
         #expect(envelope.exitStatus == 0)
         #expect(!encoded.contains(staging.path))
+    }
+
+    @Test("success provenance rejects incomplete claimed descriptors")
+    func successProvenanceRejectsIncompleteDescriptors() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let staging = root.appendingPathComponent("staging", isDirectory: true)
+        let final = root.appendingPathComponent("installed", isDirectory: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: final, withIntermediateDirectories: true)
+        try write("payload", to: staging.appendingPathComponent("hash.k2d"))
+        let snapshot = try MetagenomicsDatabasePayloadDigester.snapshot(at: staging)
+        let incompleteInput = ProvenanceFileDescriptor(
+            path: root.appendingPathComponent("source.fasta").path,
+            fileSize: 12,
+            role: .input
+        )
+        let attempt = makeAttempt(staging: staging, final: final, inputs: [incompleteInput])
+        let writer = CanonicalMetagenomicsDatabaseInstallProvenanceWriter()
+
+        #expect(throws: MetagenomicsDatabaseInstallProvenanceError.incompleteFileDescriptor(path: incompleteInput.path)) {
+            try writer.writeSuccess(attempt, snapshot: snapshot)
+        }
+        #expect(!FileManager.default.fileExists(atPath: final.appendingPathComponent(".lungfish-provenance.json").path))
     }
 
     @Test("failure provenance records the attempted operation without outputs")
@@ -104,7 +154,13 @@ struct MetagenomicsDatabaseInstallProvenanceTests {
         let final = root.appendingPathComponent("installed", isDirectory: true)
         let history = root.appendingPathComponent("history", isDirectory: true)
         try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
-        let attempt = makeAttempt(staging: staging, final: final)
+        let stagedInput = ProvenanceFileDescriptor(
+            path: staging.appendingPathComponent("attempted-input.fasta").path,
+            checksumSHA256: "input-sha",
+            fileSize: 12,
+            role: .input
+        )
+        let attempt = makeAttempt(staging: staging, final: final, inputs: [stagedInput])
         let writer = CanonicalMetagenomicsDatabaseInstallProvenanceWriter(
             now: { Self.fixedDate },
             uuid: { Self.fixedUUID }
@@ -126,19 +182,37 @@ struct MetagenomicsDatabaseInstallProvenanceTests {
         #expect(receipt.lastPathComponent.hasPrefix("2023-11-14T22:13:20Z-00000000-0000-0000-0000-000000000001"))
         let envelope = try #require(try ProvenanceEnvelopeReader.load(fromSidecar: receipt))
         let rawJSON = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: receipt)) as? [String: Any])
+        let step = try #require(envelope.steps.only)
 
         #expect(envelope.exitStatus == 1)
         #expect(envelope.stderr == "  bad build  ")
         #expect(envelope.workflowName == "metagenomics.database.install")
-        #expect(envelope.argv == ["kraken2-build", "--db", final.path, "--special", "silva"])
+        let attemptedArgv = ["kraken2-build", "--db", staging.path, "--special", "silva"]
+        #expect(envelope.argv == attemptedArgv)
+        #expect(envelope.durableReplayArgv == attemptedArgv)
+        #expect(envelope.options.explicit["stagingSource"] == .string(staging.path))
+        #expect(envelope.options.defaults["workingDirectory"] == .string(staging.path))
+        #expect(envelope.options.resolvedDefaults["databaseRoot"] == .string(staging.path))
+        #expect(envelope.options.resolvedDefaults["recipeSource"] == .string("kraken2 --db \(staging.path) --special silva"))
         #expect(envelope.options.resolvedDefaults["intendedFinalPath"] == .string(final.path))
         #expect(envelope.output == nil)
         #expect(envelope.outputs.isEmpty)
         #expect(rawJSON["output"] == nil)
         #expect((rawJSON["outputs"] as? [Any])?.isEmpty == true)
+        #expect(envelope.files.map(\.path) == [stagedInput.path])
         #expect(envelope.files.allSatisfy { $0.role != .output })
         #expect(envelope.steps.allSatisfy { $0.outputs.isEmpty })
         #expect(envelope.steps.allSatisfy { $0.exitStatus != nil })
+        #expect(step.argv == attemptedArgv)
+        #expect(step.durableReplayArgv == attemptedArgv)
+        #expect(step.resolvedOptions["databaseRoot"] == .string(staging.path))
+        #expect(step.inputs.map(\.path) == [stagedInput.path])
+        #expect(!envelope.argv.contains { $0.contains(final.path) })
+        #expect(!(envelope.durableReplayArgv ?? []).contains { $0.contains(final.path) })
+        #expect(!envelope.files.contains { $0.path.contains(final.path) })
+        #expect(!envelope.steps.flatMap(\.argv).contains { $0.contains(final.path) })
+        #expect(!envelope.steps.flatMap { $0.durableReplayArgv ?? [] }.contains { $0.contains(final.path) })
+        #expect(!envelope.steps.flatMap(\.inputs).contains { $0.path.contains(final.path) })
     }
 
     @Test("failure status maps zero failures and cancellation to conventional statuses")
@@ -150,7 +224,11 @@ struct MetagenomicsDatabaseInstallProvenanceTests {
     private static let fixedDate = Date(timeIntervalSince1970: 1_700_000_000)
     private static let fixedUUID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
 
-    private func makeAttempt(staging: URL, final: URL) -> MetagenomicsDatabaseInstallAttempt {
+    private func makeAttempt(
+        staging: URL,
+        final: URL,
+        inputs: [ProvenanceFileDescriptor] = []
+    ) -> MetagenomicsDatabaseInstallAttempt {
         let output = ProvenanceFileDescriptor(
             path: staging.appendingPathComponent("hash.k2d").path,
             checksumSHA256: "fixture-sha",
@@ -167,7 +245,7 @@ struct MetagenomicsDatabaseInstallProvenanceTests {
                 executablePath: "/managed/kraken2/bin/kraken2-build",
                 condaEnvironment: "kraken2"
             ),
-            inputs: [],
+            inputs: inputs,
             outputs: [output],
             exitStatus: 0,
             startedAt: Self.fixedDate,
@@ -186,9 +264,15 @@ struct MetagenomicsDatabaseInstallProvenanceTests {
                 recommendedRAM: 1
             ),
             finalURL: final,
-            recipeSource: "kraken2 --special silva",
-            explicitOptions: ["threads": .integer(4)],
-            defaultOptions: ["kmerLength": .integer(35)],
+            recipeSource: "kraken2 --db \(staging.path) --special silva",
+            explicitOptions: [
+                "threads": .integer(4),
+                "stagingSource": .string(staging.path),
+            ],
+            defaultOptions: [
+                "kmerLength": .integer(35),
+                "workingDirectory": .string(staging.path),
+            ],
             resolvedOptions: ["databaseRoot": .string(staging.path)],
             steps: [evidence],
             startedAt: Self.fixedDate,

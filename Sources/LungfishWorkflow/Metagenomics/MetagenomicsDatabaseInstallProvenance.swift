@@ -25,6 +25,10 @@ public enum MetagenomicsDatabasePayloadDigestError: Error, Sendable, Equatable {
     case unsafePayload(path: String)
 }
 
+public enum MetagenomicsDatabaseInstallProvenanceError: Error, Sendable, Equatable {
+    case incompleteFileDescriptor(path: String)
+}
+
 public enum MetagenomicsDatabasePayloadDigester {
     public static func snapshot(at rootURL: URL) throws -> MetagenomicsDatabasePayloadSnapshot {
         let root = rootURL.standardizedFileURL
@@ -236,6 +240,7 @@ public struct CanonicalMetagenomicsDatabaseInstallProvenanceWriter: Metagenomics
         _ attempt: MetagenomicsDatabaseInstallAttempt,
         snapshot: MetagenomicsDatabasePayloadSnapshot
     ) throws {
+        try validateSuccessDescriptors(attempt, snapshot: snapshot)
         let envelope = makeSuccessEnvelope(attempt, snapshot: snapshot)
         _ = try ProvenanceWriter(signingProvider: nil).write(envelope, to: attempt.finalURL)
     }
@@ -266,6 +271,12 @@ public struct CanonicalMetagenomicsDatabaseInstallProvenanceWriter: Metagenomics
         let outputFiles = snapshot.files.map { descriptor in
             rehydrate(descriptor, stagingRoot: snapshot.rootURL, finalRoot: final).withRole(.output)
         }
+        let inputFiles = deduplicated(
+            attempt.steps.flatMap(\.inputs).map {
+                rehydrate($0, stagingRoot: snapshot.rootURL, finalRoot: final)
+            }
+        )
+        let canonicalFiles = deduplicated(inputFiles + outputFiles)
         let firstStep = attempt.steps.first
         let argv = rehydrate(firstStep?.argv ?? [], stagingRoot: snapshot.rootURL, finalRoot: final)
         let durable = rehydrate(firstStep?.durableReplayArgv ?? [], stagingRoot: snapshot.rootURL, finalRoot: final)
@@ -289,7 +300,7 @@ public struct CanonicalMetagenomicsDatabaseInstallProvenanceWriter: Metagenomics
                 resolvedDefaults: resolved
             ),
             runtimeIdentity: firstStep?.runtimeIdentity ?? ProvenanceRuntimeIdentity(),
-            files: outputFiles,
+            files: canonicalFiles,
             output: outputFiles.first,
             outputs: outputFiles,
             steps: attempt.steps.map { successStep($0, stagingRoot: snapshot.rootURL, finalRoot: final) },
@@ -311,11 +322,10 @@ public struct CanonicalMetagenomicsDatabaseInstallProvenanceWriter: Metagenomics
         error: MetagenomicsDatabaseInstallFailure,
         id: UUID
     ) -> ProvenanceEnvelope {
-        let inferredStaging = attempt.steps.first.flatMap { stagingRoot(in: $0, finalURL: attempt.finalURL) }
         let final = attempt.finalURL.standardizedFileURL
         let firstStep = attempt.steps.first
-        var resolved = rehydrate(attempt.resolvedOptions, stagingRoot: inferredStaging, finalRoot: final)
-        resolved["recipeSource"] = .string(rehydrate(attempt.recipeSource, stagingRoot: inferredStaging, finalRoot: final))
+        var resolved = attempt.resolvedOptions
+        resolved["recipeSource"] = .string(attempt.recipeSource)
         resolved["intendedFinalPath"] = .string(final.path)
         resolved["failureMessage"] = .string(error.message)
         return ProvenanceEnvelope(
@@ -325,20 +335,18 @@ public struct CanonicalMetagenomicsDatabaseInstallProvenanceWriter: Metagenomics
             workflowVersion: attempt.database.version ?? "unknown",
             toolName: firstStep?.toolName ?? attempt.database.tool,
             toolVersion: firstStep?.toolVersion ?? "unknown",
-            argv: rehydrate(firstStep?.argv ?? [], stagingRoot: inferredStaging, finalRoot: final),
-            durableReplayArgv: rehydrate(firstStep?.durableReplayArgv ?? [], stagingRoot: inferredStaging, finalRoot: final),
+            argv: firstStep?.argv ?? [],
+            durableReplayArgv: firstStep?.durableReplayArgv ?? [],
             options: ProvenanceOptions(
-                explicit: rehydrate(attempt.explicitOptions, stagingRoot: inferredStaging, finalRoot: final),
-                defaults: rehydrate(attempt.defaultOptions, stagingRoot: inferredStaging, finalRoot: final),
+                explicit: attempt.explicitOptions,
+                defaults: attempt.defaultOptions,
                 resolvedDefaults: resolved
             ),
             runtimeIdentity: firstStep?.runtimeIdentity ?? ProvenanceRuntimeIdentity(),
-            files: attempt.steps.flatMap(\.inputs).map {
-                rehydrate($0, stagingRoot: inferredStaging, finalRoot: final).withRole(.input)
-            },
+            files: deduplicated(attempt.steps.flatMap(\.inputs).map(failureInputDescriptor)),
             output: nil,
             outputs: [],
-            steps: attempt.steps.map { failureStep($0, stagingRoot: inferredStaging, finalRoot: final) },
+            steps: attempt.steps.map(failureStep),
             wallTimeSeconds: max(0, attempt.completedAt.timeIntervalSince(attempt.startedAt)),
             exitStatus: Int(error.provenanceExitStatus),
             stderr: ProvenanceStderr.normalized(error.stderr)
@@ -367,19 +375,15 @@ public struct CanonicalMetagenomicsDatabaseInstallProvenanceWriter: Metagenomics
         )
     }
 
-    private func failureStep(
-        _ evidence: MetagenomicsDatabaseInstallStepEvidence,
-        stagingRoot: URL?,
-        finalRoot: URL
-    ) -> ProvenanceStep {
+    private func failureStep(_ evidence: MetagenomicsDatabaseInstallStepEvidence) -> ProvenanceStep {
         ProvenanceStep(
             toolName: evidence.toolName,
             toolVersion: evidence.toolVersion,
-            argv: rehydrate(evidence.argv, stagingRoot: stagingRoot, finalRoot: finalRoot),
-            durableReplayArgv: rehydrate(evidence.durableReplayArgv, stagingRoot: stagingRoot, finalRoot: finalRoot),
-            resolvedOptions: rehydrate(evidence.resolvedOptions, stagingRoot: stagingRoot, finalRoot: finalRoot),
+            argv: evidence.argv,
+            durableReplayArgv: evidence.durableReplayArgv,
+            resolvedOptions: evidence.resolvedOptions,
             runtimeIdentity: evidence.runtimeIdentity,
-            inputs: evidence.inputs.map { rehydrate($0, stagingRoot: stagingRoot, finalRoot: finalRoot).withRole(.input) },
+            inputs: evidence.inputs.map(failureInputDescriptor),
             outputs: [],
             exitStatus: Int(evidence.exitStatus),
             wallTimeSeconds: max(0, evidence.completedAt.timeIntervalSince(evidence.startedAt)),
@@ -389,28 +393,39 @@ public struct CanonicalMetagenomicsDatabaseInstallProvenanceWriter: Metagenomics
         )
     }
 
-    private func stagingRoot(
-        in evidence: MetagenomicsDatabaseInstallStepEvidence,
-        finalURL: URL
-    ) -> URL? {
-        if let databaseIndex = evidence.argv.firstIndex(of: "--db"),
-           evidence.argv.indices.contains(databaseIndex + 1),
-           evidence.argv[databaseIndex + 1].hasPrefix("/") {
-            return URL(fileURLWithPath: evidence.argv[databaseIndex + 1]).standardizedFileURL
-        }
-        let paths = evidence.outputs.map(\.path) + evidence.argv + evidence.durableReplayArgv
-        guard let path = paths.first(where: { $0.hasPrefix("/") }) else { return nil }
-        let candidate = URL(fileURLWithPath: path).standardizedFileURL
-        if candidate == finalURL { return nil }
-        return candidate.deletingLastPathComponent()
-    }
-
     private func rehydrate(
         _ argv: [String],
         stagingRoot: URL?,
         finalRoot: URL
     ) -> [String] {
         argv.map { rehydrate($0, stagingRoot: stagingRoot, finalRoot: finalRoot) }
+    }
+
+    private func validateSuccessDescriptors(
+        _ attempt: MetagenomicsDatabaseInstallAttempt,
+        snapshot: MetagenomicsDatabasePayloadSnapshot
+    ) throws {
+        let descriptors = snapshot.files + attempt.steps.flatMap { $0.inputs + $0.outputs }
+        for descriptor in descriptors {
+            guard descriptor.checksumSHA256?.isEmpty == false, descriptor.fileSize != nil else {
+                throw MetagenomicsDatabaseInstallProvenanceError.incompleteFileDescriptor(path: descriptor.path)
+            }
+        }
+    }
+
+    private func failureInputDescriptor(
+        _ descriptor: ProvenanceFileDescriptor
+    ) -> ProvenanceFileDescriptor {
+        descriptor.role == .output ? descriptor.withRole(.input) : descriptor
+    }
+
+    private func deduplicated(
+        _ descriptors: [ProvenanceFileDescriptor]
+    ) -> [ProvenanceFileDescriptor] {
+        var keys = Set<String>()
+        return descriptors.filter { descriptor in
+            keys.insert("\(descriptor.role.rawValue)\u{0}\(descriptor.path)").inserted
+        }
     }
 
     private func rehydrate(
