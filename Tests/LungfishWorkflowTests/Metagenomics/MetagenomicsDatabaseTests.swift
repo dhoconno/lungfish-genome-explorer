@@ -121,7 +121,7 @@ final class MetagenomicsDatabaseInfoTests: XCTestCase {
 
     func testDatabaseInfoCodableRoundTripPreservesCatalogIdentityAndRecipe() throws {
         let original = MetagenomicsDatabaseInfo(
-            name: "SILVA rRNA",
+            name: "SILVA",
             tool: MetagenomicsTool.kraken2.rawValue,
             version: "kraken2-special-v1",
             sizeBytes: 12 * 1_073_741_824,
@@ -271,6 +271,7 @@ final class MetagenomicsDatabaseInfoTests: XCTestCase {
 
         let catalogIDs = catalog.compactMap(\.catalogID)
         XCTAssertEqual(catalogIDs.count, catalog.count, "Built-in catalog IDs must be nonempty")
+        XCTAssertTrue(catalogIDs.allSatisfy { !$0.isEmpty }, "Built-in catalog IDs must be nonempty")
         XCTAssertEqual(Set(catalogIDs).count, catalogIDs.count, "Built-in catalog IDs must be unique")
 
         // Every entry must have required fields populated.
@@ -327,12 +328,14 @@ final class MetagenomicsDatabaseInfoTests: XCTestCase {
         let silva = MetagenomicsDatabaseInfo.catalogEntry(catalogID: "kraken2-special-silva")
         let greengenes = MetagenomicsDatabaseInfo.catalogEntry(catalogID: "kraken2-special-greengenes")
 
+        XCTAssertEqual(silva?.name, "SILVA")
         XCTAssertEqual(silva?.tool, MetagenomicsTool.kraken2.rawValue)
         XCTAssertEqual(
             silva?.installationRecipe,
             MetagenomicsDatabaseInstallationRecipe.kraken2Special(type: .silva)
         )
         XCTAssertTrue(silva?.description.localizedCaseInsensitiveContains("SILVA") ?? false)
+        XCTAssertEqual(greengenes?.name, "Greengenes")
         XCTAssertEqual(greengenes?.tool, MetagenomicsTool.kraken2.rawValue)
         XCTAssertEqual(
             greengenes?.installationRecipe,

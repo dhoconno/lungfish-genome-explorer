@@ -365,7 +365,7 @@ extension MetagenomicsDatabaseInfo {
 
         // Kraken2 special databases built from upstream rRNA references.
         catalog.append(MetagenomicsDatabaseInfo(
-            name: "SILVA rRNA",
+            name: "SILVA",
             tool: MetagenomicsTool.kraken2.rawValue,
             version: "kraken2-special-v1",
             sizeBytes: 12 * 1_073_741_824,
@@ -383,7 +383,7 @@ extension MetagenomicsDatabaseInfo {
         ))
 
         catalog.append(MetagenomicsDatabaseInfo(
-            name: "Greengenes rRNA",
+            name: "Greengenes",
             tool: MetagenomicsTool.kraken2.rawValue,
             version: "kraken2-special-v1",
             sizeBytes: 8 * 1_073_741_824,
