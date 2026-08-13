@@ -2183,6 +2183,10 @@ final class MetagenomicsToolRegressionTests: XCTestCase {
 final class DatabaseCollectionRegressionTests: XCTestCase {
 
     func testAllCases() {
+        XCTAssertEqual(
+            Set(DatabaseCollection.allCases),
+            [.standard, .standard8, .standard16, .plusPF, .plusPF8, .plusPF16, .viral, .minusB, .euPathDB46]
+        )
         XCTAssertEqual(DatabaseCollection.allCases.count, 9)
     }
 

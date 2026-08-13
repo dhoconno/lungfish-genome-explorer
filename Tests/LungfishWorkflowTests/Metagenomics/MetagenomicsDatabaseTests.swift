@@ -60,6 +60,23 @@ final class MetagenomicsDatabaseInfoTests: XCTestCase {
 
     // MARK: - Codable
 
+    func testInstallationRecipeCodableRoundTrip() throws {
+        let recipes: [MetagenomicsDatabaseInstallationRecipe] = [
+            .archive(url: try XCTUnwrap(URL(string: "https://example.com/database.tar.gz"))),
+            .kraken2Special(type: .silva),
+            .kraken2Special(type: .greengenes)
+        ]
+
+        for recipe in recipes {
+            let encoded = try JSONEncoder().encode(recipe)
+            let decoded = try JSONDecoder().decode(
+                MetagenomicsDatabaseInstallationRecipe.self,
+                from: encoded
+            )
+            XCTAssertEqual(decoded, recipe)
+        }
+    }
+
     func testDatabaseInfoCodable() throws {
         let date = Date(timeIntervalSince1970: 1_700_000_000) // fixed date for determinism
         let original = MetagenomicsDatabaseInfo(
@@ -100,6 +117,61 @@ final class MetagenomicsDatabaseInfoTests: XCTestCase {
         XCTAssertEqual(decoded.recommendedRAM, original.recommendedRAM)
         // Path is file URL; compare paths.
         XCTAssertEqual(decoded.path?.path, original.path?.path)
+    }
+
+    func testDatabaseInfoCodableRoundTripPreservesCatalogIdentityAndRecipe() throws {
+        let original = MetagenomicsDatabaseInfo(
+            name: "SILVA rRNA",
+            tool: MetagenomicsTool.kraken2.rawValue,
+            version: "kraken2-special-v1",
+            sizeBytes: 12 * 1_073_741_824,
+            catalogID: "kraken2-special-silva",
+            installationRecipe: .kraken2Special(type: .silva),
+            payloadDigest: "sha256:catalog-payload",
+            description: "Kraken2 database built from the SILVA rRNA reference collection",
+            status: .missing,
+            recommendedRAM: 16 * 1_073_741_824
+        )
+
+        let decoded = try JSONDecoder().decode(
+            MetagenomicsDatabaseInfo.self,
+            from: JSONEncoder().encode(original)
+        )
+
+        XCTAssertEqual(decoded.catalogID, "kraken2-special-silva")
+        XCTAssertEqual(
+            decoded.installationRecipe,
+            MetagenomicsDatabaseInstallationRecipe.kraken2Special(type: .silva)
+        )
+        XCTAssertEqual(decoded.payloadDigest, "sha256:catalog-payload")
+        XCTAssertEqual(decoded, original)
+    }
+
+    func testDatabaseInfoDecodesLegacyDownloadURLAsArchiveRecipe() throws {
+        let legacyJSON = """
+        {
+          "name": "Legacy Standard",
+          "tool": "kraken2",
+          "version": "20240904",
+          "sizeBytes": 1024,
+          "downloadURL": "https://example.com/legacy-standard.tar.gz",
+          "description": "Legacy downloaded database",
+          "isExternal": false,
+          "status": "missing",
+          "recommendedRAM": 2048
+        }
+        """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(MetagenomicsDatabaseInfo.self, from: legacyJSON)
+
+        XCTAssertNil(decoded.catalogID)
+        XCTAssertNil(decoded.payloadDigest)
+        XCTAssertEqual(
+            decoded.installationRecipe,
+            MetagenomicsDatabaseInstallationRecipe.archive(
+                url: try XCTUnwrap(URL(string: "https://example.com/legacy-standard.tar.gz"))
+            )
+        )
     }
 
     func testDatabaseInfoCodableWithBookmarkData() throws {
@@ -197,22 +269,36 @@ final class MetagenomicsDatabaseInfoTests: XCTestCase {
         let esvirituDBs = catalog.filter { $0.tool == MetagenomicsTool.esviritu.rawValue }
         XCTAssertFalse(esvirituDBs.isEmpty, "Catalog should include EsViritu databases")
 
+        let catalogIDs = catalog.compactMap(\.catalogID)
+        XCTAssertEqual(catalogIDs.count, catalog.count, "Built-in catalog IDs must be nonempty")
+        XCTAssertEqual(Set(catalogIDs).count, catalogIDs.count, "Built-in catalog IDs must be unique")
+
         // Every entry must have required fields populated.
         for entry in catalog {
             XCTAssertFalse(entry.name.isEmpty, "Catalog entry has empty name")
             XCTAssertFalse(entry.tool.isEmpty, "Catalog entry '\(entry.name)' has empty tool")
             XCTAssertNotNil(entry.version, "Catalog entry '\(entry.name)' has nil version")
             XCTAssertGreaterThan(entry.sizeBytes, 0, "Catalog entry '\(entry.name)' has zero size")
-            XCTAssertNotNil(entry.downloadURL, "Catalog entry '\(entry.name)' has nil download URL")
             XCTAssertFalse(entry.description.isEmpty, "Catalog entry '\(entry.name)' has empty description")
             XCTAssertGreaterThan(entry.recommendedRAM, 0, "Catalog entry '\(entry.name)' has zero RAM")
             XCTAssertEqual(entry.status, .missing, "Catalog entry '\(entry.name)' should start as .missing")
             XCTAssertFalse(entry.isDownloaded, "Catalog entry '\(entry.name)' should not be downloaded")
+
+            switch entry.installationRecipe {
+            case let .archive(url):
+                XCTAssertEqual(entry.downloadURL, url.absoluteString)
+            case let .kraken2Special(type):
+                XCTAssertNil(entry.downloadURL)
+                XCTAssertTrue([.silva, .greengenes].contains(type))
+            case nil:
+                XCTFail("Catalog entry '\(entry.name)' has no installation recipe")
+            }
         }
     }
 
     func testBuiltInCatalogDownloadURLsAreValid() {
-        for entry in MetagenomicsDatabaseInfo.builtInCatalog {
+        for entry in MetagenomicsDatabaseInfo.builtInCatalog where entry.installationRecipe != nil {
+            guard case let .archive(url) = entry.installationRecipe else { continue }
             guard let urlString = entry.downloadURL else {
                 XCTFail("Catalog entry '\(entry.name)' has nil download URL")
                 continue
@@ -221,6 +307,7 @@ final class MetagenomicsDatabaseInfoTests: XCTestCase {
                 URL(string: urlString),
                 "Catalog entry '\(entry.name)' has invalid download URL: \(urlString)"
             )
+            XCTAssertEqual(url.absoluteString, urlString)
             XCTAssertTrue(
                 urlString.hasSuffix(".tar.gz"),
                 "Catalog entry '\(entry.name)' download URL does not end with .tar.gz"
@@ -234,6 +321,30 @@ final class MetagenomicsDatabaseInfoTests: XCTestCase {
                 "Catalog entry '\(entry.name)' download URL is not from a known host: \(urlString)"
             )
         }
+    }
+
+    func testBuiltInCatalogContainsSpecialKraken2rRNADatabases() {
+        let silva = MetagenomicsDatabaseInfo.catalogEntry(catalogID: "kraken2-special-silva")
+        let greengenes = MetagenomicsDatabaseInfo.catalogEntry(catalogID: "kraken2-special-greengenes")
+
+        XCTAssertEqual(silva?.tool, MetagenomicsTool.kraken2.rawValue)
+        XCTAssertEqual(
+            silva?.installationRecipe,
+            MetagenomicsDatabaseInstallationRecipe.kraken2Special(type: .silva)
+        )
+        XCTAssertTrue(silva?.description.localizedCaseInsensitiveContains("SILVA") ?? false)
+        XCTAssertEqual(greengenes?.tool, MetagenomicsTool.kraken2.rawValue)
+        XCTAssertEqual(
+            greengenes?.installationRecipe,
+            MetagenomicsDatabaseInstallationRecipe.kraken2Special(type: .greengenes)
+        )
+        XCTAssertTrue(greengenes?.description.localizedCaseInsensitiveContains("Greengenes") ?? false)
+        XCTAssertFalse(
+            MetagenomicsDatabaseInfo.builtInCatalog.contains {
+                $0.name.localizedCaseInsensitiveContains("RDP")
+                    || $0.catalogID?.localizedCaseInsensitiveContains("rdp") == true
+            }
+        )
     }
 
     func testViralDatabaseIsSmallestKraken2() {
@@ -739,8 +850,10 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
         let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
         let dbs = try await registry.databases(for: .kraken2)
 
-        // All built-in catalog entries are kraken2.
-        XCTAssertEqual(dbs.count, DatabaseCollection.allCases.count)
+        // Kraken2 includes the nine AWS collections plus two special rRNA databases.
+        XCTAssertEqual(dbs.count, DatabaseCollection.allCases.count + 2)
+        XCTAssertTrue(dbs.contains { $0.catalogID == "kraken2-special-silva" })
+        XCTAssertTrue(dbs.contains { $0.catalogID == "kraken2-special-greengenes" })
         for db in dbs {
             XCTAssertEqual(db.tool, "kraken2")
         }
