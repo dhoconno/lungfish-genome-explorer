@@ -193,8 +193,10 @@ public struct URLSessionTarDatabaseArchiveTransfer: MetagenomicsDatabaseArchiveT
     public func download(from source: URL, progress: @Sendable @escaping (Double) -> Void) async throws -> URL {
         try Task.checkCancellation()
         let taskBox = DownloadTaskCancellationBox()
-        let temporary = try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
+        let temporary: URL
+        do {
+            temporary = try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
                 let delegate = InstallerDownloadDelegate(progress: progress) { result in
                     switch result {
                     case .success(let url): continuation.resume(returning: url)
@@ -206,7 +208,10 @@ public struct URLSessionTarDatabaseArchiveTransfer: MetagenomicsDatabaseArchiveT
                 taskBox.store(task)
                 task.resume()
             }
-        } onCancel: { taskBox.cancel() }
+            } onCancel: { taskBox.cancel() }
+        } catch let error as URLError where error.code == .cancelled {
+            throw CancellationError()
+        }
         try Task.checkCancellation()
         let destination = FileManager.default.temporaryDirectory.appendingPathComponent("lungfish-database-\(UUID().uuidString).tar.gz")
         try FileManager.default.moveItem(at: temporary, to: destination)
@@ -427,6 +432,7 @@ public struct MetagenomicsDatabaseInstaller: Sendable {
                 ))
                 let extraction = try await archiveTransfer.extract(archive: archive, destination: staging)
                 steps[steps.count - 1] = evidence(from: extraction, toolName: "tar", inputs: [descriptor], options: resolved)
+                try Task.checkCancellation()
                 try throwOnFailure(extraction, tool: "tar")
             case .kraken2Special(let type):
                 recipeSource = type.rawValue

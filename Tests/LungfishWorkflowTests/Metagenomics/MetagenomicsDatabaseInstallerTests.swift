@@ -132,6 +132,52 @@ struct MetagenomicsDatabaseInstallerTests {
         #expect(failure.error.provenanceExitStatus != 0)
     }
 
+    @Test("archive download cancellation records canonical cancellation status")
+    func archiveDownloadCancellationWritesCancelledReceipt() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let transfer = FixtureArchiveTransfer(cancelDuringDownload: true)
+        let task = Task {
+            try await fixture.installer(
+                tools: FixtureToolRunner(),
+                transfer: transfer
+            ).prepareInstallation(
+                database: fixture.database(recipe: .archive(url: URL(string: "https://example.test/db.tar.gz")!)),
+                databasesBaseURL: fixture.root,
+                threads: 4,
+                progress: { _, _ in }
+            )
+        }
+
+        await #expect(throws: CancellationError.self) { _ = try await task.value }
+        #expect(fixture.writer.failures.only?.error.provenanceExitStatus == 130)
+    }
+
+    @Test("tar cancellation is checked before a terminated process is classified as failure")
+    func archiveExtractionCancellationWritesCancelledReceipt() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let archive = fixture.root.appendingPathComponent("fixture.tar.gz")
+        try Data("archive payload".utf8).write(to: archive)
+        let transfer = FixtureArchiveTransfer(archive: archive, cancelDuringExtraction: true)
+        let task = Task {
+            try await fixture.installer(
+                tools: FixtureToolRunner(),
+                transfer: transfer
+            ).prepareInstallation(
+                database: fixture.database(recipe: .archive(url: URL(string: "https://example.test/db.tar.gz")!)),
+                databasesBaseURL: fixture.root,
+                threads: 4,
+                progress: { _, _ in }
+            )
+        }
+
+        await #expect(throws: CancellationError.self) { _ = try await task.value }
+        let failure = try #require(fixture.writer.failures.only)
+        #expect(failure.error.provenanceExitStatus == 130)
+        #expect(failure.attempt.steps.only?.outputs.isEmpty == true)
+    }
+
     @Test("a pre-existing destination survives an installer failure before promotion")
     func existingDestinationSurvivesFailureBeforePromotion() async throws {
         let fixture = try Fixture()
@@ -478,16 +524,31 @@ private final class FixtureArchiveTransfer: MetagenomicsDatabaseArchiveTransferr
     let archive: URL?
     let onExtract: ((URL) throws -> Void)?
     let extractionError: Error?
+    let cancelDuringDownload: Bool
+    let cancelDuringExtraction: Bool
     var downloaded = false
     var extracted = false
-    init(archive: URL? = nil, onExtract: ((URL) throws -> Void)? = nil, extractionError: Error? = nil) {
+    init(archive: URL? = nil, onExtract: ((URL) throws -> Void)? = nil, extractionError: Error? = nil, cancelDuringDownload: Bool = false, cancelDuringExtraction: Bool = false) {
         self.archive = archive; self.onExtract = onExtract; self.extractionError = extractionError
+        self.cancelDuringDownload = cancelDuringDownload; self.cancelDuringExtraction = cancelDuringExtraction
     }
     func extractionToolVersion() async throws -> String { "bsdtar fixture" }
-    func download(from source: URL, progress: @Sendable @escaping (Double) -> Void) async throws -> URL { downloaded = true; progress(1); return try #require(archive) }
+    func download(from source: URL, progress: @Sendable @escaping (Double) -> Void) async throws -> URL {
+        downloaded = true
+        if cancelDuringDownload {
+            withUnsafeCurrentTask { $0?.cancel() }
+            throw CancellationError()
+        }
+        progress(1)
+        return try #require(archive)
+    }
     func extract(archive: URL, destination: URL) async throws -> MetagenomicsDatabaseToolResult {
         extracted = true
         if let extractionError { throw extractionError }
+        if cancelDuringExtraction {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return .init(stdout: "", stderr: "terminated", exitStatus: 15, argv: ["/usr/bin/tar"], runtimeIdentity: .fixture(executablePath: "/usr/bin/tar"), toolVersion: "bsdtar fixture", startedAt: .now, completedAt: .now)
+        }
         try onExtract?(destination)
         return .init(stdout: "", stderr: "", exitStatus: 0, argv: ["/usr/bin/tar"], runtimeIdentity: .fixture(executablePath: "/usr/bin/tar"), toolVersion: "bsdtar fixture", startedAt: .now, completedAt: .now)
     }
