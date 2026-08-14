@@ -947,6 +947,8 @@ final class PluginPackStatusServiceTests: XCTestCase {
                 try writeSmokeReadyExecutable(for: requirement, executable: executable, at: executableURL)
             }
         }
+        let brackenRequirement = try XCTUnwrap(pack.toolRequirements.first(where: { $0.environment == "bracken" }))
+        try await writeManagedBrackenOverlayRecord(for: brackenRequirement, manager: manager)
 
         let service = PluginPackStatusService(condaManager: manager)
         let status = await service.status(for: pack)
@@ -1007,6 +1009,7 @@ final class PluginPackStatusServiceTests: XCTestCase {
             executable: "bracken-build",
             at: brackenBin.appendingPathComponent("bracken-build")
         )
+        try await writeManagedBrackenOverlayRecord(for: brackenRequirement, manager: manager)
 
         let service = PluginPackStatusService(condaManager: manager)
         let status = await service.status(for: pack)
@@ -1297,6 +1300,78 @@ final class PluginPackStatusServiceTests: XCTestCase {
         )
     }
 
+    func testInstallRejectsNonReadyManagedSourceOverlayAndRollsBackEnvironment() async throws {
+        let sandbox = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pack-install-overlay-verification-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: sandbox, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        let micromamba = try makeFakeMicromamba(
+            at: sandbox.appendingPathComponent("micromamba"),
+            version: "2.0.5-0"
+        )
+        let manager = CondaManager(
+            rootPrefix: sandbox.appendingPathComponent("conda"),
+            bundledMicromambaProvider: { micromamba },
+            bundledMicromambaVersionProvider: { "2.0.5-0" }
+        )
+        _ = try await manager.ensureMicromamba()
+
+        let requirement = PackToolRequirement(
+            id: "bracken",
+            displayName: "Bracken",
+            environment: "bracken",
+            installPackages: ["conda-forge::python=3.11"],
+            executables: ["bracken", "bracken-build"],
+            smokeTest: .command(arguments: ["--help"]),
+            sourceOverlay: PackToolSourceOverlay(
+                kind: .bracken,
+                version: "3.1",
+                sourceURL: URL(string: "https://example.test/Bracken-v3.1.tar.gz")!,
+                sha256: String(repeating: "a", count: 64)
+            )
+        )
+        let pack = PluginPack(
+            id: "bracken-overlay-verification",
+            name: "Bracken Overlay Verification",
+            description: "A successful package install without an overlay record is not ready.",
+            sfSymbol: "wrench",
+            packages: [],
+            category: "Tests",
+            requirements: [requirement]
+        )
+
+        let service = PluginPackStatusService(
+            condaManager: manager,
+            installAction: { _, environment, _, _ in
+                let bin = await manager.environmentURL(named: environment).appendingPathComponent("bin")
+                try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+                for executable in ["bracken", "bracken-build"] {
+                    let url = bin.appendingPathComponent(executable)
+                    try "#!/bin/sh\nprintf 'help\\n'\n".write(to: url, atomically: true, encoding: .utf8)
+                    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+                }
+            },
+            sourceOverlayInstallAction: { _, _, _ in
+                // Deliberately leave the required durable overlay record absent.
+            },
+            cacheLifetime: 60
+        )
+
+        do {
+            try await service.install(pack: pack, reinstall: false, progress: nil)
+            XCTFail("Expected final managed-source verification to reject the incomplete install")
+        } catch {
+            XCTAssertEqual(
+                error as? PluginPackStatusServiceError,
+                .verificationFailed(requirementID: "bracken", reason: "Managed Bracken source metadata is missing or does not match version 3.1")
+            )
+        }
+
+        let environmentURL = await manager.environmentURL(named: "bracken")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: environmentURL.path))
+    }
+
     func testFailedExplicitReinstallRemovesRecreatedEnvironmentAndRefreshesStatus() async throws {
         let sandbox = FileManager.default.temporaryDirectory
             .appendingPathComponent("pack-install-failure-reinstall-\(UUID().uuidString)", isDirectory: true)
@@ -1443,7 +1518,12 @@ final class PluginPackStatusServiceTests: XCTestCase {
         let status = await service.status(for: .requiredSetupPack)
         XCTAssertTrue(status.shouldReinstall)
 
-        try await service.install(pack: .requiredSetupPack, reinstall: true, progress: nil)
+        do {
+            try await service.install(pack: .requiredSetupPack, reinstall: true, progress: nil)
+            XCTFail("The recorder-only install action deliberately does not create a ready pack")
+        } catch let error as PluginPackStatusServiceError {
+            guard case .verificationFailed = error else { throw error }
+        }
 
         let calls = await recorder.recordedCalls()
         XCTAssertEqual(
@@ -1484,7 +1564,12 @@ final class PluginPackStatusServiceTests: XCTestCase {
             }
         )
 
-        try await service.install(pack: .requiredSetupPack, reinstall: false, progress: nil)
+        do {
+            try await service.install(pack: .requiredSetupPack, reinstall: false, progress: nil)
+            XCTFail("The recorder-only install action deliberately does not create a ready pack")
+        } catch let error as PluginPackStatusServiceError {
+            guard case .verificationFailed = error else { throw error }
+        }
 
         let calls = await recorder.recordedCalls()
         let bbtoolsCall = try XCTUnwrap(calls.first(where: { $0.environment == "bbtools" }))
@@ -1543,8 +1628,13 @@ final class PluginPackStatusServiceTests: XCTestCase {
             databaseInstalledCheck: { _ in false }
         )
 
-        try await service.install(pack: .requiredSetupPack, reinstall: false) { event in
-            eventRecorder.record(event)
+        do {
+            try await service.install(pack: .requiredSetupPack, reinstall: false) { event in
+                eventRecorder.record(event)
+            }
+            XCTFail("The test intentionally leaves tool environments incomplete")
+        } catch let error as PluginPackStatusServiceError {
+            guard case .verificationFailed = error else { throw error }
         }
 
         let calls = await recorder.recordedCalls()
@@ -1955,6 +2045,30 @@ final class PluginPackStatusServiceTests: XCTestCase {
 
         try script.write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
+    private func writeManagedBrackenOverlayRecord(
+        for requirement: PackToolRequirement,
+        manager: CondaManager
+    ) async throws {
+        let overlay = try XCTUnwrap(requirement.sourceOverlay)
+        let environmentURL = await manager.environmentURL(named: requirement.environment)
+        let record = ManagedToolSourceInstallationRecord(
+            source: overlay,
+            commands: [.init(argv: ["bracken", "--help"], reproducibleCommand: "bracken --help")],
+            runtime: .init(
+                environmentPath: environmentURL.path,
+                compilerPath: environmentURL.appendingPathComponent("bin/c++").path,
+                openMPRuntimePath: environmentURL.appendingPathComponent("lib/libomp.dylib").path
+            ),
+            installedFiles: [],
+            startedAt: .now,
+            completedAt: .now,
+            wallTimeSeconds: 0,
+            exitStatus: 0,
+            stderr: ""
+        )
+        try record.write(to: environmentURL.appendingPathComponent("share/lungfish/managed-tools/bracken.json"))
     }
 
     private func makeSmokeCountingPack(

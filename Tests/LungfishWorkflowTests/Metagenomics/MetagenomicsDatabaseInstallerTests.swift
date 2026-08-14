@@ -136,6 +136,51 @@ struct MetagenomicsDatabaseInstallerTests {
         #expect(attempt.steps.map(\.toolVersion) == ["1.0", "1.0"])
     }
 
+    @Test("Bracken database provenance resolves the managed source overlay before stale conda metadata")
+    func managedBrackenVersionWinsOverCondaPackageMetadata() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("managed-bracken-version-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let manager = CondaManager(rootPrefix: root)
+        let environment = await manager.environmentURL(named: "bracken")
+        let condaMeta = environment.appendingPathComponent("conda-meta", isDirectory: true)
+        try FileManager.default.createDirectory(at: condaMeta, withIntermediateDirectories: true)
+        try "{\"name\":\"bracken\",\"version\":\"1.0.0\",\"subdir\":\"noarch\"}".write(
+            to: condaMeta.appendingPathComponent("bracken-1.0.0-0.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let overlay = PackToolSourceOverlay(
+            kind: .bracken,
+            version: "3.1",
+            sourceURL: URL(string: "https://example.test/Bracken-v3.1.tar.gz")!,
+            sha256: String(repeating: "a", count: 64)
+        )
+        let record = ManagedToolSourceInstallationRecord(
+            source: overlay,
+            commands: [.init(argv: ["bracken-build", "-v"], reproducibleCommand: "bracken-build -v")],
+            runtime: .init(environmentPath: environment.path, compilerPath: "bin/c++", openMPRuntimePath: "lib/libomp.dylib"),
+            installedFiles: [],
+            startedAt: .now,
+            completedAt: .now,
+            wallTimeSeconds: 0,
+            exitStatus: 0,
+            stderr: ""
+        )
+        let recordURL = environment.appendingPathComponent("share/lungfish/managed-tools/bracken.json")
+        try record.write(to: recordURL)
+
+        let version = try await ManagedMetagenomicsDatabaseToolRunner.resolveManagedToolVersion(
+            manager,
+            "bracken-build",
+            "bracken",
+            root
+        )
+
+        #expect(version == "3.1")
+    }
+
     @Test("Greengenes selects its exact special source")
     func greengenesRecipeUsesExactSpecial() async throws {
         let fixture = try Fixture()

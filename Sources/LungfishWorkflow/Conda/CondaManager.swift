@@ -161,6 +161,24 @@ public actor CondaManager {
         rootPrefix.appendingPathComponent("envs/\(name)", isDirectory: true)
     }
 
+    /// Returns the version from a durable, integrity-checked managed source
+    /// overlay. Consumers use this before conda metadata so an obsolete package
+    /// record cannot become scientific provenance for a source-installed tool.
+    public func validatedSourceOverlayVersion(
+        kind: PackToolSourceOverlay.Kind,
+        environment: String
+    ) -> String? {
+        let environmentURL = environmentURL(named: environment)
+        let recordURL = environmentURL
+            .appendingPathComponent("share/lungfish/managed-tools/\(kind.rawValue).json")
+        guard let record = try? ManagedToolSourceInstallationRecord.load(from: recordURL),
+              record.source.kind == kind,
+              record.validatesIntegrity(environmentURL: environmentURL) else {
+            return nil
+        }
+        return record.source.version
+    }
+
     private let rootPrefixProvider: RootPrefixProvider
     private let bundledMicromambaProvider: BundledMicromambaProvider
     private let bundledMicromambaVersionProvider: BundledMicromambaVersionProvider

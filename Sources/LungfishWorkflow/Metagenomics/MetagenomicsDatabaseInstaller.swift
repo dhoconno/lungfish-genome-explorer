@@ -114,6 +114,10 @@ public struct ManagedMetagenomicsDatabaseToolRunner: MetagenomicsDatabaseToolRun
     }
 
     public static func resolveManagedToolVersion(_ condaManager: CondaManager, _ name: String, _ environment: String, _ workingDirectory: URL) async throws -> String {
+        if name == "bracken-build",
+           let version = await condaManager.validatedSourceOverlayVersion(kind: .bracken, environment: environment) {
+            return version
+        }
         let packageName: String
         switch name {
         case "kraken2-build": packageName = "kraken2"

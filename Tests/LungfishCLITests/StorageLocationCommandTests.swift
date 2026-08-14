@@ -50,6 +50,21 @@ final class StorageLocationCommandTests: XCTestCase {
         }
     }
 
+    func testCondaPackInstallSurfacesAuthoritativeVerificationFailure() async throws {
+        let originalOverride = CondaCommand.packStatusServiceOverride
+        CondaCommand.packStatusServiceOverride = VerificationFailedPackStatusService()
+        defer { CondaCommand.packStatusServiceOverride = originalOverride }
+        let packID = try XCTUnwrap(CondaCommand.visiblePacksForTesting().first?.id)
+        let command = try CondaCommand.InstallSubcommand.parse(["--pack", packID])
+
+        do {
+            try await command.run()
+            XCTFail("Expected authoritative verification failure")
+        } catch let code as ExitCode {
+            XCTAssertEqual(code.rawValue, CLIExitCode.dependency.rawValue)
+        }
+    }
+
     private func captureStandardOutput(_ operation: () async throws -> Void) async throws -> String {
         let pipe = Pipe()
         let originalStdout = dup(STDOUT_FILENO)
@@ -95,5 +110,26 @@ private actor StorageUnavailablePackStatusService: PluginPackStatusProviding {
         progress: (@Sendable (PluginPackInstallProgress) -> Void)?
     ) async throws {
         throw PluginPackStatusServiceError.storageUnavailable(root)
+    }
+}
+
+private actor VerificationFailedPackStatusService: PluginPackStatusProviding {
+    func visibleStatuses() async -> [PluginPackStatus] { [] }
+
+    func status(for pack: PluginPack) async -> PluginPackStatus {
+        PluginPackStatus(pack: pack, state: .needsInstall, toolStatuses: [], failureMessage: "Bracken metadata missing")
+    }
+
+    func invalidateVisibleStatusesCache() async {}
+
+    func install(
+        pack: PluginPack,
+        reinstall: Bool,
+        progress: (@Sendable (PluginPackInstallProgress) -> Void)?
+    ) async throws {
+        throw PluginPackStatusServiceError.verificationFailed(
+            requirementID: "bracken",
+            reason: "Managed Bracken source metadata is missing or does not match version 3.1"
+        )
     }
 }

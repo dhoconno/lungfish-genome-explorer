@@ -1060,7 +1060,9 @@ final class MetagenomicsPluginPackTests: XCTestCase {
         XCTAssertEqual(kraken2.installPackages, ["bioconda::kraken2=2.17.1"])
         XCTAssertEqual(kraken2.executables, ["kraken2", "kraken2-build"])
         XCTAssertEqual(bracken.environment, "bracken")
-        XCTAssertEqual(bracken.installPackages, ["bioconda::bracken=1.0.0"])
+        XCTAssertFalse(bracken.installPackages.contains(where: { $0.contains("bracken=") }))
+        XCTAssertNotNil(bracken.sourceOverlay)
+        XCTAssertEqual(bracken.sourceOverlay?.version, "3.1")
         XCTAssertEqual(bracken.executables, ["bracken", "bracken-build"])
         XCTAssertNotEqual(kraken2.environment, bracken.environment)
     }

@@ -164,6 +164,65 @@ final class CondaOfflinePackServiceTests: XCTestCase {
         XCTAssertTrue(step.outputs.allSatisfy { $0.sha256 != nil && $0.sizeBytes != nil })
     }
 
+    func testOfflinePackPreservesManagedBrackenOverlayRecordAndPayload() async throws {
+        let sourceCondaRoot = tempRoot.appendingPathComponent("source-bracken", isDirectory: true)
+        let environmentURL = sourceCondaRoot.appendingPathComponent("envs/bracken", isDirectory: true)
+        let binaryURL = environmentURL.appendingPathComponent("bin/src/kmer2read_distr")
+        try FileManager.default.createDirectory(at: binaryURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("synthetic Bracken payload\n".utf8).write(to: binaryURL)
+        let overlay = PackToolSourceOverlay(
+            kind: .bracken,
+            version: "3.1",
+            sourceURL: URL(string: "https://example.test/Bracken-v3.1.tar.gz")!,
+            sha256: String(repeating: "a", count: 64)
+        )
+        let record = ManagedToolSourceInstallationRecord(
+            source: overlay,
+            commands: [.init(argv: ["bracken-build", "-v"], reproducibleCommand: "bracken-build -v")],
+            runtime: .init(environmentPath: environmentURL.path, compilerPath: "bin/c++", openMPRuntimePath: "lib/libomp.dylib"),
+            installedFiles: [],
+            startedAt: .now,
+            completedAt: .now,
+            wallTimeSeconds: 0,
+            exitStatus: 0,
+            stderr: ""
+        )
+        let recordURL = environmentURL.appendingPathComponent("share/lungfish/managed-tools/bracken.json")
+        try record.write(to: recordURL)
+        let pack = PluginPack(
+            id: "bracken-overlay",
+            name: "Bracken Overlay",
+            description: "source-backed fixture",
+            sfSymbol: "wrench",
+            packages: ["bracken"],
+            category: "Tests",
+            requirements: [
+                .init(id: "bracken", displayName: "Bracken", environment: "bracken", installPackages: [], executables: ["bracken-build"], sourceOverlay: overlay),
+            ]
+        )
+
+        let exported = try await CondaOfflinePackService().exportPack(
+            pack: pack,
+            condaRoot: sourceCondaRoot,
+            outputDirectory: tempRoot.appendingPathComponent("exports", isDirectory: true),
+            commandLine: ["lungfish-cli", "conda", "offline-export", "--pack", pack.id]
+        )
+        let destinationCondaRoot = tempRoot.appendingPathComponent("destination-bracken", isDirectory: true)
+        _ = try await CondaOfflinePackService().installPack(
+            from: exported.packDirectory,
+            condaRoot: destinationCondaRoot,
+            overwrite: false,
+            commandLine: ["lungfish-cli", "conda", "offline-install", exported.packDirectory.path]
+        )
+
+        let installedEnvironment = destinationCondaRoot.appendingPathComponent("envs/bracken", isDirectory: true)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: installedEnvironment.appendingPathComponent("bin/src/kmer2read_distr").path))
+        XCTAssertEqual(
+            try ManagedToolSourceInstallationRecord.load(from: installedEnvironment.appendingPathComponent("share/lungfish/managed-tools/bracken.json")),
+            record
+        )
+    }
+
     func testExportAndInstallSupportTarAndTgzArchiveDestinations() async throws {
         for archiveExtension in ["tar", "tgz"] {
             let condaRoot = tempRoot.appendingPathComponent("source-\(archiveExtension)", isDirectory: true)

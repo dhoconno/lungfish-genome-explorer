@@ -93,6 +93,27 @@ public struct PackToolSmokeTest: Sendable, Codable, Hashable {
     )
 }
 
+/// A checksum-pinned source payload installed into an otherwise managed conda
+/// environment. This is deliberately a typed contract so status evaluation can
+/// distinguish a valid managed source tool from an arbitrary executable.
+public struct PackToolSourceOverlay: Sendable, Codable, Hashable {
+    public enum Kind: String, Sendable, Codable, Hashable {
+        case bracken
+    }
+
+    public let kind: Kind
+    public let version: String
+    public let sourceURL: URL
+    public let sha256: String
+
+    public init(kind: Kind, version: String, sourceURL: URL, sha256: String) {
+        self.kind = kind
+        self.version = version
+        self.sourceURL = sourceURL
+        self.sha256 = sha256.lowercased()
+    }
+}
+
 public struct PackToolRequirement: Sendable, Codable, Hashable, Identifiable {
     public let id: String
     public let displayName: String
@@ -105,6 +126,7 @@ public struct PackToolRequirement: Sendable, Codable, Hashable, Identifiable {
     public let version: String?
     public let license: String?
     public let sourceURL: String?
+    public let sourceOverlay: PackToolSourceOverlay?
 
     public init(
         id: String,
@@ -117,7 +139,8 @@ public struct PackToolRequirement: Sendable, Codable, Hashable, Identifiable {
         managedDatabaseID: String? = nil,
         version: String? = nil,
         license: String? = nil,
-        sourceURL: String? = nil
+        sourceURL: String? = nil,
+        sourceOverlay: PackToolSourceOverlay? = nil
     ) {
         self.id = id
         self.displayName = displayName
@@ -130,6 +153,7 @@ public struct PackToolRequirement: Sendable, Codable, Hashable, Identifiable {
         self.version = version
         self.license = license
         self.sourceURL = sourceURL
+        self.sourceOverlay = sourceOverlay
     }
 
     public static func package(
@@ -728,12 +752,22 @@ public extension PluginPack {
                     id: "bracken",
                     displayName: "Bracken",
                     environment: "bracken",
-                    installPackages: ["bioconda::bracken=1.0.0"],
+                    installPackages: [
+                        "conda-forge::python=3.11.13",
+                        "conda-forge::cxx-compiler=1.9.0",
+                        "conda-forge::llvm-openmp=21.1.8",
+                    ],
                     executables: ["bracken", "bracken-build"],
                     smokeTest: .command(arguments: ["--help"]),
-                    version: "1.0.0",
+                    version: "3.1",
                     license: "GPL-3.0",
-                    sourceURL: "https://github.com/jenniferlu717/Bracken"
+                    sourceURL: "https://github.com/jenniferlu717/Bracken",
+                    sourceOverlay: PackToolSourceOverlay(
+                        kind: .bracken,
+                        version: "3.1",
+                        sourceURL: URL(string: "https://github.com/jenniferlu717/Bracken/archive/refs/tags/v3.1.tar.gz")!,
+                        sha256: "c0a35331a8aac1e0dbb14c2a92c4de6f89f0aac540101c05c2eec54032107560"
+                    )
                 ),
                 PackToolRequirement(
                     id: "esviritu",

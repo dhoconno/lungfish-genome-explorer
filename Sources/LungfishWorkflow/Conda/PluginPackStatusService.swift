@@ -140,11 +140,14 @@ public extension PluginPackStatusProviding {
 
 public enum PluginPackStatusServiceError: Swift.Error, LocalizedError, Equatable {
     case storageUnavailable(URL)
+    case verificationFailed(requirementID: String, reason: String)
 
     public var errorDescription: String? {
         switch self {
         case .storageUnavailable(let root):
             return "Storage location unavailable: \(root.path)"
+        case .verificationFailed(_, let reason):
+            return reason
         }
     }
 }
@@ -210,6 +213,11 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         _ progress: (@Sendable (Double, String) -> Void)?
     ) async throws -> URL
     public typealias DatabaseInstalledCheck = @Sendable (_ databaseID: String) async -> Bool
+    public typealias SourceOverlayInstallAction = @Sendable (
+        _ requirement: PackToolRequirement,
+        _ environmentURL: URL,
+        _ progress: (@Sendable (Double, String) -> Void)?
+    ) async throws -> Void
     public typealias StorageAvailability = @Sendable () -> ManagedStorageAvailability
 
     public static let shared = PluginPackStatusService(condaManager: .shared)
@@ -218,6 +226,7 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
     private let installAction: InstallAction
     private let databaseInstallAction: DatabaseInstallAction
     private let databaseInstalledCheck: DatabaseInstalledCheck
+    private let sourceOverlayInstallAction: SourceOverlayInstallAction
     private let storageAvailability: StorageAvailability
     private let cacheLifetime: TimeInterval
     private let persistedSnapshotsURL: URL
@@ -233,6 +242,7 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         installAction: InstallAction? = nil,
         databaseInstallAction: DatabaseInstallAction? = nil,
         databaseInstalledCheck: DatabaseInstalledCheck? = nil,
+        sourceOverlayInstallAction: SourceOverlayInstallAction? = nil,
         storageAvailability: StorageAvailability? = nil,
         cacheLifetime: TimeInterval = 300
     ) {
@@ -253,6 +263,12 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         }
         self.databaseInstalledCheck = databaseInstalledCheck ?? { databaseID in
             await DatabaseRegistry.shared.isDatabaseInstalled(databaseID)
+        }
+        self.sourceOverlayInstallAction = sourceOverlayInstallAction ?? { requirement, environmentURL, progress in
+            guard let sourceOverlay = requirement.sourceOverlay else { return }
+            progress?(0, "Preparing \(requirement.displayName) source…")
+            _ = try await ManagedToolSourceInstaller().install(sourceOverlay: sourceOverlay, environmentURL: environmentURL)
+            progress?(1, "Prepared \(requirement.displayName) source")
         }
         self.storageAvailability = storageAvailability ?? {
             DatabaseRegistry.managedStorageAvailability()
@@ -481,7 +497,49 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
                         message: message
                     ))
                 }
+                if requirement.sourceOverlay != nil {
+                    let environmentURL = await condaManager.environmentURL(named: requirement.environment)
+                    try await sourceOverlayInstallAction(requirement, environmentURL) { fraction, message in
+                        let itemFraction = 0.75 + (0.25 * fraction)
+                        progress?(PluginPackInstallProgress(
+                            requirementID: requirement.id,
+                            requirementDisplayName: requirement.displayName,
+                            overallFraction: base + (itemFraction / Double(totalSteps)),
+                            itemFraction: itemFraction,
+                            message: message
+                        ))
+                    }
+                }
             }
+            await runPostInstallHooks(
+                for: pack,
+                installedEnvironments: Set(installTargets.map(\.requirement.environment))
+            )
+            await invalidateVisibleStatusesCache()
+            let verifiedStatus = await computeStatus(for: pack)
+            guard verifiedStatus.state == .ready else {
+                let failedRequirement = verifiedStatus.toolStatuses.first(where: { !$0.isReady })
+                throw PluginPackStatusServiceError.verificationFailed(
+                    requirementID: failedRequirement?.requirement.id ?? pack.id,
+                    reason: failedRequirement?.smokeTestFailure
+                        ?? failedRequirement?.missingExecutables.first.map { "Missing executable: \($0)" }
+                        ?? verifiedStatus.failureMessage
+                        ?? "\(pack.name) did not become ready after installation."
+                )
+            }
+            let verifiedFingerprint = await currentFingerprint(for: pack)
+            storePackStatus(
+                verifiedStatus,
+                fingerprint: verifiedFingerprint,
+                forGeneration: cacheGeneration
+            )
+            progress?(PluginPackInstallProgress(
+                requirementID: nil,
+                requirementDisplayName: nil,
+                overallFraction: 1.0,
+                itemFraction: 1.0,
+                message: "\(pack.name) ready"
+            ))
         } catch {
             await rollbackAttemptedCondaEnvironments(
                 attemptedCondaTargets,
@@ -490,27 +548,6 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
             await invalidateVisibleStatusesCache()
             throw error
         }
-        await runPostInstallHooks(
-            for: pack,
-            installedEnvironments: Set(installTargets.map(\.requirement.environment))
-        )
-        await invalidateVisibleStatusesCache()
-        let verifiedStatus = await computeStatus(for: pack)
-        let verifiedFingerprint = await currentFingerprint(for: pack)
-        storePackStatus(
-            verifiedStatus,
-            fingerprint: verifiedFingerprint,
-            forGeneration: cacheGeneration
-        )
-        progress?(PluginPackInstallProgress(
-            requirementID: nil,
-            requirementDisplayName: nil,
-            overallFraction: 1.0,
-            itemFraction: 1.0,
-            message: verifiedStatus.state == .ready
-                ? "\(pack.name) ready"
-                : (verifiedStatus.failureMessage ?? "\(pack.name) installed; verification pending")
-        ))
     }
 
     private func existingCondaEnvironmentNames(
@@ -837,6 +874,15 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
             components.append(fingerprintComponent(for: envURL))
             components.append(fingerprintComponent(for: envURL.appendingPathComponent("conda-meta", isDirectory: true)))
             components.append(fingerprintComponent(for: envURL.appendingPathComponent("bin", isDirectory: true)))
+            if let overlay = requirement.sourceOverlay {
+                let recordURL = envURL.appendingPathComponent("share/lungfish/managed-tools/\(overlay.kind.rawValue).json")
+                components.append(fingerprintComponent(for: recordURL))
+                if let record = try? ManagedToolSourceInstallationRecord.load(from: recordURL) {
+                    for file in record.installedFiles {
+                        components.append(fingerprintComponent(for: envURL.appendingPathComponent(file.relativePath)))
+                    }
+                }
+            }
 
             for executableURL in monitoredExecutableURLs(for: requirement, envURL: envURL) {
                 components.append(fingerprintComponent(for: executableURL))
@@ -927,12 +973,17 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
             }
         }
 
-        let packageMetadataFailure = missingExecutables.isEmpty
+        let sourceOverlayFailure = missingExecutables.isEmpty
+            ? sourceOverlayFailure(for: requirement, envURL: envURL)
+            : nil
+        let packageMetadataFailure = missingExecutables.isEmpty && sourceOverlayFailure == nil
             ? packageMetadataFailure(for: requirement, envURL: envURL)
             : nil
 
         let smokeTestFailure: String?
-        if let packageMetadataFailure {
+        if let sourceOverlayFailure {
+            smokeTestFailure = sourceOverlayFailure
+        } else if let packageMetadataFailure {
             smokeTestFailure = packageMetadataFailure
         } else if missingExecutables.isEmpty && bootstrapReady, let smokeTest = requirement.smokeTest {
             smokeTestFailure = await runSmokeTest(
@@ -956,7 +1007,7 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         for requirement: PackToolRequirement,
         envURL: URL
     ) -> String? {
-        guard let requiredVersion = requirement.version else { return nil }
+        guard requirement.sourceOverlay == nil, let requiredVersion = requirement.version else { return nil }
         let requiredPackageNames = Set(requiredPackageNames(for: requirement))
         guard !requiredPackageNames.isEmpty else { return nil }
 
@@ -986,6 +1037,22 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
             }
         }
 
+        return nil
+    }
+
+    private func sourceOverlayFailure(
+        for requirement: PackToolRequirement,
+        envURL: URL
+    ) -> String? {
+        guard let overlay = requirement.sourceOverlay else { return nil }
+        let recordURL = envURL.appendingPathComponent("share/lungfish/managed-tools/\(overlay.kind.rawValue).json")
+        guard let record = try? ManagedToolSourceInstallationRecord.load(from: recordURL),
+              record.validates(sourceOverlay: overlay, environmentURL: envURL) else {
+            if overlay.kind == .bracken {
+                return "Managed Bracken source metadata is missing or does not match version \(overlay.version)"
+            }
+            return "Managed source metadata is missing or does not match version \(overlay.version)"
+        }
         return nil
     }
 

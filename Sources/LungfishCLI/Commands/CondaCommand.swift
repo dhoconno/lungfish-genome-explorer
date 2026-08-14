@@ -182,6 +182,10 @@ extension CondaCommand {
                         switch error {
                         case .storageUnavailable(let root):
                             throw CondaCommand.storageUnavailableValidationError(for: root)
+                        case .verificationFailed(_, let reason):
+                            print("")
+                            print(formatter.error("Tool pack '\(pack.name)' failed verification: \(reason)"))
+                            throw CLIExitCode.dependency.exitCode
                         }
                     } catch {
                         print("")
