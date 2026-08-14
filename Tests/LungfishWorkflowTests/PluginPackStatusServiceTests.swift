@@ -1009,6 +1009,7 @@ final class PluginPackStatusServiceTests: XCTestCase {
             executable: "bracken-build",
             at: brackenBin.appendingPathComponent("bracken-build")
         )
+        await manager.repairManagedLaunchers(environment: "bracken")
         try await writeManagedBrackenOverlayRecord(for: brackenRequirement, manager: manager)
 
         let service = PluginPackStatusService(condaManager: manager)
@@ -2053,6 +2054,21 @@ final class PluginPackStatusServiceTests: XCTestCase {
     ) async throws {
         let overlay = try XCTUnwrap(requirement.sourceOverlay)
         let environmentURL = await manager.environmentURL(named: requirement.environment)
+        let binaryURL = environmentURL.appendingPathComponent("bin/src/kmer2read_distr")
+        try FileManager.default.createDirectory(at: binaryURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if !FileManager.default.fileExists(atPath: binaryURL.path) {
+            try "#!/bin/sh\nexit 0\n".write(to: binaryURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binaryURL.path)
+        }
+        let installedFiles = try ["bin/bracken", "bin/bracken-build", "bin/src/kmer2read_distr"].map { relativePath in
+            let url = environmentURL.appendingPathComponent(relativePath)
+            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+            return ManagedToolSourceInstallationRecord.InstalledFile(
+                relativePath: relativePath,
+                sha256: try XCTUnwrap(ManagedToolSourceInstallationRecord.sha256(of: url)),
+                sizeBytes: (attributes[.size] as? NSNumber)?.uint64Value ?? 0
+            )
+        }
         let record = ManagedToolSourceInstallationRecord(
             source: overlay,
             commands: [.init(argv: ["bracken", "--help"], reproducibleCommand: "bracken --help")],
@@ -2061,7 +2077,7 @@ final class PluginPackStatusServiceTests: XCTestCase {
                 compilerPath: environmentURL.appendingPathComponent("bin/c++").path,
                 openMPRuntimePath: environmentURL.appendingPathComponent("lib/libomp.dylib").path
             ),
-            installedFiles: [],
+            installedFiles: installedFiles,
             startedAt: .now,
             completedAt: .now,
             wallTimeSeconds: 0,

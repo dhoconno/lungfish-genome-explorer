@@ -157,11 +157,26 @@ struct MetagenomicsDatabaseInstallerTests {
             sourceURL: URL(string: "https://example.test/Bracken-v3.1.tar.gz")!,
             sha256: String(repeating: "a", count: 64)
         )
+        let fixtureFiles = ["bin/bracken", "bin/bracken-build", "bin/src/kmer2read_distr"]
+        let installedFiles = try fixtureFiles.map { relativePath in
+            let url = environment.appendingPathComponent(relativePath)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data("fixture \(relativePath)\n".utf8).write(to: url)
+            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+            guard let sha256 = ManagedToolSourceInstallationRecord.sha256(of: url) else {
+                throw CocoaError(.fileReadUnknown)
+            }
+            return ManagedToolSourceInstallationRecord.InstalledFile(
+                relativePath: relativePath,
+                sha256: sha256,
+                sizeBytes: (attributes[.size] as? NSNumber)?.uint64Value ?? 0
+            )
+        }
         let record = ManagedToolSourceInstallationRecord(
             source: overlay,
             commands: [.init(argv: ["bracken-build", "-v"], reproducibleCommand: "bracken-build -v")],
             runtime: .init(environmentPath: environment.path, compilerPath: "bin/c++", openMPRuntimePath: "lib/libomp.dylib"),
-            installedFiles: [],
+            installedFiles: installedFiles,
             startedAt: .now,
             completedAt: .now,
             wallTimeSeconds: 0,

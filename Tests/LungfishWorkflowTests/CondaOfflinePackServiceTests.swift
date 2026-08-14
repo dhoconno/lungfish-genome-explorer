@@ -167,9 +167,19 @@ final class CondaOfflinePackServiceTests: XCTestCase {
     func testOfflinePackPreservesManagedBrackenOverlayRecordAndPayload() async throws {
         let sourceCondaRoot = tempRoot.appendingPathComponent("source-bracken", isDirectory: true)
         let environmentURL = sourceCondaRoot.appendingPathComponent("envs/bracken", isDirectory: true)
-        let binaryURL = environmentURL.appendingPathComponent("bin/src/kmer2read_distr")
-        try FileManager.default.createDirectory(at: binaryURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data("synthetic Bracken payload\n".utf8).write(to: binaryURL)
+        let managedFiles = ["bin/bracken", "bin/bracken-build", "bin/src/kmer2read_distr"]
+        let installedFiles = try managedFiles.map { relativePath in
+            let url = environmentURL.appendingPathComponent(relativePath)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "#!/bin/sh\nexit 0\n".write(to: url, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+            return ManagedToolSourceInstallationRecord.InstalledFile(
+                relativePath: relativePath,
+                sha256: try XCTUnwrap(ManagedToolSourceInstallationRecord.sha256(of: url)),
+                sizeBytes: (attributes[.size] as? NSNumber)?.uint64Value ?? 0
+            )
+        }
         let overlay = PackToolSourceOverlay(
             kind: .bracken,
             version: "3.1",
@@ -180,7 +190,7 @@ final class CondaOfflinePackServiceTests: XCTestCase {
             source: overlay,
             commands: [.init(argv: ["bracken-build", "-v"], reproducibleCommand: "bracken-build -v")],
             runtime: .init(environmentPath: environmentURL.path, compilerPath: "bin/c++", openMPRuntimePath: "lib/libomp.dylib"),
-            installedFiles: [],
+            installedFiles: installedFiles,
             startedAt: .now,
             completedAt: .now,
             wallTimeSeconds: 0,
@@ -216,11 +226,14 @@ final class CondaOfflinePackServiceTests: XCTestCase {
         )
 
         let installedEnvironment = destinationCondaRoot.appendingPathComponent("envs/bracken", isDirectory: true)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: installedEnvironment.appendingPathComponent("bin/src/kmer2read_distr").path))
-        XCTAssertEqual(
-            try ManagedToolSourceInstallationRecord.load(from: installedEnvironment.appendingPathComponent("share/lungfish/managed-tools/bracken.json")),
-            record
+        let importedRecord = try ManagedToolSourceInstallationRecord.load(
+            from: installedEnvironment.appendingPathComponent("share/lungfish/managed-tools/bracken.json")
         )
+        XCTAssertEqual(importedRecord, record)
+        XCTAssertTrue(importedRecord.validates(sourceOverlay: overlay, environmentURL: installedEnvironment))
+        for executable in ["bin/bracken", "bin/bracken-build", "bin/src/kmer2read_distr"] {
+            XCTAssertEqual(try runExecutable(installedEnvironment.appendingPathComponent(executable), arguments: ["--help"]), 0)
+        }
     }
 
     func testExportAndInstallSupportTarAndTgzArchiveDestinations() async throws {
@@ -322,4 +335,13 @@ final class CondaOfflinePackServiceTests: XCTestCase {
             XCTFail("runTar did not complete within the timeout -- likely deadlocked on stderr pipe drain")
         }
     }
+}
+
+private func runExecutable(_ executable: URL, arguments: [String]) throws -> Int32 {
+    let process = Process()
+    process.executableURL = executable
+    process.arguments = arguments
+    try process.run()
+    process.waitUntilExit()
+    return process.terminationStatus
 }

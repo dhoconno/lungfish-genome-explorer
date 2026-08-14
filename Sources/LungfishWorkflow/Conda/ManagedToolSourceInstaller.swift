@@ -39,14 +39,38 @@ public struct ManagedToolSourceInstallationRecord: Sendable, Codable, Hashable {
     }
 
     public struct Runtime: Sendable, Codable, Hashable {
+        /// Exact package records that supplied the compiler, Python, and OpenMP runtime.
+        /// Keeping conda's build and platform fields makes a source build reproducible
+        /// even when a version is republished with a different build string.
+        public struct CondaPackage: Sendable, Codable, Hashable {
+            public let name: String
+            public let version: String
+            public let build: String
+            public let subdir: String
+
+            public init(name: String, version: String, build: String, subdir: String) {
+                self.name = name
+                self.version = version
+                self.build = build
+                self.subdir = subdir
+            }
+        }
+
         public let environmentPath: String
         public let compilerPath: String
         public let openMPRuntimePath: String
+        public let condaPackages: [CondaPackage]
 
-        public init(environmentPath: String, compilerPath: String, openMPRuntimePath: String) {
+        public init(
+            environmentPath: String,
+            compilerPath: String,
+            openMPRuntimePath: String,
+            condaPackages: [CondaPackage] = []
+        ) {
             self.environmentPath = environmentPath
             self.compilerPath = compilerPath
             self.openMPRuntimePath = openMPRuntimePath
+            self.condaPackages = condaPackages
         }
     }
 
@@ -322,7 +346,12 @@ public struct ManagedToolSourceInstaller: Sendable {
             source: sourceOverlay,
             sourceArchiveSizeBytes: fileSize(archive),
             commands: commands,
-            runtime: .init(environmentPath: environmentURL.path, compilerPath: compiler.path, openMPRuntimePath: openMP.path),
+            runtime: .init(
+                environmentPath: environmentURL.path,
+                compilerPath: compiler.path,
+                openMPRuntimePath: openMP.path,
+                condaPackages: runtimePackages(in: environmentURL)
+            ),
             installedFiles: installedFiles,
             startedAt: startedAt,
             completedAt: completedAt,
@@ -388,6 +417,44 @@ public struct ManagedToolSourceInstaller: Sendable {
 
     private func fileSize(_ url: URL) -> UInt64 {
         ((try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? NSNumber)?.uint64Value ?? 0
+    }
+
+    private func runtimePackages(
+        in environmentURL: URL
+    ) -> [ManagedToolSourceInstallationRecord.Runtime.CondaPackage] {
+        struct CondaMetaRecord: Decodable {
+            let name: String?
+            let version: String?
+            let build: String?
+            let subdir: String?
+        }
+
+        let metadataDirectory = environmentURL.appendingPathComponent("conda-meta", isDirectory: true)
+        guard let records = try? FileManager.default.contentsOfDirectory(
+            at: metadataDirectory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        return records
+            .filter { $0.pathExtension == "json" }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            .compactMap { url in
+                guard let data = try? Data(contentsOf: url),
+                      let record = try? JSONDecoder().decode(CondaMetaRecord.self, from: data),
+                      let name = record.name, !name.isEmpty,
+                      let version = record.version, !version.isEmpty,
+                      let build = record.build, !build.isEmpty,
+                      let subdir = record.subdir, !subdir.isEmpty else {
+                    return nil
+                }
+                return .init(name: name, version: version, build: build, subdir: subdir)
+            }
+            .sorted { lhs, rhs in
+                (lhs.name, lhs.version, lhs.build, lhs.subdir) < (rhs.name, rhs.version, rhs.build, rhs.subdir)
+            }
     }
 
     private func inventory(_ root: URL) throws -> [ManagedToolSourceInstallationRecord.InstalledFile] {

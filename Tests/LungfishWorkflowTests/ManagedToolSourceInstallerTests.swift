@@ -19,8 +19,35 @@ final class ManagedToolSourceInstallerTests: XCTestCase {
         XCTAssertEqual(record.source, fixture.overlay)
         XCTAssertEqual(record.exitStatus, 0)
         XCTAssertEqual(record.runtime.environmentPath, fixture.environmentURL.path)
-        XCTAssertFalse(record.commands.isEmpty)
-        XCTAssertTrue(record.commands.allSatisfy { !$0.argv.isEmpty && !$0.reproducibleCommand.isEmpty })
+        XCTAssertEqual(
+            record.runtime.condaPackages,
+            [
+                .init(name: "cxx-compiler", version: "1.9.0", build: "h1", subdir: "osx-arm64"),
+                .init(name: "llvm-openmp", version: "21.1.8", build: "h2", subdir: "osx-arm64"),
+                .init(name: "python", version: "3.11.13", build: "h3", subdir: "osx-arm64"),
+            ]
+        )
+        XCTAssertEqual(
+            record.commands.map(\.argv),
+            [
+                ["URLSession.download", fixture.overlay.sourceURL.absoluteString, fixture.downloadDestinationPath],
+                ["/usr/bin/tar", "-tzf", fixture.downloadDestinationPath],
+                ["/usr/bin/tar", "-xzf", fixture.downloadDestinationPath, "-C", fixture.extractedPath],
+                [
+                    fixture.environmentURL.appendingPathComponent("bin/c++").path,
+                    "-O3", "-std=c++11", "-Xpreprocessor", "-fopenmp",
+                    fixture.stagedSourcePath("kmer2read_distr.cpp"),
+                    fixture.stagedSourcePath("ctime.cpp"),
+                    fixture.stagedSourcePath("kraken_processing.cpp"),
+                    fixture.stagedSourcePath("taxonomy.cpp"),
+                    "-L", fixture.environmentURL.appendingPathComponent("lib").path,
+                    "-lomp", "-Wl,-rpath,@loader_path/../../lib", "-o", fixture.stagedSourcePath("kmer2read_distr"),
+                ],
+                [fixture.stagedBinPath("bracken"), "--help"],
+                [fixture.stagedBinPath("bracken-build"), "-v"],
+                [fixture.stagedSourcePath("kmer2read_distr"), "--help"],
+            ]
+        )
         XCTAssertTrue(record.installedFiles.allSatisfy { $0.sizeBytes > 0 && $0.sha256.count == 64 })
         XCTAssertNotNil(record.wallTimeSeconds)
         XCTAssertLessThanOrEqual(record.stderr.count, ManagedToolSourceInstallationRecord.maximumStderrLength)
@@ -137,12 +164,42 @@ private final class SourceInstallerFixture: @unchecked Sendable {
             )
         }
         _ = try run(executable: "/usr/bin/tar", arguments: ["-czf", archiveURL.path, "-C", root.path, "Bracken-3.1"])
+        let condaMeta = environmentURL.appendingPathComponent("conda-meta", isDirectory: true)
+        try FileManager.default.createDirectory(at: condaMeta, withIntermediateDirectories: true)
+        for package in [
+            ("cxx-compiler", "1.9.0", "h1"),
+            ("llvm-openmp", "21.1.8", "h2"),
+            ("python", "3.11.13", "h3"),
+        ] {
+            let metadata = "{\"name\":\"\(package.0)\",\"version\":\"\(package.1)\",\"build\":\"\(package.2)\",\"subdir\":\"osx-arm64\"}"
+            try metadata.write(
+                to: condaMeta.appendingPathComponent("\(package.0)-\(package.1)-\(package.2).json"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
         overlay = PackToolSourceOverlay(
             kind: .bracken,
             version: "3.1",
             sourceURL: overlay.sourceURL,
             sha256: SHA256.hash(data: try Data(contentsOf: archiveURL)).map { String(format: "%02x", $0) }.joined()
         )
+    }
+
+    var downloadDestinationPath: String {
+        root.appendingPathComponent(".managed-bracken-00000000-0000-0000-0000-000000000001/source.tar.gz").path
+    }
+
+    var extractedPath: String {
+        root.appendingPathComponent(".managed-bracken-00000000-0000-0000-0000-000000000001/extract").path
+    }
+
+    func stagedBinPath(_ name: String) -> String {
+        root.appendingPathComponent(".managed-bracken-00000000-0000-0000-0000-000000000001/publish/bin/\(name)").path
+    }
+
+    func stagedSourcePath(_ name: String) -> String {
+        root.appendingPathComponent(".managed-bracken-00000000-0000-0000-0000-000000000001/publish/bin/src/\(name)").path
     }
 
     func installer() -> ManagedToolSourceInstaller {
