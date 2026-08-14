@@ -1,5 +1,6 @@
 import XCTest
 import CryptoKit
+import Darwin
 @testable import LungfishWorkflow
 
 final class ManagedToolSourceInstallerTests: XCTestCase {
@@ -32,6 +33,7 @@ final class ManagedToolSourceInstallerTests: XCTestCase {
             [
                 ["URLSession.download", fixture.overlay.sourceURL.absoluteString, fixture.downloadDestinationPath],
                 ["/usr/bin/tar", "-tzf", fixture.downloadDestinationPath],
+                ["/usr/bin/tar", "-tvzf", fixture.downloadDestinationPath],
                 ["/usr/bin/tar", "-xzf", fixture.downloadDestinationPath, "-C", fixture.extractedPath],
                 [
                     fixture.environmentURL.appendingPathComponent("bin/c++").path,
@@ -150,9 +152,116 @@ final class ManagedToolSourceInstallerTests: XCTestCase {
 
         XCTAssertFalse(incompleteRuntimeRecord.validatesIntegrity(environmentURL: fixture.environmentURL))
     }
+
+    func testLiveRunnerDrainsLargeStdoutAndStderrWithoutDeadlock() async throws {
+        let invocation = ManagedToolSourceInstaller.ProcessInvocation(
+            executable: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", "i=0; while [ $i -lt 2048 ]; do printf 'stdout-abcdefghijklmnopqrstuvwxyz0123456789\\n'; printf 'stderr-abcdefghijklmnopqrstuvwxyz0123456789\\n' >&2; i=$((i + 1)); done"]
+        )
+
+        let result = try await ManagedToolSourceInstaller.run(invocation, timeout: 5)
+
+        XCTAssertEqual(result.exitStatus, 0)
+        XCTAssertGreaterThan(result.stdout.utf8.count, 64 * 1024)
+        XCTAssertGreaterThan(result.stderr.utf8.count, 64 * 1024)
+    }
+
+    func testLiveRunnerCancellationTerminatesChildProcess() async throws {
+        let fixture = try SourceInstallerFixture()
+        defer { fixture.cleanup() }
+        let childPIDFile = fixture.root.appendingPathComponent("child.pid")
+        let invocation = ManagedToolSourceInstaller.ProcessInvocation(
+            executable: URL(fileURLWithPath: "/bin/sh"),
+            arguments: [
+                "-c",
+                "sleep 30 & child=$!; printf '%s' \"$child\" > \"$1\"; wait \"$child\"",
+                "managed-tool-child",
+                childPIDFile.path,
+            ]
+        )
+
+        let task = Task { try await ManagedToolSourceInstaller.run(invocation, timeout: 30) }
+        for _ in 0..<20 where !FileManager.default.fileExists(atPath: childPIDFile.path) {
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        let childPID = try XCTUnwrap(Int32(String(contentsOf: childPIDFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)))
+        task.cancel()
+        await XCTAssertThrowsErrorAsync { _ = try await task.value }
+
+        for _ in 0..<20 where kill(childPID, 0) == 0 {
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        XCTAssertNotEqual(kill(childPID, 0), 0)
+    }
+
+    func testSymlinkArchiveMemberIsRejectedBeforeExtractionAndPublication() async throws {
+        let fixture = try SourceInstallerFixture()
+        defer { fixture.cleanup() }
+        try fixture.makeLinkArchive(kind: .symbolic)
+
+        await XCTAssertThrowsErrorAsync {
+            _ = try await fixture.installer().install(sourceOverlay: fixture.overlay, environmentURL: fixture.environmentURL)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.environmentURL.appendingPathComponent("bin/bracken").path))
+    }
+
+    func testHardlinkArchiveMemberIsRejectedBeforeExtractionAndPublication() async throws {
+        let fixture = try SourceInstallerFixture()
+        defer { fixture.cleanup() }
+        try fixture.makeLinkArchive(kind: .hard)
+
+        await XCTAssertThrowsErrorAsync {
+            _ = try await fixture.installer().install(sourceOverlay: fixture.overlay, environmentURL: fixture.environmentURL)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.environmentURL.appendingPathComponent("bin/bracken").path))
+    }
+
+    func testPublishRollbackRetainsBackupAndReportsRecoveryPathWhenRestoreFails() async throws {
+        struct InjectedMoveFailure: Error {}
+
+        let fixture = try SourceInstallerFixture()
+        defer { fixture.cleanup() }
+        try fixture.makeSafeArchive()
+        let priorBracken = fixture.environmentURL.appendingPathComponent("bin/bracken")
+        try FileManager.default.createDirectory(at: priorBracken.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("prior bracken\n".utf8).write(to: priorBracken)
+        let backupURL = fixture.root.appendingPathComponent(".managed-bracken-backup-00000000-0000-0000-0000-000000000001")
+        let fileSystem = ManagedToolSourceFileSystem(
+            createDirectory: { try FileManager.default.createDirectory(at: $0, withIntermediateDirectories: true) },
+            copyItem: { try FileManager.default.copyItem(at: $0, to: $1) },
+            moveItem: { source, destination in
+                if source.path.contains("/publish/bin/bracken-build") {
+                    throw InjectedMoveFailure()
+                }
+                if source == backupURL.appendingPathComponent("bin/bracken") {
+                    throw InjectedMoveFailure()
+                }
+                try FileManager.default.moveItem(at: source, to: destination)
+            },
+            removeItem: { try FileManager.default.removeItem(at: $0) },
+            fileExists: { FileManager.default.fileExists(atPath: $0.path) },
+            isExecutable: { FileManager.default.isExecutableFile(atPath: $0.path) },
+            contents: { try FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) }
+        )
+
+        do {
+            _ = try await fixture.installer(fileSystem: fileSystem).install(
+                sourceOverlay: fixture.overlay,
+                environmentURL: fixture.environmentURL
+            )
+            XCTFail("Expected publication recovery failure")
+        } catch let error as ManagedToolSourceInstallerError {
+            guard case .publicationRecoveryFailed(let backupPath, _, _) = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertEqual(backupPath, backupURL.path)
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: backupURL.appendingPathComponent("bin/bracken").path))
+    }
 }
 
 private final class SourceInstallerFixture: @unchecked Sendable {
+    enum LinkKind { case symbolic, hard }
     let root: URL
     let environmentURL: URL
     let archiveURL: URL
@@ -197,7 +306,7 @@ private final class SourceInstallerFixture: @unchecked Sendable {
                 encoding: .utf8
             )
         }
-        _ = try run(executable: "/usr/bin/tar", arguments: ["-czf", archiveURL.path, "-C", root.path, "Bracken-3.1"])
+        try archiveSourceTree()
         let condaMeta = environmentURL.appendingPathComponent("conda-meta", isDirectory: true)
         try FileManager.default.createDirectory(at: condaMeta, withIntermediateDirectories: true)
         for package in [
@@ -212,6 +321,30 @@ private final class SourceInstallerFixture: @unchecked Sendable {
                 encoding: .utf8
             )
         }
+        try refreshOverlayChecksum()
+    }
+
+    func makeLinkArchive(kind: LinkKind) throws {
+        try makeSafeArchive()
+        let linkURL = root.appendingPathComponent("Bracken-3.1/src/untrusted-link")
+        switch kind {
+        case .symbolic:
+            try FileManager.default.createSymbolicLink(atPath: linkURL.path, withDestinationPath: "/tmp")
+        case .hard:
+            try FileManager.default.linkItem(
+                at: root.appendingPathComponent("Bracken-3.1/src/ctime.cpp"),
+                to: linkURL
+            )
+        }
+        try archiveSourceTree()
+        try refreshOverlayChecksum()
+    }
+
+    private func archiveSourceTree() throws {
+        _ = try run(executable: "/usr/bin/tar", arguments: ["-czf", archiveURL.path, "-C", root.path, "Bracken-3.1"])
+    }
+
+    private func refreshOverlayChecksum() throws {
         overlay = PackToolSourceOverlay(
             kind: .bracken,
             version: "3.1",
@@ -236,7 +369,7 @@ private final class SourceInstallerFixture: @unchecked Sendable {
         root.appendingPathComponent(".managed-bracken-00000000-0000-0000-0000-000000000001/publish/bin/src/\(name)").path
     }
 
-    func installer() -> ManagedToolSourceInstaller {
+    func installer(fileSystem: ManagedToolSourceFileSystem = .live) -> ManagedToolSourceInstaller {
         ManagedToolSourceInstaller(
             downloader: { [archiveURL] _, destination in
                 try FileManager.default.copyItem(at: archiveURL, to: destination)
@@ -266,6 +399,7 @@ private final class SourceInstallerFixture: @unchecked Sendable {
                 let result = try run(executable: invocation.executable.path, arguments: invocation.arguments, workingDirectory: invocation.workingDirectory)
                 return .init(exitStatus: result.status, stdout: result.stdout, stderr: result.stderr)
             },
+            fileSystem: fileSystem,
             now: { Date(timeIntervalSince1970: 1_700_000_000) },
             uuid: { UUID(uuidString: "00000000-0000-0000-0000-000000000001")! }
         )

@@ -1,5 +1,6 @@
 @preconcurrency import Foundation
 import CryptoKit
+import Darwin
 
 public enum ManagedToolSourceInstallerError: Error, LocalizedError, Sendable, Equatable {
     case invalidSourceURL
@@ -7,6 +8,8 @@ public enum ManagedToolSourceInstallerError: Error, LocalizedError, Sendable, Eq
     case unsafeArchiveMember(String)
     case missingRequiredFile(String)
     case processFailed(operation: String, exitStatus: Int32, stderr: String)
+    case processTimedOut(seconds: TimeInterval)
+    case publicationRecoveryFailed(backupPath: String, originalError: String, recoveryError: String)
 
     public var errorDescription: String? {
         switch self {
@@ -20,7 +23,28 @@ public enum ManagedToolSourceInstallerError: Error, LocalizedError, Sendable, Eq
             return "Managed tool archive is missing required file: \(path)"
         case .processFailed(let operation, let status, _):
             return "Managed tool \(operation) failed with exit status \(status)."
+        case .processTimedOut(let seconds):
+            return "Managed tool process timed out after \(Int(seconds)) seconds."
+        case .publicationRecoveryFailed(let backupPath, let originalError, let recoveryError):
+            return "Managed tool publication failed (\(originalError)) and rollback was incomplete (\(recoveryError)). Previous files remain recoverable at \(backupPath)."
         }
+    }
+}
+
+private final class ManagedToolProcessOutputBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private let data = NSMutableData()
+
+    func append(_ chunk: Data) {
+        lock.lock()
+        data.append(chunk)
+        lock.unlock()
+    }
+
+    func string() -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        return String(data: data as Data, encoding: .utf8) ?? ""
     }
 }
 
@@ -262,7 +286,7 @@ public struct ManagedToolSourceInstaller: Sendable {
 
     public init(
         downloader: @escaping Downloader = Self.download,
-        processRunner: @escaping ProcessRunner = Self.run,
+        processRunner: @escaping ProcessRunner = { try await Self.run($0) },
         fileSystem: ManagedToolSourceFileSystem = .live,
         now: @escaping @Sendable () -> Date = Date.init,
         uuid: @escaping @Sendable () -> UUID = UUID.init
@@ -302,12 +326,15 @@ public struct ManagedToolSourceInstaller: Sendable {
         let listingArgs = ["-tzf", archive.path]
         let listing = try await execute(tar, listingArgs, workingDirectory: work, commands: &commands, stderrs: &stderrs, operation: "archive inspection")
         try validateArchiveMembers(listing.stdout)
+        let typeListing = try await execute(tar, ["-tvzf", archive.path], workingDirectory: work, commands: &commands, stderrs: &stderrs, operation: "archive type inspection")
+        try validateArchiveEntryTypes(typeListing.stdout)
         try Task.checkCancellation()
 
         let extracted = work.appendingPathComponent("extract", isDirectory: true)
         try fileSystem.createDirectory(extracted)
         _ = try await execute(tar, ["-xzf", archive.path, "-C", extracted.path], workingDirectory: work, commands: &commands, stderrs: &stderrs, operation: "archive extraction")
         let sourceRoot = extracted.appendingPathComponent("Bracken-3.1", isDirectory: true)
+        try validateExtractedTree(sourceRoot)
         let requiredFiles = [
             "bracken", "bracken-build", "src/kmer2read_distr.cpp", "src/ctime.cpp", "src/kraken_processing.cpp", "src/taxonomy.cpp",
             "src/est_abundance.py", "src/generate_kmer_distribution.py",
@@ -398,6 +425,37 @@ public struct ManagedToolSourceInstaller: Sendable {
             let components = member.split(separator: "/", omittingEmptySubsequences: false)
             guard !member.hasPrefix("/"), !components.contains(".."), !components.contains("") else {
                 throw ManagedToolSourceInstallerError.unsafeArchiveMember(rawMember)
+            }
+        }
+    }
+
+    private func validateArchiveEntryTypes(_ stdout: String) throws {
+        for line in stdout.split(whereSeparator: \.isNewline) {
+            guard let type = line.first, type == "-" || type == "d" else {
+                throw ManagedToolSourceInstallerError.unsafeArchiveMember(String(line))
+            }
+        }
+    }
+
+    private func validateExtractedTree(_ root: URL) throws {
+        let rootPath = root.resolvingSymlinksInPath().path
+        guard FileManager.default.fileExists(atPath: rootPath) else {
+            throw ManagedToolSourceInstallerError.missingRequiredFile("Bracken-3.1")
+        }
+        let rootPrefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+        let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
+        while let url = enumerator?.nextObject() as? URL {
+            var node = stat()
+            guard lstat(url.path, &node) == 0 else {
+                throw ManagedToolSourceInstallerError.unsafeArchiveMember(url.path)
+            }
+            let nodeType = node.st_mode & S_IFMT
+            guard nodeType == S_IFREG || nodeType == S_IFDIR else {
+                throw ManagedToolSourceInstallerError.unsafeArchiveMember(url.path)
+            }
+            let resolvedPath = url.resolvingSymlinksInPath().path
+            guard resolvedPath.hasPrefix(rootPrefix) else {
+                throw ManagedToolSourceInstallerError.unsafeArchiveMember(url.path)
             }
         }
     }
@@ -504,20 +562,37 @@ public struct ManagedToolSourceInstaller: Sendable {
             }
             try? fileSystem.removeItem(backup)
         } catch {
+            let originalError = error
+            var recoveryErrors: [String] = []
             for path in published.reversed() {
                 let destination = environmentURL.appendingPathComponent(path)
-                try? fileSystem.removeItem(destination)
+                do {
+                    try fileSystem.removeItem(destination)
+                } catch {
+                    recoveryErrors.append("Could not remove partial \(destination.path): \(error.localizedDescription)")
+                }
             }
             for path in paths.reversed() {
                 let prior = backup.appendingPathComponent(path)
                 if fileSystem.fileExists(prior) {
                     let destination = environmentURL.appendingPathComponent(path)
-                    try? fileSystem.createDirectory(destination.deletingLastPathComponent())
-                    try? fileSystem.moveItem(prior, destination)
+                    do {
+                        try fileSystem.createDirectory(destination.deletingLastPathComponent())
+                        try fileSystem.moveItem(prior, destination)
+                    } catch {
+                        recoveryErrors.append("Could not restore \(prior.path): \(error.localizedDescription)")
+                    }
                 }
             }
+            guard recoveryErrors.isEmpty else {
+                throw ManagedToolSourceInstallerError.publicationRecoveryFailed(
+                    backupPath: backup.path,
+                    originalError: originalError.localizedDescription,
+                    recoveryError: recoveryErrors.joined(separator: " ")
+                )
+            }
             try? fileSystem.removeItem(backup)
-            throw error
+            throw originalError
         }
     }
 
@@ -529,8 +604,18 @@ public struct ManagedToolSourceInstaller: Sendable {
         try data.write(to: destination, options: .atomic)
     }
 
-    public static func run(_ invocation: ProcessInvocation) async throws -> ProcessResult {
-        try await Task.detached {
+    public static func run(
+        _ invocation: ProcessInvocation,
+        timeout: TimeInterval = 3_600
+    ) async throws -> ProcessResult {
+        guard timeout > 0 else {
+            throw ManagedToolSourceInstallerError.processTimedOut(seconds: timeout)
+        }
+        let cancellationHandle = NativeProcessCancellationHandle()
+        let runState = NativeProcessRunState()
+        return try await withTaskCancellationHandler(operation: {
+            try Task.checkCancellation()
+            return try await withCheckedThrowingContinuation { continuation in
             let process = Process()
             process.executableURL = invocation.executable
             process.arguments = invocation.arguments
@@ -540,14 +625,72 @@ public struct ManagedToolSourceInstaller: Sendable {
             let stderr = Pipe()
             process.standardOutput = stdout
             process.standardError = stderr
-            try process.run()
-            process.waitUntilExit()
-            return ProcessResult(
-                exitStatus: process.terminationStatus,
-                stdout: String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
-                stderr: String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            )
-        }.value
+            let stdoutBuffer = ManagedToolProcessOutputBuffer()
+            let stderrBuffer = ManagedToolProcessOutputBuffer()
+            cancellationHandle.store(process)
+
+            stdout.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                if data.isEmpty {
+                    stdout.fileHandleForReading.readabilityHandler = nil
+                } else {
+                    stdoutBuffer.append(data)
+                }
+            }
+            stderr.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                if data.isEmpty {
+                    stderr.fileHandleForReading.readabilityHandler = nil
+                } else {
+                    stderrBuffer.append(data)
+                }
+            }
+
+            let timeoutItem = DispatchWorkItem { [weak process] in
+                guard let process, process.isRunning else { return }
+                runState.markTimedOut()
+                cancellationHandle.terminateProcessTree()
+            }
+            process.terminationHandler = { terminatedProcess in
+                timeoutItem.cancel()
+                DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) {
+                    stdout.fileHandleForReading.readabilityHandler = nil
+                    stderr.fileHandleForReading.readabilityHandler = nil
+                    cancellationHandle.clear(terminatedProcess)
+                    runState.resumeOnce { reason in
+                        switch reason {
+                        case .cancelled:
+                            continuation.resume(throwing: CancellationError())
+                        case .timedOut:
+                            continuation.resume(throwing: ManagedToolSourceInstallerError.processTimedOut(seconds: timeout))
+                        case .completed:
+                            continuation.resume(returning: .init(
+                                exitStatus: terminatedProcess.terminationStatus,
+                                stdout: stdoutBuffer.string(),
+                                stderr: stderrBuffer.string()
+                            ))
+                        }
+                    }
+                }
+            }
+            do {
+                try process.run()
+                cancellationHandle.terminateIfRequested()
+                DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutItem)
+            } catch {
+                timeoutItem.cancel()
+                stdout.fileHandleForReading.readabilityHandler = nil
+                stderr.fileHandleForReading.readabilityHandler = nil
+                cancellationHandle.clear(process)
+                runState.resumeOnce { _ in
+                    continuation.resume(throwing: error)
+                }
+            }
+            }
+        }, onCancel: {
+            runState.markCancelled()
+            cancellationHandle.requestProcessTreeTermination()
+        })
     }
 
     private func shellCommand(_ argv: [String]) -> String {
