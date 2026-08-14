@@ -116,6 +116,40 @@ final class ManagedToolSourceInstallerTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.environmentURL.appendingPathComponent("bin/bracken").path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.environmentURL.appendingPathComponent("share/lungfish/managed-tools/bracken.json").path))
     }
+
+    func testIntegrityRejectsBrackenReceiptWithoutCompilerRuntimePackages() async throws {
+        let fixture = try SourceInstallerFixture()
+        defer { fixture.cleanup() }
+        try fixture.makeSafeArchive()
+        let record = try await fixture.installer().install(
+            sourceOverlay: fixture.overlay,
+            environmentURL: fixture.environmentURL
+        )
+        XCTAssertTrue(
+            record.validatesIntegrity(environmentURL: fixture.environmentURL),
+            "runtime=\(record.runtime.condaPackages) files=\(record.installedFiles) workflow=\(record.workflowVersion)"
+        )
+        let incompleteRuntimeRecord = ManagedToolSourceInstallationRecord(
+            source: record.source,
+            workflowName: record.workflowName,
+            workflowVersion: record.workflowVersion,
+            sourceArchiveSizeBytes: record.sourceArchiveSizeBytes,
+            commands: record.commands,
+            runtime: .init(
+                environmentPath: record.runtime.environmentPath,
+                compilerPath: record.runtime.compilerPath,
+                openMPRuntimePath: record.runtime.openMPRuntimePath
+            ),
+            installedFiles: record.installedFiles,
+            startedAt: record.startedAt,
+            completedAt: record.completedAt,
+            wallTimeSeconds: record.wallTimeSeconds,
+            exitStatus: record.exitStatus,
+            stderr: record.stderr
+        )
+
+        XCTAssertFalse(incompleteRuntimeRecord.validatesIntegrity(environmentURL: fixture.environmentURL))
+    }
 }
 
 private final class SourceInstallerFixture: @unchecked Sendable {

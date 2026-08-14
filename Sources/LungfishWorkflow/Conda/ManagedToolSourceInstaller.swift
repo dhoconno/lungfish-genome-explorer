@@ -157,10 +157,18 @@ public struct ManagedToolSourceInstallationRecord: Sendable, Codable, Hashable {
             guard ["bin/bracken", "bin/bracken-build", "bin/src/kmer2read_distr"].allSatisfy(paths.contains) else {
                 return false
             }
+            let runtimePackageNames = Set(runtime.condaPackages.map(\.name))
+            guard ["python", "cxx-compiler", "llvm-openmp"].allSatisfy(runtimePackageNames.contains),
+                  runtime.condaPackages.allSatisfy({
+                      !$0.name.isEmpty && !$0.version.isEmpty && !$0.build.isEmpty && !$0.subdir.isEmpty
+                  }) else {
+                return false
+            }
         }
         for file in installedFiles {
             let url = environmentURL.appendingPathComponent(file.relativePath)
-            guard let size = try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber,
+            guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+                  let size = attributes[.size] as? NSNumber,
                   size.uint64Value == file.sizeBytes,
                   Self.sha256(of: url) == file.sha256 else {
                 return false
@@ -459,11 +467,17 @@ public struct ManagedToolSourceInstaller: Sendable {
 
     private func inventory(_ root: URL) throws -> [ManagedToolSourceInstallationRecord.InstalledFile] {
         let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles])
+        let resolvedRootPath = root.resolvingSymlinksInPath().path
+        let resolvedRootPrefix = resolvedRootPath.hasSuffix("/") ? resolvedRootPath : resolvedRootPath + "/"
         var files: [ManagedToolSourceInstallationRecord.InstalledFile] = []
         while let url = enumerator?.nextObject() as? URL {
             guard regularFileExists(at: url), let checksum = ManagedToolSourceInstallationRecord.sha256(of: url) else { continue }
             let size = ((try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? NSNumber)?.uint64Value ?? 0
-            let relative = url.path.replacingOccurrences(of: root.path + "/", with: "")
+            let resolvedPath = url.resolvingSymlinksInPath().path
+            guard resolvedPath.hasPrefix(resolvedRootPrefix) else {
+                throw ManagedToolSourceInstallerError.unsafeArchiveMember(url.path)
+            }
+            let relative = String(resolvedPath.dropFirst(resolvedRootPrefix.count))
             files.append(.init(relativePath: relative, sha256: checksum, sizeBytes: size))
         }
         return files.sorted { $0.relativePath < $1.relativePath }

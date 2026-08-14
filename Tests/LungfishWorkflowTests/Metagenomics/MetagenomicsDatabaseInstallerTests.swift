@@ -175,7 +175,12 @@ struct MetagenomicsDatabaseInstallerTests {
         let record = ManagedToolSourceInstallationRecord(
             source: overlay,
             commands: [.init(argv: ["bracken-build", "-v"], reproducibleCommand: "bracken-build -v")],
-            runtime: .init(environmentPath: environment.path, compilerPath: "bin/c++", openMPRuntimePath: "lib/libomp.dylib"),
+            runtime: .init(
+                environmentPath: environment.path,
+                compilerPath: "bin/c++",
+                openMPRuntimePath: "lib/libomp.dylib",
+                condaPackages: managedBrackenRuntimePackages
+            ),
             installedFiles: installedFiles,
             startedAt: .now,
             completedAt: .now,
@@ -566,6 +571,12 @@ struct MetagenomicsDatabaseInstallerTests {
         #expect(fixture.writer.failures.count == 1)
     }
 }
+
+private let managedBrackenRuntimePackages: [ManagedToolSourceInstallationRecord.Runtime.CondaPackage] = [
+    .init(name: "cxx-compiler", version: "1.9.0", build: "h1", subdir: "osx-arm64"),
+    .init(name: "llvm-openmp", version: "21.1.8", build: "h2", subdir: "osx-arm64"),
+    .init(name: "python", version: "3.11.13", build: "h3", subdir: "osx-arm64"),
+]
 
 private final class Fixture: @unchecked Sendable {
     enum PayloadMutation: CaseIterable { case missingCore, emptyDistribution, missingTaxonomy, missingLibrary, symlink }

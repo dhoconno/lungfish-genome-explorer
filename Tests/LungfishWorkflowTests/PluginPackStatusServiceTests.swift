@@ -2075,7 +2075,8 @@ final class PluginPackStatusServiceTests: XCTestCase {
             runtime: .init(
                 environmentPath: environmentURL.path,
                 compilerPath: environmentURL.appendingPathComponent("bin/c++").path,
-                openMPRuntimePath: environmentURL.appendingPathComponent("lib/libomp.dylib").path
+                openMPRuntimePath: environmentURL.appendingPathComponent("lib/libomp.dylib").path,
+                condaPackages: managedBrackenRuntimePackages
             ),
             installedFiles: installedFiles,
             startedAt: .now,
@@ -2085,6 +2086,14 @@ final class PluginPackStatusServiceTests: XCTestCase {
             stderr: ""
         )
         try record.write(to: environmentURL.appendingPathComponent("share/lungfish/managed-tools/bracken.json"))
+    }
+
+    private var managedBrackenRuntimePackages: [ManagedToolSourceInstallationRecord.Runtime.CondaPackage] {
+        [
+            .init(name: "cxx-compiler", version: "1.9.0", build: "h1", subdir: "osx-arm64"),
+            .init(name: "llvm-openmp", version: "21.1.8", build: "h2", subdir: "osx-arm64"),
+            .init(name: "python", version: "3.11.13", build: "h3", subdir: "osx-arm64"),
+        ]
     }
 
     private func makeSmokeCountingPack(
