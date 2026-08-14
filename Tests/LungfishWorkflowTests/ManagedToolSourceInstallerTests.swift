@@ -4,6 +4,55 @@ import Darwin
 @testable import LungfishWorkflow
 
 final class ManagedToolSourceInstallerTests: XCTestCase {
+    func testLivePinnedBrackenOverlayAndOfflineRoundTrip() async throws {
+        guard let environmentPath = ProcessInfo.processInfo.environment["LUNGFISH_LIVE_BRACKEN_ENV"],
+              let proofPath = ProcessInfo.processInfo.environment["LUNGFISH_LIVE_BRACKEN_PROOF"] else {
+            throw XCTSkip("Set LUNGFISH_LIVE_BRACKEN_ENV and LUNGFISH_LIVE_BRACKEN_PROOF to run the live proof")
+        }
+        let environmentURL = URL(fileURLWithPath: environmentPath, isDirectory: true)
+        let proofRoot = URL(fileURLWithPath: proofPath, isDirectory: true)
+        let metagenomicsPack = try XCTUnwrap(PluginPack.activeOptionalPacks.first { $0.id == "metagenomics" })
+        let requirement = try XCTUnwrap(metagenomicsPack.toolRequirements.first { $0.id == "bracken" })
+        let overlay = try XCTUnwrap(requirement.sourceOverlay)
+
+        let record = try await ManagedToolSourceInstaller().install(
+            sourceOverlay: overlay,
+            environmentURL: environmentURL
+        )
+        XCTAssertTrue(record.validates(sourceOverlay: overlay, environmentURL: environmentURL))
+        try await assertLiveBrackenProbes(in: environmentURL)
+
+        let pack = PluginPack(
+            id: "live-bracken-overlay",
+            name: "Live Bracken Overlay",
+            description: "Live managed-source round-trip proof",
+            sfSymbol: "wrench",
+            packages: ["bracken"],
+            category: "Tests",
+            requirements: [requirement]
+        )
+        let sourceCondaRoot = environmentURL.deletingLastPathComponent().deletingLastPathComponent()
+        let exported = try await CondaOfflinePackService().exportPack(
+            pack: pack,
+            condaRoot: sourceCondaRoot,
+            outputDirectory: proofRoot.appendingPathComponent("exports", isDirectory: true),
+            commandLine: ["lungfish-cli", "conda", "export-pack", "--pack", pack.id]
+        )
+        let importedCondaRoot = proofRoot.appendingPathComponent("imported", isDirectory: true)
+        _ = try await CondaOfflinePackService().installPack(
+            from: exported.packDirectory,
+            condaRoot: importedCondaRoot,
+            overwrite: false,
+            commandLine: ["lungfish-cli", "conda", "install", "--offline", "--from-bundle", exported.packDirectory.path]
+        )
+        let importedEnvironment = importedCondaRoot.appendingPathComponent("envs/bracken", isDirectory: true)
+        let importedRecord = try ManagedToolSourceInstallationRecord.load(
+            from: importedEnvironment.appendingPathComponent("share/lungfish/managed-tools/bracken.json")
+        )
+        XCTAssertTrue(importedRecord.validates(sourceOverlay: overlay, environmentURL: importedEnvironment))
+        try await assertLiveBrackenProbes(in: importedEnvironment)
+    }
+
     func testSuccessfulBrackenInstallPublishesScriptsPayloadAndDurableRecord() async throws {
         let fixture = try SourceInstallerFixture()
         defer { fixture.cleanup() }
@@ -49,6 +98,11 @@ final class ManagedToolSourceInstallerTests: XCTestCase {
                 [fixture.stagedBinPath("bracken-build"), "-v"],
                 [fixture.stagedSourcePath("kmer2read_distr"), "--help"],
             ]
+        )
+        XCTAssertTrue(
+            record.commands.last?.reproducibleCommand.contains(
+                "DYLD_LIBRARY_PATH=\(fixture.environmentURL.appendingPathComponent("lib").path)"
+            ) == true
         )
         XCTAssertTrue(record.installedFiles.allSatisfy { $0.sizeBytes > 0 && $0.sha256.count == 64 })
         XCTAssertNotNil(record.wallTimeSeconds)
@@ -434,5 +488,26 @@ private func XCTAssertThrowsErrorAsync(
         XCTFail("Expected an error", file: file, line: line)
     } catch {
         // Expected.
+    }
+}
+
+private func assertLiveBrackenProbes(in environmentURL: URL) async throws {
+    let path = environmentURL.appendingPathComponent("bin").path + ":" + (ProcessInfo.processInfo.environment["PATH"] ?? "")
+    let probes: [(String, [String])] = [
+        ("bin/bracken", ["--help"]),
+        ("bin/bracken-build", ["-v"]),
+        ("bin/src/kmer2read_distr", ["--help"]),
+    ]
+    for (relativePath, arguments) in probes {
+        let result = try await ManagedToolSourceInstaller.run(
+            .init(
+                executable: environmentURL.appendingPathComponent(relativePath),
+                arguments: arguments,
+                workingDirectory: environmentURL,
+                environment: ["PATH": path]
+            ),
+            timeout: 30
+        )
+        XCTAssertEqual(result.exitStatus, 0, "\(relativePath) stderr: \(result.stderr)")
     }
 }

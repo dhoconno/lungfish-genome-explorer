@@ -373,7 +373,15 @@ public struct ManagedToolSourceInstaller: Sendable {
 
         _ = try await execute(stagedBin.appendingPathComponent("bracken"), ["--help"], workingDirectory: stagedBin, commands: &commands, stderrs: &stderrs, operation: "bracken smoke test")
         _ = try await execute(stagedBin.appendingPathComponent("bracken-build"), ["-v"], workingDirectory: stagedBin, commands: &commands, stderrs: &stderrs, operation: "bracken-build smoke test")
-        _ = try await execute(binary, ["--help"], workingDirectory: stagedSrc, commands: &commands, stderrs: &stderrs, operation: "kmer2read_distr smoke test")
+        _ = try await execute(
+            binary,
+            ["--help"],
+            workingDirectory: stagedSrc,
+            environment: ["DYLD_LIBRARY_PATH": environmentURL.appendingPathComponent("lib").path],
+            commands: &commands,
+            stderrs: &stderrs,
+            operation: "kmer2read_distr smoke test"
+        )
 
         let installedFiles = try inventory(stagedEnvironment)
         let completedAt = now()
@@ -404,14 +412,27 @@ public struct ManagedToolSourceInstaller: Sendable {
         _ executable: URL,
         _ arguments: [String],
         workingDirectory: URL,
+        environment: [String: String] = [:],
         commands: inout [ManagedToolSourceInstallationRecord.Command],
         stderrs: inout [String],
         operation: String
     ) async throws -> ProcessResult {
         try Task.checkCancellation()
-        let invocation = ProcessInvocation(executable: executable, arguments: arguments, workingDirectory: workingDirectory)
+        let invocation = ProcessInvocation(
+            executable: executable,
+            arguments: arguments,
+            workingDirectory: workingDirectory,
+            environment: environment
+        )
         let result = try await processRunner(invocation)
-        commands.append(.init(argv: [executable.path] + arguments, reproducibleCommand: shellCommand([executable.path] + arguments)))
+        let environmentArguments = environment.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }
+        let reproducibleArguments = environmentArguments.isEmpty
+            ? [executable.path] + arguments
+            : ["/usr/bin/env"] + environmentArguments + [executable.path] + arguments
+        commands.append(.init(
+            argv: [executable.path] + arguments,
+            reproducibleCommand: shellCommand(reproducibleArguments)
+        ))
         if !result.stderr.isEmpty { stderrs.append(result.stderr) }
         guard result.exitStatus == 0 else {
             throw ManagedToolSourceInstallerError.processFailed(operation: operation, exitStatus: result.exitStatus, stderr: String(result.stderr.prefix(ManagedToolSourceInstallationRecord.maximumStderrLength)))
