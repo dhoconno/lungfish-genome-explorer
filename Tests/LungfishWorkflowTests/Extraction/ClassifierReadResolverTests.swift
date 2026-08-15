@@ -928,6 +928,99 @@ final class ClassifierReadResolverTests: XCTestCase {
         XCTAssertGreaterThan(n, 0, "Expected non-zero reads for taxon \(taxon.taxId)")
     }
 
+    func testExtractViaKraken2BatchScopesTaxaToEachSample() async throws {
+        let firstSample = try kraken2MiniResultPath()
+        let batchRoot = firstSample.deletingLastPathComponent()
+        let outputDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("k2-batch-scoped-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: outputDir) }
+        let outputURL = outputDir.appendingPathComponent("scoped.fastq")
+        let selectedSampleTaxa = "SRR35517702:1270;SRR35517703:1"
+        let provenance = ExtractionFileProvenance(
+            workflowName: "lungfish app classifier read extraction",
+            toolName: "Lungfish.app",
+            argv: [
+                "lungfish", "extract", "reads", "--by-classifier",
+                "--tool", "kraken2", "--sample-taxa", selectedSampleTaxa,
+            ],
+            explicitOptions: [
+                "tool": .string("kraken2"),
+                "selectedSampleTaxa": .string(selectedSampleTaxa),
+            ],
+            defaults: ["includeChildren": .boolean(true)],
+            resolved: ["format": .string("fastq")]
+        )
+
+        let outcome = try await ClassifierReadResolver().resolveAndExtract(
+            tool: .kraken2,
+            resultPath: batchRoot,
+            selections: [
+                ClassifierRowSelector(
+                    sampleId: "SRR35517702",
+                    taxIds: [1270]
+                ),
+                ClassifierRowSelector(
+                    sampleId: "SRR35517703",
+                    taxIds: [1]
+                ),
+            ],
+            options: ExtractionOptions(fileProvenance: provenance),
+            destination: .file(outputURL)
+        )
+
+        guard case .file(let writtenURL, let readCount) = outcome else {
+            return XCTFail("Expected .file outcome, got \(outcome)")
+        }
+        XCTAssertEqual(readCount, 3)
+        let output = try String(contentsOf: writtenURL, encoding: .utf8)
+        XCTAssertFalse(output.contains("@SRR35517702_classified_1\n"))
+        XCTAssertTrue(output.contains("@SRR35517702_classified_2\n"))
+        XCTAssertTrue(output.contains("@SRR35517703_classified_1\n"))
+        XCTAssertTrue(output.contains("@SRR35517703_classified_2\n"))
+
+        let envelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(
+                fromSidecar: ProvenanceRecorder.fileSidecarURL(for: writtenURL)
+            )
+        )
+        XCTAssertEqual(
+            envelope.options.explicit["selectedSampleTaxa"]?.stringValue,
+            selectedSampleTaxa
+        )
+        XCTAssertTrue(envelope.argv.contains(selectedSampleTaxa))
+        XCTAssertEqual(envelope.output?.path, writtenURL.path)
+    }
+
+    func testExtractViaKraken2RejectsMixedSingleAndBatchSelectors() async throws {
+        let sampleResult = try kraken2MiniResultPath()
+        let outputDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("k2-mixed-mode-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: outputDir) }
+
+        do {
+            _ = try await ClassifierReadResolver().resolveAndExtract(
+                tool: .kraken2,
+                resultPath: sampleResult.deletingLastPathComponent(),
+                selections: [
+                    ClassifierRowSelector(sampleId: nil, taxIds: [1270]),
+                    ClassifierRowSelector(sampleId: "SRR35517703", taxIds: [1]),
+                ],
+                options: ExtractionOptions(),
+                destination: .file(outputDir.appendingPathComponent("mixed.fastq"))
+            )
+            XCTFail("Expected mixed selector modes to be rejected")
+        } catch ClassifierExtractionError.mixedSampleSelectionModes {
+            XCTAssertEqual(
+                ClassifierExtractionError.mixedSampleSelectionModes.localizedDescription,
+                "Cannot combine single-sample and batch-sample selections in one extraction."
+            )
+        } catch {
+            XCTFail("Expected mixedSampleSelectionModes, got \(error)")
+        }
+    }
+
     // MARK: - R3-R3ML-10: countFASTQRecords trailing-newline undercounting
 
     func testCountFASTQRecordsCountsLastRecordWithoutTrailingNewline() async throws {

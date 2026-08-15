@@ -549,10 +549,10 @@ public actor ClassifierReadResolver {
         startedAt: Date,
         progress: (@Sendable (Double, String) -> Void)?
     ) async throws -> ExtractionOutcome {
-        // Collect tax IDs from the (possibly multi-row) selection.
-        let allTaxIds = Set(selections.flatMap { $0.taxIds })
-        guard !allTaxIds.isEmpty else {
-            throw ClassifierExtractionError.zeroReadsExtracted
+        let hasSingleSampleSelectors = selections.contains { $0.sampleId == nil }
+        let hasBatchSampleSelectors = selections.contains { $0.sampleId != nil }
+        guard !(hasSingleSampleSelectors && hasBatchSampleSelectors) else {
+            throw ClassifierExtractionError.mixedSampleSelectionModes
         }
 
         // Locate a writable temp directory under the enclosing project.
@@ -569,17 +569,17 @@ public actor ClassifierReadResolver {
         // is the batch root directory containing per-sample subdirectories.
         // In single-sample mode, sampleId is nil and resultPath points directly
         // at the sample's classification output directory.
-        let sampleJobs: [(sampleId: String?, sampleResultPath: URL)]
-        let sampleIds = selections.compactMap(\.sampleId)
-        if !sampleIds.isEmpty {
-            // Batch mode: resultPath is the batch root. Each sample's results
-            // live in a subdirectory named after the sampleId.
-            sampleJobs = sampleIds.map { sid in
-                (sampleId: sid, sampleResultPath: resultPath.appendingPathComponent(sid))
+        let sampleJobs: [(sampleId: String?, sampleResultPath: URL, taxIds: Set<Int>)] =
+            groupBySample(selections).compactMap { sampleId, group in
+                let taxIds = Set(group.flatMap(\.taxIds))
+                guard !taxIds.isEmpty else { return nil }
+                let sampleResultPath = sampleId.map {
+                    resultPath.appendingPathComponent($0, isDirectory: true)
+                } ?? resultPath
+                return (sampleId, sampleResultPath, taxIds)
             }
-        } else {
-            // Single-sample mode: resultPath is the classification output dir.
-            sampleJobs = [(sampleId: nil, sampleResultPath: resultPath)]
+        guard !sampleJobs.isEmpty else {
+            throw ClassifierExtractionError.zeroReadsExtracted
         }
 
         var allProducedURLs: [URL] = []
@@ -599,7 +599,9 @@ public actor ClassifierReadResolver {
             do {
                 classResult = try ClassificationResult.load(from: job.sampleResultPath)
             } catch {
-                logger.warning("Skipping sample \(sampleLabel, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                logger.warning(
+                    "Skipping sample \(sampleLabel, privacy: .private(mask: .hash)): \(error.localizedDescription, privacy: .private(mask: .hash))"
+                )
                 continue
             }
             provenanceSourceURLs.append(job.sampleResultPath)
@@ -610,7 +612,9 @@ public actor ClassifierReadResolver {
             do {
                 sourceFASTQs = try resolveKraken2SourceFASTQs(classResult: classResult)
             } catch {
-                logger.warning("Skipping sample \(sampleLabel, privacy: .public) — source FASTQ not found: \(error.localizedDescription, privacy: .public)")
+                logger.warning(
+                    "Skipping sample \(sampleLabel, privacy: .private(mask: .hash)) — source FASTQ not found: \(error.localizedDescription, privacy: .private(mask: .hash))"
+                )
                 continue
             }
             provenanceSourceURLs.append(contentsOf: sourceFASTQs)
@@ -627,7 +631,7 @@ public actor ClassifierReadResolver {
             }
 
             let config = TaxonomyExtractionConfig(
-                taxIds: allTaxIds,
+                taxIds: job.taxIds,
                 includeChildren: true,
                 sourceFiles: sourceFASTQs,
                 outputFiles: outputFiles,
@@ -760,7 +764,9 @@ public actor ClassifierReadResolver {
             )
             guard pigzResult.isSuccess,
                   fm.fileExists(atPath: decompressed.path) else {
-                logger.warning("pigz decompression failed for \(url.lastPathComponent, privacy: .public): \(pigzResult.stderr.suffix(200), privacy: .public)")
+                logger.warning(
+                    "pigz decompression failed for \(url.lastPathComponent, privacy: .private(mask: .hash)): \(pigzResult.stderr.suffix(200), privacy: .private(mask: .hash))"
+                )
                 result.append(url)
                 continue
             }
@@ -1088,6 +1094,9 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable {
     /// FASTQ → FASTA conversion failed while reading an input record.
     case fastaConversionFailed(String)
 
+    /// A single invocation mixed selectors for a direct result with batch-sample selectors.
+    case mixedSampleSelectionModes
+
     /// Zero reads were extracted despite a non-empty pre-flight estimate.
     case zeroReadsExtracted
 
@@ -1116,6 +1125,8 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable {
             return "Destination is not writable: \(url.path)"
         case .fastaConversionFailed(let reason):
             return "FASTQ → FASTA conversion failed: \(reason)"
+        case .mixedSampleSelectionModes:
+            return "Cannot combine single-sample and batch-sample selections in one extraction."
         case .zeroReadsExtracted:
             return "The selection produced zero reads. Try adjusting the flag filter or selecting different rows."
         case .cancelled:
