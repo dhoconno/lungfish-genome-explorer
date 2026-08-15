@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import SQLite3
 @testable import LungfishCore
 @testable import LungfishWorkflow
 @testable import LungfishIO
@@ -307,6 +308,34 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
         return url
     }
 
+    /// Creates a real SQLite database that can be opened but cannot answer
+    /// Kraken read-ID queries because it has no `reads` table.
+    private func createReadableButUnqueryableIndex(at url: URL) throws {
+        var database: OpaquePointer?
+        guard sqlite3_open(url.path, &database) == SQLITE_OK, let database else {
+            let message = database.map { String(cString: sqlite3_errmsg($0)) } ?? "unknown error"
+            sqlite3_close(database)
+            throw NSError(
+                domain: "TaxonomyExtractionPipelineTests.SQLite",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Could not create SQLite fixture: \(message)"]
+            )
+        }
+        defer { sqlite3_close(database) }
+
+        let sql = "CREATE TABLE db_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+        guard sqlite3_exec(database, sql, nil, nil, nil) == SQLITE_OK else {
+            throw NSError(
+                domain: "TaxonomyExtractionPipelineTests.SQLite",
+                code: 2,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Could not create SQLite fixture schema: \(String(cString: sqlite3_errmsg(database)))",
+                ]
+            )
+        }
+    }
+
     // MARK: - testCollectDescendantTaxIds
 
     /// Verifies that descendant tax ID collection includes all children.
@@ -387,6 +416,33 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
         XCTAssertFalse(content.contains("@read2"), "Should not contain read2 (S. aureus)")
         XCTAssertFalse(content.contains("@read4"), "Should not contain read4 (unclassified)")
         XCTAssertFalse(content.contains("@read5"), "Should not contain read5 (Escherichia)")
+    }
+
+    /// Verifies that a readable SQLite sidecar with an unusable schema does not
+    /// prevent extraction from the authoritative raw Kraken classification output.
+    func testExtractFallsBackToRawKrakenOutputWhenIndexQueryFails() async throws {
+        let classOutput = try makeClassificationOutput(reads: [
+            (readId: "read1", taxId: 562, classified: true),
+            (readId: "read2", taxId: 1280, classified: true),
+        ])
+        try createReadableButUnqueryableIndex(at: KrakenIndexDatabase.indexURL(for: classOutput))
+        let fastqURL = try makeFASTQ(reads: ["read1", "read2"])
+        let outputURL = tempDir.appendingPathComponent("fallback.fastq.gz")
+        let config = TaxonomyExtractionConfig(
+            taxIds: [562],
+            includeChildren: false,
+            sourceFile: fastqURL,
+            outputFile: outputURL,
+            classificationOutput: classOutput
+        )
+
+        let results = try await TaxonomyExtractionPipeline().extract(config: config, tree: makeTestTree())
+        let result = try XCTUnwrap(results.first)
+        let content = try readFASTQContent(result)
+        let lines = content.split(separator: "\n")
+        XCTAssertEqual(lines.count, 4, "Expected exactly one FASTQ record")
+        XCTAssertTrue(content.contains("@read1"))
+        XCTAssertFalse(content.contains("@read2"))
     }
 
     func testExtractionProvenanceRecordsActualOutputsWithChecksums() async throws {

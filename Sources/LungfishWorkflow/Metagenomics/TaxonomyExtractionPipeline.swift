@@ -340,13 +340,19 @@ public actor TaxonomyExtractionPipeline {
         progress: (@Sendable (Double, String) -> Void)?
     ) throws -> Set<String> {
         let indexURL = KrakenIndexDatabase.indexURL(for: classificationURL)
-        if FileManager.default.fileExists(atPath: indexURL.path),
-           let index = try? KrakenIndexDatabase(url: indexURL) {
-            defer { index.close() }
-            if index.canResolve(taxIds: targetTaxIds) {
-                let readIds = try index.readIds(forTaxIds: targetTaxIds)
-                progress?(0.30, "Loaded \(readIds.count) read IDs from Kraken2 index")
-                return normalizeReadIds(readIds, keepReadPairs: keepReadPairs)
+        if FileManager.default.fileExists(atPath: indexURL.path) {
+            do {
+                let index = try KrakenIndexDatabase(url: indexURL)
+                defer { index.close() }
+                if index.canResolve(taxIds: targetTaxIds) {
+                    let readIds = try index.readIds(forTaxIds: targetTaxIds)
+                    progress?(0.30, "Loaded \(readIds.count) read IDs from Kraken2 index")
+                    return normalizeReadIds(readIds, keepReadPairs: keepReadPairs)
+                }
+            } catch {
+                logger.warning(
+                    "Kraken index query failed at \(indexURL.path, privacy: .public); falling back to raw classification output: \(String(describing: error), privacy: .public)"
+                )
             }
         }
 
