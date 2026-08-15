@@ -646,25 +646,55 @@ struct ClassificationWizardSheet: View {
                 outputDir = baseDir.appendingPathComponent("classification-\(runToken)")
             }
 
-            return ClassificationConfig(
-                goal: .profile,  // Always run classify + Bracken profiling
-                inputFiles: sample.inputFiles,
-                isPairedEnd: sample.isPairedEnd,
-                databaseName: db.name,
-                databaseVersion: db.version ?? "unknown",
+            return Self.makeProfileConfig(
+                sample: sample,
+                database: db,
                 databasePath: dbPath,
-                databaseDigest: db.payloadDigest,
+                outputDirectory: outputDir,
                 confidence: confidence,
                 minimumHitGroups: minimumHitGroups,
                 threads: threads,
                 memoryMapping: memoryMapping,
-                quickMode: false,
-                outputDirectory: outputDir,
                 extraArguments: extraArguments
             )
         }
 
         onRun?(configs)
+    }
+
+    /// Builds the canonical classify-plus-profile request emitted by the wizard.
+    /// Stable catalog identity is carried through so Bracken can resolve the
+    /// database-supported rank instead of guessing from a display name.
+    static func makeProfileConfig(
+        sample: MetagenomicsSampleInput,
+        database: MetagenomicsDatabaseInfo,
+        databasePath: URL,
+        outputDirectory: URL,
+        confidence: Double,
+        minimumHitGroups: Int,
+        threads: Int,
+        memoryMapping: Bool,
+        extraArguments: [String]
+    ) -> ClassificationConfig {
+        ClassificationConfig(
+            goal: .profile,
+            inputFiles: sample.inputFiles,
+            isPairedEnd: sample.isPairedEnd,
+            databaseName: database.name,
+            databaseVersion: database.version ?? "unknown",
+            databasePath: databasePath,
+            databaseDigest: database.payloadDigest,
+            databaseCatalogID: database.catalogID,
+            databaseInstallationRecipe: database.installationRecipe,
+            brackenProfileRequest: .automaticDefault,
+            confidence: confidence,
+            minimumHitGroups: minimumHitGroups,
+            threads: threads,
+            memoryMapping: memoryMapping,
+            quickMode: false,
+            outputDirectory: outputDirectory,
+            extraArguments: extraArguments
+        )
     }
 
     // MARK: - Formatting

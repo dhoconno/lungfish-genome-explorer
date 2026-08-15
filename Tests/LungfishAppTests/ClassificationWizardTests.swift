@@ -273,6 +273,101 @@ final class ClassificationWizardTests: XCTestCase {
 
     // MARK: - testConfigGeneration
 
+    @MainActor
+    func testWizardProfileConfigCarriesAutomaticRankAndStableDatabaseIdentity() throws {
+        let inputURL = tempDir.appendingPathComponent("rrna.fastq")
+        let databasePath = tempDir.appendingPathComponent("silva-db", isDirectory: true)
+        let outputURL = tempDir.appendingPathComponent("classification", isDirectory: true)
+        let database = MetagenomicsDatabaseInfo(
+            name: "SILVA",
+            tool: "kraken2",
+            version: "2026.1",
+            sizeBytes: 1,
+            catalogID: "kraken2-special-silva",
+            installationRecipe: .kraken2Special(type: .silva),
+            payloadDigest: "sha256:silva-fixture",
+            description: "SILVA fixture",
+            path: databasePath,
+            status: .ready,
+            recommendedRAM: 1
+        )
+        let sample = MetagenomicsSampleInput(
+            sampleId: "rrna",
+            fastq1: inputURL,
+            fastq2: nil
+        )
+
+        let config = ClassificationWizardSheet.makeProfileConfig(
+            sample: sample,
+            database: database,
+            databasePath: databasePath,
+            outputDirectory: outputURL,
+            confidence: 0.2,
+            minimumHitGroups: 2,
+            threads: 4,
+            memoryMapping: false,
+            extraArguments: []
+        )
+
+        XCTAssertEqual(config.goal, .profile)
+        XCTAssertEqual(config.databaseVersion, "2026.1")
+        XCTAssertEqual(config.databaseDigest, "sha256:silva-fixture")
+        XCTAssertEqual(config.databaseCatalogID, "kraken2-special-silva")
+        XCTAssertEqual(config.databaseInstallationRecipe, .kraken2Special(type: .silva))
+        XCTAssertEqual(config.brackenProfileRequest, .automaticDefault)
+        let resolution = BrackenDatabaseCapabilities.resolve(
+            catalogID: config.databaseCatalogID,
+            installationRecipe: config.databaseInstallationRecipe,
+            request: try XCTUnwrap(config.brackenProfileRequest)
+        )
+        XCTAssertEqual(resolution.rank, .genus)
+        XCTAssertEqual(resolution.source, .catalogIdentity)
+        XCTAssertEqual(resolution.readLength, 150)
+        XCTAssertEqual(resolution.threshold, 10)
+    }
+
+    @MainActor
+    func testWizardGreengenesProfileAlsoResolvesAutomaticGenusRank() throws {
+        let database = MetagenomicsDatabaseInfo(
+            name: "Greengenes",
+            tool: "kraken2",
+            version: "2026.1",
+            sizeBytes: 1,
+            catalogID: "kraken2-special-greengenes",
+            installationRecipe: .kraken2Special(type: .greengenes),
+            payloadDigest: "sha256:greengenes-fixture",
+            description: "Greengenes fixture",
+            path: tempDir.appendingPathComponent("greengenes-db", isDirectory: true),
+            status: .ready,
+            recommendedRAM: 1
+        )
+        let config = ClassificationWizardSheet.makeProfileConfig(
+            sample: MetagenomicsSampleInput(
+                sampleId: "rrna",
+                fastq1: tempDir.appendingPathComponent("rrna.fastq"),
+                fastq2: nil
+            ),
+            database: database,
+            databasePath: try XCTUnwrap(database.path),
+            outputDirectory: tempDir.appendingPathComponent("classification", isDirectory: true),
+            confidence: 0.2,
+            minimumHitGroups: 2,
+            threads: 4,
+            memoryMapping: false,
+            extraArguments: []
+        )
+
+        let resolution = BrackenDatabaseCapabilities.resolve(
+            catalogID: config.databaseCatalogID,
+            installationRecipe: config.databaseInstallationRecipe,
+            request: try XCTUnwrap(config.brackenProfileRequest)
+        )
+        XCTAssertEqual(config.databaseCatalogID, "kraken2-special-greengenes")
+        XCTAssertEqual(config.brackenProfileRequest, .automaticDefault)
+        XCTAssertEqual(resolution.rank, .genus)
+        XCTAssertEqual(resolution.source, .catalogIdentity)
+    }
+
     /// Verifies that a ClassificationConfig is correctly generated from wizard state.
     func testConfigGeneration() throws {
         let dbPath = tempDir.appendingPathComponent("test-db")

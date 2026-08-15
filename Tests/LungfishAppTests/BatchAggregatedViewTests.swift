@@ -1529,6 +1529,56 @@ final class BatchGroupRoutingTests: XCTestCase {
         XCTAssertEqual(directories, [sampleDir.standardizedFileURL])
     }
 
+    func testKraken2LazyDatabaseBuildRetainsSchemaTwoDegradedSampleDirectory() throws {
+        let batchURL = makeTempDir(prefix: "kraken2-batch-")
+        defer { try? FileManager.default.removeItem(at: batchURL) }
+
+        let degradedSampleDirectory = batchURL.appendingPathComponent("air-degraded", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: degradedSampleDirectory,
+            withIntermediateDirectories: true
+        )
+        let degradationMessage = "Missing database100mers.kmer_distrib"
+        let manifest = ClassificationBatchResultManifest(
+            header: MetagenomicsBatchManifestHeader(
+                schemaVersion: 2,
+                createdAt: Date(),
+                sampleCount: 1
+            ),
+            goal: "profile",
+            databaseName: "SILVA",
+            databaseVersion: "2026-08",
+            summaryTSV: "classification-batch-summary.tsv",
+            samples: [MetagenomicsBatchSampleRecord(
+                sampleId: "air-degraded",
+                resultDirectory: "air-degraded",
+                inputFiles: ["/data/air-degraded.fastq.gz"],
+                isPairedEnd: false,
+                status: "degraded",
+                message: degradationMessage
+            )],
+            completedCount: 0,
+            degradedCount: 1,
+            failedCount: 0
+        )
+        try MetagenomicsBatchResultStore.saveClassification(manifest, to: batchURL)
+
+        let loaded = try XCTUnwrap(MetagenomicsBatchResultStore.loadClassification(from: batchURL))
+        let degradedRecord = try XCTUnwrap(loaded.samples.first)
+        XCTAssertEqual(loaded.header.schemaVersion, 2)
+        XCTAssertEqual(loaded.samples.count, 1)
+        XCTAssertEqual(degradedRecord.sampleId, "air-degraded")
+        XCTAssertEqual(degradedRecord.status, "degraded")
+        XCTAssertEqual(degradedRecord.message, degradationMessage)
+
+        let directories = try MainSplitViewController.classifierDatabaseBuildSampleDirectories(
+            tool: "kraken2",
+            resultURL: batchURL
+        )
+
+        XCTAssertEqual(directories, [degradedSampleDirectory.standardizedFileURL])
+    }
+
     func testKraken2LazyDatabaseBuildRejectsEmptyManifestSampleSet() throws {
         let batchURL = makeTempDir(prefix: "kraken2-batch-")
         defer { try? FileManager.default.removeItem(at: batchURL) }

@@ -276,7 +276,26 @@ public actor ClassificationPipeline {
         // Phase 3: Run kraken2 (0.30 -- 0.80)
         let kraken2Args = effectiveConfig.kraken2Arguments()
         let kraken2Command = ["kraken2"] + kraken2Args
-
+        let inputRecords = effectiveConfig.inputFiles.map { url in
+            ProvenanceRecorder.fileRecord(
+                url: url,
+                format: effectiveConfig.provenanceInputFileFormat,
+                role: .input
+            )
+        }
+        let kraken2RuntimeIdentity = managedRuntimeIdentity(
+            toolName: "kraken2",
+            environment: Self.kraken2Environment
+        )
+        func existingKraken2OutputRecords() -> [FileRecord] {
+            [
+                (effectiveConfig.reportURL, FileFormat.text, FileRole.report),
+                (effectiveConfig.outputURL, FileFormat.text, FileRole.output),
+            ].compactMap { url, format, role in
+                guard fm.fileExists(atPath: url.path) else { return nil }
+                return ProvenanceRecorder.fileRecord(url: url, format: format, role: role)
+            }
+        }
         logger.info("Running: kraken2 \(kraken2Args.joined(separator: " "), privacy: .public)")
 
         let kraken2Start = Date()
@@ -301,24 +320,82 @@ public actor ClassificationPipeline {
                 timeout: 7200, // 2 hour timeout for large datasets
                 stderrHandler: kraken2StderrHandler
             )
+        } catch is CancellationError {
+            await recordKraken2Failure(
+                provenanceRecorder: provenanceRecorder,
+                runID: runID,
+                config: effectiveConfig,
+                toolVersion: toolVersion,
+                command: kraken2Command,
+                inputs: inputRecords,
+                exitCode: 130,
+                stderr: "Kraken2 classification cancelled.",
+                startedAt: kraken2Start
+            )
+            try await persistInterruptedClassificationRun(
+                provenanceRecorder: provenanceRecorder,
+                runID: runID,
+                config: effectiveConfig,
+                resolution: profileResolution,
+                status: .cancelled,
+                profileState: "cancelled"
+            )
+            throw CancellationError()
         } catch let error as CondaError {
-            await provenanceRecorder.completeRun(runID, status: .failed)
+            let unavailable: Bool
             if case .toolNotFound = error {
-                throw ClassificationPipelineError.kraken2NotInstalled
+                unavailable = true
+            } else {
+                unavailable = false
             }
+            await recordKraken2Failure(
+                provenanceRecorder: provenanceRecorder,
+                runID: runID,
+                config: effectiveConfig,
+                toolVersion: toolVersion,
+                command: kraken2Command,
+                inputs: inputRecords,
+                exitCode: unavailable ? 127 : 1,
+                stderr: error.localizedDescription,
+                startedAt: kraken2Start
+            )
+            try await persistInterruptedClassificationRun(
+                provenanceRecorder: provenanceRecorder,
+                runID: runID,
+                config: effectiveConfig,
+                resolution: profileResolution,
+                status: .failed,
+                profileState: "failed"
+            )
+            if unavailable { throw ClassificationPipelineError.kraken2NotInstalled }
+            throw error
+        } catch {
+            await recordKraken2Failure(
+                provenanceRecorder: provenanceRecorder,
+                runID: runID,
+                config: effectiveConfig,
+                toolVersion: toolVersion,
+                command: kraken2Command,
+                inputs: inputRecords,
+                exitCode: 1,
+                stderr: error.localizedDescription,
+                startedAt: kraken2Start
+            )
+            try await persistInterruptedClassificationRun(
+                provenanceRecorder: provenanceRecorder,
+                runID: runID,
+                config: effectiveConfig,
+                resolution: profileResolution,
+                status: .failed,
+                profileState: "failed"
+            )
             throw error
         }
 
         let kraken2WallTime = Date().timeIntervalSince(kraken2Start)
 
         // Record kraken2 provenance step.
-        let inputRecords = effectiveConfig.inputFiles.map { url in
-            ProvenanceRecorder.fileRecord(url: url, format: effectiveConfig.provenanceInputFileFormat, role: .input)
-        }
-        let kraken2Outputs = [
-            ProvenanceRecorder.fileRecord(url: effectiveConfig.reportURL, format: .text, role: .report),
-            ProvenanceRecorder.fileRecord(url: effectiveConfig.outputURL, format: .text, role: .output),
-        ]
+        let kraken2Outputs = existingKraken2OutputRecords()
         let kraken2StepID = await provenanceRecorder.recordStep(
             runID: runID,
             toolName: "kraken2",
@@ -326,10 +403,7 @@ public actor ClassificationPipeline {
             githubReleaseVersion: Self.kraken2GithubReleaseVersion,
             command: kraken2Command,
             resolvedOptions: kraken2ResolvedOptions(config: effectiveConfig),
-            runtimeIdentity: managedRuntimeIdentity(
-                toolName: "kraken2",
-                environment: Self.kraken2Environment
-            ),
+            runtimeIdentity: kraken2RuntimeIdentity,
             inputs: inputRecords,
             outputs: kraken2Outputs,
             exitCode: kraken2Result.exitCode,
@@ -338,7 +412,14 @@ public actor ClassificationPipeline {
         )
 
         if kraken2Result.exitCode != 0 {
-            await provenanceRecorder.completeRun(runID, status: .failed)
+            try await persistInterruptedClassificationRun(
+                provenanceRecorder: provenanceRecorder,
+                runID: runID,
+                config: effectiveConfig,
+                resolution: profileResolution,
+                status: .failed,
+                profileState: "failed"
+            )
             throw ClassificationPipelineError.kraken2Failed(
                 exitCode: kraken2Result.exitCode,
                 stderr: kraken2Result.stderr
@@ -349,11 +430,63 @@ public actor ClassificationPipeline {
 
         // Phase 4: Parse kreport (0.80 -- 0.90)
         guard fm.fileExists(atPath: effectiveConfig.reportURL.path) else {
-            await provenanceRecorder.completeRun(runID, status: .failed)
-            throw ClassificationPipelineError.kreportNotProduced(effectiveConfig.reportURL)
+            let error = ClassificationPipelineError.kreportNotProduced(effectiveConfig.reportURL)
+            _ = await provenanceRecorder.recordStep(
+                runID: runID,
+                toolName: "Lungfish Kraken Report Validation",
+                toolVersion: WorkflowRun.currentAppVersion,
+                command: ["LungfishWorkflow", "validate-kreport", effectiveConfig.reportURL.path],
+                inputs: [],
+                outputs: [],
+                exitCode: 1,
+                wallTime: 0,
+                stderr: error.localizedDescription,
+                dependsOn: kraken2StepID.map { [$0] } ?? []
+            )
+            try await persistInterruptedClassificationRun(
+                provenanceRecorder: provenanceRecorder,
+                runID: runID,
+                config: effectiveConfig,
+                resolution: profileResolution,
+                status: .failed,
+                profileState: "failed"
+            )
+            throw error
         }
 
-        var tree = try KreportParser.parse(url: effectiveConfig.reportURL)
+        let parseStartedAt = Date()
+        var tree: TaxonTree
+        do {
+            tree = try KreportParser.parse(url: effectiveConfig.reportURL)
+        } catch {
+            _ = await provenanceRecorder.recordStep(
+                runID: runID,
+                toolName: "Lungfish Kraken Report Parser",
+                toolVersion: WorkflowRun.currentAppVersion,
+                command: ["LungfishWorkflow", "parse-kreport", effectiveConfig.reportURL.path],
+                inputs: [
+                    ProvenanceRecorder.fileRecord(
+                        url: effectiveConfig.reportURL,
+                        format: .text,
+                        role: .input
+                    ),
+                ],
+                outputs: [],
+                exitCode: 1,
+                wallTime: Date().timeIntervalSince(parseStartedAt),
+                stderr: error.localizedDescription,
+                dependsOn: kraken2StepID.map { [$0] } ?? []
+            )
+            try await persistInterruptedClassificationRun(
+                provenanceRecorder: provenanceRecorder,
+                runID: runID,
+                config: effectiveConfig,
+                resolution: profileResolution,
+                status: .failed,
+                profileState: "failed"
+            )
+            throw error
+        }
 
         let totalReads = tree.totalReads
         let speciesCount = tree.speciesCount
@@ -556,6 +689,65 @@ public actor ClassificationPipeline {
         logger.info("Pipeline complete: \(totalReads, privacy: .public) reads, \(speciesCount, privacy: .public) species, \(runtimeStr, privacy: .public)s")
 
         return result
+    }
+
+    private func recordKraken2Failure(
+        provenanceRecorder: ProvenanceRecorder,
+        runID: UUID,
+        config: ClassificationConfig,
+        toolVersion: String,
+        command: [String],
+        inputs: [FileRecord],
+        exitCode: Int32,
+        stderr: String,
+        startedAt: Date
+    ) async {
+        let fileManager = FileManager.default
+        let outputs: [FileRecord] = [
+            (config.reportURL, FileFormat.text, FileRole.report),
+            (config.outputURL, FileFormat.text, FileRole.output),
+        ].compactMap { url, format, role in
+            guard fileManager.fileExists(atPath: url.path) else { return nil }
+            return ProvenanceRecorder.fileRecord(url: url, format: format, role: role)
+        }
+        _ = await provenanceRecorder.recordStep(
+            runID: runID,
+            toolName: "kraken2",
+            toolVersion: toolVersion,
+            githubReleaseVersion: Self.kraken2GithubReleaseVersion,
+            command: command,
+            resolvedOptions: kraken2ResolvedOptions(config: config),
+            runtimeIdentity: managedRuntimeIdentity(
+                toolName: "kraken2",
+                environment: Self.kraken2Environment
+            ),
+            inputs: inputs,
+            outputs: outputs,
+            exitCode: exitCode,
+            wallTime: Date().timeIntervalSince(startedAt),
+            stderr: stderr
+        )
+    }
+
+    private func persistInterruptedClassificationRun(
+        provenanceRecorder: ProvenanceRecorder,
+        runID: UUID,
+        config: ClassificationConfig,
+        resolution: BrackenProfileResolution?,
+        status: RunStatus,
+        profileState: String
+    ) async throws {
+        await provenanceRecorder.completeRun(runID, status: status)
+        try await provenanceRecorder.save(
+            runID: runID,
+            to: config.outputDirectory,
+            options: classificationProvenanceOptions(
+                config: config,
+                resolution: resolution,
+                outcome: .notRequested,
+                profileState: profileState
+            )
+        )
     }
 
     private struct BrackenPreflightResult {

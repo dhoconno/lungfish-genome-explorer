@@ -10,12 +10,26 @@ public struct MetagenomicsBatchSampleRecord: Codable, Sendable, Equatable {
     public let resultDirectory: String
     public let inputFiles: [String]
     public let isPairedEnd: Bool
+    /// Scientific outcome for this returned sample (`ok` or `degraded`).
+    /// Nil for schema-1 manifests and workflows that do not publish outcomes.
+    public let status: String?
+    /// User-visible outcome detail, most commonly the Bracken degradation reason.
+    public let message: String?
 
-    public init(sampleId: String, resultDirectory: String, inputFiles: [String], isPairedEnd: Bool) {
+    public init(
+        sampleId: String,
+        resultDirectory: String,
+        inputFiles: [String],
+        isPairedEnd: Bool,
+        status: String? = nil,
+        message: String? = nil
+    ) {
         self.sampleId = sampleId
         self.resultDirectory = resultDirectory
         self.inputFiles = inputFiles
         self.isPairedEnd = isPairedEnd
+        self.status = status
+        self.message = message
     }
 }
 
@@ -42,6 +56,10 @@ public struct ClassificationBatchResultManifest: Codable, Sendable, Equatable {
     public let databaseVersion: String
     public let summaryTSV: String
     public let samples: [MetagenomicsBatchSampleRecord]
+    /// Counts introduced by schema 2. Nil when decoding legacy schema-1 manifests.
+    public let completedCount: Int?
+    public let degradedCount: Int?
+    public let failedCount: Int?
 
     public init(
         header: MetagenomicsBatchManifestHeader,
@@ -49,7 +67,10 @@ public struct ClassificationBatchResultManifest: Codable, Sendable, Equatable {
         databaseName: String,
         databaseVersion: String,
         summaryTSV: String,
-        samples: [MetagenomicsBatchSampleRecord]
+        samples: [MetagenomicsBatchSampleRecord],
+        completedCount: Int? = nil,
+        degradedCount: Int? = nil,
+        failedCount: Int? = nil
     ) {
         self.header = header
         self.goal = goal
@@ -57,6 +78,9 @@ public struct ClassificationBatchResultManifest: Codable, Sendable, Equatable {
         self.databaseVersion = databaseVersion
         self.summaryTSV = summaryTSV
         self.samples = samples
+        self.completedCount = completedCount
+        self.degradedCount = degradedCount
+        self.failedCount = failedCount
     }
 }
 

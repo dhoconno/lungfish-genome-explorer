@@ -11,6 +11,174 @@ import SQLite3
 import os
 import LungfishKit
 
+/// One stable row in the human-readable classification batch summary.
+struct ClassificationBatchSummaryRow: Sendable, Equatable {
+    let sampleId: String
+    let status: String
+    let profileState: String
+    let requestedRank: String
+    let resolvedRank: String
+    let totalReads: String
+    let classifiedReads: String
+    let classifiedPercentage: String
+    let speciesCount: String
+    let dominantSpecies: String
+    let message: String
+}
+
+/// Aggregate terminal-state decision for a classification batch.
+struct ClassificationBatchOutcomeEvaluation: Sendable, Equatable {
+    let completedCount: Int
+    let degradedCount: Int
+    let failedCount: Int
+    let requiresWarningCompletion: Bool
+    let warningMessage: String
+}
+
+/// User-facing and analysis-manifest metadata for one valid Kraken2 result.
+struct ClassificationSingleOutcomeMetadata: Sendable, Equatable {
+    let requiresWarningCompletion: Bool
+    let completionDetail: String
+    let analysisSummary: String
+    let analysisParameters: [String: AnalysisParameterValue]
+}
+
+/// Pure formatting and terminal-state policy shared by app execution and tests.
+enum ClassificationBatchOutcomePolicy {
+    static let summaryHeader = "sample_id\tstatus\tprofile_state\trequested_rank\tresolved_rank\ttotal_reads\tclassified_reads\tclassified_pct\tspecies_count\tdominant_species\tmessage"
+
+    static func row(sampleId: String, result: ClassificationResult) -> ClassificationBatchSummaryRow {
+        let outcome = result.profileOutcome
+        let resolution = outcome.resolution
+        let requestedRank = resolution?.request.provenanceValue
+            ?? result.config.brackenProfileRequest?.rank.provenanceValue
+            ?? ""
+        let resolvedRank = resolution.flatMap { BrackenDatabaseCapabilities.levelCode(for: $0.rank) } ?? ""
+        let message = outcome.state == .degraded
+            ? (outcome.message ?? outcome.reason?.rawValue ?? "Bracken profiling degraded")
+            : ""
+        return ClassificationBatchSummaryRow(
+            sampleId: sampleId,
+            status: outcome.state == .degraded ? "degraded" : "ok",
+            profileState: outcome.state.rawValue,
+            requestedRank: requestedRank,
+            resolvedRank: resolvedRank,
+            totalReads: String(result.tree.totalReads),
+            classifiedReads: String(result.tree.classifiedReads),
+            classifiedPercentage: String(format: "%.2f", result.tree.classifiedFraction * 100),
+            speciesCount: String(result.tree.speciesCount),
+            dominantSpecies: result.tree.dominantSpecies?.name ?? "",
+            message: message
+        )
+    }
+
+    static func failedRow(sampleId: String, message: String) -> ClassificationBatchSummaryRow {
+        ClassificationBatchSummaryRow(
+            sampleId: sampleId,
+            status: "failed",
+            profileState: "",
+            requestedRank: "",
+            resolvedRank: "",
+            totalReads: "",
+            classifiedReads: "",
+            classifiedPercentage: "",
+            speciesCount: "",
+            dominantSpecies: "",
+            message: message
+        )
+    }
+
+    static func summaryTSV(rows: [ClassificationBatchSummaryRow]) -> String {
+        let lines = rows.map { row in
+            [
+                row.sampleId,
+                row.status,
+                row.profileState,
+                row.requestedRank,
+                row.resolvedRank,
+                row.totalReads,
+                row.classifiedReads,
+                row.classifiedPercentage,
+                row.speciesCount,
+                row.dominantSpecies,
+                row.message,
+            ]
+            .map(appTSVField)
+            .joined(separator: "\t")
+        }
+        return ([summaryHeader] + lines).joined(separator: "\n")
+    }
+
+    static func evaluate(
+        rows: [ClassificationBatchSummaryRow],
+        sqliteWarning: String?
+    ) -> ClassificationBatchOutcomeEvaluation {
+        let completedCount = rows.filter { $0.status == "ok" }.count
+        let degradedCount = rows.filter { $0.status == "degraded" }.count
+        let failedCount = rows.filter { $0.status == "failed" }.count
+        var warnings: [String] = []
+        if degradedCount > 0 {
+            warnings.append("\(degradedCount) sample\(degradedCount == 1 ? "" : "s") retained Kraken2 classifications but Bracken profiling degraded")
+        }
+        if failedCount > 0 {
+            warnings.append("\(failedCount) sample\(failedCount == 1 ? "" : "s") failed")
+        }
+        if let sqliteWarning, !sqliteWarning.isEmpty {
+            warnings.append(sqliteWarning)
+        }
+        return ClassificationBatchOutcomeEvaluation(
+            completedCount: completedCount,
+            degradedCount: degradedCount,
+            failedCount: failedCount,
+            requiresWarningCompletion: !warnings.isEmpty,
+            warningMessage: warnings.joined(separator: "; ")
+        )
+    }
+
+    static func singleResultMetadata(
+        for result: ClassificationResult
+    ) -> ClassificationSingleOutcomeMetadata {
+        let tree = result.tree
+        let outcome = result.profileOutcome
+        var parameters = result.config.summaryParameters()
+        parameters["profileState"] = .string(outcome.state.rawValue)
+        if let rank = outcome.resolution.flatMap({ BrackenDatabaseCapabilities.levelCode(for: $0.rank) }) {
+            parameters["brackenResolvedRank"] = .string(rank)
+        }
+        if let reason = outcome.reason {
+            parameters["brackenDegradationReason"] = .string(reason.rawValue)
+        }
+        if let message = outcome.message {
+            parameters["brackenMessage"] = .string(message)
+        }
+        if let toolVersion = outcome.toolVersion {
+            parameters["brackenToolVersion"] = .string(toolVersion)
+        }
+
+        let classificationDetail = "\(tree.classifiedReads) of \(tree.totalReads) reads classified"
+        let analysisBase = "\(tree.totalReads) reads, \(tree.classifiedReads) classified"
+        guard outcome.state == .degraded else {
+            return ClassificationSingleOutcomeMetadata(
+                requiresWarningCompletion: false,
+                completionDetail: classificationDetail,
+                analysisSummary: analysisBase,
+                analysisParameters: parameters
+            )
+        }
+
+        let reason = outcome.message ?? outcome.reason?.rawValue ?? "unknown reason"
+        let resolvedRank = outcome.resolution
+            .flatMap { BrackenDatabaseCapabilities.levelCode(for: $0.rank) }
+            ?? "unknown"
+        return ClassificationSingleOutcomeMetadata(
+            requiresWarningCompletion: true,
+            completionDetail: "\(classificationDetail); Bracken profiling degraded at resolved rank \(resolvedRank): \(reason)",
+            analysisSummary: "\(analysisBase); profiling degraded at resolved rank \(resolvedRank): \(reason)",
+            analysisParameters: parameters
+        )
+    }
+}
+
 extension AppDelegate {
     // MARK: - Direct-Launch Classification Methods
 
@@ -358,14 +526,22 @@ extension AppDelegate {
                 }
 
                 let capturedConfig = config
+                let outcomeMetadata = ClassificationBatchOutcomePolicy.singleResultMetadata(for: result)
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         viewerController.hideProgress()
 
-                        let readCount = result.tree.totalReads
-                        let classifiedCount = result.tree.classifiedReads
-                        let summaryDetail = "\(classifiedCount) of \(readCount) reads classified"
-                        _ = OperationCenter.shared.complete(id: opID, detail: summaryDetail)
+                        if outcomeMetadata.requiresWarningCompletion {
+                            _ = OperationCenter.shared.completeWithWarning(
+                                id: opID,
+                                detail: outcomeMetadata.completionDetail
+                            )
+                        } else {
+                            _ = OperationCenter.shared.complete(
+                                id: opID,
+                                detail: outcomeMetadata.completionDetail
+                            )
+                        }
 
                         viewerController.displayTaxonomyResult(result)
 
@@ -404,8 +580,8 @@ extension AppDelegate {
                                     projectURL: routeContext?.projectURL
                                 ),
                                 displayName: "Kraken2 Classification",
-                                parameters: capturedConfig.summaryParameters(),
-                                summary: "\(readCount) reads, \(classifiedCount) classified",
+                                parameters: outcomeMetadata.analysisParameters,
+                                summary: outcomeMetadata.analysisSummary,
                                 status: .completed
                             )
                             do { try AnalysisManifestStore.recordAnalysis(entry, bundleURL: bundleURL) } catch { appDelegateLogger.warning("Failed to record analysis manifest: \(error.localizedDescription, privacy: .public)") }
@@ -716,6 +892,7 @@ extension AppDelegate {
         routeContext explicitRouteContext: OperationRouteContext? = nil
     ) {
         guard !configs.isEmpty else { return }
+        let batchStartedAt = Date()
 
         // Redirect output to project-level Analyses/ folder when a project is open.
         var configs = configs
@@ -760,14 +937,24 @@ extension AppDelegate {
             return "sample_\(index + 1)"
         }
 
-        let batchCliCmd: String = {
-            guard let first = configs.first else { return "\(CLICommandIdentity.executableName) conda classify --batch" }
+        let batchCliArgs: [String] = {
+            guard let first = configs.first else { return ["--batch"] }
             var args = ["--db", first.databasePath.path]
             for c in configs {
                 args += c.inputFiles.map(\.path)
             }
-            return OperationCenter.buildCLICommand(subcommand: "conda classify", args: args)
+            return args
         }()
+        let batchCliCmd = OperationCenter.buildCLICommand(
+            subcommand: "conda classify",
+            args: batchCliArgs
+        )
+        let batchProvenanceCommand = [
+            "LungfishApp",
+            "classification-batch",
+            "--output",
+            batchRoot.path,
+        ] + batchCliArgs
         let opID = OperationCenter.shared.start(
             title: "Classification Batch (\(sampleCount) sample\(sampleCount == 1 ? "" : "s"))",
             detail: "Starting Kraken2/Bracken batch\u{2026}",
@@ -786,6 +973,7 @@ extension AppDelegate {
             let pipeline = ClassificationPipeline()
             var successfulResults: [(sampleId: String, config: ClassificationConfig, result: ClassificationResult)] = []
             var failedResults: [(sampleId: String, error: String)] = []
+            var failedProvenanceDirectories: [URL] = []
 
             func removeOwnedBatchRoot(context: String) {
                 guard ownsBatchRoot else { return }
@@ -858,16 +1046,8 @@ extension AppDelegate {
 
                     successfulResults.append((sampleID, config, result))
                 } catch {
-                    if ownsBatchRoot {
-                        do {
-                            try FileManager.default.removeItem(at: config.outputDirectory)
-                        } catch {
-                            appDelegateLogger.error(
-                                "runClassificationBatch: Failed to remove incomplete sample directory \(config.outputDirectory.path, privacy: .public) - \(error.localizedDescription, privacy: .public)"
-                            )
-                        }
-                    }
                     failedResults.append((sampleID, error.localizedDescription))
+                    failedProvenanceDirectories.append(config.outputDirectory)
                     appDelegateLogger.warning("runClassificationBatch: Sample \(sampleID, privacy: .public) failed - \(error.localizedDescription, privacy: .public)")
                 }
             }
@@ -883,80 +1063,36 @@ extension AppDelegate {
                 return
             }
 
-            if successfulResults.isEmpty && ownsBatchRoot {
-                let detail = failedResults.first?.error ?? "All samples failed"
-                removeOwnedBatchRoot(context: "all samples failed")
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        viewerController.hideProgress()
-                        _ = OperationCenter.shared.fail(id: opID, detail: detail)
-
-                        let alert = NSAlert()
-                        alert.messageText = "Classification Batch Failed"
-                        alert.informativeText = detail
-                        alert.alertStyle = .warning
-                        alert.addButton(withTitle: "OK")
-                        if let window = viewerController.view.window {
-                            alert.beginSheetModal(for: window)
-                        }
-                    }
-                }
-                return
-            }
-
             let fm = FileManager.default
             try? fm.createDirectory(at: batchRoot, withIntermediateDirectories: true)
 
             let summaryURL = batchRoot.appendingPathComponent("classification-batch-summary.tsv")
-            var summaryLines: [String] = []
-            summaryLines.append("sample_id\tstatus\ttotal_reads\tclassified_reads\tclassified_pct\tspecies_count\tdominant_species\terror")
-
-            for entry in successfulResults {
-                let tree = entry.result.tree
-                let dominant = tree.dominantSpecies?.name ?? ""
-                summaryLines.append([
-                    appTSVField(entry.sampleId),
-                    "ok",
-                    String(tree.totalReads),
-                    String(tree.classifiedReads),
-                    String(format: "%.2f", tree.classifiedFraction * 100),
-                    String(tree.speciesCount),
-                    appTSVField(dominant),
-                    "",
-                ].joined(separator: "\t"))
+            let returnedRows = successfulResults.map {
+                ClassificationBatchOutcomePolicy.row(sampleId: $0.sampleId, result: $0.result)
             }
-
-            for entry in failedResults {
-                summaryLines.append([
-                    appTSVField(entry.sampleId),
-                    "failed",
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    appTSVField(entry.error),
-                ].joined(separator: "\t"))
+            let failedRows = failedResults.map {
+                ClassificationBatchOutcomePolicy.failedRow(sampleId: $0.sampleId, message: $0.error)
             }
+            let summaryRows = returnedRows + failedRows
+            let initialEvaluation = ClassificationBatchOutcomePolicy.evaluate(
+                rows: summaryRows,
+                sqliteWarning: nil
+            )
 
-            do {
-                try summaryLines.joined(separator: "\n").write(to: summaryURL, atomically: true, encoding: .utf8)
-            } catch {
-                appDelegateLogger.warning("runClassificationBatch: Failed to write summary TSV - \(error.localizedDescription, privacy: .public)")
-            }
-
-            let sampleRecords = successfulResults.map { item in
+            let sampleRecords = zip(successfulResults, returnedRows).map { item, row in
                 MetagenomicsBatchSampleRecord(
                     sampleId: item.sampleId,
                     resultDirectory: appRelativePath(from: batchRoot, to: item.config.outputDirectory),
                     inputFiles: item.config.inputFiles.map(\.path),
-                    isPairedEnd: item.config.isPairedEnd
+                    isPairedEnd: item.config.isPairedEnd,
+                    status: row.status,
+                    message: row.message.isEmpty ? nil : row.message
                 )
             }
 
             let manifest = ClassificationBatchResultManifest(
                 header: MetagenomicsBatchManifestHeader(
-                    schemaVersion: 1,
+                    schemaVersion: 2,
                     createdAt: Date(),
                     sampleCount: sampleCount
                 ),
@@ -964,13 +1100,26 @@ extension AppDelegate {
                 databaseName: firstConfig.databaseName,
                 databaseVersion: firstConfig.databaseVersion,
                 summaryTSV: summaryURL.lastPathComponent,
-                samples: sampleRecords
+                samples: sampleRecords,
+                completedCount: initialEvaluation.completedCount,
+                degradedCount: initialEvaluation.degradedCount,
+                failedCount: initialEvaluation.failedCount
             )
 
             do {
+                try ClassificationBatchOutcomePolicy.summaryTSV(rows: summaryRows)
+                    .write(to: summaryURL, atomically: true, encoding: .utf8)
                 try MetagenomicsBatchResultStore.saveClassification(manifest, to: batchRoot)
             } catch {
-                appDelegateLogger.warning("runClassificationBatch: Failed to save batch manifest - \(error.localizedDescription, privacy: .public)")
+                let detail = "Failed to write classification batch artifacts: \(error.localizedDescription)"
+                appDelegateLogger.error("runClassificationBatch: \(detail, privacy: .public)")
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        viewerController.hideProgress()
+                        _ = OperationCenter.shared.fail(id: opID, detail: detail)
+                    }
+                }
+                return
             }
 
             // Build the SQLite database from the per-sample kreports before the
@@ -1012,17 +1161,59 @@ extension AppDelegate {
                 return
             }
 
+            do {
+                var provenanceStderr = failedResults.map {
+                    "Sample \($0.sampleId) failed: \($0.error)"
+                }
+                if let dbBuildErrorDescription {
+                    provenanceStderr.append(
+                        "Kraken2 SQLite index build failed: \(dbBuildErrorDescription)"
+                    )
+                }
+                try MetagenomicsBatchProvenanceWriter.writeClassificationBatchProvenance(
+                    batchRoot: batchRoot,
+                    manifest: manifest,
+                    summaryURL: summaryURL,
+                    sqliteURL: batchRoot.appendingPathComponent("kraken2.sqlite"),
+                    command: batchProvenanceCommand,
+                    additionalStderr: provenanceStderr,
+                    additionalInputURLs: configs.flatMap(\.inputFiles),
+                    additionalSampleDirectories: failedProvenanceDirectories,
+                    context: ClassificationBatchProvenanceContext(
+                        configurations: configs,
+                        startedAt: batchStartedAt,
+                        completedAt: Date()
+                    )
+                )
+            } catch {
+                let detail = "Failed to write classification batch provenance: \(error.localizedDescription)"
+                appDelegateLogger.error("runClassificationBatch: \(detail, privacy: .public)")
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        viewerController.hideProgress()
+                        _ = OperationCenter.shared.fail(id: opID, detail: detail)
+                    }
+                }
+                return
+            }
+
+            let finalEvaluation = ClassificationBatchOutcomePolicy.evaluate(
+                rows: summaryRows,
+                sqliteWarning: dbBuildErrorDescription
+            )
             let capturedDBBuildError = dbBuildErrorDescription
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     viewerController.hideProgress()
 
                     let successCount = successfulResults.count
-                    let failureCount = failedResults.count
 
                     if successCount == 0 {
                         let detail = failedResults.first?.error ?? "All samples failed"
                         _ = OperationCenter.shared.fail(id: opID, detail: detail)
+                        self.targetMainWindowController(routeContext: routeContext)?
+                            .mainSplitViewController?
+                            .sidebarController.requestReloadFromFilesystem()
 
                         let alert = NSAlert()
                         alert.messageText = "Classification Batch Failed"
@@ -1043,15 +1234,16 @@ extension AppDelegate {
                         )
                     }
 
-                    if failureCount == 0 {
-                        _ = OperationCenter.shared.complete(
+                    let completionBase = "\(successCount) of \(sampleCount) samples returned valid Kraken2 classifications"
+                    if finalEvaluation.requiresWarningCompletion {
+                        _ = OperationCenter.shared.completeWithWarning(
                             id: opID,
-                            detail: "\(successCount) of \(sampleCount) samples completed"
+                            detail: "\(completionBase); \(finalEvaluation.warningMessage)"
                         )
                     } else {
                         _ = OperationCenter.shared.complete(
                             id: opID,
-                            detail: "\(successCount) completed, \(failureCount) failed"
+                            detail: completionBase
                         )
                     }
 
@@ -1067,7 +1259,9 @@ extension AppDelegate {
                     for entry in successfulResults {
                         let bundleURL = Self.findSourceBundle(for: entry.config.originalInputFiles ?? entry.config.inputFiles)
                         if let bundleURL {
-                            let tree = entry.result.tree
+                            let outcomeMetadata = ClassificationBatchOutcomePolicy.singleResultMetadata(
+                                for: entry.result
+                            )
                             let manifestEntry = AnalysisManifestEntry(
                                 tool: "kraken2",
                                 analysisDirectoryName: Self.analysisManifestDirectoryName(
@@ -1075,8 +1269,8 @@ extension AppDelegate {
                                     projectURL: projectURL
                                 ),
                                 displayName: "Kraken2 Batch",
-                                parameters: entry.config.summaryParameters(),
-                                summary: "\(tree.totalReads) reads, \(tree.classifiedReads) classified",
+                                parameters: outcomeMetadata.analysisParameters,
+                                summary: outcomeMetadata.analysisSummary,
                                 status: .completed
                             )
                             do { try AnalysisManifestStore.recordAnalysis(manifestEntry, bundleURL: bundleURL) } catch { appDelegateLogger.warning("Failed to record analysis manifest: \(error.localizedDescription, privacy: .public)") }

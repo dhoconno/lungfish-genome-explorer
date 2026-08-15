@@ -89,6 +89,51 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
         )
     }
 
+    func testHardKraken2NonzeroPersistsExactFailedEnvelope() async throws {
+        let fixture = try FakeClassificationCondaFixture(krakenBehavior: .nonzero(37))
+        defer { fixture.cleanup() }
+
+        let config = try fixture.makeConfig(goal: .profile)
+        let expectedArgv = ["kraken2"] + config.kraken2Arguments()
+
+        do {
+            _ = try await ClassificationPipeline(condaManager: fixture.condaManager)
+                .profile(config: config)
+            XCTFail("Expected the synthetic Kraken2 failure to propagate.")
+        } catch let error as ClassificationPipelineError {
+            guard case .kraken2Failed(let exitCode, let stderr) = error else {
+                return XCTFail("Expected kraken2Failed, got \(error)")
+            }
+            XCTAssertEqual(exitCode, 37)
+            XCTAssertEqual(stderr, "synthetic kraken2 failure\n")
+        }
+
+        let envelope = try XCTUnwrap(
+            ProvenanceRecorder.loadEnvelope(from: config.outputDirectory),
+            "A hard tool failure must persist its sample-level provenance before throwing."
+        )
+        XCTAssertEqual(envelope.exitStatus, 37)
+        XCTAssertEqual(envelope.legacyRun?.status, .failed)
+
+        let krakenStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "kraken2" })
+        XCTAssertEqual(krakenStep.argv, expectedArgv)
+        XCTAssertEqual(krakenStep.toolVersion, "2.1.3")
+        XCTAssertEqual(krakenStep.exitStatus, 37)
+        XCTAssertGreaterThan(try XCTUnwrap(krakenStep.wallTimeSeconds), 0)
+        XCTAssertEqual(krakenStep.stderr, "synthetic kraken2 failure\n")
+
+        let environmentURL = await fixture.condaManager.environmentURL(
+            named: ClassificationPipeline.kraken2Environment
+        )
+        let expectedRuntime = ProvenanceRuntimeIdentity(
+            executablePath: environmentURL.appendingPathComponent("bin/kraken2").path,
+            condaEnvironment: ClassificationPipeline.kraken2Environment,
+            condaPrefix: environmentURL.path,
+            pluginPack: "Metagenomics"
+        )
+        XCTAssertEqual(krakenStep.runtimeIdentity, expectedRuntime)
+    }
+
     func testClassificationSidecarFailureRecordsFailedWrapperStepInSource() throws {
         let source = try String(contentsOf: pipelineSourceURL, encoding: .utf8)
 
@@ -534,6 +579,11 @@ private struct FakeClassificationCondaFixture {
         case waitForCancellation
     }
 
+    enum KrakenBehavior {
+        case success
+        case nonzero(Int32)
+    }
+
     let root: URL
     let condaManager: CondaManager
     let distributionURL: URL
@@ -544,6 +594,7 @@ private struct FakeClassificationCondaFixture {
     init(
         reportRank: ReportRank = .species,
         distributionState: DistributionState = .valid,
+        krakenBehavior: KrakenBehavior = .success,
         brackenBehavior: BrackenBehavior = .success
     ) throws {
         self.reportRank = reportRank
@@ -562,6 +613,7 @@ private struct FakeClassificationCondaFixture {
         let bundledMicromamba = root.appendingPathComponent("bundled-micromamba")
         try Self.scriptBody(
             reportRank: reportRank,
+            krakenBehavior: krakenBehavior,
             brackenBehavior: brackenBehavior,
             invocationLogURL: invocationLogURL
         )
@@ -652,9 +704,20 @@ private struct FakeClassificationCondaFixture {
 
     private static func scriptBody(
         reportRank: ReportRank,
+        krakenBehavior: KrakenBehavior,
         brackenBehavior: BrackenBehavior,
         invocationLogURL: URL
     ) -> String {
+        let krakenFailureBody: String
+        switch krakenBehavior {
+        case .success:
+            krakenFailureBody = ":"
+        case .nonzero(let exitCode):
+            krakenFailureBody = """
+            echo "synthetic kraken2 failure" >&2
+            exit \(exitCode)
+            """
+        }
         let brackenBody: String
         switch brackenBehavior {
         case .success:
@@ -724,6 +787,7 @@ private struct FakeClassificationCondaFixture {
               echo "Kraken version 2.1.3"
               exit 0
             fi
+            \(krakenFailureBody)
             report=""
             output=""
             while [ "$#" -gt 0 ]; do
