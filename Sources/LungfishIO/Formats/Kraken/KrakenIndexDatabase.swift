@@ -129,8 +129,8 @@ public final class KrakenIndexDatabase: @unchecked Sendable {
     ///   be opened or does not contain a valid schema.
     public init(url: URL) throws {
         self.url = url
-        let flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX
-        let rc = sqlite3_open_v2(url.path, &db, flags, nil)
+        let configuration = Self.readOnlyOpenConfiguration(for: url)
+        let rc = sqlite3_open_v2(configuration.target, &db, configuration.flags, nil)
         guard rc == SQLITE_OK else {
             let msg = db.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "Unknown error"
             sqlite3_close(db)
@@ -200,10 +200,17 @@ public final class KrakenIndexDatabase: @unchecked Sendable {
             sqlite3_reset(stmt)
             sqlite3_bind_int64(stmt, 1, Int64(taxId))
 
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                if let cStr = sqlite3_column_text(stmt, 0) {
+            var stepRC: Int32
+            repeat {
+                stepRC = sqlite3_step(stmt)
+                if stepRC == SQLITE_ROW, let cStr = sqlite3_column_text(stmt, 0) {
                     result.insert(String(cString: cStr))
                 }
+            } while stepRC == SQLITE_ROW
+
+            guard stepRC == SQLITE_DONE else {
+                let msg = String(cString: sqlite3_errmsg(db))
+                throw KrakenIndexDatabaseError.openFailed("Query failed: \(msg)")
             }
         }
 
@@ -266,7 +273,8 @@ public final class KrakenIndexDatabase: @unchecked Sendable {
     /// 7. Populates `tax_counts` from `reads` with `INSERT...SELECT...GROUP BY`.
     /// 8. Creates indexes (faster than maintaining during bulk insert).
     /// 9. Writes metadata rows.
-    /// 10. Checkpoints WAL to collapse to a single file.
+    /// 10. Checkpoints WAL and switches to DELETE journal mode so the finished
+    ///     index is a standalone SQLite file.
     /// 11. Closes the database.
     ///
     /// - Parameters:
@@ -506,9 +514,29 @@ public final class KrakenIndexDatabase: @unchecked Sendable {
         insertMetadataRow(db, key: "classified_reads", value: String(classifiedReads))
         insertMetadataRow(db, key: "classified_only", value: includeUnclassified ? "false" : "true")
 
-        // Step 10: Checkpoint WAL to collapse to a single file.
+        // Step 10: Checkpoint WAL and return the finished artifact to DELETE
+        // journal mode so reading it never depends on sidecar files.
         progress?(0.98, "Finalizing...")
-        sqlite3_wal_checkpoint_v2(db, nil, SQLITE_CHECKPOINT_TRUNCATE, nil, nil)
+        guard sqlite3_exec(db, "PRAGMA locking_mode = NORMAL", nil, nil, nil) == SQLITE_OK else {
+            throw KrakenIndexDatabaseError.buildFailed(
+                "Failed to restore normal locking mode: \(String(cString: sqlite3_errmsg(db)))"
+            )
+        }
+        let checkpointRC = sqlite3_wal_checkpoint_v2(
+            db,
+            nil,
+            SQLITE_CHECKPOINT_TRUNCATE,
+            nil,
+            nil
+        )
+        guard checkpointRC == SQLITE_OK else {
+            throw KrakenIndexDatabaseError.buildFailed(
+                "WAL checkpoint failed: \(String(cString: sqlite3_errmsg(db)))"
+            )
+        }
+        guard try executeJournalModeDelete(db) == "delete" else {
+            throw KrakenIndexDatabaseError.buildFailed("Failed to disable WAL journal mode")
+        }
 
         // Step 11: Close handled by defer.
         progress?(1.0, "Index complete: \(totalReads) reads")
@@ -535,8 +563,8 @@ public final class KrakenIndexDatabase: @unchecked Sendable {
 
         // Open the index read-only to check metadata.
         var db: OpaquePointer?
-        let flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX
-        let rc = sqlite3_open_v2(indexURL.path, &db, flags, nil)
+        let configuration = readOnlyOpenConfiguration(for: indexURL)
+        let rc = sqlite3_open_v2(configuration.target, &db, configuration.flags, nil)
         guard rc == SQLITE_OK, let db else {
             sqlite3_close(db)
             return false
@@ -579,6 +607,57 @@ public final class KrakenIndexDatabase: @unchecked Sendable {
     }
 
     // MARK: - Private Helpers
+
+    /// Returns a read-only SQLite target that avoids WAL shared-memory access
+    /// for a legacy database whose WAL is absent or known to be empty.
+    ///
+    /// A non-empty or uninspectable WAL may contain uncheckpointed data, so in
+    /// that case SQLite must use its ordinary read-only WAL handling.
+    private static func readOnlyOpenConfiguration(for url: URL) -> (target: String, flags: Int32) {
+        let walURL = URL(fileURLWithPath: url.path + "-wal")
+        let walIsSafeForImmutableRead: Bool
+        do {
+            let attributes = try FileManager.default.attributesOfItem(atPath: walURL.path)
+            walIsSafeForImmutableRead = (attributes[.size] as? NSNumber)?.int64Value == 0
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+            walIsSafeForImmutableRead = true
+        } catch {
+            walIsSafeForImmutableRead = false
+        }
+
+        guard walIsSafeForImmutableRead,
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return (url.path, SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX)
+        }
+
+        components.queryItems = [URLQueryItem(name: "immutable", value: "1")]
+        return (
+            components.string ?? url.absoluteString,
+            SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX | SQLITE_OPEN_URI
+        )
+    }
+
+    /// Switches a completed build out of WAL mode and returns SQLite's reported
+    /// journal mode.
+    private static func executeJournalModeDelete(_ db: OpaquePointer) throws -> String {
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "PRAGMA journal_mode = DELETE", -1, &stmt, nil) == SQLITE_OK else {
+            throw KrakenIndexDatabaseError.buildFailed(
+                "Failed to prepare WAL disable: \(String(cString: sqlite3_errmsg(db)))"
+            )
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        guard sqlite3_step(stmt) == SQLITE_ROW else {
+            throw KrakenIndexDatabaseError.buildFailed(
+                "Failed to disable WAL journal mode: \(String(cString: sqlite3_errmsg(db)))"
+            )
+        }
+        guard let mode = sqlite3_column_text(stmt, 0) else {
+            throw KrakenIndexDatabaseError.buildFailed("SQLite did not report a journal mode")
+        }
+        return String(cString: mode).lowercased()
+    }
 
     /// Inserts a key-value pair into the db_metadata table.
     @discardableResult

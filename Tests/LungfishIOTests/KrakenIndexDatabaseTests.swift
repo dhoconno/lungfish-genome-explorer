@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import SQLite3
 @testable import LungfishIO
 
 final class KrakenIndexDatabaseTests: XCTestCase {
@@ -62,6 +63,14 @@ final class KrakenIndexDatabaseTests: XCTestCase {
             FileManager.default.fileExists(atPath: indexURL.path),
             "Index file should exist after build"
         )
+    }
+
+    func testBuildFinalizesStandaloneDeleteJournalDatabase() throws {
+        try KrakenIndexDatabase.build(from: krakenURL, to: indexURL)
+
+        XCTAssertEqual(try journalMode(at: indexURL), "delete")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: indexURL.path + "-wal"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: indexURL.path + "-shm"))
     }
 
     func testBuildReportsProgress() throws {
@@ -127,6 +136,27 @@ final class KrakenIndexDatabaseTests: XCTestCase {
         XCTAssertTrue(humanReads.contains("read_001"))
         XCTAssertTrue(humanReads.contains("read_002"))
         XCTAssertTrue(humanReads.contains("read_008"))
+    }
+
+    func testLegacyEmptyWALIndexOpensWithoutCreatingSharedMemory() throws {
+        try KrakenIndexDatabase.build(from: krakenURL, to: indexURL)
+        try convertToLegacyWALHeader(indexURL)
+
+        let walPath = indexURL.path + "-wal"
+        let shmPath = indexURL.path + "-shm"
+        try? FileManager.default.removeItem(atPath: walPath)
+        try? FileManager.default.removeItem(atPath: shmPath)
+        XCTAssertTrue(FileManager.default.createFile(atPath: walPath, contents: Data()))
+        XCTAssertEqual(try databaseHeaderJournalBytes(at: indexURL), [2, 2])
+
+        let db = try KrakenIndexDatabase(url: indexURL)
+        defer { db.close() }
+
+        XCTAssertEqual(
+            try db.readIds(forTaxIds: [562]),
+            ["read_003", "read_005", "read_009"]
+        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: shmPath))
     }
 
     func testReadIdsForMultipleTaxIds() throws {
@@ -447,5 +477,96 @@ final class KrakenIndexDatabaseTests: XCTestCase {
         let emptyErr = KrakenIndexDatabaseError.emptySource
         XCTAssertNotNil(emptyErr.errorDescription)
         XCTAssertTrue(emptyErr.errorDescription!.contains("empty"))
+    }
+
+    // MARK: - SQLite Test Helpers
+
+    private func journalMode(at url: URL) throws -> String {
+        var db: OpaquePointer?
+        let rc = sqlite3_open_v2(
+            url.path,
+            &db,
+            SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX,
+            nil
+        )
+        guard rc == SQLITE_OK, let db else {
+            defer { sqlite3_close(db) }
+            throw NSError(
+                domain: "KrakenIndexDatabaseTests",
+                code: Int(rc),
+                userInfo: [NSLocalizedDescriptionKey: "Could not open SQLite index"]
+            )
+        }
+        defer { sqlite3_close(db) }
+
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "PRAGMA journal_mode", -1, &stmt, nil) == SQLITE_OK else {
+            throw NSError(
+                domain: "KrakenIndexDatabaseTests",
+                code: Int(sqlite3_errcode(db)),
+                userInfo: [NSLocalizedDescriptionKey: String(cString: sqlite3_errmsg(db))]
+            )
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        guard sqlite3_step(stmt) == SQLITE_ROW,
+              let mode = sqlite3_column_text(stmt, 0) else {
+            throw NSError(
+                domain: "KrakenIndexDatabaseTests",
+                code: Int(sqlite3_errcode(db)),
+                userInfo: [NSLocalizedDescriptionKey: String(cString: sqlite3_errmsg(db))]
+            )
+        }
+        return String(cString: mode).lowercased()
+    }
+
+    private func convertToLegacyWALHeader(_ url: URL) throws {
+        var db: OpaquePointer?
+        let rc = sqlite3_open_v2(
+            url.path,
+            &db,
+            SQLITE_OPEN_READWRITE | SQLITE_OPEN_NOMUTEX,
+            nil
+        )
+        guard rc == SQLITE_OK, let db else {
+            defer { sqlite3_close(db) }
+            throw NSError(
+                domain: "KrakenIndexDatabaseTests",
+                code: Int(rc),
+                userInfo: [NSLocalizedDescriptionKey: "Could not open SQLite index for writing"]
+            )
+        }
+        defer { sqlite3_close(db) }
+
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "PRAGMA journal_mode = WAL", -1, &stmt, nil) == SQLITE_OK else {
+            throw NSError(
+                domain: "KrakenIndexDatabaseTests",
+                code: Int(sqlite3_errcode(db)),
+                userInfo: [NSLocalizedDescriptionKey: String(cString: sqlite3_errmsg(db))]
+            )
+        }
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_step(stmt) == SQLITE_ROW,
+              let mode = sqlite3_column_text(stmt, 0),
+              String(cString: mode).lowercased() == "wal" else {
+            throw NSError(
+                domain: "KrakenIndexDatabaseTests",
+                code: Int(sqlite3_errcode(db)),
+                userInfo: [NSLocalizedDescriptionKey: "Could not enable WAL journal mode"]
+            )
+        }
+    }
+
+    private func databaseHeaderJournalBytes(at url: URL) throws -> [UInt8] {
+        let data = try Data(contentsOf: url)
+        guard data.count > 19 else {
+            throw NSError(
+                domain: "KrakenIndexDatabaseTests",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "SQLite header is truncated"]
+            )
+        }
+        return [data[18], data[19]]
     }
 }
