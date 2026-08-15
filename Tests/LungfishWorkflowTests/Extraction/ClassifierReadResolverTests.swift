@@ -92,6 +92,30 @@ final class ClassifierReadResolverTests: XCTestCase {
         XCTAssertEqual(count, 0)
     }
 
+    func testEstimateKraken2ReadCountLoadsPerSampleBatchResult() async throws {
+        let sampleResult = try kraken2MiniResultPath()
+        let classResult = try ClassificationResult.load(from: sampleResult)
+        let taxon = try XCTUnwrap(
+            classResult.tree.allNodes().first { $0.taxId != 0 && $0.readsClade > 0 },
+            "kraken2-mini fixture has no taxa with classified reads"
+        )
+
+        let estimate = try await ClassifierReadResolver().estimateReadCount(
+            tool: .kraken2,
+            resultPath: sampleResult.deletingLastPathComponent(),
+            selections: [
+                ClassifierRowSelector(
+                    sampleId: sampleResult.lastPathComponent,
+                    accessions: [],
+                    taxIds: [taxon.taxId]
+                )
+            ],
+            options: ExtractionOptions()
+        )
+
+        XCTAssertEqual(estimate, taxon.readsClade)
+    }
+
     // MARK: - resolveBAMURL (per-tool)
 
     /// Helper: creates a throwaway directory layout that looks like a real

@@ -219,24 +219,31 @@ public actor ClassifierReadResolver {
         resultPath: URL,
         selections: [ClassifierRowSelector]
     ) async throws -> Int {
-        let classResult: ClassificationResult
-        do {
-            classResult = try ClassificationResult.load(from: resultPath)
-        } catch {
-            // Best-effort estimate; don't fail the pre-flight. Log so the
-            // swallowed error still shows up in diagnostics when a zero
-            // estimate is later followed by a non-zero extract.
-            logger.warning(
-                "estimateKraken2ReadCount: ClassificationResult.load(\(resultPath.path, privacy: .public)) failed: \(String(describing: error), privacy: .public); returning 0"
-            )
-            return 0
-        }
-        let targetIds = Set(selections.flatMap { $0.taxIds })
         var total = 0
-        for node in classResult.tree.allNodes() where targetIds.contains(node.taxId) {
-            // clade count already includes descendant reads; spec says
-            // includeChildren is always true for Kraken2.
-            total += node.readsClade
+        for (sampleId, group) in groupBySample(selections) {
+            let sampleResultPath = sampleId.map {
+                resultPath.appendingPathComponent($0, isDirectory: true)
+            } ?? resultPath
+
+            let classResult: ClassificationResult
+            do {
+                classResult = try ClassificationResult.load(from: sampleResultPath)
+            } catch {
+                // Keep the estimate best-effort per sample: one unavailable
+                // result contributes zero without discarding successful samples.
+                let sampleLabel = sampleId ?? "(single)"
+                logger.warning(
+                    "estimateKraken2ReadCount: sample \(sampleLabel, privacy: .private(mask: .hash)) at \(sampleResultPath.path, privacy: .private(mask: .hash)) failed to load: \(String(describing: error), privacy: .private(mask: .hash)); contributing 0"
+                )
+                continue
+            }
+
+            let targetIds = Set(group.flatMap { $0.taxIds })
+            for node in classResult.tree.allNodes() where targetIds.contains(node.taxId) {
+                // clade count already includes descendant reads; spec says
+                // includeChildren is always true for Kraken2.
+                total += node.readsClade
+            }
         }
         return total
     }
