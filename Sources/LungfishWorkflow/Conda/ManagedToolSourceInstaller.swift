@@ -31,6 +31,22 @@ public enum ManagedToolSourceInstallerError: Error, LocalizedError, Sendable, Eq
     }
 }
 
+/// A successful direct readiness probe for a managed source overlay. These
+/// values are retained by callers that need to record post-import validation.
+public struct ManagedToolSourceRuntimeProbe: Sendable, Hashable {
+    public let executablePath: String
+    public let arguments: [String]
+    public let exitStatus: Int32
+    public let stderr: String
+
+    public init(executablePath: String, arguments: [String], exitStatus: Int32, stderr: String) {
+        self.executablePath = executablePath
+        self.arguments = arguments
+        self.exitStatus = exitStatus
+        self.stderr = stderr
+    }
+}
+
 private final class ManagedToolProcessOutputBuffer: @unchecked Sendable {
     private let lock = NSLock()
     private let data = NSMutableData()
@@ -188,6 +204,9 @@ public struct ManagedToolSourceInstallationRecord: Sendable, Codable, Hashable {
                   }) else {
                 return false
             }
+            guard validatesCurrentRuntime(environmentURL: environmentURL) else {
+                return false
+            }
         }
         for file in installedFiles {
             let url = environmentURL.appendingPathComponent(file.relativePath)
@@ -199,6 +218,79 @@ public struct ManagedToolSourceInstallationRecord: Sendable, Codable, Hashable {
             }
         }
         return true
+    }
+
+    /// Bind a durable receipt to the runtime that exists now, rather than only
+    /// to the runtime fields captured when the overlay was originally built.
+    /// Runtime paths are rebased from the historical environment root so an
+    /// offline-imported environment remains portable while still being checked.
+    private func validatesCurrentRuntime(environmentURL: URL) -> Bool {
+        guard let compiler = rebasedRuntimePath(runtime.compilerPath, environmentURL: environmentURL),
+              let openMP = rebasedRuntimePath(runtime.openMPRuntimePath, environmentURL: environmentURL),
+              FileManager.default.isExecutableFile(atPath: compiler.path),
+              Self.nonEmptyFileExists(at: openMP) else {
+            return false
+        }
+
+        let currentPackages = Self.runtimePackages(in: environmentURL)
+        return Set(runtime.condaPackages).isSubset(of: currentPackages)
+    }
+
+    private func rebasedRuntimePath(_ recordedPath: String, environmentURL: URL) -> URL? {
+        let recordedEnvironment = URL(fileURLWithPath: runtime.environmentPath).standardizedFileURL
+        let recorded = URL(fileURLWithPath: recordedPath).standardizedFileURL
+        let rootPath = recordedEnvironment.path.hasSuffix("/")
+            ? String(recordedEnvironment.path.dropLast())
+            : recordedEnvironment.path
+        guard recorded.path.hasPrefix(rootPath + "/") else { return nil }
+        let relativePath = String(recorded.path.dropFirst(rootPath.count + 1))
+        guard !relativePath.isEmpty,
+              !relativePath.split(separator: "/").contains("..") else {
+            return nil
+        }
+        return environmentURL.standardizedFileURL.appendingPathComponent(relativePath)
+    }
+
+    private static func runtimePackages(
+        in environmentURL: URL
+    ) -> Set<Runtime.CondaPackage> {
+        struct CondaMetaRecord: Decodable {
+            let name: String?
+            let version: String?
+            let build: String?
+            let subdir: String?
+        }
+
+        let metadataDirectory = environmentURL.appendingPathComponent("conda-meta", isDirectory: true)
+        guard let records = try? FileManager.default.contentsOfDirectory(
+            at: metadataDirectory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        return Set(records.compactMap { url in
+            guard url.pathExtension == "json",
+                  let data = try? Data(contentsOf: url),
+                  let record = try? JSONDecoder().decode(CondaMetaRecord.self, from: data),
+                  let name = record.name, !name.isEmpty,
+                  let version = record.version, !version.isEmpty,
+                  let build = record.build, !build.isEmpty,
+                  let subdir = record.subdir, !subdir.isEmpty else {
+                return nil
+            }
+            return Runtime.CondaPackage(name: name, version: version, build: build, subdir: subdir)
+        })
+    }
+
+    private static func nonEmptyFileExists(at url: URL) -> Bool {
+        guard FileManager.default.fileExists(atPath: url.path),
+              let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let size = attributes[.size] as? NSNumber else {
+            return false
+        }
+        return size.uint64Value > 0
     }
 
     static func sha256(of url: URL) -> String? {
@@ -296,6 +388,56 @@ public struct ManagedToolSourceInstaller: Sendable {
         self.fileSystem = fileSystem
         self.now = now
         self.uuid = uuid
+    }
+
+    /// Runs each Bracken executable from its installed path. This is used for
+    /// offline imports, which do not have to rely on a host-level PATH.
+    public static func probeBrackenRuntime(
+        in environmentURL: URL,
+        timeout: TimeInterval = 30
+    ) async throws -> [ManagedToolSourceRuntimeProbe] {
+        let bin = environmentURL.appendingPathComponent("bin", isDirectory: true)
+        let runtimeLibraryDirectory = environmentURL.appendingPathComponent("lib", isDirectory: true)
+        let path = bin.path + ":" + (ProcessInfo.processInfo.environment["PATH"] ?? "")
+        let probes: [(relativePath: String, arguments: [String])] = [
+            ("bin/bracken", ["--help"]),
+            ("bin/bracken-build", ["-v"]),
+            ("bin/src/kmer2read_distr", ["--help"]),
+        ]
+
+        var results: [ManagedToolSourceRuntimeProbe] = []
+        for probe in probes {
+            let executable = environmentURL.appendingPathComponent(probe.relativePath)
+            guard FileManager.default.isExecutableFile(atPath: executable.path) else {
+                throw ManagedToolSourceInstallerError.missingRequiredFile(probe.relativePath)
+            }
+            let result = try await run(
+                .init(
+                    executable: executable,
+                    arguments: probe.arguments,
+                    workingDirectory: environmentURL,
+                    environment: [
+                        "PATH": path,
+                        "DYLD_LIBRARY_PATH": runtimeLibraryDirectory.path,
+                    ]
+                ),
+                timeout: timeout
+            )
+            guard result.exitStatus == 0 else {
+                throw ManagedToolSourceInstallerError.processFailed(
+                    operation: "\(executable.lastPathComponent) readiness probe",
+                    exitStatus: result.exitStatus,
+                    stderr: result.stderr
+                )
+            }
+            results.append(.init(
+                executablePath: executable.path,
+                arguments: probe.arguments,
+                exitStatus: result.exitStatus,
+                stderr: result.stderr
+            ))
+        }
+        return results
     }
 
     public func install(sourceOverlay: PackToolSourceOverlay, environmentURL: URL) async throws -> ManagedToolSourceInstallationRecord {

@@ -175,6 +175,16 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         let reinstall: Bool
     }
 
+    /// An environment moved aside before an explicit reinstall. Keeping the original
+    /// directory intact until installation, source-overlay publication, and final
+    /// readiness verification have all succeeded makes a failed replacement
+    /// recoverable without attempting to reconstruct the old environment.
+    private struct KnownGoodEnvironmentBackup {
+        let environmentName: String
+        let environmentURL: URL
+        let backupURL: URL
+    }
+
     private struct PackStatusFingerprint: Codable, Equatable {
         let components: [String]
     }
@@ -443,13 +453,30 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
             return
         }
 
+        try Task.checkCancellation()
+        let environmentMutationLocks = try await acquireEnvironmentMutationLocks(for: installTargets)
+        defer {
+            for lock in environmentMutationLocks.reversed() {
+                lock.release()
+            }
+        }
+        try Task.checkCancellation()
+
         let preexistingEnvironmentNames = await existingCondaEnvironmentNames(for: installTargets)
         var attemptedCondaTargets: [PlannedInstallTarget] = []
+        var knownGoodEnvironmentBackups: [String: KnownGoodEnvironmentBackup] = [:]
 
         await invalidateVisibleStatusesCache()
         let totalSteps = max(installTargets.count, 1)
         do {
+            knownGoodEnvironmentBackups = try await backupKnownGoodEnvironments(
+                for: installTargets,
+                preexistingEnvironmentNames: preexistingEnvironmentNames
+            )
+            try Task.checkCancellation()
+
             for (index, target) in installTargets.enumerated() {
+                try Task.checkCancellation()
                 let requirement = target.requirement
                 let base = Double(index) / Double(totalSteps)
                 if let databaseID = requirement.managedDatabaseID {
@@ -511,10 +538,12 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
                     }
                 }
             }
+            try Task.checkCancellation()
             await runPostInstallHooks(
                 for: pack,
                 installedEnvironments: Set(installTargets.map(\.requirement.environment))
             )
+            try Task.checkCancellation()
             await invalidateVisibleStatusesCache()
             let verifiedStatus = await computeStatus(for: pack)
             guard verifiedStatus.state == .ready else {
@@ -533,6 +562,7 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
                 fingerprint: verifiedFingerprint,
                 forGeneration: cacheGeneration
             )
+            discardKnownGoodEnvironmentBackups(knownGoodEnvironmentBackups)
             progress?(PluginPackInstallProgress(
                 requirementID: nil,
                 requirementDisplayName: nil,
@@ -543,9 +573,45 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         } catch {
             await rollbackAttemptedCondaEnvironments(
                 attemptedCondaTargets,
-                preexistingEnvironmentNames: preexistingEnvironmentNames
+                preexistingEnvironmentNames: preexistingEnvironmentNames,
+                knownGoodEnvironmentBackups: knownGoodEnvironmentBackups
             )
             await invalidateVisibleStatusesCache()
+            throw error
+        }
+    }
+
+    private func acquireEnvironmentMutationLocks(
+        for installTargets: [PlannedInstallTarget]
+    ) async throws -> [CondaEnvironmentMutationLock] {
+        let environmentNames = Set(
+            installTargets.compactMap { target in
+                target.requirement.managedDatabaseID == nil ? target.requirement.environment : nil
+            }
+        ).sorted()
+        var locks: [CondaEnvironmentMutationLock] = []
+
+        do {
+            for environmentName in environmentNames {
+                try Task.checkCancellation()
+                let rootPrefix = condaManager.rootPrefix
+                // flock waits synchronously. Run that wait off the cooperative
+                // executor so a concurrent transaction can still finish its
+                // protected phase and release the lock.
+                let lock = try await Task.detached(priority: .utility) {
+                    try CondaEnvironmentMutationLock.acquire(
+                        root: rootPrefix,
+                        environment: environmentName
+                    )
+                }.value
+                locks.append(lock)
+                try Task.checkCancellation()
+            }
+            return locks
+        } catch {
+            for lock in locks.reversed() {
+                lock.release()
+            }
             throw error
         }
     }
@@ -563,9 +629,83 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         return environmentNames
     }
 
+    private func backupKnownGoodEnvironments(
+        for installTargets: [PlannedInstallTarget],
+        preexistingEnvironmentNames: Set<String>
+    ) async throws -> [String: KnownGoodEnvironmentBackup] {
+        let fileManager = FileManager.default
+        var backups: [String: KnownGoodEnvironmentBackup] = [:]
+
+        do {
+            for target in installTargets where target.reinstall {
+                try Task.checkCancellation()
+                let environmentName = target.requirement.environment
+                guard preexistingEnvironmentNames.contains(environmentName),
+                      backups[environmentName] == nil
+                else { continue }
+
+                let environmentURL = await condaManager.environmentURL(named: environmentName)
+                guard fileManager.fileExists(atPath: environmentURL.path) else { continue }
+
+                let backupURL = environmentURL.deletingLastPathComponent()
+                    .appendingPathComponent(
+                        ".lungfish-reinstall-backup-\(environmentName)-\(UUID().uuidString)",
+                        isDirectory: true
+                    )
+                try fileManager.moveItem(at: environmentURL, to: backupURL)
+                backups[environmentName] = KnownGoodEnvironmentBackup(
+                    environmentName: environmentName,
+                    environmentURL: environmentURL,
+                    backupURL: backupURL
+                )
+            }
+            return backups
+        } catch {
+            restoreKnownGoodEnvironmentBackups(backups)
+            throw error
+        }
+    }
+
+    private func discardKnownGoodEnvironmentBackups(
+        _ backups: [String: KnownGoodEnvironmentBackup]
+    ) {
+        let fileManager = FileManager.default
+        for backup in backups.values {
+            do {
+                if fileManager.fileExists(atPath: backup.backupURL.path) {
+                    try fileManager.removeItem(at: backup.backupURL)
+                }
+            } catch {
+                logger.warning(
+                    "Failed to discard previous environment backup '\(backup.environmentName, privacy: .public)': \(error.localizedDescription, privacy: .public)"
+                )
+            }
+        }
+    }
+
+    private func restoreKnownGoodEnvironmentBackups(
+        _ backups: [String: KnownGoodEnvironmentBackup]
+    ) {
+        let fileManager = FileManager.default
+        for backup in backups.values {
+            guard fileManager.fileExists(atPath: backup.backupURL.path) else { continue }
+            do {
+                if fileManager.fileExists(atPath: backup.environmentURL.path) {
+                    try fileManager.removeItem(at: backup.environmentURL)
+                }
+                try fileManager.moveItem(at: backup.backupURL, to: backup.environmentURL)
+            } catch {
+                logger.error(
+                    "Failed to restore known-good environment '\(backup.environmentName, privacy: .public)': \(error.localizedDescription, privacy: .public)"
+                )
+            }
+        }
+    }
+
     private func rollbackAttemptedCondaEnvironments(
         _ targets: [PlannedInstallTarget],
-        preexistingEnvironmentNames: Set<String>
+        preexistingEnvironmentNames: Set<String>,
+        knownGoodEnvironmentBackups: [String: KnownGoodEnvironmentBackup]
     ) async {
         var rolledBackEnvironmentNames: Set<String> = []
         for target in targets.reversed() {
@@ -576,13 +716,17 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
             else { continue }
 
             do {
-                try await condaManager.removeEnvironment(name: requirement.environment)
+                let environmentURL = await condaManager.environmentURL(named: requirement.environment)
+                if FileManager.default.fileExists(atPath: environmentURL.path) {
+                    try FileManager.default.removeItem(at: environmentURL)
+                }
             } catch {
                 logger.warning(
                     "Failed to remove partially installed environment '\(requirement.environment, privacy: .public)': \(error.localizedDescription, privacy: .public)"
                 )
             }
         }
+        restoreKnownGoodEnvironmentBackups(knownGoodEnvironmentBackups)
     }
 
     private func plannedInstallTargets(
@@ -974,7 +1118,11 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         }
 
         let sourceOverlayFailure = missingExecutables.isEmpty
-            ? sourceOverlayFailure(for: requirement, envURL: envURL)
+            ? await sourceOverlayFailure(
+                for: requirement,
+                envURL: envURL,
+                runRuntimeProbes: bootstrapReady
+            )
             : nil
         let packageMetadataFailure = missingExecutables.isEmpty && sourceOverlayFailure == nil
             ? packageMetadataFailure(for: requirement, envURL: envURL)
@@ -1042,8 +1190,9 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
 
     private func sourceOverlayFailure(
         for requirement: PackToolRequirement,
-        envURL: URL
-    ) -> String? {
+        envURL: URL,
+        runRuntimeProbes: Bool
+    ) async -> String? {
         guard let overlay = requirement.sourceOverlay else { return nil }
         let recordURL = envURL.appendingPathComponent("share/lungfish/managed-tools/\(overlay.kind.rawValue).json")
         guard let record = try? ManagedToolSourceInstallationRecord.load(from: recordURL),
@@ -1052,6 +1201,42 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
                 return "Managed Bracken source metadata is missing or does not match version \(overlay.version)"
             }
             return "Managed source metadata is missing or does not match version \(overlay.version)"
+        }
+        if overlay.kind == .bracken, runRuntimeProbes {
+            return await brackenRuntimeProbeFailure(for: requirement)
+        }
+        return nil
+    }
+
+    /// Bracken's overlay contains three independently executed payloads. Run
+    /// each through micromamba so readiness exercises the same environment
+    /// activation and OpenMP/Python runtime path used by normal workflows.
+    private func brackenRuntimeProbeFailure(
+        for requirement: PackToolRequirement
+    ) async -> String? {
+        let probes: [(name: String, arguments: [String])] = [
+            ("bracken", ["--help"]),
+            ("bracken-build", ["-v"]),
+            ("src/kmer2read_distr", ["--help"]),
+        ]
+
+        for probe in probes {
+            do {
+                let result = try await condaManager.runTool(
+                    name: probe.name,
+                    arguments: probe.arguments,
+                    environment: requirement.environment,
+                    timeout: 30
+                )
+                guard result.exitCode == 0 else {
+                    let detail = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return detail.isEmpty
+                        ? "\(requirement.displayName) runtime probe \(probe.name) exited with code \(result.exitCode)"
+                        : detail
+                }
+            } catch {
+                return "\(requirement.displayName) runtime probe \(probe.name) failed: \(error.localizedDescription)"
+            }
         }
         return nil
     }

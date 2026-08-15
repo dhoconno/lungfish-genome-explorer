@@ -227,6 +227,7 @@ public struct CondaOfflinePackService {
         try fileManager.createDirectory(at: destinationEnvsRoot, withIntermediateDirectories: true)
 
         var installedEnvironments: [URL] = []
+        var managedSourceReadinessProbes: [ManagedToolSourceRuntimeProbe] = []
         for environment in manifest.environments {
             let source = resolvedPackDirectory.appendingPathComponent(environment.relativePath, isDirectory: true)
             let destination = destinationEnvsRoot.appendingPathComponent(environment.name, isDirectory: true)
@@ -239,6 +240,9 @@ public struct CondaOfflinePackService {
                 try fileManager.removeItem(at: destination)
             }
             try fileManager.copyItem(at: source, to: destination)
+            managedSourceReadinessProbes.append(
+                contentsOf: try await validateImportedManagedSourceOverlay(in: destination)
+            )
             installedEnvironments.append(destination)
         }
 
@@ -271,6 +275,13 @@ public struct CondaOfflinePackService {
                 "destinationCondaRoot": .string(condaRoot.standardizedFileURL.path),
                 "overwrite": .boolean(overwrite),
                 "environments": .array(manifest.environments.map { .string($0.name) }),
+                "managedSourceReadinessProbes": .array(managedSourceReadinessProbes.map { probe in
+                    .dictionary([
+                        "argv": .array(([probe.executablePath] + probe.arguments).map(ParameterValue.string)),
+                        "exitStatus": .integer(Int(probe.exitStatus)),
+                        "stderr": .string(probe.stderr),
+                    ])
+                }),
                 "runtimeUser": .string(WorkflowRun.currentUser),
                 "runtimeHostName": .string(ProcessInfo.processInfo.hostName),
             ],
@@ -338,6 +349,35 @@ public struct CondaOfflinePackService {
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(value).write(to: url, options: .atomic)
+    }
+
+    /// An imported source-backed environment must be usable before the offline
+    /// import is recorded as successful. Probe explicit paths so the validation
+    /// does not accidentally resolve an executable from the host PATH.
+    private func validateImportedManagedSourceOverlay(
+        in environmentURL: URL
+    ) async throws -> [ManagedToolSourceRuntimeProbe] {
+        let recordURL = environmentURL
+            .appendingPathComponent("share/lungfish/managed-tools/bracken.json")
+        guard fileManager.fileExists(atPath: recordURL.path) else { return [] }
+        guard let record = try? ManagedToolSourceInstallationRecord.load(from: recordURL) else {
+            throw CondaOfflinePackError.invalidPack(
+                "Managed Bracken source receipt is unreadable in \(environmentURL.path)"
+            )
+        }
+        guard record.source.kind == .bracken else { return [] }
+        guard record.validatesIntegrity(environmentURL: environmentURL) else {
+            throw CondaOfflinePackError.invalidPack(
+                "Managed Bracken source receipt does not match the imported runtime in \(environmentURL.path)"
+            )
+        }
+        do {
+            return try await ManagedToolSourceInstaller.probeBrackenRuntime(in: environmentURL)
+        } catch {
+            throw CondaOfflinePackError.invalidPack(
+                "Managed Bracken runtime probe failed after offline import: \(error.localizedDescription)"
+            )
+        }
     }
 
     private func writeProvenance(

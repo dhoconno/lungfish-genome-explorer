@@ -207,6 +207,42 @@ final class ManagedToolSourceInstallerTests: XCTestCase {
         XCTAssertFalse(incompleteRuntimeRecord.validatesIntegrity(environmentURL: fixture.environmentURL))
     }
 
+    func testIntegrityRejectsBrackenReceiptWhenLiveCondaRuntimeDrifts() async throws {
+        let fixture = try SourceInstallerFixture()
+        defer { fixture.cleanup() }
+        try fixture.makeSafeArchive()
+        let record = try await fixture.installer().install(
+            sourceOverlay: fixture.overlay,
+            environmentURL: fixture.environmentURL
+        )
+
+        let runtimeRecord = fixture.environmentURL
+            .appendingPathComponent("conda-meta/llvm-openmp-21.1.8-h2.json")
+        try FileManager.default.removeItem(at: runtimeRecord)
+
+        XCTAssertFalse(record.validatesIntegrity(environmentURL: fixture.environmentURL))
+    }
+
+    func testIntegrityRejectsBrackenReceiptWhenLiveCompilerOrOpenMPRuntimeIsMissing() async throws {
+        let fixture = try SourceInstallerFixture()
+        defer { fixture.cleanup() }
+        try fixture.makeSafeArchive()
+        let record = try await fixture.installer().install(
+            sourceOverlay: fixture.overlay,
+            environmentURL: fixture.environmentURL
+        )
+
+        let compiler = fixture.environmentURL.appendingPathComponent("bin/c++")
+        try FileManager.default.removeItem(at: compiler)
+        XCTAssertFalse(record.validatesIntegrity(environmentURL: fixture.environmentURL))
+
+        try "#!/bin/sh\nexit 0\n".write(to: compiler, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: compiler.path)
+        let openMP = fixture.environmentURL.appendingPathComponent("lib/libomp.dylib")
+        try FileManager.default.removeItem(at: openMP)
+        XCTAssertFalse(record.validatesIntegrity(environmentURL: fixture.environmentURL))
+    }
+
     func testLiveRunnerDrainsLargeStdoutAndStderrWithoutDeadlock() async throws {
         let invocation = ManagedToolSourceInstaller.ProcessInvocation(
             executable: URL(fileURLWithPath: "/bin/sh"),
@@ -363,6 +399,13 @@ private final class SourceInstallerFixture: @unchecked Sendable {
         try archiveSourceTree()
         let condaMeta = environmentURL.appendingPathComponent("conda-meta", isDirectory: true)
         try FileManager.default.createDirectory(at: condaMeta, withIntermediateDirectories: true)
+        let compiler = environmentURL.appendingPathComponent("bin/c++")
+        try FileManager.default.createDirectory(at: compiler.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "#!/bin/sh\nexit 0\n".write(to: compiler, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: compiler.path)
+        let openMP = environmentURL.appendingPathComponent("lib/libomp.dylib")
+        try FileManager.default.createDirectory(at: openMP.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("OpenMP runtime\n".utf8).write(to: openMP)
         for package in [
             ("cxx-compiler", "1.9.0", "h1"),
             ("llvm-openmp", "21.1.8", "h2"),

@@ -144,3 +144,44 @@ public final class CondaRootMutationLock: @unchecked Sendable {
         FileHandle.standardError.write(Data((message + "\n").utf8))
     }
 }
+
+/// A process-safe lock for one managed environment. Plugin-pack installation
+/// holds this lock across the conda mutation, source-overlay publication, and
+/// final readiness check, rather than only while micromamba is running.
+public final class CondaEnvironmentMutationLock: @unchecked Sendable {
+    private let rootLock: CondaRootMutationLock
+
+    private init(rootLock: CondaRootMutationLock) {
+        self.rootLock = rootLock
+    }
+
+    deinit {
+        release()
+    }
+
+    @discardableResult
+    public static func acquire(
+        root: URL,
+        environment: String,
+        waitMessageWriter: (String) -> Void = CondaRootMutationLock.writeWaitMessageToStderr
+    ) throws -> CondaEnvironmentMutationLock {
+        let lockRoot = root.standardizedFileURL
+            .appendingPathComponent(".environment-mutation-locks", isDirectory: true)
+            .appendingPathComponent(lockDirectoryName(for: environment), isDirectory: true)
+        return CondaEnvironmentMutationLock(
+            rootLock: try CondaRootMutationLock.acquire(
+                root: lockRoot,
+                waitMessageWriter: waitMessageWriter
+            )
+        )
+    }
+
+    public func release() {
+        rootLock.release()
+    }
+
+    private static func lockDirectoryName(for environment: String) -> String {
+        let encoded = environment.utf8.map { String(format: "%02x", $0) }.joined()
+        return encoded.isEmpty ? "empty" : encoded
+    }
+}

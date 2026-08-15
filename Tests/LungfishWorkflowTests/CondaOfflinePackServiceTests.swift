@@ -167,17 +167,39 @@ final class CondaOfflinePackServiceTests: XCTestCase {
     func testOfflinePackPreservesManagedBrackenOverlayRecordAndPayload() async throws {
         let sourceCondaRoot = tempRoot.appendingPathComponent("source-bracken", isDirectory: true)
         let environmentURL = sourceCondaRoot.appendingPathComponent("envs/bracken", isDirectory: true)
+        let probeLog = tempRoot.appendingPathComponent("bracken-offline-probes.log")
         let managedFiles = ["bin/bracken", "bin/bracken-build", "bin/src/kmer2read_distr"]
         let installedFiles = try managedFiles.map { relativePath in
             let url = environmentURL.appendingPathComponent(relativePath)
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try "#!/bin/sh\nexit 0\n".write(to: url, atomically: true, encoding: .utf8)
+            try "#!/bin/sh\nprintf '%s %s\\n' '\(url.lastPathComponent)' \"$1\" >> '\(probeLog.path)'\nexit 0\n".write(
+                to: url,
+                atomically: true,
+                encoding: .utf8
+            )
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
             let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
             return ManagedToolSourceInstallationRecord.InstalledFile(
                 relativePath: relativePath,
                 sha256: try XCTUnwrap(ManagedToolSourceInstallationRecord.sha256(of: url)),
                 sizeBytes: (attributes[.size] as? NSNumber)?.uint64Value ?? 0
+            )
+        }
+        let compiler = environmentURL.appendingPathComponent("bin/c++")
+        try FileManager.default.createDirectory(at: compiler.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "#!/bin/sh\nexit 0\n".write(to: compiler, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: compiler.path)
+        let openMP = environmentURL.appendingPathComponent("lib/libomp.dylib")
+        try FileManager.default.createDirectory(at: openMP.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("OpenMP runtime\n".utf8).write(to: openMP)
+        let condaMeta = environmentURL.appendingPathComponent("conda-meta", isDirectory: true)
+        try FileManager.default.createDirectory(at: condaMeta, withIntermediateDirectories: true)
+        for package in managedBrackenRuntimePackages {
+            let metadata = "{\"name\":\"\(package.name)\",\"version\":\"\(package.version)\",\"build\":\"\(package.build)\",\"subdir\":\"\(package.subdir)\"}"
+            try metadata.write(
+                to: condaMeta.appendingPathComponent("\(package.name)-\(package.version)-\(package.build).json"),
+                atomically: true,
+                encoding: .utf8
             )
         }
         let overlay = PackToolSourceOverlay(
@@ -191,8 +213,8 @@ final class CondaOfflinePackServiceTests: XCTestCase {
             commands: [.init(argv: ["bracken-build", "-v"], reproducibleCommand: "bracken-build -v")],
             runtime: .init(
                 environmentPath: environmentURL.path,
-                compilerPath: "bin/c++",
-                openMPRuntimePath: "lib/libomp.dylib",
+                compilerPath: compiler.path,
+                openMPRuntimePath: openMP.path,
                 condaPackages: managedBrackenRuntimePackages
             ),
             installedFiles: installedFiles,
@@ -231,6 +253,10 @@ final class CondaOfflinePackServiceTests: XCTestCase {
         )
 
         let installedEnvironment = destinationCondaRoot.appendingPathComponent("envs/bracken", isDirectory: true)
+        let importedProbes = (try? String(contentsOf: probeLog, encoding: .utf8)) ?? ""
+        XCTAssertTrue(importedProbes.contains("bracken --help"))
+        XCTAssertTrue(importedProbes.contains("bracken-build -v"))
+        XCTAssertTrue(importedProbes.contains("kmer2read_distr --help"))
         let importedRecord = try ManagedToolSourceInstallationRecord.load(
             from: installedEnvironment.appendingPathComponent("share/lungfish/managed-tools/bracken.json")
         )
