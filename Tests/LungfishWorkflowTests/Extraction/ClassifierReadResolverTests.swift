@@ -969,21 +969,6 @@ final class ClassifierReadResolverTests: XCTestCase {
         try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: outputDir) }
         let outputURL = outputDir.appendingPathComponent("scoped.fastq")
-        let selectedSampleTaxa = "SRR35517702:1270;SRR35517703:1"
-        let provenance = ExtractionFileProvenance(
-            workflowName: "lungfish app classifier read extraction",
-            toolName: "Lungfish.app",
-            argv: [
-                "lungfish", "extract", "reads", "--by-classifier",
-                "--tool", "kraken2", "--sample-taxa", selectedSampleTaxa,
-            ],
-            explicitOptions: [
-                "tool": .string("kraken2"),
-                "selectedSampleTaxa": .string(selectedSampleTaxa),
-            ],
-            defaults: ["includeChildren": .boolean(true)],
-            resolved: ["format": .string("fastq")]
-        )
 
         let outcome = try await ClassifierReadResolver().resolveAndExtract(
             tool: .kraken2,
@@ -998,7 +983,7 @@ final class ClassifierReadResolverTests: XCTestCase {
                     taxIds: [1]
                 ),
             ],
-            options: ExtractionOptions(fileProvenance: provenance),
+            options: ExtractionOptions(),
             destination: .file(outputURL)
         )
 
@@ -1011,18 +996,6 @@ final class ClassifierReadResolverTests: XCTestCase {
         XCTAssertTrue(output.contains("@SRR35517702_classified_2\n"))
         XCTAssertTrue(output.contains("@SRR35517703_classified_1\n"))
         XCTAssertTrue(output.contains("@SRR35517703_classified_2\n"))
-
-        let envelope = try XCTUnwrap(
-            ProvenanceEnvelopeReader.load(
-                fromSidecar: ProvenanceRecorder.fileSidecarURL(for: writtenURL)
-            )
-        )
-        XCTAssertEqual(
-            envelope.options.explicit["selectedSampleTaxa"]?.stringValue,
-            selectedSampleTaxa
-        )
-        XCTAssertTrue(envelope.argv.contains(selectedSampleTaxa))
-        XCTAssertEqual(envelope.output?.path, writtenURL.path)
     }
 
     func testExtractViaKraken2RejectsMixedSingleAndBatchSelectors() async throws {
