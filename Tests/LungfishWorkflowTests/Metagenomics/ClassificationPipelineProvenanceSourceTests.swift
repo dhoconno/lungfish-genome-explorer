@@ -89,6 +89,75 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
         )
     }
 
+    func testInvalidConfigurationPersistsFailedPreToolProvenance() async throws {
+        let fixture = try FakeClassificationCondaFixture()
+        defer { fixture.cleanup() }
+
+        let config = try fixture.makeConfig()
+        try FileManager.default.removeItem(at: config.inputFiles[0])
+
+        do {
+            _ = try await ClassificationPipeline(condaManager: fixture.condaManager)
+                .classify(config: config)
+            XCTFail("Expected validation to reject the missing input.")
+        } catch let error as ClassificationConfigError {
+            guard case .inputFileNotFound = error else {
+                return XCTFail("Expected inputFileNotFound, got \(error)")
+            }
+        }
+
+        XCTAssertEqual(try fixture.toolInvocations(named: "kraken2"), [])
+        let envelope = try XCTUnwrap(
+            ProvenanceRecorder.loadEnvelope(from: config.outputDirectory),
+            "A pre-tool validation failure must still persist its attempted workflow provenance."
+        )
+        XCTAssertEqual(envelope.legacyRun?.status, .failed)
+        XCTAssertNotEqual(envelope.exitStatus, 0)
+        let validation = try XCTUnwrap(
+            envelope.steps.first { $0.toolName == "Lungfish Classification Validation" }
+        )
+        XCTAssertNotEqual(validation.exitStatus, 0)
+        XCTAssertTrue((validation.stderr ?? "").contains(config.inputFiles[0].lastPathComponent))
+        XCTAssertEqual(validation.outputs, [])
+    }
+
+    func testFailedRerunCannotClaimStaleKrakenOutputsOrResultSidecar() async throws {
+        let fixture = try FakeClassificationCondaFixture(krakenBehavior: .nonzero(37))
+        defer { fixture.cleanup() }
+
+        let config = try fixture.makeConfig()
+        let fm = FileManager.default
+        try fm.createDirectory(at: config.outputDirectory, withIntermediateDirectories: true)
+        let compressedOutputURL = config.outputURL.appendingPathExtension("gz")
+        let indexURL = KrakenIndexDatabase.indexURL(for: compressedOutputURL)
+        let sidecarURL = config.outputDirectory.appendingPathComponent(ClassificationResult.sidecarFilename)
+        for url in [config.reportURL, config.outputURL, compressedOutputURL, indexURL, sidecarURL] {
+            try "stale prior-run artifact\n".write(to: url, atomically: true, encoding: .utf8)
+        }
+
+        do {
+            _ = try await ClassificationPipeline(condaManager: fixture.condaManager)
+                .classify(config: config)
+            XCTFail("Expected the synthetic Kraken2 failure to propagate.")
+        } catch let error as ClassificationPipelineError {
+            guard case .kraken2Failed(let exitCode, _) = error else {
+                return XCTFail("Expected kraken2Failed, got \(error)")
+            }
+            XCTAssertEqual(exitCode, 37)
+        }
+
+        for url in [config.reportURL, config.outputURL, compressedOutputURL, indexURL, sidecarURL] {
+            XCTAssertFalse(
+                fm.fileExists(atPath: url.path),
+                "A failed rerun must not leave or attribute stale output: \(url.lastPathComponent)"
+            )
+        }
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: config.outputDirectory))
+        let krakenStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "kraken2" })
+        XCTAssertEqual(krakenStep.exitStatus, 37)
+        XCTAssertEqual(krakenStep.outputs, [])
+    }
+
     func testHardKraken2NonzeroPersistsExactFailedEnvelope() async throws {
         let fixture = try FakeClassificationCondaFixture(krakenBehavior: .nonzero(37))
         defer { fixture.cleanup() }
@@ -132,6 +201,234 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
             pluginPack: "Metagenomics"
         )
         XCTAssertEqual(krakenStep.runtimeIdentity, expectedRuntime)
+    }
+
+    func testAutoEnabledMemoryMappingSeparatesRequestedDefaultAndResolvedValues() async throws {
+        let fixture = try FakeClassificationCondaFixture()
+        defer { fixture.cleanup() }
+
+        let config = try fixture.makeConfig(memoryMapping: false)
+        let hashURL = config.databasePath.appendingPathComponent("hash.k2d")
+        let oversizedDatabase = UInt64(Double(ProcessInfo.processInfo.physicalMemory) * 0.81) + 1
+        let handle = try FileHandle(forWritingTo: hashURL)
+        try handle.truncate(atOffset: oversizedDatabase)
+        try handle.close()
+
+        let result = try await ClassificationPipeline(condaManager: fixture.condaManager)
+            .classify(config: config)
+
+        XCTAssertFalse(config.memoryMapping)
+        XCTAssertTrue(result.config.memoryMapping)
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: config.outputDirectory))
+        XCTAssertEqual(envelope.options.explicit["memoryMapping"], .boolean(false))
+        XCTAssertEqual(envelope.options.defaults["memoryMapping"], .boolean(false))
+        XCTAssertEqual(envelope.options.resolvedDefaults["effectiveMemoryMapping"], .boolean(true))
+        let krakenStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "kraken2" })
+        XCTAssertEqual(krakenStep.resolvedOptions["memoryMapping"], .boolean(true))
+        XCTAssertTrue(krakenStep.argv.contains("--memory-mapping"))
+    }
+
+    func testKrakenGitHubReleaseIsRecordedOnlyWhenItMatchesDetectedToolVersion() async throws {
+        for (detectedVersion, expectedRelease) in [
+            ("2.1.3", nil as String?),
+            ("2.17.1", ClassificationPipeline.kraken2GithubReleaseVersion),
+        ] {
+            let fixture = try FakeClassificationCondaFixture(krakenVersion: detectedVersion)
+            defer { fixture.cleanup() }
+            let config = try fixture.makeConfig()
+
+            _ = try await ClassificationPipeline(condaManager: fixture.condaManager)
+                .classify(config: config)
+
+            let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: config.outputDirectory))
+            let krakenStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "kraken2" })
+            XCTAssertEqual(krakenStep.toolVersion, detectedVersion)
+            XCTAssertEqual(krakenStep.githubReleaseVersion, expectedRelease)
+            XCTAssertEqual(envelope.githubReleaseVersion, expectedRelease)
+        }
+    }
+
+    func testKrakenStructuredOptionsAndLegacyDatabaseReferenceAreComplete() async throws {
+        let fixture = try FakeClassificationCondaFixture()
+        defer { fixture.cleanup() }
+
+        let config = try fixture.makeConfig(
+            databaseDigest: nil,
+            inputFormat: .fasta,
+            quickMode: true
+        )
+        _ = try await ClassificationPipeline(condaManager: fixture.condaManager)
+            .classify(config: config)
+
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: config.outputDirectory))
+        XCTAssertEqual(envelope.options.explicit["inputFormat"], .string("fasta"))
+        XCTAssertEqual(envelope.options.explicit["quickMode"], .boolean(true))
+        XCTAssertNil(envelope.options.explicit["reportMinimizerData"])
+        XCTAssertEqual(envelope.options.defaults["inputFormat"], .string("fastq"))
+        XCTAssertEqual(envelope.options.defaults["quickMode"], .boolean(false))
+        XCTAssertEqual(envelope.options.defaults["reportMinimizerData"], .boolean(true))
+        XCTAssertEqual(envelope.options.resolvedDefaults["inputFormat"], .string("fasta"))
+        XCTAssertEqual(envelope.options.resolvedDefaults["quickMode"], .boolean(true))
+        XCTAssertEqual(envelope.options.resolvedDefaults["reportMinimizerData"], .boolean(true))
+
+        let krakenStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "kraken2" })
+        XCTAssertEqual(krakenStep.resolvedOptions["inputFormat"], .string("fasta"))
+        XCTAssertEqual(krakenStep.resolvedOptions["quickMode"], .boolean(true))
+        XCTAssertEqual(krakenStep.resolvedOptions["reportMinimizerData"], .boolean(true))
+        let databaseRecord = try XCTUnwrap(
+            krakenStep.inputs.first {
+                $0.path == config.databasePath.path && $0.role == .reference
+            }
+        )
+        XCTAssertNil(
+            databaseRecord.checksumSHA256,
+            "An unavailable custom-database digest must remain explicit instead of hashing the whole directory."
+        )
+        XCTAssertEqual(databaseRecord.fileSize, 24)
+        XCTAssertEqual(krakenStep.resolvedOptions["databaseDigest"], .null)
+        XCTAssertEqual(
+            krakenStep.resolvedOptions["databaseIdentityStatus"],
+            .string("unresolved-bounded-metadata")
+        )
+        XCTAssertEqual(
+            krakenStep.resolvedOptions["databaseCoreFileSizes"],
+            .dictionary([
+                "hash.k2d": .integer(8),
+                "opts.k2d": .integer(8),
+                "taxo.k2d": .integer(8),
+            ])
+        )
+
+        let source = try String(contentsOf: pipelineSourceURL, encoding: .utf8)
+        let helperStart = try XCTUnwrap(source.range(of: "private func databaseInputRecord"))
+        let helperEnd = try XCTUnwrap(
+            source.range(of: "private func recordKraken2Failure", range: helperStart.upperBound..<source.endIndex)
+        )
+        let helperSource = source[helperStart.lowerBound..<helperEnd.lowerBound]
+        XCTAssertFalse(helperSource.contains("fileOrDirectoryRecord"))
+        XCTAssertFalse(helperSource.contains("directoryManifest"))
+        XCTAssertFalse(helperSource.contains("enumerator("))
+    }
+
+    func testHardFailureRetainsDurableReplayForMaterializedInputLineage() async throws {
+        let fixture = try FakeClassificationCondaFixture(krakenBehavior: .nonzero(37))
+        defer { fixture.cleanup() }
+
+        var config = try fixture.makeConfig()
+        let executionInput = config.inputFiles[0]
+        let sourceBundle = fixture.root.appendingPathComponent("source.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceBundle, withIntermediateDirectories: true)
+        try "{\"source\":\"virtual\"}\n".write(
+            to: sourceBundle.appendingPathComponent("manifest.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        config.originalInputFiles = [sourceBundle]
+
+        do {
+            _ = try await ClassificationPipeline(condaManager: fixture.condaManager)
+                .classify(config: config)
+            XCTFail("Expected the synthetic Kraken2 failure to propagate.")
+        } catch let error as ClassificationPipelineError {
+            guard case .kraken2Failed(let exitCode, _) = error else {
+                return XCTFail("Expected kraken2Failed, got \(error)")
+            }
+            XCTAssertEqual(exitCode, 37)
+        }
+
+        try FileManager.default.removeItem(at: executionInput)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: executionInput.path))
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: config.outputDirectory))
+        let krakenStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "kraken2" })
+        XCTAssertTrue(krakenStep.argv.contains(executionInput.path))
+        let replayArgv = try XCTUnwrap(krakenStep.durableReplayArgv)
+        XCTAssertFalse(replayArgv.contains(executionInput.path))
+        XCTAssertFalse(replayArgv.contains(sourceBundle.path))
+        let replayInput = try XCTUnwrap(
+            replayArgv.first { $0.contains("/.lungfish-provenance/intermediates/classification-inputs/") }
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: replayInput))
+        XCTAssertTrue(
+            krakenStep.inputs.contains {
+                $0.path == replayInput && $0.role == .input
+                    && $0.checksumSHA256 != nil && $0.fileSize != nil
+            }
+        )
+        XCTAssertTrue(
+            krakenStep.inputs.contains {
+                $0.path == sourceBundle.path && $0.role == .input
+                    && $0.checksumSHA256 != nil && $0.fileSize != nil
+            }
+        )
+    }
+
+    func testSuccessfulReplayInputMaterializationRecordsProvenanceEdge() async throws {
+        let fixture = try FakeClassificationCondaFixture(krakenBehavior: .nonzero(37))
+        defer { fixture.cleanup() }
+
+        var config = try fixture.makeConfig()
+        let executionInput = config.inputFiles[0]
+        let sourceBundle = fixture.root.appendingPathComponent("source.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceBundle, withIntermediateDirectories: true)
+        try "{\"source\":\"virtual\"}\n".write(
+            to: sourceBundle.appendingPathComponent("manifest.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        config.originalInputFiles = [sourceBundle]
+
+        do {
+            _ = try await ClassificationPipeline(condaManager: fixture.condaManager)
+                .classify(config: config)
+            XCTFail("Expected the synthetic Kraken2 failure to propagate.")
+        } catch let error as ClassificationPipelineError {
+            guard case .kraken2Failed(let exitCode, _) = error else {
+                return XCTFail("Expected kraken2Failed, got \(error)")
+            }
+            XCTAssertEqual(exitCode, 37)
+        }
+
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: config.outputDirectory))
+        let materializationStep = try XCTUnwrap(
+            envelope.steps.first {
+                $0.toolName == "Lungfish Classification Replay Input Materialization"
+                    && $0.exitStatus == 0
+            },
+            "Successful creation of durable scientific replay inputs needs its own provenance step."
+        )
+        XCTAssertEqual(materializationStep.toolVersion, WorkflowRun.currentAppVersion)
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(materializationStep.wallTimeSeconds), 0)
+        XCTAssertEqual(materializationStep.argv.prefix(2), ["/bin/sh", "-c"])
+        XCTAssertTrue(materializationStep.argv.last?.contains("/bin/cp") == true)
+        XCTAssertTrue(
+            materializationStep.inputs.contains {
+                $0.path == executionInput.path && $0.role == .input
+                    && $0.checksumSHA256 != nil && $0.fileSize != nil
+            }
+        )
+        XCTAssertTrue(
+            materializationStep.inputs.contains {
+                $0.path == sourceBundle.path && $0.role == .input
+                    && $0.checksumSHA256 != nil && $0.fileSize != nil
+            }
+        )
+        let durableOutput = try XCTUnwrap(
+            materializationStep.outputs.first {
+                $0.path.contains("/.lungfish-provenance/intermediates/classification-inputs/")
+                    && $0.role == .output
+            }
+        )
+        XCTAssertNotNil(durableOutput.checksumSHA256)
+        XCTAssertNotNil(durableOutput.fileSize)
+
+        let krakenStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "kraken2" })
+        XCTAssertTrue(krakenStep.dependsOn.contains(materializationStep.id))
+        XCTAssertTrue(
+            krakenStep.inputs.contains {
+                $0.path == durableOutput.path && $0.role == .input
+                    && $0.checksumSHA256 == durableOutput.checksumSHA256
+            }
+        )
     }
 
     func testClassificationSidecarFailureRecordsFailedWrapperStepInSource() throws {
@@ -594,6 +891,7 @@ private struct FakeClassificationCondaFixture {
     init(
         reportRank: ReportRank = .species,
         distributionState: DistributionState = .valid,
+        krakenVersion: String = "2.1.3",
         krakenBehavior: KrakenBehavior = .success,
         brackenBehavior: BrackenBehavior = .success
     ) throws {
@@ -613,6 +911,7 @@ private struct FakeClassificationCondaFixture {
         let bundledMicromamba = root.appendingPathComponent("bundled-micromamba")
         try Self.scriptBody(
             reportRank: reportRank,
+            krakenVersion: krakenVersion,
             krakenBehavior: krakenBehavior,
             brackenBehavior: brackenBehavior,
             invocationLogURL: invocationLogURL
@@ -647,9 +946,13 @@ private struct FakeClassificationCondaFixture {
 
     func makeConfig(
         goal: ClassificationConfig.Goal = .classify,
+        databaseDigest: String? = "sha256:fixture-db",
         catalogID: String? = nil,
         installationRecipe: MetagenomicsDatabaseInstallationRecipe? = nil,
-        profileRequest: BrackenProfileRequest? = nil
+        profileRequest: BrackenProfileRequest? = nil,
+        inputFormat: SequenceFormat = .fastq,
+        memoryMapping: Bool = false,
+        quickMode: Bool = false
     ) throws -> ClassificationConfig {
         let dbURL = root.appendingPathComponent("kraken-db", isDirectory: true)
         try FileManager.default.createDirectory(at: dbURL, withIntermediateDirectories: true)
@@ -666,12 +969,15 @@ private struct FakeClassificationCondaFixture {
             inputFiles: [readsURL],
             isPairedEnd: false,
             databaseName: "FixtureDB",
+            inputFormat: inputFormat,
             databaseVersion: "fixture-v1",
             databasePath: dbURL,
-            databaseDigest: "sha256:fixture-db",
+            databaseDigest: databaseDigest,
             databaseCatalogID: catalogID,
             databaseInstallationRecipe: installationRecipe,
             brackenProfileRequest: profileRequest,
+            memoryMapping: memoryMapping,
+            quickMode: quickMode,
             outputDirectory: root.appendingPathComponent("output", isDirectory: true)
         )
     }
@@ -704,6 +1010,7 @@ private struct FakeClassificationCondaFixture {
 
     private static func scriptBody(
         reportRank: ReportRank,
+        krakenVersion: String,
         krakenBehavior: KrakenBehavior,
         brackenBehavior: BrackenBehavior,
         invocationLogURL: URL
@@ -784,7 +1091,7 @@ private struct FakeClassificationCondaFixture {
         case "$tool" in
           kraken2)
             if [ "$1" = "--version" ]; then
-              echo "Kraken version 2.1.3"
+              echo "Kraken version \(krakenVersion)"
               exit 0
             fi
             \(krakenFailureBody)
