@@ -115,6 +115,16 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
     /// re-hashes the potentially multi-gigabyte database payload.
     public let databaseDigest: String?
 
+    /// Stable built-in catalog identity used for database capability decisions.
+    public let databaseCatalogID: String?
+
+    /// Reproducible installation recipe for the selected database.
+    public let databaseInstallationRecipe: MetagenomicsDatabaseInstallationRecipe?
+
+    /// Bracken settings requested for a profile goal. Nil for Kraken-only runs
+    /// and legacy configs that predate explicit profile settings.
+    public let brackenProfileRequest: BrackenProfileRequest?
+
     // MARK: - Kraken2 Parameters
 
     /// Confidence threshold for Kraken2 classification (0.0 to 1.0).
@@ -183,6 +193,9 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
         databaseVersion: String = "",
         databasePath: URL,
         databaseDigest: String? = nil,
+        databaseCatalogID: String? = nil,
+        databaseInstallationRecipe: MetagenomicsDatabaseInstallationRecipe? = nil,
+        brackenProfileRequest: BrackenProfileRequest? = nil,
         confidence: Double = 0.0,
         minimumHitGroups: Int = 2,
         threads: Int = 4,
@@ -199,6 +212,9 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
         self.databaseVersion = databaseVersion
         self.databasePath = databasePath
         self.databaseDigest = databaseDigest
+        self.databaseCatalogID = databaseCatalogID
+        self.databaseInstallationRecipe = databaseInstallationRecipe
+        self.brackenProfileRequest = brackenProfileRequest
         self.confidence = confidence
         self.minimumHitGroups = minimumHitGroups
         self.threads = threads
@@ -249,6 +265,9 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
         databaseVersion: String = "",
         databasePath: URL,
         databaseDigest: String? = nil,
+        databaseCatalogID: String? = nil,
+        databaseInstallationRecipe: MetagenomicsDatabaseInstallationRecipe? = nil,
+        brackenProfileRequest: BrackenProfileRequest? = nil,
         threads: Int = 4,
         memoryMapping: Bool = false,
         quickMode: Bool = false,
@@ -265,6 +284,9 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
             databaseVersion: databaseVersion,
             databasePath: databasePath,
             databaseDigest: databaseDigest,
+            databaseCatalogID: databaseCatalogID,
+            databaseInstallationRecipe: databaseInstallationRecipe,
+            brackenProfileRequest: brackenProfileRequest,
             confidence: confidence,
             minimumHitGroups: minHitGroups,
             threads: threads,
@@ -454,6 +476,9 @@ extension ClassificationConfig {
         case databaseVersion
         case databasePath
         case databaseDigest
+        case databaseCatalogID
+        case databaseInstallationRecipe
+        case brackenProfileRequest
         case confidence
         case minimumHitGroups
         case threads
@@ -473,6 +498,15 @@ extension ClassificationConfig {
         let databaseVersion = try container.decodeIfPresent(String.self, forKey: .databaseVersion) ?? ""
         let databasePath = try container.decode(URL.self, forKey: .databasePath)
         let databaseDigest = try container.decodeIfPresent(String.self, forKey: .databaseDigest)
+        let databaseCatalogID = try container.decodeIfPresent(String.self, forKey: .databaseCatalogID)
+        let databaseInstallationRecipe = try container.decodeIfPresent(
+            MetagenomicsDatabaseInstallationRecipe.self,
+            forKey: .databaseInstallationRecipe
+        )
+        let brackenProfileRequest = try container.decodeIfPresent(
+            BrackenProfileRequest.self,
+            forKey: .brackenProfileRequest
+        )
         let confidence = try container.decode(Double.self, forKey: .confidence)
         let minimumHitGroups = try container.decode(Int.self, forKey: .minimumHitGroups)
         let threads = try container.decode(Int.self, forKey: .threads)
@@ -490,6 +524,9 @@ extension ClassificationConfig {
             databaseVersion: databaseVersion,
             databasePath: databasePath,
             databaseDigest: databaseDigest,
+            databaseCatalogID: databaseCatalogID,
+            databaseInstallationRecipe: databaseInstallationRecipe,
+            brackenProfileRequest: brackenProfileRequest,
             confidence: confidence,
             minimumHitGroups: minimumHitGroups,
             threads: threads,

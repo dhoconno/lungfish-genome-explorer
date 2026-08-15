@@ -12,7 +12,7 @@ extension ClassificationConfig {
     /// databasePath) and transient fields (databaseVersion, originalInputFiles,
     /// sampleDisplayName) are omitted.
     public func summaryParameters() -> [String: AnalysisParameterValue] {
-        [
+        var parameters: [String: AnalysisParameterValue] = [
             "goal": .string(goal.rawValue),
             "databaseName": .string(databaseName),
             "confidence": .double(confidence),
@@ -21,5 +21,22 @@ extension ClassificationConfig {
             "memoryMapping": .bool(memoryMapping),
             "extraArgs": .string(AdvancedCommandLineOptions.join(extraArguments)),
         ]
+
+        if let databaseCatalogID {
+            parameters["databaseCatalogID"] = .string(databaseCatalogID)
+        }
+        if let databaseInstallationRecipe {
+            parameters["databaseInstallationRecipe"] = .string(
+                databaseInstallationRecipe.provenanceValue
+            )
+        }
+        if goal == .profile {
+            let request = brackenProfileRequest ?? .automaticDefault
+            parameters["brackenRankRequest"] = .string(request.rank.provenanceValue)
+            parameters["brackenReadLength"] = .int(request.readLength)
+            parameters["brackenThreshold"] = .int(request.threshold)
+        }
+
+        return parameters
     }
 }

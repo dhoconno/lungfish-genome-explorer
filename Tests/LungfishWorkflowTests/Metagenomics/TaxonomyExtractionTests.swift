@@ -1183,6 +1183,15 @@ final class ClassificationResultPersistenceTests: XCTestCase {
             reportURL: kreportURL,
             outputURL: krakenURL,
             brackenURL: nil,
+            profileOutcome: .degraded(
+                resolution: BrackenDatabaseCapabilities.resolve(
+                    catalogID: "kraken2-special-silva",
+                    installationRecipe: .kraken2Special(type: .silva),
+                    request: .automatic
+                ),
+                reason: .rankAbsentFromReport,
+                message: "The Kraken report has no genus rows."
+            ),
             runtime: 42.5,
             toolVersion: "2.1.3",
             provenanceId: provenanceId
@@ -1204,6 +1213,10 @@ final class ClassificationResultPersistenceTests: XCTestCase {
         XCTAssertEqual(loaded.toolVersion, "2.1.3")
         XCTAssertEqual(loaded.provenanceId, provenanceId)
         XCTAssertNil(loaded.brackenURL)
+        XCTAssertEqual(loaded.profileOutcome.state, .degraded)
+        XCTAssertEqual(loaded.profileOutcome.resolution?.rank, .genus)
+        XCTAssertEqual(loaded.profileOutcome.resolution?.readLength, 150)
+        XCTAssertEqual(loaded.profileOutcome.reason, .rankAbsentFromReport)
 
         // Verify the tree was rebuilt from the kreport
         XCTAssertEqual(loaded.tree.totalReads, tree.totalReads)
@@ -1255,6 +1268,84 @@ final class ClassificationResultPersistenceTests: XCTestCase {
         XCTAssertEqual(loaded.config.originalInputFiles, [sourceURL])
         XCTAssertEqual(loaded.config.outputDirectory, tempDir)
         XCTAssertEqual(loaded.config.databasePath, tempDir.appendingPathComponent("database"))
+        XCTAssertEqual(loaded.profileOutcome, .notRequested)
+    }
+
+    func testMissingLegacyBrackenFileIsNotReportedAsCompletedProfiling() throws {
+        let kreportURL = try makeMinimalKreport()
+        let krakenURL = try makeKrakenOutput()
+        let sidecar = #"{"brackenPath":"missing.bracken","config":{"confidence":0.2,"databaseName":"Legacy","databasePath":"file:///db/legacy","databaseVersion":"v1","goal":"profile","inputFiles":["file:///data/reads.fastq"],"isPairedEnd":false,"memoryMapping":false,"minimumHitGroups":2,"outputDirectory":"file:///output","quickMode":false,"threads":4},"outputPath":"\#(krakenURL.lastPathComponent)","reportPath":"\#(kreportURL.lastPathComponent)","runtime":1.25,"savedAt":"2026-06-01T00:00:00Z","toolVersion":"2.17.1"}"#
+        try sidecar.write(
+            to: tempDir.appendingPathComponent("classification-result.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let loaded = try ClassificationResult.load(from: tempDir)
+
+        XCTAssertNil(loaded.brackenURL)
+        XCTAssertEqual(loaded.profileOutcome, .notRequested)
+        XCTAssertFalse(loaded.summary.contains("Bracken profiling: yes"))
+    }
+
+    func testExistingLegacyBrackenFileIsInferredAsCompletedProfiling() throws {
+        let kreportURL = try makeMinimalKreport()
+        let krakenURL = try makeKrakenOutput()
+        let brackenURL = tempDir.appendingPathComponent("classification.bracken")
+        let bracken = "name\ttaxonomy_id\ttaxonomy_lvl\tkraken_assigned_reads\tadded_reads\tnew_est_reads\tfraction_total_reads\nEscherichia coli\t562\tS\t200\t0\t200\t0.2\n"
+        try bracken.write(to: brackenURL, atomically: true, encoding: .utf8)
+        let sidecar = #"{"brackenPath":"classification.bracken","config":{"confidence":0.2,"databaseName":"Legacy","databasePath":"file:///db/legacy","databaseVersion":"v1","goal":"profile","inputFiles":["file:///data/reads.fastq"],"isPairedEnd":false,"memoryMapping":false,"minimumHitGroups":2,"outputDirectory":"file:///output","quickMode":false,"threads":4},"outputPath":"\#(krakenURL.lastPathComponent)","reportPath":"\#(kreportURL.lastPathComponent)","runtime":1.25,"savedAt":"2026-06-01T00:00:00Z","toolVersion":"2.17.1"}"#
+        try sidecar.write(
+            to: tempDir.appendingPathComponent("classification-result.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let loaded = try ClassificationResult.load(from: tempDir)
+
+        XCTAssertEqual(loaded.brackenURL, brackenURL)
+        XCTAssertEqual(loaded.profileOutcome.state, .completed)
+        XCTAssertEqual(loaded.profileOutcome.resolution?.rank, .species)
+        XCTAssertEqual(loaded.profileOutcome.resolution?.readLength, 150)
+    }
+
+    func testPersistedCompletedOutcomeWithoutBrackenPathDegradesOnLoad() throws {
+        let kreportURL = try makeMinimalKreport()
+        let krakenURL = try makeKrakenOutput()
+        let resolution = BrackenDatabaseCapabilities.resolve(
+            catalogID: "kraken2-special-silva",
+            installationRecipe: .kraken2Special(type: .silva),
+            request: .automatic
+        )
+        let config = ClassificationConfig(
+            goal: .profile,
+            inputFiles: [tempDir.appendingPathComponent("reads.fastq")],
+            isPairedEnd: false,
+            databaseName: "SILVA",
+            databasePath: tempDir,
+            databaseCatalogID: "kraken2-special-silva",
+            databaseInstallationRecipe: .kraken2Special(type: .silva),
+            brackenProfileRequest: .automaticDefault,
+            outputDirectory: tempDir
+        )
+        let result = ClassificationResult(
+            config: config,
+            tree: try KreportParser.parse(url: kreportURL),
+            reportURL: kreportURL,
+            outputURL: krakenURL,
+            brackenURL: nil,
+            profileOutcome: .completed(resolution: resolution, toolVersion: "3.0.1"),
+            runtime: 1,
+            toolVersion: "2.1.3",
+            provenanceId: nil
+        )
+        try result.save(to: tempDir)
+
+        let loaded = try ClassificationResult.load(from: tempDir)
+
+        XCTAssertNil(loaded.brackenURL)
+        XCTAssertEqual(loaded.profileOutcome.state, .degraded)
+        XCTAssertEqual(loaded.profileOutcome.reason, .outputMissing)
     }
 
     /// Verifies that loading from a kreport correctly rebuilds the tree.

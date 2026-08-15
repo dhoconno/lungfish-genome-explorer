@@ -50,6 +50,10 @@ public struct ClassificationResult: Sendable {
     /// Path to the Bracken output file, if profiling was performed.
     public let brackenURL: URL?
 
+    /// Whether Bracken was not requested, completed, or degraded after a valid
+    /// Kraken2 classification.
+    public let profileOutcome: BrackenProfileOutcome
+
     /// Total wall-clock time for the pipeline run, in seconds.
     public let runtime: TimeInterval
 
@@ -76,6 +80,7 @@ public struct ClassificationResult: Sendable {
         reportURL: URL,
         outputURL: URL,
         brackenURL: URL?,
+        profileOutcome: BrackenProfileOutcome = .notRequested,
         runtime: TimeInterval,
         toolVersion: String,
         provenanceId: UUID?
@@ -85,6 +90,7 @@ public struct ClassificationResult: Sendable {
         self.reportURL = reportURL
         self.outputURL = outputURL
         self.brackenURL = brackenURL
+        self.profileOutcome = profileOutcome
         self.runtime = runtime
         self.toolVersion = toolVersion
         self.provenanceId = provenanceId
@@ -115,8 +121,18 @@ public struct ClassificationResult: Sendable {
         lines.append("  Runtime: \(runtimeStr)s")
         lines.append("  Tool: kraken2 \(toolVersion)")
 
-        if brackenURL != nil {
-            lines.append("  Bracken profiling: yes")
+        switch profileOutcome.state {
+        case .notRequested:
+            break
+        case .completed:
+            let rank = profileOutcome.resolution?.rank.displayName ?? "unknown rank"
+            lines.append("  Bracken profiling: completed at \(rank)")
+        case .degraded:
+            let reason = profileOutcome.message
+                ?? profileOutcome.reason?.rawValue
+                ?? "unknown reason"
+            lines.append("  Bracken profiling: degraded; Kraken2 classification retained")
+            lines.append("  Profiling detail: \(reason)")
         }
 
         return lines.joined(separator: "\n")
@@ -152,6 +168,7 @@ extension ClassificationResult {
             reportPath: reportURL.lastPathComponent,
             outputPath: outputURL.lastPathComponent,
             brackenPath: brackenURL?.lastPathComponent,
+            profileOutcome: profileOutcome,
             runtime: runtime,
             toolVersion: toolVersion,
             provenanceId: provenanceId,
@@ -194,7 +211,10 @@ extension ClassificationResult {
         // Resolve file paths relative to the directory.
         let reportURL = directory.appendingPathComponent(sidecar.reportPath)
         let outputURL = directory.appendingPathComponent(sidecar.outputPath)
-        let brackenURL = sidecar.brackenPath.map { directory.appendingPathComponent($0) }
+        let storedBrackenURL = sidecar.brackenPath.map { directory.appendingPathComponent($0) }
+        let brackenURL = storedBrackenURL.flatMap { candidate in
+            FileManager.default.fileExists(atPath: candidate.path) ? candidate : nil
+        }
 
         // Rebuild the taxonomy tree from the kreport.
         guard FileManager.default.fileExists(atPath: reportURL.path) else {
@@ -208,6 +228,13 @@ extension ClassificationResult {
             try BrackenParser.mergeBracken(url: brackenURL, into: &tree)
         }
 
+        let profileOutcome = resolvedProfileOutcome(
+            persisted: sidecar.profileOutcome,
+            config: config,
+            storedBrackenPath: sidecar.brackenPath,
+            existingBrackenURL: brackenURL
+        )
+
         persistLogger.info("Loaded classification result from \(directory.path, privacy: .public)")
 
         return ClassificationResult(
@@ -216,6 +243,7 @@ extension ClassificationResult {
             reportURL: reportURL,
             outputURL: outputURL,
             brackenURL: brackenURL,
+            profileOutcome: profileOutcome,
             runtime: sidecar.runtime,
             toolVersion: sidecar.toolVersion,
             provenanceId: sidecar.provenanceId
@@ -234,6 +262,10 @@ extension ClassificationResult {
             inputFormat: config.inputFormat,
             databaseVersion: config.databaseVersion,
             databasePath: resolvePersistedURL(config.databasePath, relativeTo: directory),
+            databaseDigest: config.databaseDigest,
+            databaseCatalogID: config.databaseCatalogID,
+            databaseInstallationRecipe: config.databaseInstallationRecipe,
+            brackenProfileRequest: config.brackenProfileRequest,
             confidence: config.confidence,
             minimumHitGroups: config.minimumHitGroups,
             threads: config.threads,
@@ -260,6 +292,40 @@ extension ClassificationResult {
         return directory
             .appendingPathComponent(path)
             .standardizedFileURL
+    }
+
+    private static func resolvedProfileOutcome(
+        persisted: BrackenProfileOutcome?,
+        config: ClassificationConfig,
+        storedBrackenPath: String?,
+        existingBrackenURL: URL?
+    ) -> BrackenProfileOutcome {
+        if let persisted {
+            if persisted.state == .completed,
+               existingBrackenURL == nil,
+               let resolution = persisted.resolution {
+                return .degraded(
+                    resolution: resolution,
+                    reason: .outputMissing,
+                    message: "The persisted Bracken output is missing.",
+                    toolVersion: persisted.toolVersion
+                )
+            }
+            return persisted
+        }
+
+        // Historical sidecars did not state whether Bracken was requested. Only
+        // an extant referenced output is sufficient evidence of completion.
+        guard storedBrackenPath != nil, existingBrackenURL != nil else {
+            return .notRequested
+        }
+        let request = config.brackenProfileRequest ?? .automaticDefault
+        let resolution = BrackenDatabaseCapabilities.resolve(
+            catalogID: config.databaseCatalogID,
+            installationRecipe: config.databaseInstallationRecipe,
+            request: request
+        )
+        return .completed(resolution: resolution)
     }
 
     /// Whether a saved classification result exists in the given directory.
@@ -309,25 +375,32 @@ extension ClassificationResult {
 
         var result = sidecar.config.kraken2CommandString()
 
-        // If Bracken was run, reconstruct a bracken command from what we know.
-        // The config stores database path and output paths; Bracken-specific
-        // parameters (read length, level, threshold) use pipeline defaults
-        // since they are not persisted in the sidecar.
-        if sidecar.brackenPath != nil {
+        // If Bracken was run, reconstruct the command from persisted resolved
+        // settings, falling back to database-aware legacy defaults only when an
+        // old sidecar does not contain them.
+        if let brackenPath = sidecar.brackenPath {
             let reportPath = shellEscape(
                 directory.appendingPathComponent(sidecar.reportPath).path
             )
             let brackenPath = shellEscape(
-                directory.appendingPathComponent(sidecar.brackenPath!).path
+                directory.appendingPathComponent(brackenPath).path
             )
             let dbPath = shellEscape(sidecar.config.databasePath.path)
+            let request = sidecar.config.brackenProfileRequest ?? .automaticDefault
+            let resolution = sidecar.profileOutcome?.resolution
+                ?? BrackenDatabaseCapabilities.resolve(
+                    catalogID: sidecar.config.databaseCatalogID,
+                    installationRecipe: sidecar.config.databaseInstallationRecipe,
+                    request: request
+                )
 
             result += "\n\nbracken \\\n"
             result += "  -d \(dbPath) \\\n"
             result += "  -i \(reportPath) \\\n"
             result += "  -o \(brackenPath) \\\n"
-            result += "  -r 150 \\\n"
-            result += "  -l S"
+            result += "  -r \(resolution.readLength) \\\n"
+            result += "  -l \(resolution.rank.code) \\\n"
+            result += "  -t \(resolution.threshold)"
         }
 
         return result
@@ -345,6 +418,7 @@ struct PersistedClassificationResult: Codable, Sendable {
     let reportPath: String
     let outputPath: String
     let brackenPath: String?
+    let profileOutcome: BrackenProfileOutcome?
     let runtime: TimeInterval
     let toolVersion: String
     let provenanceId: UUID?

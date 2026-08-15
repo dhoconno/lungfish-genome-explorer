@@ -67,6 +67,9 @@ final class ConfigSummaryParametersTests: XCTestCase {
             databaseName: "PlusPF-16",
             databaseVersion: "20240904",
             databasePath: URL(fileURLWithPath: "/db/kraken2"),
+            databaseCatalogID: "kraken2-special-silva",
+            databaseInstallationRecipe: .kraken2Special(type: .silva),
+            brackenProfileRequest: .automaticDefault,
             confidence: 0.2,
             minimumHitGroups: 3,
             threads: 4,
@@ -83,6 +86,11 @@ final class ConfigSummaryParametersTests: XCTestCase {
         XCTAssertEqual(params["minimumHitGroups"], .int(3))
         XCTAssertEqual(params["threads"], .int(4))
         XCTAssertEqual(params["memoryMapping"], .bool(true))
+        XCTAssertEqual(params["databaseCatalogID"], .string("kraken2-special-silva"))
+        XCTAssertEqual(params["databaseInstallationRecipe"], .string("kraken2-special:silva"))
+        XCTAssertEqual(params["brackenRankRequest"], .string("automatic"))
+        XCTAssertEqual(params["brackenReadLength"], .int(150))
+        XCTAssertEqual(params["brackenThreshold"], .int(10))
 
         // Paths and version must not appear
         XCTAssertNil(params["inputFiles"])
