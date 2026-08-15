@@ -896,8 +896,9 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
         let stored = try XCTUnwrap(storedValue)
         XCTAssertEqual(stored.status, .ready)
         XCTAssertEqual(stored.path?.standardizedFileURL, final.standardizedFileURL)
+        XCTAssertEqual(stored.version, "kraken2-special-v1")
+        XCTAssertFalse(stored.isUpdateAvailable)
         XCTAssertEqual(stored.payloadDigest, installer.digest)
-        XCTAssertEqual(stored.version, installer.version)
         let manifestText = try String(
             contentsOf: tempDir.appendingPathComponent("metagenomics-db-registry.json"),
             encoding: .utf8
