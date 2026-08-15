@@ -1213,7 +1213,10 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
             return "Managed source metadata is missing or does not match version \(overlay.version)"
         }
         if overlay.kind == .bracken, runRuntimeProbes {
-            return await brackenRuntimeProbeFailure(for: requirement)
+            return await brackenRuntimeProbeFailure(
+                for: requirement,
+                environmentURL: envURL
+            )
         }
         return nil
     }
@@ -1222,12 +1225,13 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
     /// each through micromamba so readiness exercises the same environment
     /// activation and OpenMP/Python runtime path used by normal workflows.
     private func brackenRuntimeProbeFailure(
-        for requirement: PackToolRequirement
+        for requirement: PackToolRequirement,
+        environmentURL: URL
     ) async -> String? {
         let probes: [(name: String, arguments: [String])] = [
-            ("bracken", ["--help"]),
-            ("bracken-build", ["-v"]),
-            ("src/kmer2read_distr", ["--help"]),
+            (environmentURL.appendingPathComponent("bin/bracken").path, ["--help"]),
+            (environmentURL.appendingPathComponent("bin/bracken-build").path, ["-v"]),
+            (environmentURL.appendingPathComponent("bin/src/kmer2read_distr").path, ["--help"]),
         ]
 
         for probe in probes {

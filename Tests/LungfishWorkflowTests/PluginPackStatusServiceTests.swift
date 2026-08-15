@@ -2326,7 +2326,14 @@ final class PluginPackStatusServiceTests: XCTestCase {
                 done
                 tool="$1"
                 shift
-                exec "$MAMBA_ROOT_PREFIX/envs/$env_name/bin/$tool" "$@"
+                case "$tool" in
+                    /*|*/*)
+                        exec "$tool" "$@"
+                        ;;
+                    *)
+                        exec "$MAMBA_ROOT_PREFIX/envs/$env_name/bin/$tool" "$@"
+                        ;;
+                esac
                 ;;
             remove)
                 exit 0

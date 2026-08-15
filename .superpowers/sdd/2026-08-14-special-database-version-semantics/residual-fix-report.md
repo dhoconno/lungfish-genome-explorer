@@ -110,3 +110,9 @@ The expanded `CondaOfflinePackServiceTests` class passes 11/11. The combined
 database/UI regression selection passes 117 XCTest tests plus 33 Swift Testing
 tests. Its managed-Bracken provenance fixture now supplies the complete pinned
 compiler/OpenMP runtime required by production receipt validation.
+
+Live controller verification also exposed that micromamba treats a command
+containing `/` as relative to the caller working directory. The Bracken status
+probe now invokes all three payloads by their absolute installed paths. The
+test micromamba fixture mirrors that real resolution behavior, and the actual
+managed `bracken`, `bracken-build`, and `kmer2read_distr` probes all exit 0.
