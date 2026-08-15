@@ -239,9 +239,25 @@ public actor ClassifierReadResolver {
             }
 
             let targetIds = Set(group.flatMap { $0.taxIds })
-            for node in classResult.tree.allNodes() where targetIds.contains(node.taxId) {
+            let selectedNodes = classResult.tree.allNodes().filter {
+                targetIds.contains($0.taxId)
+            }
+            let selectedNodeIdentities = Set(selectedNodes.map(ObjectIdentifier.init))
+            for node in selectedNodes {
+                var ancestor = node.parent
+                var hasSelectedAncestor = false
+                while let current = ancestor {
+                    if selectedNodeIdentities.contains(ObjectIdentifier(current)) {
+                        hasSelectedAncestor = true
+                        break
+                    }
+                    ancestor = current.parent
+                }
+                guard !hasSelectedAncestor else { continue }
+
                 // clade count already includes descendant reads; spec says
-                // includeChildren is always true for Kraken2.
+                // includeChildren is always true for Kraken2. Keeping only
+                // topmost selected clades makes this a read-union estimate.
                 total += node.readsClade
             }
         }

@@ -116,6 +116,39 @@ final class ClassifierReadResolverTests: XCTestCase {
         XCTAssertEqual(estimate, taxon.readsClade)
     }
 
+    func testEstimateKraken2ReadCountDoesNotDoubleCountSelectedDescendant() async throws {
+        let sampleResult = try kraken2MiniResultPath()
+        let classResult = try ClassificationResult.load(from: sampleResult)
+        let ancestor = try XCTUnwrap(classResult.tree.node(taxId: 1))
+        let descendant = try XCTUnwrap(classResult.tree.node(taxId: 1270))
+        var currentParent = descendant.parent
+        var isRealAncestor = false
+        while let parent = currentParent {
+            if parent === ancestor {
+                isRealAncestor = true
+                break
+            }
+            currentParent = parent.parent
+        }
+        XCTAssertTrue(isRealAncestor, "Fixture nodes must be related through TaxonNode.parent")
+        XCTAssertGreaterThan(descendant.readsClade, 0)
+
+        let estimate = try await ClassifierReadResolver().estimateReadCount(
+            tool: .kraken2,
+            resultPath: sampleResult,
+            selections: [
+                ClassifierRowSelector(
+                    sampleId: nil,
+                    accessions: [],
+                    taxIds: [ancestor.taxId, descendant.taxId]
+                )
+            ],
+            options: ExtractionOptions()
+        )
+
+        XCTAssertEqual(estimate, ancestor.readsClade)
+    }
+
     // MARK: - resolveBAMURL (per-tool)
 
     /// Helper: creates a throwaway directory layout that looks like a real
