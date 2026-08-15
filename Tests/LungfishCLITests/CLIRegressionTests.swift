@@ -8,6 +8,7 @@
 
 import ArgumentParser
 import Foundation
+import LungfishTestSupport
 import XCTest
 @testable import LungfishCLI
 import LungfishCore
@@ -240,6 +241,27 @@ final class ClassifyCommandInputFormatRegressionTests: XCTestCase {
 }
 
 final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
+
+    func testPrintedBrackenRankIncludesRequestedModeAndResolvedRank() throws {
+        let sourceURL = CLITestBinaryResolver.repositoryRoot(containing: #filePath)
+            .appendingPathComponent("Sources/LungfishCLI/Commands/ClassifyCommand.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let functionStart = try XCTUnwrap(
+            source.range(of: "func resolvedBrackenRankDescription")
+        )
+        let suffix = source[functionStart.lowerBound...]
+        let functionEnd = try XCTUnwrap(suffix.range(of: "func makeConfigForTesting"))
+        let formatterSource = suffix[..<functionEnd.lowerBound]
+
+        XCTAssertTrue(
+            formatterSource.contains("request.rank.provenanceValue"),
+            "Printed configuration must identify whether the rank request was automatic or explicit."
+        )
+        XCTAssertTrue(
+            formatterSource.contains("resolution.rank.code"),
+            "Printed configuration must show the exact resolved Bracken rank code."
+        )
+    }
 
     func testProfileParsingBuildsAutomaticOrExplicitRequestFromRegistryIdentity() throws {
         let tempDir = FileManager.default.temporaryDirectory

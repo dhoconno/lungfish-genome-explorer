@@ -1004,7 +1004,8 @@ struct ClassifyCommand: AsyncParsableCommand {
             installationRecipe: config.databaseInstallationRecipe,
             request: request
         )
-        return "\(resolution.rank.displayName) (\(resolution.source.rawValue))"
+        let requestedMode = request.rank.provenanceValue.replacingOccurrences(of: ":", with: " ")
+        return "\(requestedMode) → \(resolution.rank.displayName) (\(resolution.rank.code); \(resolution.source.rawValue))"
     }
 
     func makeConfigForTesting(
