@@ -241,6 +241,401 @@ final class ClassifyCommandInputFormatRegressionTests: XCTestCase {
 
 final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
 
+    func testProfileParsingBuildsAutomaticOrExplicitRequestFromRegistryIdentity() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("classify-profile-intent-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let databasePath = tempDir.appendingPathComponent("silva-db", isDirectory: true)
+        try FileManager.default.createDirectory(at: databasePath, withIntermediateDirectories: true)
+        let databaseInfo = MetagenomicsDatabaseInfo(
+            name: "SILVA",
+            tool: "kraken2",
+            version: "2026.1",
+            sizeBytes: 1,
+            catalogID: "kraken2-special-silva",
+            installationRecipe: .kraken2Special(type: .silva),
+            payloadDigest: "sha256:silva-fixture",
+            description: "Fixture SILVA database",
+            path: databasePath,
+            status: .ready,
+            recommendedRAM: 1
+        )
+        let inputURL = tempDir.appendingPathComponent("reads.fastq")
+
+        let automaticCommand = try ClassifyCommand.parse([
+            inputURL.path,
+            "--db", "SILVA",
+            "--profile",
+        ])
+        let automaticConfig = try automaticCommand.makeConfigForTesting(
+            inputURLs: [inputURL],
+            databaseInfo: databaseInfo,
+            inputFormat: .fastq,
+            outputDirectory: tempDir.appendingPathComponent("automatic", isDirectory: true)
+        )
+
+        XCTAssertNil(automaticCommand.brackenLevel)
+        XCTAssertEqual(automaticConfig.goal, .profile)
+        XCTAssertEqual(automaticConfig.brackenProfileRequest?.rank, .automatic)
+        XCTAssertEqual(automaticConfig.brackenProfileRequest?.readLength, 150)
+        XCTAssertEqual(automaticConfig.databaseVersion, "2026.1")
+        XCTAssertEqual(automaticConfig.databaseDigest, "sha256:silva-fixture")
+        XCTAssertEqual(automaticConfig.databaseCatalogID, "kraken2-special-silva")
+        XCTAssertEqual(
+            automaticConfig.databaseInstallationRecipe,
+            .kraken2Special(type: .silva)
+        )
+        XCTAssertEqual(
+            BrackenDatabaseCapabilities.resolve(
+                catalogID: automaticConfig.databaseCatalogID,
+                installationRecipe: automaticConfig.databaseInstallationRecipe,
+                request: try XCTUnwrap(automaticConfig.brackenProfileRequest)
+            ).rank,
+            .genus
+        )
+
+        let explicitCommand = try ClassifyCommand.parse([
+            inputURL.path,
+            "--db", "SILVA",
+            "--profile",
+            "--bracken-level", "G",
+        ])
+        let explicitConfig = try explicitCommand.makeConfigForTesting(
+            inputURLs: [inputURL],
+            databaseInfo: databaseInfo,
+            inputFormat: .fastq,
+            outputDirectory: tempDir.appendingPathComponent("explicit", isDirectory: true)
+        )
+        XCTAssertEqual(explicitCommand.brackenLevel, "G")
+        XCTAssertEqual(explicitConfig.brackenProfileRequest?.rank, .explicit(.genus))
+    }
+
+    func testDegradedProfileProvenanceAndTerminalPolicyAreResultDriven() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("classify-degraded-profile-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        let inputURL = tempDir.appendingPathComponent("reads.fastq")
+        try "@read\nACGT\n+\nIIII\n".write(to: inputURL, atomically: true, encoding: .utf8)
+        let reportURL = tempDir.appendingPathComponent("classification.kreport")
+        let outputURL = tempDir.appendingPathComponent("classification.kraken")
+        try """
+        100.00\t1\t1\tR\t1\troot
+        """.write(to: reportURL, atomically: true, encoding: .utf8)
+        try "C\tread\t1\t4\t1:4\n".write(to: outputURL, atomically: true, encoding: .utf8)
+        let databasePath = tempDir.appendingPathComponent("silva-db", isDirectory: true)
+        try FileManager.default.createDirectory(at: databasePath, withIntermediateDirectories: true)
+
+        let request = BrackenProfileRequest.automaticDefault
+        let resolution = BrackenDatabaseCapabilities.resolve(
+            catalogID: "kraken2-special-silva",
+            installationRecipe: .kraken2Special(type: .silva),
+            request: request
+        )
+        let config = ClassificationConfig(
+            goal: .profile,
+            inputFiles: [inputURL],
+            isPairedEnd: false,
+            databaseName: "SILVA",
+            databaseVersion: "2026.1",
+            databasePath: databasePath,
+            databaseDigest: "sha256:silva-fixture",
+            databaseCatalogID: "kraken2-special-silva",
+            databaseInstallationRecipe: .kraken2Special(type: .silva),
+            brackenProfileRequest: request,
+            outputDirectory: tempDir
+        )
+        let result = ClassificationResult(
+            config: config,
+            tree: try KreportParser.parse(url: reportURL),
+            reportURL: reportURL,
+            outputURL: outputURL,
+            brackenURL: nil,
+            profileOutcome: .degraded(
+                resolution: resolution,
+                reason: .rankAbsentFromReport,
+                message: "The Kraken report has no genus rows."
+            ),
+            runtime: 4.0,
+            toolVersion: "2.1.3",
+            provenanceId: nil
+        )
+
+        let inputDescriptor = try ProvenanceFileDescriptor.file(
+            url: inputURL,
+            format: .fastq,
+            role: .input
+        )
+        let reportDescriptor = try ProvenanceFileDescriptor.file(
+            url: reportURL,
+            format: .text,
+            role: .report
+        )
+        let outputDescriptor = try ProvenanceFileDescriptor.file(
+            url: outputURL,
+            format: .text,
+            role: .output
+        )
+        let krakenStepID = UUID()
+        let krakenStep = ProvenanceStep(
+            id: krakenStepID,
+            toolName: "kraken2",
+            toolVersion: "2.1.3",
+            argv: ["kraken2", "--db", databasePath.path],
+            inputs: [inputDescriptor],
+            outputs: [reportDescriptor, outputDescriptor],
+            exitStatus: 0,
+            wallTimeSeconds: 3,
+            startedAt: Date(timeIntervalSince1970: 100),
+            completedAt: Date(timeIntervalSince1970: 103)
+        )
+        let preflightStep = ProvenanceStep(
+            toolName: "Lungfish Bracken Preflight",
+            toolVersion: "test",
+            argv: [
+                "LungfishWorkflow", "BrackenPreflight",
+                "--kreport", reportURL.path,
+                "--resolved-rank", "G",
+            ],
+            resolvedOptions: ["resolvedRank": .string("G")],
+            runtimeIdentity: .fixture(),
+            inputs: [reportDescriptor],
+            outputs: [],
+            exitStatus: 2,
+            wallTimeSeconds: 0.1,
+            peakMemoryBytes: 4_096,
+            stderr: "The Kraken report has no genus rows.",
+            dependsOn: [krakenStepID],
+            startedAt: Date(timeIntervalSince1970: 103),
+            completedAt: Date(timeIntervalSince1970: 103.1)
+        )
+        let pipelineEnvelope = ProvenanceEnvelope(
+            workflowName: "Metagenomics Profiling",
+            workflowVersion: "pipeline-version",
+            toolName: "kraken2",
+            toolVersion: "2.1.3",
+            argv: krakenStep.argv,
+            runtimeIdentity: .fixture(),
+            files: [inputDescriptor, reportDescriptor, outputDescriptor],
+            output: reportDescriptor,
+            outputs: [reportDescriptor, outputDescriptor],
+            steps: [krakenStep, preflightStep],
+            wallTimeSeconds: 3.1,
+            exitStatus: 2,
+            stderr: preflightStep.stderr
+        )
+        try ProvenanceWriter(signingProvider: nil).write(pipelineEnvelope, to: tempDir)
+
+        let argv = [
+            "lungfish-cli", "conda", "classify", inputURL.path,
+            "--db", "SILVA",
+            "--profile",
+        ]
+        let sidecarURL = try ClassifyCommand.writeProvenance(
+            result: result,
+            originalInputURLs: [inputURL],
+            executionInputURLs: [inputURL],
+            argv: argv,
+            startedAt: Date(timeIntervalSince1970: 100),
+            endedAt: Date(timeIntervalSince1970: 104),
+            writer: ProvenanceWriter(signingProvider: nil)
+        )
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: sidecarURL)
+        )
+
+        XCTAssertEqual(envelope.exitStatus, Int(CLIExitCode.workflowError.rawValue))
+        XCTAssertEqual(envelope.options.defaults["brackenRankRequest"], .string("automatic"))
+        XCTAssertNil(envelope.options.defaults["brackenLevel"])
+        XCTAssertNil(envelope.options.explicit["brackenLevel"])
+        XCTAssertEqual(envelope.options.resolvedDefaults["databaseVersion"], .string("2026.1"))
+        XCTAssertEqual(
+            envelope.options.resolvedDefaults["databaseCatalogID"],
+            .string("kraken2-special-silva")
+        )
+        XCTAssertEqual(
+            envelope.options.resolvedDefaults["databaseInstallationRecipe"],
+            .string(config.databaseInstallationRecipe?.provenanceValue ?? "")
+        )
+        XCTAssertEqual(
+            envelope.options.resolvedDefaults["databaseDigest"],
+            .string("sha256:silva-fixture")
+        )
+        XCTAssertEqual(envelope.options.resolvedDefaults["brackenResolvedRank"], .string("G"))
+        XCTAssertEqual(envelope.options.resolvedDefaults["brackenReadLength"], .integer(150))
+        XCTAssertEqual(envelope.options.resolvedDefaults["profile"], .boolean(true))
+        XCTAssertEqual(envelope.options.resolvedDefaults["profileState"], .string("degraded"))
+        XCTAssertEqual(
+            envelope.options.resolvedDefaults["profileReason"],
+            .string(BrackenProfileDegradationReason.rankAbsentFromReport.rawValue)
+        )
+        XCTAssertTrue(envelope.outputs.contains { $0.path == reportURL.path })
+        XCTAssertTrue(envelope.outputs.contains { $0.path == outputURL.path })
+        let retainedKrakenStep = try XCTUnwrap(
+            envelope.steps.first { $0.toolName == "kraken2" }
+        )
+        XCTAssertEqual(retainedKrakenStep.argv, krakenStep.argv)
+        XCTAssertEqual(retainedKrakenStep.wallTimeSeconds, krakenStep.wallTimeSeconds)
+        let retainedPreflightStep = try XCTUnwrap(
+            envelope.steps.first {
+                $0.toolName == "Lungfish Bracken Preflight" && $0.exitStatus != 0
+            }
+        )
+        XCTAssertEqual(retainedPreflightStep.resolvedOptions, preflightStep.resolvedOptions)
+        XCTAssertEqual(retainedPreflightStep.runtimeIdentity, preflightStep.runtimeIdentity)
+        XCTAssertEqual(retainedPreflightStep.peakMemoryBytes, preflightStep.peakMemoryBytes)
+        XCTAssertFalse(
+            envelope.steps.contains {
+                $0.toolName == "bracken" && $0.exitStatus == 0
+            }
+        )
+
+        let policy = ClassifyCommand.terminalPolicy(for: result)
+        XCTAssertFalse(policy.isSuccess)
+        XCTAssertEqual(policy.exitCode, CLIExitCode.workflowError.rawValue)
+        XCTAssertTrue(policy.message.contains("Kraken"))
+        XCTAssertTrue(policy.message.contains("Bracken"))
+    }
+
+    func testCompletedProfileProvenancePreservesExactPipelineBrackenStep() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("classify-completed-profile-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        let inputURL = tempDir.appendingPathComponent("reads.fastq")
+        let reportURL = tempDir.appendingPathComponent("classification.kreport")
+        let outputURL = tempDir.appendingPathComponent("classification.kraken")
+        let brackenURL = tempDir.appendingPathComponent("classification.bracken")
+        let databasePath = tempDir.appendingPathComponent("silva-db", isDirectory: true)
+        let distributionURL = databasePath.appendingPathComponent("database150mers.kmer_distrib")
+        try FileManager.default.createDirectory(at: databasePath, withIntermediateDirectories: true)
+        try "@read\nACGT\n+\nIIII\n".write(to: inputURL, atomically: true, encoding: .utf8)
+        try "100.00\t1\t1\tR\t1\troot\n100.00\t1\t1\tG\t9605\t  Homo\n"
+            .write(to: reportURL, atomically: true, encoding: .utf8)
+        try "C\tread\t9605\t4\t9605:4\n".write(to: outputURL, atomically: true, encoding: .utf8)
+        try "name\ttaxonomy_id\tnew_est_reads\nHomo\t9605\t1\n"
+            .write(to: brackenURL, atomically: true, encoding: .utf8)
+        try "distribution fixture\n".write(to: distributionURL, atomically: true, encoding: .utf8)
+
+        let request = BrackenProfileRequest.automaticDefault
+        let resolution = BrackenDatabaseCapabilities.resolve(
+            catalogID: "kraken2-special-silva",
+            installationRecipe: .kraken2Special(type: .silva),
+            request: request
+        )
+        let config = ClassificationConfig(
+            goal: .profile,
+            inputFiles: [inputURL],
+            isPairedEnd: false,
+            databaseName: "SILVA",
+            databaseVersion: "2026.1",
+            databasePath: databasePath,
+            databaseDigest: "sha256:silva-fixture",
+            databaseCatalogID: "kraken2-special-silva",
+            databaseInstallationRecipe: .kraken2Special(type: .silva),
+            brackenProfileRequest: request,
+            outputDirectory: tempDir
+        )
+        let result = ClassificationResult(
+            config: config,
+            tree: try KreportParser.parse(url: reportURL),
+            reportURL: reportURL,
+            outputURL: outputURL,
+            brackenURL: brackenURL,
+            profileOutcome: .completed(resolution: resolution, toolVersion: "3.1"),
+            runtime: 4.0,
+            toolVersion: "2.1.3",
+            provenanceId: nil
+        )
+
+        let inputDescriptor = try ProvenanceFileDescriptor.file(url: inputURL, format: .fastq, role: .input)
+        let reportDescriptor = try ProvenanceFileDescriptor.file(url: reportURL, format: .text, role: .report)
+        let outputDescriptor = try ProvenanceFileDescriptor.file(url: outputURL, format: .text, role: .output)
+        let brackenDescriptor = try ProvenanceFileDescriptor.file(url: brackenURL, format: .text, role: .output)
+        let distributionDescriptor = try ProvenanceFileDescriptor.file(
+            url: distributionURL,
+            format: .text,
+            role: .input
+        )
+        let krakenStep = ProvenanceStep(
+            toolName: "kraken2",
+            toolVersion: "2.1.3",
+            argv: ["kraken2", "--db", databasePath.path],
+            inputs: [inputDescriptor],
+            outputs: [reportDescriptor, outputDescriptor],
+            exitStatus: 0,
+            wallTimeSeconds: 3
+        )
+        let preflightStep = ProvenanceStep(
+            toolName: "Lungfish Bracken Preflight",
+            toolVersion: "test",
+            argv: ["LungfishWorkflow", "BrackenPreflight", "--resolved-rank", "G"],
+            inputs: [reportDescriptor, distributionDescriptor],
+            outputs: [],
+            exitStatus: 0,
+            dependsOn: [krakenStep.id]
+        )
+        let brackenStep = ProvenanceStep(
+            toolName: "bracken",
+            toolVersion: "3.1",
+            argv: [
+                "bracken", "-d", databasePath.path, "-i", reportURL.path,
+                "-o", brackenURL.path, "-r", "150", "-l", "G", "-t", "10",
+            ],
+            resolvedOptions: ["rank": .string("G"), "readLength": .integer(150)],
+            runtimeIdentity: .fixture(),
+            inputs: [reportDescriptor, distributionDescriptor],
+            outputs: [brackenDescriptor],
+            exitStatus: 0,
+            wallTimeSeconds: 0.75,
+            peakMemoryBytes: 8_192,
+            dependsOn: [preflightStep.id]
+        )
+        let pipelineEnvelope = ProvenanceEnvelope(
+            workflowName: "Metagenomics Profiling",
+            workflowVersion: "pipeline-version",
+            toolName: "kraken2",
+            toolVersion: "2.1.3",
+            argv: krakenStep.argv,
+            runtimeIdentity: .fixture(),
+            files: [inputDescriptor, reportDescriptor, outputDescriptor, distributionDescriptor, brackenDescriptor],
+            output: reportDescriptor,
+            outputs: [reportDescriptor, outputDescriptor, brackenDescriptor],
+            steps: [krakenStep, preflightStep, brackenStep],
+            wallTimeSeconds: 3.75,
+            exitStatus: 0
+        )
+        try ProvenanceWriter(signingProvider: nil).write(pipelineEnvelope, to: tempDir)
+
+        let sidecarURL = try ClassifyCommand.writeProvenance(
+            result: result,
+            originalInputURLs: [inputURL],
+            executionInputURLs: [inputURL],
+            argv: ["lungfish-cli", "conda", "classify", inputURL.path, "--db", "SILVA", "--profile"],
+            startedAt: Date(timeIntervalSince1970: 100),
+            endedAt: Date(timeIntervalSince1970: 104),
+            writer: ProvenanceWriter(signingProvider: nil)
+        )
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: sidecarURL)
+        )
+        let retainedBrackenSteps = envelope.steps.filter { $0.toolName == "bracken" }
+        let retainedBrackenStep = try XCTUnwrap(retainedBrackenSteps.first)
+
+        XCTAssertEqual(retainedBrackenSteps.count, 1)
+        XCTAssertEqual(retainedBrackenStep.id, brackenStep.id)
+        XCTAssertEqual(retainedBrackenStep.argv, brackenStep.argv)
+        XCTAssertEqual(retainedBrackenStep.inputs, brackenStep.inputs)
+        XCTAssertEqual(retainedBrackenStep.resolvedOptions, brackenStep.resolvedOptions)
+        XCTAssertEqual(retainedBrackenStep.runtimeIdentity, brackenStep.runtimeIdentity)
+        XCTAssertEqual(retainedBrackenStep.peakMemoryBytes, brackenStep.peakMemoryBytes)
+        XCTAssertEqual(retainedBrackenStep.dependsOn, brackenStep.dependsOn)
+    }
+
     func testClassifyMaterializesVirtualDerivedBundleInsteadOfRootPayload() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("classify-materialize-derived-\(UUID().uuidString)", isDirectory: true)
@@ -577,7 +972,6 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
                 "--extra-args", "--minimum-base-quality 20",
             ],
             preset: "precise",
-            profile: true,
             startedAt: Date(timeIntervalSince1970: 100),
             endedAt: Date(timeIntervalSince1970: 104),
             writer: ProvenanceWriter(signingProvider: nil)

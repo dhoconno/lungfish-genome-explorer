@@ -26,6 +26,12 @@ import LungfishCore
 /// # Precise classification with 8 threads
 /// lungfish conda classify reads.fastq --db PlusPF --preset precise --threads 8
 /// ```
+struct ClassifyTerminalPolicy: Equatable {
+    let isSuccess: Bool
+    let exitCode: Int32
+    let message: String
+}
+
 struct ClassifyCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "classify",
@@ -76,8 +82,11 @@ struct ClassifyCommand: AsyncParsableCommand {
     @Option(name: .customLong("bracken-read-length"), help: "Read length for Bracken -r flag (default: 150)")
     var brackenReadLength: Int = 150
 
-    @Option(name: .customLong("bracken-level"), help: "Bracken taxonomic level: D,P,C,O,F,G,S (default: S)")
-    var brackenLevel: String = "S"
+    @Option(
+        name: .customLong("bracken-level"),
+        help: "Bracken taxonomic level: D,P,C,O,F,G,S (default: automatic for the selected database)"
+    )
+    var brackenLevel: String?
 
     @Option(name: .customLong("bracken-threshold"), help: "Bracken minimum read threshold (default: 10)")
     var brackenThreshold: Int = 10
@@ -227,19 +236,15 @@ struct ClassifyCommand: AsyncParsableCommand {
             }
         }
 
-        // Build config from preset, then apply overrides.
+        // Build config from the registry identity and preset, then apply overrides.
         let effectiveThreads = globalOptions.threads ?? 4
-        var config = ClassificationConfig.fromPreset(
-            preset.toPreset(),
-            inputFiles: executionInputURLs,
-            isPairedEnd: pairedEnd,
-            databaseName: databaseName,
-            inputFormat: inputFormat,
+        var config = makeConfig(
+            inputURLs: executionInputURLs,
+            databaseInfo: dbInfo,
             databasePath: dbPath,
-            threads: effectiveThreads,
-            memoryMapping: memoryMapping,
-            quickMode: quickMode,
+            inputFormat: inputFormat,
             outputDirectory: outputDirectory,
+            threads: effectiveThreads,
             extraArguments: parsedExtraArguments
         )
 
@@ -267,6 +272,7 @@ struct ClassifyCommand: AsyncParsableCommand {
             ("Threads", String(config.threads)),
             ("Memory mapping", config.memoryMapping ? "yes" : "no"),
             ("Bracken profiling", profile ? "yes" : "no"),
+            ("Bracken rank", resolvedBrackenRankDescription(for: config)),
             ("Output", outputDirectory.path),
         ]))
         print("")
@@ -276,13 +282,7 @@ struct ClassifyCommand: AsyncParsableCommand {
 
         let result: ClassificationResult
         if profile {
-            let rank = TaxonomicRank(code: brackenLevel)
-            result = try await pipeline.profile(
-                config: config,
-                brackenReadLength: brackenReadLength,
-                brackenLevel: rank,
-                brackenThreshold: brackenThreshold
-            ) { fraction, message in
+            result = try await pipeline.profile(config: config) { fraction, message in
                 if !globalOptions.quiet {
                     print("\r\(formatter.info(message))", terminator: "")
                 }
@@ -303,10 +303,6 @@ struct ClassifyCommand: AsyncParsableCommand {
                 argv: CommandLine.arguments,
                 durableReplayArgv: durableReplayArguments,
                 preset: preset.rawValue,
-                profile: profile,
-                brackenReadLength: brackenReadLength,
-                brackenLevel: brackenLevel,
-                brackenThreshold: brackenThreshold,
                 startedAt: startedAt,
                 endedAt: Date(),
                 materializationStartedAt: resolvedInputs.materializationStartedAt,
@@ -358,7 +354,14 @@ struct ClassifyCommand: AsyncParsableCommand {
             print("  Bracken: \(formatter.path(bracken.path))")
         }
         print("")
-        print(formatter.success("Classification completed in \(String(format: "%.1f", result.runtime))s"))
+
+        let terminalPolicy = Self.terminalPolicy(for: result)
+        if terminalPolicy.isSuccess {
+            print(formatter.success("\(terminalPolicy.message) in \(String(format: "%.1f", result.runtime))s"))
+        } else {
+            print(formatter.warning(terminalPolicy.message))
+            throw ExitCode(rawValue: terminalPolicy.exitCode)
+        }
     }
 
     static func resolveExecutionInputURLs(for inputURLs: [URL]) throws -> [URL] {
@@ -367,6 +370,38 @@ struct ClassifyCommand: AsyncParsableCommand {
                 throw CLIError.formatDetectionFailed(path: inputURL.path)
             }
             return resolvedURL.standardizedFileURL
+        }
+    }
+
+    static func terminalPolicy(for result: ClassificationResult) -> ClassifyTerminalPolicy {
+        switch result.profileOutcome.state {
+        case .notRequested where result.config.goal == .profile:
+            return ClassifyTerminalPolicy(
+                isSuccess: false,
+                exitCode: CLIExitCode.workflowError.rawValue,
+                message: "Kraken classification completed, but Bracken profiling has no recorded outcome."
+            )
+        case .notRequested:
+            return ClassifyTerminalPolicy(
+                isSuccess: true,
+                exitCode: CLIExitCode.success.rawValue,
+                message: "Classification completed"
+            )
+        case .completed:
+            return ClassifyTerminalPolicy(
+                isSuccess: true,
+                exitCode: CLIExitCode.success.rawValue,
+                message: "Kraken classification and Bracken profiling completed"
+            )
+        case .degraded:
+            let detail = result.profileOutcome.message
+                ?? result.profileOutcome.reason?.rawValue
+                ?? "unknown profiling failure"
+            return ClassifyTerminalPolicy(
+                isSuccess: false,
+                exitCode: CLIExitCode.workflowError.rawValue,
+                message: "Kraken classification completed, but Bracken profiling did not complete: \(detail)"
+            )
         }
     }
 
@@ -393,10 +428,6 @@ struct ClassifyCommand: AsyncParsableCommand {
         argv: [String],
         durableReplayArgv: [String]? = nil,
         preset: String = "balanced",
-        profile: Bool = false,
-        brackenReadLength: Int = 150,
-        brackenLevel: String = "S",
-        brackenThreshold: Int = 10,
         startedAt: Date,
         endedAt: Date,
         materializationStartedAt: Date? = nil,
@@ -438,22 +469,15 @@ struct ClassifyCommand: AsyncParsableCommand {
                 for: config,
                 originalInputURLs: originalInputURLs,
                 argv: argv,
-                preset: preset,
-                profile: profile,
-                brackenReadLength: brackenReadLength,
-                brackenLevel: brackenLevel,
-                brackenThreshold: brackenThreshold
+                preset: preset
             ),
             defaults: classificationDefaultOptions(),
             resolved: classificationResolvedOptions(
                 for: config,
+                outcome: result.profileOutcome,
                 originalInputURLs: originalInputURLs,
                 executionInputURLs: executionInputURLs,
-                preset: preset,
-                profile: profile,
-                brackenReadLength: brackenReadLength,
-                brackenLevel: brackenLevel,
-                brackenThreshold: brackenThreshold
+                preset: preset
             )
         )
         .runtime(
@@ -466,37 +490,60 @@ struct ClassifyCommand: AsyncParsableCommand {
         for materializationStep in materializationSteps {
             builder = builder.step(materializationStep)
         }
+        for outputDescriptor in outputDescriptors {
+            builder = try builder.output(
+                URL(fileURLWithPath: outputDescriptor.path),
+                format: outputDescriptor.format,
+                role: outputDescriptor.role
+            )
+        }
 
         let krakenArgv = ["kraken2"] + config.kraken2Arguments()
-        builder = builder.step(
-            ProvenanceStep(
+        let krakenOutputDescriptors = outputDescriptors.filter { descriptor in
+            descriptor.path == result.reportURL.path
+                || descriptor.path == config.outputURL.path
+        }
+        let recordedKrakenStep = pipelineEnvelope.flatMap { envelope -> ProvenanceStep? in
+            guard isCurrentClassificationPipelineEnvelope(envelope, result: result) else {
+                return nil
+            }
+            return envelope.steps.first {
+                $0.toolName == "kraken2" && $0.exitStatus == 0
+            }
+        }
+        let krakenStep = recordedKrakenStep
+            ?? ProvenanceStep(
                 toolName: "kraken2",
                 toolVersion: result.toolVersion,
                 argv: krakenArgv,
                 reproducibleCommand: krakenArgv.map(shellEscape).joined(separator: " "),
                 inputs: executionDescriptors,
-                outputs: outputDescriptors,
+                outputs: krakenOutputDescriptors,
                 exitStatus: 0,
                 wallTimeSeconds: result.runtime,
                 stderr: stderr,
                 startedAt: startedAt,
                 completedAt: endedAt
             )
-        )
+        builder = builder.step(krakenStep)
 
         if let brackenStep = try brackenProvenanceStep(
             result: result,
-            brackenReadLength: brackenReadLength,
-            brackenLevel: brackenLevel,
-            brackenThreshold: brackenThreshold,
+            pipelineEnvelope: pipelineEnvelope,
             fallbackStartedAt: endedAt
         ) {
             builder = builder.step(brackenStep)
         }
 
+        let terminalPolicy = terminalPolicy(for: result)
+        let terminalStderr = terminalPolicy.isSuccess
+            ? stderr
+            : [stderr, terminalPolicy.message]
+                .compactMap { $0 }
+                .joined(separator: "\n")
         let synthesizedEnvelope = try builder.complete(
-            exitStatus: 0,
-            stderr: stderr,
+            exitStatus: Int(terminalPolicy.exitCode),
+            stderr: terminalStderr,
             startedAt: startedAt,
             endedAt: endedAt
         )
@@ -526,8 +573,8 @@ struct ClassifyCommand: AsyncParsableCommand {
             "threads": .integer(4),
             "memoryMapping": .boolean(false),
             "quickMode": .boolean(false),
+            "brackenRankRequest": .string("automatic"),
             "brackenReadLength": .integer(150),
-            "brackenLevel": .string("S"),
             "brackenThreshold": .integer(10),
             "extraArguments": .array([]),
         ]
@@ -535,45 +582,69 @@ struct ClassifyCommand: AsyncParsableCommand {
 
     private static func classificationResolvedOptions(
         for config: ClassificationConfig,
+        outcome: BrackenProfileOutcome,
         originalInputURLs: [URL],
         executionInputURLs: [URL],
-        preset: String,
-        profile: Bool,
-        brackenReadLength: Int,
-        brackenLevel: String,
-        brackenThreshold: Int
+        preset: String
     ) -> [String: ParameterValue] {
-        [
+        let request = config.brackenProfileRequest
+        let resolution = outcome.resolution ?? request.map {
+            BrackenDatabaseCapabilities.resolve(
+                catalogID: config.databaseCatalogID,
+                installationRecipe: config.databaseInstallationRecipe,
+                request: $0
+            )
+        }
+        let profileRequested = config.goal == .profile
+            || request != nil
+            || outcome.state != .notRequested
+
+        var options: [String: ParameterValue] = [
             "databaseName": .string(config.databaseName),
+            "databaseVersion": .string(config.databaseVersion.isEmpty ? "unknown" : config.databaseVersion),
+            "databaseDigest": config.databaseDigest.map(ParameterValue.string) ?? .null,
+            "databaseCatalogID": config.databaseCatalogID.map(ParameterValue.string) ?? .null,
+            "databaseInstallationRecipe": config.databaseInstallationRecipe
+                .map { .string($0.provenanceValue) } ?? .null,
             "databasePath": .file(config.databasePath),
             "inputFormat": .string(config.inputFormat.rawValue),
+            "goal": .string(config.goal.rawValue),
             "preset": .string(preset),
             "pairedEnd": .boolean(config.isPairedEnd),
-            "profile": .boolean(profile),
+            "profile": .boolean(profileRequested),
             "confidence": .number(config.confidence),
             "minimumHitGroups": .integer(config.minimumHitGroups),
             "threads": .integer(config.threads),
             "memoryMapping": .boolean(config.memoryMapping),
             "quickMode": .boolean(config.quickMode),
-            "brackenReadLength": .integer(brackenReadLength),
-            "brackenLevel": .string(brackenLevel),
-            "brackenThreshold": .integer(brackenThreshold),
+            "brackenRankRequest": request.map { .string($0.rank.provenanceValue) } ?? .string("notRequested"),
+            "brackenRequestedReadLength": request.map { .integer($0.readLength) } ?? .null,
+            "brackenRequestedThreshold": request.map { .integer($0.threshold) } ?? .null,
+            "brackenResolvedRank": resolution.map { .string($0.rank.code) } ?? .null,
+            "brackenResolutionSource": resolution.map { .string($0.source.rawValue) } ?? .null,
+            "brackenReadLength": resolution.map { .integer($0.readLength) } ?? .null,
+            "brackenThreshold": resolution.map { .integer($0.threshold) } ?? .null,
+            "profileState": .string(outcome.state.rawValue),
+            "profileReason": outcome.reason.map { .string($0.rawValue) } ?? .null,
+            "profileMessage": outcome.message.map(ParameterValue.string) ?? .null,
+            "brackenToolVersion": outcome.toolVersion.map(ParameterValue.string) ?? .null,
             "outputDirectory": .file(config.outputDirectory),
             "extraArguments": .array(config.extraArguments.map(ParameterValue.string)),
             "originalInputs": .array(originalInputURLs.map { .file($0.standardizedFileURL) }),
             "executionInputs": .array(executionInputURLs.map { .file($0.standardizedFileURL) }),
         ]
+        if let request,
+           case .explicit(let rank) = request.rank {
+            options["brackenExplicitRank"] = .string(rank.code)
+        }
+        return options
     }
 
     private static func classificationExplicitOptions(
         for config: ClassificationConfig,
         originalInputURLs: [URL],
         argv: [String],
-        preset: String,
-        profile: Bool,
-        brackenReadLength: Int,
-        brackenLevel: String,
-        brackenThreshold: Int
+        preset: String
     ) -> [String: ParameterValue] {
         var options: [String: ParameterValue] = [
             "databaseName": .string(config.databaseName),
@@ -590,7 +661,7 @@ struct ClassifyCommand: AsyncParsableCommand {
             options["pairedEnd"] = .boolean(config.isPairedEnd)
         }
         if argvContainsOption(argv, names: ["--profile"]) {
-            options["profile"] = .boolean(profile)
+            options["profile"] = .boolean(true)
         }
         if argvContainsOption(argv, names: ["--confidence"]) {
             options["confidence"] = .number(config.confidence)
@@ -607,14 +678,19 @@ struct ClassifyCommand: AsyncParsableCommand {
         if argvContainsOption(argv, names: ["--quick"]) {
             options["quickMode"] = .boolean(config.quickMode)
         }
-        if argvContainsOption(argv, names: ["--bracken-read-length"]) {
-            options["brackenReadLength"] = .integer(brackenReadLength)
+        if let rawReadLength = argvOptionValue(argv, names: ["--bracken-read-length"]),
+           let readLength = Int(rawReadLength) {
+            options["brackenReadLength"] = .integer(readLength)
         }
-        if argvContainsOption(argv, names: ["--bracken-level"]) {
+        if let brackenLevel = argvOptionValue(argv, names: ["--bracken-level"]) {
             options["brackenLevel"] = .string(brackenLevel)
+            options["brackenRankRequest"] = .string(
+                BrackenRankRequest.explicit(TaxonomicRank(code: brackenLevel)).provenanceValue
+            )
         }
-        if argvContainsOption(argv, names: ["--bracken-threshold"]) {
-            options["brackenThreshold"] = .integer(brackenThreshold)
+        if let rawThreshold = argvOptionValue(argv, names: ["--bracken-threshold"]),
+           let threshold = Int(rawThreshold) {
+            options["brackenThreshold"] = .integer(threshold)
         }
         if argvContainsOption(argv, names: ["--extra-args"]) {
             options["extraArguments"] = .array(config.extraArguments.map(ParameterValue.string))
@@ -631,11 +707,31 @@ struct ClassifyCommand: AsyncParsableCommand {
         }
     }
 
+    private static func argvOptionValue(_ argv: [String], names: Set<String>) -> String? {
+        for (index, argument) in argv.enumerated() {
+            let components = argument.split(
+                separator: "=",
+                maxSplits: 1,
+                omittingEmptySubsequences: false
+            )
+            let name = String(components[0])
+            guard names.contains(name) else {
+                continue
+            }
+            if components.count == 2 {
+                return String(components[1])
+            }
+            guard argv.indices.contains(index + 1) else {
+                return nil
+            }
+            return argv[index + 1]
+        }
+        return nil
+    }
+
     private static func brackenProvenanceStep(
         result: ClassificationResult,
-        brackenReadLength: Int,
-        brackenLevel: String,
-        brackenThreshold: Int,
+        pipelineEnvelope: ProvenanceEnvelope?,
         fallbackStartedAt: Date
     ) throws -> ProvenanceStep? {
         guard let brackenURL = result.brackenURL,
@@ -643,17 +739,46 @@ struct ClassifyCommand: AsyncParsableCommand {
             return nil
         }
 
+        if let pipelineEnvelope,
+           isCurrentClassificationPipelineEnvelope(pipelineEnvelope, result: result),
+           pipelineEnvelope.steps.contains(where: { step in
+               step.toolName == "bracken"
+                   && step.exitStatus == 0
+                   && step.outputs.contains { $0.path == brackenURL.path }
+           }) {
+            // `preservingPipelineOnlySteps` will retain and dependency-remap the
+            // exact pipeline invocation, including its distribution input,
+            // resolved options, runtime identity, resource use, and lineage.
+            return nil
+        }
+
         let legacyStep = ProvenanceRecorder.load(from: result.config.outputDirectory)?
             .steps
             .first { $0.toolName == "bracken" }
+        let resolution = result.profileOutcome.resolution
+            ?? result.config.brackenProfileRequest.map {
+                BrackenDatabaseCapabilities.resolve(
+                    catalogID: result.config.databaseCatalogID,
+                    installationRecipe: result.config.databaseInstallationRecipe,
+                    request: $0
+                )
+            }
+        let resolvedReadLength = resolution?.readLength
+            ?? BrackenDatabaseCapabilities.supportedReadLength
+        let resolvedLevel = resolution
+            .flatMap { BrackenDatabaseCapabilities.levelCode(for: $0.rank) }
+            ?? "S"
+        let resolvedThreshold = resolution?.threshold
+            ?? result.config.brackenProfileRequest?.threshold
+            ?? 10
         let fallbackArgv = [
             "bracken",
             "-d", result.config.databasePath.path,
             "-i", result.reportURL.path,
             "-o", brackenURL.path,
-            "-r", String(brackenReadLength),
-            "-l", brackenLevel,
-            "-t", String(brackenThreshold),
+            "-r", String(resolvedReadLength),
+            "-l", resolvedLevel,
+            "-t", String(resolvedThreshold),
         ]
         let brackenArgv = legacyStep?.command ?? fallbackArgv
         return ProvenanceStep(
@@ -783,10 +908,13 @@ struct ClassifyCommand: AsyncParsableCommand {
             argv: step.argv,
             durableReplayArgv: step.durableReplayArgv,
             reproducibleCommand: step.reproducibleCommand,
+            resolvedOptions: step.resolvedOptions,
+            runtimeIdentity: step.runtimeIdentity,
             inputs: step.inputs,
             outputs: step.outputs,
             exitStatus: step.exitStatus,
             wallTimeSeconds: step.wallTimeSeconds,
+            peakMemoryBytes: step.peakMemoryBytes,
             stderr: step.stderr,
             dependsOn: dependsOn,
             startedAt: step.startedAt,
@@ -823,6 +951,84 @@ struct ClassifyCommand: AsyncParsableCommand {
             }
     }
 
+    private func requestedBrackenProfile() -> BrackenProfileRequest? {
+        guard profile else {
+            return nil
+        }
+        let rankRequest: BrackenRankRequest = brackenLevel
+            .map { .explicit(TaxonomicRank(code: $0)) }
+            ?? .automatic
+        return BrackenProfileRequest(
+            rank: rankRequest,
+            readLength: brackenReadLength,
+            threshold: brackenThreshold
+        )
+    }
+
+    private func makeConfig(
+        inputURLs: [URL],
+        databaseInfo: MetagenomicsDatabaseInfo,
+        databasePath: URL,
+        inputFormat: SequenceFormat,
+        outputDirectory: URL,
+        threads: Int,
+        extraArguments: [String]
+    ) -> ClassificationConfig {
+        ClassificationConfig.fromPreset(
+            preset.toPreset(),
+            goal: profile ? .profile : .classify,
+            inputFiles: inputURLs,
+            isPairedEnd: pairedEnd,
+            databaseName: databaseName,
+            inputFormat: inputFormat,
+            databaseVersion: databaseInfo.version ?? "unknown",
+            databasePath: databasePath,
+            databaseDigest: databaseInfo.payloadDigest,
+            databaseCatalogID: databaseInfo.catalogID,
+            databaseInstallationRecipe: databaseInfo.installationRecipe,
+            brackenProfileRequest: requestedBrackenProfile(),
+            threads: threads,
+            memoryMapping: memoryMapping,
+            quickMode: quickMode,
+            outputDirectory: outputDirectory,
+            extraArguments: extraArguments
+        )
+    }
+
+    private func resolvedBrackenRankDescription(for config: ClassificationConfig) -> String {
+        guard let request = config.brackenProfileRequest else {
+            return "not requested"
+        }
+        let resolution = BrackenDatabaseCapabilities.resolve(
+            catalogID: config.databaseCatalogID,
+            installationRecipe: config.databaseInstallationRecipe,
+            request: request
+        )
+        return "\(resolution.rank.displayName) (\(resolution.source.rawValue))"
+    }
+
+    func makeConfigForTesting(
+        inputURLs: [URL],
+        databaseInfo: MetagenomicsDatabaseInfo,
+        inputFormat: SequenceFormat,
+        outputDirectory: URL
+    ) throws -> ClassificationConfig {
+        guard let databasePath = databaseInfo.path else {
+            throw CLIError.validationFailed(
+                errors: ["Database '\(databaseInfo.name)' has no installed path."]
+            )
+        }
+        return makeConfig(
+            inputURLs: inputURLs,
+            databaseInfo: databaseInfo,
+            databasePath: databasePath,
+            inputFormat: inputFormat,
+            outputDirectory: outputDirectory,
+            threads: globalOptions.threads ?? 4,
+            extraArguments: try AdvancedCommandLineOptions.parse(extraArgs)
+        )
+    }
+
     func makeConfigForTesting(
         inputURLs: [URL],
         databasePath: URL,
@@ -831,11 +1037,14 @@ struct ClassifyCommand: AsyncParsableCommand {
     ) throws -> ClassificationConfig {
         ClassificationConfig.fromPreset(
             preset.toPreset(),
+            goal: profile ? .profile : .classify,
             inputFiles: inputURLs,
             isPairedEnd: pairedEnd,
             databaseName: databaseName,
             inputFormat: inputFormat,
+            databaseVersion: "unknown",
             databasePath: databasePath,
+            brackenProfileRequest: requestedBrackenProfile(),
             threads: globalOptions.threads ?? 4,
             memoryMapping: memoryMapping,
             quickMode: quickMode,
