@@ -149,29 +149,34 @@ public actor ClassificationPipeline {
     ) async throws -> ClassificationResult {
         try await runPipeline(
             config: config,
-            runBracken: false,
-            brackenReadLength: 150,
-            brackenLevel: .species,
-            brackenThreshold: 10,
+            profileRequest: nil,
             progress: progress
         )
     }
 
-    /// Runs Kraken2 classification followed by Bracken abundance profiling.
+    /// Runs Kraken2 classification followed by database-aware Bracken profiling.
     ///
-    /// Bracken re-estimates abundance at the specified taxonomic level by
-    /// redistributing reads from higher levels. The result tree will have
-    /// ``TaxonNode/brackenReads`` and ``TaxonNode/brackenFraction`` populated
-    /// on matched nodes.
+    /// A missing request uses the automatic 150-base default. Stable SILVA and
+    /// Greengenes identities resolve that request to genus; other databases use
+    /// species. The returned result states whether profiling completed or
+    /// degraded after a valid Kraken2 classification.
+    public func profile(
+        config: ClassificationConfig,
+        progress: (@Sendable (Double, String) -> Void)? = nil
+    ) async throws -> ClassificationResult {
+        let request = config.brackenProfileRequest ?? .automaticDefault
+        return try await runPipeline(
+            config: config.withProfileRequest(request),
+            profileRequest: request,
+            progress: progress
+        )
+    }
+
+    /// Source-compatible explicit Bracken invocation.
     ///
-    /// - Parameters:
-    ///   - config: The classification configuration.
-    ///   - brackenReadLength: Read length for Bracken's `-r` flag (default: 150).
-    ///   - brackenLevel: Taxonomic level for abundance estimation (default: species).
-    ///   - brackenThreshold: Minimum read count threshold for Bracken (default: 10).
-    ///   - progress: Optional progress callback.
-    /// - Returns: A ``ClassificationResult`` with Bracken-augmented tree.
-    /// - Throws: ``ClassificationConfigError`` or ``ClassificationPipelineError``.
+    /// The supplied rank remains explicit and is never replaced by a database
+    /// default. Existing callers that pass all three Bracken settings continue
+    /// through the same preflighted implementation as config-driven requests.
     public func profile(
         config: ClassificationConfig,
         brackenReadLength: Int = 150,
@@ -179,12 +184,14 @@ public actor ClassificationPipeline {
         brackenThreshold: Int = 10,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> ClassificationResult {
-        try await runPipeline(
-            config: config,
-            runBracken: true,
-            brackenReadLength: brackenReadLength,
-            brackenLevel: brackenLevel,
-            brackenThreshold: brackenThreshold,
+        let request = BrackenProfileRequest(
+            rank: .explicit(brackenLevel),
+            readLength: brackenReadLength,
+            threshold: brackenThreshold
+        )
+        return try await runPipeline(
+            config: config.withProfileRequest(request),
+            profileRequest: request,
             progress: progress
         )
     }
@@ -194,10 +201,7 @@ public actor ClassificationPipeline {
     /// Core pipeline implementation shared by `classify` and `profile`.
     private func runPipeline(
         config: ClassificationConfig,
-        runBracken: Bool,
-        brackenReadLength: Int,
-        brackenLevel: TaxonomicRank,
-        brackenThreshold: Int,
+        profileRequest: BrackenProfileRequest?,
         progress: (@Sendable (Double, String) -> Void)?
     ) async throws -> ClassificationResult {
         let startTime = Date()
@@ -239,39 +243,34 @@ public actor ClassificationPipeline {
 
         progress?(0.10, "Detecting tool versions...")
 
-        // Phase 2: Version detection (0.10 -- 0.30)
-        // Run detections concurrently when bracken is needed.
-        async let kraken2VersionTask = detectToolVersion(toolName: "kraken2", environment: Self.kraken2Environment, condaManager: condaManager, flags: ["--version"])
-        async let brackenVersionTask: String = runBracken
-            ? detectToolVersion(toolName: "bracken", environment: Self.brackenEnvironment, condaManager: condaManager)
-            : "unknown"
-
-        let toolVersion = await kraken2VersionTask
-        let brackenVersion = await brackenVersionTask
+        // Phase 2: Kraken2 version detection (0.10 -- 0.30). Bracken is probed
+        // only after report/database preflight succeeds.
+        let toolVersion = await detectToolVersion(
+            toolName: "kraken2",
+            environment: Self.kraken2Environment,
+            condaManager: condaManager,
+            flags: ["--version"]
+        )
         logger.info("Detected kraken2 version: \(toolVersion, privacy: .public)")
-        if runBracken {
-            logger.info("Detected bracken version: \(brackenVersion, privacy: .public)")
-        }
 
         progress?(0.30, "Running kraken2...")
 
         // Begin provenance recording.
         let provenanceRecorder = ProvenanceRecorder.shared
+        let profileResolution = profileRequest.map {
+            BrackenDatabaseCapabilities.resolve(
+                catalogID: effectiveConfig.databaseCatalogID,
+                installationRecipe: effectiveConfig.databaseInstallationRecipe,
+                request: $0
+            )
+        }
+        let runParameters = classificationRunParameters(
+            config: effectiveConfig,
+            resolution: profileResolution
+        )
         let runID = await provenanceRecorder.beginRun(
-            name: runBracken ? "Metagenomics Profiling" : "Metagenomics Classification",
-            parameters: [
-                "database": .string(effectiveConfig.databaseName),
-                "databaseVersion": .string(effectiveConfig.databaseVersion),
-                "databasePath": .file(effectiveConfig.databasePath.standardizedFileURL),
-                "databaseDigest": effectiveConfig.databaseDigest.map(ParameterValue.string) ?? .null,
-                "confidence": .number(effectiveConfig.confidence),
-                "minimumHitGroups": .integer(effectiveConfig.minimumHitGroups),
-                "threads": .integer(effectiveConfig.threads),
-                "pairedEnd": .boolean(effectiveConfig.isPairedEnd),
-                "memoryMapping": .boolean(effectiveConfig.memoryMapping),
-                "github_release_version": .string(Self.kraken2GithubReleaseVersion),
-                "extraArgs": .string(AdvancedCommandLineOptions.join(effectiveConfig.extraArguments)),
-            ]
+            name: profileRequest != nil ? "Metagenomics Profiling" : "Metagenomics Classification",
+            parameters: runParameters
         )
 
         // Phase 3: Run kraken2 (0.30 -- 0.80)
@@ -326,6 +325,11 @@ public actor ClassificationPipeline {
             toolVersion: toolVersion,
             githubReleaseVersion: Self.kraken2GithubReleaseVersion,
             command: kraken2Command,
+            resolvedOptions: kraken2ResolvedOptions(config: effectiveConfig),
+            runtimeIdentity: managedRuntimeIdentity(
+                toolName: "kraken2",
+                environment: Self.kraken2Environment
+            ),
             inputs: inputRecords,
             outputs: kraken2Outputs,
             exitCode: kraken2Result.exitCode,
@@ -355,75 +359,78 @@ public actor ClassificationPipeline {
         let speciesCount = tree.speciesCount
         logger.info("Parsed kreport: \(totalReads, privacy: .public) total reads, \(speciesCount, privacy: .public) species")
 
-        progress?(0.90, runBracken ? "Running Bracken profiling..." : "Recording provenance...")
+        progress?(
+            0.90,
+            profileRequest != nil ? "Preflighting Bracken profiling..." : "Recording provenance..."
+        )
 
         // Phase 5: Optional Bracken (0.90 -- 0.95)
         var brackenOutputURL: URL?
-        if runBracken {
-            let levelCode = brackenLevelCode(for: brackenLevel)
-            let brackenArgs = [
-                "-d", effectiveConfig.databasePath.path,
-                "-i", effectiveConfig.reportURL.path,
-                "-o", effectiveConfig.brackenURL.path,
-                "-r", String(brackenReadLength),
-                "-l", levelCode,
-                "-t", String(brackenThreshold),
-            ]
-            let brackenCommand = ["bracken"] + brackenArgs
-
-            logger.info("Running: bracken \(brackenArgs.joined(separator: " "), privacy: .public)")
-
-            let brackenStart = Date()
-            let brackenResult: (stdout: String, stderr: String, exitCode: Int32)
-            do {
-                brackenResult = try await condaManager.runTool(
-                    name: "bracken",
-                    arguments: brackenArgs,
-                    environment: Self.brackenEnvironment,
-                    timeout: 3600
-                )
-            } catch let error as CondaError {
-                await provenanceRecorder.completeRun(runID, status: .failed)
-                if case .toolNotFound = error {
-                    throw ClassificationPipelineError.brackenNotInstalled
-                }
-                throw error
+        var profileOutcome: BrackenProfileOutcome = .notRequested
+        var resultDependencyIDs = kraken2StepID.map { [$0] } ?? []
+        if let profileResolution {
+            let preflight = await preflightBracken(
+                config: effectiveConfig,
+                tree: tree,
+                resolution: profileResolution,
+                provenanceRecorder: provenanceRecorder,
+                runID: runID,
+                dependsOn: resultDependencyIDs
+            )
+            if let preflightStepID = preflight.stepID {
+                resultDependencyIDs = [preflightStepID]
             }
 
-            let brackenWallTime = Date().timeIntervalSince(brackenStart)
+            do {
+                let preparation = try await prepareBrackenOutputTarget(
+                    config: effectiveConfig,
+                    resolution: profileResolution,
+                    distributionURL: preflight.distributionURL,
+                    provenanceRecorder: provenanceRecorder,
+                    runID: runID,
+                    dependsOn: resultDependencyIDs
+                )
+                if let preparationStepID = preparation.stepID {
+                    resultDependencyIDs = [preparationStepID]
+                }
 
-            // Record bracken provenance step with dependency on kraken2.
-            // Uses separately detected bracken version (Gap 22 fix).
-            let brackenInputs = [
-                ProvenanceRecorder.fileRecord(url: effectiveConfig.reportURL, format: .text, role: .input),
-            ]
-            let brackenOutputRecords = fm.fileExists(atPath: effectiveConfig.brackenURL.path)
-                ? [ProvenanceRecorder.fileRecord(url: effectiveConfig.brackenURL, format: .text, role: .output)]
-                : []
-            let dependsOn: [UUID] = kraken2StepID.map { [$0] } ?? []
-            await provenanceRecorder.recordStep(
-                runID: runID,
-                toolName: "bracken",
-                toolVersion: brackenVersion,
-                command: brackenCommand,
-                inputs: brackenInputs,
-                outputs: brackenOutputRecords,
-                exitCode: brackenResult.exitCode,
-                wallTime: brackenWallTime,
-                stderr: brackenResult.stderr,
-                dependsOn: dependsOn
-            )
-
-            if brackenResult.exitCode != 0 {
-                // Bracken failure is non-fatal -- log warning but continue with kraken2-only results.
-                let exitCode = brackenResult.exitCode
-                let stderrText = brackenResult.stderr
-                logger.warning("Bracken failed (exit \(exitCode, privacy: .public)): \(stderrText, privacy: .public)")
-            } else if fm.fileExists(atPath: effectiveConfig.brackenURL.path) {
-                // Merge bracken results into the tree.
-                try BrackenParser.mergeBracken(url: effectiveConfig.brackenURL, into: &tree)
-                brackenOutputURL = effectiveConfig.brackenURL
-                logger.info("Bracken profiling merged successfully")
+                if let degraded = preparation.degradedOutcome {
+                    profileOutcome = degraded
+                } else if let degraded = preflight.degradedOutcome {
+                    profileOutcome = degraded
+                } else if let levelCode = preflight.levelCode {
+                    progress?(0.92, "Running Bracken profiling...")
+                    let execution = try await executeBracken(
+                        config: effectiveConfig,
+                        tree: tree,
+                        resolution: profileResolution,
+                        levelCode: levelCode,
+                        distributionURL: preflight.distributionURL,
+                        provenanceRecorder: provenanceRecorder,
+                        runID: runID,
+                        dependsOn: resultDependencyIDs
+                    )
+                    tree = execution.tree
+                    brackenOutputURL = execution.outputURL
+                    profileOutcome = execution.outcome
+                    if let terminalStepID = execution.terminalStepID {
+                        resultDependencyIDs = [terminalStepID]
+                    }
+                }
+            } catch is CancellationError {
+                await provenanceRecorder.completeRun(runID, status: .cancelled)
+                let cancellationOptions = classificationProvenanceOptions(
+                    config: effectiveConfig,
+                    resolution: profileResolution,
+                    outcome: .notRequested,
+                    profileState: "cancelled"
+                )
+                try await provenanceRecorder.save(
+                    runID: runID,
+                    to: effectiveConfig.outputDirectory,
+                    options: cancellationOptions
+                )
+                throw CancellationError()
             }
         }
 
@@ -444,9 +451,15 @@ public actor ClassificationPipeline {
             reportURL: effectiveConfig.reportURL,
             outputURL: retainedOutputURL,
             brackenURL: brackenOutputURL,
+            profileOutcome: profileOutcome,
             runtime: totalRuntime,
             toolVersion: toolVersion,
             provenanceId: runID
+        )
+        let provenanceOptions = classificationProvenanceOptions(
+            config: effectiveConfig,
+            resolution: profileResolution,
+            outcome: profileOutcome
         )
 
         progress?(0.97, "Saving result metadata...")
@@ -474,11 +487,15 @@ public actor ClassificationPipeline {
                 exitCode: 1,
                 wallTime: Date().timeIntervalSince(sidecarSaveStart),
                 stderr: sidecarError.localizedDescription,
-                dependsOn: kraken2StepID.map { [$0] } ?? []
+                dependsOn: resultDependencyIDs
             )
             await provenanceRecorder.completeRun(runID, status: .failed)
             do {
-                try await provenanceRecorder.save(runID: runID, to: effectiveConfig.outputDirectory)
+                try await provenanceRecorder.save(
+                    runID: runID,
+                    to: effectiveConfig.outputDirectory,
+                    options: provenanceOptions
+                )
             } catch let provenanceError {
                 throw ClassificationPipelineError.resultSidecarSaveFailed(
                     sidecarURL,
@@ -503,28 +520,738 @@ public actor ClassificationPipeline {
             ],
             exitCode: 0,
             wallTime: sidecarWallTime,
-            dependsOn: kraken2StepID.map { [$0] } ?? []
+            dependsOn: resultDependencyIDs
         )
 
         progress?(0.98, "Saving provenance...")
 
         // Phase 6: Complete provenance (0.95 -- 1.0)
-        await provenanceRecorder.completeRun(runID, status: .completed)
+        let runStatus: RunStatus = profileOutcome.state == .degraded ? .failed : .completed
+        await provenanceRecorder.completeRun(runID, status: runStatus)
 
         do {
-            try await provenanceRecorder.save(runID: runID, to: effectiveConfig.outputDirectory)
+            try await provenanceRecorder.save(
+                runID: runID,
+                to: effectiveConfig.outputDirectory,
+                options: provenanceOptions
+            )
         } catch {
             try? fm.removeItem(at: sidecarURL)
             await provenanceRecorder.completeRun(runID, status: .failed)
             throw error
         }
 
-        progress?(1.0, "Classification complete")
+        let completionMessage: String
+        switch profileOutcome.state {
+        case .completed:
+            completionMessage = "Profiling complete"
+        case .degraded:
+            completionMessage = "Kraken classification complete; profiling degraded"
+        case .notRequested:
+            completionMessage = "Classification complete"
+        }
+        progress?(1.0, completionMessage)
 
         let runtimeStr = String(format: "%.1f", totalRuntime)
         logger.info("Pipeline complete: \(totalReads, privacy: .public) reads, \(speciesCount, privacy: .public) species, \(runtimeStr, privacy: .public)s")
 
         return result
+    }
+
+    private struct BrackenPreflightResult {
+        let levelCode: String?
+        let distributionURL: URL
+        let degradedOutcome: BrackenProfileOutcome?
+        let stepID: UUID?
+    }
+
+    private struct BrackenExecutionResult {
+        let tree: TaxonTree
+        let outputURL: URL?
+        let outcome: BrackenProfileOutcome
+        let terminalStepID: UUID?
+    }
+
+    private struct BrackenOutputPreparationResult {
+        let degradedOutcome: BrackenProfileOutcome?
+        let stepID: UUID?
+    }
+
+    private func preflightBracken(
+        config: ClassificationConfig,
+        tree: TaxonTree,
+        resolution: BrackenProfileResolution,
+        provenanceRecorder: ProvenanceRecorder,
+        runID: UUID,
+        dependsOn: [UUID]
+    ) async -> BrackenPreflightResult {
+        let startedAt = Date()
+        let distributionURL = config.databasePath.appendingPathComponent(
+            "database\(resolution.readLength)mers.kmer_distrib"
+        )
+        let levelCode = BrackenDatabaseCapabilities.levelCode(for: resolution.rank)
+        let failure: (BrackenProfileDegradationReason, String)?
+
+        if levelCode == nil {
+            failure = (
+                .unsupportedRank,
+                "Bracken does not support requested rank \(resolution.rank.code). Supported ranks are D, P, C, O, F, G, and S."
+            )
+        } else if tree.nodes(at: resolution.rank).isEmpty {
+            failure = (
+                .rankAbsentFromReport,
+                "The Kraken report has no rows at resolved rank \(resolution.rank.code) (\(resolution.rank.displayName))."
+            )
+        } else if let diagnostic = brackenDistributionDiagnostic(at: distributionURL) {
+            failure = (.distributionUnavailable, diagnostic)
+        } else {
+            failure = nil
+        }
+
+        var inputs = [
+            ProvenanceRecorder.fileRecord(url: config.reportURL, format: .text, role: .input),
+        ]
+        if failure == nil {
+            inputs.append(
+                ProvenanceRecorder.fileRecord(
+                    url: distributionURL,
+                    format: .unknown,
+                    role: .reference
+                )
+            )
+        }
+
+        let command = [
+            "LungfishWorkflow",
+            "BrackenPreflight",
+            "--kreport", config.reportURL.path,
+            "--database", config.databasePath.path,
+            "--distribution", distributionURL.path,
+            "--requested-rank", resolution.request.provenanceValue,
+            "--resolved-rank", resolution.rank.code,
+            "--read-length", String(resolution.readLength),
+            "--threshold", String(resolution.threshold),
+        ]
+        let stepID = await provenanceRecorder.recordStep(
+            runID: runID,
+            toolName: "Lungfish Bracken Preflight",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: command,
+            resolvedOptions: brackenResolvedOptions(
+                resolution: resolution,
+                distributionURL: distributionURL
+            ),
+            runtimeIdentity: ProvenanceRuntimeIdentity(),
+            inputs: inputs,
+            outputs: [],
+            exitCode: failure == nil ? 0 : 2,
+            wallTime: Date().timeIntervalSince(startedAt),
+            stderr: failure?.1,
+            dependsOn: dependsOn
+        )
+
+        return BrackenPreflightResult(
+            levelCode: levelCode,
+            distributionURL: distributionURL,
+            degradedOutcome: failure.map {
+                .degraded(resolution: resolution, reason: $0.0, message: $0.1)
+            },
+            stepID: stepID
+        )
+    }
+
+    private func prepareBrackenOutputTarget(
+        config: ClassificationConfig,
+        resolution: BrackenProfileResolution,
+        distributionURL: URL,
+        provenanceRecorder: ProvenanceRecorder,
+        runID: UUID,
+        dependsOn: [UUID]
+    ) async throws -> BrackenOutputPreparationResult {
+        try Task.checkCancellation()
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: config.brackenURL.path) else {
+            return BrackenOutputPreparationResult(degradedOutcome: nil, stepID: nil)
+        }
+
+        do {
+            try fm.removeItem(at: config.brackenURL)
+            return BrackenOutputPreparationResult(degradedOutcome: nil, stepID: nil)
+        } catch {
+            let message = "Could not remove stale Bracken target before profiling: \(error.localizedDescription)"
+            let stepID = await provenanceRecorder.recordStep(
+                runID: runID,
+                toolName: "Lungfish Bracken Output Preparation",
+                toolVersion: WorkflowRun.currentAppVersion,
+                command: ["LungfishWorkflow", "remove-stale-output", config.brackenURL.path],
+                resolvedOptions: brackenResolvedOptions(
+                    resolution: resolution,
+                    distributionURL: distributionURL
+                ),
+                runtimeIdentity: ProvenanceRuntimeIdentity(),
+                inputs: [],
+                outputs: [],
+                exitCode: 1,
+                wallTime: 0,
+                stderr: message,
+                dependsOn: dependsOn
+            )
+            return BrackenOutputPreparationResult(
+                degradedOutcome: .degraded(
+                    resolution: resolution,
+                    reason: .outputInvalid,
+                    message: message
+                ),
+                stepID: stepID
+            )
+        }
+    }
+
+    private func executeBracken(
+        config: ClassificationConfig,
+        tree: TaxonTree,
+        resolution: BrackenProfileResolution,
+        levelCode: String,
+        distributionURL: URL,
+        provenanceRecorder: ProvenanceRecorder,
+        runID: UUID,
+        dependsOn: [UUID]
+    ) async throws -> BrackenExecutionResult {
+        let fm = FileManager.default
+        try Task.checkCancellation()
+        let brackenVersion = await detectToolVersion(
+            toolName: "bracken",
+            environment: Self.brackenEnvironment,
+            condaManager: condaManager,
+            flags: ["-v"]
+        )
+        logger.info("Detected bracken version: \(brackenVersion, privacy: .public)")
+        try Task.checkCancellation()
+
+        let brackenArgs = [
+            "-d", config.databasePath.path,
+            "-i", config.reportURL.path,
+            "-o", config.brackenURL.path,
+            "-r", String(resolution.readLength),
+            "-l", levelCode,
+            "-t", String(resolution.threshold),
+        ]
+        let brackenCommand = ["bracken"] + brackenArgs
+        let brackenInputs = [
+            ProvenanceRecorder.fileRecord(url: config.reportURL, format: .text, role: .input),
+            ProvenanceRecorder.fileRecord(url: distributionURL, format: .unknown, role: .reference),
+        ]
+        let resolvedOptions = brackenResolvedOptions(
+            resolution: resolution,
+            distributionURL: distributionURL
+        )
+        let runtimeIdentity = managedRuntimeIdentity(
+            toolName: "bracken",
+            environment: Self.brackenEnvironment
+        )
+
+        if fm.fileExists(atPath: config.brackenURL.path) {
+            do {
+                try fm.removeItem(at: config.brackenURL)
+            } catch {
+                let message = "Could not remove stale Bracken target before execution: \(error.localizedDescription)"
+                let stepID = await provenanceRecorder.recordStep(
+                    runID: runID,
+                    toolName: "Lungfish Bracken Output Preparation",
+                    toolVersion: WorkflowRun.currentAppVersion,
+                    command: ["LungfishWorkflow", "remove-stale-output", config.brackenURL.path],
+                    resolvedOptions: resolvedOptions,
+                    runtimeIdentity: ProvenanceRuntimeIdentity(),
+                    inputs: [],
+                    outputs: [],
+                    exitCode: 1,
+                    wallTime: 0,
+                    stderr: message,
+                    dependsOn: dependsOn
+                )
+                return BrackenExecutionResult(
+                    tree: tree,
+                    outputURL: nil,
+                    outcome: .degraded(
+                        resolution: resolution,
+                        reason: .outputInvalid,
+                        message: message,
+                        toolVersion: brackenVersion
+                    ),
+                    terminalStepID: stepID
+                )
+            }
+        }
+
+        logger.info("Running: bracken \(brackenArgs.joined(separator: " "), privacy: .public)")
+        try Task.checkCancellation()
+        let startedAt = Date()
+        let processResult: (stdout: String, stderr: String, exitCode: Int32)
+        do {
+            processResult = try await condaManager.runTool(
+                name: "bracken",
+                arguments: brackenArgs,
+                environment: Self.brackenEnvironment,
+                timeout: 3600
+            )
+        } catch is CancellationError {
+            try? fm.removeItem(at: config.brackenURL)
+            _ = await provenanceRecorder.recordStep(
+                runID: runID,
+                toolName: "bracken",
+                toolVersion: brackenVersion,
+                command: brackenCommand,
+                resolvedOptions: resolvedOptions,
+                runtimeIdentity: runtimeIdentity,
+                inputs: brackenInputs,
+                outputs: [],
+                exitCode: 130,
+                wallTime: Date().timeIntervalSince(startedAt),
+                stderr: "Bracken profiling cancelled.",
+                dependsOn: dependsOn
+            )
+            throw CancellationError()
+        } catch let error as CondaError {
+            try? fm.removeItem(at: config.brackenURL)
+            let unavailable: Bool
+            if case .toolNotFound = error {
+                unavailable = true
+            } else {
+                unavailable = false
+            }
+            let message = error.localizedDescription
+            let stepID = await provenanceRecorder.recordStep(
+                runID: runID,
+                toolName: "bracken",
+                toolVersion: brackenVersion,
+                command: brackenCommand,
+                resolvedOptions: resolvedOptions,
+                runtimeIdentity: runtimeIdentity,
+                inputs: brackenInputs,
+                outputs: [],
+                exitCode: unavailable ? 127 : 1,
+                wallTime: Date().timeIntervalSince(startedAt),
+                stderr: message,
+                dependsOn: dependsOn
+            )
+            return BrackenExecutionResult(
+                tree: tree,
+                outputURL: nil,
+                outcome: .degraded(
+                    resolution: resolution,
+                    reason: unavailable ? .toolUnavailable : .toolFailed,
+                    message: message,
+                    toolVersion: brackenVersion
+                ),
+                terminalStepID: stepID
+            )
+        } catch {
+            try? fm.removeItem(at: config.brackenURL)
+            let message = error.localizedDescription
+            let stepID = await provenanceRecorder.recordStep(
+                runID: runID,
+                toolName: "bracken",
+                toolVersion: brackenVersion,
+                command: brackenCommand,
+                resolvedOptions: resolvedOptions,
+                runtimeIdentity: runtimeIdentity,
+                inputs: brackenInputs,
+                outputs: [],
+                exitCode: 1,
+                wallTime: Date().timeIntervalSince(startedAt),
+                stderr: message,
+                dependsOn: dependsOn
+            )
+            return BrackenExecutionResult(
+                tree: tree,
+                outputURL: nil,
+                outcome: .degraded(
+                    resolution: resolution,
+                    reason: .toolFailed,
+                    message: message,
+                    toolVersion: brackenVersion
+                ),
+                terminalStepID: stepID
+            )
+        }
+
+        let processWallTime = Date().timeIntervalSince(startedAt)
+        if Task.isCancelled {
+            try? fm.removeItem(at: config.brackenURL)
+            let brackenStepID = await provenanceRecorder.recordStep(
+                runID: runID,
+                toolName: "bracken",
+                toolVersion: brackenVersion,
+                command: brackenCommand,
+                resolvedOptions: resolvedOptions,
+                runtimeIdentity: runtimeIdentity,
+                inputs: brackenInputs,
+                outputs: [],
+                exitCode: processResult.exitCode,
+                wallTime: processWallTime,
+                stderr: processResult.stderr,
+                dependsOn: dependsOn
+            )
+            _ = await provenanceRecorder.recordStep(
+                runID: runID,
+                toolName: "Lungfish Bracken Cancellation",
+                toolVersion: WorkflowRun.currentAppVersion,
+                command: ["LungfishWorkflow", "cancel-bracken-output", config.brackenURL.path],
+                resolvedOptions: resolvedOptions,
+                runtimeIdentity: ProvenanceRuntimeIdentity(),
+                inputs: [],
+                outputs: [],
+                exitCode: 130,
+                wallTime: 0,
+                stderr: "Bracken profiling cancelled after process termination.",
+                dependsOn: brackenStepID.map { [$0] } ?? dependsOn
+            )
+            throw CancellationError()
+        }
+        if processResult.exitCode != 0 {
+            try? fm.removeItem(at: config.brackenURL)
+            let unavailable = processResult.exitCode == 127
+            let message: String
+            if !processResult.stderr.isEmpty {
+                message = processResult.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            } else if unavailable {
+                message = "Bracken executable was not available in the managed environment."
+            } else {
+                message = "Bracken exited with status \(processResult.exitCode)."
+            }
+            let stepID = await provenanceRecorder.recordStep(
+                runID: runID,
+                toolName: "bracken",
+                toolVersion: brackenVersion,
+                command: brackenCommand,
+                resolvedOptions: resolvedOptions,
+                runtimeIdentity: runtimeIdentity,
+                inputs: brackenInputs,
+                outputs: [],
+                exitCode: processResult.exitCode,
+                wallTime: processWallTime,
+                stderr: processResult.stderr,
+                dependsOn: dependsOn
+            )
+            return BrackenExecutionResult(
+                tree: tree,
+                outputURL: nil,
+                outcome: .degraded(
+                    resolution: resolution,
+                    reason: unavailable ? .toolUnavailable : .toolFailed,
+                    message: message,
+                    toolVersion: brackenVersion
+                ),
+                terminalStepID: stepID
+            )
+        }
+
+        let outputFailure: (BrackenProfileDegradationReason, String)?
+        if !fm.fileExists(atPath: config.brackenURL.path) {
+            outputFailure = (
+                .outputMissing,
+                "Bracken exited successfully but did not produce \(config.brackenURL.path)."
+            )
+        } else if let diagnostic = generatedBrackenOutputDiagnostic(at: config.brackenURL) {
+            outputFailure = (.outputInvalid, diagnostic)
+        } else {
+            outputFailure = nil
+        }
+
+        var mergedTree = tree
+        var parseFailure: String?
+        if outputFailure == nil {
+            do {
+                let rows = try BrackenParser.parse(url: config.brackenURL)
+                let matchingRows = rows.filter { row in
+                    row.taxonomyLevel == levelCode && tree.node(taxId: row.taxId) != nil
+                }
+                if matchingRows.isEmpty {
+                    parseFailure = "Bracken output contained no \(levelCode)-rank taxa matching the Kraken report."
+                } else {
+                    BrackenParser.mergeBracken(rows: matchingRows, into: &mergedTree)
+                }
+            } catch {
+                parseFailure = "Bracken output could not be parsed or merged: \(error.localizedDescription)"
+            }
+        }
+
+        if let failure = outputFailure
+            ?? parseFailure.map({ (BrackenProfileDegradationReason.outputInvalid, $0) }) {
+            let validationInputs: [FileRecord]
+            if fm.fileExists(atPath: config.brackenURL.path) {
+                validationInputs = [
+                    ProvenanceRecorder.fileRecord(
+                        url: config.brackenURL,
+                        format: .text,
+                        role: .input
+                    ),
+                ]
+            } else {
+                validationInputs = []
+            }
+            try? fm.removeItem(at: config.brackenURL)
+            let brackenStepID = await provenanceRecorder.recordStep(
+                runID: runID,
+                toolName: "bracken",
+                toolVersion: brackenVersion,
+                command: brackenCommand,
+                resolvedOptions: resolvedOptions,
+                runtimeIdentity: runtimeIdentity,
+                inputs: brackenInputs,
+                outputs: [],
+                exitCode: processResult.exitCode,
+                wallTime: processWallTime,
+                stderr: processResult.stderr,
+                dependsOn: dependsOn
+            )
+            let validationStepID = await provenanceRecorder.recordStep(
+                runID: runID,
+                toolName: "Lungfish Bracken Output Validation",
+                toolVersion: WorkflowRun.currentAppVersion,
+                command: ["LungfishWorkflow", "validate-bracken-output", config.brackenURL.path],
+                resolvedOptions: resolvedOptions,
+                runtimeIdentity: ProvenanceRuntimeIdentity(),
+                inputs: validationInputs,
+                outputs: [],
+                exitCode: 1,
+                wallTime: 0,
+                stderr: failure.1,
+                dependsOn: brackenStepID.map { [$0] } ?? dependsOn
+            )
+            return BrackenExecutionResult(
+                tree: tree,
+                outputURL: nil,
+                outcome: .degraded(
+                    resolution: resolution,
+                    reason: failure.0,
+                    message: failure.1,
+                    toolVersion: brackenVersion
+                ),
+                terminalStepID: validationStepID ?? brackenStepID
+            )
+        }
+
+        let outputRecord = ProvenanceRecorder.fileRecord(
+            url: config.brackenURL,
+            format: .text,
+            role: .output
+        )
+        let stepID = await provenanceRecorder.recordStep(
+            runID: runID,
+            toolName: "bracken",
+            toolVersion: brackenVersion,
+            command: brackenCommand,
+            resolvedOptions: resolvedOptions,
+            runtimeIdentity: runtimeIdentity,
+            inputs: brackenInputs,
+            outputs: [outputRecord],
+            exitCode: processResult.exitCode,
+            wallTime: processWallTime,
+            stderr: processResult.stderr,
+            dependsOn: dependsOn
+        )
+        logger.info("Bracken profiling merged successfully")
+        return BrackenExecutionResult(
+            tree: mergedTree,
+            outputURL: config.brackenURL,
+            outcome: .completed(resolution: resolution, toolVersion: brackenVersion),
+            terminalStepID: stepID
+        )
+    }
+
+    private func brackenDistributionDiagnostic(at url: URL) -> String? {
+        do {
+            let values = try url.resourceValues(forKeys: [
+                .isRegularFileKey,
+                .isSymbolicLinkKey,
+                .isReadableKey,
+                .fileSizeKey,
+            ])
+            guard values.isSymbolicLink != true else {
+                return "Bracken distribution must not be a symbolic link: \(url.path)."
+            }
+            guard values.isRegularFile == true else {
+                return "Bracken distribution is missing or is not a regular file: \(url.path)."
+            }
+            guard values.isReadable == true,
+                  FileManager.default.isReadableFile(atPath: url.path) else {
+                return "Bracken distribution is not readable: \(url.path)."
+            }
+            guard (values.fileSize ?? 0) > 0 else {
+                return "Bracken distribution is empty: \(url.path)."
+            }
+            let handle = try FileHandle(forReadingFrom: url)
+            try handle.close()
+            return nil
+        } catch {
+            return "Bracken distribution is unavailable at \(url.path): \(error.localizedDescription)"
+        }
+    }
+
+    private func generatedBrackenOutputDiagnostic(at url: URL) -> String? {
+        do {
+            let values = try url.resourceValues(forKeys: [
+                .isRegularFileKey,
+                .isReadableKey,
+                .fileSizeKey,
+            ])
+            guard values.isRegularFile == true else {
+                return "Bracken output is not a regular file: \(url.path)."
+            }
+            guard values.isReadable == true,
+                  FileManager.default.isReadableFile(atPath: url.path) else {
+                return "Bracken output is not readable: \(url.path)."
+            }
+            guard (values.fileSize ?? 0) > 0 else {
+                return "Bracken output is empty: \(url.path)."
+            }
+            return nil
+        } catch {
+            return "Bracken output is unavailable at \(url.path): \(error.localizedDescription)"
+        }
+    }
+
+    private func classificationRunParameters(
+        config: ClassificationConfig,
+        resolution: BrackenProfileResolution?
+    ) -> [String: ParameterValue] {
+        var parameters: [String: ParameterValue] = [
+            "goal": .string(config.goal.rawValue),
+            "database": .string(config.databaseName),
+            "databaseVersion": .string(config.databaseVersion),
+            "databasePath": .file(config.databasePath.standardizedFileURL),
+            "databaseDigest": config.databaseDigest.map(ParameterValue.string) ?? .null,
+            "databaseCatalogID": config.databaseCatalogID.map(ParameterValue.string) ?? .null,
+            "databaseInstallationRecipe": config.databaseInstallationRecipe
+                .map { .string($0.provenanceValue) } ?? .null,
+            "confidence": .number(config.confidence),
+            "minimumHitGroups": .integer(config.minimumHitGroups),
+            "threads": .integer(config.threads),
+            "pairedEnd": .boolean(config.isPairedEnd),
+            "memoryMapping": .boolean(config.memoryMapping),
+            "github_release_version": .string(Self.kraken2GithubReleaseVersion),
+            "extraArgs": .string(AdvancedCommandLineOptions.join(config.extraArguments)),
+        ]
+        if let resolution {
+            parameters["brackenRankRequest"] = .string(resolution.request.provenanceValue)
+            parameters["brackenRequestedReadLength"] = .integer(
+                config.brackenProfileRequest?.readLength ?? BrackenProfileRequest.automaticDefault.readLength
+            )
+            parameters["brackenRequestedThreshold"] = .integer(
+                config.brackenProfileRequest?.threshold ?? BrackenProfileRequest.automaticDefault.threshold
+            )
+            parameters["brackenResolvedRank"] = .string(resolution.rank.code)
+            parameters["brackenResolutionSource"] = .string(resolution.source.rawValue)
+            parameters["brackenReadLength"] = .integer(resolution.readLength)
+            parameters["brackenThreshold"] = .integer(resolution.threshold)
+            if case .explicit(let rank) = resolution.request {
+                parameters["brackenExplicitRank"] = .string(rank.code)
+            }
+        }
+        return parameters
+    }
+
+    private func classificationProvenanceOptions(
+        config: ClassificationConfig,
+        resolution: BrackenProfileResolution?,
+        outcome: BrackenProfileOutcome,
+        profileState: String? = nil
+    ) -> ProvenanceOptions {
+        var explicit: [String: ParameterValue] = [
+            "goal": .string(config.goal.rawValue),
+            "database": .string(config.databaseName),
+            "databaseVersion": .string(config.databaseVersion),
+            "databasePath": .file(config.databasePath.standardizedFileURL),
+            "databaseDigest": config.databaseDigest.map(ParameterValue.string) ?? .null,
+            "databaseCatalogID": config.databaseCatalogID.map(ParameterValue.string) ?? .null,
+            "databaseInstallationRecipe": config.databaseInstallationRecipe
+                .map { .string($0.provenanceValue) } ?? .null,
+            "confidence": .number(config.confidence),
+            "minimumHitGroups": .integer(config.minimumHitGroups),
+            "threads": .integer(config.threads),
+            "pairedEnd": .boolean(config.isPairedEnd),
+            "memoryMapping": .boolean(config.memoryMapping),
+            "extraArgs": .string(AdvancedCommandLineOptions.join(config.extraArguments)),
+        ]
+        var defaults: [String: ParameterValue] = [:]
+        var resolvedDefaults: [String: ParameterValue] = [
+            "effectiveMemoryMapping": .boolean(config.memoryMapping),
+            "profileState": .string(profileState ?? outcome.state.rawValue),
+        ]
+        if let resolution {
+            let request = config.brackenProfileRequest ?? .automaticDefault
+            explicit["brackenRankRequest"] = .string(request.rank.provenanceValue)
+            explicit["brackenRequestedReadLength"] = .integer(request.readLength)
+            explicit["brackenRequestedThreshold"] = .integer(request.threshold)
+            if case .explicit(let rank) = request.rank {
+                explicit["brackenExplicitRank"] = .string(rank.code)
+            }
+            defaults["brackenRankRequest"] = .string("automatic")
+            defaults["brackenReadLength"] = .integer(150)
+            defaults["brackenThreshold"] = .integer(10)
+            resolvedDefaults["brackenResolvedRank"] = .string(resolution.rank.code)
+            resolvedDefaults["brackenResolutionSource"] = .string(resolution.source.rawValue)
+            resolvedDefaults["brackenReadLength"] = .integer(resolution.readLength)
+            resolvedDefaults["brackenThreshold"] = .integer(resolution.threshold)
+        }
+        if let reason = outcome.reason {
+            resolvedDefaults["profileReason"] = .string(reason.rawValue)
+        }
+        if let message = outcome.message {
+            resolvedDefaults["profileMessage"] = .string(message)
+        }
+        if let toolVersion = outcome.toolVersion {
+            resolvedDefaults["brackenToolVersion"] = .string(toolVersion)
+        }
+        return ProvenanceOptions(
+            explicit: explicit,
+            defaults: defaults,
+            resolvedDefaults: resolvedDefaults
+        )
+    }
+
+    private func kraken2ResolvedOptions(
+        config: ClassificationConfig
+    ) -> [String: ParameterValue] {
+        [
+            "databasePath": .string(config.databasePath.path),
+            "confidence": .number(config.confidence),
+            "minimumHitGroups": .integer(config.minimumHitGroups),
+            "threads": .integer(config.threads),
+            "memoryMapping": .boolean(config.memoryMapping),
+            "pairedEnd": .boolean(config.isPairedEnd),
+        ]
+    }
+
+    private func brackenResolvedOptions(
+        resolution: BrackenProfileResolution,
+        distributionURL: URL
+    ) -> [String: ParameterValue] {
+        [
+            "requestedRank": .string(resolution.request.provenanceValue),
+            "resolvedRank": .string(resolution.rank.code),
+            "resolutionSource": .string(resolution.source.rawValue),
+            "readLength": .integer(resolution.readLength),
+            "threshold": .integer(resolution.threshold),
+            "distributionPath": .string(distributionURL.path),
+        ]
+    }
+
+    private func managedRuntimeIdentity(
+        toolName: String,
+        environment: String
+    ) -> ProvenanceRuntimeIdentity {
+        let prefix = condaManager.rootPrefix.appendingPathComponent(
+            "envs/\(environment)",
+            isDirectory: true
+        )
+        return ProvenanceRuntimeIdentity(
+            executablePath: prefix.appendingPathComponent("bin/\(toolName)").path,
+            condaEnvironment: environment,
+            condaPrefix: prefix.path,
+            pluginPack: "Metagenomics"
+        )
     }
 
     private func classificationResultOutputRecords(
@@ -619,8 +1346,8 @@ public actor ClassificationPipeline {
             logger.warning("Failed to compact Kraken2 output; retaining raw output: \(error.localizedDescription, privacy: .public)")
             try? fm.removeItem(at: compressedURL)
             try? fm.removeItem(at: indexURL)
-            return nil
         }
+        return nil
     }
 
     private func gzipReplayCommand(source: URL, destination: URL) -> [String] {
@@ -697,23 +1424,33 @@ public actor ClassificationPipeline {
         return totalSize
     }
 
-    // MARK: - Helpers
+}
 
-    /// Maps a ``TaxonomicRank`` to the Bracken `-l` flag letter.
-    ///
-    /// - Parameter rank: The taxonomic rank.
-    /// - Returns: A single-letter code string.
-    private func brackenLevelCode(for rank: TaxonomicRank) -> String {
-        switch rank {
-        case .domain: return "D"
-        case .phylum: return "P"
-        case .class: return "C"
-        case .order: return "O"
-        case .family: return "F"
-        case .genus: return "G"
-        case .species: return "S"
-        default: return "S" // Default to species
-        }
+private extension ClassificationConfig {
+    func withProfileRequest(_ request: BrackenProfileRequest) -> ClassificationConfig {
+        var profiled = ClassificationConfig(
+            goal: .profile,
+            inputFiles: inputFiles,
+            isPairedEnd: isPairedEnd,
+            databaseName: databaseName,
+            inputFormat: inputFormat,
+            databaseVersion: databaseVersion,
+            databasePath: databasePath,
+            databaseDigest: databaseDigest,
+            databaseCatalogID: databaseCatalogID,
+            databaseInstallationRecipe: databaseInstallationRecipe,
+            brackenProfileRequest: request,
+            confidence: confidence,
+            minimumHitGroups: minimumHitGroups,
+            threads: threads,
+            memoryMapping: memoryMapping,
+            quickMode: quickMode,
+            outputDirectory: outputDirectory,
+            extraArguments: extraArguments
+        )
+        profiled.sampleDisplayName = sampleDisplayName
+        profiled.originalInputFiles = originalInputFiles
+        return profiled
     }
 }
 

@@ -81,6 +81,9 @@ public struct BrackenProfileResolution: Sendable, Codable, Equatable {
 
 /// Stable database capability rules for Bracken rank resolution.
 public enum BrackenDatabaseCapabilities {
+    /// The distribution length built and supported by Lungfish database installs.
+    public static let supportedReadLength = 150
+
     private static let genusCatalogIDs: Set<String> = [
         "kraken2-special-silva",
         "kraken2-special-greengenes",
@@ -144,7 +147,7 @@ public enum BrackenDatabaseCapabilities {
             catalogID: catalogID,
             installationRecipe: installationRecipe,
             request: request.rank,
-            readLength: request.readLength,
+            readLength: supportedReadLength,
             threshold: request.threshold
         )
     }

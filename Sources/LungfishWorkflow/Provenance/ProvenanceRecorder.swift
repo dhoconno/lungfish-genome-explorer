@@ -97,6 +97,8 @@ public actor ProvenanceRecorder {
     ///   - containerDigest: SHA256 digest of the image
     ///   - command: Full argv as executed
     ///   - durableReplayArgv: Durable argv suitable for replay after transient inputs are removed
+    ///   - resolvedOptions: Resolved invocation options used by the step
+    ///   - runtimeIdentity: Managed/native runtime identity for the step
     ///   - inputs: Input file records
     ///   - outputs: Output file records
     ///   - exitCode: Process exit code
@@ -115,6 +117,8 @@ public actor ProvenanceRecorder {
         containerDigest: String? = nil,
         command: [String],
         durableReplayArgv: [String]? = nil,
+        resolvedOptions: [String: ParameterValue]? = nil,
+        runtimeIdentity: ProvenanceRuntimeIdentity? = nil,
         inputs: [FileRecord],
         outputs: [FileRecord],
         exitCode: Int32,
@@ -138,6 +142,8 @@ public actor ProvenanceRecorder {
             containerDigest: containerDigest,
             command: command,
             durableReplayArgv: durableReplayArgv,
+            resolvedOptions: resolvedOptions,
+            runtimeIdentity: runtimeIdentity,
             inputs: inputs,
             outputs: outputs,
             exitCode: exitCode,
