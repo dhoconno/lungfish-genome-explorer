@@ -907,6 +907,17 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
         XCTAssertFalse(manifestText.contains(".backup-"))
     }
 
+    func testArchiveRecipeDownloadRetainsInstallerGeneratedVersion() async throws {
+        let installer = RegistryInstallerSpy()
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir, databaseInstaller: installer)
+
+        _ = try await registry.downloadDatabase(name: "Standard", progress: { _, _ in })
+
+        let storedValue = try await registry.database(named: "Standard")
+        let stored = try XCTUnwrap(storedValue)
+        XCTAssertEqual(stored.version, installer.version)
+    }
+
     func testManifestFailureRollsBackPreparedInstallAndRestoresPriorRow() async throws {
         let installer = RegistryInstallerSpy()
         let writes = LockedCounter()

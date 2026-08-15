@@ -928,8 +928,12 @@ public actor MetagenomicsDatabaseRegistry {
 
         let installedAt = prior.installedAt ?? Date()
         db.path = prepared.result.finalURL
-        db.version = Self.catalogEntry(matching: db)?.version
-            ?? prepared.result.version
+        if case .kraken2Special? = db.installationRecipe {
+            db.version = Self.catalogEntry(matching: db)?.version
+                ?? prepared.result.version
+        } else {
+            db.version = prepared.result.version
+        }
         db.payloadDigest = prepared.result.payloadDigest
         db.sizeOnDisk = prepared.result.sizeOnDisk
         db.installedAt = installedAt
