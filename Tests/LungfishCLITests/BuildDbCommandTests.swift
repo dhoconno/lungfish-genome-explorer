@@ -1006,6 +1006,47 @@ final class BuildDbCommandTests: XCTestCase {
         XCTAssertTrue(provenanceOutputPaths.contains(retainedIndex.standardizedFileURL.path))
     }
 
+    func testKraken2CleanupPreservesProfileOutcomeWhileRepointingOutput() async throws {
+        let tmpDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let fixtureDir = findFixtureDir("kraken2-mini")
+        let resultDir = tmpDir.appendingPathComponent("kraken2")
+        try FileManager.default.copyItem(at: fixtureDir, to: resultDir)
+
+        let sampleDir = resultDir.appendingPathComponent("SRR35517702")
+        let current = try ClassificationResult.load(from: sampleDir)
+        let resolution = BrackenDatabaseCapabilities.resolve(
+            catalogID: current.config.databaseCatalogID,
+            installationRecipe: current.config.databaseInstallationRecipe,
+            request: .automaticDefault
+        )
+        let expectedOutcome = BrackenProfileOutcome.degraded(
+            resolution: resolution,
+            reason: .distributionUnavailable,
+            message: "fixture distribution is unavailable"
+        )
+        let profiled = ClassificationResult(
+            config: current.config,
+            tree: current.tree,
+            reportURL: current.reportURL,
+            outputURL: current.outputURL,
+            brackenURL: current.brackenURL,
+            profileOutcome: expectedOutcome,
+            runtime: current.runtime,
+            toolVersion: current.toolVersion,
+            provenanceId: current.provenanceId
+        )
+        try profiled.save(to: sampleDir)
+
+        let cmd = try BuildDbCommand.Kraken2Subcommand.parse([resultDir.path, "-q"])
+        try await cmd.run()
+
+        let updated = try ClassificationResult.load(from: sampleDir)
+        XCTAssertEqual(updated.outputURL.lastPathComponent, "classification.kraken.gz")
+        XCTAssertEqual(updated.profileOutcome, expectedOutcome)
+    }
+
     func testKraken2CleanupFallbackRecordsRetainedRawOutputProvenance() async throws {
         let tmpDir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: tmpDir) }

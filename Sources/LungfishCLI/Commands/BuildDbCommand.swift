@@ -2071,6 +2071,7 @@ extension BuildDbCommand {
                     reportURL: current.reportURL,
                     outputURL: outputURL,
                     brackenURL: current.brackenURL,
+                    profileOutcome: current.profileOutcome,
                     runtime: current.runtime,
                     toolVersion: current.toolVersion,
                     provenanceId: current.provenanceId
