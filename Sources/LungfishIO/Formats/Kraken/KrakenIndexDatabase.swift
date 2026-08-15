@@ -613,16 +613,16 @@ public final class KrakenIndexDatabase: @unchecked Sendable {
     ///
     /// A non-empty or uninspectable WAL may contain uncheckpointed data, so in
     /// that case SQLite must use its ordinary read-only WAL handling.
-    private static func readOnlyOpenConfiguration(for url: URL) -> (target: String, flags: Int32) {
+    static func readOnlyOpenConfiguration(for url: URL) -> (target: String, flags: Int32) {
         let walURL = URL(fileURLWithPath: url.path + "-wal")
         let walIsSafeForImmutableRead: Bool
         do {
             let attributes = try FileManager.default.attributesOfItem(atPath: walURL.path)
             walIsSafeForImmutableRead = (attributes[.size] as? NSNumber)?.int64Value == 0
-        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
-            walIsSafeForImmutableRead = true
         } catch {
-            walIsSafeForImmutableRead = false
+            let nsError = error as NSError
+            walIsSafeForImmutableRead = nsError.domain == NSCocoaErrorDomain
+                && nsError.code == CocoaError.Code.fileReadNoSuchFile.rawValue
         }
 
         guard walIsSafeForImmutableRead,

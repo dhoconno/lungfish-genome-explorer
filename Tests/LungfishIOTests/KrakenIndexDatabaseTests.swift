@@ -159,6 +159,31 @@ final class KrakenIndexDatabaseTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: shmPath))
     }
 
+    func testLegacyAbsentWALIndexOpensWithoutCreatingSharedMemory() throws {
+        try KrakenIndexDatabase.build(from: krakenURL, to: indexURL)
+        try convertToLegacyWALHeader(indexURL)
+
+        let walPath = indexURL.path + "-wal"
+        let shmPath = indexURL.path + "-shm"
+        try? FileManager.default.removeItem(atPath: walPath)
+        try? FileManager.default.removeItem(atPath: shmPath)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: walPath))
+        XCTAssertEqual(try databaseHeaderJournalBytes(at: indexURL), [2, 2])
+
+        let configuration = KrakenIndexDatabase.readOnlyOpenConfiguration(for: indexURL)
+        XCTAssertNotEqual(configuration.flags & SQLITE_OPEN_URI, 0)
+        XCTAssertTrue(configuration.target.contains("immutable=1"))
+
+        let db = try KrakenIndexDatabase(url: indexURL)
+        defer { db.close() }
+
+        XCTAssertEqual(
+            try db.readIds(forTaxIds: [562]),
+            ["read_003", "read_005", "read_009"]
+        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: shmPath))
+    }
+
     func testReadIdsForMultipleTaxIds() throws {
         try KrakenIndexDatabase.build(from: krakenURL, to: indexURL)
         let db = try KrakenIndexDatabase(url: indexURL)
