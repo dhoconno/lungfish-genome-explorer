@@ -351,7 +351,7 @@ public actor TaxonomyExtractionPipeline {
                 }
             } catch {
                 logger.warning(
-                    "Kraken index query failed at \(indexURL.path, privacy: .public); falling back to raw classification output: \(String(describing: error), privacy: .public)"
+                    "Kraken index query failed at \(indexURL.path, privacy: .private(mask: .hash)); falling back to raw classification output: \(String(describing: error), privacy: .private(mask: .hash))"
                 )
             }
         }
