@@ -8,6 +8,7 @@ public enum ManagedToolSourceInstallerError: Error, LocalizedError, Sendable, Eq
     case unsafeArchiveMember(String)
     case missingRequiredFile(String)
     case processFailed(operation: String, exitStatus: Int32, stderr: String)
+    case runtimeProbeFailed(ManagedToolSourceRuntimeProbe)
     case processTimedOut(seconds: TimeInterval)
     case publicationRecoveryFailed(backupPath: String, originalError: String, recoveryError: String)
 
@@ -23,6 +24,8 @@ public enum ManagedToolSourceInstallerError: Error, LocalizedError, Sendable, Eq
             return "Managed tool archive is missing required file: \(path)"
         case .processFailed(let operation, let status, _):
             return "Managed tool \(operation) failed with exit status \(status)."
+        case .runtimeProbeFailed(let probe):
+            return "Managed tool \(URL(fileURLWithPath: probe.executablePath).lastPathComponent) readiness probe failed with exit status \(probe.exitStatus)."
         case .processTimedOut(let seconds):
             return "Managed tool process timed out after \(Int(seconds)) seconds."
         case .publicationRecoveryFailed(let backupPath, let originalError, let recoveryError):
@@ -423,19 +426,16 @@ public struct ManagedToolSourceInstaller: Sendable {
                 ),
                 timeout: timeout
             )
-            guard result.exitStatus == 0 else {
-                throw ManagedToolSourceInstallerError.processFailed(
-                    operation: "\(executable.lastPathComponent) readiness probe",
-                    exitStatus: result.exitStatus,
-                    stderr: result.stderr
-                )
-            }
-            results.append(.init(
+            let runtimeProbe = ManagedToolSourceRuntimeProbe(
                 executablePath: executable.path,
                 arguments: probe.arguments,
                 exitStatus: result.exitStatus,
                 stderr: result.stderr
-            ))
+            )
+            guard result.exitStatus == 0 else {
+                throw ManagedToolSourceInstallerError.runtimeProbeFailed(runtimeProbe)
+            }
+            results.append(runtimeProbe)
         }
         return results
     }

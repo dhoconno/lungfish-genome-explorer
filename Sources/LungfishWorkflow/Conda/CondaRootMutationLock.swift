@@ -185,3 +185,92 @@ public final class CondaEnvironmentMutationLock: @unchecked Sendable {
         return encoded.isEmpty ? "empty" : encoded
     }
 }
+
+/// The shared mutation lease for one or more conda environments.
+///
+/// Every participant that can replace or alter an environment acquires these
+/// locks in the same order: lexicographically sorted environment locks first,
+/// then the conda-root lock. Holding the root lock first and subsequently
+/// waiting for an environment lock would invert that order and can deadlock
+/// against a pack install that already owns the environment lease.
+public final class CondaEnvironmentMutationTransaction: @unchecked Sendable {
+    public let root: URL
+    public let environments: [String]
+
+    private let environmentLocks: [CondaEnvironmentMutationLock]
+    private let rootLock: CondaRootMutationLock
+    private var released = false
+
+    private init(
+        root: URL,
+        environments: [String],
+        environmentLocks: [CondaEnvironmentMutationLock],
+        rootLock: CondaRootMutationLock
+    ) {
+        self.root = root
+        self.environments = environments
+        self.environmentLocks = environmentLocks
+        self.rootLock = rootLock
+    }
+
+    deinit {
+        release()
+    }
+
+    /// Acquires a shared lease for the supplied environments. `flock` waits
+    /// synchronously, so each wait is moved off the cooperative executor while
+    /// preserving the lock ordering described above.
+    public static func acquire(
+        root: URL,
+        environments: [String]
+    ) async throws -> CondaEnvironmentMutationTransaction {
+        let resolvedRoot = root.standardizedFileURL
+        let resolvedEnvironments = Array(Set(environments.filter { !$0.isEmpty })).sorted()
+        var environmentLocks: [CondaEnvironmentMutationLock] = []
+
+        do {
+            for environment in resolvedEnvironments {
+                try Task.checkCancellation()
+                let lock = try await Task.detached(priority: .utility) {
+                    try CondaEnvironmentMutationLock.acquire(
+                        root: resolvedRoot,
+                        environment: environment
+                    )
+                }.value
+                environmentLocks.append(lock)
+                try Task.checkCancellation()
+            }
+
+            // This must remain after every per-environment lock acquisition.
+            let rootLock = try await Task.detached(priority: .utility) {
+                try CondaRootMutationLock.acquire(root: resolvedRoot)
+            }.value
+            return CondaEnvironmentMutationTransaction(
+                root: resolvedRoot,
+                environments: resolvedEnvironments,
+                environmentLocks: environmentLocks,
+                rootLock: rootLock
+            )
+        } catch {
+            for lock in environmentLocks.reversed() {
+                lock.release()
+            }
+            throw error
+        }
+    }
+
+    /// Returns whether this transaction may be reused by an operation on the
+    /// specified root/environment without trying to reacquire its own locks.
+    public func covers(root: URL, environment: String) -> Bool {
+        self.root == root.standardizedFileURL && environments.contains(environment)
+    }
+
+    public func release() {
+        guard !released else { return }
+        released = true
+        rootLock.release()
+        for lock in environmentLocks.reversed() {
+            lock.release()
+        }
+    }
+}

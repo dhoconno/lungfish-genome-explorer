@@ -136,6 +136,11 @@ public struct CondaPackageInfo: Sendable, Codable, Identifiable, Hashable {
 /// let path = try await manager.toolPath(name: "samtools", environment: "samtools")
 /// ```
 public actor CondaManager {
+    private struct EnvironmentMutationLease {
+        let transaction: CondaEnvironmentMutationTransaction
+        let ownsTransaction: Bool
+    }
+
 
     typealias BundledMicromambaProvider = @Sendable () -> URL?
     typealias BundledMicromambaVersionProvider = @Sendable () -> String?
@@ -418,10 +423,18 @@ public actor CondaManager {
         name: String,
         packages: [String],
         channels: [String]? = nil,
-        progress: (@Sendable (Double, String) -> Void)? = nil
+        progress: (@Sendable (Double, String) -> Void)? = nil,
+        mutationTransaction: CondaEnvironmentMutationTransaction? = nil
     ) async throws {
-        let mutationLock = try CondaRootMutationLock.acquire(root: rootPrefix)
-        defer { mutationLock.release() }
+        let lease = try await acquireEnvironmentMutationLease(
+            environment: name,
+            reusing: mutationTransaction
+        )
+        defer {
+            if lease.ownsTransaction {
+                lease.transaction.release()
+            }
+        }
         try await createEnvironmentUnlocked(
             name: name,
             packages: packages,
@@ -454,9 +467,19 @@ public actor CondaManager {
     }
 
     /// Removes a conda environment and all its packages.
-    public func removeEnvironment(name: String) async throws {
-        let mutationLock = try CondaRootMutationLock.acquire(root: rootPrefix)
-        defer { mutationLock.release() }
+    public func removeEnvironment(
+        name: String,
+        mutationTransaction: CondaEnvironmentMutationTransaction? = nil
+    ) async throws {
+        let lease = try await acquireEnvironmentMutationLease(
+            environment: name,
+            reusing: mutationTransaction
+        )
+        defer {
+            if lease.ownsTransaction {
+                lease.transaction.release()
+            }
+        }
         try await ensureMicromamba()
         logger.info("Removing environment '\(name, privacy: .public)'")
 
@@ -507,13 +530,15 @@ public actor CondaManager {
         packageSpec: String,
         environment: String,
         channels: [String]? = nil,
-        progress: (@Sendable (Double, String) -> Void)? = nil
+        progress: (@Sendable (Double, String) -> Void)? = nil,
+        mutationTransaction: CondaEnvironmentMutationTransaction? = nil
     ) async throws {
         try await installPackageSpecs(
             packages: [packageSpec],
             environment: environment,
             channels: channels,
-            progress: progress
+            progress: progress,
+            mutationTransaction: mutationTransaction
         )
     }
 
@@ -521,13 +546,15 @@ public actor CondaManager {
         packages: [String],
         environment: String,
         channels: [String]? = nil,
-        progress: (@Sendable (Double, String) -> Void)? = nil
+        progress: (@Sendable (Double, String) -> Void)? = nil,
+        mutationTransaction: CondaEnvironmentMutationTransaction? = nil
     ) async throws {
         try await installPackageSpecs(
             packages: packages,
             environment: environment,
             channels: channels,
-            progress: progress
+            progress: progress,
+            mutationTransaction: mutationTransaction
         )
     }
 
@@ -535,10 +562,18 @@ public actor CondaManager {
         packages: [String],
         environment: String,
         channels: [String]? = nil,
-        progress: (@Sendable (Double, String) -> Void)? = nil
+        progress: (@Sendable (Double, String) -> Void)? = nil,
+        mutationTransaction: CondaEnvironmentMutationTransaction? = nil
     ) async throws {
-        let mutationLock = try CondaRootMutationLock.acquire(root: rootPrefix)
-        defer { mutationLock.release() }
+        let lease = try await acquireEnvironmentMutationLease(
+            environment: environment,
+            reusing: mutationTransaction
+        )
+        defer {
+            if lease.ownsTransaction {
+                lease.transaction.release()
+            }
+        }
         try await installPackageSpecsUnlocked(
             packages: packages,
             environment: environment,
@@ -588,13 +623,15 @@ public actor CondaManager {
         packageSpec: String,
         environment: String,
         channels: [String]? = nil,
-        progress: (@Sendable (Double, String) -> Void)? = nil
+        progress: (@Sendable (Double, String) -> Void)? = nil,
+        mutationTransaction: CondaEnvironmentMutationTransaction? = nil
     ) async throws {
         try await reinstallPackageSpecs(
             packages: [packageSpec],
             environment: environment,
             channels: channels,
-            progress: progress
+            progress: progress,
+            mutationTransaction: mutationTransaction
         )
     }
 
@@ -602,13 +639,15 @@ public actor CondaManager {
         packages: [String],
         environment: String,
         channels: [String]? = nil,
-        progress: (@Sendable (Double, String) -> Void)? = nil
+        progress: (@Sendable (Double, String) -> Void)? = nil,
+        mutationTransaction: CondaEnvironmentMutationTransaction? = nil
     ) async throws {
         try await reinstallPackageSpecs(
             packages: packages,
             environment: environment,
             channels: channels,
-            progress: progress
+            progress: progress,
+            mutationTransaction: mutationTransaction
         )
     }
 
@@ -616,10 +655,18 @@ public actor CondaManager {
         packages: [String],
         environment: String,
         channels: [String]? = nil,
-        progress: (@Sendable (Double, String) -> Void)? = nil
+        progress: (@Sendable (Double, String) -> Void)? = nil,
+        mutationTransaction: CondaEnvironmentMutationTransaction? = nil
     ) async throws {
-        let mutationLock = try CondaRootMutationLock.acquire(root: rootPrefix)
-        defer { mutationLock.release() }
+        let lease = try await acquireEnvironmentMutationLease(
+            environment: environment,
+            reusing: mutationTransaction
+        )
+        defer {
+            if lease.ownsTransaction {
+                lease.transaction.release()
+            }
+        }
         let envPath = environmentURL(named: environment)
         if FileManager.default.fileExists(atPath: envPath.path) {
             try FileManager.default.removeItem(at: envPath)
@@ -636,15 +683,48 @@ public actor CondaManager {
     /// Uninstalls packages from an environment.
     public func uninstall(
         packages: [String],
-        from environment: String
+        from environment: String,
+        mutationTransaction: CondaEnvironmentMutationTransaction? = nil
     ) async throws {
-        let mutationLock = try CondaRootMutationLock.acquire(root: rootPrefix)
-        defer { mutationLock.release() }
+        let lease = try await acquireEnvironmentMutationLease(
+            environment: environment,
+            reusing: mutationTransaction
+        )
+        defer {
+            if lease.ownsTransaction {
+                lease.transaction.release()
+            }
+        }
         try await ensureMicromamba()
         logger.info("Uninstalling \(packages.joined(separator: ", "), privacy: .public) from '\(environment, privacy: .public)'")
 
         let args = ["remove", "-n", environment, "--yes"] + packages
         _ = try await runMicromamba(args)
+    }
+
+    /// Reuses a caller-owned pack/offline transaction when it covers the
+    /// requested environment. Direct public calls create the same shared
+    /// environment-then-root transaction, so they cannot enter a pack's
+    /// overlay/final-readiness critical section mid-mutation.
+    private func acquireEnvironmentMutationLease(
+        environment: String,
+        reusing transaction: CondaEnvironmentMutationTransaction?
+    ) async throws -> EnvironmentMutationLease {
+        if let transaction {
+            guard transaction.covers(root: rootPrefix, environment: environment) else {
+                throw CondaError.environmentCreationFailed(
+                    "Mutation transaction does not cover environment '\(environment)'."
+                )
+            }
+            return EnvironmentMutationLease(transaction: transaction, ownsTransaction: false)
+        }
+        return EnvironmentMutationLease(
+            transaction: try await CondaEnvironmentMutationTransaction.acquire(
+                root: rootPrefix,
+                environments: [environment]
+            ),
+            ownsTransaction: true
+        )
     }
 
     /// Lists installed packages in an environment.

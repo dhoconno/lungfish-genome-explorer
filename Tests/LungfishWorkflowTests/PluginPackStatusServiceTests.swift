@@ -1123,6 +1123,209 @@ final class PluginPackStatusServiceTests: XCTestCase {
         await secondInstall.value
     }
 
+    func testPublicCondaReinstallCannotEnterWhilePackOverlayTransactionIsHeld() async throws {
+        let sandbox = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pack-direct-reinstall-lock-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: sandbox, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        let micromamba = try makeFakeMicromamba(
+            at: sandbox.appendingPathComponent("micromamba"),
+            version: "2.0.5-0"
+        )
+        let manager = CondaManager(
+            rootPrefix: sandbox.appendingPathComponent("conda"),
+            bundledMicromambaProvider: { micromamba },
+            bundledMicromambaVersionProvider: { "2.0.5-0" }
+        )
+        _ = try await manager.ensureMicromamba()
+
+        let requirement = try XCTUnwrap(
+            PluginPack.activeOptionalPacks
+                .flatMap(\.toolRequirements)
+                .first { $0.id == "bracken" }
+        )
+        let pack = PluginPack(
+            id: "bracken-direct-reinstall-lock",
+            name: "Bracken Direct Reinstall Lock",
+            description: "Direct conda reinstalls must wait for a pack transaction.",
+            sfSymbol: "lock",
+            packages: [],
+            category: "Tests",
+            requirements: [requirement]
+        )
+        let environmentURL = await manager.environmentURL(named: requirement.environment)
+        for relativePath in ["bin/bracken", "bin/bracken-build", "bin/src/kmer2read_distr"] {
+            let executable = environmentURL.appendingPathComponent(relativePath)
+            try FileManager.default.createDirectory(
+                at: executable.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try "#!/bin/sh\nexit 0\n".write(to: executable, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        }
+        try await writeManagedBrackenOverlayRecord(for: requirement, manager: manager)
+
+        let templateURL = sandbox.appendingPathComponent("bracken-template", isDirectory: true)
+        try FileManager.default.copyItem(at: environmentURL, to: templateURL)
+        try FileManager.default.removeItem(at: environmentURL)
+
+        let gate = BrackenMutationGate()
+        let service = PluginPackStatusService(
+            condaManager: manager,
+            installAction: { _, environment, _, _ in
+                let target = await manager.environmentURL(named: environment)
+                try? FileManager.default.removeItem(at: target)
+                try FileManager.default.copyItem(at: templateURL, to: target)
+            },
+            sourceOverlayInstallAction: { _, _, _ in
+                await gate.firstOverlayEnteredAndWaitForRelease()
+            },
+            cacheLifetime: 0
+        )
+
+        let packInstall = Task.detached {
+            try? await service.install(pack: pack, reinstall: true, progress: nil)
+        }
+        await gate.waitUntilFirstOverlayEntered()
+
+        let directReinstall = Task.detached {
+            try? await manager.reinstall(
+                packages: ["race-package"],
+                environment: requirement.environment,
+                progress: nil
+            )
+        }
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertTrue(
+            FileManager.default.isExecutableFile(
+                atPath: environmentURL.appendingPathComponent("bin/bracken-build").path
+            ),
+            "A public CondaManager reinstall must not remove the pack environment before source-overlay publication finishes."
+        )
+
+        await gate.releaseFirstOverlay()
+        await packInstall.value
+        await directReinstall.value
+    }
+
+    func testOfflineImportCannotOverwriteEnvironmentWhilePackOverlayTransactionIsHeld() async throws {
+        let sandbox = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pack-offline-import-lock-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: sandbox, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        let micromamba = try makeFakeMicromamba(
+            at: sandbox.appendingPathComponent("micromamba"),
+            version: "2.0.5-0"
+        )
+        let manager = CondaManager(
+            rootPrefix: sandbox.appendingPathComponent("conda"),
+            bundledMicromambaProvider: { micromamba },
+            bundledMicromambaVersionProvider: { "2.0.5-0" }
+        )
+        _ = try await manager.ensureMicromamba()
+
+        let requirement = try XCTUnwrap(
+            PluginPack.activeOptionalPacks
+                .flatMap(\.toolRequirements)
+                .first { $0.id == "bracken" }
+        )
+        let pack = PluginPack(
+            id: "bracken-offline-import-lock",
+            name: "Bracken Offline Import Lock",
+            description: "Offline imports must wait for a pack transaction.",
+            sfSymbol: "lock",
+            packages: [],
+            category: "Tests",
+            requirements: [requirement]
+        )
+        let environmentURL = await manager.environmentURL(named: requirement.environment)
+        for relativePath in ["bin/bracken", "bin/bracken-build", "bin/src/kmer2read_distr"] {
+            let executable = environmentURL.appendingPathComponent(relativePath)
+            try FileManager.default.createDirectory(
+                at: executable.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try "#!/bin/sh\nexit 0\n".write(to: executable, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        }
+        try await writeManagedBrackenOverlayRecord(for: requirement, manager: manager)
+
+        let templateURL = sandbox.appendingPathComponent("bracken-template", isDirectory: true)
+        try FileManager.default.copyItem(at: environmentURL, to: templateURL)
+        try FileManager.default.removeItem(at: environmentURL)
+
+        let incomingCondaRoot = sandbox.appendingPathComponent("incoming-conda", isDirectory: true)
+        let incomingEnvironment = incomingCondaRoot.appendingPathComponent("envs/bracken", isDirectory: true)
+        try FileManager.default.createDirectory(at: incomingEnvironment, withIntermediateDirectories: true)
+        try Data("incoming offline environment\n".utf8).write(
+            to: incomingEnvironment.appendingPathComponent("incoming-payload")
+        )
+        let incomingPack = PluginPack(
+            id: "incoming-bracken",
+            name: "Incoming Bracken",
+            description: "Offline import fixture",
+            sfSymbol: "archivebox",
+            packages: [],
+            category: "Tests",
+            requirements: [
+                .init(
+                    id: "incoming-bracken",
+                    displayName: "Incoming Bracken",
+                    environment: "bracken",
+                    executables: ["incoming-payload"]
+                ),
+            ]
+        )
+        let exported = try await CondaOfflinePackService().exportPack(
+            pack: incomingPack,
+            condaRoot: incomingCondaRoot,
+            outputDirectory: sandbox.appendingPathComponent("exports", isDirectory: true),
+            commandLine: ["lungfish-cli", "conda", "offline-export", "--pack", incomingPack.id]
+        )
+
+        let gate = BrackenMutationGate()
+        let service = PluginPackStatusService(
+            condaManager: manager,
+            installAction: { _, environment, _, _ in
+                let target = await manager.environmentURL(named: environment)
+                try? FileManager.default.removeItem(at: target)
+                try FileManager.default.copyItem(at: templateURL, to: target)
+            },
+            sourceOverlayInstallAction: { _, _, _ in
+                await gate.firstOverlayEnteredAndWaitForRelease()
+            },
+            cacheLifetime: 0
+        )
+
+        let packInstall = Task.detached {
+            try? await service.install(pack: pack, reinstall: true, progress: nil)
+        }
+        await gate.waitUntilFirstOverlayEntered()
+
+        let offlineImport = Task.detached {
+            try? await CondaOfflinePackService().installPack(
+                from: exported.packDirectory,
+                condaRoot: manager.rootPrefix,
+                overwrite: true,
+                commandLine: ["lungfish-cli", "conda", "offline-install", exported.packDirectory.path]
+            )
+        }
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertTrue(
+            FileManager.default.isExecutableFile(
+                atPath: environmentURL.appendingPathComponent("bin/bracken-build").path
+            ),
+            "An offline overwrite must not replace the pack environment before source-overlay publication finishes."
+        )
+
+        await gate.releaseFirstOverlay()
+        await packInstall.value
+        _ = await offlineImport.value
+        XCTAssertTrue(FileManager.default.fileExists(atPath: environmentURL.appendingPathComponent("incoming-payload").path))
+    }
+
     func testMetagenomicsPackRepairsManagedLaunchersBeforeSmokeChecks() async throws {
         let sandbox = FileManager.default.temporaryDirectory
             .appendingPathComponent("pack-status-metagenomics-repair-\(UUID().uuidString)", isDirectory: true)

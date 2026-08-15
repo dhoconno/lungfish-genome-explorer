@@ -233,7 +233,11 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
     public static let shared = PluginPackStatusService(condaManager: .shared)
 
     private let condaManager: CondaManager
-    private let installAction: InstallAction
+    /// Test/custom installs retain their injection seam. The production path
+    /// intentionally invokes CondaManager with the transaction acquired by
+    /// this service, so it never tries to reacquire an environment lease that
+    /// is already held through overlay publication and final readiness.
+    private let installAction: InstallAction?
     private let databaseInstallAction: DatabaseInstallAction
     private let databaseInstalledCheck: DatabaseInstalledCheck
     private let sourceOverlayInstallAction: SourceOverlayInstallAction
@@ -257,13 +261,7 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         cacheLifetime: TimeInterval = 300
     ) {
         self.condaManager = condaManager
-        self.installAction = installAction ?? { [condaManager] packages, environment, reinstall, progress in
-            if reinstall {
-                try await condaManager.reinstall(packages: packages, environment: environment, progress: progress)
-            } else {
-                try await condaManager.install(packages: packages, environment: environment, progress: progress)
-            }
-        }
+        self.installAction = installAction
         self.databaseInstallAction = databaseInstallAction ?? { databaseID, reinstall, progress in
             try await DatabaseRegistry.shared.installManagedDatabase(
                 databaseID,
@@ -454,12 +452,10 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         }
 
         try Task.checkCancellation()
-        let environmentMutationLocks = try await acquireEnvironmentMutationLocks(for: installTargets)
-        defer {
-            for lock in environmentMutationLocks.reversed() {
-                lock.release()
-            }
-        }
+        let environmentMutationTransaction = try await acquireEnvironmentMutationTransaction(
+            for: installTargets
+        )
+        defer { environmentMutationTransaction?.release() }
         try Task.checkCancellation()
 
         let preexistingEnvironmentNames = await existingCondaEnvironmentNames(for: installTargets)
@@ -510,11 +506,7 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
                 }
 
                 attemptedCondaTargets.append(target)
-                try await installAction(
-                    requirement.installPackages,
-                    requirement.environment,
-                    target.reinstall
-                ) { fraction, message in
+                let itemProgress: (@Sendable (Double, String) -> Void)? = { fraction, message in
                     let scaled = base + (fraction / Double(totalSteps))
                     progress?(PluginPackInstallProgress(
                         requirementID: requirement.id,
@@ -523,6 +515,21 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
                         itemFraction: fraction,
                         message: message
                     ))
+                }
+                if let installAction {
+                    try await installAction(
+                        requirement.installPackages,
+                        requirement.environment,
+                        target.reinstall,
+                        itemProgress
+                    )
+                } else {
+                    try await installCondaRequirement(
+                        requirement,
+                        reinstall: target.reinstall,
+                        progress: itemProgress,
+                        mutationTransaction: environmentMutationTransaction
+                    )
                 }
                 if requirement.sourceOverlay != nil {
                     let environmentURL = await condaManager.environmentURL(named: requirement.environment)
@@ -581,38 +588,41 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         }
     }
 
-    private func acquireEnvironmentMutationLocks(
+    private func acquireEnvironmentMutationTransaction(
         for installTargets: [PlannedInstallTarget]
-    ) async throws -> [CondaEnvironmentMutationLock] {
+    ) async throws -> CondaEnvironmentMutationTransaction? {
         let environmentNames = Set(
             installTargets.compactMap { target in
                 target.requirement.managedDatabaseID == nil ? target.requirement.environment : nil
             }
         ).sorted()
-        var locks: [CondaEnvironmentMutationLock] = []
+        guard !environmentNames.isEmpty else { return nil }
+        return try await CondaEnvironmentMutationTransaction.acquire(
+            root: condaManager.rootPrefix,
+            environments: environmentNames
+        )
+    }
 
-        do {
-            for environmentName in environmentNames {
-                try Task.checkCancellation()
-                let rootPrefix = condaManager.rootPrefix
-                // flock waits synchronously. Run that wait off the cooperative
-                // executor so a concurrent transaction can still finish its
-                // protected phase and release the lock.
-                let lock = try await Task.detached(priority: .utility) {
-                    try CondaEnvironmentMutationLock.acquire(
-                        root: rootPrefix,
-                        environment: environmentName
-                    )
-                }.value
-                locks.append(lock)
-                try Task.checkCancellation()
-            }
-            return locks
-        } catch {
-            for lock in locks.reversed() {
-                lock.release()
-            }
-            throw error
+    private func installCondaRequirement(
+        _ requirement: PackToolRequirement,
+        reinstall: Bool,
+        progress: (@Sendable (Double, String) -> Void)?,
+        mutationTransaction: CondaEnvironmentMutationTransaction?
+    ) async throws {
+        if reinstall {
+            try await condaManager.reinstall(
+                packages: requirement.installPackages,
+                environment: requirement.environment,
+                progress: progress,
+                mutationTransaction: mutationTransaction
+            )
+        } else {
+            try await condaManager.install(
+                packages: requirement.installPackages,
+                environment: requirement.environment,
+                progress: progress,
+                mutationTransaction: mutationTransaction
+            )
         }
     }
 
