@@ -310,6 +310,7 @@ public actor MetagenomicsDatabaseRegistry {
 
         // Try loading an existing manifest.
         if fm.fileExists(atPath: manifestURL.path) {
+            var didMigrateVersion = false
             do {
                 let data = try Data(contentsOf: manifestURL)
                 let decoder = JSONDecoder()
@@ -318,6 +319,11 @@ public actor MetagenomicsDatabaseRegistry {
                 for var db in manifest.databases {
                     if db.path != nil, db.installedAt == nil {
                         db.installedAt = db.lastUpdated
+                    }
+                    if let catalogVersion = Self.currentCatalogVersionProvenByReceipt(for: db),
+                       db.version != catalogVersion {
+                        db.version = catalogVersion
+                        didMigrateVersion = true
                     }
                     databases[db.name] = db
                 }
@@ -342,9 +348,11 @@ public actor MetagenomicsDatabaseRegistry {
                     addedCount += 1
                 }
             }
-            if addedCount > 0 {
+            if addedCount > 0 || didMigrateVersion {
                 try saveManifest()
-                logger.info("Merged \(addedCount, privacy: .public) new catalog entries into existing manifest")
+                logger.info(
+                    "Merged \(addedCount, privacy: .public) new catalog entries and reconciled special database versions"
+                )
             }
         } else {
             // First launch: populate from built-in catalog.
@@ -1042,6 +1050,36 @@ public actor MetagenomicsDatabaseRegistry {
             database.name == $0.name
                 && (database.collection == nil || database.collection == $0.collection)
         }
+    }
+
+    private static func currentCatalogVersionProvenByReceipt(
+        for database: MetagenomicsDatabaseInfo
+    ) -> String? {
+        guard database.status == .ready,
+              database.version?.hasPrefix("built-") == true,
+              case .some(.kraken2Special) = database.installationRecipe,
+              let catalogID = database.catalogID,
+              let catalog = catalogEntry(matching: database),
+              catalog.catalogID == catalogID,
+              let catalogVersion = catalog.version,
+              !catalogVersion.isEmpty,
+              let path = database.path,
+              let payloadDigest = database.payloadDigest else {
+            return nil
+        }
+
+        let sidecar = path.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        guard let envelope = try? ProvenanceEnvelopeReader.loadCanonical(fromSidecar: sidecar),
+              envelope.workflowName == "metagenomics.database.install",
+              envelope.workflowVersion == catalogVersion,
+              envelope.exitStatus == 0,
+              envelope.options.resolvedDefaults["payloadAggregateSHA256"]?.stringValue == payloadDigest,
+              envelope.options.resolvedDefaults["intendedFinalPath"]?.stringValue
+                == path.standardizedFileURL.path else {
+            return nil
+        }
+
+        return catalogVersion
     }
 
     private static func validateManagedPayload(

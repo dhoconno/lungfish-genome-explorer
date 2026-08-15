@@ -865,6 +865,131 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
         XCTAssertEqual(status, .ready)
     }
 
+    func testLegacyBuiltSpecialDatabaseMigratesToCurrentCatalogVersionWhenReceiptProvesCurrentRecipe() async throws {
+        let databaseDirectory = createMockSpecialKraken2Database(name: "legacy-special-current")
+        let snapshot = try MetagenomicsDatabasePayloadDigester.snapshot(at: databaseDirectory)
+        let catalog = try XCTUnwrap(
+            MetagenomicsDatabaseInfo.catalogEntry(catalogID: "kraken2-special-silva")
+        )
+        let attempt = MetagenomicsDatabaseInstallAttempt(
+            database: catalog,
+            finalURL: databaseDirectory,
+            recipeSource: "silva",
+            explicitOptions: ["threads": .integer(4)],
+            defaultOptions: ["threads": .integer(4)],
+            resolvedOptions: ["threads": .integer(4), "databaseRoot": .file(databaseDirectory)],
+            steps: [],
+            startedAt: Date(timeIntervalSince1970: 1),
+            completedAt: Date(timeIntervalSince1970: 2)
+        )
+        try CanonicalMetagenomicsDatabaseInstallProvenanceWriter().writeSuccess(
+            attempt,
+            snapshot: snapshot
+        )
+
+        var legacy = catalog
+        legacy.version = "built-20260815-\(snapshot.aggregateSHA256.prefix(12))"
+        legacy.path = databaseDirectory
+        legacy.status = .ready
+        legacy.payloadDigest = snapshot.aggregateSHA256
+        try writeManifest([legacy])
+
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
+        let migratedResult = try await registry.database(named: catalog.name)
+        let migrated = try XCTUnwrap(migratedResult)
+        XCTAssertEqual(migrated.version, "kraken2-special-v1")
+        XCTAssertFalse(migrated.isUpdateAvailable)
+
+        let manifestData = try Data(
+            contentsOf: tempDir.appendingPathComponent("metagenomics-db-registry.json")
+        )
+        let manifest = try JSONDecoder().decode(DatabaseManifest.self, from: manifestData)
+        let persisted = try XCTUnwrap(manifest.databases.first { $0.name == catalog.name })
+        XCTAssertEqual(persisted.version, "kraken2-special-v1")
+    }
+
+    func testLegacyBuiltSpecialDatabaseRetainsVersionWhenReceiptProvesDifferentRecipe() async throws {
+        let databaseDirectory = createMockSpecialKraken2Database(name: "legacy-special-mismatched")
+        let snapshot = try MetagenomicsDatabasePayloadDigester.snapshot(at: databaseDirectory)
+        let catalog = try XCTUnwrap(
+            MetagenomicsDatabaseInfo.catalogEntry(catalogID: "kraken2-special-silva")
+        )
+        var oldRecipeCatalog = catalog
+        oldRecipeCatalog.version = "kraken2-special-v0"
+        let attempt = MetagenomicsDatabaseInstallAttempt(
+            database: oldRecipeCatalog,
+            finalURL: databaseDirectory,
+            recipeSource: "silva",
+            explicitOptions: ["threads": .integer(4)],
+            defaultOptions: ["threads": .integer(4)],
+            resolvedOptions: ["threads": .integer(4), "databaseRoot": .file(databaseDirectory)],
+            steps: [],
+            startedAt: Date(timeIntervalSince1970: 1),
+            completedAt: Date(timeIntervalSince1970: 2)
+        )
+        try CanonicalMetagenomicsDatabaseInstallProvenanceWriter().writeSuccess(
+            attempt,
+            snapshot: snapshot
+        )
+
+        var legacy = catalog
+        legacy.version = "built-20260815-\(snapshot.aggregateSHA256.prefix(12))"
+        legacy.path = databaseDirectory
+        legacy.status = .ready
+        legacy.payloadDigest = snapshot.aggregateSHA256
+        try writeManifest([legacy])
+
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
+        let persistedResult = try await registry.database(named: catalog.name)
+        let persisted = try XCTUnwrap(persistedResult)
+        XCTAssertTrue(persisted.version?.hasPrefix("built-") == true)
+        XCTAssertTrue(persisted.isUpdateAvailable)
+    }
+
+    func testLegacyBuiltSpecialDatabaseRetainsVersionWithoutCatalogIdentity() async throws {
+        let databaseDirectory = createMockSpecialKraken2Database(name: "legacy-special-no-catalog-id")
+        let snapshot = try MetagenomicsDatabasePayloadDigester.snapshot(at: databaseDirectory)
+        let catalog = try XCTUnwrap(
+            MetagenomicsDatabaseInfo.catalogEntry(catalogID: "kraken2-special-silva")
+        )
+        let attempt = MetagenomicsDatabaseInstallAttempt(
+            database: catalog,
+            finalURL: databaseDirectory,
+            recipeSource: "silva",
+            explicitOptions: ["threads": .integer(4)],
+            defaultOptions: ["threads": .integer(4)],
+            resolvedOptions: ["threads": .integer(4), "databaseRoot": .file(databaseDirectory)],
+            steps: [],
+            startedAt: Date(timeIntervalSince1970: 1),
+            completedAt: Date(timeIntervalSince1970: 2)
+        )
+        try CanonicalMetagenomicsDatabaseInstallProvenanceWriter().writeSuccess(
+            attempt,
+            snapshot: snapshot
+        )
+
+        let encodedCatalog = try JSONEncoder().encode(catalog)
+        var legacyObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: encodedCatalog) as? [String: Any]
+        )
+        legacyObject.removeValue(forKey: "catalogID")
+        var legacy = try JSONDecoder().decode(
+            MetagenomicsDatabaseInfo.self,
+            from: JSONSerialization.data(withJSONObject: legacyObject)
+        )
+        legacy.version = "built-20260815-\(snapshot.aggregateSHA256.prefix(12))"
+        legacy.path = databaseDirectory
+        legacy.status = .ready
+        legacy.payloadDigest = snapshot.aggregateSHA256
+        try writeManifest([legacy])
+
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
+        let persistedResult = try await registry.database(named: catalog.name)
+        let persisted = try XCTUnwrap(persistedResult)
+        XCTAssertTrue(persisted.version?.hasPrefix("built-") == true)
+        XCTAssertTrue(persisted.isUpdateAvailable)
+    }
+
     func testCatalogReconciliationUsesStableCatalogIDWithoutDuplicatingRenamedRow() async throws {
         var renamed = try XCTUnwrap(MetagenomicsDatabaseInfo.catalogEntry(catalogID: "kraken2-special-silva"))
         let encoded = try JSONEncoder().encode(renamed)
