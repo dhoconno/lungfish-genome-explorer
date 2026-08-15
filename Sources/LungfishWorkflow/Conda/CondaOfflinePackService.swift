@@ -234,21 +234,28 @@ public struct CondaOfflinePackService {
             // avoiding a long-held lock for a malformed bundle.
             try validate(manifest: manifest, in: resolvedPackDirectory)
         } catch {
-            try? writeFailureProvenanceWhileHoldingRootLock(
-                manifest: manifest,
-                sourceBundle: packDirectory,
-                resolvedPackDirectory: resolvedPackDirectory,
-                destinationCondaRoot: destinationCondaRoot,
-                overwrite: overwrite,
-                commandLine: sanitizedCommandLine,
-                inputs: inputRecords,
-                outputs: [],
-                probes: [],
-                attemptedProbe: nil,
-                failure: error,
-                rollbackFailures: [],
-                start: start
-            )
+            do {
+                try writeFailureProvenanceWhileHoldingRootLock(
+                    manifest: manifest,
+                    sourceBundle: packDirectory,
+                    resolvedPackDirectory: resolvedPackDirectory,
+                    destinationCondaRoot: destinationCondaRoot,
+                    overwrite: overwrite,
+                    commandLine: sanitizedCommandLine,
+                    inputs: inputRecords,
+                    outputs: [],
+                    probes: [],
+                    attemptedProbe: nil,
+                    failure: error,
+                    rollbackFailures: [],
+                    start: start
+                )
+            } catch let provenanceError {
+                throw CondaOfflinePackError.failureProvenanceWriteFailed(
+                    originalFailure: error.localizedDescription,
+                    provenanceFailure: provenanceError.localizedDescription
+                )
+            }
             throw error
         }
 
@@ -272,7 +279,9 @@ public struct CondaOfflinePackService {
                 let source = resolvedPackDirectory.appendingPathComponent(environment.relativePath, isDirectory: true)
                 let destination = destinationEnvsRoot.appendingPathComponent(environment.name, isDirectory: true)
                 let staging = offlineImportStagingURL(for: destination)
-                environmentMutations.append(.init(destination: destination, staging: staging, backup: nil))
+                environmentMutations.append(
+                    .init(destination: destination, staging: staging, backup: nil, published: false)
+                )
                 let mutationIndex = environmentMutations.index(before: environmentMutations.endIndex)
 
                 // Copy into a same-filesystem staging directory first. A copy
@@ -291,6 +300,7 @@ public struct CondaOfflinePackService {
                     environmentMutations[mutationIndex].backup = backup
                 }
                 try fileManager.moveItem(at: staging, to: destination)
+                environmentMutations[mutationIndex].published = true
 
                 managedSourceReadinessProbes.append(
                     contentsOf: try await validateImportedManagedSourceOverlay(in: destination)
@@ -319,7 +329,11 @@ public struct CondaOfflinePackService {
                 exitCode: 0,
                 stderr: nil
             )
-            try discardOfflineImportBackups(environmentMutations)
+            // Publication, runtime probes, and durable success provenance are
+            // already complete. Cleanup is no longer part of the rollbackable
+            // transaction: a failure here must leave the verified replacement
+            // installed (and may conservatively retain its hidden backup).
+            _ = discardOfflineImportBackups(environmentMutations)
             return CondaOfflinePackInstallResult(
                 installedEnvironments: installedEnvironments,
                 provenanceURL: provenanceURL
@@ -331,21 +345,28 @@ public struct CondaOfflinePackService {
                 let destination = destinationEnvsRoot.appendingPathComponent(environment.name, isDirectory: true)
                 return fileManager.fileExists(atPath: destination.path) ? regularFiles(under: destination) : []
             }
-            _ = try? writeFailureProvenance(
-                manifest: manifest,
-                sourceBundle: packDirectory,
-                resolvedPackDirectory: resolvedPackDirectory,
-                destinationCondaRoot: destinationCondaRoot,
-                overwrite: overwrite,
-                commandLine: sanitizedCommandLine,
-                inputs: inputRecords,
-                outputs: restoredOutputs.map { ProvenanceRecorder.fileRecord(url: $0, role: .output) },
-                probes: managedSourceReadinessProbes,
-                attemptedProbe: attemptedProbe,
-                failure: error,
-                rollbackFailures: rollbackFailures,
-                start: start
-            )
+            do {
+                _ = try writeFailureProvenance(
+                    manifest: manifest,
+                    sourceBundle: packDirectory,
+                    resolvedPackDirectory: resolvedPackDirectory,
+                    destinationCondaRoot: destinationCondaRoot,
+                    overwrite: overwrite,
+                    commandLine: sanitizedCommandLine,
+                    inputs: inputRecords,
+                    outputs: restoredOutputs.map { ProvenanceRecorder.fileRecord(url: $0, role: .output) },
+                    probes: managedSourceReadinessProbes,
+                    attemptedProbe: attemptedProbe,
+                    failure: error,
+                    rollbackFailures: rollbackFailures,
+                    start: start
+                )
+            } catch let provenanceError {
+                throw CondaOfflinePackError.failureProvenanceWriteFailed(
+                    originalFailure: error.localizedDescription,
+                    provenanceFailure: provenanceError.localizedDescription
+                )
+            }
             throw error
         }
     }
@@ -661,6 +682,7 @@ public struct CondaOfflinePackService {
         let destination: URL
         let staging: URL
         var backup: URL?
+        var published: Bool
     }
 
     private struct PreparedPackDirectory {
@@ -721,16 +743,26 @@ public struct CondaOfflinePackService {
 
     private func discardOfflineImportBackups(
         _ mutations: [OfflineImportEnvironmentMutation]
-    ) throws {
+    ) -> [String] {
+        var failures: [String] = []
         for mutation in mutations {
             if let backup = mutation.backup,
                fileManager.fileExists(atPath: backup.path) {
-                try fileManager.removeItem(at: backup)
+                do {
+                    try fileManager.removeItem(at: backup)
+                } catch {
+                    failures.append("Could not discard offline import backup \(backup.path): \(error.localizedDescription)")
+                }
             }
             if fileManager.fileExists(atPath: mutation.staging.path) {
-                try fileManager.removeItem(at: mutation.staging)
+                do {
+                    try fileManager.removeItem(at: mutation.staging)
+                } catch {
+                    failures.append("Could not discard offline import staging \(mutation.staging.path): \(error.localizedDescription)")
+                }
             }
         }
+        return failures
     }
 
     /// Restores all destinations touched by this import in reverse publication
@@ -742,7 +774,8 @@ public struct CondaOfflinePackService {
     ) -> [String] {
         var failures: [String] = []
         for mutation in mutations.reversed() {
-            if fileManager.fileExists(atPath: mutation.destination.path) {
+            if mutation.published,
+               fileManager.fileExists(atPath: mutation.destination.path) {
                 do {
                     try fileManager.removeItem(at: mutation.destination)
                 } catch {
@@ -945,6 +978,7 @@ public enum CondaOfflinePackError: Error, LocalizedError, Sendable {
     case invalidPack(String)
     case archiveFailed(operation: String, stderr: String)
     case runtimeProbeFailed(ManagedToolSourceRuntimeProbe)
+    case failureProvenanceWriteFailed(originalFailure: String, provenanceFailure: String)
 
     public var errorDescription: String? {
         switch self {
@@ -958,6 +992,8 @@ public enum CondaOfflinePackError: Error, LocalizedError, Sendable {
             return "Failed to \(operation) offline conda pack archive: \(detail)"
         case .runtimeProbeFailed(let probe):
             return "Managed Bracken runtime probe failed after offline import: \(URL(fileURLWithPath: probe.executablePath).lastPathComponent) exited \(probe.exitStatus)."
+        case .failureProvenanceWriteFailed(let originalFailure, let provenanceFailure):
+            return "Offline conda pack failed (\(originalFailure)), and required failure provenance could not be written: \(provenanceFailure)"
         }
     }
 }

@@ -164,6 +164,127 @@ final class CondaOfflinePackServiceTests: XCTestCase {
         XCTAssertTrue(step.outputs.allSatisfy { $0.sha256 != nil && $0.sizeBytes != nil })
     }
 
+    func testInstallWithoutOverwritePreservesExistingEnvironmentAndRecordsFinalState() async throws {
+        let sourceCondaRoot = tempRoot.appendingPathComponent("source-no-overwrite", isDirectory: true)
+        let sourceEnvironment = sourceCondaRoot.appendingPathComponent("envs/samtools", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceEnvironment, withIntermediateDirectories: true)
+        try Data("replacement payload\n".utf8).write(
+            to: sourceEnvironment.appendingPathComponent("samtools")
+        )
+        let pack = PluginPack(
+            id: "no-overwrite",
+            name: "No Overwrite",
+            description: "existing destination preservation fixture",
+            sfSymbol: "lock",
+            packages: ["samtools"],
+            category: "Tests"
+        )
+        let exported = try await CondaOfflinePackService().exportPack(
+            pack: pack,
+            condaRoot: sourceCondaRoot,
+            outputDirectory: tempRoot.appendingPathComponent("exports", isDirectory: true),
+            commandLine: ["lungfish-cli", "conda", "offline-export", "--pack", pack.id]
+        )
+
+        let destinationCondaRoot = tempRoot.appendingPathComponent("destination-no-overwrite", isDirectory: true)
+        let existingPayload = destinationCondaRoot.appendingPathComponent("envs/samtools/known-good")
+        try FileManager.default.createDirectory(
+            at: existingPayload.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("known-good destination\n".utf8).write(to: existingPayload)
+
+        do {
+            _ = try await CondaOfflinePackService().installPack(
+                from: exported.packDirectory,
+                condaRoot: destinationCondaRoot,
+                overwrite: false,
+                commandLine: ["lungfish-cli", "conda", "offline-install", exported.packDirectory.path]
+            )
+            XCTFail("An existing environment must require explicit overwrite permission.")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("already exists"))
+        }
+
+        XCTAssertEqual(
+            try String(contentsOf: existingPayload, encoding: .utf8),
+            "known-good destination\n",
+            "Rejecting an overwrite must leave the existing environment untouched."
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: destinationCondaRoot.appendingPathComponent("envs/samtools/samtools").path
+            )
+        )
+
+        let failureProvenanceURL = destinationCondaRoot
+            .appendingPathComponent(CondaOfflinePackService.installFailureProvenanceFilename)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let provenance = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: failureProvenanceURL))
+        let step = try XCTUnwrap(provenance.steps.first)
+        XCTAssertEqual(step.exitCode, 1)
+        XCTAssertEqual(provenance.status, .failed)
+        XCTAssertTrue(step.stderr?.contains("already exists") == true)
+        XCTAssertTrue(step.outputs.contains { output in
+            URL(fileURLWithPath: output.path).resolvingSymlinksInPath().standardizedFileURL
+                == existingPayload.resolvingSymlinksInPath().standardizedFileURL
+        })
+    }
+
+    func testBackupCleanupFailureDoesNotRollbackVerifiedOfflineImport() async throws {
+        let sourceCondaRoot = tempRoot.appendingPathComponent("source-cleanup-failure", isDirectory: true)
+        let sourcePayload = sourceCondaRoot.appendingPathComponent("envs/samtools/samtools")
+        try FileManager.default.createDirectory(
+            at: sourcePayload.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("verified replacement\n".utf8).write(to: sourcePayload)
+        let pack = PluginPack(
+            id: "cleanup-failure",
+            name: "Cleanup Failure",
+            description: "post-commit cleanup fixture",
+            sfSymbol: "broom",
+            packages: ["samtools"],
+            category: "Tests"
+        )
+        let exported = try await CondaOfflinePackService().exportPack(
+            pack: pack,
+            condaRoot: sourceCondaRoot,
+            outputDirectory: tempRoot.appendingPathComponent("exports", isDirectory: true),
+            commandLine: ["lungfish-cli", "conda", "offline-export", "--pack", pack.id]
+        )
+
+        let destinationCondaRoot = tempRoot.appendingPathComponent("destination-cleanup-failure", isDirectory: true)
+        let destinationEnvironment = destinationCondaRoot.appendingPathComponent("envs/samtools", isDirectory: true)
+        try FileManager.default.createDirectory(at: destinationEnvironment, withIntermediateDirectories: true)
+        try Data("known-good old payload\n".utf8).write(
+            to: destinationEnvironment.appendingPathComponent("known-good")
+        )
+
+        let install = try await CondaOfflinePackService(fileManager: BackupRemovalFailingFileManager())
+            .installPack(
+                from: exported.packDirectory,
+                condaRoot: destinationCondaRoot,
+                overwrite: true,
+                commandLine: ["lungfish-cli", "conda", "offline-install", exported.packDirectory.path]
+            )
+
+        XCTAssertEqual(
+            try String(contentsOf: destinationEnvironment.appendingPathComponent("samtools"), encoding: .utf8),
+            "verified replacement\n",
+            "A cleanup-only failure after verification must not roll back the committed replacement."
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: destinationEnvironment.appendingPathComponent("known-good").path)
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: install.provenanceURL.path))
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let provenance = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: install.provenanceURL))
+        XCTAssertEqual(provenance.status, .completed)
+    }
+
     func testOfflinePackPreservesManagedBrackenOverlayRecordAndPayload() async throws {
         let sourceCondaRoot = tempRoot.appendingPathComponent("source-bracken", isDirectory: true)
         let environmentURL = sourceCondaRoot.appendingPathComponent("envs/bracken", isDirectory: true)
@@ -482,6 +603,54 @@ final class CondaOfflinePackServiceTests: XCTestCase {
         XCTAssertTrue(step.outputs.allSatisfy { $0.sha256 != nil && $0.sizeBytes != nil })
     }
 
+    func testFailureProvenanceWriteErrorIsSurfacedInsteadOfDiscarded() async throws {
+        let sourceCondaRoot = tempRoot.appendingPathComponent("source-unwritable-receipt", isDirectory: true)
+        let sourcePayload = sourceCondaRoot.appendingPathComponent("envs/samtools/samtools")
+        try FileManager.default.createDirectory(
+            at: sourcePayload.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("verified source payload\n".utf8).write(to: sourcePayload)
+        let pack = PluginPack(
+            id: "unwritable-failure-receipt",
+            name: "Unwritable Failure Receipt",
+            description: "failure provenance error fixture",
+            sfSymbol: "exclamationmark.triangle",
+            packages: ["samtools"],
+            category: "Tests"
+        )
+        let exported = try await CondaOfflinePackService().exportPack(
+            pack: pack,
+            condaRoot: sourceCondaRoot,
+            outputDirectory: tempRoot.appendingPathComponent("exports", isDirectory: true),
+            commandLine: ["lungfish-cli", "conda", "offline-export", "--pack", pack.id]
+        )
+        try Data("tampered payload\n".utf8).write(
+            to: exported.packDirectory.appendingPathComponent("envs/samtools/samtools")
+        )
+
+        let destinationCondaRoot = tempRoot.appendingPathComponent("destination-unwritable-receipt", isDirectory: true)
+        let blockedReceipt = destinationCondaRoot
+            .appendingPathComponent(CondaOfflinePackService.installFailureProvenanceFilename, isDirectory: true)
+        try FileManager.default.createDirectory(at: blockedReceipt, withIntermediateDirectories: true)
+
+        do {
+            _ = try await CondaOfflinePackService().installPack(
+                from: exported.packDirectory,
+                condaRoot: destinationCondaRoot,
+                overwrite: false,
+                commandLine: ["lungfish-cli", "conda", "offline-install", exported.packDirectory.path]
+            )
+            XCTFail("A validation failure whose required provenance cannot be written must remain blocking.")
+        } catch {
+            XCTAssertTrue(
+                error.localizedDescription.contains("failure provenance"),
+                "The caller must learn that required failure provenance was not written; got: \(error)"
+            )
+            XCTAssertTrue(error.localizedDescription.localizedCaseInsensitiveContains("mismatch"))
+        }
+    }
+
     func testExportAndInstallSupportTarAndTgzArchiveDestinations() async throws {
         for archiveExtension in ["tar", "tgz"] {
             let condaRoot = tempRoot.appendingPathComponent("source-\(archiveExtension)", isDirectory: true)
@@ -580,6 +749,15 @@ final class CondaOfflinePackServiceTests: XCTestCase {
         case nil:
             XCTFail("runTar did not complete within the timeout -- likely deadlocked on stderr pipe drain")
         }
+    }
+}
+
+private final class BackupRemovalFailingFileManager: FileManager, @unchecked Sendable {
+    override func removeItem(at URL: URL) throws {
+        if URL.lastPathComponent.hasPrefix(".lungfish-offline-import-backup-") {
+            throw CocoaError(.fileWriteNoPermission)
+        }
+        try super.removeItem(at: URL)
     }
 }
 

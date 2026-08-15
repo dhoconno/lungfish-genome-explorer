@@ -151,6 +151,27 @@ struct MetagenomicsDatabaseInstallerTests {
             atomically: true,
             encoding: .utf8
         )
+        for package in managedBrackenRuntimePackages {
+            let metadata = "{\"name\":\"\(package.name)\",\"version\":\"\(package.version)\",\"build\":\"\(package.build)\",\"subdir\":\"\(package.subdir)\"}"
+            try metadata.write(
+                to: condaMeta.appendingPathComponent("\(package.name)-\(package.version)-\(package.build).json"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+        let compiler = environment.appendingPathComponent("bin/c++")
+        try FileManager.default.createDirectory(
+            at: compiler.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "#!/bin/sh\nexit 0\n".write(to: compiler, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: compiler.path)
+        let openMPRuntime = environment.appendingPathComponent("lib/libomp.dylib")
+        try FileManager.default.createDirectory(
+            at: openMPRuntime.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("OpenMP runtime\n".utf8).write(to: openMPRuntime)
         let overlay = PackToolSourceOverlay(
             kind: .bracken,
             version: "3.1",
@@ -177,8 +198,8 @@ struct MetagenomicsDatabaseInstallerTests {
             commands: [.init(argv: ["bracken-build", "-v"], reproducibleCommand: "bracken-build -v")],
             runtime: .init(
                 environmentPath: environment.path,
-                compilerPath: "bin/c++",
-                openMPRuntimePath: "lib/libomp.dylib",
+                compilerPath: compiler.path,
+                openMPRuntimePath: openMPRuntime.path,
                 condaPackages: managedBrackenRuntimePackages
             ),
             installedFiles: installedFiles,

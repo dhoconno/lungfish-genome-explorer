@@ -93,7 +93,20 @@ git diff --check
 
 ## Remaining concern
 
-The full `PluginPackStatusServiceTests` class was started twice but outlasted
-the 30-second command capture window; no class-wide result is claimed here.
-The directly affected existing tests and both new cross-path regressions above
-completed successfully.
+Controller review subsequently completed the full `PluginPackStatusServiceTests`
+class: 37 tests passed with no failures in 41.292 seconds.
+
+Controller review also caught and repaired three offline-transaction edge cases
+with explicit RED → GREEN coverage:
+
+- rejecting `overwrite: false` now distinguishes staged data from published
+  data and cannot remove the untouched existing environment;
+- failure to discard a hidden backup after verified publication and durable
+  success provenance cannot roll back the committed replacement;
+- failure to write mandatory failure provenance is surfaced as a blocking
+  combined error instead of being silently discarded.
+
+The expanded `CondaOfflinePackServiceTests` class passes 11/11. The combined
+database/UI regression selection passes 117 XCTest tests plus 33 Swift Testing
+tests. Its managed-Bracken provenance fixture now supplies the complete pinned
+compiler/OpenMP runtime required by production receipt validation.
