@@ -242,6 +242,474 @@ final class ClassifyCommandInputFormatRegressionTests: XCTestCase {
 
 final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
 
+    func testValidationFailureWritesReplayableWrapperProvenance() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("classify-validation-provenance-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        let inputURL = tempDir.appendingPathComponent("reads.fastq")
+        let outputDirectory = tempDir.appendingPathComponent("classification", isDirectory: true)
+        try "@read\nACGT\n+\nIIII\n".write(to: inputURL, atomically: true, encoding: .utf8)
+
+        let buildProductsDirectory = Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
+        guard let executableURL = CLITestBinaryResolver.cliBinaryURL(
+            repoRoot: CLITestBinaryResolver.repositoryRoot(containing: #filePath),
+            buildProductsDirectory: buildProductsDirectory
+        ) else {
+            throw XCTSkip("lungfish-cli executable is unavailable")
+        }
+        let arguments = [
+            "conda", "classify", inputURL.path,
+            "--db", "unresolved-fixture-database",
+            "--confidence", "2.0",
+            "--output-dir", outputDirectory.path,
+        ]
+        let process = Process()
+        process.executableURL = executableURL
+        process.arguments = arguments
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+        try process.run()
+        process.waitUntilExit()
+
+        XCTAssertEqual(process.terminationStatus, CLIExitCode.inputError.rawValue)
+        let provenanceURL = outputDirectory.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        guard FileManager.default.fileExists(atPath: provenanceURL.path) else {
+            return XCTFail("Validation failure must still write CLI wrapper provenance.")
+        }
+
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: provenanceURL)
+        )
+        XCTAssertEqual(envelope.workflowName, "lungfish.classify")
+        XCTAssertEqual(Array(envelope.argv.dropFirst()), arguments)
+        XCTAssertEqual(envelope.durableReplayArgv, envelope.argv)
+        XCTAssertEqual(envelope.exitStatus, Int(CLIExitCode.inputError.rawValue))
+        XCTAssertEqual(envelope.options.explicit["databaseName"], .string("unresolved-fixture-database"))
+        XCTAssertEqual(envelope.options.explicit["confidence"], .number(2.0))
+        XCTAssertEqual(envelope.options.defaults["preset"], .string("balanced"))
+        XCTAssertEqual(envelope.options.resolvedDefaults["confidence"], .number(2.0))
+        XCTAssertEqual(envelope.options.resolvedDefaults["databasePath"], .null)
+        XCTAssertEqual(envelope.options.resolvedDefaults["inputFormat"], .string("fastq"))
+        XCTAssertEqual(envelope.options.resolvedDefaults["profileState"], .string("failed"))
+        XCTAssertTrue(envelope.stderr?.contains("Confidence must be between") == true)
+        XCTAssertTrue(envelope.files.contains {
+            $0.path == inputURL.path && $0.checksumSHA256 != nil && $0.fileSize != nil
+        })
+        XCTAssertTrue(envelope.steps.isEmpty, "Pre-tool validation must not invent a Kraken2 invocation.")
+    }
+
+    func testValidationFailurePreservesVirtualBundleLineageBeforeExecutionInputsExist() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("classify-validation-bundle-lineage-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        let fixture = try makeVirtualDerivedFASTQFixture(under: tempDir)
+        let outputDirectory = tempDir.appendingPathComponent("classification", isDirectory: true)
+        let buildProductsDirectory = Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
+        guard let executableURL = CLITestBinaryResolver.cliBinaryURL(
+            repoRoot: CLITestBinaryResolver.repositoryRoot(containing: #filePath),
+            buildProductsDirectory: buildProductsDirectory
+        ) else {
+            throw XCTSkip("lungfish-cli executable is unavailable")
+        }
+        let arguments = [
+            "conda", "classify", fixture.derivedBundleURL.path,
+            "--db", "unresolved-fixture-database",
+            "--confidence", "2.0",
+            "--output-dir", outputDirectory.path,
+        ]
+        let process = Process()
+        process.executableURL = executableURL
+        process.arguments = arguments
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+        try process.run()
+        process.waitUntilExit()
+
+        XCTAssertEqual(process.terminationStatus, CLIExitCode.inputError.rawValue)
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: outputDirectory))
+        let expectedLineage = try CLISequenceInputMaterialization.originalInputDescriptors(
+            for: fixture.derivedBundleURL
+        )
+
+        XCTAssertFalse(expectedLineage.isEmpty)
+        for descriptor in expectedLineage {
+            XCTAssertTrue(
+                envelope.files.contains(descriptor),
+                "Pre-execution failure provenance omitted virtual-bundle lineage: \(descriptor.path)"
+            )
+        }
+        XCTAssertTrue(envelope.files.contains {
+            $0.path == fixture.derivedBundleURL.path
+                && $0.checksumSHA256 != nil && $0.fileSize != nil
+        })
+        XCTAssertTrue(envelope.files.contains {
+            $0.path == fixture.rootFASTQURL.path
+                && $0.originPath == fixture.derivedBundleURL.path
+                && $0.checksumSHA256 != nil && $0.fileSize != nil
+        })
+        XCTAssertTrue(envelope.steps.isEmpty, "Pre-tool validation must not invent a materialization step.")
+    }
+
+    func testMaterializationPublicationFailureWritesWrapperAfterExecutionCleanup() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("classify-materialization-publication-failure-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        let fixture = try makeVirtualDerivedFASTQFixture(under: tempDir)
+        let outputDirectory = tempDir.appendingPathComponent("classification", isDirectory: true)
+        let materializationDirectory = outputDirectory
+            .appendingPathComponent(".lungfish-classify-inputs", isDirectory: true)
+        let materializer = FailingSecondCLISequenceMaterializer()
+        let resolved = try await ClassifyCommand.resolveExecutionInputs(
+            for: [fixture.derivedBundleURL],
+            tempDirectory: materializationDirectory,
+            materializer: materializer
+        )
+        let executionURL = try XCTUnwrap(resolved.inputURLs.first)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: executionURL.path))
+
+        let relativeInputArgument = "relative-fixture.lungfish"
+        let argv = [
+            "lungfish-cli", "conda", "classify", relativeInputArgument,
+            "--db", "FixtureDB", "--output-dir", outputDirectory.path,
+        ]
+        let durableReplayArgv = argv.map {
+            $0 == relativeInputArgument ? executionURL.path : $0
+        }
+        let failingWriter = ProvenanceWriter(
+            publicationMutationDidOccur: { _ in
+                throw CLIError.workflowFailed(reason: "synthetic provenance publication failure")
+            },
+            signingProvider: nil
+        )
+        XCTAssertThrowsError(
+            try CLISequenceInputMaterialization.writeMaterializationProvenanceOrCleanup(
+                workflowName: "lungfish.classify.input-materialization",
+                workflowVersion: LungfishCLI.configuration.version,
+                parentArgv: argv,
+                parentDurableReplayArgv: durableReplayArgv,
+                originalInputURLs: [fixture.derivedBundleURL],
+                executionInputURLs: resolved.inputURLs,
+                outputDirectory: outputDirectory,
+                operationName: "classification",
+                startedAt: Date(timeIntervalSince1970: 100),
+                endedAt: Date(timeIntervalSince1970: 101),
+                writer: failingWriter
+            )
+        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: executionURL.path))
+
+        let command = try ClassifyCommand.parse([
+            relativeInputArgument,
+            "--db", "FixtureDB",
+            "--output-dir", outputDirectory.path,
+        ])
+        var context = ClassifyFailureProvenanceContext(
+            outputDirectory: outputDirectory,
+            originalInputURLs: [fixture.derivedBundleURL]
+        )
+        context.executionInputURLs = resolved.inputURLs
+        context.durableReplayArgv = durableReplayArgv
+        context.inputFormat = .fastq
+        context.materializationStartedAt = resolved.materializationStartedAt
+        context.materializationEndedAt = resolved.materializationEndedAt
+        context.stage = .provenancePublication
+
+        let provenanceURL = try ClassifyCommand.writeFailureProvenance(
+            command: command,
+            context: context,
+            argv: argv,
+            exitStatus: Int(CLIExitCode.outputError.rawValue),
+            profileState: "failed",
+            stderr: "synthetic provenance publication failure",
+            startedAt: Date(timeIntervalSince1970: 100),
+            endedAt: Date(timeIntervalSince1970: 102),
+            writer: ProvenanceWriter(signingProvider: nil)
+        )
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: provenanceURL)
+        )
+        XCTAssertEqual(
+            envelope.durableReplayArgv,
+            argv.map { $0 == relativeInputArgument ? fixture.derivedBundleURL.path : $0 }
+        )
+        XCTAssertFalse(envelope.files.contains { $0.path == executionURL.path })
+        for descriptor in try CLISequenceInputMaterialization.originalInputDescriptors(
+            for: fixture.derivedBundleURL
+        ) {
+            XCTAssertTrue(envelope.files.contains(descriptor))
+        }
+    }
+
+    func testConfiguredFailureRecordsDatabaseReferenceAndCompleteRecursiveOptions() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("classify-configured-failure-provenance-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let inputURL = tempDir.appendingPathComponent("reads.fastq")
+        try "@read\nACGT\n+\nIIII\n".write(to: inputURL, atomically: true, encoding: .utf8)
+        let databasePath = tempDir.appendingPathComponent("database", isDirectory: true)
+        try FileManager.default.createDirectory(at: databasePath, withIntermediateDirectories: true)
+        let payloadURL = databasePath.appendingPathComponent("hash.k2d")
+        try "payload".write(to: payloadURL, atomically: true, encoding: .utf8)
+        let snapshot = try MetagenomicsDatabasePayloadDigester.snapshot(at: databasePath)
+        let databaseDigest = snapshot.aggregateSHA256
+        let databaseOutputs = snapshot.files.map { descriptor in
+            ProvenanceFileDescriptor(
+                path: databasePath.appendingPathComponent(descriptor.path).path,
+                checksumSHA256: descriptor.checksumSHA256,
+                fileSize: descriptor.fileSize,
+                role: .output
+            )
+        }
+        let databaseReceipt = ProvenanceEnvelope(
+            workflowName: "metagenomics.database.install",
+            toolName: "fixture-installer",
+            argv: ["fixture-installer", databasePath.path],
+            options: ProvenanceOptions(
+                resolvedDefaults: [
+                    "payloadAggregateSHA256": .string(databaseDigest),
+                    "payloadTotalSizeBytes": .integer(Int(snapshot.totalSizeBytes)),
+                    "intendedFinalPath": .string(databasePath.path),
+                ]
+            ),
+            files: databaseOutputs,
+            output: databaseOutputs.first,
+            outputs: databaseOutputs,
+            exitStatus: 0
+        )
+        _ = try ProvenanceWriter(signingProvider: nil).write(databaseReceipt, to: databasePath)
+        let databaseInfo = MetagenomicsDatabaseInfo(
+            name: "FixtureDB",
+            tool: "kraken2",
+            version: "fixture-v1",
+            sizeBytes: 1_024,
+            sizeOnDisk: 768,
+            payloadDigest: databaseDigest,
+            description: "Fixture database",
+            path: databasePath,
+            status: .ready,
+            recommendedRAM: 1
+        )
+        let outputDirectory = tempDir.appendingPathComponent("classification", isDirectory: true)
+        let command = try ClassifyCommand.parse([
+            inputURL.path,
+            "--db", "FixtureDB",
+            "--recursive",
+            "--output-dir", outputDirectory.path,
+        ])
+        let config = try command.makeConfigForTesting(
+            inputURLs: [inputURL],
+            databaseInfo: databaseInfo,
+            inputFormat: .fastq,
+            outputDirectory: outputDirectory
+        )
+        var context = ClassifyFailureProvenanceContext(
+            outputDirectory: outputDirectory,
+            originalInputURLs: [inputURL]
+        )
+        context.executionInputURLs = [inputURL]
+        context.inputFormat = .fastq
+        context.databaseInfo = databaseInfo
+        context.databasePath = databasePath
+        context.config = config
+        context.stage = .pipeline
+
+        let argv = [
+            "lungfish-cli", "conda", "classify", inputURL.path,
+            "--db", "FixtureDB", "--recursive", "--output-dir", outputDirectory.path,
+        ]
+        let provenanceURL = try ClassifyCommand.writeFailureProvenance(
+            command: command,
+            context: context,
+            argv: argv,
+            exitStatus: Int(CLIExitCode.workflowError.rawValue),
+            profileState: "failed",
+            stderr: "synthetic pipeline failure",
+            startedAt: Date(timeIntervalSince1970: 100),
+            endedAt: Date(timeIntervalSince1970: 101),
+            writer: ProvenanceWriter(signingProvider: nil)
+        )
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: provenanceURL)
+        )
+        let databaseReference = try XCTUnwrap(
+            envelope.files.first {
+                $0.path == databasePath.path && $0.role == .reference
+            }
+        )
+        XCTAssertEqual(databaseReference.checksumSHA256, databaseDigest)
+        XCTAssertEqual(databaseReference.fileSize, snapshot.totalSizeBytes)
+        XCTAssertEqual(
+            databaseReference.sourceProvenancePath,
+            databasePath.appendingPathComponent(ProvenanceWriter.provenanceFilename).path
+        )
+        XCTAssertFalse(
+            envelope.steps.contains {
+                $0.toolName == "Lungfish Classification Database Resolution"
+            },
+            "An in-process registry lookup must not be represented as an unexecuted CLI command."
+        )
+        XCTAssertEqual(
+            envelope.options.resolvedDefaults["databaseReferenceMetadataStatus"],
+            .string("verifiedInstallReceipt")
+        )
+        XCTAssertEqual(envelope.options.explicit["recursive"], .boolean(true))
+        XCTAssertEqual(envelope.options.defaults["recursive"], .boolean(false))
+        XCTAssertEqual(envelope.options.defaults["confidence"], .number(0.2))
+        XCTAssertEqual(envelope.options.defaults["minimumHitGroups"], .integer(2))
+        XCTAssertEqual(envelope.options.resolvedDefaults["recursive"], .boolean(true))
+    }
+
+    func testConfiguredFailureRejectsUntrustedDatabaseReceipts() throws {
+        for scenario in ["conflicting", "incomplete", "wrong-workflow", "missing-size"] {
+            let tempDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("classify-database-receipt-\(scenario)-\(UUID().uuidString)", isDirectory: true)
+            defer { try? FileManager.default.removeItem(at: tempDir) }
+            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+            let inputURL = tempDir.appendingPathComponent("reads.fastq")
+            try "@read\nACGT\n+\nIIII\n".write(to: inputURL, atomically: true, encoding: .utf8)
+            let databasePath = tempDir.appendingPathComponent("database", isDirectory: true)
+            try FileManager.default.createDirectory(at: databasePath, withIntermediateDirectories: true)
+            let payloadURL = databasePath.appendingPathComponent("hash.k2d")
+            try "payload".write(to: payloadURL, atomically: true, encoding: .utf8)
+            let snapshot = try MetagenomicsDatabasePayloadDigester.snapshot(at: databasePath)
+            let completeOutput = try ProvenanceFileDescriptor.file(
+                url: payloadURL,
+                role: .output
+            )
+            let receiptDigest = scenario == "conflicting"
+                ? String(repeating: "b", count: 64)
+                : snapshot.aggregateSHA256
+            let receiptOutputs = scenario == "incomplete"
+                ? [ProvenanceFileDescriptor(path: payloadURL.path, role: .output)]
+                : [completeOutput]
+            var receiptResolvedOptions: [String: ParameterValue] = [
+                "payloadAggregateSHA256": .string(receiptDigest),
+                "intendedFinalPath": .string(databasePath.path),
+            ]
+            if scenario != "missing-size" {
+                receiptResolvedOptions["payloadTotalSizeBytes"] = .integer(
+                    Int(snapshot.totalSizeBytes)
+                )
+            }
+            let databaseReceipt = ProvenanceEnvelope(
+                workflowName: scenario == "wrong-workflow"
+                    ? "unrelated.database.report"
+                    : "metagenomics.database.install",
+                toolName: "fixture-installer",
+                argv: ["fixture-installer", databasePath.path],
+                options: ProvenanceOptions(
+                    resolvedDefaults: receiptResolvedOptions
+                ),
+                files: receiptOutputs,
+                output: receiptOutputs.first,
+                outputs: receiptOutputs,
+                exitStatus: 0
+            )
+            _ = try ProvenanceWriter(signingProvider: nil).write(databaseReceipt, to: databasePath)
+
+            let databaseInfo = MetagenomicsDatabaseInfo(
+                name: "FixtureDB",
+                tool: "kraken2",
+                version: "fixture-v1",
+                sizeBytes: 1_024,
+                sizeOnDisk: 99_999,
+                payloadDigest: snapshot.aggregateSHA256,
+                description: "Fixture database",
+                path: databasePath,
+                status: .ready,
+                recommendedRAM: 1
+            )
+            let outputDirectory = tempDir.appendingPathComponent("classification", isDirectory: true)
+            let command = try ClassifyCommand.parse([
+                inputURL.path,
+                "--db", "FixtureDB",
+                "--output-dir", outputDirectory.path,
+            ])
+            var context = ClassifyFailureProvenanceContext(
+                outputDirectory: outputDirectory,
+                originalInputURLs: [inputURL]
+            )
+            context.executionInputURLs = [inputURL]
+            context.databaseInfo = databaseInfo
+            context.databasePath = databasePath
+            context.stage = .pipeline
+
+            let argv = [
+                "lungfish-cli", "conda", "classify", inputURL.path,
+                "--db", "FixtureDB", "--output-dir", outputDirectory.path,
+            ]
+            let provenanceURL = try ClassifyCommand.writeFailureProvenance(
+                command: command,
+                context: context,
+                argv: argv,
+                exitStatus: Int(CLIExitCode.workflowError.rawValue),
+                profileState: "failed",
+                stderr: "synthetic pipeline failure",
+                startedAt: Date(timeIntervalSince1970: 100),
+                endedAt: Date(timeIntervalSince1970: 101),
+                writer: ProvenanceWriter(signingProvider: nil)
+            )
+            let envelope = try ProvenanceJSON.decoder.decode(
+                ProvenanceEnvelope.self,
+                from: Data(contentsOf: provenanceURL)
+            )
+
+            XCTAssertFalse(
+                envelope.files.contains {
+                    $0.path == databasePath.path && $0.role == .reference
+                },
+                "\(scenario) receipt metadata must not become a trusted database descriptor"
+            )
+            XCTAssertEqual(
+                envelope.options.resolvedDefaults["databaseReferenceMetadataStatus"],
+                .string("registryIdentityWithoutVerifiedReceipt")
+            )
+            XCTAssertFalse(
+                envelope.steps.contains {
+                    $0.toolName == "Lungfish Classification Database Resolution"
+                }
+            )
+        }
+    }
+
+    func testFailureWrapperDoesNotClaimTheChildCondaRuntime() throws {
+        let sourceURL = CLITestBinaryResolver.repositoryRoot(containing: #filePath)
+            .appendingPathComponent("Sources/LungfishCLI/Commands/ClassifyCommand.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let functionStart = try XCTUnwrap(source.range(of: "static func writeFailureProvenance"))
+        let suffix = source[functionStart.lowerBound...]
+        let functionEnd = try XCTUnwrap(
+            suffix.range(of: "private static func classificationFailureExplicitOptions")
+        )
+        let writerSource = suffix[..<functionEnd.lowerBound]
+
+        XCTAssertFalse(
+            writerSource.contains("condaEnvironment"),
+            "The CLI wrapper runtime must not inherit a conda identity from a child tool."
+        )
+    }
+
+    func testFailureWrapperPropagatesTerminalStateIntoResolvedOptions() throws {
+        let sourceURL = CLITestBinaryResolver.repositoryRoot(containing: #filePath)
+            .appendingPathComponent("Sources/LungfishCLI/Commands/ClassifyCommand.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("profileState: Self.failureProfileState(for: error)"))
+        XCTAssertTrue(source.contains("options[\"profileState\"] = .string(profileState)"))
+        XCTAssertTrue(source.contains("error is CancellationError ? \"cancelled\" : \"failed\""))
+    }
+
     func testPrintedBrackenRankIncludesRequestedModeAndResolvedRank() throws {
         let sourceURL = CLITestBinaryResolver.repositoryRoot(containing: #filePath)
             .appendingPathComponent("Sources/LungfishCLI/Commands/ClassifyCommand.swift")
