@@ -270,6 +270,370 @@ final class ClassificationBatchOutcomeTests: XCTestCase {
         )
     }
 
+    func testSingleClassificationFailureRetainsOwnedAnalysisEvidence() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishApp/App/AppDelegate+Classification.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let functionStart = try XCTUnwrap(
+            source.range(of: "internal func runClassification(\n        config:")
+        )
+        let functionEnd = try XCTUnwrap(
+            source.range(
+                of: "/// Runs the EsViritu viral detection pipeline.",
+                range: functionStart.upperBound..<source.endIndex
+            )
+        )
+        let functionBody = String(source[functionStart.lowerBound..<functionEnd.lowerBound])
+        let catchStart = try XCTUnwrap(functionBody.range(of: "            } catch {"))
+        let catchBody = String(functionBody[catchStart.lowerBound...])
+
+        XCTAssertFalse(
+            catchBody.contains("removeItem(at: config.outputDirectory)"),
+            "A hard failure or cancellation must retain the pipeline provenance written to the owned analysis directory"
+        )
+    }
+
+    func testClassificationBatchCancellationPersistsEvidenceBeforeTerminalFailure() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishApp/App/AppDelegate+Classification.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let functionStart = try XCTUnwrap(
+            source.range(of: "private func runClassificationBatch(")
+        )
+        let functionEnd = try XCTUnwrap(
+            source.range(
+                of: "/// Runs EsViritu detection in batch mode",
+                range: functionStart.upperBound..<source.endIndex
+            )
+        )
+        let functionBody = String(source[functionStart.lowerBound..<functionEnd.lowerBound])
+
+        XCTAssertFalse(
+            functionBody.contains("removeOwnedBatchRoot"),
+            "Cancellation must retain partial child and root provenance"
+        )
+        let provenanceWrite = try XCTUnwrap(
+            functionBody.range(of: "MetagenomicsBatchProvenanceWriter.writeClassificationBatchProvenance")
+        )
+        let terminalCancellation = try XCTUnwrap(
+            functionBody.range(
+                of: "if batchWasCancelled {",
+                range: provenanceWrite.upperBound..<functionBody.endIndex
+            )
+        )
+        XCTAssertLessThan(
+            provenanceWrite.lowerBound,
+            terminalCancellation.lowerBound,
+            "The root envelope must be persisted before the cancelled operation returns"
+        )
+    }
+
+    func testBatchSetupFailurePersistsSummaryManifestAndRootProvenance() throws {
+        let root = makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let inputA = root.appendingPathComponent("air-A.fastq")
+        let inputB = root.appendingPathComponent("air-B.fastq")
+        try "@a\nAC\n+\nII\n".write(to: inputA, atomically: true, encoding: .utf8)
+        try "@b\nGT\n+\nII\n".write(to: inputB, atomically: true, encoding: .utf8)
+        let batchRoot = root.appendingPathComponent("classification-batch", isDirectory: true)
+        let databasePath = root.appendingPathComponent("database", isDirectory: true)
+        try FileManager.default.createDirectory(at: databasePath, withIntermediateDirectories: true)
+        let configs = [
+            makeConfig(input: inputA, output: batchRoot.appendingPathComponent("air-A"), databasePath: databasePath),
+            makeConfig(input: inputB, output: batchRoot.appendingPathComponent("air-B"), databasePath: databasePath),
+        ]
+        let command = ["/bin/sh", "-c", "replay air-A\nreplay air-B"]
+        let startedAt = Date(timeIntervalSince1970: 1_786_809_600)
+
+        let provenanceURL = try AppDelegate.persistClassificationBatchSetupFailure(
+            batchRoot: batchRoot,
+            configurations: configs,
+            sampleIDs: ["air-A", "air-B"],
+            command: command,
+            startedAt: startedAt,
+            completedAt: startedAt.addingTimeInterval(2.5),
+            errorDescription: "Unable to create materialization directory"
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: provenanceURL.path))
+        let summaryURL = batchRoot.appendingPathComponent("classification-batch-summary.tsv")
+        let summary = try String(contentsOf: summaryURL, encoding: .utf8)
+        XCTAssertTrue(summary.contains("air-A\tfailed"))
+        XCTAssertTrue(summary.contains("air-B\tfailed"))
+        XCTAssertTrue(summary.contains("Unable to create materialization directory"))
+        let manifest = try XCTUnwrap(MetagenomicsBatchResultStore.loadClassification(from: batchRoot))
+        XCTAssertEqual(manifest.header.sampleCount, 2)
+        XCTAssertEqual(manifest.failedCount, 2)
+        XCTAssertEqual(manifest.completedCount, 0)
+        XCTAssertEqual(manifest.degradedCount, 0)
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: batchRoot))
+        XCTAssertEqual(envelope.argv, command)
+        XCTAssertNotEqual(envelope.exitStatus, 0)
+        XCTAssertEqual(try XCTUnwrap(envelope.wallTimeSeconds), 2.5, accuracy: 0.001)
+        XCTAssertTrue(try XCTUnwrap(envelope.stderr).contains("Unable to create materialization directory"))
+        XCTAssertTrue(envelope.files.contains { $0.path == inputA.path && $0.checksumSHA256 != nil })
+        XCTAssertTrue(envelope.files.contains { $0.path == inputB.path && $0.checksumSHA256 != nil })
+    }
+
+    func testBatchSetupArtifactWriteFailureFallsBackToRootProvenance() throws {
+        let root = makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let input = root.appendingPathComponent("air-A.fastq")
+        try "@a\nAC\n+\nII\n".write(to: input, atomically: true, encoding: .utf8)
+        let batchRoot = root.appendingPathComponent("classification-batch", isDirectory: true)
+        let databasePath = root.appendingPathComponent("database", isDirectory: true)
+        try FileManager.default.createDirectory(at: databasePath, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: batchRoot, withIntermediateDirectories: true)
+        let summaryURL = batchRoot.appendingPathComponent("classification-batch-summary.tsv")
+        try FileManager.default.createDirectory(at: summaryURL, withIntermediateDirectories: true)
+        let config = makeConfig(
+            input: input,
+            output: batchRoot.appendingPathComponent("air-A"),
+            databasePath: databasePath
+        )
+        let command = ["/bin/sh", "-c", "replay air-A"]
+        let startedAt = Date(timeIntervalSince1970: 1_786_809_600)
+
+        let provenanceURL = try AppDelegate.persistClassificationBatchSetupFailure(
+            batchRoot: batchRoot,
+            configurations: [config],
+            sampleIDs: ["air-A"],
+            command: command,
+            startedAt: startedAt,
+            completedAt: startedAt.addingTimeInterval(3.25),
+            errorDescription: "Unable to create materialization directory"
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: provenanceURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: summaryURL.path))
+        XCTAssertNil(MetagenomicsBatchResultStore.loadClassification(from: batchRoot))
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: batchRoot))
+        XCTAssertEqual(envelope.argv, command)
+        XCTAssertEqual(envelope.durableReplayArgv, command)
+        XCTAssertNotEqual(envelope.exitStatus, 0)
+        XCTAssertEqual(try XCTUnwrap(envelope.wallTimeSeconds), 3.25, accuracy: 0.001)
+        let stderr = try XCTUnwrap(envelope.stderr)
+        XCTAssertTrue(stderr.contains("Unable to create materialization directory"))
+        XCTAssertTrue(stderr.contains("classification-batch-summary.tsv"))
+        XCTAssertTrue(envelope.files.contains { $0.path == input.path && $0.checksumSHA256 != nil })
+        XCTAssertEqual(envelope.options.explicit["databasePath"]?.stringValue, databasePath.path)
+        XCTAssertEqual(envelope.options.explicit["databaseDigest"]?.stringValue, config.databaseDigest)
+    }
+
+    func testNormalBatchArtifactWriteFailureAttemptsRootProvenanceBeforeReturning() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishApp/App/AppDelegate+Classification.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let detail = try XCTUnwrap(
+            source.range(of: "Failed to write classification batch artifacts:")
+        )
+        let terminalReturn = try XCTUnwrap(
+            source.range(of: "                return", range: detail.upperBound..<source.endIndex)
+        )
+        let catchBody = String(source[detail.lowerBound..<terminalReturn.upperBound])
+
+        XCTAssertTrue(
+            catchBody.contains("persistClassificationBatchFailureRoot"),
+            "A summary or manifest write failure after scientific work must still attempt a root failure envelope"
+        )
+    }
+
+    func testNormalBatchRootProvenanceWriteFailureAttemptsIndependentFailureRoot() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishApp/App/AppDelegate+Classification.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let detail = try XCTUnwrap(
+            source.range(of: "Failed to write classification batch provenance:")
+        )
+        let terminalReturn = try XCTUnwrap(
+            source.range(of: "                return", range: detail.upperBound..<source.endIndex)
+        )
+        let catchBody = String(source[detail.lowerBound..<terminalReturn.upperBound])
+
+        XCTAssertTrue(
+            catchBody.contains("persistClassificationBatchFailureRoot"),
+            "A standard root provenance publication failure must attempt the independent failure-root writer"
+        )
+        XCTAssertTrue(catchBody.contains("batch-provenance-publication"))
+    }
+
+    func testBatchReplayCommandCapturesEachResolvedSampleConfiguration() throws {
+        let root = makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let inputA = root.appendingPathComponent("air A.fastq")
+        let inputB = root.appendingPathComponent("air-B.fastq")
+        let databasePath = root.appendingPathComponent("silva db", isDirectory: true)
+        var automatic = makeConfig(
+            input: inputA,
+            output: root.appendingPathComponent("result A", isDirectory: true),
+            databasePath: databasePath
+        )
+        automatic.confidence = 0.2
+        automatic.minimumHitGroups = 3
+        automatic.threads = 7
+        automatic.memoryMapping = true
+        automatic.quickMode = true
+        automatic.extraArguments = ["--minimum-base-quality", "20"]
+        var explicit = ClassificationConfig(
+            goal: .profile,
+            inputFiles: [inputB],
+            isPairedEnd: false,
+            databaseName: "SILVA",
+            databaseVersion: "2026-08",
+            databasePath: databasePath,
+            databaseDigest: "sha256:fixture",
+            databaseCatalogID: "kraken2-special-silva",
+            databaseInstallationRecipe: .kraken2Special(type: .silva),
+            brackenProfileRequest: BrackenProfileRequest(
+                rank: .explicit(.genus),
+                readLength: 150,
+                threshold: 25
+            ),
+            outputDirectory: root.appendingPathComponent("result-B", isDirectory: true)
+        )
+        explicit.originalInputFiles = [inputB]
+
+        let command: [String] = AppDelegate.classificationBatchReplayCommand(
+            configurations: [automatic, explicit]
+        )
+
+        XCTAssertEqual(command.prefix(2), ["/bin/sh", "-c"])
+        let script = try XCTUnwrap(command.last)
+        XCTAssertTrue(script.hasPrefix("set -e\n"))
+        XCTAssertEqual(script.components(separatedBy: "\n").count, 3)
+        XCTAssertTrue(script.contains("conda classify"))
+        XCTAssertTrue(script.contains("--output-dir"))
+        XCTAssertTrue(script.contains(shellEscape(automatic.outputDirectory.path)))
+        XCTAssertTrue(script.contains(shellEscape(explicit.outputDirectory.path)))
+        XCTAssertTrue(script.contains("--profile"))
+        XCTAssertTrue(script.contains("--bracken-read-length 150"))
+        XCTAssertTrue(script.contains("--bracken-threshold 10"))
+        XCTAssertTrue(script.contains("--bracken-threshold 25"))
+        XCTAssertTrue(script.contains("--bracken-level G"))
+        XCTAssertTrue(script.contains("--confidence 0.2"))
+        XCTAssertTrue(script.contains("--min-hit-groups 3"))
+        XCTAssertTrue(script.contains("--threads 7"))
+        XCTAssertTrue(script.contains("--memory-mapping"))
+        XCTAssertTrue(script.contains("--quick"))
+        XCTAssertTrue(script.contains(shellEscape(inputA.path)))
+        XCTAssertTrue(script.contains(shellEscape(inputB.path)))
+        XCTAssertTrue(script.contains(shellEscape(databasePath.standardizedFileURL.path)))
+        XCTAssertTrue(script.contains(shellEscape(automatic.databaseDigest ?? "")))
+        XCTAssertTrue(script.contains(ProvenanceWriter.provenanceFilename))
+        XCTAssertTrue(script.contains("conda db info"))
+        let databaseGuard = try XCTUnwrap(
+            script.range(of: shellEscape(databasePath.standardizedFileURL.path))
+        )
+        let firstClassification = try XCTUnwrap(script.range(of: "lungfish-cli conda classify"))
+        XCTAssertLessThan(
+            databaseGuard.lowerBound,
+            firstClassification.lowerBound,
+            "Replay must verify the immutable database identity before invoking classification"
+        )
+        XCTAssertFalse(script.contains("classification-batch --output"))
+    }
+
+    func testBatchReplayStopsBeforeAnyClassificationWhenDatabaseIdentityGuardFails() throws {
+        let root = makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let missingDatabase = root.appendingPathComponent("missing-database", isDirectory: true)
+        let validDatabase = root.appendingPathComponent("valid database", isDirectory: true)
+        try FileManager.default.createDirectory(at: validDatabase, withIntermediateDirectories: true)
+        let digest = "sha256:fixture"
+        let receipt = ProvenanceEnvelope(
+            createdAt: Date(timeIntervalSince1970: 1_786_809_600),
+            workflowName: "Fixture database install",
+            toolName: "fixture-installer",
+            argv: ["fixture-installer"],
+            options: ProvenanceOptions(
+                resolvedDefaults: [
+                    "payloadAggregateSHA256": .string(digest),
+                    "intendedFinalPath": .string(validDatabase.standardizedFileURL.path),
+                ]
+            ),
+            exitStatus: 0
+        )
+        _ = try ProvenanceWriter().write(receipt, to: validDatabase)
+
+        let fakeBin = root.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: fakeBin, withIntermediateDirectories: true)
+        let marker = root.appendingPathComponent("classification-ran")
+        let fakeCLI = fakeBin.appendingPathComponent("lungfish-cli")
+        let fakeScript = """
+        #!/bin/sh
+        if [ "$1 $2 $3" = "conda db info" ]; then
+          /usr/bin/printf 'Location: %s\\n' "$FAKE_DATABASE_PATH"
+          exit 0
+        fi
+        /usr/bin/touch "$CLASSIFICATION_MARKER"
+        exit 0
+        """
+        try fakeScript.write(to: fakeCLI, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: NSNumber(value: Int16(0o755))],
+            ofItemAtPath: fakeCLI.path
+        )
+
+        let first = makeConfig(
+            input: root.appendingPathComponent("air-A.fastq"),
+            output: root.appendingPathComponent("result-A"),
+            databasePath: missingDatabase
+        )
+        let second = makeConfig(
+            input: root.appendingPathComponent("air-B.fastq"),
+            output: root.appendingPathComponent("result-B"),
+            databasePath: validDatabase
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = fakeBin.path + ":" + (environment["PATH"] ?? "")
+        environment["FAKE_DATABASE_PATH"] = validDatabase.standardizedFileURL.path
+        environment["CLASSIFICATION_MARKER"] = marker.path
+        func runReplay(_ configurations: [ClassificationConfig]) throws -> Int32 {
+            let command = AppDelegate.classificationBatchReplayCommand(
+                configurations: configurations
+            )
+            let script = try XCTUnwrap(command.last)
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/sh")
+            process.arguments = ["-c", script]
+            process.environment = environment
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus
+        }
+
+        XCTAssertEqual(try runReplay([second]), 0)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: marker.path))
+        try? FileManager.default.removeItem(at: marker)
+
+        environment["FAKE_DATABASE_PATH"] = validDatabase.standardizedFileURL.path + "-old"
+        XCTAssertNotEqual(try runReplay([second]), 0)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: marker.path),
+            "A registry location that merely contains the captured path must fail closed"
+        )
+        try? FileManager.default.removeItem(at: marker)
+        environment["FAKE_DATABASE_PATH"] = validDatabase.standardizedFileURL.path
+
+        XCTAssertNotEqual(try runReplay([first, second]), 0)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: marker.path),
+            "A failed immutable database guard must terminate the whole batch replay"
+        )
+    }
+
     private var genusResolution: BrackenProfileResolution {
         BrackenDatabaseCapabilities.resolve(
             catalogID: "kraken2-special-silva",
@@ -319,6 +683,22 @@ final class ClassificationBatchOutcomeTests: XCTestCase {
             runtime: 1.25,
             toolVersion: "2.1.3",
             provenanceId: nil
+        )
+    }
+
+    private func makeConfig(input: URL, output: URL, databasePath: URL) -> ClassificationConfig {
+        ClassificationConfig(
+            goal: .profile,
+            inputFiles: [input],
+            isPairedEnd: false,
+            databaseName: "SILVA",
+            databaseVersion: "2026-08",
+            databasePath: databasePath,
+            databaseDigest: "sha256:fixture",
+            databaseCatalogID: "kraken2-special-silva",
+            databaseInstallationRecipe: .kraken2Special(type: .silva),
+            brackenProfileRequest: .automaticDefault,
+            outputDirectory: output
         )
     }
 

@@ -366,6 +366,416 @@ extension AppDelegate {
         }
     }
 
+    /// Persists diagnosable batch artifacts when setup fails before any sample
+    /// pipeline can create child provenance.
+    @discardableResult
+    nonisolated internal static func persistClassificationBatchSetupFailure(
+        batchRoot: URL,
+        configurations: [ClassificationConfig],
+        sampleIDs: [String],
+        command: [String],
+        startedAt: Date,
+        completedAt: Date,
+        errorDescription: String
+    ) throws -> URL {
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: batchRoot, withIntermediateDirectories: true)
+
+        let message = "Batch setup failed: \(errorDescription)"
+        let rows = sampleIDs.map {
+            ClassificationBatchOutcomePolicy.failedRow(sampleId: $0, message: message)
+        }
+        let summaryURL = batchRoot.appendingPathComponent("classification-batch-summary.tsv")
+        let manifest = ClassificationBatchResultManifest(
+            header: MetagenomicsBatchManifestHeader(
+                schemaVersion: 2,
+                createdAt: startedAt,
+                sampleCount: configurations.count
+            ),
+            goal: configurations.first?.goal.rawValue ?? ClassificationConfig.Goal.classify.rawValue,
+            databaseName: configurations.first?.databaseName ?? "unknown",
+            databaseVersion: configurations.first?.databaseVersion ?? "",
+            summaryTSV: summaryURL.lastPathComponent,
+            samples: [],
+            completedCount: 0,
+            degradedCount: 0,
+            failedCount: configurations.count
+        )
+
+        do {
+            try ClassificationBatchOutcomePolicy.summaryTSV(rows: rows)
+                .write(to: summaryURL, atomically: true, encoding: .utf8)
+            try MetagenomicsBatchResultStore.saveClassification(manifest, to: batchRoot)
+
+            return try MetagenomicsBatchProvenanceWriter.writeClassificationBatchProvenance(
+                batchRoot: batchRoot,
+                manifest: manifest,
+                summaryURL: summaryURL,
+                sqliteURL: nil,
+                command: command,
+                additionalStderr: [message],
+                additionalInputURLs: configurations.flatMap { $0.originalInputFiles ?? $0.inputFiles },
+                context: ClassificationBatchProvenanceContext(
+                    configurations: configurations,
+                    startedAt: startedAt,
+                    completedAt: completedAt
+                )
+            )
+        } catch {
+            let fallbackMessage = [
+                message,
+                "Failed to persist setup summary, manifest, or standard root provenance: \(error.localizedDescription)",
+            ].joined(separator: "\n")
+            return try persistClassificationBatchFailureRoot(
+                batchRoot: batchRoot,
+                configurations: configurations,
+                command: command,
+                startedAt: startedAt,
+                completedAt: completedAt,
+                failureStage: "batch-setup-artifact-publication",
+                errorDescription: fallbackMessage,
+                additionalOutputURLs: [
+                    summaryURL,
+                    batchRoot.appendingPathComponent(ClassificationBatchResultManifest.filename),
+                ]
+            )
+        }
+    }
+
+    /// Writes a minimal but complete root failure envelope directly. This path
+    /// intentionally does not require a summary or result manifest: those are
+    /// precisely the artifacts that may have failed to publish.
+    @discardableResult
+    nonisolated internal static func persistClassificationBatchFailureRoot(
+        batchRoot: URL,
+        configurations: [ClassificationConfig],
+        command: [String],
+        startedAt: Date,
+        completedAt: Date,
+        failureStage: String,
+        errorDescription: String,
+        additionalOutputURLs: [URL] = []
+    ) throws -> URL {
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: batchRoot, withIntermediateDirectories: true)
+
+        let inputURLs = uniqueClassificationBatchURLs(
+            configurations.flatMap { $0.originalInputFiles ?? $0.inputFiles }
+        )
+        let inputDescriptors = inputURLs.map {
+            ProvenanceFileDescriptor(
+                fileRecord: ProvenanceRecorder.fileOrDirectoryRecord(url: $0, role: .input)
+            )
+        }
+        let databaseDescriptors = uniqueClassificationBatchDescriptors(
+            configurations.map(classificationDatabaseReferenceDescriptor)
+        )
+
+        let outputDirectories = uniqueClassificationBatchURLs(
+            configurations.map(\.outputDirectory)
+        )
+        var childEnvelopes = outputDirectories.compactMap { directory -> ProvenanceEnvelope? in
+            ProvenanceRecorder.loadEnvelope(from: directory)
+        }
+        if let existingRootEnvelope = ProvenanceRecorder.loadEnvelope(from: batchRoot),
+           existingRootEnvelope.toolName != "Lungfish Classification Batch" {
+            childEnvelopes.append(existingRootEnvelope)
+        }
+        let childSteps = childEnvelopes.flatMap(\.steps)
+        let childFiles = childEnvelopes.flatMap(\.files)
+        let childOutputs = uniqueClassificationBatchDescriptors(
+            childEnvelopes.flatMap(\.outputs) + childEnvelopes.compactMap(\.output)
+        )
+        let directoriesWithoutChildEnvelope = outputDirectories.filter { directory in
+            guard FileManager.default.fileExists(atPath: directory.path) else { return false }
+            return ProvenanceRecorder.loadEnvelope(from: directory) == nil
+        }
+        let unprovenancedOutputs = directoriesWithoutChildEnvelope.map {
+            ProvenanceFileDescriptor(
+                fileRecord: ProvenanceRecorder.fileOrDirectoryRecord(url: $0, role: .output)
+            )
+        }
+        let artifactOutputs = additionalOutputURLs.compactMap(
+            classificationRegularOutputDescriptor
+        )
+        let outputs = uniqueClassificationBatchDescriptors(
+            artifactOutputs + childOutputs + unprovenancedOutputs
+        )
+        let runtimeIdentity = ProvenanceRuntimeIdentity()
+        let wallTime = max(0, completedAt.timeIntervalSince(startedAt))
+        let failureOptions = classificationBatchFailureOptions(
+            configurations: configurations,
+            failureStage: failureStage
+        )
+        let failureInputs = uniqueClassificationBatchDescriptors(
+            inputDescriptors + databaseDescriptors + childOutputs
+        )
+        let failureStep = ProvenanceStep(
+            toolName: "Lungfish Classification Batch",
+            toolVersion: WorkflowRun.currentAppVersion,
+            argv: command,
+            durableReplayArgv: command,
+            resolvedOptions: failureOptions.resolvedDefaults,
+            runtimeIdentity: runtimeIdentity,
+            inputs: failureInputs,
+            outputs: artifactOutputs,
+            exitStatus: 1,
+            wallTimeSeconds: wallTime,
+            stderr: errorDescription,
+            dependsOn: childSteps.map(\.id),
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+        let envelope = ProvenanceEnvelope(
+            createdAt: startedAt,
+            workflowName: "Classification Batch",
+            workflowVersion: WorkflowRun.currentAppVersion,
+            toolName: "Lungfish Classification Batch",
+            toolVersion: WorkflowRun.currentAppVersion,
+            tool: ProvenanceToolIdentity(
+                name: "Lungfish Classification Batch",
+                version: WorkflowRun.currentAppVersion,
+                kind: "app"
+            ),
+            argv: command,
+            durableReplayArgv: command,
+            options: failureOptions,
+            runtimeIdentity: runtimeIdentity,
+            files: uniqueClassificationBatchDescriptors(
+                inputDescriptors + databaseDescriptors + childFiles + outputs
+            ),
+            output: outputs.first,
+            outputs: outputs,
+            steps: childSteps + [failureStep],
+            wallTimeSeconds: wallTime,
+            exitStatus: 1,
+            stderr: errorDescription
+        )
+        return try ProvenanceWriter().write(envelope, to: batchRoot)
+    }
+
+    nonisolated private static func classificationBatchFailureOptions(
+        configurations: [ClassificationConfig],
+        failureStage: String
+    ) -> ProvenanceOptions {
+        let first = configurations.first
+        let sampleConfigurations = configurations.map { config in
+            ParameterValue.dictionary([
+                "goal": .string(config.goal.rawValue),
+                "inputFormat": .string(config.inputFormat.rawValue),
+                "inputPaths": .array(
+                    (config.originalInputFiles ?? config.inputFiles)
+                        .map { .string($0.standardizedFileURL.path) }
+                ),
+                "outputDirectory": .string(config.outputDirectory.standardizedFileURL.path),
+                "pairedEnd": .boolean(config.isPairedEnd),
+                "databaseName": .string(config.databaseName),
+                "databaseVersion": .string(config.databaseVersion),
+                "databasePath": .string(config.databasePath.standardizedFileURL.path),
+                "databaseDigest": config.databaseDigest.map(ParameterValue.string) ?? .null,
+                "databaseCatalogID": config.databaseCatalogID.map(ParameterValue.string) ?? .null,
+                "databaseInstallationRecipe": config.databaseInstallationRecipe
+                    .map { .string($0.provenanceValue) } ?? .null,
+                "confidence": .number(config.confidence),
+                "minimumHitGroups": .integer(config.minimumHitGroups),
+                "threads": .integer(config.threads),
+                "memoryMapping": .boolean(config.memoryMapping),
+                "quickMode": .boolean(config.quickMode),
+                "extraArguments": .array(config.extraArguments.map(ParameterValue.string)),
+                "brackenRankRequest": config.brackenProfileRequest
+                    .map { .string($0.rank.provenanceValue) } ?? .null,
+                "brackenReadLength": config.brackenProfileRequest
+                    .map { .integer($0.readLength) } ?? .null,
+                "brackenThreshold": config.brackenProfileRequest
+                    .map { .integer($0.threshold) } ?? .null,
+            ])
+        }
+        let explicit: [String: ParameterValue] = [
+            "goal": first.map { .string($0.goal.rawValue) } ?? .null,
+            "databaseName": first.map { .string($0.databaseName) } ?? .null,
+            "databaseVersion": first.map { .string($0.databaseVersion) } ?? .null,
+            "databasePath": first.map { .string($0.databasePath.standardizedFileURL.path) } ?? .null,
+            "databaseDigest": first?.databaseDigest.map(ParameterValue.string) ?? .null,
+            "databaseCatalogID": first?.databaseCatalogID.map(ParameterValue.string) ?? .null,
+            "databaseInstallationRecipe": first?.databaseInstallationRecipe
+                .map { .string($0.provenanceValue) } ?? .null,
+            "configurationCount": .integer(configurations.count),
+            "failureStage": .string(failureStage),
+            "sampleConfigurations": .array(sampleConfigurations),
+        ]
+        let defaults: [String: ParameterValue] = [
+            "inputFormat": .string(SequenceFormat.fastq.rawValue),
+            "confidence": .number(0),
+            "minimumHitGroups": .integer(2),
+            "threads": .integer(4),
+            "memoryMapping": .boolean(false),
+            "quickMode": .boolean(false),
+            "brackenRankRequest": .string("automatic"),
+            "brackenReadLength": .integer(150),
+            "brackenThreshold": .integer(10),
+            "summaryFilename": .string("classification-batch-summary.tsv"),
+            "sqliteFilename": .string("kraken2.sqlite"),
+            "manifestFilename": .string(ClassificationBatchResultManifest.filename),
+        ]
+        return ProvenanceOptions(
+            explicit: explicit,
+            defaults: defaults,
+            resolvedDefaults: [
+                "failureStage": .string(failureStage),
+                "sampleConfigurations": .array(sampleConfigurations),
+                "databasePaths": .array(
+                    uniqueClassificationBatchURLs(configurations.map(\.databasePath))
+                        .map { .string($0.path) }
+                ),
+                "databaseDigests": .array(
+                    Array(Set(configurations.compactMap(\.databaseDigest)))
+                        .sorted()
+                        .map(ParameterValue.string)
+                ),
+            ]
+        )
+    }
+
+    nonisolated private static func classificationDatabaseReferenceDescriptor(
+        _ config: ClassificationConfig
+    ) -> ProvenanceFileDescriptor {
+        let path = config.databasePath.standardizedFileURL
+        let receipt = ProvenanceRecorder.loadEnvelope(from: path)
+        let receiptDigest = receipt?.options.resolvedDefaults["payloadAggregateSHA256"]?.stringValue
+        let digest = config.databaseDigest ?? receiptDigest
+        let receiptSize: UInt64? = receipt.map { envelope in
+            var seen = Set<String>()
+            return envelope.outputs.reduce(UInt64(0)) { total, descriptor in
+                guard seen.insert(descriptor.path).inserted else { return total }
+                return total + (descriptor.fileSize ?? 0)
+            }
+        }
+        return ProvenanceFileDescriptor(
+            path: path.path,
+            checksumSHA256: digest,
+            fileSize: receiptSize,
+            format: .unknown,
+            role: .reference,
+            sourceProvenancePath: receipt.map { _ in
+                path.appendingPathComponent(ProvenanceWriter.provenanceFilename).path
+            }
+        )
+    }
+
+    nonisolated private static func classificationRegularOutputDescriptor(
+        _ url: URL
+    ) -> ProvenanceFileDescriptor? {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+              !isDirectory.boolValue else {
+            return nil
+        }
+        return ProvenanceFileDescriptor(
+            fileRecord: ProvenanceRecorder.fileOrDirectoryRecord(url: url, role: .output)
+        )
+    }
+
+    nonisolated private static func uniqueClassificationBatchURLs(_ urls: [URL]) -> [URL] {
+        var seen = Set<String>()
+        return urls.compactMap { url in
+            let standardized = url.standardizedFileURL
+            return seen.insert(standardized.path).inserted ? standardized : nil
+        }
+    }
+
+    nonisolated private static func uniqueClassificationBatchDescriptors(
+        _ descriptors: [ProvenanceFileDescriptor]
+    ) -> [ProvenanceFileDescriptor] {
+        var seen = Set<String>()
+        return descriptors.filter {
+            seen.insert("\($0.role.rawValue)\u{0}\($0.path)").inserted
+        }
+    }
+
+    /// Builds a runnable shell command that reproduces each sample in a batch
+    /// with its durable inputs, resolved Kraken settings, Bracken request, and
+    /// final per-sample output directory.
+    nonisolated internal static func classificationBatchReplayCommand(
+        configurations: [ClassificationConfig]
+    ) -> [String] {
+        let commands = configurations.map { config -> String in
+            var arguments = ["conda", "classify"]
+            arguments += ["--db", config.databaseName]
+            arguments += ["--output-dir", config.outputDirectory.path]
+            arguments += ["--confidence", String(config.confidence)]
+            arguments += ["--min-hit-groups", String(config.minimumHitGroups)]
+            arguments += ["--threads", String(config.threads)]
+
+            if config.isPairedEnd {
+                arguments.append("--paired")
+            }
+            if config.memoryMapping {
+                arguments.append("--memory-mapping")
+            }
+            if config.quickMode {
+                arguments.append("--quick")
+            }
+            if !config.extraArguments.isEmpty {
+                arguments += ["--extra-args", AdvancedCommandLineOptions.join(config.extraArguments)]
+            }
+            if config.goal == .profile {
+                let request = config.brackenProfileRequest ?? .automaticDefault
+                arguments.append("--profile")
+                arguments += ["--bracken-read-length", String(request.readLength)]
+                arguments += ["--bracken-threshold", String(request.threshold)]
+                if case .explicit(let rank) = request.rank {
+                    arguments += ["--bracken-level", rank.code]
+                }
+            }
+
+            arguments += (config.originalInputFiles ?? config.inputFiles).map(\.path)
+            let classificationCommand = ([CLICommandIdentity.executableName] + arguments)
+                .map(shellEscape)
+                .joined(separator: " ")
+            return (classificationDatabaseReplayGuards(for: config) + [classificationCommand])
+                .joined(separator: "; ")
+        }
+        return ["/bin/sh", "-c", (["set -e"] + commands).joined(separator: "\n")]
+    }
+
+    /// `--db` is a registry display name, so a replay also asserts the exact
+    /// installation receipt captured by the app before allowing that lookup.
+    nonisolated private static func classificationDatabaseReplayGuards(
+        for config: ClassificationConfig
+    ) -> [String] {
+        let databasePath = config.databasePath.standardizedFileURL
+        let receiptURL = databasePath.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let receipt = ProvenanceRecorder.loadEnvelope(from: databasePath)
+        let digest = config.databaseDigest
+            ?? receipt?.options.resolvedDefaults["payloadAggregateSHA256"]?.stringValue
+            ?? "__missing_database_digest__"
+        let escapedPath = shellEscape(databasePath.path)
+        let escapedReceipt = shellEscape(receiptURL.path)
+        let escapedDigest = shellEscape(digest)
+        let receiptDigest = "$(/usr/bin/plutil -extract options.resolvedDefaults.payloadAggregateSHA256.value raw -o - \(escapedReceipt))"
+        let receiptPath = "$(/usr/bin/plutil -extract options.resolvedDefaults.intendedFinalPath.value raw -o - \(escapedReceipt))"
+        let receiptExitStatus = "$(/usr/bin/plutil -extract exitStatus raw -o - \(escapedReceipt))"
+        let databaseInfoCommand = [
+            CLICommandIdentity.executableName,
+            "conda",
+            "db",
+            "info",
+            "--no-color",
+            config.databaseName,
+        ].map(shellEscape).joined(separator: " ")
+        let registryPath = "$(\(databaseInfoCommand) | /usr/bin/sed -n "
+            + shellEscape("s/^Location[[:space:]]*:[[:space:]]*//p")
+            + ")"
+        return [
+            "/bin/test -d \(escapedPath)",
+            "/bin/test -f \(escapedReceipt)",
+            "/bin/test \"\(receiptDigest)\" = \(escapedDigest)",
+            "/bin/test \"\(receiptPath)\" = \(escapedPath)",
+            "/bin/test \"\(receiptExitStatus)\" = 0",
+            "/bin/test \"\(registryPath)\" = \(escapedPath)",
+        ]
+    }
+
     nonisolated private static func validatedFASTQBundleMember(
         _ relativePath: String,
         in bundleURL: URL,
@@ -429,11 +839,9 @@ extension AppDelegate {
             windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
             workflowName: "Classification"
         ) else { return }
-        var ownsOutputDirectory = false
         if let projectURL = routeContext?.projectURL {
             if let analysisDir = try? AnalysesFolder.createAnalysisDirectory(tool: "kraken2", in: projectURL) {
                 config.outputDirectory = analysisDir
-                ownsOutputDirectory = true
             }
         }
 
@@ -589,15 +997,6 @@ extension AppDelegate {
                     }
                 }
             } catch {
-                if ownsOutputDirectory {
-                    do {
-                        try FileManager.default.removeItem(at: config.outputDirectory)
-                    } catch {
-                        appDelegateLogger.error(
-                            "runClassification: Failed to remove incomplete analysis directory \(config.outputDirectory.path, privacy: .public) - \(error.localizedDescription, privacy: .public)"
-                        )
-                    }
-                }
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         viewerController.hideProgress()
@@ -903,9 +1302,7 @@ extension AppDelegate {
             windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
             workflowName: "Classification batch"
         ) else { return }
-        var ownsBatchRoot = false
         if let projectURL, let batchDir = try? AnalysesFolder.createAnalysisDirectory(tool: "kraken2", in: projectURL, isBatch: true) {
-            ownsBatchRoot = true
             for i in configs.indices {
                 // Try the centralized helper; on failure, fall back to the old semantics.
                 if let sampleSubdir = try? AnalysesFolder.batchSampleDirectory(named: configs[i].outputDirectory.lastPathComponent, in: batchDir) {
@@ -949,12 +1346,9 @@ extension AppDelegate {
             subcommand: "conda classify",
             args: batchCliArgs
         )
-        let batchProvenanceCommand = [
-            "LungfishApp",
-            "classification-batch",
-            "--output",
-            batchRoot.path,
-        ] + batchCliArgs
+        let batchProvenanceCommand = Self.classificationBatchReplayCommand(
+            configurations: configs
+        )
         let opID = OperationCenter.shared.start(
             title: "Classification Batch (\(sampleCount) sample\(sampleCount == 1 ? "" : "s"))",
             detail: "Starting Kraken2/Bracken batch\u{2026}",
@@ -966,25 +1360,46 @@ extension AppDelegate {
         let task = Task.detached { [weak self] in
             guard let self else { return }
 
-            let batchMaterializeTempDir = try ProjectTempDirectory.createFromContext(
-                prefix: "classify-batch-mat-", contextURL: firstConfig.inputFiles.first ?? firstConfig.databasePath)
+            let batchMaterializeTempDir: URL
+            do {
+                batchMaterializeTempDir = try ProjectTempDirectory.createFromContext(
+                    prefix: "classify-batch-mat-",
+                    contextURL: firstConfig.inputFiles.first ?? firstConfig.databasePath
+                )
+            } catch {
+                var detail = "Failed to prepare classification batch inputs: \(error.localizedDescription)"
+                do {
+                    _ = try Self.persistClassificationBatchSetupFailure(
+                        batchRoot: batchRoot,
+                        configurations: configs,
+                        sampleIDs: sampleIDs,
+                        command: batchProvenanceCommand,
+                        startedAt: batchStartedAt,
+                        completedAt: Date(),
+                        errorDescription: error.localizedDescription
+                    )
+                } catch let provenanceError {
+                    detail += "; additionally failed to persist batch provenance: \(provenanceError.localizedDescription)"
+                    appDelegateLogger.error("runClassificationBatch: \(detail, privacy: .public)")
+                }
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        viewerController.hideProgress()
+                        _ = OperationCenter.shared.fail(id: opID, detail: detail)
+                        self.targetMainWindowController(routeContext: routeContext)?
+                            .mainSplitViewController?
+                            .sidebarController.requestReloadFromFilesystem()
+                    }
+                }
+                return
+            }
             defer { try? FileManager.default.removeItem(at: batchMaterializeTempDir) }
 
             let pipeline = ClassificationPipeline()
             var successfulResults: [(sampleId: String, config: ClassificationConfig, result: ClassificationResult)] = []
             var failedResults: [(sampleId: String, error: String)] = []
             var failedProvenanceDirectories: [URL] = []
-
-            func removeOwnedBatchRoot(context: String) {
-                guard ownsBatchRoot else { return }
-                do {
-                    try FileManager.default.removeItem(at: batchRoot)
-                } catch {
-                    appDelegateLogger.error(
-                        "runClassificationBatch: Failed to remove incomplete batch directory \(batchRoot.path, privacy: .public) after \(context, privacy: .public) - \(error.localizedDescription, privacy: .public)"
-                    )
-                }
-            }
+            var batchWasCancelled = false
 
             for (index, config) in configs.enumerated() {
                 if Task.isCancelled {
@@ -1052,15 +1467,13 @@ extension AppDelegate {
                 }
             }
 
-            if Task.isCancelled {
-                removeOwnedBatchRoot(context: "cancellation")
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        viewerController.hideProgress()
-                        _ = OperationCenter.shared.fail(id: opID, detail: "Batch cancelled")
-                    }
+            batchWasCancelled = Task.isCancelled
+            if batchWasCancelled {
+                let recordedSampleIDs = Set(successfulResults.map(\.sampleId) + failedResults.map(\.sampleId))
+                for (index, sampleID) in sampleIDs.enumerated() where !recordedSampleIDs.contains(sampleID) {
+                    failedResults.append((sampleID, "Batch cancelled before this sample ran"))
+                    failedProvenanceDirectories.append(configs[index].outputDirectory)
                 }
-                return
             }
 
             let fm = FileManager.default
@@ -1111,12 +1524,33 @@ extension AppDelegate {
                     .write(to: summaryURL, atomically: true, encoding: .utf8)
                 try MetagenomicsBatchResultStore.saveClassification(manifest, to: batchRoot)
             } catch {
-                let detail = "Failed to write classification batch artifacts: \(error.localizedDescription)"
+                var detail = "Failed to write classification batch artifacts: \(error.localizedDescription)"
+                do {
+                    _ = try Self.persistClassificationBatchFailureRoot(
+                        batchRoot: batchRoot,
+                        configurations: configs,
+                        command: batchProvenanceCommand,
+                        startedAt: batchStartedAt,
+                        completedAt: Date(),
+                        failureStage: "batch-artifact-publication",
+                        errorDescription: (
+                            failedResults.map { "Sample \($0.sampleId) failed: \($0.error)" }
+                                + [detail]
+                        ).joined(separator: "\n"),
+                        additionalOutputURLs: [
+                            summaryURL,
+                            batchRoot.appendingPathComponent(ClassificationBatchResultManifest.filename),
+                        ]
+                    )
+                } catch let provenanceError {
+                    detail += "; additionally failed to persist root failure provenance: \(provenanceError.localizedDescription)"
+                }
                 appDelegateLogger.error("runClassificationBatch: \(detail, privacy: .public)")
+                let terminalDetail = detail
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         viewerController.hideProgress()
-                        _ = OperationCenter.shared.fail(id: opID, detail: detail)
+                        _ = OperationCenter.shared.fail(id: opID, detail: terminalDetail)
                     }
                 }
                 return
@@ -1127,7 +1561,7 @@ extension AppDelegate {
             // Skipped when every sample failed (no data to aggregate).
             var dbBuildErrorDescription: String?
             let successfulCountForDB = successfulResults.count
-            if successfulCountForDB > 0 {
+            if successfulCountForDB > 0 && !batchWasCancelled {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         _ = OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Building Kraken2 database\u{2026}")
@@ -1150,16 +1584,7 @@ extension AppDelegate {
                 }
             }
 
-            if Task.isCancelled {
-                removeOwnedBatchRoot(context: "cancellation")
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        viewerController.hideProgress()
-                        _ = OperationCenter.shared.fail(id: opID, detail: "Batch cancelled")
-                    }
-                }
-                return
-            }
+            batchWasCancelled = batchWasCancelled || Task.isCancelled
 
             do {
                 var provenanceStderr = failedResults.map {
@@ -1169,6 +1594,9 @@ extension AppDelegate {
                     provenanceStderr.append(
                         "Kraken2 SQLite index build failed: \(dbBuildErrorDescription)"
                     )
+                }
+                if batchWasCancelled {
+                    provenanceStderr.append("Classification batch cancelled by the user")
                 }
                 try MetagenomicsBatchProvenanceWriter.writeClassificationBatchProvenance(
                     batchRoot: batchRoot,
@@ -1186,12 +1614,56 @@ extension AppDelegate {
                     )
                 )
             } catch {
-                let detail = "Failed to write classification batch provenance: \(error.localizedDescription)"
+                var detail = "Failed to write classification batch provenance: \(error.localizedDescription)"
+                var failureMessages = failedResults.map {
+                    "Sample \($0.sampleId) failed: \($0.error)"
+                }
+                if let dbBuildErrorDescription {
+                    failureMessages.append(
+                        "Kraken2 SQLite index build failed: \(dbBuildErrorDescription)"
+                    )
+                }
+                if batchWasCancelled {
+                    failureMessages.append("Classification batch cancelled by the user")
+                }
+                failureMessages.append(detail)
+                do {
+                    _ = try Self.persistClassificationBatchFailureRoot(
+                        batchRoot: batchRoot,
+                        configurations: configs,
+                        command: batchProvenanceCommand,
+                        startedAt: batchStartedAt,
+                        completedAt: Date(),
+                        failureStage: "batch-provenance-publication",
+                        errorDescription: failureMessages.joined(separator: "\n"),
+                        additionalOutputURLs: [
+                            summaryURL,
+                            batchRoot.appendingPathComponent(ClassificationBatchResultManifest.filename),
+                            batchRoot.appendingPathComponent("kraken2.sqlite"),
+                        ]
+                    )
+                } catch let fallbackError {
+                    detail += "; additionally failed to persist root failure provenance: \(fallbackError.localizedDescription)"
+                }
                 appDelegateLogger.error("runClassificationBatch: \(detail, privacy: .public)")
+                let terminalDetail = detail
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         viewerController.hideProgress()
-                        _ = OperationCenter.shared.fail(id: opID, detail: detail)
+                        _ = OperationCenter.shared.fail(id: opID, detail: terminalDetail)
+                    }
+                }
+                return
+            }
+
+            if batchWasCancelled {
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        viewerController.hideProgress()
+                        _ = OperationCenter.shared.fail(id: opID, detail: "Batch cancelled")
+                        self.targetMainWindowController(routeContext: routeContext)?
+                            .mainSplitViewController?
+                            .sidebarController.requestReloadFromFilesystem()
                     }
                 }
                 return
