@@ -1,7 +1,8 @@
+import Darwin
 import XCTest
 @testable import LungfishApp
 import LungfishCore
-import LungfishIO
+@testable import LungfishIO
 import LungfishTestSupport
 @testable import LungfishWorkflow
 
@@ -16,6 +17,115 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
 
     override func tearDownWithError() throws {
         try? FileManager.default.removeItem(at: tempDirectory)
+    }
+
+    func testFullPublicationPipelineOnExternalExFAT() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let rootPath = environment["LUNGFISH_EXFAT_FULL_SERVICE_TEST_ROOT"],
+              let analysisPath = environment["LUNGFISH_EXFAT_MAPPING_ANALYSIS_PATH"],
+              let sourceBundlePath = environment["LUNGFISH_EXFAT_SOURCE_BUNDLE_PATH"] else {
+            throw XCTSkip(
+                "Set LUNGFISH_EXFAT_FULL_SERVICE_TEST_ROOT, LUNGFISH_EXFAT_MAPPING_ANALYSIS_PATH, "
+                    + "and LUNGFISH_EXFAT_SOURCE_BUNDLE_PATH for the external-volume acceptance test."
+            )
+        }
+
+        let fileManager = FileManager.default
+        let externalRoot = URL(fileURLWithPath: rootPath, isDirectory: true)
+        let sourceAnalysis = URL(fileURLWithPath: analysisPath, isDirectory: true)
+        let sourceBundle = URL(fileURLWithPath: sourceBundlePath, isDirectory: true)
+        let testDirectory = externalRoot.appendingPathComponent(
+            ".lge-mapping-publication-exfat-test-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: testDirectory, withIntermediateDirectories: false)
+        defer {
+            XCTAssertNoThrow(try fileManager.removeItem(at: testDirectory))
+        }
+
+        let resultDirectory = testDirectory.appendingPathComponent("Result", isDirectory: true)
+        let candidateBundle = resultDirectory.appendingPathComponent(
+            ".mapping-viewer.candidate",
+            isDirectory: true
+        )
+        let finalBundle = resultDirectory.appendingPathComponent(
+            "mapping-viewer.lungfishref",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: resultDirectory, withIntermediateDirectories: false)
+
+        let sourceResult = try MappingResult.load(from: sourceAnalysis)
+        let sourceProvenance = try XCTUnwrap(MappingProvenance.load(from: sourceAnalysis))
+        let sourceCanonical = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: sourceAnalysis))
+        try sourceResult.save(to: resultDirectory)
+        try sourceProvenance.save(to: resultDirectory)
+        try ProvenanceWriter(signingProvider: nil).write(sourceCanonical, to: resultDirectory)
+
+        var stage = "prepareBaseBundle"
+        do {
+            try MappingViewerBundlePreparer.prepareBaseBundle(
+                sourceBundleURL: sourceBundle,
+                viewerBundleURL: candidateBundle
+            )
+
+            stage = "importBAM"
+            _ = try await BAMImportService.importBAM(
+                bamURL: sourceResult.bamURL,
+                bundleURL: candidateBundle,
+                name: "Mapping"
+            )
+
+            stage = "publishCandidate"
+            let preparedResult = sourceResult.withViewerBundle(
+                viewerBundleURL: finalBundle,
+                sourceReferenceBundleURL: sourceBundle
+            )
+            try MappingViewerBundlePublicationService.publishCandidate(
+                candidateBundleURL: candidateBundle,
+                finalBundleURL: finalBundle
+            ) { publishedBundleURL, publicationPlan in
+                try MappingViewerBundlePublicationService.publish(
+                    result: preparedResult,
+                    resultDirectoryURL: resultDirectory,
+                    sourceReferenceBundleURL: sourceBundle,
+                    viewerBundleURL: publishedBundleURL,
+                    viewerPublicationPlan: publicationPlan
+                )
+            }
+        } catch {
+            let cocoaError = error as NSError
+            XCTFail(
+                "External ExFAT full-service stage \(stage) failed: "
+                    + "domain=\(cocoaError.domain) code=\(cocoaError.code) "
+                    + "description=\(cocoaError.localizedDescription)"
+            )
+            throw error
+        }
+
+        XCTAssertFalse(fileManager.fileExists(atPath: candidateBundle.path))
+        let finalManifest = try BundleManifest.load(from: finalBundle)
+        for relativePath in manifestPayloadPaths(finalManifest) {
+            try assertNoSymbolicLink(in: finalBundle, declaredPayloadPath: relativePath)
+        }
+        let storedResult = try MappingResult.load(from: resultDirectory)
+        XCTAssertEqual(storedResult.viewerBundleURL?.standardizedFileURL, finalBundle.standardizedFileURL)
+        let storedProvenance = try XCTUnwrap(MappingProvenance.load(from: resultDirectory))
+        XCTAssertEqual(storedProvenance.viewerBundlePath, finalBundle.path)
+
+        let canonical = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: resultDirectory))
+        XCTAssertEqual(canonical.steps.last?.exitStatus, 0)
+        XCTAssertTrue(canonical.outputs.contains { $0.path == finalBundle.path })
+        for descriptor in canonical.outputs where descriptor.path.hasPrefix(finalBundle.path + "/") {
+            XCTAssertFalse(descriptor.path.contains(candidateBundle.path))
+            XCTAssertEqual(
+                descriptor.checksumSHA256,
+                try ProvenanceFileHasher.sha256(of: URL(fileURLWithPath: descriptor.path))
+            )
+            XCTAssertEqual(
+                descriptor.fileSize,
+                try ProvenanceFileHasher.fileSize(of: URL(fileURLWithPath: descriptor.path))
+            )
+        }
     }
 
     func testPreparedCandidateWithImportedBAMPublishesMaterializedPayloadAndRehydratesProvenance() async throws {
@@ -643,6 +753,50 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: candidateBundle.path))
     }
 
+    func testPublishCandidateFirstTimeUsesPortableReservationAfterUnsupportedNativeExclusiveRename() throws {
+        let finalBundle = tempDirectory.appendingPathComponent("Viewer.lungfishref", isDirectory: true)
+        let candidateBundle = tempDirectory.appendingPathComponent(".Viewer.candidate", isDirectory: true)
+        try FileManager.default.createDirectory(at: candidateBundle, withIntermediateDirectories: true)
+        let payload = Data("new-viewer".utf8)
+        try payload.write(to: candidateBundle.appendingPathComponent("sentinel"))
+
+        let observation = ExclusiveRenameObservation()
+        var finalizeCalled = false
+        try MappingViewerBundlePublicationService.publishCandidate(
+            candidateBundleURL: candidateBundle,
+            finalBundleURL: finalBundle,
+            exclusiveRename: { source, destination, flags in
+                let outcome = source.path.withCString { sourcePath in
+                    destination.path.withCString { destinationPath in
+                        PortableExclusiveRename.renameatxNPReporting(
+                            AT_FDCWD,
+                            sourcePath,
+                            AT_FDCWD,
+                            destinationPath,
+                            flags,
+                            operations: .init(nativeRename: { _, _, _, _, nativeFlags in
+                                observation.nativeFlags.append(nativeFlags)
+                                errno = ENOTSUP
+                                return -1
+                            })
+                        )
+                    }
+                }
+                observation.mechanism = outcome.mechanism
+                return outcome.status
+            }
+        ) { publishedBundle, _ in
+            finalizeCalled = true
+            XCTAssertEqual(publishedBundle, finalBundle)
+        }
+
+        XCTAssertEqual(observation.nativeFlags, [UInt32(RENAME_EXCL)])
+        XCTAssertEqual(observation.mechanism, .reservationFallback)
+        XCTAssertTrue(finalizeCalled)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: candidateBundle.path))
+        XCTAssertEqual(try Data(contentsOf: finalBundle.appendingPathComponent("sentinel")), payload)
+    }
+
     func testPublishCandidateRejectsSymbolicLinkCandidateRoot() throws {
         let finalBundle = tempDirectory.appendingPathComponent("Viewer.lungfishref", isDirectory: true)
         let actualCandidate = tempDirectory.appendingPathComponent("actual-candidate", isDirectory: true)
@@ -1063,6 +1217,35 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
         }
 
         XCTAssertEqual(try Data(contentsOf: finalBundle.appendingPathComponent("sentinel")), newBytes)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: candidateBundle.path))
+    }
+
+    func testPublishCandidateReplacementDoesNotUseExclusiveRenameFallback() throws {
+        let finalBundle = tempDirectory.appendingPathComponent("Viewer.lungfishref", isDirectory: true)
+        let candidateBundle = tempDirectory.appendingPathComponent(".Viewer.candidate", isDirectory: true)
+        try FileManager.default.createDirectory(at: finalBundle, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: candidateBundle, withIntermediateDirectories: true)
+        let oldPayload = Data("old-viewer".utf8)
+        let newPayload = Data("new-viewer".utf8)
+        try oldPayload.write(to: finalBundle.appendingPathComponent("sentinel"))
+        try newPayload.write(to: candidateBundle.appendingPathComponent("sentinel"))
+
+        var exclusiveRenameCalls = 0
+        try MappingViewerBundlePublicationService.publishCandidate(
+            candidateBundleURL: candidateBundle,
+            finalBundleURL: finalBundle,
+            exclusiveRename: { _, _, _ in
+                exclusiveRenameCalls += 1
+                XCTFail("RENAME_SWAP must not use the exclusive-rename fallback.")
+                errno = EIO
+                return -1
+            }
+        ) { publishedBundle, _ in
+            XCTAssertEqual(try Data(contentsOf: publishedBundle.appendingPathComponent("sentinel")), newPayload)
+        }
+
+        XCTAssertEqual(exclusiveRenameCalls, 0)
+        XCTAssertEqual(try Data(contentsOf: finalBundle.appendingPathComponent("sentinel")), newPayload)
         XCTAssertFalse(FileManager.default.fileExists(atPath: candidateBundle.path))
     }
 
@@ -1675,4 +1858,9 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
             try super.removeItem(at: URL)
         }
     }
+}
+
+private final class ExclusiveRenameObservation: @unchecked Sendable {
+    var nativeFlags: [UInt32] = []
+    var mechanism: PortableExclusiveRename.Mechanism?
 }

@@ -99,15 +99,47 @@ enum MappingViewerBundlePreparer {
         to destinationURL: URL,
         fileManager: FileManager
     ) throws {
+        try materializeItem(
+            from: sourceURL,
+            to: destinationURL,
+            fileManager: fileManager,
+            copyfile: { sourcePath, destinationPath, flags in
+                let result = Darwin.copyfile(sourcePath, destinationPath, nil, flags)
+                return result == 0 ? 0 : errno
+            }
+        )
+    }
+
+    static func materializeItem(
+        from sourceURL: URL,
+        to destinationURL: URL,
+        fileManager: FileManager,
+        copyfile: (String, String, copyfile_flags_t) -> Int32
+    ) throws {
         if fileManager.fileExists(atPath: destinationURL.path) {
             try fileManager.removeItem(at: destinationURL)
         }
         // `COPYFILE_CLONE` requests APFS copy-on-write and includes the normal
         // data/metadata copy semantics when cloning is unavailable; recursive
         // copying materializes every file below the manifest's top-level root.
-        let flags = UInt32(COPYFILE_RECURSIVE | COPYFILE_CLONE)
-        guard Darwin.copyfile(sourceURL.path, destinationURL.path, nil, copyfile_flags_t(flags)) == 0 else {
-            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        let cloneFlags = copyfile_flags_t(COPYFILE_RECURSIVE | COPYFILE_CLONE)
+        let cloneResult = copyfile(sourceURL.path, destinationURL.path, cloneFlags)
+        if cloneResult == 0 {
+            return
+        }
+
+        guard cloneResult == EEXIST else {
+            throw POSIXError(POSIXErrorCode(rawValue: cloneResult) ?? .EIO)
+        }
+
+        try fileManager.removeItem(at: destinationURL)
+
+        let fallbackFlags = copyfile_flags_t(
+            COPYFILE_RECURSIVE | COPYFILE_DATA | COPYFILE_STAT | COPYFILE_NOFOLLOW_SRC
+        )
+        let fallbackResult = copyfile(sourceURL.path, destinationURL.path, fallbackFlags)
+        guard fallbackResult == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: fallbackResult) ?? .EIO)
         }
     }
 

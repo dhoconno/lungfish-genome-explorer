@@ -589,6 +589,7 @@ enum MappingViewerBundlePublicationService {
         beforeCandidateRehydration: (() throws -> Void)? = nil,
         beforeStagedDatabaseRename: (() throws -> Void)? = nil,
         beforeStagedJSONRename: (() throws -> Void)? = nil,
+        exclusiveRename: ((URL, URL, UInt32) -> Int32)? = nil,
         finalize: (URL, MappingViewerBundlePublicationPlan) throws -> Void
     ) throws {
         let candidate = candidateBundleURL.standardizedFileURL
@@ -628,7 +629,8 @@ enum MappingViewerBundlePublicationService {
         try atomicRename(
             candidate,
             final,
-            flags: UInt32(replacingExisting ? RENAME_SWAP : RENAME_EXCL)
+            flags: UInt32(replacingExisting ? RENAME_SWAP : RENAME_EXCL),
+            exclusiveRename: exclusiveRename
         )
 
         do {
@@ -1100,17 +1102,37 @@ enum MappingViewerBundlePublicationService {
     private static func atomicRename(
         _ source: URL,
         _ destination: URL,
-        flags: UInt32
+        flags: UInt32,
+        exclusiveRename: ((URL, URL, UInt32) -> Int32)? = nil
     ) throws {
-        let status = source.path.withCString { sourcePath in
-            destination.path.withCString { destinationPath in
-                Darwin.renameatx_np(
-                    AT_FDCWD,
-                    sourcePath,
-                    AT_FDCWD,
-                    destinationPath,
-                    flags
-                )
+        let status: Int32
+        if flags == UInt32(RENAME_EXCL) {
+            if let exclusiveRename {
+                status = exclusiveRename(source, destination, flags)
+            } else {
+                status = source.path.withCString { sourcePath in
+                    destination.path.withCString { destinationPath in
+                        PortableExclusiveRename.renameatxNP(
+                            AT_FDCWD,
+                            sourcePath,
+                            AT_FDCWD,
+                            destinationPath,
+                            flags
+                        )
+                    }
+                }
+            }
+        } else {
+            status = source.path.withCString { sourcePath in
+                destination.path.withCString { destinationPath in
+                    Darwin.renameatx_np(
+                        AT_FDCWD,
+                        sourcePath,
+                        AT_FDCWD,
+                        destinationPath,
+                        flags
+                    )
+                }
             }
         }
         guard status == 0 else {
