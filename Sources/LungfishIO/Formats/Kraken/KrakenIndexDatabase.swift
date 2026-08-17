@@ -105,6 +105,12 @@ public enum KrakenIndexDatabaseError: Error, LocalizedError, Sendable {
 /// method that owns its connection for the duration of the build.
 public final class KrakenIndexDatabase: @unchecked Sendable {
 
+    private struct ReadOnlyOpenConfiguration {
+        let filename: String
+        let flags: Int32
+        let immutable: Bool
+    }
+
     // MARK: - Properties
 
     private var db: OpaquePointer?
@@ -129,13 +135,21 @@ public final class KrakenIndexDatabase: @unchecked Sendable {
     ///   be opened or does not contain a valid schema.
     public init(url: URL) throws {
         self.url = url
-        let flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX
-        let rc = sqlite3_open_v2(url.path, &db, flags, nil)
+        let configuration = Self.readOnlyOpenConfiguration(for: url)
+        let rc = sqlite3_open_v2(
+            configuration.filename,
+            &db,
+            configuration.flags,
+            nil
+        )
         guard rc == SQLITE_OK else {
             let msg = db.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "Unknown error"
             sqlite3_close(db)
             db = nil
             throw KrakenIndexDatabaseError.openFailed(msg)
+        }
+        if configuration.immutable {
+            logger.info("Opened self-contained Kraken index immutably: \(url.lastPathComponent, privacy: .public)")
         }
         logger.info("Opened Kraken index database: \(url.lastPathComponent, privacy: .public)")
     }
@@ -197,12 +211,25 @@ public final class KrakenIndexDatabase: @unchecked Sendable {
         }
 
         for taxId in taxIds {
-            sqlite3_reset(stmt)
-            sqlite3_bind_int64(stmt, 1, Int64(taxId))
+            guard sqlite3_reset(stmt) == SQLITE_OK,
+                  sqlite3_bind_int64(stmt, 1, Int64(taxId)) == SQLITE_OK else {
+                throw KrakenIndexDatabaseError.openFailed(
+                    "Query binding failed: \(String(cString: sqlite3_errmsg(db)))"
+                )
+            }
 
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                if let cStr = sqlite3_column_text(stmt, 0) {
-                    result.insert(String(cString: cStr))
+            while true {
+                let stepResult = sqlite3_step(stmt)
+                if stepResult == SQLITE_ROW {
+                    if let cStr = sqlite3_column_text(stmt, 0) {
+                        result.insert(String(cString: cStr))
+                    }
+                } else if stepResult == SQLITE_DONE {
+                    break
+                } else {
+                    throw KrakenIndexDatabaseError.openFailed(
+                        "Query failed: \(String(cString: sqlite3_errmsg(db)))"
+                    )
                 }
             }
         }
@@ -299,7 +326,12 @@ public final class KrakenIndexDatabase: @unchecked Sendable {
             sqlite3_close(db)
             throw KrakenIndexDatabaseError.buildFailed(msg)
         }
-        defer { sqlite3_close(db) }
+        var databaseClosed = false
+        defer {
+            if !databaseClosed {
+                sqlite3_close(db)
+            }
+        }
 
         // Step 3: Performance pragmas.
         sqlite3_exec(db, "PRAGMA journal_mode = WAL", nil, nil, nil)
@@ -506,11 +538,26 @@ public final class KrakenIndexDatabase: @unchecked Sendable {
         insertMetadataRow(db, key: "classified_reads", value: String(classifiedReads))
         insertMetadataRow(db, key: "classified_only", value: includeUnclassified ? "false" : "true")
 
-        // Step 10: Checkpoint WAL to collapse to a single file.
-        progress?(0.98, "Finalizing...")
-        sqlite3_wal_checkpoint_v2(db, nil, SQLITE_CHECKPOINT_TRUNCATE, nil, nil)
+        // The insert statement must be finalized before changing journal mode.
+        sqlite3_finalize(insertStmt)
+        insertStmt = nil
 
-        // Step 11: Close handled by defer.
+        // Step 10: Checkpoint WAL and persist rollback-journal mode so the
+        // completed index is a portable, read-only single-file database.
+        progress?(0.98, "Finalizing...")
+        try finalizeForPortableRead(db)
+
+        // Step 11: Close before removing obsolete WAL-mode sidecars. A nonempty
+        // WAL here would mean finalization did not produce a self-contained DB.
+        let closeResult = sqlite3_close(db)
+        guard closeResult == SQLITE_OK else {
+            throw KrakenIndexDatabaseError.buildFailed(
+                "Could not close finalized index database (\(closeResult))"
+            )
+        }
+        databaseClosed = true
+        try removeObsoleteWALSidecars(for: indexURL)
+
         progress?(1.0, "Index complete: \(totalReads) reads")
         logger.info("Built Kraken index: \(totalReads) reads")
     }
@@ -533,10 +580,15 @@ public final class KrakenIndexDatabase: @unchecked Sendable {
             return false
         }
 
-        // Open the index read-only to check metadata.
+        // Open the index using the same compatibility policy as normal queries.
         var db: OpaquePointer?
-        let flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX
-        let rc = sqlite3_open_v2(indexURL.path, &db, flags, nil)
+        let configuration = readOnlyOpenConfiguration(for: indexURL)
+        let rc = sqlite3_open_v2(
+            configuration.filename,
+            &db,
+            configuration.flags,
+            nil
+        )
         guard rc == SQLITE_OK, let db else {
             sqlite3_close(db)
             return false
@@ -578,7 +630,124 @@ public final class KrakenIndexDatabase: @unchecked Sendable {
         krakenURL.appendingPathExtension("idx.sqlite")
     }
 
+    /// Returns whether a completed legacy WAL-mode index can be opened as an
+    /// immutable SQLite file without ignoring uncheckpointed data.
+    ///
+    /// SQLite stores WAL mode in bytes 18 and 19 of the database header. An
+    /// absent or empty WAL cannot contain committed frames, so immutable mode
+    /// is safe and avoids WAL shared-memory locks on filesystems such as ExFAT.
+    /// A nonempty WAL always retains normal SQLite semantics.
+    static func shouldOpenImmutable(at url: URL) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
+        defer { try? handle.close() }
+        guard let header = try? handle.read(upToCount: 20),
+              header.count == 20,
+              header.prefix(16) == Data("SQLite format 3\0".utf8),
+              header[18] == 2,
+              header[19] == 2 else {
+            return false
+        }
+
+        let walPath = url.path + "-wal"
+        guard FileManager.default.fileExists(atPath: walPath) else { return true }
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: walPath),
+              let size = attributes[.size] as? NSNumber else {
+            return false
+        }
+        return size.int64Value == 0
+    }
+
+    private static func readOnlyOpenConfiguration(for url: URL) -> ReadOnlyOpenConfiguration {
+        let immutable = shouldOpenImmutable(at: url)
+        return ReadOnlyOpenConfiguration(
+            filename: immutable
+                ? url.standardizedFileURL.absoluteString + "?immutable=1"
+                : url.path,
+            flags: SQLITE_OPEN_READONLY
+                | SQLITE_OPEN_NOMUTEX
+                | (immutable ? SQLITE_OPEN_URI : 0),
+            immutable: immutable
+        )
+    }
+
     // MARK: - Private Helpers
+
+    /// Checkpoints all WAL content and persists DELETE mode. A completed index
+    /// must never be reported when either operation fails.
+    static func finalizeForPortableRead(_ db: OpaquePointer) throws {
+        let checkpointResult = sqlite3_wal_checkpoint_v2(
+            db,
+            nil,
+            SQLITE_CHECKPOINT_TRUNCATE,
+            nil,
+            nil
+        )
+        guard checkpointResult == SQLITE_OK else {
+            throw KrakenIndexDatabaseError.buildFailed(
+                "WAL checkpoint failed: \(String(cString: sqlite3_errmsg(db))) (\(checkpointResult))"
+            )
+        }
+
+        try requirePragmaResult(
+            db,
+            sql: "PRAGMA journal_mode = DELETE",
+            expected: "delete",
+            operation: "finalize portable journal mode"
+        )
+        try requirePragmaResult(
+            db,
+            sql: "PRAGMA locking_mode = NORMAL",
+            expected: "normal",
+            operation: "restore normal locking mode"
+        )
+    }
+
+    private static func requirePragmaResult(
+        _ db: OpaquePointer,
+        sql: String,
+        expected: String,
+        operation: String
+    ) throws {
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw KrakenIndexDatabaseError.buildFailed(
+                "Could not \(operation): \(String(cString: sqlite3_errmsg(db)))"
+            )
+        }
+
+        let stepResult = sqlite3_step(statement)
+        let actual = stepResult == SQLITE_ROW
+            ? sqlite3_column_text(statement, 0).map { String(cString: $0).lowercased() }
+            : nil
+        let finalizeResult = sqlite3_finalize(statement)
+        guard stepResult == SQLITE_ROW,
+              actual == expected,
+              finalizeResult == SQLITE_OK else {
+            throw KrakenIndexDatabaseError.buildFailed(
+                "Could not \(operation): expected \(expected), got \(actual ?? "no result")"
+            )
+        }
+    }
+
+    private static func removeObsoleteWALSidecars(for databaseURL: URL) throws {
+        let fileManager = FileManager.default
+        let walURL = URL(fileURLWithPath: databaseURL.path + "-wal")
+        if fileManager.fileExists(atPath: walURL.path) {
+            let attributes = try fileManager.attributesOfItem(atPath: walURL.path)
+            let size = (attributes[.size] as? NSNumber)?.int64Value ?? -1
+            guard size == 0 else {
+                throw KrakenIndexDatabaseError.buildFailed(
+                    "Finalized index retained a nonempty WAL sidecar"
+                )
+            }
+            try fileManager.removeItem(at: walURL)
+        }
+
+        let sharedMemoryURL = URL(fileURLWithPath: databaseURL.path + "-shm")
+        if fileManager.fileExists(atPath: sharedMemoryURL.path) {
+            try fileManager.removeItem(at: sharedMemoryURL)
+        }
+    }
 
     /// Inserts a key-value pair into the db_metadata table.
     @discardableResult

@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishIO
+import SQLite3
 
 final class KrakenIndexDatabaseTests: XCTestCase {
 
@@ -62,6 +63,144 @@ final class KrakenIndexDatabaseTests: XCTestCase {
             FileManager.default.fileExists(atPath: indexURL.path),
             "Index file should exist after build"
         )
+    }
+
+    func testBuildFinalizesAsPortableDeleteJournalDatabase() throws {
+        try KrakenIndexDatabase.build(from: krakenURL, to: indexURL)
+
+        let header = try Data(contentsOf: indexURL, options: .mappedIfSafe)
+        XCTAssertGreaterThanOrEqual(header.count, 20)
+        XCTAssertEqual(header[18], 1, "SQLite write version should use rollback journal mode")
+        XCTAssertEqual(header[19], 1, "SQLite read version should use rollback journal mode")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: indexURL.path + "-wal"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: indexURL.path + "-shm"))
+
+        var database: OpaquePointer?
+        XCTAssertEqual(
+            sqlite3_open_v2(indexURL.path, &database, SQLITE_OPEN_READONLY, nil),
+            SQLITE_OK
+        )
+        defer { sqlite3_close(database) }
+
+        var statement: OpaquePointer?
+        XCTAssertEqual(
+            sqlite3_prepare_v2(database, "PRAGMA journal_mode", -1, &statement, nil),
+            SQLITE_OK
+        )
+        defer { sqlite3_finalize(statement) }
+        XCTAssertEqual(sqlite3_step(statement), SQLITE_ROW)
+        XCTAssertEqual(String(cString: sqlite3_column_text(statement, 0)), "delete")
+
+        let index = try KrakenIndexDatabase(url: indexURL)
+        defer { index.close() }
+        XCTAssertEqual(try index.readIds(forTaxIds: [9606]).count, 3)
+    }
+
+    func testLegacyIndexWithAbsentWALQueriesImmutablyWithoutMutation() throws {
+        let legacyDirectory = tempDir.appendingPathComponent("legacy # ? % indexes")
+        try FileManager.default.createDirectory(at: legacyDirectory, withIntermediateDirectories: true)
+        let legacyURL = legacyDirectory.appendingPathComponent("sample # ? %.kraken.idx.sqlite")
+        try KrakenIndexDatabase.build(from: krakenURL, to: legacyURL)
+        try convertToLegacyWALMode(legacyURL)
+        try? FileManager.default.removeItem(atPath: legacyURL.path + "-wal")
+        try? FileManager.default.removeItem(atPath: legacyURL.path + "-shm")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyURL.path + "-wal"))
+
+        let bytesBefore = try Data(contentsOf: legacyURL)
+        XCTAssertTrue(KrakenIndexDatabase.shouldOpenImmutable(at: legacyURL))
+        try FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: legacyURL.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: legacyDirectory.path)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: legacyDirectory.path)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: legacyURL.path)
+        }
+
+        let index = try KrakenIndexDatabase(url: legacyURL)
+        XCTAssertEqual(try index.readIds(forTaxIds: [9606]).count, 3)
+        index.close()
+
+        XCTAssertEqual(try Data(contentsOf: legacyURL), bytesBefore)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyURL.path + "-shm"))
+        XCTAssertTrue(KrakenIndexDatabase.isValid(at: legacyURL, for: krakenURL))
+    }
+
+    func testLegacyIndexWithEmptyWALQueriesImmutablyWithoutCreatingSHM() throws {
+        try KrakenIndexDatabase.build(from: krakenURL, to: indexURL)
+        try convertToLegacyWALMode(indexURL)
+        try? FileManager.default.removeItem(atPath: indexURL.path + "-wal")
+        try? FileManager.default.removeItem(atPath: indexURL.path + "-shm")
+
+        let walURL = URL(fileURLWithPath: indexURL.path + "-wal")
+        try Data().write(to: walURL)
+        XCTAssertTrue(KrakenIndexDatabase.shouldOpenImmutable(at: indexURL))
+
+        let index = try KrakenIndexDatabase(url: indexURL)
+        defer { index.close() }
+        XCTAssertEqual(try index.readIds(forTaxIds: [562]).count, 3)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: indexURL.path + "-shm"))
+    }
+
+    func testLegacyIndexDoesNotIgnoreCommittedNonemptyWAL() throws {
+        try KrakenIndexDatabase.build(from: krakenURL, to: indexURL)
+
+        var writer: OpaquePointer?
+        XCTAssertEqual(sqlite3_open_v2(indexURL.path, &writer, SQLITE_OPEN_READWRITE, nil), SQLITE_OK)
+        defer { sqlite3_close(writer) }
+        try executeSQL("PRAGMA journal_mode = WAL", on: writer)
+        try executeSQL(
+            "INSERT INTO reads (read_id, tax_id, read_length, classified) VALUES ('wal_sentinel', 424242, 10, 1)",
+            on: writer
+        )
+
+        let walURL = URL(fileURLWithPath: indexURL.path + "-wal")
+        let walSize = try FileManager.default.attributesOfItem(atPath: walURL.path)[.size] as? Int64
+        XCTAssertGreaterThan(walSize ?? 0, 0)
+        XCTAssertFalse(KrakenIndexDatabase.shouldOpenImmutable(at: indexURL))
+
+        let index = try KrakenIndexDatabase(url: indexURL)
+        defer { index.close() }
+        XCTAssertEqual(try index.readIds(forTaxIds: [424242]), ["wal_sentinel"])
+    }
+
+    func testPortableFinalizationThrowsWhenWALCannotBeFullyCheckpointed() throws {
+        let databaseURL = tempDir.appendingPathComponent("busy-finalization.sqlite")
+        var writer: OpaquePointer?
+        XCTAssertEqual(
+            sqlite3_open_v2(
+                databaseURL.path,
+                &writer,
+                SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE,
+                nil
+            ),
+            SQLITE_OK
+        )
+        guard let writer else {
+            XCTFail("Could not open finalization test database")
+            return
+        }
+        defer { sqlite3_close(writer) }
+        try executeSQL("PRAGMA journal_mode = WAL", on: writer)
+        try executeSQL("CREATE TABLE values_table (value INTEGER)", on: writer)
+        try executeSQL("INSERT INTO values_table VALUES (1)", on: writer)
+
+        var reader: OpaquePointer?
+        XCTAssertEqual(sqlite3_open_v2(databaseURL.path, &reader, SQLITE_OPEN_READONLY, nil), SQLITE_OK)
+        defer { sqlite3_close(reader) }
+        try executeSQL("BEGIN", on: reader)
+        var readStatement: OpaquePointer?
+        XCTAssertEqual(
+            sqlite3_prepare_v2(reader, "SELECT value FROM values_table", -1, &readStatement, nil),
+            SQLITE_OK
+        )
+        defer { sqlite3_finalize(readStatement) }
+        XCTAssertEqual(sqlite3_step(readStatement), SQLITE_ROW)
+
+        try executeSQL("INSERT INTO values_table VALUES (2)", on: writer)
+
+        XCTAssertThrowsError(try KrakenIndexDatabase.finalizeForPortableRead(writer))
+        let header = try Data(contentsOf: databaseURL, options: .mappedIfSafe)
+        XCTAssertEqual(header[18], 2)
+        XCTAssertEqual(header[19], 2)
     }
 
     func testBuildReportsProgress() throws {
@@ -425,6 +564,31 @@ final class KrakenIndexDatabaseTests: XCTestCase {
         let reads = try db.readIds(forTaxIds: [9606])
         XCTAssertEqual(reads.count, 1)
         XCTAssertTrue(reads.contains("paired_read"))
+    }
+
+    // MARK: - SQLite Fixture Helpers
+
+    private func convertToLegacyWALMode(_ url: URL) throws {
+        var database: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &database, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else {
+            XCTFail("Could not open test index for WAL conversion")
+            return
+        }
+        defer { sqlite3_close(database) }
+        try executeSQL("PRAGMA journal_mode = WAL", on: database)
+        try executeSQL("PRAGMA wal_checkpoint(TRUNCATE)", on: database)
+    }
+
+    private func executeSQL(_ sql: String, on database: OpaquePointer?) throws {
+        var errorMessage: UnsafeMutablePointer<CChar>?
+        let result = sqlite3_exec(database, sql, nil, nil, &errorMessage)
+        defer { sqlite3_free(errorMessage) }
+        guard result == SQLITE_OK else {
+            let detail = errorMessage.map { String(cString: $0) } ?? "SQLite error \(result)"
+            throw NSError(domain: "KrakenIndexDatabaseTests", code: Int(result), userInfo: [
+                NSLocalizedDescriptionKey: detail
+            ])
+        }
     }
 
     // MARK: - Error Descriptions

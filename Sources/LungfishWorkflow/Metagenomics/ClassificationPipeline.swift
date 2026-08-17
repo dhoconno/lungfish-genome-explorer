@@ -60,6 +60,22 @@ public enum ClassificationPipelineError: Error, LocalizedError, Sendable {
     }
 }
 
+struct ClassificationOutputSetupFailure: Error, LocalizedError, Sendable {
+    let outputDirectoryCreationError: ClassificationConfigError
+    let provenanceSaveErrorDescription: String
+
+    var errorDescription: String? {
+        let creationErrorDescription: String
+        switch outputDirectoryCreationError {
+        case .outputDirectoryCreationFailed(_, let error):
+            creationErrorDescription = error.localizedDescription
+        default:
+            creationErrorDescription = outputDirectoryCreationError.localizedDescription
+        }
+        return "\(creationErrorDescription); additionally failed to save failed-run provenance: \(provenanceSaveErrorDescription)"
+    }
+}
+
 // MARK: - ClassificationPipeline
 
 /// Actor that orchestrates Kraken2 classification and optional Bracken profiling.
@@ -231,6 +247,10 @@ public actor ClassificationPipeline {
                     withIntermediateDirectories: true
                 )
             } catch {
+                let outputDirectoryCreationError = ClassificationConfigError.outputDirectoryCreationFailed(
+                    config.outputDirectory,
+                    error
+                )
                 _ = await provenanceRecorder.recordStep(
                     runID: runID,
                     toolName: "Lungfish Classification Output Setup",
@@ -250,20 +270,28 @@ public actor ClassificationPipeline {
                     stderr: error.localizedDescription
                 )
                 await provenanceRecorder.completeRun(runID, status: .failed)
-                try? await provenanceRecorder.save(
-                    runID: runID,
-                    to: config.outputDirectory,
-                    options: classificationProvenanceOptions(
-                        requestedConfig: config,
-                        effectiveConfig: config,
-                        resolution: profileResolution,
-                        outcome: .notRequested,
-                        profileState: "failed"
+                do {
+                    try await provenanceRecorder.save(
+                        runID: runID,
+                        to: config.outputDirectory,
+                        options: classificationProvenanceOptions(
+                            requestedConfig: config,
+                            effectiveConfig: config,
+                            resolution: profileResolution,
+                            outcome: .notRequested,
+                            profileState: "failed"
+                        )
                     )
-                )
-                throw ClassificationConfigError.outputDirectoryCreationFailed(
-                    config.outputDirectory, error
-                )
+                } catch let provenanceSaveError {
+                    throw ClassificationConfigError.outputDirectoryCreationFailed(
+                        config.outputDirectory,
+                        ClassificationOutputSetupFailure(
+                            outputDirectoryCreationError: outputDirectoryCreationError,
+                            provenanceSaveErrorDescription: provenanceSaveError.localizedDescription
+                        )
+                    )
+                }
+                throw outputDirectoryCreationError
             }
         }
 

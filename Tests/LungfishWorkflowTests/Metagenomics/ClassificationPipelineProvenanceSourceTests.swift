@@ -121,6 +121,45 @@ final class ClassificationPipelineProvenanceSourceTests: XCTestCase {
         XCTAssertEqual(validation.outputs, [])
     }
 
+    func testOutputDirectoryCreationFailureSurfacesProvenanceSaveFailureWithoutRunningTools() async throws {
+        let fixture = try FakeClassificationCondaFixture()
+        defer { fixture.cleanup() }
+
+        var config = try fixture.makeConfig()
+        let blockedParent = fixture.root.appendingPathComponent("blocked-output-parent")
+        try "regular file\n".write(to: blockedParent, atomically: true, encoding: .utf8)
+        config.outputDirectory = blockedParent.appendingPathComponent("output", isDirectory: true)
+
+        do {
+            _ = try await ClassificationPipeline(condaManager: fixture.condaManager)
+                .classify(config: config)
+            XCTFail("Expected output-directory creation to fail.")
+        } catch let error as ClassificationConfigError {
+            guard case .outputDirectoryCreationFailed(let outputDirectory, let creationError) = error else {
+                return XCTFail("Expected outputDirectoryCreationFailed, got \(error)")
+            }
+            XCTAssertEqual(outputDirectory, config.outputDirectory)
+            let setupFailure = try XCTUnwrap(creationError as? ClassificationOutputSetupFailure)
+            guard case .outputDirectoryCreationFailed(let originalOutputDirectory, let originalCreationError) =
+                setupFailure.outputDirectoryCreationError else {
+                return XCTFail("Expected the structured failure to retain the original output-directory error.")
+            }
+            XCTAssertEqual(originalOutputDirectory, config.outputDirectory)
+            XCTAssertFalse(originalCreationError.localizedDescription.isEmpty)
+            XCTAssertFalse(setupFailure.provenanceSaveErrorDescription.isEmpty)
+            XCTAssertTrue(error.localizedDescription.contains("Cannot create output directory"))
+            XCTAssertTrue(
+                error.localizedDescription.contains("additionally failed to save failed-run provenance"),
+                "The thrown error must surface the secondary provenance persistence failure."
+            )
+        } catch {
+            XCTFail("Expected ClassificationConfigError, got \(error)")
+        }
+
+        XCTAssertEqual(try fixture.toolInvocations(named: "kraken2"), [])
+        XCTAssertEqual(try fixture.toolInvocations(named: "bracken"), [])
+    }
+
     func testFailedRerunCannotClaimStaleKrakenOutputsOrResultSidecar() async throws {
         let fixture = try FakeClassificationCondaFixture(krakenBehavior: .nonzero(37))
         defer { fixture.cleanup() }
