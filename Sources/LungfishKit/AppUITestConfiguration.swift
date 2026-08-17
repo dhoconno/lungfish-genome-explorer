@@ -9,6 +9,7 @@ public struct AppUITestConfiguration: Equatable, Sendable {
     public let isEnabled: Bool
     public let scenarioName: String?
     public let projectPath: URL?
+    public let mappingResultPath: URL?
     public let welcomeOpenProjectPath: URL?
     public let welcomeCreateProjectPath: URL?
     public let eventLogPath: URL?
@@ -39,6 +40,13 @@ public struct AppUITestConfiguration: Equatable, Sendable {
             : nil
         projectPath = Self.resolvePath(
             enabled ? environment["LUNGFISH_UI_TEST_PROJECT_PATH"] : nil,
+            fixtureRootPath: fixtureRootPath,
+            isDirectory: true
+        )
+        mappingResultPath = Self.resolvePath(
+            Self.nonEmptyPath(
+                enabled ? environment["LUNGFISH_UI_TEST_MAPPING_RESULT_PATH"] : nil
+            ),
             fixtureRootPath: fixtureRootPath,
             isDirectory: true
         )
@@ -107,5 +115,14 @@ public struct AppUITestConfiguration: Equatable, Sendable {
             return URL(fileURLWithPath: rawPath)
         }
         return fixtureRootPath?.appendingPathComponent(rawPath, isDirectory: isDirectory)
+    }
+
+    private static func nonEmptyPath(_ rawPath: String?) -> String? {
+        guard let rawPath,
+              !rawPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            return nil
+        }
+        return rawPath
     }
 }

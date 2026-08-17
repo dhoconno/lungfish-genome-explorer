@@ -1,7 +1,7 @@
 // MappingViewerScaffold.swift - Shared test fixture that builds a synthetic
 // `.lungfish` project containing a source reference bundle plus a prepared
-// mapping viewer bundle whose payload directories are symlinked back into the
-// source (mirroring production `MappingViewerBundlePreparer` layout).
+// mapping viewer bundle whose manifest-referenced payload directories are
+// materialized from the source (mirroring production layout).
 //
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
@@ -13,12 +13,12 @@ import LungfishIO
 /// A reusable on-disk fixture that reproduces the production mapping-viewer
 /// bundle layout: a `.lungfish` project holding a real source `.lungfishref`
 /// (with a genuine indexed genome payload) and a `viewer.lungfishref` whose
-/// manifest-referenced top-level directories are symlinks into the source
+/// manifest-referenced top-level directories are materialized into the viewer
 /// bundle, exactly as `MappingViewerBundlePreparer` produces them.
 ///
 /// The scaffold is deliberately payload-realistic so behavioural tests exercise
 /// the real `IndexedFASTAReader` / `SyncBgzipFASTAReader` paths through the
-/// symlinked `genome/` directory rather than a stubbed byte blob.
+/// materialized `genome/` directory rather than a stubbed byte blob.
 ///
 /// Both `LungfishAppTests` (which can inject the real
 /// `MappingViewerBundlePreparer.prepareBaseBundle`) and lower-level
@@ -54,7 +54,7 @@ public struct MappingViewerScaffold: Sendable {
 
     /// Signature of the viewer-bundle preparation step. Callers inject
     /// `MappingViewerBundlePreparer.prepareBaseBundle` to exercise the real
-    /// production symlinking; the built-in default mirrors it.
+    /// production materialization; the built-in default mirrors it.
     public typealias PreparerStep = @Sendable (_ sourceBundleURL: URL, _ viewerBundleURL: URL) throws -> Void
 
     /// Root of the synthetic project (`<tmp>/Test.lungfish`).
@@ -124,9 +124,8 @@ public struct MappingViewerScaffold: Sendable {
     ///   - rootURL: A caller-owned temp directory (use
     ///     `FileManager.default.temporaryDirectory`). NEVER pass an external
     ///     volume, `~/Downloads`, or a scratchpad path. Note: on
-    ///     `temporaryDirectory` (an APFS volume) the built-in preparer's
-    ///     `createSymbolicLink` always succeeds, so the copy fallback is not
-    ///     expected to fire — behavioural tests exercise the real symlink path.
+    ///     `temporaryDirectory` is typically an APFS volume, so tests exercise
+    ///     the materialized-viewer path without an external-volume dependency.
     ///   - payloadKind: Plain FASTA or bgzip genome payload.
     ///   - contigs: Genome contigs (defaults to `defaultContigs`).
     ///   - viewerIdentifierMatchesSource: When `false`, the viewer manifest is
@@ -418,9 +417,9 @@ public struct MappingViewerScaffold: Sendable {
 
     // MARK: - Built-in preparer (mirrors MappingViewerBundlePreparer)
 
-    /// A self-contained copy of the production preparer's symlink+manifest
-    /// logic, used when the caller cannot import `LungfishApp`. It symlinks each
-    /// manifest-referenced top-level directory into the source bundle and
+    /// A self-contained copy of the production preparer's materialization+
+    /// manifest logic, used when the caller cannot import `LungfishApp`. It
+    /// copies each manifest-referenced top-level directory into the viewer and
     /// records `originBundlePath` (project-relative preferred, filesystem
     /// fallback), matching `MappingViewerBundlePreparer` semantics.
     public static let builtInPreparer: PreparerStep = { sourceBundleURL, viewerBundleURL in
@@ -439,11 +438,7 @@ public struct MappingViewerScaffold: Sendable {
             if fileManager.fileExists(atPath: viewerItem.path) {
                 try fileManager.removeItem(at: viewerItem)
             }
-            do {
-                try fileManager.createSymbolicLink(at: viewerItem, withDestinationURL: sourceItem)
-            } catch {
-                try fileManager.copyItem(at: sourceItem, to: viewerItem)
-            }
+            try fileManager.copyItem(at: sourceItem, to: viewerItem)
         }
 
         let originBundlePath = FASTQBundle.projectRelativePath(

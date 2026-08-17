@@ -1,12 +1,11 @@
 // MappingViewerBundleFetchTests.swift - Phase 1 real-path regression tests.
 //
 // These prove that after Item 1's origin-scoped escape-root fix, a prepared
-// mapping VIEWER bundle (whose `genome/` etc. are symlinks into the external
+// mapping VIEWER bundle (whose `genome/` etc. are materialized from the
 // source `.lungfishref`) opens through `ReferenceBundle` and fetches sequence
 // byte-for-byte identical to the source bundle — through the real
 // `SyncBgzipFASTAReader` path production ships through. They also pin the
-// security-critical negatives (out-of-project viewer stays strict; a viewer
-// with no `originBundlePath` rejects its own top-level symlink).
+// security-critical negatives for injected top-level symlinks.
 //
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
@@ -98,10 +97,10 @@ final class MappingViewerBundleFetchTests: XCTestCase {
 
     // MARK: - Negative (out-of-project viewer stays strict)
 
-    func testViewerBundleOutsideProjectRootStaysStrict() async throws {
-        // Build the scaffold, then relocate the viewer bundle OUT of the
-        // `.lungfish` project (and out of any project). With no enclosing
-        // project the escape roots are empty => strict => opening must fail.
+    func testViewerBundleOutsideProjectRootRejectsInjectedTopLevelSymlink() async throws {
+        // Relocate the materialized viewer outside the project, then inject a
+        // top-level symlink. With no enclosing project, strict validation must
+        // reject the malicious payload path.
         let scaffold = try MappingViewerScaffold.make(payloadKind: .plainFASTA, preparer: Self.realPreparer)
         defer { scaffold.cleanUp() }
 
@@ -112,10 +111,16 @@ final class MappingViewerBundleFetchTests: XCTestCase {
         try fm.createDirectory(at: relocatedParent, withIntermediateDirectories: true)
         let relocatedViewer = relocatedParent.appendingPathComponent("viewer.lungfishref", isDirectory: true)
         try fm.moveItem(at: scaffold.viewerBundleURL, to: relocatedViewer)
+        let relocatedGenome = relocatedViewer.appendingPathComponent("genome", isDirectory: true)
+        try fm.removeItem(at: relocatedGenome)
+        try fm.createSymbolicLink(
+            at: relocatedGenome,
+            withDestinationURL: scaffold.sourceBundleURL.appendingPathComponent("genome", isDirectory: true)
+        )
 
         do {
             _ = try await ReferenceBundle(url: relocatedViewer)
-            XCTFail("Out-of-project viewer bundle must stay strict and reject its symlinks")
+            XCTFail("Out-of-project viewer bundle must stay strict and reject the injected symlink")
         } catch let error as ReferenceBundleError {
             guard case .validationFailed(let underlying) = error else {
                 XCTFail("Expected .validationFailed, got \(error)")
@@ -130,7 +135,7 @@ final class MappingViewerBundleFetchTests: XCTestCase {
 
     // MARK: - Negative (no originBundlePath rejects top-level symlink)
 
-    func testViewerBundleWithoutOriginBundlePathRejectsTopLevelSymlink() async throws {
+    func testViewerBundleWithoutOriginBundlePathRejectsInjectedTopLevelSymlink() async throws {
         let scaffold = try MappingViewerScaffold.make(
             payloadKind: .plainFASTA,
             includeOriginBundlePath: false,
@@ -139,10 +144,16 @@ final class MappingViewerBundleFetchTests: XCTestCase {
         defer { scaffold.cleanUp() }
 
         XCTAssertNil(try BundleManifest.load(from: scaffold.viewerBundleURL).originBundlePath)
+        let viewerGenome = scaffold.viewerBundleURL.appendingPathComponent("genome", isDirectory: true)
+        try FileManager.default.removeItem(at: viewerGenome)
+        try FileManager.default.createSymbolicLink(
+            at: viewerGenome,
+            withDestinationURL: scaffold.sourceBundleURL.appendingPathComponent("genome", isDirectory: true)
+        )
 
         do {
             _ = try await ReferenceBundle(url: scaffold.viewerBundleURL)
-            XCTFail("Viewer with no originBundlePath must reject its own top-level symlink")
+            XCTFail("Viewer with no originBundlePath must reject the injected top-level symlink")
         } catch let error as ReferenceBundleError {
             guard case .validationFailed(let underlying) = error else {
                 XCTFail("Expected .validationFailed, got \(error)")
@@ -155,19 +166,17 @@ final class MappingViewerBundleFetchTests: XCTestCase {
         }
     }
 
-    // MARK: - Annotation/metadata through symlinked dir
+    // MARK: - Annotation/metadata through materialized dir
 
-    func testPreparedViewerBundleAnnotationOrMetadataResolvesThroughSymlinkedDir() async throws {
+    func testPreparedViewerBundleAnnotationOrMetadataResolvesThroughMaterializedDir() async throws {
         // Build a source bundle that ALSO has an annotations/ directory with a
-        // SQLite database, prepare a viewer that symlinks it, then assert the
-        // annotation database resolves through the symlinked annotations/ dir
-        // via the escape-root-aware public member accessor.
+        // SQLite database, prepare a materialized viewer, then assert the
+        // annotation database resolves through its copied annotations/ dir.
         let scaffold = try MappingViewerScaffold.make(payloadKind: .plainFASTA, preparer: Self.realPreparer)
         defer { scaffold.cleanUp() }
 
         let fm = FileManager.default
-        // Add annotations/ to the SOURCE bundle after the fact and re-run the
-        // preparer so the viewer symlinks it too.
+        // Add annotations/ to the source bundle and re-run the preparer.
         let sourceAnnotations = scaffold.sourceBundleURL.appendingPathComponent("annotations", isDirectory: true)
         try fm.createDirectory(at: sourceAnnotations, withIntermediateDirectories: true)
         let annDB = sourceAnnotations.appendingPathComponent("genes.sqlite")
@@ -190,19 +199,18 @@ final class MappingViewerBundleFetchTests: XCTestCase {
         try updatedSrc.save(to: scaffold.sourceBundleURL)
         try Self.realPreparer(scaffold.sourceBundleURL, scaffold.viewerBundleURL)
 
-        // The viewer's annotations/ is now a symlink into the source.
+        // The viewer's annotations/ is a real copied directory.
         let viewerAnnotations = scaffold.viewerBundleURL.appendingPathComponent("annotations")
         let attrs = try fm.attributesOfItem(atPath: viewerAnnotations.path)
-        XCTAssertEqual(attrs[.type] as? FileAttributeType, .typeSymbolicLink)
+        XCTAssertEqual(attrs[.type] as? FileAttributeType, .typeDirectory)
 
-        // Open the viewer bundle and resolve the annotation DB through the
-        // escape-root-aware accessor.
+        // Open the viewer bundle and resolve the annotation DB.
         let viewerBundle = try await ReferenceBundle(url: scaffold.viewerBundleURL)
         let resolved = try viewerBundle.memberURL(
             for: "annotations/genes.sqlite",
             field: "annotations[genes].databasePath"
         )
-        XCTAssertTrue(fm.fileExists(atPath: resolved.path), "Annotation DB must resolve through the symlinked annotations/ dir")
+        XCTAssertTrue(fm.fileExists(atPath: resolved.path), "Annotation DB must resolve through the materialized annotations/ dir")
         let contents = try String(contentsOf: resolved, encoding: .utf8)
         XCTAssertEqual(contents, "sqlite-placeholder")
     }

@@ -2,6 +2,7 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import Darwin
 import Foundation
 import LungfishCore
 import LungfishIO
@@ -28,7 +29,7 @@ enum MappingViewerBundlePreparer {
             guard fileManager.fileExists(atPath: sourceItem.path) else { continue }
 
             let viewerItem = viewerBundleURL.appendingPathComponent(itemName)
-            try linkOrCopyItem(from: sourceItem, to: viewerItem, fileManager: fileManager)
+            try materializeItem(from: sourceItem, to: viewerItem, fileManager: fileManager)
         }
 
         let manifest = BundleManifest(
@@ -57,6 +58,9 @@ enum MappingViewerBundlePreparer {
         if let genome = manifest.genome {
             insertTopLevelItem(from: genome.path, into: &items)
             insertTopLevelItem(from: genome.indexPath, into: &items)
+            if let gzipIndexPath = genome.gzipIndexPath {
+                insertTopLevelItem(from: gzipIndexPath, into: &items)
+            }
         }
 
         for annotation in manifest.annotations {
@@ -90,7 +94,7 @@ enum MappingViewerBundlePreparer {
         items.insert(String(first))
     }
 
-    private static func linkOrCopyItem(
+    private static func materializeItem(
         from sourceURL: URL,
         to destinationURL: URL,
         fileManager: FileManager
@@ -98,14 +102,12 @@ enum MappingViewerBundlePreparer {
         if fileManager.fileExists(atPath: destinationURL.path) {
             try fileManager.removeItem(at: destinationURL)
         }
-
-        do {
-            try fileManager.createSymbolicLink(
-                at: destinationURL,
-                withDestinationURL: sourceURL
-            )
-        } catch {
-            try fileManager.copyItem(at: sourceURL, to: destinationURL)
+        // `COPYFILE_CLONE` requests APFS copy-on-write and includes the normal
+        // data/metadata copy semantics when cloning is unavailable; recursive
+        // copying materializes every file below the manifest's top-level root.
+        let flags = UInt32(COPYFILE_RECURSIVE | COPYFILE_CLONE)
+        guard Darwin.copyfile(sourceURL.path, destinationURL.path, nil, copyfile_flags_t(flags)) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
     }
 

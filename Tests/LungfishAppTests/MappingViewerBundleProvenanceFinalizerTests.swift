@@ -2,6 +2,7 @@ import XCTest
 @testable import LungfishApp
 import LungfishCore
 import LungfishIO
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
@@ -15,6 +16,320 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
 
     override func tearDownWithError() throws {
         try? FileManager.default.removeItem(at: tempDirectory)
+    }
+
+    func testPreparedCandidateWithImportedBAMPublishesMaterializedPayloadAndRehydratesProvenance() async throws {
+        let scaffold = try MappingViewerScaffold.make(
+            rootURL: tempDirectory,
+            payloadKind: .bgzip,
+            preparer: { source, candidate in
+                try MappingViewerBundlePreparer.prepareBaseBundle(
+                    sourceBundleURL: source,
+                    viewerBundleURL: candidate
+                )
+            }
+        )
+        defer { scaffold.cleanUp() }
+
+        let resultDirectory = scaffold.viewerBundleURL.deletingLastPathComponent()
+        let candidateBundle = resultDirectory.appendingPathComponent(
+            ".published-mapping-viewer.candidate",
+            isDirectory: true
+        )
+        let finalBundle = resultDirectory.appendingPathComponent(
+            "published-mapping-viewer.lungfishref",
+            isDirectory: true
+        )
+        let fixtureBAM = packageRoot().appendingPathComponent(
+            "Tests/Fixtures/sarscov2/test.paired_end.sorted.bam"
+        )
+        let fixtureBAI = fixtureBAM.appendingPathExtension("bai")
+        let bamURL = resultDirectory.appendingPathComponent("Sample.sorted.bam")
+        let baiURL = bamURL.appendingPathExtension("bai")
+        try FileManager.default.copyItem(at: fixtureBAM, to: bamURL)
+        try FileManager.default.copyItem(at: fixtureBAI, to: baiURL)
+
+        let initialResult = MappingResult(
+            mapper: .minimap2,
+            modeID: "short-read-default",
+            sourceReferenceBundleURL: scaffold.sourceBundleURL,
+            bamURL: bamURL,
+            baiURL: baiURL,
+            totalReads: 1,
+            mappedReads: 1,
+            unmappedReads: 0,
+            wallClockSeconds: 1,
+            contigs: []
+        )
+        try initialResult.save(to: resultDirectory)
+        try MappingProvenance(
+            mapper: .minimap2,
+            modeID: "short-read-default",
+            sampleName: "Sample",
+            pairedEnd: false,
+            threads: 1,
+            minimumMappingQuality: 0,
+            includeSecondary: true,
+            includeSupplementary: true,
+            advancedArguments: [],
+            inputFASTQURLs: [],
+            referenceFASTAURL: scaffold.sourceBundleURL.appendingPathComponent("genome/sequence.fa.gz"),
+            sourceReferenceBundleURL: scaffold.sourceBundleURL,
+            mapperInvocation: MappingCommandInvocation(label: "minimap2", argv: ["minimap2", "-a"]),
+            normalizationInvocations: [],
+            mapperVersion: "test",
+            samtoolsVersion: "test",
+            wallClockSeconds: 1,
+            exitStatus: 0
+        ).save(to: resultDirectory)
+        try writeInitialCanonicalMappingProvenance(
+            resultDirectory: resultDirectory,
+            bamURL: bamURL,
+            baiURL: baiURL
+        )
+
+        try MappingViewerBundlePreparer.prepareBaseBundle(
+            sourceBundleURL: scaffold.sourceBundleURL,
+            viewerBundleURL: candidateBundle
+        )
+        let imported = try await BAMImportService.importBAM(
+            bamURL: bamURL,
+            bundleURL: candidateBundle,
+            name: "Mapping"
+        )
+        let preparedResult = initialResult.withViewerBundle(
+            viewerBundleURL: finalBundle,
+            sourceReferenceBundleURL: scaffold.sourceBundleURL
+        )
+
+        try MappingViewerBundlePublicationService.publishCandidate(
+            candidateBundleURL: candidateBundle,
+            finalBundleURL: finalBundle
+        ) { publishedBundleURL, publicationPlan in
+            try MappingViewerBundlePublicationService.publish(
+                result: preparedResult,
+                resultDirectoryURL: resultDirectory,
+                sourceReferenceBundleURL: scaffold.sourceBundleURL,
+                viewerBundleURL: publishedBundleURL,
+                viewerPublicationPlan: publicationPlan
+            )
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: candidateBundle.path))
+
+        let finalManifest = try BundleManifest.load(from: finalBundle)
+        for relativePath in manifestPayloadPaths(finalManifest) {
+            try assertNoSymbolicLink(
+                in: finalBundle,
+                declaredPayloadPath: relativePath
+            )
+        }
+        let finalReference = try await ReferenceBundle(url: finalBundle)
+        let fetchedReference = try finalReference.fetchSequenceSync(
+            region: GenomicRegion(chromosome: "chr1", start: 0, end: 4)
+        )
+        XCTAssertEqual(fetchedReference, "ACGT")
+        let finalTrack = try XCTUnwrap(finalManifest.alignments.first)
+        let finalBAM = finalBundle.appendingPathComponent(finalTrack.sourcePath)
+        let finalBAI = finalBundle.appendingPathComponent(finalTrack.indexPath)
+        let finalMetadataDB = finalBundle.appendingPathComponent(
+            try XCTUnwrap(finalTrack.metadataDBPath)
+        )
+        let finalIdxstats = try await AlignmentDataProvider(
+            alignmentPath: finalBAM.path,
+            indexPath: finalBAI.path,
+            format: .bam,
+            referenceFastaPath: finalBundle.appendingPathComponent("genome/sequence.fa.gz").path
+        ).fetchIdxstats()
+        XCTAssertFalse(finalIdxstats.isEmpty)
+        XCTAssertEqual(imported.trackInfo.id, finalTrack.id)
+        let metadata = try AlignmentMetadataDatabase(url: finalMetadataDB)
+        XCTAssertEqual(metadata.getFileInfo("source_path"), finalBAM.path)
+        XCTAssertEqual(metadata.provenanceHistory().first?.inputFile, bamURL.path)
+        XCTAssertEqual(metadata.provenanceHistory().first?.outputFile, finalMetadataDB.path)
+
+        let storedResult = try MappingResult.load(from: resultDirectory)
+        XCTAssertEqual(storedResult.viewerBundleURL?.standardizedFileURL, finalBundle.standardizedFileURL)
+        XCTAssertEqual(storedResult.sourceReferenceBundleURL?.standardizedFileURL, scaffold.sourceBundleURL.standardizedFileURL)
+        let storedMappingProvenance = try XCTUnwrap(MappingProvenance.load(from: resultDirectory))
+        XCTAssertEqual(storedMappingProvenance.viewerBundlePath, finalBundle.path)
+        XCTAssertEqual(storedMappingProvenance.sourceReferenceBundlePath, scaffold.sourceBundleURL.path)
+
+        let canonical = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: resultDirectory))
+        let canonicalURL = resultDirectory.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        XCTAssertFalse(
+            String(decoding: try Data(contentsOf: canonicalURL), as: UTF8.self).contains(candidateBundle.path)
+        )
+        XCTAssertEqual(canonical.steps.last?.exitStatus, 0)
+        XCTAssertTrue(canonical.outputs.contains { $0.path == finalBundle.path })
+        for descriptor in canonical.outputs where descriptor.path.hasPrefix(finalBundle.path + "/") {
+            XCTAssertFalse(descriptor.path.contains(candidateBundle.path))
+            XCTAssertEqual(descriptor.checksumSHA256, try ProvenanceFileHasher.sha256(of: URL(fileURLWithPath: descriptor.path)))
+            XCTAssertEqual(descriptor.fileSize, try ProvenanceFileHasher.fileSize(of: URL(fileURLWithPath: descriptor.path)))
+        }
+        let importSidecar = try XCTUnwrap(
+            FileManager.default.contentsOfDirectory(
+                at: finalBundle.appendingPathComponent("alignments"),
+                includingPropertiesForKeys: nil
+            ).first { $0.lastPathComponent.hasSuffix(".import.lungfish-provenance.json") }
+        )
+        let importProvenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: importSidecar))
+        XCTAssertFalse(
+            String(decoding: try Data(contentsOf: importSidecar), as: UTF8.self).contains(candidateBundle.path)
+        )
+        XCTAssertFalse(importProvenance.files.contains { $0.path.contains(candidateBundle.path) })
+        XCTAssertTrue(importProvenance.files.contains { $0.path == finalBAM.path })
+        XCTAssertTrue(importProvenance.outputs.contains { $0.path == finalBAI.path })
+    }
+
+    func testFreshlyBuiltAppDisplaysPublishedMaterializedMappingViewer() async throws {
+        guard let appPath = ProcessInfo.processInfo.environment["LUNGFISH_UI_TEST_APP_PATH"],
+              !appPath.isEmpty
+        else {
+            throw XCTSkip("Set LUNGFISH_UI_TEST_APP_PATH to the freshly built Lungfish executable.")
+        }
+        let appURL = URL(fileURLWithPath: appPath)
+        guard FileManager.default.isExecutableFile(atPath: appURL.path) else {
+            XCTFail("Configured built app is not executable: \(appURL.path)")
+            return
+        }
+
+        let scaffold = try MappingViewerScaffold.make(
+            rootURL: tempDirectory,
+            payloadKind: .plainFASTA,
+            preparer: { source, candidate in
+                try MappingViewerBundlePreparer.prepareBaseBundle(
+                    sourceBundleURL: source,
+                    viewerBundleURL: candidate
+                )
+            }
+        )
+        defer { scaffold.cleanUp() }
+
+        let resultDirectory = scaffold.viewerBundleURL.deletingLastPathComponent()
+        let candidateBundle = resultDirectory.appendingPathComponent(
+            ".published-mapping-viewer.candidate",
+            isDirectory: true
+        )
+        let finalBundle = resultDirectory.appendingPathComponent(
+            "published-mapping-viewer.lungfishref",
+            isDirectory: true
+        )
+        let fixtureBAM = packageRoot().appendingPathComponent(
+            "Tests/Fixtures/sarscov2/test.paired_end.sorted.bam"
+        )
+        let fixtureBAI = fixtureBAM.appendingPathExtension("bai")
+        let bamURL = resultDirectory.appendingPathComponent("Sample.sorted.bam")
+        let baiURL = bamURL.appendingPathExtension("bai")
+        try FileManager.default.copyItem(at: fixtureBAM, to: bamURL)
+        try FileManager.default.copyItem(at: fixtureBAI, to: baiURL)
+
+        let initialResult = MappingResult(
+            mapper: .minimap2,
+            modeID: "short-read-default",
+            sourceReferenceBundleURL: scaffold.sourceBundleURL,
+            bamURL: bamURL,
+            baiURL: baiURL,
+            totalReads: 1,
+            mappedReads: 1,
+            unmappedReads: 0,
+            wallClockSeconds: 1,
+            contigs: []
+        )
+        try initialResult.save(to: resultDirectory)
+        try MappingProvenance(
+            mapper: .minimap2,
+            modeID: "short-read-default",
+            sampleName: "Sample",
+            pairedEnd: false,
+            threads: 1,
+            minimumMappingQuality: 0,
+            includeSecondary: true,
+            includeSupplementary: true,
+            advancedArguments: [],
+            inputFASTQURLs: [],
+            referenceFASTAURL: scaffold.sourceBundleURL.appendingPathComponent("genome/sequence.fa"),
+            sourceReferenceBundleURL: scaffold.sourceBundleURL,
+            mapperInvocation: MappingCommandInvocation(label: "minimap2", argv: ["minimap2", "-a"]),
+            normalizationInvocations: [],
+            mapperVersion: "test",
+            samtoolsVersion: "test",
+            wallClockSeconds: 1,
+            exitStatus: 0
+        ).save(to: resultDirectory)
+        try writeInitialCanonicalMappingProvenance(
+            resultDirectory: resultDirectory,
+            bamURL: bamURL,
+            baiURL: baiURL
+        )
+
+        try MappingViewerBundlePreparer.prepareBaseBundle(
+            sourceBundleURL: scaffold.sourceBundleURL,
+            viewerBundleURL: candidateBundle
+        )
+        _ = try await BAMImportService.importBAM(
+            bamURL: bamURL,
+            bundleURL: candidateBundle,
+            name: "Mapping"
+        )
+        let preparedResult = initialResult.withViewerBundle(
+            viewerBundleURL: finalBundle,
+            sourceReferenceBundleURL: scaffold.sourceBundleURL
+        )
+        try MappingViewerBundlePublicationService.publishCandidate(
+            candidateBundleURL: candidateBundle,
+            finalBundleURL: finalBundle
+        ) { publishedBundleURL, publicationPlan in
+            try MappingViewerBundlePublicationService.publish(
+                result: preparedResult,
+                resultDirectoryURL: resultDirectory,
+                sourceReferenceBundleURL: scaffold.sourceBundleURL,
+                viewerBundleURL: publishedBundleURL,
+                viewerPublicationPlan: publicationPlan
+            )
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: candidateBundle.path))
+        let finalManifest = try BundleManifest.load(from: finalBundle)
+        for relativePath in manifestPayloadPaths(finalManifest) {
+            try assertNoSymbolicLink(in: finalBundle, declaredPayloadPath: relativePath)
+        }
+        let canonicalURL = resultDirectory.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let canonical = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: resultDirectory))
+        XCTAssertEqual(try MappingResult.load(from: resultDirectory).viewerBundleURL?.standardizedFileURL, finalBundle.standardizedFileURL)
+        XCTAssertEqual(canonical.steps.last?.exitStatus, 0)
+        XCTAssertTrue(canonical.outputs.contains { $0.path == finalBundle.path })
+        XCTAssertFalse(String(decoding: try Data(contentsOf: canonicalURL), as: UTF8.self).contains(candidateBundle.path))
+
+        let eventLogURL = tempDirectory.appendingPathComponent("mapping-display-events.log")
+        var environment = ProcessInfo.processInfo.environment
+        environment["LUNGFISH_UI_TEST_MODE"] = "1"
+        environment["LUNGFISH_UI_TEST_SCENARIO"] = "mapping-display-existing"
+        environment["LUNGFISH_UI_TEST_PROJECT_PATH"] = scaffold.projectRootURL.path
+        environment["LUNGFISH_UI_TEST_MAPPING_RESULT_PATH"] = resultDirectory.path
+        environment["LUNGFISH_UI_TEST_EVENT_LOG_PATH"] = eventLogURL.path
+        environment["LUNGFISH_UI_TEST_BACKEND_MODE"] = "deterministic"
+        environment["LUNGFISH_DEBUG_BYPASS_REQUIRED_SETUP"] = "1"
+
+        let process = Process()
+        process.executableURL = appURL
+        process.arguments = ["--ui-test-mode"]
+        process.environment = environment
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        defer {
+            if process.isRunning {
+                process.terminate()
+                process.waitUntilExit()
+            }
+        }
+
+        let event = try waitForEvent(
+            prefix: "mapping.display.succeeded tool=minimap2",
+            in: eventLogURL,
+            timeout: 20
+        )
+        XCTAssertEqual(event, "mapping.display.succeeded tool=minimap2 contigs=0")
     }
 
     func testPublishRefreshesMappingResultAndRecordsFinalViewerPayloads() throws {
@@ -1230,6 +1545,96 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
+    }
+
+    private func writeInitialCanonicalMappingProvenance(
+        resultDirectory: URL,
+        bamURL: URL,
+        baiURL: URL
+    ) throws {
+        let mappingResultURL = resultDirectory.appendingPathComponent("mapping-result.json")
+        let mappingProvenanceURL = resultDirectory.appendingPathComponent(MappingProvenance.filename)
+        let descriptors = try [
+            ProvenanceFileDescriptor.file(url: bamURL, format: .bam, role: .output),
+            ProvenanceFileDescriptor.file(url: baiURL, role: .index),
+            ProvenanceFileDescriptor.file(url: mappingResultURL, format: .json, role: .output),
+            ProvenanceFileDescriptor.file(url: mappingProvenanceURL, format: .json, role: .output),
+        ]
+        try ProvenanceWriter(signingProvider: nil).write(
+            ProvenanceEnvelope(
+                workflowName: "lungfish map",
+                toolName: "minimap2",
+                toolVersion: "test",
+                argv: ["minimap2", "-a"],
+                files: descriptors,
+                outputs: descriptors,
+                steps: [
+                    ProvenanceStep(
+                        toolName: "minimap2",
+                        toolVersion: "test",
+                        argv: ["minimap2", "-a"],
+                        outputs: descriptors,
+                        exitStatus: 0
+                    ),
+                ],
+                exitStatus: 0
+            ),
+            to: resultDirectory
+        )
+    }
+
+    private func manifestPayloadPaths(_ manifest: BundleManifest) -> [String] {
+        var paths = [BundleManifest.filename]
+        if let genome = manifest.genome {
+            paths.append(genome.path)
+            paths.append(genome.indexPath)
+            if let gzipIndexPath = genome.gzipIndexPath { paths.append(gzipIndexPath) }
+        }
+        for track in manifest.annotations {
+            paths.append(track.path)
+            if let databasePath = track.databasePath { paths.append(databasePath) }
+        }
+        for track in manifest.variants {
+            paths.append(track.path)
+            paths.append(track.indexPath)
+            if let databasePath = track.databasePath { paths.append(databasePath) }
+        }
+        paths.append(contentsOf: manifest.tracks.map(\.path))
+        for track in manifest.alignments {
+            paths.append(track.sourcePath)
+            paths.append(track.indexPath)
+            if let metadataDBPath = track.metadataDBPath { paths.append(metadataDBPath) }
+        }
+        return paths.filter { !$0.isEmpty }
+    }
+
+    private func assertNoSymbolicLink(in bundleURL: URL, declaredPayloadPath: String) throws {
+        var current = bundleURL
+        for component in declaredPayloadPath.split(separator: "/") {
+            current.appendPathComponent(String(component))
+            let attributes = try FileManager.default.attributesOfItem(atPath: current.path)
+            XCTAssertNotEqual(
+                attributes[.type] as? FileAttributeType,
+                .typeSymbolicLink,
+                "Manifest payload \(declaredPayloadPath) traverses symlink \(current.path)"
+            )
+        }
+    }
+
+    private func waitForEvent(prefix: String, in eventLogURL: URL, timeout: TimeInterval) throws -> String {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let content = try? String(contentsOf: eventLogURL, encoding: .utf8),
+               let event = content.components(separatedBy: .newlines).first(where: { $0.hasPrefix(prefix) }) {
+                return event
+            }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        throw NSError(
+            domain: "MappingViewerBundleProvenanceFinalizerTests",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for event: \(prefix)"]
+        )
     }
 
     private func regularFileContents(below directory: URL) throws -> [String: Data] {

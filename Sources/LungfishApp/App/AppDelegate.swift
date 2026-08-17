@@ -194,6 +194,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         if uiTestConfiguration.isEnabled,
            let projectURL = uiTestConfiguration.projectPath {
             showMainWindowWithProject(projectURL)
+#if DEBUG
+            scheduleUITestMappingResultDisplayIfNeeded(
+                configuration: uiTestConfiguration,
+                in: mainWindowController
+            )
+#endif
             return
         }
 
@@ -503,6 +509,28 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         openProject(projectURL, in: controller)
     }
+
+#if DEBUG
+    private func scheduleUITestMappingResultDisplayIfNeeded(
+        configuration: AppUITestConfiguration,
+        in controller: MainWindowController?
+    ) {
+        guard configuration.isEnabled,
+              configuration.scenarioName == "mapping-display-existing",
+              let resultURL = configuration.mappingResultPath
+        else {
+            return
+        }
+
+        DispatchQueue.main.async { [weak controller] in
+            guard let splitViewController = controller?.mainSplitViewController else {
+                configuration.appendEvent("mapping.display.failed unavailable-main-window")
+                return
+            }
+            splitViewController.displayMappingAnalysisFromSidebar(at: resultURL)
+        }
+    }
+#endif
 
     private func showMainWindowWithoutProject() {
         _ = createAndShowMainWindow()

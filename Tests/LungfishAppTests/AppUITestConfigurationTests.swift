@@ -126,6 +126,41 @@ final class AppUITestConfigurationTests: XCTestCase {
         )
     }
 
+    func testEnabledLaunchConfigurationResolvesMappingResultPathAgainstFixtureRoot() {
+        let config = AppUITestConfiguration(
+            arguments: ["Lungfish", "--ui-test-mode"],
+            environment: [
+                "LUNGFISH_UI_TEST_FIXTURE_ROOT": "/tmp/Fixtures",
+                "LUNGFISH_UI_TEST_MAPPING_RESULT_PATH": "results/run",
+            ]
+        )
+
+        XCTAssertEqual(
+            config.mappingResultPath,
+            URL(fileURLWithPath: "/tmp/Fixtures")
+                .appendingPathComponent("results/run", isDirectory: true)
+        )
+    }
+
+    func testDisabledLaunchConfigurationDoesNotExposeMappingResultPath() {
+        let config = AppUITestConfiguration(
+            arguments: ["Lungfish"],
+            environment: ["LUNGFISH_UI_TEST_MAPPING_RESULT_PATH": "/tmp/result"],
+            allowsUITestMode: false
+        )
+
+        XCTAssertNil(config.mappingResultPath)
+    }
+
+    func testEmptyMappingResultPathIsIgnored() {
+        let config = AppUITestConfiguration(
+            arguments: ["Lungfish", "--ui-test-mode"],
+            environment: ["LUNGFISH_UI_TEST_MAPPING_RESULT_PATH": ""]
+        )
+
+        XCTAssertNil(config.mappingResultPath)
+    }
+
     func testAppendEventAppendsLineDelimitedEntriesToEventLog() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

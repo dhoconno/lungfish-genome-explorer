@@ -2,12 +2,8 @@
 //
 // Proves the shared `MappingViewerScaffold` fixture builds a realistic
 // synthetic `.lungfish` project: a source reference bundle with a REAL genome
-// payload, plus a prepared viewer bundle whose `genome/` is a resolving symlink
-// into the source (produced by the REAL `MappingViewerBundlePreparer`). This is
-// pure fixture infrastructure — it asserts NO product behaviour change (that is
-// Phase 1). In particular it deliberately reads the SOURCE bundle genome, not
-// the viewer bundle, because the viewer-bundle validator still (correctly, for
-// Phase 0) rejects the app's own symlinks until Item 1 lands.
+// payload, plus a prepared viewer bundle whose `genome/` is materialized from
+// the source (produced by the REAL `MappingViewerBundlePreparer`).
 //
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
@@ -30,11 +26,11 @@ final class MappingViewerScaffoldSmokeTests: XCTestCase {
     }
 
     /// Builds both payload flavours, injecting the real production preparer, and
-    /// asserts: (1) the viewer `genome` is a symbolic link that resolves, and
-    /// (2) the source bundle's genome payload is byte-for-byte readable via the
+    /// asserts: (1) the viewer `genome` is a real directory, and (2) its genome
+    /// payload is byte-for-byte readable via the
     /// real fetch path (plain `IndexedFASTAReader` and bgzip
     /// `SyncBgzipFASTAReader`).
-    func testScaffoldBuildsResolvingSymlinkAndReadableSourcePayload() throws {
+    func testScaffoldBuildsMaterializedViewerAndReadablePayload() throws {
         let plain = try MappingViewerScaffold.make(
             payloadKind: .plainFASTA,
             preparer: Self.realPreparer
@@ -60,8 +56,8 @@ final class MappingViewerScaffoldSmokeTests: XCTestCase {
     }
 
     /// The built-in preparer (used by IO/Core tests that cannot import
-    /// `LungfishApp`) produces the same resolving-symlink layout.
-    func testScaffoldBuiltInPreparerAlsoProducesResolvingSymlink() throws {
+    /// `LungfishApp`) produces the same materialized layout.
+    func testScaffoldBuiltInPreparerAlsoProducesMaterializedPayload() throws {
         let scaffold = try MappingViewerScaffold.make(payloadKind: .plainFASTA)
         defer { scaffold.cleanUp() }
         try assertScaffold(scaffold)
@@ -78,35 +74,32 @@ final class MappingViewerScaffoldSmokeTests: XCTestCase {
         XCTAssertTrue(fileManager.fileExists(atPath: scaffold.sourceBundleURL.path))
         XCTAssertTrue(fileManager.fileExists(atPath: scaffold.viewerBundleURL.path))
 
-        // (1) The viewer genome is a symbolic link into the source and resolves.
+        // (1) The viewer genome is a real directory distinct from the source.
         let viewerGenome = scaffold.viewerBundleURL.appendingPathComponent("genome")
         let attributes = try fileManager.attributesOfItem(atPath: viewerGenome.path)
         XCTAssertEqual(
             attributes[.type] as? FileAttributeType,
-            .typeSymbolicLink,
-            "Viewer genome/ must be a symlink (matches production preparer)"
+            .typeDirectory,
+            "Viewer genome/ must be materialized as a real directory"
         )
-        let resolvedTarget = viewerGenome.resolvingSymlinksInPath()
         XCTAssertTrue(
-            fileManager.fileExists(atPath: resolvedTarget.path),
-            "Viewer genome symlink must resolve to a real directory"
+            fileManager.fileExists(atPath: viewerGenome.path),
+            "Viewer genome directory must exist"
         )
-        // The symlink points into the source bundle's genome directory.
         let sourceGenome = scaffold.sourceBundleURL
             .appendingPathComponent("genome")
             .resolvingSymlinksInPath()
-        XCTAssertEqual(resolvedTarget.standardizedFileURL.path, sourceGenome.standardizedFileURL.path)
+        XCTAssertNotEqual(viewerGenome.standardizedFileURL.path, sourceGenome.standardizedFileURL.path)
 
         // The viewer manifest records an origin pointing at the source bundle.
         let viewerManifest = try BundleManifest.load(from: scaffold.viewerBundleURL)
         XCTAssertNotNil(viewerManifest.originBundlePath)
 
-        // (2) The source bundle's genome payload is readable via the real fetch
+        // (2) The viewer bundle's genome payload is readable via the real fetch
         // path. Assert bases at a non-zero offset and near the contig end on
         // chr1, and that the SECOND contig resolves — catching off-by-one and
         // single-contig-only regressions.
-        let sourceManifest = try BundleManifest.load(from: scaffold.sourceBundleURL)
-        let sourceBundle = ReferenceBundle(url: scaffold.sourceBundleURL, manifest: sourceManifest)
+        let sourceBundle = ReferenceBundle(url: scaffold.viewerBundleURL, manifest: viewerManifest)
         let contigs = MappingViewerScaffold.defaultContigs
         let chr1 = contigs[0]
         let chr2 = contigs[1]
