@@ -744,10 +744,14 @@ public actor ClassificationPipeline {
         var profileOutcome: BrackenProfileOutcome = .notRequested
         var resultDependencyIDs = kraken2StepID.map { [$0] } ?? []
         if let profileResolution {
+            // Detect once and reuse: preflight needs the dialect to know which
+            // level codes are accepted, and execution needs it to build argv.
+            let brackenDialect = await detectBrackenDialect(environment: Self.brackenEnvironment)
             let preflight = await preflightBracken(
                 config: effectiveConfig,
                 tree: tree,
                 resolution: profileResolution,
+                dialect: brackenDialect,
                 provenanceRecorder: provenanceRecorder,
                 runID: runID,
                 dependsOn: resultDependencyIDs
@@ -780,6 +784,7 @@ public actor ClassificationPipeline {
                         tree: tree,
                         resolution: profileResolution,
                         levelCode: levelCode,
+                        dialect: brackenDialect,
                         distributionURL: preflight.distributionURL,
                         provenanceRecorder: provenanceRecorder,
                         runID: runID,
@@ -1244,6 +1249,7 @@ public actor ClassificationPipeline {
         config: ClassificationConfig,
         tree: TaxonTree,
         resolution: BrackenProfileResolution,
+        dialect: BrackenCLIDialect,
         provenanceRecorder: ProvenanceRecorder,
         runID: UUID,
         dependsOn: [UUID]
@@ -1283,6 +1289,17 @@ public actor ClassificationPipeline {
                 .unsupportedRank,
                 "Bracken does not support requested rank \(resolution.rank.code). Supported ranks are D, P, C, O, F, G, and S."
             )
+        } else if let levelCode,
+                  let diagnostic = BrackenInvocation.unsupportedLevelDiagnostic(
+                      levelCode: levelCode,
+                      rankDisplayName: resolution.rank.displayName,
+                      dialect: dialect
+                  ) {
+            // The synthesized launcher runs est_abundance.py, whose argparse
+            // choices exclude D. Degrade here rather than letting the run fail
+            // at argument parsing, and never silently rewrite D to K: they are
+            // distinct ranks and a report routinely contains both.
+            failure = (.unsupportedRank, diagnostic)
         } else if tree.nodes(at: resolution.rank).isEmpty {
             failure = (
                 .rankAbsentFromReport,
@@ -1398,6 +1415,7 @@ public actor ClassificationPipeline {
         tree: TaxonTree,
         resolution: BrackenProfileResolution,
         levelCode: String,
+        dialect: BrackenCLIDialect,
         distributionURL: URL,
         provenanceRecorder: ProvenanceRecorder,
         runID: UUID,
@@ -1405,12 +1423,6 @@ public actor ClassificationPipeline {
     ) async throws -> BrackenExecutionResult {
         let fm = FileManager.default
         try Task.checkCancellation()
-        // The only arm64-installable bioconda Bracken build exposes the inner
-        // `est_abundance.py` CLI rather than the real driver, so the argument
-        // form has to follow whichever dialect this executable actually speaks.
-        let dialect = await detectBrackenDialect(environment: Self.brackenEnvironment)
-        try Task.checkCancellation()
-
         // `est_abundance.py` has no version flag, so `bracken -v` prints an
         // argparse usage error whose digits would otherwise be recorded as a
         // bogus version. Read the packaged version from conda-meta instead.

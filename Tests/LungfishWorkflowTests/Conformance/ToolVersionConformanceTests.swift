@@ -78,14 +78,20 @@ final class ToolVersionConformanceTests: XCTestCase {
             //   * bwa-mem2 (`bioconda::bwa-mem2=2.3=hda5e58c_0`): `bwa-mem2
             //     version` prints "2.2.1". The build ships 2.3 binaries but was
             //     packaged with a stale version string.
-            //   * bracken (`bioconda::bracken=1.0.0=1`): `bin/bracken` is a bare
-            //     passthrough to `est_abundance.py`, which has no version flag at
-            //     all, so `bracken -v` prints an argparse usage error.
+            //   * bracken (`bioconda::bracken=1.0.0=1`): the package ships no
+            //     driver at all, only `est_abundance.py` and friends, so
+            //     `CondaManager.ensureBrackenLauncher` synthesizes `bin/bracken`
+            //     as a passthrough to that script, which has no version flag.
+            //     `bracken -v` therefore prints an argparse usage error. This one
+            //     is not an upstream defect and no re-pin can fix it; see
+            //     BrackenInvocationForm.swift. An environment that does have a
+            //     real Bracken driver reports its version normally, and this
+            //     branch simply confirms conda-meta agrees with the pin.
             //
             // In both cases conda-meta records the correct version and no newer
             // arm64 build exists. This stays a hard assertion: if conda-meta ever
-            // disagrees with the manifest pin, it fails loudly. REMOVE each entry
-            // once a fixed arm64 build is pinned and the tool self-reports again.
+            // disagrees with the manifest pin, it fails loudly. REMOVE the
+            // bwa-mem2 entry once a fixed arm64 build is pinned.
             //
             // Like the self-reported path below, a mismatch is a hard failure
             // only under LUNGFISH_REQUIRE_TOOLS=1; on a drifting dev machine it

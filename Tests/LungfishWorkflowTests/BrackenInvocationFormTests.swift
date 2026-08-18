@@ -189,6 +189,64 @@ final class BrackenInvocationFormTests: XCTestCase {
         XCTAssertFalse(args.contains("-r"), "read length is already baked into the -k distribution file")
     }
 
+    // MARK: - Level support
+
+    /// The real driver accepts every rank the app can resolve, including `D`.
+    func testDatabaseDialectSupportsEveryResolvableLevel() {
+        for code in ["D", "K", "P", "C", "O", "F", "G", "S"] {
+            XCTAssertTrue(BrackenInvocation.supportsLevelCode(code, dialect: .database), code)
+            XCTAssertNil(
+                BrackenInvocation.unsupportedLevelDiagnostic(
+                    levelCode: code, rankDisplayName: "rank", dialect: .database
+                )
+            )
+        }
+    }
+
+    /// `est_abundance.py`'s argparse choices are K,P,C,O,F,G,S: everything the
+    /// real driver takes except `D`.
+    func testWrapperDialectSupportsEveryLevelExceptDomain() {
+        for code in ["K", "P", "C", "O", "F", "G", "S"] {
+            XCTAssertTrue(BrackenInvocation.supportsLevelCode(code, dialect: .kmerDistribution), code)
+        }
+        XCTAssertFalse(BrackenInvocation.supportsLevelCode("D", dialect: .kmerDistribution))
+    }
+
+    /// Domain must degrade with an explanatory diagnostic rather than being
+    /// rewritten to kingdom. `D` and `K` are distinct ranks in both Kraken2
+    /// reports and est_abundance.py's own level list, and a single report
+    /// commonly carries both -- on the shared SARS-CoV-2 fixture `D` is Viruses
+    /// (10239) while `K` is Orthornavirae (2732396), so a silent substitution
+    /// would profile a different taxon and label it as the requested domain.
+    func testDomainIsRejectedRatherThanRewrittenToKingdom() throws {
+        let diagnostic = try XCTUnwrap(
+            BrackenInvocation.unsupportedLevelDiagnostic(
+                levelCode: "D", rankDisplayName: "Domain", dialect: .kmerDistribution
+            )
+        )
+        XCTAssertTrue(diagnostic.contains("D"), diagnostic)
+        XCTAssertTrue(diagnostic.contains("Domain"), diagnostic)
+        XCTAssertTrue(
+            diagnostic.contains("K, O"),
+            "diagnostic should list the accepted codes: \(diagnostic)"
+        )
+
+        // The argument builder must never emit a translated level: whatever the
+        // caller passes is what runs, so an unsupported rank has to be caught by
+        // the preflight rather than quietly rewritten here.
+        let args = BrackenInvocation.arguments(
+            dialect: .kmerDistribution,
+            databasePath: URL(fileURLWithPath: "/db"),
+            distributionURL: URL(fileURLWithPath: "/db/database150mers.kmer_distrib"),
+            reportURL: URL(fileURLWithPath: "/out/r.kreport"),
+            outputURL: URL(fileURLWithPath: "/out/r.bracken"),
+            readLength: 150,
+            levelCode: "G",
+            threshold: 10
+        )
+        XCTAssertEqual(args[args.firstIndex(of: "-l")! + 1], "G")
+    }
+
     // MARK: - Known upstream crash signature
 
     func testUnclassifiedReadsCrashIsRecognised() {

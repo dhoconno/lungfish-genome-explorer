@@ -2,17 +2,29 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Bracken ships in two shapes on the platforms Lungfish supports, and they take
-// mutually incompatible arguments.
+// A `bracken` executable reachable from a Lungfish environment can speak either
+// of two mutually incompatible command lines.
 //
 // * The **real** Bracken CLI (`bracken` 2.x/3.x) is a shell driver that takes
 //   `-d <database>` and derives the kmer distribution file itself.
-// * The only **arm64-installable** bioconda build (`bioconda::bracken=1.0.0=1`)
-//   ships a `bin/bracken` that is a bare passthrough wrapper:
-//   `exec "$TOOL_BIN/python" "$TOOL_BIN/est_abundance.py" "$@"`. That inner
-//   script has no `-d`; it takes `-k <kmer_distrib>` and the caller must resolve
-//   the distribution file. Passing `-d` to it fails with
+// * A **synthesized launcher** takes the inner `est_abundance.py` CLI: it has no
+//   `-d`, takes `-k <kmer_distrib>`, and requires the caller to resolve the
+//   distribution file. Passing `-d` to it fails with
 //   `est_abundance.py: error: the following arguments are required: -k/--kmer_distr`.
+//
+// The second case is not upstream packaging. The only arm64-installable bioconda
+// build, `bioconda::bracken=1.0.0=1`, ships **no driver at all**: its package
+// contents under `bin/` are exactly `est_abundance.py`,
+// `generate_kmer_distribution.py`, and `count-kmer-abundances.pl`, with no
+// `bracken` entry point. Lungfish itself then synthesizes one --
+// `CondaManager.ensureBrackenLauncher` (Sources/LungfishWorkflow/Conda/CondaManager.swift)
+// writes a `bin/bracken` passthrough (`exec "$TOOL_BIN/python"
+// "$TOOL_BIN/est_abundance.py" "$@"`) whenever `bin/bracken` is absent and
+// `est_abundance.py` is present. So the wrapper dialect is Lungfish's own
+// compatibility shim, and **no bioconda re-pin can remove it** on arm64: any
+// build of this package needs the launcher to be invokable as `bracken` at all.
+// Handling the inner CLI correctly is therefore a permanent requirement, not a
+// workaround for a defect someone upstream will fix.
 //
 // This file isolates the decision (which dialect) and the argument construction
 // for each, so both are unit-testable without a conda install.
@@ -181,6 +193,51 @@ public enum BrackenInvocation {
     public static func availableDistributionFilenames(inDatabase databasePath: URL) -> [String] {
         (try? FileManager.default.contentsOfDirectory(atPath: databasePath.path))?
             .filter { readLength(fromDistributionFilename: $0) != nil } ?? []
+    }
+
+    // MARK: - Level support
+
+    /// Level codes the inner `est_abundance.py` CLI accepts.
+    ///
+    /// Its argparse `choices` are `K,P,C,O,F,G,S`. Note the absence of `D`: the
+    /// real Bracken driver accepts `-l D`, this script does not.
+    static let kmerDistributionLevelCodes: Set<String> = ["K", "P", "C", "O", "F", "G", "S"]
+
+    /// Whether `levelCode` can be requested under the given dialect.
+    ///
+    /// `D` (domain) is the only divergence. It is deliberately **not** rewritten
+    /// to `K` (kingdom): the two are distinct levels both in Kraken2 reports and
+    /// in `est_abundance.py`'s own `main_lvls` list, and a single report commonly
+    /// carries both. On the shared SARS-CoV-2 fixture, for instance, `D` is
+    /// `Viruses` (taxid 10239) while `K` is `Orthornavirae` (taxid 2732396), so
+    /// substituting `K` for `D` would silently profile a different taxon and
+    /// report it as the domain the caller asked for. An unsupported rank must
+    /// surface as a degraded outcome instead, which is what the pipeline's
+    /// existing `.unsupportedRank` path already does for other ranks.
+    public static func supportsLevelCode(_ levelCode: String, dialect: BrackenCLIDialect) -> Bool {
+        switch dialect {
+        case .database:
+            return true
+        case .kmerDistribution:
+            return kmerDistributionLevelCodes.contains(levelCode)
+        }
+    }
+
+    /// A diagnostic for a level the given dialect cannot profile, or `nil` when
+    /// the level is supported.
+    public static func unsupportedLevelDiagnostic(
+        levelCode: String,
+        rankDisplayName: String,
+        dialect: BrackenCLIDialect
+    ) -> String? {
+        guard !supportsLevelCode(levelCode, dialect: dialect) else { return nil }
+        return """
+            This Bracken build cannot estimate abundance at rank \(levelCode) (\(rankDisplayName)). \
+            The installed package ships no Bracken driver, so Lungfish runs est_abundance.py directly, \
+            and that script accepts only \(kmerDistributionLevelCodes.sorted().joined(separator: ", ")). \
+            Choose a different rank; note that kingdom (K) is a distinct rank from domain (D), not a \
+            substitute for it.
+            """
     }
 
     // MARK: - Known upstream crash signature

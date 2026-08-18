@@ -168,7 +168,10 @@ if [[ "$(python3 -c 'import os,sys; print(os.path.realpath(os.path.expanduser(sy
 fi
 
 mkdir -p "${storage_root}"
-storage_root="$(cd "${storage_root}" && pwd)"
+# Fully resolve the root (symlinks included) so registry rewriting compares like
+# with like: seed_root realpaths the source, and a storage root reached through
+# a symlink would otherwise never match a source-root prefix.
+storage_root="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "${storage_root}")"
 
 export LUNGFISH_STORAGE_ROOT="${storage_root}"
 
@@ -268,6 +271,7 @@ dest_root = os.environ["DEST_ROOT"].rstrip("/")
 document = json.loads(registry.read_text(encoding="utf-8"))
 rewritten = 0
 skipped = []
+still_pointing_at_source = []
 
 for database in document.get("databases", []):
     url = database.get("path")
@@ -279,6 +283,7 @@ for database in document.get("databases", []):
     candidate = dest_root + path[len(source_root):]
     if not os.path.exists(candidate):
         skipped.append(database.get("name", "?"))
+        still_pointing_at_source.append(database.get("name", "?"))
         continue
     database["path"] = urllib.parse.urljoin("file:", urllib.request.pathname2url(candidate))
     rewritten += 1
@@ -287,6 +292,18 @@ registry.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
 print(f"seed: repointed {rewritten} database path(s) at {dest_root}")
 if skipped:
     print(f"seed: left {len(skipped)} database path(s) alone (not cloned): {', '.join(skipped)}")
+
+# Rewriting nothing while entries still resolve under the source root means the
+# isolated root is not actually isolated for those databases: the CLI would read
+# the developer's real files and the tiers would measure the wrong data.
+if rewritten == 0 and still_pointing_at_source:
+    print(
+        "seed: WARNING: rewrote 0 path(s) but "
+        f"{len(still_pointing_at_source)} entry/entries still point under {source_root}: "
+        f"{', '.join(still_pointing_at_source)}. "
+        "Those databases were not cloned into the isolated root, so verification "
+        "would read the source root instead."
+    )
 PYTHON
 }
 
@@ -333,8 +350,15 @@ echo "==> Reconciling pack tools against the manifest"
 echo "==> Confirming the dependency plan is empty"
 plan_status=0
 plan_output="$("${cli}" tools update --plan 2>&1)" || plan_status=$?
-if [[ ${plan_status} -ne 0 ]]; then
+# Exit 10 specifically means "work is pending". Any other non-zero status is the
+# CLI itself failing (bad root, unreadable manifest, crash), which is a different
+# problem and must not be reported as a non-empty plan.
+if [[ ${plan_status} -eq 10 ]]; then
     echo "verify: plan not empty after provisioning (exit ${plan_status})" >&2
+    echo "${plan_output}" >&2
+    exit 65
+elif [[ ${plan_status} -ne 0 ]]; then
+    echo "verify: 'tools update --plan' failed (exit ${plan_status})" >&2
     echo "${plan_output}" >&2
     exit 65
 fi

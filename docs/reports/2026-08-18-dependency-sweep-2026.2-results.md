@@ -147,17 +147,34 @@ Neither needed a pin change, so the 2026.1 baseline is now green and the
 
 ### Defect 1 (product, user facing): Bracken abundance estimation was broken on Apple Silicon
 
-The only arm64-installable bioconda build, `bioconda::bracken=1.0.0=1`, does
-not ship the real Bracken driver. Its `bin/bracken` is a passthrough wrapper
-that runs `est_abundance.py` directly, and that inner script takes a different
-command line: `-i INPUT -k KMER_DISTR -o OUTPUT [-l LEVEL] [-t THRESH]`, with
-no `-d` and no `-r`. Production built the real driver's `-d <db> ... -r <len>`
-form, so every abundance run on Apple Silicon failed with
-`est_abundance.py: error: the following arguments are required: -k/--kmer_distr`.
-Bracken profiling therefore always degraded, and users never got abundance
-estimates. The wrapper itself is fully functional once called correctly.
+The only arm64-installable bioconda build, `bioconda::bracken=1.0.0=1`, ships
+no Bracken driver at all. Its package contents under `bin/` are exactly
+`est_abundance.py`, `generate_kmer_distribution.py`, and
+`count-kmer-abundances.pl`, with no `bracken` entry point.
 
-Two further problems surfaced while fixing the first:
+The `bin/bracken` that ends up in the environment is therefore not upstream's:
+Lungfish synthesizes it. `CondaManager.ensureBrackenLauncher`
+(`Sources/LungfishWorkflow/Conda/CondaManager.swift`) writes a passthrough
+launcher (`exec "$TOOL_BIN/python" "$TOOL_BIN/est_abundance.py" "$@"`) whenever
+`bin/bracken` is absent and `est_abundance.py` is present, so that the tool is
+invokable under its expected name. That inner script takes a different command
+line from the real driver: `-i INPUT -k KMER_DISTR -o OUTPUT [-l LEVEL]
+[-t THRESH]`, with no `-d` and no `-r`. Production built the real driver's
+`-d <db> ... -r <len>` form, so every abundance run against a synthesized
+launcher failed with `est_abundance.py: error: the following arguments are
+required: -k/--kmer_distr`. Bracken profiling therefore always degraded on such
+an install, and users never got abundance estimates. The launcher is fully
+functional once called with the inner CLI.
+
+This matters for how the defect is classified. It is not an upstream packaging
+bug awaiting a fixed build, and **no bioconda re-pin can remove it** on arm64:
+the package has no driver to ship, so the launcher is required for `bracken` to
+be runnable at all. Supporting the inner CLI correctly is a permanent
+requirement of the app, not a temporary workaround. A machine that has a real
+Bracken driver from some other source keeps using it unchanged, because the
+dialect is detected per environment rather than assumed.
+
+Three further problems surfaced while fixing the first:
 
 1. `est_abundance.py` assigns its `u_reads` counter only while parsing an
    unclassified (`U`) report line, then prints it unconditionally in the run
@@ -166,23 +183,35 @@ Two further problems surfaced while fixing the first:
    already written and closed the complete abundance table. The shared
    SARS-CoV-2 fixture classifies 100 percent against the Viral database and hits
    this on every run.
-2. The wrapper has no version flag at all, so `bracken -v` prints an argparse
+2. The launcher has no version flag at all, so `bracken -v` prints an argparse
    usage error. The pipeline's generic version detector would have recorded
    digits scraped out of that usage text as the tool version in provenance.
+3. `est_abundance.py` accepts only `K,P,C,O,F,G,S` for `-l`. The real driver
+   also accepts `D`, and `BrackenDatabaseCapabilities.levelCode` maps domain to
+   `D`, so a domain-rank profile would have died at argument parsing. `D` is
+   deliberately **not** rewritten to `K`: domain and kingdom are distinct levels
+   in both Kraken2 reports and `est_abundance.py`'s own level list, and a single
+   report routinely carries both. On the shared SARS-CoV-2 fixture, `D` is
+   Viruses (taxid 10239) while `K` is Orthornavirae (taxid 2732396), and running
+   the launcher with `-l K` returns Orthornavirae. Substituting one for the
+   other would silently profile a different taxon and label it as the rank the
+   caller asked for. Domain now degrades through the existing
+   `.unsupportedRank` path with a diagnostic that names the accepted codes.
 
 The fix adds `Sources/LungfishWorkflow/Metagenomics/BrackenInvocationForm.swift`,
-which isolates three decisions behind a conda-free, unit-testable surface:
+which isolates four decisions behind a conda-free, unit-testable surface:
 detecting the CLI dialect from `bracken --help` usage text, resolving the
 `database<N>mers.kmer_distrib` file (exact read length preferred, else the
 nearest available N, with a clear error naming the database path when the
-directory has none), and building the argument vector for whichever dialect is
-in play. `ClassificationPipeline` probes the dialect once per environment and
-caches it, keeps the historical argument form unchanged for a real Bracken
-driver, reads the version from conda-meta when the wrapper cannot self-report,
-tolerates only the specific `u_reads` crash signature when the output file
-exists, and records both the dialect and the effective argv in the step's
-resolved options so a provenance reader can see exactly which form ran. The
-recorded tool name stays `bracken` and the step semantics are unchanged.
+directory has none), deciding whether a level code is accepted by that dialect,
+and building the argument vector. `ClassificationPipeline` probes the dialect
+once per environment and caches it, passes it to both preflight and execution,
+keeps the historical argument form unchanged for a real Bracken driver, reads
+the version from conda-meta when the launcher cannot self-report, tolerates only
+the specific `u_reads` crash signature when the output file exists, and records
+both the dialect and the effective argv in the step's resolved options so a
+provenance reader can see exactly which form ran. The recorded tool name stays
+`bracken` and the step semantics are unchanged.
 
 `MetagenomicsDatabaseInstaller` also drives `bracken-build` for the Kraken2
 special recipes, but that path needs no dialect detection: this build ships no
@@ -195,8 +224,13 @@ is constructed. Detection there would have nothing to probe.
 `bioconda::bwa-mem2=2.3=hda5e58c_0` prints `2.2.1` for `bwa-mem2 version`. The
 build ships 2.3 binaries and its own conda-meta correctly records 2.3; the
 version string baked into the binary is simply stale, and no newer arm64 build
-exists. `bracken=1.0.0=1` has the same class of problem for the reason above:
-it cannot report a version at all.
+exists. This one is genuinely an upstream packaging defect.
+
+`bracken=1.0.0=1` reaches the same test-side conclusion by a different route,
+and is not an upstream defect: as described under Defect 1, the package ships
+no driver, so what runs is Lungfish's own synthesized launcher, and
+`est_abundance.py` has no version flag to report. In both cases the tool cannot
+be trusted to state its own version while conda-meta records it correctly.
 
 `ToolVersionConformanceTests` now carries a narrow, named exception list of
 exactly these two tool ids. For them, and only them, the installed version is
@@ -212,10 +246,25 @@ the condition for removal.
 ### Re-run result
 
 `bash scripts/deps/verify.sh --tier 1 --root ~/.lungfish-verify` is now
-**GATE PASS**: 189 tests executed, 0 failures, 0 skips. The filtered suite
+**GATE PASS**: 189 tests executed, 0 failures, 0 skips.
+
+The filtered suite
 (`Kraken2BrackenConformanceTests|ToolVersionConformanceTests|ClassificationPipeline|Metagenomics|BrackenInvocationForm`)
-is green in default mode (251 XCTest, 0 failures, 1 tolerated drift skip for
-clair3 against the developer's own `~/.lungfish` root, plus 44 swift-testing)
-and under `LUNGFISH_REQUIRE_TOOLS=1 LUNGFISH_STORAGE_ROOT=$HOME/.lungfish-verify`
+is green in default mode (251 XCTest, 0 failures, plus 44 swift-testing) and
+under `LUNGFISH_REQUIRE_TOOLS=1 LUNGFISH_STORAGE_ROOT=$HOME/.lungfish-verify`
 (53 XCTest, 0 failures). Tier 2 remains unaffected, since its golden recipe set
 does not exercise bracken.
+
+The single default-mode skip is worth spelling out, because the two roots
+exercise different code paths and that is the point of the detection. Against
+the developer's own `~/.lungfish`, `ToolVersionConformanceTests` reports exactly
+one drift entry, `clair3: expected 2.0.0 in: Clair3 v2.0.1`, and nothing about
+bracken. That root has a genuine upstream Bracken driver (`bracken.sh`, the
+2016-2023 shell driver) which advertises `-d`, so it is classified as the real
+CLI, takes the self-reported version path, and never consults conda-meta. The
+isolated verify root has no driver and therefore a synthesized launcher, which
+is classified as the inner CLI and does consult conda-meta. Both roots pass, by
+different routes, which is the behaviour the per-environment probe is meant to
+produce. An earlier draft of this section predicted a bracken conda-meta drift
+entry in default mode; that prediction was wrong and this paragraph records the
+measured result instead.
