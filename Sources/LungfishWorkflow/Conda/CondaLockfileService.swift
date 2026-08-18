@@ -91,9 +91,14 @@ public struct CondaLockfileService {
         let packages = try parsePackages(from: lockfile)
         var installed: [String] = []
         for package in packages {
+            let spec: String = if let build = package.build, !build.isEmpty {
+                "\(package.name)=\(package.version)=\(build)"
+            } else {
+                "\(package.name)=\(package.version)"
+            }
             try await installer.install(
                 environment: package.name,
-                packageSpecs: ["\(package.name)=\(package.version)"],
+                packageSpecs: [spec],
                 condaRoot: condaRoot
             )
             installed.append(package.name)
@@ -155,6 +160,11 @@ public struct CondaLockfileService {
                 lines += [
                     "  - name: \(parsed.name)",
                     "    version: \"\(parsed.version ?? requirement.version ?? "0")\"",
+                ]
+                if let build = parsed.build, !build.isEmpty {
+                    lines.append("    build: \"\(build)\"")
+                }
+                lines += [
                     "    manager: conda",
                     "    platform: \(platform)",
                     "    category: main",
@@ -170,6 +180,7 @@ public struct CondaLockfileService {
     private struct LockPackage {
         let name: String
         let version: String
+        let build: String?
     }
 
     private func parsePackages(from lockfile: URL) throws -> [LockPackage] {
@@ -177,14 +188,16 @@ public struct CondaLockfileService {
         var packages: [LockPackage] = []
         var currentName: String?
         var currentVersion: String?
+        var currentBuild: String?
 
         func flush() {
             if let currentName, let currentVersion,
                !packages.contains(where: { $0.name == currentName }) {
-                packages.append(.init(name: currentName, version: currentVersion))
+                packages.append(.init(name: currentName, version: currentVersion, build: currentBuild))
             }
             currentName = nil
             currentVersion = nil
+            currentBuild = nil
         }
 
         for line in lines {
@@ -195,22 +208,27 @@ public struct CondaLockfileService {
             } else if trimmed.hasPrefix("version: ") {
                 currentVersion = String(trimmed.dropFirst("version: ".count))
                     .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+            } else if trimmed.hasPrefix("build: ") {
+                currentBuild = String(trimmed.dropFirst("build: ".count))
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
             }
         }
         flush()
         return packages
     }
 
-    private func parsePackageSpec(_ spec: String) -> (name: String, version: String?) {
+    private func parsePackageSpec(_ spec: String) -> (name: String, version: String?, build: String?) {
         let withoutChannel = spec.split(separator: "::").last.map(String.init) ?? spec
-        let parts = withoutChannel.split(separator: "=", maxSplits: 1).map(String.init)
+        let parts = withoutChannel.split(separator: "=", maxSplits: 2).map(String.init)
         // String.split on an empty string returns [], not [""], so an empty spec
         // (or an empty requirement.id fallback) would trap on parts[0] without this
         // guard (R3-R3ML-16).
         guard let name = parts.first, !name.isEmpty else {
-            return (spec, nil)
+            return (spec, nil, nil)
         }
-        return (name, parts.count > 1 ? parts[1] : nil)
+        let version = parts.count > 1 ? parts[1] : nil
+        let build = parts.count > 2 ? parts[2] : nil
+        return (name, version, build)
     }
 
     private func writeProvenance(

@@ -60,12 +60,14 @@ final class CondaLockfileServiceTests: XCTestCase {
         XCTAssertTrue(yaml.contains("content_hash:"))
         XCTAssertTrue(yaml.contains("package:"))
         XCTAssertTrue(yaml.contains("name: minimap2"))
-        // parsePackageSpec splits on the first "=" only, so a full `version=build`
-        // package spec yields a version field carrying both components.
-        XCTAssertTrue(yaml.contains("version: \"2.30=hba9b596_0\""))
+        // parsePackageSpec now splits channel::name=version=build into three parts,
+        // so version and build are emitted as separate, conda-lock-compatible fields.
+        XCTAssertTrue(yaml.contains("version: \"2.30\""))
+        XCTAssertTrue(yaml.contains("build: \"hba9b596_0\""))
         XCTAssertTrue(yaml.contains("manager: conda"))
         XCTAssertTrue(yaml.contains("name: bwa-mem2"))
-        XCTAssertTrue(yaml.contains("version: \"2.3=he512de6_0\""))
+        XCTAssertTrue(yaml.contains("version: \"2.3\""))
+        XCTAssertTrue(yaml.contains("build: \"he512de6_0\""))
         XCTAssertTrue(yaml.contains("category: main"))
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.provenanceURL.path))
     }
@@ -171,6 +173,45 @@ final class CondaLockfileServiceTests: XCTestCase {
             provenance.steps.first?.outputs.map(\.path).sorted(),
             [bwaEnv.path, minimap2Env.path].sorted()
         )
+    }
+
+    func testInstallFromLockfileWithBuildLineInstallsFullThreePartSpec() async throws {
+        let customCondaRoot = tempRoot.appendingPathComponent("conda", isDirectory: true)
+        let lockfile = customCondaRoot
+            .appendingPathComponent("locks", isDirectory: true)
+            .appendingPathComponent("lock.yml")
+        try FileManager.default.createDirectory(
+            at: lockfile.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try """
+        version: 1
+        metadata:
+          pack: read-mapping
+          platforms:
+            - osx-arm64
+        package:
+          - name: minimap2
+            version: "2.30"
+            build: "hba9b596_0"
+            manager: conda
+            platform: osx-arm64
+            dependencies: {}
+
+        """.write(to: lockfile, atomically: true, encoding: .utf8)
+
+        let recorder = RecordingCondaLockInstaller()
+        _ = try await CondaLockfileService().install(
+            fromLockfile: lockfile,
+            condaRoot: customCondaRoot,
+            installer: recorder,
+            commandLine: ["lungfish", "conda", "install", "--from-lockfile", lockfile.path]
+        )
+
+        let calls = await recorder.calls
+        XCTAssertEqual(calls, [
+            .init(environment: "minimap2", packageSpecs: ["minimap2=2.30=hba9b596_0"], condaRoot: customCondaRoot),
+        ])
     }
 }
 
