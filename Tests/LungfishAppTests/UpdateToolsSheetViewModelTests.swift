@@ -205,8 +205,9 @@ final class UpdateToolsSheetViewModelTests: XCTestCase {
     /// An all-optional plan the user declined must not reappear on every launch, but the same
     /// deferral must not silence a plan that has required work or a different manifest.
     func testDeferredOptionalOnlyPlanIsSuppressedUntilTheManifestChanges() throws {
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "update-tools-deferral-\(UUID().uuidString)"))
-        defer { defaults.removeVolatileDomain(forName: UserDefaults.registrationDomain) }
+        let suiteName = "update-tools-deferral-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let manifest = ManagedToolLock.bundled
         let optionalOnly = optionalOnlyPlan()
@@ -248,9 +249,18 @@ final class UpdateToolsSheetViewModelTests: XCTestCase {
 
         XCTAssertFalse(activity.isApplying)
 
+        var endCount = 0
+        let endToken = center.addObserver(
+            forName: .lungfishDependencyReconciliationDidEnd,
+            object: nil,
+            queue: nil
+        ) { _ in endCount += 1 }
+        defer { center.removeObserver(endToken) }
+
         activity.begin()
         XCTAssertTrue(activity.isApplying)
         XCTAssertEqual(startCount, 1)
+        XCTAssertEqual(endCount, 0)
 
         // A nested begin must not re-announce, and its end must not clear early.
         activity.begin()
@@ -260,9 +270,43 @@ final class UpdateToolsSheetViewModelTests: XCTestCase {
 
         activity.end()
         XCTAssertFalse(activity.isApplying)
+        XCTAssertEqual(endCount, 1, "the outermost end must announce that conda is free again")
 
-        // Unbalanced ends are harmless.
+        // Unbalanced ends are harmless and do not re-announce.
         activity.end()
+        XCTAssertFalse(activity.isApplying)
+        XCTAssertEqual(endCount, 1)
+    }
+
+    /// The regression this guards: Welcome used to clear its mirror on `DidFinish`, which the
+    /// sheet posts only when the user presses Done. A run that ended without that (sheet torn
+    /// down by its host) left the Install button disabled forever.
+    func testWelcomeMirrorClearsWhenTheRunEndsWithoutASheetDismissal() {
+        let center = NotificationCenter()
+        let activity = DependencyReconciliationActivity(notificationCenter: center)
+
+        var mirror = false
+        let startToken = center.addObserver(
+            forName: .lungfishDependencyReconciliationDidStart,
+            object: nil,
+            queue: nil
+        ) { _ in mirror = true }
+        let endToken = center.addObserver(
+            forName: .lungfishDependencyReconciliationDidEnd,
+            object: nil,
+            queue: nil
+        ) { _ in mirror = false }
+        defer {
+            center.removeObserver(startToken)
+            center.removeObserver(endToken)
+        }
+
+        activity.begin()
+        XCTAssertTrue(mirror)
+
+        // No DidFinish is ever posted here: the run simply ends.
+        activity.end()
+        XCTAssertFalse(mirror, "the mirror must not latch when the sheet never posts DidFinish")
         XCTAssertFalse(activity.isApplying)
     }
 

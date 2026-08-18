@@ -38,15 +38,18 @@ final class DependencyReconciliationActivity {
         notificationCenter.post(name: .lungfishDependencyReconciliationDidStart, object: nil)
     }
 
-    /// Clears the flag. Deliberately does NOT post `.lungfishDependencyReconciliationDidFinish`:
-    /// that notification means "the sheet is done and the receipt is settled", and the sheet
-    /// posts it when the user dismisses. Posting here too would fire it while the results are
-    /// still on screen.
+    /// Clears the flag and posts `.lungfishDependencyReconciliationDidEnd`.
+    ///
+    /// Deliberately NOT `.lungfishDependencyReconciliationDidFinish`: that one means "the sheet
+    /// is done and the receipt is settled" and is posted by the sheet on dismiss, which can be
+    /// much later (or never, if the sheet is torn down by its host). Observers that only need
+    /// to know conda is free again must key off `DidEnd`, or they latch.
     func end() {
         guard depth > 0 else { return }
         depth -= 1
         guard depth == 0 else { return }
         isApplying = false
+        notificationCenter.post(name: .lungfishDependencyReconciliationDidEnd, object: nil)
     }
 }
 
@@ -54,5 +57,11 @@ public extension Notification.Name {
     /// Posted when an Update Tools run begins touching managed environments.
     static let lungfishDependencyReconciliationDidStart = Notification.Name(
         "com.lungfish.dependencyReconciliationDidStart"
+    )
+
+    /// Posted when a run stops touching managed environments, whether or not the sheet is still
+    /// on screen. Pairs with `DidStart`; use it to re-enable anything gated on conda being free.
+    static let lungfishDependencyReconciliationDidEnd = Notification.Name(
+        "com.lungfish.dependencyReconciliationDidEnd"
     )
 }

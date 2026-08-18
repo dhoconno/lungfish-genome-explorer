@@ -451,6 +451,7 @@ private struct PacksTabView: View {
                                         isInstalling: viewModel.installingPacks.contains(required.pack.id),
                                         progressMessage: viewModel.packProgressMessage[required.pack.id],
                                         offlineGuidance: viewModel.offlinePackCommandGuidance(for: required.pack),
+                                        isDependencyReconciliationRunning: viewModel.isDependencyReconciliationRunning,
                                         onInstallAll: {
                                             viewModel.installPack(
                                                 required.pack,
@@ -477,6 +478,7 @@ private struct PacksTabView: View {
                                             isInstalling: viewModel.installingPacks.contains(status.pack.id),
                                             progressMessage: viewModel.packProgressMessage[status.pack.id],
                                             offlineGuidance: viewModel.offlinePackCommandGuidance(for: status.pack),
+                                            isDependencyReconciliationRunning: viewModel.isDependencyReconciliationRunning,
                                             onInstallAll: {
                                                 viewModel.installPack(
                                                     status.pack,
@@ -566,6 +568,8 @@ private struct PackCard: View {
     let isInstalling: Bool
     let progressMessage: String?
     let offlineGuidance: OfflinePackCommandGuidance
+    /// True while an Update Tools run owns conda, so this card's actions stand down.
+    let isDependencyReconciliationRunning: Bool
     let onInstallAll: () -> Void
     let onRemoveAll: (() -> Void)?
     let onCopyOfflineCommands: () -> Void
@@ -645,7 +649,7 @@ private struct PackCard: View {
                         .buttonStyle(.borderedProminent)
                         // A tool update owns conda while it runs; installing into the same
                         // environments concurrently is not safe.
-                        .disabled(DependencyReconciliationActivity.shared.isApplying)
+                        .disabled(isDependencyReconciliationRunning)
                         .accessibilityIdentifier(PluginManagerAccessibilityID.packInstallButton(pack.id))
                     case .removeAll:
                         if let onRemoveAll {
@@ -654,7 +658,7 @@ private struct PackCard: View {
                             } label: { Text("Remove All") }
                             .controlSize(.small)
                             .tint(.lungfishDangerFallback)
-                            .disabled(DependencyReconciliationActivity.shared.isApplying)
+                            .disabled(isDependencyReconciliationRunning)
                             .accessibilityIdentifier(PluginManagerAccessibilityID.packRemoveButton(pack.id))
                         }
                     }

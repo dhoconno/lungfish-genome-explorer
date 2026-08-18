@@ -193,6 +193,7 @@ final class WelcomeViewModel: ObservableObject {
     private var managedResourcesObserver: WelcomeNotificationObserver?
     private var dependencyReconciliationObserver: WelcomeNotificationObserver?
     private var dependencyReconciliationStartObserver: WelcomeNotificationObserver?
+    private var dependencyReconciliationEndObserver: WelcomeNotificationObserver?
     private var scheduledSetupRefreshGeneration = 0
     private var requiredSetupInstallGeneration = 0
     private var pendingSetupInvalidation = false
@@ -236,7 +237,6 @@ final class WelcomeViewModel: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.isDependencyReconciliationRunning = false
                 self?.scheduleSetupRefresh(requiresFreshRead: true)
             }
         }
@@ -246,7 +246,10 @@ final class WelcomeViewModel: ObservableObject {
         )
 
         // While the sheet is applying, this window's Install button must stand down: both
-        // drive CondaManager against the same environments.
+        // drive CondaManager against the same environments. The mirror is cleared by `DidEnd`
+        // (posted when the run stops) rather than `DidFinish` (posted when the sheet is
+        // dismissed), because a sheet torn down by its host never posts the latter and the flag
+        // would latch on with no way to recover.
         let reconciliationStartToken = notificationCenter.addObserver(
             forName: .lungfishDependencyReconciliationDidStart,
             object: nil,
@@ -260,6 +263,22 @@ final class WelcomeViewModel: ObservableObject {
             notificationCenter: notificationCenter,
             token: reconciliationStartToken
         )
+
+        let reconciliationEndToken = notificationCenter.addObserver(
+            forName: .lungfishDependencyReconciliationDidEnd,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.isDependencyReconciliationRunning = false
+                // The run just rewrote environments this window's status was read from.
+                self?.scheduleSetupRefresh(requiresFreshRead: true)
+            }
+        }
+        dependencyReconciliationEndObserver = WelcomeNotificationObserver(
+            notificationCenter: notificationCenter,
+            token: reconciliationEndToken
+        )
     }
 
     deinit {
@@ -268,6 +287,7 @@ final class WelcomeViewModel: ObservableObject {
         managedResourcesObserver = nil
         dependencyReconciliationObserver = nil
         dependencyReconciliationStartObserver = nil
+        dependencyReconciliationEndObserver = nil
     }
 
     private func handleManagedResourcesDidChange(sourceObjectIdentifier: ObjectIdentifier?) {
