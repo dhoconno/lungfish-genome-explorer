@@ -1302,9 +1302,13 @@ public actor MetagenomicsDatabaseRegistry {
         //    installed row that has no identity of its own, or it names such a row
         //    directly. Rows that already carry a different catalogID are excluded: their
         //    identity is authoritative and must not be overridden by a name collision.
-        let candidateEntries = MetagenomicsDatabaseInfo.builtInCatalog.filter {
-            $0.catalogID == identifier || $0.name == identifier
-        }
+        //
+        //    Sorted by catalogID so that a display name shared by two catalog entries
+        //    resolves to the same one on every run, the same reason the installed rows
+        //    above are sorted by name.
+        let candidateEntries = MetagenomicsDatabaseInfo.builtInCatalog
+            .filter { $0.catalogID == identifier || $0.name == identifier }
+            .sorted { ($0.catalogID ?? "") < ($1.catalogID ?? "") }
         for entry in candidateEntries {
             if let match = installedRows.first(where: { _, row in
                 row.catalogID == nil && row.name == entry.name && row.tool == entry.tool

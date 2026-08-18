@@ -1089,6 +1089,14 @@ class ShippedManifestReleaseDateTests(unittest.TestCase):
         omit releaseDate entirely, which is a schema choice rather than drift;
         the failure this guards is a date that is present and wrong, as
         human-scrubber's was after it moved to the 20260706v2 build.
+
+        Effective coverage today is a single entry: human-scrubber is the only
+        shipped database that both carries a releaseDate and pins a dated
+        version. deacon-panhuman and deacon-ribokmers carry dates but their
+        versions encode none, and the Kraken2 entries pin dates but carry no
+        releaseDate. The assertion below that at least one entry was checked is
+        what keeps this from silently degrading to a no-op if that one entry
+        changes shape.
         """
         manifest = json.loads(bump.DEFAULT_MANIFEST.read_text(encoding="utf-8"))
         checked = 0

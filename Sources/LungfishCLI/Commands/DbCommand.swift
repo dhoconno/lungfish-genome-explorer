@@ -406,11 +406,14 @@ extension DbCommand {
 
             Databases that are built locally rather than downloaded cannot be updated in
             place; they are reported as skipped and are refreshed by reinstalling instead.
+            A run in which every selected database was skipped updated nothing, so it
+            exits non-zero rather than reporting success.
 
             Exit codes:
-              0   nothing to update, or every selected database updated
+              0   nothing to update, or at least one selected database updated
               2   usage error, such as a missing target or --yes
-              1   a database failed to update, or --all found updates it could not apply
+              1   a database failed to update, --all found updates it could not apply, or
+                  every selected database was skipped
 
             Examples:
               lungfish conda db update kraken2-viral --yes
@@ -475,6 +478,8 @@ extension DbCommand {
             }
 
             var failures: [(String, String)] = []
+            var skipped: [(String, String)] = []
+            var succeeded: [String] = []
             for target in targets {
                 print(formatter.header("Updating \(target)"))
                 do {
@@ -485,6 +490,7 @@ extension DbCommand {
                     }
                     print("")
                     print(formatter.success("Database '\(target)' updated"))
+                    succeeded.append(target)
                 } catch let error as MetagenomicsDatabaseRegistryError {
                     print("")
                     // A database that cannot be updated in place (locally built, or on a volume
@@ -492,6 +498,7 @@ extension DbCommand {
                     // instead and the remaining databases still update.
                     if case .updateNotSupported = error {
                         print(formatter.warning("Skipped '\(target)': \(error.localizedDescription)"))
+                        skipped.append((target, error.localizedDescription))
                     } else {
                         print(formatter.error("Failed '\(target)': \(error.localizedDescription)"))
                         failures.append((target, error.localizedDescription))
@@ -504,6 +511,23 @@ extension DbCommand {
             }
 
             if !failures.isEmpty {
+                throw CLIExitCode.failure.exitCode
+            }
+
+            // A run that applied nothing because every target was skipped is not a
+            // success. Skipping is the right per-database behaviour when other
+            // databases still update, but when it accounts for the entire run the
+            // command has changed nothing while exiting 0, and a sweep script would
+            // record the databases as current. This is the same false success as the
+            // empty-target case above, reached by a different route: `--all` selecting
+            // only locally built databases (SILVA, Greengenes), which are rebuilt by
+            // reinstalling rather than updated in place.
+            if succeeded.isEmpty, !skipped.isEmpty {
+                print("")
+                print(formatter.error(
+                    "No database was updated: all \(skipped.count) selected database(s) were skipped. "
+                    + skipped.map { "'\($0.0)': \($0.1)" }.joined(separator: "; ")
+                ))
                 throw CLIExitCode.failure.exitCode
             }
         }

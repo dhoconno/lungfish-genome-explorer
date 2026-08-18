@@ -498,9 +498,21 @@ applies one disagreed about which rows exist.
 
 Resolution now applies that same two-step match, an identifier may be either a
 catalog id or the display name `db list` prints, and a row resolved by name is
-stamped with the identity it just proved it has. `--all` no longer prints
-"No databases have an update available" and exits 0 while updates are
-advertised; it exits non-zero with the list of rows it could not resolve.
+stamped with the identity it just proved it has.
+
+`--all` no longer reports success for a run that changed nothing. Two routes led
+there and both are closed: selecting no targets while `db list` advertises
+updates, and selecting targets that are all then skipped as `updateNotSupported`
+(the locally built SILVA and Greengenes databases, which are refreshed by
+reinstalling rather than updated in place). Either exits non-zero naming the
+databases and the reason; a run that updates at least one database still exits 0.
+
+The regression tests for this are offline. The CLI-level tests seed the locally
+built Kraken2 special databases, whose catalog entries carry a `kraken2Special`
+recipe and no URL, so target resolution and the exit contract are observable
+without any download: an `--all` run over a seeded SILVA row completes in 0.06
+seconds and writes nothing. The download and swap path is covered separately in
+`DatabaseUpdateFlowTests` against a stub archive installer.
 
 The live update against the isolated verify root:
 
@@ -543,10 +555,11 @@ S1 rank beneath it. Bracken aggregates at level S and therefore emits only the
 new name, so the test's substring match on "Severe acute respiratory syndrome"
 found nothing.
 
-The assertion now matches on taxonomy id rather than display name. Checking the
-old index turned up a third id in play: 20240904 rolls the same fixture up to
-`Severe acute respiratory syndrome-related coronavirus` (taxid 694009), which
-the old substring match covered only by accident. All three ids are accepted.
+Both the kreport and the Bracken assertions now match on taxonomy id rather than
+display name, against one shared set. Checking the old index turned up a third id
+in play: 20240904 rolls the same fixture up to `Severe acute respiratory
+syndrome-related coronavirus` (taxid 694009), which the old substring match
+covered only by accident. All three ids are accepted.
 
 Verified in both modes:
 
@@ -593,8 +606,8 @@ contradicts.
 
 ```
 swift build                                                       clean
-swift test --filter 'DatabaseUpdateFlowTests|MetagenomicsDatabase|
-  DbCommand|ToolsCommand|Kraken2BrackenConformanceTests'           172 tests, 0 failures
+swift test --filter 'DbCommand|DatabaseUpdateFlowTests|
+  MetagenomicsDatabase|Kraken2BrackenConformanceTests'             149 tests, 0 failures
 Kraken2BrackenConformanceTests, default mode                       2 of 2 passed
 Kraken2BrackenConformanceTests, require + verify root              2 of 2 passed
 python3 -B -m unittest discover -s scripts/tests                   393 tests, OK

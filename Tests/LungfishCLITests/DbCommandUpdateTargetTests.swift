@@ -8,14 +8,21 @@ import LungfishWorkflow
 import XCTest
 @testable import LungfishCLI
 
-/// Exercises which installed rows `db update` can actually address, through the built CLI
-/// binary against an isolated storage root.
+/// Exercises which installed rows `db update` addresses and what it exits with, through
+/// the built CLI binary against an isolated storage root.
 ///
-/// The contract under test is an exit code paired with what the sibling read commands say,
-/// and that only exists at the process boundary: the defect these cover was `--all`
-/// printing "No databases have an update available" and exiting 0 while `db list` in the
-/// same root advertised an update, so a sweep script recorded a successful update that
-/// never happened.
+/// The contract under test is an exit code paired with what the sibling read commands
+/// say, and that only exists at the process boundary. The defects covered are two routes
+/// to the same silent false success: `--all` printing "No databases have an update
+/// available" and exiting 0 while `db list` advertised one, and `--all` selecting only
+/// databases it then skips, changing nothing while still exiting 0.
+///
+/// Every test here is offline. The seeded rows are the locally built Kraken2 special
+/// databases (SILVA, Greengenes), which the catalog describes with a `kraken2Special`
+/// recipe and no URL, so `updateDatabase` rejects them as `updateNotSupported` during
+/// resolution and never opens a connection. That makes target resolution and the exit
+/// contract observable without downloading a multi-hundred-megabyte index. The download
+/// path itself is covered by `DatabaseUpdateFlowTests` against a stub installer.
 final class DbCommandUpdateTargetTests: XCTestCase {
 
     private var cliBinaryURL: URL? {
@@ -26,96 +33,139 @@ final class DbCommandUpdateTargetTests: XCTestCase {
         )
     }
 
-    /// `db list` advertising an update and `db update --all` finding none is the exact
-    /// false success this covers: the two commands must agree that there is work to do.
+    /// A locally built database advertising an update is selected by `--all`, skipped
+    /// because it cannot be updated in place, and the run exits non-zero because it
+    /// changed nothing.
     ///
-    /// The run is cut off as soon as it commits to a target, because committing to one is
-    /// the whole assertion and carrying on would download the real multi-hundred-megabyte
-    /// index. `updateDatabase` stages into a sibling directory and only swaps on success,
-    /// so an interrupted run leaves the seeded payload untouched.
-    func testUpdateAllCommitsToTheTargetListAdvertises() throws {
+    /// Skipping is right per-database when other databases still update; when it accounts
+    /// for the whole run, exiting 0 would tell a sweep script the databases are current.
+    func testUpdateAllExitsNonZeroWhenEverySelectedDatabaseIsSkipped() throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
-        try seedCatalogIDLessViralRow(in: root)
+        try seedLocallyBuiltRow(in: root, name: "SILVA")
 
         let list = try runCLI(["conda", "db", "list"], storageRoot: root)
         XCTAssertEqual(list.exitCode, 0, "stderr:\n\(list.stderr)")
-        // Anchored to the start of the row: "EsViritu Viral DB" is also in this table and
-        // merely containing "Viral" would match it instead.
-        let viralRow = try XCTUnwrap(
-            list.stdout.split(separator: "\n").first { $0.hasPrefix("Viral ") },
-            "no Viral row in db list output:\n\(list.stdout)"
+        let row = try XCTUnwrap(
+            list.stdout.split(separator: "\n").first { $0.hasPrefix("SILVA ") },
+            "no SILVA row in db list output:\n\(list.stdout)"
         )
-        // Precondition: the seeded row is advertising an update.
+        // Precondition: db list is advertising an update for the seeded row.
         XCTAssertTrue(
-            viralRow.contains("yes ("),
-            "expected db list to advertise an update for the seeded row:\n\(viralRow)"
+            row.contains("yes ("),
+            "expected db list to advertise an update for the seeded row:\n\(row)"
         )
 
-        let update = try runCLIUntilTargetIsCommitted(
-            ["conda", "db", "update", "--all", "--yes"],
-            storageRoot: root
-        )
+        let update = try runCLI(["conda", "db", "update", "--all", "--yes"], storageRoot: root)
 
+        // It must not claim there was nothing to do: db list says otherwise.
         XCTAssertFalse(
-            update.contains("No databases have an update available"),
+            update.stdout.contains("No databases have an update available"),
             "db update --all claimed there was nothing to update while db list advertised one:\n"
-            + "list row: \(viralRow)\nupdate output:\n\(update)"
+            + "list row: \(row)\nupdate stdout:\n\(update.stdout)"
         )
+        // It resolved the row (rather than dropping it for having no catalogID) and
+        // skipped it for the right reason.
+        XCTAssertTrue(update.stdout.contains("Skipped"), "update stdout:\n\(update.stdout)")
         XCTAssertTrue(
-            update.contains("Updating Viral"),
-            "db update --all did not commit to the row db list advertises:\n\(update)"
+            update.stdout.contains("rebuilt by reinstalling"),
+            "the skip should name the locally-built reason:\n\(update.stdout)"
+        )
+        // Nothing was applied, so this is not a success.
+        XCTAssertTrue(
+            update.stdout.contains("No database was updated"),
+            "a run that applied nothing must say so:\n\(update.stdout)"
+        )
+        XCTAssertEqual(
+            update.exitCode, CLIExitCode.failure.rawValue,
+            "db update --all applied nothing and must not exit 0:\n\(update.stdout)"
         )
     }
 
-    /// A row with no catalog identity is addressable by its catalog id, rather than
-    /// reported as absent from the registry it is plainly listed in.
+    /// A row registered from disk carries no `catalogID`. Addressing it by catalog id must
+    /// find it, rather than reporting it absent from the registry it is plainly listed in.
     func testUpdateByCatalogIDResolvesARowRegisteredWithoutCatalogIdentity() throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
-        try seedCatalogIDLessViralRow(in: root)
+        try seedLocallyBuiltRow(in: root, name: "SILVA")
 
-        let output = try runCLIUntilTargetIsCommitted(
-            ["conda", "db", "update", "kraken2-viral", "--yes"],
+        let result = try runCLI(
+            ["conda", "db", "update", "kraken2-special-silva", "--yes"],
             storageRoot: root
         )
 
+        // Resolution succeeded: the failure is the locally-built skip, not a lookup miss.
         XCTAssertFalse(
-            output.contains("not found in registry"),
-            "db update could not resolve an installed row that db list shows:\n\(output)"
+            (result.stdout + result.stderr).contains("not found in registry"),
+            "db update could not resolve an installed row that db list shows:\n\(result.stdout)"
         )
-        XCTAssertTrue(output.contains("Downloading Viral"), "output:\n\(output)")
+        XCTAssertTrue(result.stdout.contains("Skipped"), "stdout:\n\(result.stdout)")
     }
 
     /// The display name is what `db list` prints, so it addresses the row too.
     func testUpdateByDisplayNameResolvesTheInstalledRow() throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
-        try seedCatalogIDLessViralRow(in: root)
+        try seedLocallyBuiltRow(in: root, name: "SILVA")
 
-        let output = try runCLIUntilTargetIsCommitted(
-            ["conda", "db", "update", "Viral", "--yes"],
+        let result = try runCLI(["conda", "db", "update", "SILVA", "--yes"], storageRoot: root)
+
+        XCTAssertFalse(
+            (result.stdout + result.stderr).contains("not found in registry"),
+            "db update rejected the display name db list prints:\n\(result.stdout)"
+        )
+        XCTAssertTrue(result.stdout.contains("Skipped"), "stdout:\n\(result.stdout)")
+    }
+
+    /// An identifier that names nothing installed is still a lookup failure.
+    func testUpdateReportsAnUnknownIdentifierAsNotFound() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try seedLocallyBuiltRow(in: root, name: "SILVA")
+
+        let result = try runCLI(
+            ["conda", "db", "update", "kraken2-not-a-database", "--yes"],
             storageRoot: root
         )
 
-        XCTAssertFalse(
-            output.contains("not found in registry"),
-            "db update rejected the display name db list prints:\n\(output)"
+        XCTAssertTrue(
+            (result.stdout + result.stderr).contains("not found in registry"),
+            "stdout:\n\(result.stdout)\nstderr:\n\(result.stderr)"
         )
-        XCTAssertTrue(output.contains("Downloading Viral"), "output:\n\(output)")
+        XCTAssertNotEqual(result.exitCode, 0)
+    }
+
+    /// With nothing advertising an update, "nothing to update" is the truth and 0 is right.
+    func testUpdateAllExitsZeroWhenNothingAdvertisesAnUpdate() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        // No seeded rows at all: every catalog entry is `missing`, and a database that is
+        // not installed does not advertise an update.
+
+        let result = try runCLI(["conda", "db", "update", "--all", "--yes"], storageRoot: root)
+
+        XCTAssertTrue(
+            result.stdout.contains("No databases have an update available"),
+            "stdout:\n\(result.stdout)"
+        )
+        XCTAssertEqual(result.exitCode, 0, "stdout:\n\(result.stdout)\nstderr:\n\(result.stderr)")
     }
 
     // MARK: - Helpers
 
-    /// Writes an installed Kraken2 Viral row with a null `catalogID`, which is how a
-    /// database registered from disk is recorded and therefore how the rows in a real
-    /// user's registry look.
-    private func seedCatalogIDLessViralRow(in root: URL) throws {
+    /// Writes an installed row for a locally built Kraken2 special database, with a null
+    /// `catalogID`, which is how a database registered from disk is recorded and therefore
+    /// how the rows in a real user's registry look.
+    ///
+    /// Locally built databases are the offline seam: their catalog entry carries a
+    /// `kraken2Special` recipe rather than an archive URL, so `updateDatabase` resolves the
+    /// row and then rejects it without any network access.
+    private func seedLocallyBuiltRow(in root: URL, name: String) throws {
         let databases = root.appendingPathComponent("databases", isDirectory: true)
-        let payload = databases.appendingPathComponent("kraken2/viral", isDirectory: true)
+        let payload = databases.appendingPathComponent("kraken2/\(name.lowercased())", isDirectory: true)
         try FileManager.default.createDirectory(at: payload, withIntermediateDirectories: true)
         for filename in ["hash.k2d", "opts.k2d", "taxo.k2d"] {
-            try "old".write(
+            try "seed".write(
                 to: payload.appendingPathComponent(filename),
                 atomically: true,
                 encoding: .utf8
@@ -123,15 +173,17 @@ final class DbCommandUpdateTargetTests: XCTestCase {
         }
 
         // An installed version the manifest has moved past, so the row advertises an
-        // update. Read from the manifest rather than hardcoded, so a later bump of the
-        // pinned version does not quietly turn this row into an up-to-date one and leave
-        // the test asserting nothing.
-        let pinned = ManagedToolLock.bundled.database(id: "kraken2-viral")?.version
-        let installedVersion = (pinned == "20240904") ? "20230605" : "20240904"
-        XCTAssertNotEqual(installedVersion, pinned, "seeded row must be older than the pinned version")
+        // update. Derived from the pinned version rather than hardcoded, so a later bump
+        // cannot quietly turn this into an up-to-date row that asserts nothing.
+        let pinned = MetagenomicsDatabaseInfo.builtInCatalog
+            .first { $0.name == name }?
+            .version
+        let installedVersion = "\(pinned ?? "kraken2-special-v1")-installed-older"
+        XCTAssertNotEqual(installedVersion, pinned, "seeded row must differ from the pinned version")
 
+        let timestamp = ISO8601DateFormatter().string(from: Date())
         let row: [String: Any] = [
-            "name": "Viral",
+            "name": name,
             "tool": "kraken2",
             "version": installedVersion,
             "sizeBytes": 1024,
@@ -141,8 +193,8 @@ final class DbCommandUpdateTargetTests: XCTestCase {
             "isExternal": false,
             "status": "ready",
             "recommendedRAM": 1024,
-            "installedAt": ISO8601DateFormatter().string(from: Date()),
-            "lastUpdated": ISO8601DateFormatter().string(from: Date()),
+            "installedAt": timestamp,
+            "lastUpdated": timestamp,
         ]
         let manifest: [String: Any] = ["version": 1, "databases": [row]]
         let data = try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted])
@@ -150,66 +202,6 @@ final class DbCommandUpdateTargetTests: XCTestCase {
             to: databases.appendingPathComponent("metagenomics-db-registry.json"),
             options: .atomic
         )
-    }
-
-    /// Runs the CLI and returns its output as soon as it has committed to an update
-    /// target, terminating it there.
-    ///
-    /// Target resolution is the whole assertion; what follows it is a real download of a
-    /// real index, which a unit test must not perform. The command is killed once it
-    /// prints the progress line that only appears after a target is resolved, or when it
-    /// exits on its own (the "nothing to update" path, which resolves nothing and is
-    /// itself a result worth returning).
-    ///
-    /// Killing mid-download is safe for the seeded root: `updateDatabase` stages into a
-    /// sibling directory and swaps only after the payload verifies, so an interrupted run
-    /// never touches the installed copy.
-    private func runCLIUntilTargetIsCommitted(
-        _ arguments: [String],
-        storageRoot: URL,
-        timeout: TimeInterval = 25
-    ) throws -> String {
-        let binary = try XCTUnwrap(
-            cliBinaryURL,
-            "CLI binary not built at expected path - run `swift build --product lungfish-cli` before these process tests"
-        )
-
-        let process = Process()
-        process.executableURL = binary
-        process.arguments = arguments
-        var merged = ProcessInfo.processInfo.environment
-        merged["LUNGFISH_STORAGE_ROOT"] = storageRoot.path
-        process.environment = merged
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        try process.run()
-
-        // Read incrementally so the decision to stop can be made from the output itself.
-        // readDataToEndOfFile would block until the download finished, which is the thing
-        // being avoided.
-        let handle = pipe.fileHandleForReading
-        var output = ""
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            let chunk = handle.availableData
-            if chunk.isEmpty { break }  // EOF: the process exited on its own.
-            output += String(decoding: chunk, as: UTF8.self)
-            // "Downloading" is printed by the progress callback, which is only reached
-            // once a target has been resolved and the transfer has begun.
-            if output.contains("Downloading") || output.contains("No databases have an update available") {
-                break
-            }
-        }
-
-        if process.isRunning {
-            process.terminate()
-        }
-        // Drain whatever is buffered so the pipe's writer end can close, then reap.
-        _ = try? handle.readToEnd()
-        process.waitUntilExit()
-        return output
     }
 
     private func runCLI(

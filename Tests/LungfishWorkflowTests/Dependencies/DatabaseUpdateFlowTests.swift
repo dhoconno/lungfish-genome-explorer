@@ -307,6 +307,104 @@ final class DatabaseUpdateFlowTests: XCTestCase {
         XCTAssertEqual(after.catalogID, "kraken2-viral")
     }
 
+    /// The set `db update --all` selects must be exactly the set `db list` advertises.
+    ///
+    /// This is the selection predicate the CLI applies, asserted here against a stub
+    /// installer so the download path stays out of it. The defect was the CLI mapping the
+    /// advertised set through `compactMap(\.catalogID)`, which dropped every row
+    /// registered from disk; addressing such a row by display name has to reach the same
+    /// database the advertisement came from.
+    func testEveryRowAdvertisingAnUpdateIsAddressableByTheIdentifierAllWouldUse() async throws {
+        let base = tempDir!
+        _ = try seedCatalogIDLessViralDatabase(in: base, marker: "old")
+
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: base)
+        try await registry.loadIfNeeded()
+
+        // The predicate `db list` prints from and `--all` selects on.
+        let advertised = try await registry.availableDatabases().filter(\.isUpdateAvailable)
+        XCTAssertFalse(advertised.isEmpty, "the seeded row should be advertising an update")
+
+        // The identifier `--all` builds for each advertised row.
+        let identifiers = advertised.map { $0.catalogID ?? $0.name }.sorted()
+        XCTAssertEqual(identifiers, ["Viral"], "the identity-less row is addressed by name")
+
+        await registry.setArchiveInstallerForTesting { _, destination, _ in
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try Self.writeKraken2Payload(at: destination, marker: "new")
+            return nil
+        }
+
+        for identifier in identifiers {
+            try await registry.updateDatabase(catalogID: identifier) { _, _ in }
+        }
+
+        // Nothing is left advertising an update, which is what makes the run a success
+        // rather than a no-op that exited 0.
+        let remaining = try await registry.availableDatabases().filter(\.isUpdateAvailable)
+        XCTAssertTrue(
+            remaining.isEmpty,
+            "still advertising: \(remaining.map(\.name))"
+        )
+    }
+
+    /// A locally built database is resolved and then rejected as unsupported, without any
+    /// network access. This is the path that makes `--all` select a database it can only
+    /// skip, which the CLI must not report as success.
+    func testLocallyBuiltRowWithoutCatalogIdentityResolvesThenReportsUnsupported() async throws {
+        let base = tempDir!
+        guard let special = MetagenomicsDatabaseInfo.builtInCatalog.first(where: { entry in
+            if case .kraken2Special = entry.installationRecipe { return true }
+            return false
+        }) else {
+            throw XCTSkip("Manifest pins no locally built Kraken2 special database")
+        }
+
+        let directory = base.appendingPathComponent("kraken2/special", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try writeKraken2Payload(at: directory, marker: "old")
+
+        // A row registered from disk: no catalog identity, older version.
+        let row = MetagenomicsDatabaseInfo(
+            name: special.name,
+            tool: special.tool,
+            version: "\(special.version ?? "v1")-installed-older",
+            sizeBytes: 1024,
+            sizeOnDisk: 1024,
+            downloadURL: nil,
+            catalogID: nil,
+            description: "User-imported Kraken2 database",
+            collection: nil,
+            path: directory,
+            installedAt: Date(),
+            lastUpdated: Date(),
+            status: .ready,
+            recommendedRAM: 1024
+        )
+        try writeRegistryManifest([row], in: base)
+
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: base)
+        try await registry.loadIfNeeded()
+
+        let stored = try await registry.database(named: special.name)
+        let seeded = try XCTUnwrap(stored)
+        XCTAssertNil(seeded.catalogID)
+        XCTAssertTrue(seeded.isUpdateAvailable, "the seeded row should advertise an update")
+
+        // Resolution reaches the row (rather than reporting it absent) and rejects it for
+        // being locally built. No archive installer is configured, so a resolution that
+        // fell through to the download path would fail differently.
+        await XCTAssertThrowsErrorAsync(
+            try await registry.updateDatabase(catalogID: special.name) { _, _ in }
+        ) { error in
+            guard case MetagenomicsDatabaseRegistryError.updateNotSupported(let name, _) = error else {
+                XCTFail("Unexpected error: \(error)")
+                return
+            }
+            XCTAssertEqual(name, special.name)
+        }
+    }
+
     /// A row that already carries a catalog identity is authoritative: a different
     /// catalog entry that happens to share its display name must not capture it.
     func testUpdateDoesNotRetargetARowThatAlreadyHasADifferentIdentity() async throws {

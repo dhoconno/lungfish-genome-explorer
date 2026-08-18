@@ -14,6 +14,27 @@ import LungfishTestSupport
 @testable import LungfishIO
 
 final class Kraken2BrackenConformanceTests: XCTestCase {
+
+    /// Taxonomy ids that identify the SARS-CoV-2 lineage in a Kraken2 Viral index,
+    /// across the taxonomy revisions the shipped indexes are built against.
+    ///
+    /// Matching is by id rather than by scientific name because the name is not
+    /// stable. In the 20240904 index the fixture rolls up to "Severe acute
+    /// respiratory syndrome-related coronavirus" (694009). The 20260626 index
+    /// carries NCBI's rename of the species to "Betacoronavirus pandemicum"
+    /// (3418604), demoting "Severe acute respiratory syndrome coronavirus 2"
+    /// (2697049) to the S1 rank beneath it.
+    ///
+    /// A substring match on "Severe acute respiratory syndrome" happened to cover
+    /// both pre-rename names and then matched nothing at all under the new index,
+    /// even though classification was perfect: all 100 fixture reads land on the
+    /// species row. Ids are the stable handle across a taxonomy revision.
+    private static let sarsCoV2TaxIDs: Set<Int> = [
+        694009,   // Severe acute respiratory syndrome-related coronavirus (20240904 index)
+        2697049,  // Severe acute respiratory syndrome coronavirus 2 (pre-rename species, now S1)
+        3418604,  // Betacoronavirus pandemicum (species as of the 20260626 index)
+    ]
+
     func testClassifyFixtureReadsAgainstViralDB() async throws {
         let kraken2 = try await ToolAvailability.require("kraken2", environment: "kraken2")
         let bracken = try await ToolAvailability.require("bracken", environment: "bracken")
@@ -44,18 +65,10 @@ final class Kraken2BrackenConformanceTests: XCTestCase {
         if let unclassified = tree.unclassifiedNode {
             XCTAssertEqual(unclassified.rank, .unclassified)
         }
-        // Either name is accepted, for the taxonomy rename described at the
-        // Bracken assertion below: the 20260626 index reports the species as
-        // "Betacoronavirus pandemicum", keeping the old SARS-CoV-2 name on its S1
-        // child. The kreport does still carry both, but relying on that would put
-        // this assertion one taxonomy revision away from silently passing on a
-        // name that no longer identifies the lineage.
+        // Matched on taxonomy id, for the reason given at `sarsCoV2TaxIDs`.
         XCTAssertNotNil(
-            findNode(tree.root) {
-                $0.name.localizedCaseInsensitiveContains("Severe acute respiratory syndrome")
-                    || $0.name.localizedCaseInsensitiveContains("Betacoronavirus pandemicum")
-            },
-            "SARS-CoV-2 must be detected in the kreport"
+            findNode(tree.root) { Self.sarsCoV2TaxIDs.contains($0.taxId) },
+            "SARS-CoV-2 must be detected in the kreport (taxid one of \(Self.sarsCoV2TaxIDs.sorted()))"
         )
 
         let outputs = try Kraken2OutputParser.parse(url: kout)
@@ -104,30 +117,14 @@ final class Kraken2BrackenConformanceTests: XCTestCase {
         }
 
         let brackenRows = try BrackenParser.parse(url: bout)
-        // Matched on taxonomy id, not on the scientific name.
-        //
-        // Bracken aggregates at level S, and which taxon that lands on depends on
-        // which taxonomy the installed index was built against. The 20240904 index
-        // rolls the fixture up to "Severe acute respiratory syndrome-related
-        // coronavirus" (694009); the 20260626 index reports "Betacoronavirus
-        // pandemicum" (3418604), NCBI's rename of the species covering SARS-CoV-2,
-        // with "Severe acute respiratory syndrome coronavirus 2" (2697049) demoted
-        // to the S1 rank beneath it.
-        //
-        // The previous form matched the substring "Severe acute respiratory
-        // syndrome", which happened to cover both pre-rename names and silently
-        // stopped matching anything at all under the new index, even though
-        // classification was perfect (all 100 fixture reads land on the species
-        // row). Ids are the stable handle across a taxonomy revision.
-        let sarsCoV2SpeciesIDs: Set<Int> = [
-            694009,   // Severe acute respiratory syndrome-related coronavirus (20240904 index)
-            2697049,  // Severe acute respiratory syndrome coronavirus 2 (pre-rename species, now S1)
-            3418604,  // Betacoronavirus pandemicum (species as of the 20260626 index)
-        ]
-        let sarsRow = brackenRows.first { sarsCoV2SpeciesIDs.contains($0.taxId) }
+        // Matched on taxonomy id, for the reason given at `sarsCoV2TaxIDs`. Bracken
+        // aggregates at level S, so which of those ids appears depends on the
+        // taxonomy the installed index was built against.
+        let sarsRow = brackenRows.first { Self.sarsCoV2TaxIDs.contains($0.taxId) }
         XCTAssertNotNil(
             sarsRow,
-            "Bracken should report an abundance row for SARS-CoV-2 (taxid 2697049 or 3418604); "
+            "Bracken should report an abundance row for SARS-CoV-2 "
+            + "(taxid one of \(Self.sarsCoV2TaxIDs.sorted())); "
             + "got: \(brackenRows.map { "\($0.name) [\($0.taxId)]" })"
         )
         XCTAssertGreaterThan(sarsRow?.newEstReads ?? 0, 0)
