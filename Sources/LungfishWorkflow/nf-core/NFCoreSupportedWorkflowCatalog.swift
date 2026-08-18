@@ -120,7 +120,7 @@ public enum NFCoreSupportedWorkflowCatalog {
             name: "viralrecon",
             displayName: "Analyze viral amplicon samples",
             description: "Generate viral consensus sequences, coverage summaries, alignments, and mutation tables.",
-            pinnedVersion: "3.0.0",
+            pinnedVersion: ManagedToolLock.bundled.pipeline(id: "nf-core-viralrecon")?.revision ?? "3.0.0",
             whenToUse: "Use this for viral sequencing reads, especially SARS-CoV-2-style amplicon samples, when you want consensus genomes, coverage, and variants.",
             notFor: "Do not use this for whole-organism genomes, RNA-seq, non-viral samples, or generic nanopore QC.",
             requiredInputs: "Choose viral FASTQ reads. A matching viral reference and primer scheme may be required for final analysis.",

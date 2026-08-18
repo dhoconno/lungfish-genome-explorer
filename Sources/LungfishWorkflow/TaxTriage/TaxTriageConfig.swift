@@ -237,15 +237,29 @@ public struct TaxTriageConfig: Sendable, Codable, Equatable {
     }
 
     /// The GitHub repository identifier for the TaxTriage pipeline.
-    public static let pipelineRepository = "jhuapl-bio/taxtriage"
+    ///
+    /// Sourced from the dependency manifest (`ManagedToolLock.bundled`); falls back to the
+    /// last-known-good literal only if the bundled manifest is missing the `taxtriage` pin.
+    public static var pipelineRepository: String {
+        ManagedToolLock.bundled.pipeline(id: "taxtriage")?.repository ?? "jhuapl-bio/taxtriage"
+    }
 
     /// The pinned TaxTriage revision validated by Lungfish.
     ///
     /// Using an exact commit prevents silent output-schema drift from upstream `main`.
-    public static let defaultRevision = "8fd1fb5bb236e4978f5734e522e6b89e0640a2a9"
+    /// Sourced from the dependency manifest (`ManagedToolLock.bundled`); falls back to `"main"`
+    /// only if the bundled manifest is missing the `taxtriage` pin.
+    public static var defaultRevision: String {
+        ManagedToolLock.bundled.pipeline(id: "taxtriage")?.revision ?? "main"
+    }
 
     /// Human-readable GitHub release tag for the pinned TaxTriage revision.
-    public static let defaultGithubReleaseVersion = "v3.3.6"
+    ///
+    /// Sourced from the dependency manifest (`ManagedToolLock.bundled`); falls back to
+    /// `"unknown"` only if the bundled manifest is missing the `taxtriage` pin.
+    public static var defaultGithubReleaseVersion: String {
+        ManagedToolLock.bundled.pipeline(id: "taxtriage")?.releaseVersion ?? "unknown"
+    }
 
     /// Returns the human-readable GitHub release tag when the selected revision identifies one.
     public static func githubReleaseVersion(for revision: String) -> String? {
