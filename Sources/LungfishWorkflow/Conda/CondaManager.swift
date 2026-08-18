@@ -322,7 +322,7 @@ public actor CondaManager {
     }
 
     private static func defaultBundledMicromambaVersion() -> String? {
-        NativeToolRunner.bundledVersions["micromamba"]
+        ManagedToolLock.bundled.bootstrap?.micromamba.version ?? NativeToolRunner.bundledVersions["micromamba"]
     }
 
     private func ensureMicromambaExecutable(at path: URL) throws {

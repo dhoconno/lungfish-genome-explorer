@@ -1059,45 +1059,18 @@ final class FASTQDashboardTests: XCTestCase {
         XCTAssertEqual(cached?.computedStatistics?.meanReadLength, 150.0)
     }
 
+    /// Root for bundled-payload lookups only. Manifest metadata (filename, version,
+    /// description, etc.) now comes from `ManagedToolLock.bundled` regardless of this
+    /// directory's contents, so this just needs to exist for `databasesRoot()`.
     private func makeHumanScrubberBundledRoot(in tempDir: URL) throws -> URL {
         let root = tempDir.appendingPathComponent("bundled-databases", isDirectory: true)
-        let manifests = [
-            ("human-scrubber", try humanScrubberManifestURL()),
-            ("deacon-panhuman", try deaconPanhumanManifestURL()),
-        ]
-        for (databaseID, manifestURL) in manifests {
-            let dbDir = root.appendingPathComponent(databaseID, isDirectory: true)
-            try FileManager.default.createDirectory(at: dbDir, withIntermediateDirectories: true)
-            try FileManager.default.copyItem(
-                at: manifestURL,
-                to: dbDir.appendingPathComponent("manifest.json")
+        for databaseID in ["human-scrubber", "deacon-panhuman"] {
+            try FileManager.default.createDirectory(
+                at: root.appendingPathComponent(databaseID, isDirectory: true),
+                withIntermediateDirectories: true
             )
         }
         return root
-    }
-
-    private func humanScrubberManifestURL() throws -> URL {
-        let candidate = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishWorkflow/Resources/Databases/human-scrubber/manifest.json")
-        if FileManager.default.fileExists(atPath: candidate.path) {
-            return candidate
-        }
-        throw XCTSkip("Bundled human-scrubber manifest not found at \(candidate.path)")
-    }
-
-    private func deaconPanhumanManifestURL() throws -> URL {
-        let candidate = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishWorkflow/Resources/Databases/deacon-panhuman/manifest.json")
-        if FileManager.default.fileExists(atPath: candidate.path) {
-            return candidate
-        }
-        throw XCTSkip("Bundled deacon-panhuman manifest not found at \(candidate.path)")
     }
 
     private func makeReferenceBundle(

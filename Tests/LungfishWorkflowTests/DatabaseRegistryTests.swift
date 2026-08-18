@@ -122,44 +122,20 @@ final class DatabaseRegistryTests: XCTestCase {
         XCTAssertEqual(resolved?.standardizedFileURL.path, installed.standardizedFileURL.path)
     }
 
+    /// Root for bundled-payload lookups only. Manifest metadata (filename, version,
+    /// description, etc.) now comes from `ManagedToolLock.bundled` regardless of this
+    /// directory's contents, so this just needs to exist for `databasesRoot()`.
     private func makeBundledDatabasesRoot() throws -> URL {
         let root = tempDir.appendingPathComponent("bundled-databases")
-        try copyManifest(named: "human-scrubber", into: root)
-        try copyManifest(named: "deacon-panhuman", into: root)
-
-        return root
-    }
-
-    private static func manifestURL(named name: String) -> URL {
-        if let bundleURL = Bundle.module.resourceURL?
-            .appendingPathComponent("Databases")
-            .appendingPathComponent(name)
-            .appendingPathComponent("manifest.json"),
-           FileManager.default.fileExists(atPath: bundleURL.path)
-        {
-            return bundleURL
-        }
-
-        var candidate = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-        for _ in 0..<10 {
-            let manifestURL = candidate
-                .appendingPathComponent("Sources/LungfishWorkflow/Resources/Databases/\(name)/manifest.json")
-            if FileManager.default.fileExists(atPath: manifestURL.path) {
-                return manifestURL
-            }
-            candidate = candidate.deletingLastPathComponent()
-        }
-
-        fatalError("Cannot locate Sources/LungfishWorkflow/Resources/Databases/\(name)/manifest.json")
-    }
-
-    private func copyManifest(named name: String, into bundledRoot: URL) throws {
-        let dir = bundledRoot.appendingPathComponent(name)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        try FileManager.default.copyItem(
-            at: Self.manifestURL(named: name),
-            to: dir.appendingPathComponent("manifest.json")
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("human-scrubber"),
+            withIntermediateDirectories: true
         )
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("deacon-panhuman"),
+            withIntermediateDirectories: true
+        )
+        return root
     }
 
     private func makeBundledHumanScrubberPayload(at bundledRoot: URL, filename: String, contents: Data) throws -> URL {

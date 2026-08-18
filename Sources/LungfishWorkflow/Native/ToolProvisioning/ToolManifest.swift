@@ -330,7 +330,7 @@ extension BundledToolSpec {
     }
 
     /// micromamba - bundled bootstrap binary for conda-managed tools.
-    public static func micromamba(version: String = "2.0.5-0") -> BundledToolSpec {
+    public static func micromamba(version: String = ManagedToolLock.bundled.bootstrap?.micromamba.version ?? "2.0.5-0") -> BundledToolSpec {
         BundledToolSpec(
             name: "micromamba",
             displayName: "micromamba",

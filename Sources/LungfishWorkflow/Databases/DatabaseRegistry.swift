@@ -150,6 +150,28 @@ public struct BundledDatabase: Sendable, Codable {
     public let sourceUrl: String
     /// URL to the releases page for checking for updates.
     public let releasesUrl: String
+
+    public init(
+        id: String,
+        displayName: String,
+        tool: String,
+        version: String,
+        filename: String,
+        releaseDate: String,
+        description: String,
+        sourceUrl: String,
+        releasesUrl: String
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.tool = tool
+        self.version = version
+        self.filename = filename
+        self.releaseDate = releaseDate
+        self.description = description
+        self.sourceUrl = sourceUrl
+        self.releasesUrl = releasesUrl
+    }
 }
 
 public enum ManagedStorageAvailability: Sendable, Equatable {
@@ -276,16 +298,23 @@ public actor DatabaseRegistry {
     public func manifest(for id: String) -> BundledDatabase? {
         let resolvedID = Self.normalizedDatabaseID(id)
         if let cached = manifests[resolvedID] { return cached }
-        guard let url = bundledManifestURL(for: resolvedID) else { return nil }
-        do {
-            let data = try Data(contentsOf: url)
-            let db = try JSONDecoder().decode(BundledDatabase.self, from: data)
-            manifests[resolvedID] = db
-            return db
-        } catch {
-            dbLogger.error("Failed to load database manifest for '\(resolvedID)': \(error)")
+        guard let spec = ManagedToolLock.bundled.database(id: resolvedID), let filename = spec.filename else {
+            dbLogger.error("Dependency manifest has no database entry for '\(resolvedID)'")
             return nil
         }
+        let db = BundledDatabase(
+            id: spec.id,
+            displayName: spec.displayName,
+            tool: spec.tool,
+            version: spec.version,
+            filename: filename,
+            releaseDate: spec.releaseDate ?? "",
+            description: spec.description ?? "",
+            sourceUrl: spec.sourceUrl ?? "",
+            releasesUrl: spec.releasesUrl ?? ""
+        )
+        manifests[resolvedID] = db
+        return db
     }
 
     /// Resolves the effective runtime database file path for a given ID.
@@ -926,12 +955,6 @@ public actor DatabaseRegistry {
     }
 
     // MARK: - Private Helpers
-
-    private func bundledManifestURL(for id: String) -> URL? {
-        databasesRoot()?
-            .appendingPathComponent(id)
-            .appendingPathComponent("manifest.json")
-    }
 
     private func bundledDatabasePath(for id: String) -> URL? {
         guard let db = manifest(for: id) else { return nil }

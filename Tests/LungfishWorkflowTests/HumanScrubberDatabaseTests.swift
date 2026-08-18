@@ -527,29 +527,16 @@ final class HumanScrubberDatabaseTests: XCTestCase {
         try content.appending("\n").write(to: url, atomically: true, encoding: .utf8)
     }
 
+    /// Root for bundled-payload lookups only. Manifest metadata (filename, version,
+    /// description, etc.) now comes from `ManagedToolLock.bundled` regardless of this
+    /// directory's contents, so this just needs to exist for `databasesRoot()`.
     private func bundledDatabasesRoot() throws -> URL {
         let root = tempDir.appendingPathComponent("bundled-databases", isDirectory: true)
         for databaseID in ["human-scrubber", "deacon-panhuman", "deacon-ribokmers"] {
             let databaseDir = root.appendingPathComponent(databaseID, isDirectory: true)
             try FileManager.default.createDirectory(at: databaseDir, withIntermediateDirectories: true)
-            try FileManager.default.copyItem(
-                at: try bundledManifestURL(for: databaseID),
-                to: databaseDir.appendingPathComponent("manifest.json")
-            )
         }
         return root
-    }
-
-    private func bundledManifestURL(for databaseID: String) throws -> URL {
-        let candidate = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishWorkflow/Resources/Databases/\(databaseID)/manifest.json")
-        if FileManager.default.fileExists(atPath: candidate.path) {
-            return candidate
-        }
-        throw XCTSkip("Bundled manifest not found at \(candidate.path)")
     }
 
     private func decodeWorkflowRun(at url: URL) throws -> WorkflowRun {
