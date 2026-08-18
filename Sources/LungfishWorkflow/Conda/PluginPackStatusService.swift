@@ -960,9 +960,11 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
             if let spec {
                 if !spec.matches(package) {
                     if package.version != spec.version {
-                        return "\(requirement.displayName) is version \(package.version), but Lungfish requires \(requiredVersion). Reinstall this tool."
+                        return "\(requirement.displayName) is version \(package.version), but Lungfish requires \(spec.version). Reinstall this tool."
                     }
-                    return "\(requirement.displayName) is build \(package.build ?? "?"), but Lungfish requires \(spec.build ?? "?"). Reinstall this tool."
+                    if let requiredBuild = spec.build {
+                        return "\(requirement.displayName) is build \(package.build ?? "?"), but Lungfish requires \(requiredBuild). Reinstall this tool."
+                    }
                 }
             } else if package.version != requiredVersion {
                 return "\(requirement.displayName) is version \(package.version), but Lungfish requires \(requiredVersion). Reinstall this tool."
