@@ -9,7 +9,9 @@ procedure.
 """
 
 import json
+import os
 import pathlib
+import re
 import subprocess
 import tempfile
 import unittest
@@ -226,6 +228,107 @@ class PipelineGoldensManifestTests(unittest.TestCase):
         tools = {recipe["tool"] for recipe in self.manifest["goldens"]}
         self.assertIn("taxtriage", tools)
         self.assertIn("esviritu", tools)
+
+
+class StorageRootTests(unittest.TestCase):
+    """The isolated storage root must reach the CLI invocations.
+
+    The CLI resolves its tools and databases from the managed storage root, so a
+    tier 3 run that does not carry the sweep's isolated root reports on the
+    developer's real ~/.lungfish instead: the pipelines would exercise tools and
+    databases the sweep never provisioned, while the run claims to measure the
+    isolated set.
+
+    These use --dry-run, which resolves everything and prints it without fetching
+    reads or running a pipeline.
+    """
+
+    def dry_run(self, args, env=None):
+        import os
+
+        merged = dict(os.environ)
+        # Cleared so a developer's own exported root cannot make a test that
+        # checks the default path pass for the wrong reason.
+        merged.pop("LUNGFISH_STORAGE_ROOT", None)
+        merged.pop("LUNGFISH_CONDA_ROOT", None)
+        if env:
+            merged.update(env)
+        with tempfile.TemporaryDirectory() as out:
+            return subprocess.run(
+                ["/bin/bash", str(SCRIPT), "--which", "all", "--out", out, "--dry-run", *args],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                env=merged,
+            )
+
+    def test_dry_run_exits_zero_without_running_anything(self):
+        result = self.dry_run(["--root", "/tmp/lungfish-verify-test"])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("nothing will be fetched or executed", result.stdout)
+
+    def test_root_flag_reaches_the_environment_and_both_pipelines(self):
+        # The script realpaths the root, and on macOS /tmp is a symlink to
+        # /private/tmp, so the expectation is realpathed the same way.
+        import os
+
+        root = os.path.realpath("/tmp/lungfish-verify-test")
+        result = self.dry_run(["--root", "/tmp/lungfish-verify-test"])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+        self.assertIn(f"LUNGFISH_STORAGE_ROOT={root}", result.stdout)
+        # The conda root the read-fetch and subsample steps resolve from must come
+        # from the same place, or the reads are prepared with the wrong seqkit.
+        self.assertIn(f"conda root={root}/conda", result.stdout)
+        self.assertIn(f"{root}/conda/envs/sra-tools/bin", result.stdout)
+        self.assertIn(f"{root}/conda/envs/seqkit/bin", result.stdout)
+        # Both CLI pipelines are listed, and they inherit the exported root.
+        self.assertIn("taxtriage run", result.stdout)
+        self.assertIn("esviritu detect", result.stdout)
+
+    def test_root_defaults_to_the_exported_storage_root(self):
+        import os
+
+        root = os.path.realpath("/tmp/lungfish-verify-exported")
+        result = self.dry_run([], env={"LUNGFISH_STORAGE_ROOT": "/tmp/lungfish-verify-exported"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f"LUNGFISH_STORAGE_ROOT={root}", result.stdout)
+        self.assertIn(f"conda root={root}/conda", result.stdout)
+
+    def test_root_flag_wins_over_the_exported_storage_root(self):
+        result = self.dry_run(
+            ["--root", "/tmp/lungfish-verify-flag"],
+            env={"LUNGFISH_STORAGE_ROOT": "/tmp/lungfish-verify-exported"},
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        import os
+
+        self.assertIn(
+            "LUNGFISH_STORAGE_ROOT=" + os.path.realpath("/tmp/lungfish-verify-flag"),
+            result.stdout,
+        )
+        self.assertNotIn("lungfish-verify-exported", result.stdout)
+
+    def test_no_root_leaves_the_cli_default_in_place(self):
+        result = self.dry_run([])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("<unset, CLI default>", result.stdout)
+
+    def test_root_requires_a_value(self):
+        result = run_script(["--which", "all", "--out", "/tmp/x", "--root"])
+        self.assertEqual(result.returncode, 64, result.stdout + result.stderr)
+        self.assertIn("--root requires a value", result.stderr)
+
+    def test_verify_script_passes_its_isolated_root_to_this_runner(self):
+        # The two scripts have to agree, or a sweep's tier 3 silently measures a
+        # different root than tiers 1 and 2 did.
+        verify = (ROOT / "scripts" / "deps" / "verify.sh").read_text(encoding="utf-8")
+        runner = re.search(
+            r"run-pipelines\.sh(.*?)\n\s*\}", verify, re.DOTALL
+        )
+        self.assertIsNotNone(runner, "run-pipelines.sh invocation not found in verify.sh")
+        self.assertIn("--root", runner.group(1))
 
 
 if __name__ == "__main__":

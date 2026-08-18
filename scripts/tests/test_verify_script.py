@@ -159,5 +159,185 @@ class FilterSyncTests(unittest.TestCase):
                 self.assertIn(f"conda install --pack {pack}", workflow)
 
 
+class PlanGateTests(unittest.TestCase):
+    """The post-provisioning plan gate, run against synthetic plan JSON.
+
+    The gate decides whether a provisioned root matches the manifest closely
+    enough for the tiers to measure the right dependency set. It is embedded in
+    verify.sh as a heredoc, so these tests extract that block and run it with
+    PLAN_JSON set, which is exactly how the script invokes it.
+
+    The distinction under test is advisory versus blocking. `tools update --plan`
+    exits 10 for any pending work at all, so gating on the exit status failed a
+    correctly provisioned root whenever an optional database index the tiers do
+    not use was still outstanding.
+    """
+
+    @staticmethod
+    def gate_source():
+        script = VERIFY.read_text(encoding="utf-8")
+        match = re.search(
+            r"PLAN_JSON=\"\$\{plan_json\}\" python3 - <<'PYTHON'[^\n]*\n(.*?)\nPYTHON",
+            script,
+            re.DOTALL,
+        )
+        if match is None:
+            raise AssertionError("plan gate heredoc not found in verify.sh")
+        return match.group(1)
+
+    def run_gate(self, plan):
+        import json
+
+        return subprocess.run(
+            ["python3", "-c", self.gate_source()],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=TIMEOUT_SECONDS,
+            env={"PLAN_JSON": json.dumps(plan), "PATH": "/usr/bin:/bin"},
+        )
+
+    @staticmethod
+    def empty_plan(**overrides):
+        plan = {
+            "installEnvironments": [],
+            "reinstallEnvironments": [],
+            "removeEnvironments": [],
+            "databaseUpdates": [],
+            "pipelinePrefetch": [],
+            "bootstrapUpdate": None,
+            "targetDependencySet": "2026.2",
+            "estimatedDownloadBytes": 0,
+        }
+        plan.update(overrides)
+        return plan
+
+    def test_empty_plan_passes(self):
+        result = self.run_gate(self.empty_plan())
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("dependency plan is empty", result.stdout)
+
+    def test_advisory_database_update_alone_passes_and_is_reported(self):
+        plan = self.empty_plan(
+            databaseUpdates=[
+                {
+                    "id": "kraken2-viral",
+                    "displayName": "Viral",
+                    "installedVersion": "20240904",
+                    "targetVersion": "20260626",
+                    "policy": "advisory",
+                    "estimatedBytes": 600000000,
+                    "managedBy": "metagenomics",
+                }
+            ]
+        )
+        result = self.run_gate(plan)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("advisory database update", result.stdout)
+        self.assertIn("kraken2-viral", result.stdout)
+
+    def test_required_database_update_blocks(self):
+        plan = self.empty_plan(
+            databaseUpdates=[
+                {
+                    "id": "human-scrubber",
+                    "displayName": "Human Read Scrubber Database",
+                    "installedVersion": "20250916",
+                    "targetVersion": "20260706v2",
+                    "policy": "required",
+                    "estimatedBytes": 1,
+                    "managedBy": "bundled",
+                }
+            ]
+        )
+        result = self.run_gate(plan)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("required database updates", result.stderr)
+
+    def test_pending_environment_work_blocks(self):
+        for key in ("installEnvironments", "reinstallEnvironments"):
+            with self.subTest(key=key):
+                plan = self.empty_plan(
+                    **{
+                        key: [
+                            {
+                                "environment": "samtools",
+                                "packID": "read-mapping",
+                                "currentSpec": None,
+                                "targetSpec": "samtools=1.21",
+                                "reason": "missing",
+                                "isRequired": True,
+                            }
+                        ]
+                    }
+                )
+                result = self.run_gate(plan)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn(key, result.stderr)
+
+    def test_pending_environment_removal_blocks(self):
+        result = self.run_gate(self.empty_plan(removeEnvironments=["retired-tool"]))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("removeEnvironments", result.stderr)
+
+    def test_bootstrap_update_blocks(self):
+        plan = self.empty_plan(
+            bootstrapUpdate={"currentVersion": "2.0.4-0", "targetVersion": "2.0.5-0"}
+        )
+        result = self.run_gate(plan)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("bootstrapUpdate", result.stderr)
+
+    def test_advisory_update_does_not_mask_blocking_work(self):
+        plan = self.empty_plan(
+            databaseUpdates=[
+                {"id": "kraken2-viral", "policy": "advisory"},
+                {"id": "human-scrubber", "policy": "required"},
+            ]
+        )
+        result = self.run_gate(plan)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("required database updates: 1", result.stderr)
+
+    def test_pipeline_prefetch_alone_does_not_block(self):
+        # Prefetching a pipeline revision does not change which tool builds the
+        # tiers exercise, so it is not grounds to fail the run.
+        plan = self.empty_plan(
+            pipelinePrefetch=[
+                {"id": "taxtriage", "currentRevision": None, "targetRevision": "v3.3.8"}
+            ]
+        )
+        result = self.run_gate(plan)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_unparseable_plan_json_is_an_error(self):
+        result = subprocess.run(
+            ["python3", "-c", self.gate_source()],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=TIMEOUT_SECONDS,
+            env={"PLAN_JSON": "not json at all", "PATH": "/usr/bin:/bin"},
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("could not parse the plan JSON", result.stderr)
+
+    def test_gate_reads_the_plan_from_json_rather_than_the_exit_status(self):
+        """The regression: gating on `--plan`'s exit status alone.
+
+        Exit 10 covers advisory work too, so the old form failed a root that was
+        correctly provisioned. The script must ask for --json and judge the
+        contents.
+        """
+        script = VERIFY.read_text(encoding="utf-8")
+        self.assertIn("tools update --plan --json", script)
+        self.assertNotRegex(
+            script,
+            r"plan_status\}\s*-eq 10 \]\];\s*then\n\s*echo \"verify: plan not empty",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

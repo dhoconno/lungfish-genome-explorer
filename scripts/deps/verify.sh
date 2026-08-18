@@ -344,25 +344,73 @@ echo "==> Reconciling pack tools against the manifest"
 "${cli}" conda db download Viral || echo "warn: conda db download Viral failed" >&2
 "${cli}" conda db install-managed deacon-panhuman || echo "warn: conda db install-managed deacon-panhuman failed" >&2
 
-# The plan must be empty after provisioning. A non-empty plan means the root
-# does not match the manifest, so anything the tiers then measure is measuring
-# the wrong dependency set. `tools update --plan` exits 10 when work is pending.
+# The plan must hold no work that would change what the tiers measure. A pending
+# environment install, reinstall, removal, or bootstrap update means the root does
+# not match the manifest, so anything the tiers then measure is the wrong
+# dependency set.
+#
+# Advisory database updates are the deliberate exception. Provisioning downloads
+# the databases the tiers need but does not chase every optional index the
+# manifest happens to pin, so an advisory update is routinely still outstanding
+# on a correctly provisioned root. `tools update --plan` exits 10 for any pending
+# work at all, advisory included, which made the exit-10 gate below fail a root
+# that was in fact aligned. The plan is therefore read from --json and judged on
+# its contents rather than on the exit status.
 echo "==> Confirming the dependency plan is empty"
 plan_status=0
-plan_output="$("${cli}" tools update --plan 2>&1)" || plan_status=$?
-# Exit 10 specifically means "work is pending". Any other non-zero status is the
-# CLI itself failing (bad root, unreadable manifest, crash), which is a different
-# problem and must not be reported as a non-empty plan.
-if [[ ${plan_status} -eq 10 ]]; then
-    echo "verify: plan not empty after provisioning (exit ${plan_status})" >&2
-    echo "${plan_output}" >&2
-    exit 65
-elif [[ ${plan_status} -ne 0 ]]; then
-    echo "verify: 'tools update --plan' failed (exit ${plan_status})" >&2
-    echo "${plan_output}" >&2
+plan_json="$("${cli}" tools update --plan --json 2>/dev/null)" || plan_status=$?
+# Exit 10 means "work is pending", which is what the JSON is then inspected to
+# classify. Any other non-zero status is the CLI itself failing (bad root,
+# unreadable manifest, crash), which is a different problem entirely.
+if [[ ${plan_status} -ne 0 && ${plan_status} -ne 10 ]]; then
+    echo "verify: 'tools update --plan --json' failed (exit ${plan_status})" >&2
+    echo "${plan_json}" >&2
     exit 65
 fi
-echo "${plan_output}"
+
+gate_status=0
+PLAN_JSON="${plan_json}" python3 - <<'PYTHON' || gate_status=$?
+import json
+import os
+import sys
+
+try:
+    plan = json.loads(os.environ["PLAN_JSON"])
+except json.JSONDecodeError as error:
+    print(f"verify: could not parse the plan JSON: {error}", file=sys.stderr)
+    raise SystemExit(2)
+
+blocking = []
+for key in ("installEnvironments", "reinstallEnvironments", "removeEnvironments"):
+    entries = plan.get(key) or []
+    if entries:
+        blocking.append(f"{key}: {len(entries)}")
+if plan.get("bootstrapUpdate"):
+    blocking.append("bootstrapUpdate: 1")
+
+database_updates = plan.get("databaseUpdates") or []
+required = [entry for entry in database_updates if entry.get("policy") == "required"]
+advisory = [entry for entry in database_updates if entry.get("policy") != "required"]
+if required:
+    blocking.append(f"required database updates: {len(required)}")
+
+if blocking:
+    print("verify: plan not empty after provisioning: " + ", ".join(blocking), file=sys.stderr)
+    print(json.dumps(plan, indent=2, sort_keys=True), file=sys.stderr)
+    raise SystemExit(1)
+
+# Advisory updates do not change the dependency set the tiers measure, so they are
+# reported and the run continues.
+if advisory:
+    names = ", ".join(entry.get("id", "?") for entry in advisory)
+    print(f"verify: {len(advisory)} advisory database update(s) outstanding, continuing: {names}")
+else:
+    print("verify: dependency plan is empty")
+PYTHON
+
+if [[ ${gate_status} -ne 0 ]]; then
+    exit 65
+fi
 
 run_tier1() {
     echo "==> Tier 1: conformance suites (no skips allowed)"
@@ -397,7 +445,13 @@ run_tier2() {
 
 run_tier3() {
     echo "==> Tier 3: end-to-end pipelines"
-    bash scripts/deps/run-pipelines.sh --which all --out ".build/pipelines-${dependency_set}"
+    # --root is passed explicitly rather than relying on the exported
+    # LUNGFISH_STORAGE_ROOT, so the isolated root the tier runs against is visible
+    # in the command itself.
+    bash scripts/deps/run-pipelines.sh \
+        --which all \
+        --out ".build/pipelines-${dependency_set}" \
+        --root "${storage_root}"
 }
 
 # Capture the tier's status rather than letting `set -e` abort on it, so the

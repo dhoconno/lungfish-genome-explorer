@@ -9,7 +9,13 @@
 # during a dependency sweep; see docs/release/dependency-sweep.md.
 #
 # Usage:
-#   bash scripts/deps/run-pipelines.sh --which taxtriage|esviritu|all --out <dir> [--accession SRR35517702]
+#   bash scripts/deps/run-pipelines.sh --which taxtriage|esviritu|all --out <dir> [--accession SRR35517702] [--root DIR]
+#
+# The CLI resolves its tools and databases from the managed storage root. Pass
+# --root, or export LUNGFISH_STORAGE_ROOT, to point this run at the isolated root
+# a sweep provisioned; otherwise the pipelines would run against the developer's
+# real ~/.lungfish while the rest of the sweep measured the isolated one. Pass
+# --dry-run to print the resolved commands and root without running anything.
 #
 # Steps:
 #   1. Fetch reads for the accession with the managed sra-tools fasterq-dump
@@ -44,7 +50,6 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/../.." && pwd)"
 
-conda_root="${LUNGFISH_CONDA_ROOT:-${HOME}/.lungfish/conda}"
 cli_bin="${LUNGFISH_CLI_BIN:-${repo_root}/.build/debug/lungfish-cli}"
 goldens_manifest="${script_dir}/pipeline-goldens.json"
 diff_script="${script_dir}/diff_goldens.py"
@@ -54,6 +59,16 @@ out_dir=""
 accession="SRR35517702"
 subsample_reads=50000
 subsample_seed=11
+# The managed storage root the CLI resolves tools and databases from. Defaults to
+# whatever the caller already exported, so running this under verify.sh inherits
+# the isolated root without any extra argument.
+#
+# Without this the pipelines resolved against the developer's real ~/.lungfish
+# while the rest of the sweep measured the isolated root, which is exactly the
+# mismatch the isolated root exists to prevent: tier 3 would report on tools and
+# databases the sweep never provisioned.
+storage_root="${LUNGFISH_STORAGE_ROOT:-}"
+dry_run=0
 
 usage() {
     cat <<'EOF'
@@ -70,11 +85,17 @@ Required:
 Options:
   --accession <SRR...>    SRA accession to fetch (default: SRR35517702)
   --cli <path>            path to lungfish-cli (default: .build/debug/lungfish-cli)
+  --root <dir>            managed storage root the CLI resolves tools and
+                          databases from (default: $LUNGFISH_STORAGE_ROOT, else
+                          the CLI's own default of ~/.lungfish)
+  --dry-run               print the resolved commands and their environment,
+                          then exit 0 without fetching reads or running anything
   -h, --help              print this help and exit 0
 
 Examples:
   bash scripts/deps/run-pipelines.sh --which all --out /tmp/tier3
   bash scripts/deps/run-pipelines.sh --which taxtriage --out /tmp/tier3 --accession SRR35517702
+  bash scripts/deps/run-pipelines.sh --which all --out /tmp/tier3 --root ~/.lungfish-verify --dry-run
 
 Provision tools and databases first:
   lungfish-cli tools update --apply --yes --required-only
@@ -126,6 +147,15 @@ while [[ $# -gt 0 ]]; do
             cli_bin="$2"
             shift 2
             ;;
+        --root)
+            require_value "$1" $#
+            storage_root="$2"
+            shift 2
+            ;;
+        --dry-run)
+            dry_run=1
+            shift
+            ;;
         -h|--help)
             usage
             exit 0
@@ -152,6 +182,24 @@ case "${which_target}" in
         ;;
 esac
 
+# Export the storage root so every `lungfish-cli` invocation below resolves its
+# tools and databases from the same root the rest of the sweep provisioned. The
+# CLI reads LUNGFISH_STORAGE_ROOT from its environment, so exporting it once here
+# covers `taxtriage run` and `esviritu detect` alike.
+#
+# The conda root the fasterq-dump and seqkit PATH entries are built from is
+# derived from the same place, so the reads are subsampled with the managed
+# seqkit from the root under test rather than whichever one is in the developer's
+# real root. An explicit LUNGFISH_CONDA_ROOT still wins, since a caller who set
+# it meant it.
+if [[ -n "${storage_root}" ]]; then
+    storage_root="$(python3 -c 'import os,sys; print(os.path.realpath(os.path.expanduser(sys.argv[1])))' "${storage_root}")"
+    export LUNGFISH_STORAGE_ROOT="${storage_root}"
+    conda_root="${LUNGFISH_CONDA_ROOT:-${storage_root}/conda}"
+else
+    conda_root="${LUNGFISH_CONDA_ROOT:-${HOME}/.lungfish/conda}"
+fi
+
 run_taxtriage=0
 run_esviritu=0
 case "${which_target}" in
@@ -177,6 +225,35 @@ mkdir -p "${reads_dir}" "${diff_candidate_dir}"
 
 sra_tools_bin="${conda_root}/envs/sra-tools/bin"
 seqkit_bin="${conda_root}/envs/seqkit/bin"
+
+r1_full="${reads_dir}/${accession}_1.fastq"
+r2_full="${reads_dir}/${accession}_2.fastq"
+r1_sub="${reads_dir}/${accession}_1.subsampled.fastq"
+r2_sub="${reads_dir}/${accession}_2.subsampled.fastq"
+
+# Print what this invocation would run, then stop. The point is to make the
+# resolved storage root visible before committing to a run that downloads reads
+# and burns an hour of pipeline time against, potentially, the wrong root.
+if [[ ${dry_run} -eq 1 ]]; then
+    echo "run-pipelines: dry run, nothing will be fetched or executed"
+    echo "environment:"
+    echo "  LUNGFISH_STORAGE_ROOT=${LUNGFISH_STORAGE_ROOT:-<unset, CLI default>}"
+    echo "  conda root=${conda_root}"
+    echo "  cli=${cli_bin}"
+    echo "  accession=${accession}"
+    echo "  out=${out_dir}"
+    echo "commands:"
+    echo "  PATH=${sra_tools_bin}:\$PATH fasterq-dump --split-files --outdir ${reads_dir} ${accession}"
+    echo "  PATH=${seqkit_bin}:\$PATH seqkit sample -n ${subsample_reads} -s ${subsample_seed} ${r1_full} -o ${r1_sub}"
+    echo "  PATH=${seqkit_bin}:\$PATH seqkit sample -n ${subsample_reads} -s ${subsample_seed} ${r2_full} -o ${r2_sub}"
+    if [[ ${run_taxtriage} -eq 1 ]]; then
+        echo "  ${cli_bin} taxtriage run --input ${r1_sub} --input2 ${r2_sub} --sample ${accession} --output ${out_dir}/taxtriage"
+    fi
+    if [[ ${run_esviritu} -eq 1 ]]; then
+        echo "  ${cli_bin} esviritu detect --input ${r1_sub} ${r2_sub} --paired --sample ${accession} --output ${out_dir}/esviritu"
+    fi
+    exit 0
+fi
 
 collect_failures=0
 
@@ -217,11 +294,6 @@ PATH="${sra_tools_bin}:${PATH}" fasterq-dump \
     --split-files \
     --outdir "${reads_dir}" \
     "${accession}"
-
-r1_full="${reads_dir}/${accession}_1.fastq"
-r2_full="${reads_dir}/${accession}_2.fastq"
-r1_sub="${reads_dir}/${accession}_1.subsampled.fastq"
-r2_sub="${reads_dir}/${accession}_2.subsampled.fastq"
 
 echo "==> Subsampling to ${subsample_reads} pairs (seed ${subsample_seed}) with seqkit sample"
 PATH="${seqkit_bin}:${PATH}" seqkit sample -n "${subsample_reads}" -s "${subsample_seed}" "${r1_full}" -o "${r1_sub}"
