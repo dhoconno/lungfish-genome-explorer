@@ -84,7 +84,21 @@ public final class ManagedStorageConfigStore: @unchecked Sendable {
         }
     }
 
-    public func currentLocation() -> ManagedStorageLocation {
+    public func currentLocation(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> ManagedStorageLocation {
+        if let override = environment["LUNGFISH_STORAGE_ROOT"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty {
+            let overrideURL = URL(fileURLWithPath: override, isDirectory: true).standardizedFileURL
+            switch ManagedStorageLocation.validateSelection(overrideURL) {
+            case .valid:
+                return ManagedStorageLocation(rootURL: overrideURL)
+            case .invalid(let error):
+                NSLog("ManagedStorageConfigStore: ignoring LUNGFISH_STORAGE_ROOT override (%@): %@", overrideURL.path, error.localizedDescription)
+            }
+        }
+
         switch bootstrapConfigLoadState() {
         case .loaded(let config) where !config.activeRootPath.isEmpty:
             return ManagedStorageLocation(rootURL: URL(fileURLWithPath: config.activeRootPath, isDirectory: true))
@@ -105,11 +119,11 @@ public final class ManagedStorageConfigStore: @unchecked Sendable {
            !override.isEmpty {
             let overrideURL = URL(fileURLWithPath: override, isDirectory: true).standardizedFileURL
             guard case .valid = ManagedStorageLocation.validateSelection(overrideURL) else {
-                return currentLocation().condaRootURL
+                return currentLocation(environment: environment).condaRootURL
             }
             return overrideURL
         }
-        return currentLocation().condaRootURL
+        return currentLocation(environment: environment).condaRootURL
     }
 
     public func resetToDefaultLocation() throws {

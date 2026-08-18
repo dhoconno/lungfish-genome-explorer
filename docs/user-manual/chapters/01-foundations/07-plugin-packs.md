@@ -292,6 +292,10 @@ shared environment. If a routine user tries to install into a read-only
 admin root, LGE stops with `install root is read-only; reinstall as the
 admin user`.
 
+To relocate the whole managed storage root, not just the conda install
+root, set `LUNGFISH_STORAGE_ROOT` instead. `LUNGFISH_CONDA_ROOT` still
+takes priority for the conda install location when both are set.
+
 ## Next
 
 Continue to [Provenance and Reproducibility](08-provenance-and-reproducibility.md)
