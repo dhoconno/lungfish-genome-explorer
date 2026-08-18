@@ -387,10 +387,14 @@ public final class AlignmentMetadataDatabase: @unchecked Sendable {
         public let qcFail: Int64
     }
 
-    /// Returns all flag statistics.
+    /// Returns all flag statistics in the order they were inserted.
+    ///
+    /// `populateFromFlagstat` inserts in samtools' own category order, so the
+    /// explicit `ORDER BY rowid` is what makes the displayed order match the
+    /// tool's output rather than whatever order the query planner returns.
     public func flagStats() -> [FlagStatRecord] {
         var result: [FlagStatRecord] = []
-        let sql = "SELECT category, qc_pass, qc_fail FROM flag_stats"
+        let sql = "SELECT category, qc_pass, qc_fail FROM flag_stats ORDER BY rowid"
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return result }
         defer { sqlite3_finalize(stmt) }
@@ -667,8 +671,43 @@ public struct FlagstatSummary: Sendable, Equatable {
     /// `mapped`, `duplicates`, ...).
     public let categories: [String: Counts]
 
+    /// The same category names in the order samtools reported them: source
+    /// line order for the text form, key order for the `-O json` form.
+    ///
+    /// A dictionary has no order, so anything that renders these counts (the
+    /// inspector's flag-stat table, the `flag_stats` rows) would otherwise
+    /// reshuffle between runs on byte-identical input. samtools orders its
+    /// output meaningfully (the total first, then the breakdown), so that
+    /// order is preserved rather than replaced with an alphabetical sort.
+    ///
+    /// Always exactly the keys of ``categories``, with no duplicates.
+    public let orderedCategories: [String]
+
+    /// Creates a summary, preserving the caller's category order.
+    ///
+    /// - Parameter ordered: Category/count pairs in the order samtools reported
+    ///   them. A repeated category keeps its first position and takes the last
+    ///   value, matching the dictionary-assignment behaviour of the parsers.
+    public init(ordered: [(String, Counts)]) {
+        var categories: [String: Counts] = [:]
+        var order: [String] = []
+        for (name, counts) in ordered {
+            if categories.updateValue(counts, forKey: name) == nil {
+                order.append(name)
+            }
+        }
+        self.categories = categories
+        self.orderedCategories = order
+    }
+
+    /// Creates a summary from an unordered dictionary.
+    ///
+    /// Category order falls back to a stable alphabetical sort, since a
+    /// dictionary carries no source order to preserve. Prefer ``init(ordered:)``
+    /// from a parser, which knows the order samtools used.
     public init(categories: [String: Counts]) {
         self.categories = categories
+        self.orderedCategories = categories.keys.sorted()
     }
 
     /// QC-passed count for a category, or `nil` when flagstat did not report it.
@@ -746,7 +785,9 @@ extension AlignmentMetadataDatabase {
     /// - Returns: The parsed summary.
     /// - Throws: ``SamtoolsOutputParseError/emptyOutput(_:)`` when no line parsed.
     public static func parseFlagstat(_ text: String) throws -> FlagstatSummary {
-        var categories: [String: FlagstatSummary.Counts] = [:]
+        // Accumulated in source line order: samtools prints the total first and
+        // then the breakdown, and that order is what the UI displays.
+        var ordered: [(String, FlagstatSummary.Counts)] = []
 
         for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
             let raw = line.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -764,13 +805,13 @@ extension AlignmentMetadataDatabase {
             let category = normalizeFlagstatCategory(String(components[3]))
             guard !category.isEmpty else { continue }
 
-            categories[category] = FlagstatSummary.Counts(qcPass: qcPass, qcFail: qcFail)
+            ordered.append((category, FlagstatSummary.Counts(qcPass: qcPass, qcFail: qcFail)))
         }
 
-        guard !categories.isEmpty else {
+        guard !ordered.isEmpty else {
             throw SamtoolsOutputParseError.emptyOutput("flagstat")
         }
-        return FlagstatSummary(categories: categories)
+        return FlagstatSummary(ordered: ordered)
     }
 
     /// Parses `samtools flagstat -O json` output.
@@ -810,19 +851,55 @@ extension AlignmentMetadataDatabase {
             return nil
         }
 
-        var categories: [String: FlagstatSummary.Counts] = [:]
-        let names = Set(passed.keys).union(failed.keys)
+        // JSONSerialization returns an unordered dictionary, so the samtools key
+        // order (which matches the text form's line order and is what the UI
+        // displays) is recovered from the raw text instead.
+        let names = orderedJSONKeys(in: json, union: Set(passed.keys).union(failed.keys))
+
+        var ordered: [(String, FlagstatSummary.Counts)] = []
         for name in names where !name.hasSuffix(" %") {
             let pass = intCount(passed, name)
             let fail = intCount(failed, name)
             guard pass != nil || fail != nil else { continue }
-            categories[name] = FlagstatSummary.Counts(qcPass: pass ?? 0, qcFail: fail ?? 0)
+            ordered.append((name, FlagstatSummary.Counts(qcPass: pass ?? 0, qcFail: fail ?? 0)))
         }
 
-        guard !categories.isEmpty else {
+        guard !ordered.isEmpty else {
             throw SamtoolsOutputParseError.invalidJSON("no numeric categories present")
         }
-        return FlagstatSummary(categories: categories)
+        return FlagstatSummary(ordered: ordered)
+    }
+
+    /// Orders `keys` by where each first appears as an object key in `json`.
+    ///
+    /// This is a presentation concern only: the values always come from the
+    /// real JSON parse above, and a key whose literal is not found (an escaped
+    /// or unusually encoded name) sorts last alphabetically rather than being
+    /// dropped, so no category is ever lost to this lookup.
+    private static func orderedJSONKeys(in json: String, union keys: Set<String>) -> [String] {
+        var positions: [String: String.Index] = [:]
+        for key in keys {
+            // Match the quoted key followed by its colon, so a key that also
+            // occurs as a string *value* elsewhere does not win the position.
+            if let range = json.range(of: "\"\(key)\"") {
+                let afterKey = json[range.upperBound...]
+                if afterKey.drop(while: { $0 == " " || $0 == "\t" }).first == ":" {
+                    positions[key] = range.lowerBound
+                }
+            }
+        }
+        return keys.sorted { left, right in
+            switch (positions[left], positions[right]) {
+            case let (leftIndex?, rightIndex?):
+                return leftIndex < rightIndex
+            case (_?, nil):
+                return true
+            case (nil, _?):
+                return false
+            case (nil, nil):
+                return left < right
+            }
+        }
     }
 
     /// Maps a raw flagstat category phrase to the stable key used in the
@@ -879,7 +956,11 @@ extension AlignmentMetadataDatabase {
         }
         guard let summary else { return }
 
-        for (category, counts) in summary.categories {
+        // Insert in samtools' own order. `flagStats()` reads the rows back in
+        // insertion order, so iterating the dictionary here would give the
+        // inspector a different row order on every run over identical input.
+        for category in summary.orderedCategories {
+            guard let counts = summary.categories[category] else { continue }
             addFlagStat(category: category, qcPass: counts.qcPass, qcFail: counts.qcFail)
         }
     }

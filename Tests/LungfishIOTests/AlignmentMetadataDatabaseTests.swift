@@ -456,6 +456,129 @@ final class AlignmentMetadataDatabaseTests: XCTestCase {
         XCTAssertThrowsError(try AlignmentMetadataDatabase.parseFlagstat(""))
     }
 
+    // MARK: - Flagstat display order
+
+    /// samtools emits its categories in a fixed, meaningful order (total first,
+    /// then the breakdown). The parsed summary must preserve that order so the
+    /// inspector does not reshuffle rows between runs on identical input.
+    private static let flagstatOrderedText = """
+    100 + 0 in total (QC-passed reads + QC-failed reads)
+    0 + 0 secondary
+    0 + 0 supplementary
+    2 + 0 duplicates
+    90 + 0 mapped (90.00% : N/A)
+    100 + 0 paired in sequencing
+    50 + 0 read1
+    50 + 0 read2
+    80 + 0 properly paired (80.00% : N/A)
+    """
+
+    func testParseFlagstatPreservesSamtoolsLineOrder() throws {
+        let summary = try AlignmentMetadataDatabase.parseFlagstat(Self.flagstatOrderedText)
+        XCTAssertEqual(summary.orderedCategories, [
+            "total",
+            "secondary",
+            "supplementary",
+            "duplicates",
+            "mapped",
+            "paired in sequencing",
+            "read1",
+            "read2",
+            "properly paired",
+        ])
+    }
+
+    func testParseFlagstatOrderIsStableAcrossRepeatedParses() throws {
+        let first = try AlignmentMetadataDatabase.parseFlagstat(Self.flagstatOrderedText)
+        for _ in 0..<20 {
+            let again = try AlignmentMetadataDatabase.parseFlagstat(Self.flagstatOrderedText)
+            XCTAssertEqual(again.orderedCategories, first.orderedCategories)
+        }
+    }
+
+    /// The database is the surface the inspector reads, so the order has to
+    /// survive the round trip through `flag_stats`, not just the parse.
+    func testFlagStatsRowsFollowSamtoolsLineOrder() throws {
+        let db = try makeDatabase()
+        db.populateFromFlagstat(Self.flagstatOrderedText)
+
+        XCTAssertEqual(db.flagStats().map(\.category), [
+            "total",
+            "secondary",
+            "supplementary",
+            "duplicates",
+            "mapped",
+            "paired in sequencing",
+            "read1",
+            "read2",
+            "properly paired",
+        ])
+    }
+
+    func testFlagStatsOrderIsIdenticalForTwoPopulationsOfTheSameText() throws {
+        let firstDB = try makeDatabase()
+        firstDB.populateFromFlagstat(Self.flagstatOrderedText)
+        let expected = firstDB.flagStats().map(\.category)
+
+        for _ in 0..<10 {
+            let db = try makeDatabase()
+            db.populateFromFlagstat(Self.flagstatOrderedText)
+            XCTAssertEqual(db.flagStats().map(\.category), expected)
+        }
+    }
+
+    /// samtools JSON objects are emitted in the same order as the text form;
+    /// JSONSerialization loses that, so the parser reads the key order off the
+    /// raw text rather than the deserialized dictionary.
+    func testParseFlagstatJSONPreservesKeyOrder() throws {
+        let json = #"""
+        {
+          "QC-passed reads": {
+            "total": 100,
+            "secondary": 0,
+            "supplementary": 0,
+            "duplicates": 2,
+            "mapped": 90,
+            "mapped %": 90.0,
+            "properly paired": 80
+          },
+          "QC-failed reads": { "total": 0 }
+        }
+        """#
+        let summary = try AlignmentMetadataDatabase.parseFlagstat(json: json)
+        XCTAssertEqual(summary.orderedCategories, [
+            "total",
+            "secondary",
+            "supplementary",
+            "duplicates",
+            "mapped",
+            "properly paired",
+        ])
+    }
+
+    func testParseFlagstatJSONOrderIsStableAcrossRepeatedParses() throws {
+        let json = #"""
+        {
+          "QC-passed reads": { "total": 100, "secondary": 0, "duplicates": 2, "mapped": 90 },
+          "QC-failed reads": { "total": 0 }
+        }
+        """#
+        let first = try AlignmentMetadataDatabase.parseFlagstat(json: json)
+        XCTAssertEqual(first.orderedCategories, ["total", "secondary", "duplicates", "mapped"])
+        for _ in 0..<20 {
+            let again = try AlignmentMetadataDatabase.parseFlagstat(json: json)
+            XCTAssertEqual(again.orderedCategories, first.orderedCategories)
+        }
+    }
+
+    /// `orderedCategories` must describe exactly the keys in `categories`, so a
+    /// caller can iterate one and look up in the other without dropping data.
+    func testOrderedCategoriesCoversEveryParsedCategory() throws {
+        let summary = try AlignmentMetadataDatabase.parseFlagstat(Self.flagstatOrderedText)
+        XCTAssertEqual(Set(summary.orderedCategories), Set(summary.categories.keys))
+        XCTAssertEqual(summary.orderedCategories.count, summary.categories.count)
+    }
+
     func testParseFlagstatJSON() throws {
         let json = #"{"QC-passed reads":{"total":100,"mapped":90,"mapped %":90.0},"QC-failed reads":{"total":0}}"#
         let s = try AlignmentMetadataDatabase.parseFlagstat(json: json)
