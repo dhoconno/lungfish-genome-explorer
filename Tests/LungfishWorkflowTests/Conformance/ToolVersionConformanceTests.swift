@@ -36,17 +36,17 @@ final class ToolVersionConformanceTests: XCTestCase {
             let text = r.stdout + r.stderr
             let expected = tool.version ?? ""
             if tool.id == "savont" {
-                if !text.contains(expected) {
+                if !ConformanceFixtures.textReportsVersion(text, version: expected) {
                     let helpURL = url
                     let helpResult = try? ProcessRunner.run(helpURL, ["--help"], timeout: 60)
                     let helpText = (helpResult?.stdout ?? "") + (helpResult?.stderr ?? "")
-                    if !helpText.contains(expected) {
+                    if !ConformanceFixtures.textReportsVersion(helpText, version: expected) {
                         failures.append("\(tool.id): expected \(expected) in --version or --help output: \(text.prefix(200)) / \(helpText.prefix(200))")
                     }
                 }
                 continue
             }
-            if !text.contains(expected) {
+            if !ConformanceFixtures.textReportsVersion(text, version: expected) {
                 failures.append("\(tool.id): expected \(expected) in: \(text.prefix(200))")
             }
         }
@@ -63,7 +63,7 @@ final class ToolVersionConformanceTests: XCTestCase {
             let r = try ProcessRunner.run(url, args, timeout: 60)
             if ConformanceFixtures.skipsVersionMatch(for: tool.toolID) { continue }
             let text = r.stdout + r.stderr
-            if !text.contains(tool.version) {
+            if !ConformanceFixtures.textReportsVersion(text, version: tool.version) {
                 let message = "\(tool.toolID): expected \(tool.version) in: \(text.prefix(200))"
                 if ToolAvailability.requireTools {
                     failures.append(message)
@@ -76,5 +76,18 @@ final class ToolVersionConformanceTests: XCTestCase {
         if !drifted.isEmpty {
             throw XCTSkip("pack tool version drift (run with LUNGFISH_REQUIRE_TOOLS=1 to enforce): \(drifted.joined(separator: "; "))")
         }
+    }
+
+    // MARK: - Version matcher
+
+    /// `textReportsVersion` must anchor on a whole version token, not just any
+    /// substring -- a short pin like "2.3" must not match inside "2.30", and
+    /// an unrelated version elsewhere in the output must not match either.
+    func testTextReportsVersionAnchorsOnWholeToken() {
+        XCTAssertFalse(ConformanceFixtures.textReportsVersion("2.30", version: "2.3"))
+        XCTAssertTrue(ConformanceFixtures.textReportsVersion("minimap2 2.30-r1287", version: "2.30"))
+        XCTAssertFalse(ConformanceFixtures.textReportsVersion("bracken 3.0.1", version: "1.0.0"))
+        XCTAssertTrue(ConformanceFixtures.textReportsVersion("samtools 1.23.1", version: "1.23.1"))
+        XCTAssertTrue(ConformanceFixtures.textReportsVersion("cutadapt 5.2", version: "5.2"))
     }
 }

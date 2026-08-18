@@ -112,8 +112,24 @@ enum ConformanceFixtures {
         case "gatk4": return ("gatk", ["--version"])
         case "whatshap": return ("whatshap", ["--version"])
         default:
-            return (toolID, ["--version"])
+            return (fallbackExecutable(for: toolID), ["--version"])
         }
+    }
+
+    /// The primary executable the bundled manifest declares for a tool id, used
+    /// as the version-check fallback executable for ids the table above doesn't
+    /// cover explicitly. Falls back to the id itself if the manifest has no
+    /// matching `tools`/`packTools` entry (e.g. in a unit test that invents a
+    /// synthetic id) or declares no executables.
+    private static func fallbackExecutable(for toolID: String) -> String {
+        let lock = ManagedToolLock.bundled
+        if let tool = lock.tools.first(where: { $0.id == toolID }), let first = tool.executables.first {
+            return first
+        }
+        if let packTool = lock.packTools.first(where: { $0.toolID == toolID }), let first = packTool.executables.first {
+            return first
+        }
+        return toolID
     }
 
     /// True for tools whose version-check command is expected to just run
@@ -121,5 +137,24 @@ enum ConformanceFixtures {
     /// string -- `ucsc-bedgraphtobigwig` prints usage and can exit non-zero.
     static func skipsVersionMatch(for toolID: String) -> Bool {
         toolID == "ucsc-bedgraphtobigwig"
+    }
+
+    /// Whether `text` reports the exact pinned `version` as a standalone
+    /// version token, not merely as a substring.
+    ///
+    /// Plain `contains` gives false positives on short pins: `"2.3"` matches
+    /// inside `"2.30"` or `"2.3.0-rc1"`, and `"1.0.0"` would even match inside
+    /// an unrelated `"31.0.0"`. This anchors the match so `expected` must be
+    /// followed (and preceded) by something that is not part of a longer
+    /// version/number token -- i.e. not a digit and not `.` on either side.
+    static func textReportsVersion(_ text: String, version expected: String) -> Bool {
+        guard !expected.isEmpty else { return true }
+        let escaped = NSRegularExpression.escapedPattern(for: expected)
+        let pattern = "(?<![0-9.])\(escaped)(?![0-9.])"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return text.contains(expected)
+        }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        return regex.firstMatch(in: text, range: range) != nil
     }
 }
