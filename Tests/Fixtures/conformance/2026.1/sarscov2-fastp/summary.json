@@ -1,0 +1,22 @@
+{
+  "after": {
+    "gc_content": 0.390939,
+    "q20_bases": 12877,
+    "q20_rate": 0.9319,
+    "q30_bases": 12237,
+    "q30_rate": 0.885584,
+    "read1_mean_length": 139,
+    "total_bases": 13818,
+    "total_reads": 99
+  },
+  "before": {
+    "gc_content": 0.390732,
+    "q20_bases": 12922,
+    "q20_rate": 0.929841,
+    "q30_bases": 12281,
+    "q30_rate": 0.883716,
+    "read1_mean_length": 138,
+    "total_bases": 13897,
+    "total_reads": 100
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "dependencySet": "2026.1",
+  "environment": "megahit",
+  "generatedAt": "2026-08-18T13:09:52Z",
+  "recipeID": "sarscov2-megahit",
+  "tool": "megahit",
+  "toolVersion": "1.2.9",
+  "wallTimeSeconds": 0
+}

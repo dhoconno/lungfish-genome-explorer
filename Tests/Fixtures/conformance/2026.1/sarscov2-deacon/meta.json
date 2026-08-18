@@ -1,0 +1,9 @@
+{
+  "dependencySet": "2026.1",
+  "environment": "deacon",
+  "generatedAt": "2026-08-18T13:10:41Z",
+  "recipeID": "sarscov2-deacon",
+  "tool": "deacon",
+  "toolVersion": "0.15.0",
+  "wallTimeSeconds": 0
+}

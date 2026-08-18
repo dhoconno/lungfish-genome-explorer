@@ -1,0 +1,9 @@
+{
+  "dependencySet": "2026.1",
+  "environment": "seqkit",
+  "generatedAt": "2026-08-18T13:09:38Z",
+  "recipeID": "sarscov2-seqkit-stats",
+  "tool": "seqkit",
+  "toolVersion": "2.13.0",
+  "wallTimeSeconds": 0
+}

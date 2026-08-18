@@ -1,0 +1,77 @@
+{
+  "argv": [
+    "bash",
+    "scripts/deps/regenerate-goldens.sh",
+    "--set",
+    "2026.1",
+    "--out",
+    "build/goldens-2026.1",
+    "--only",
+    "sarscov2-flagstat"
+  ],
+  "createdAt": "2026-08-18T13:09:38Z",
+  "dependencySet": "2026.1",
+  "exitStatus": 0,
+  "files": [
+    {
+      "checksumSHA256": "1b7aea864cf98cbd8d7803ab182688bb5fb8ab028d7fc7abd5d83e84af33f9b5",
+      "fileSize": 1098,
+      "path": "flagstat.json",
+      "size": 1098
+    },
+    {
+      "checksumSHA256": "74b93349247ff9bfb364e3b03aa8d4520ee4192f7c3aaddb6b2ddfeda1417983",
+      "fileSize": 210,
+      "path": "meta.json",
+      "size": 210
+    }
+  ],
+  "options": {
+    "condaEnvironment": "samtools",
+    "dependencySet": "2026.1",
+    "fixtureToolName": "samtools",
+    "fixtureWorkflowName": "conformance-golden-sarscov2-flagstat",
+    "goldenRecipeID": "sarscov2-flagstat",
+    "inputPaths": [
+      "Tests/Fixtures/sarscov2/test.paired_end.sorted.bam"
+    ],
+    "outputDirectory": "Tests/Fixtures/conformance/2026.1/sarscov2-flagstat",
+    "purpose": "Retained samtools conformance golden for dependency set 2026.1 (recipe sarscov2-flagstat).",
+    "recipeCommand": "samtools flagstat -O json {in0} > {out}/flagstat.json",
+    "resolvedDefaults": {
+      "comparisonTool": "scripts/deps/diff_goldens.py",
+      "recipeManifest": "scripts/deps/goldens.json"
+    },
+    "userVisibleOptions": {
+      "fixtureDirectory": "Tests/Fixtures/conformance/2026.1/sarscov2-flagstat",
+      "tool": "samtools"
+    }
+  },
+  "output": {
+    "checksumSHA256": "6042083e1b422c64bf8caaeba65612e70bd252dfb87ac1dd2226e7f24185fc23",
+    "fileSize": 1308,
+    "path": "Tests/Fixtures/conformance/2026.1/sarscov2-flagstat",
+    "size": 1308
+  },
+  "reproducibleCommand": "bash scripts/deps/regenerate-goldens.sh --set 2026.1 --out build/goldens-2026.1 --only sarscov2-flagstat",
+  "reproducibleShellCommand": "bash scripts/deps/regenerate-goldens.sh --set 2026.1 --out build/goldens-2026.1 --only sarscov2-flagstat",
+  "runtimeIdentity": {
+    "condaEnvironment": null,
+    "containerImage": null,
+    "executablePath": "python3",
+    "gitRevision": "15ab3d1942ad521c9e8938939f26f766099d7fa6",
+    "operatingSystemVersion": "macOS-26.5.2-arm64-arm-64bit",
+    "processIdentifier": 36621,
+    "pythonVersion": "3.12.8"
+  },
+  "schemaVersion": 1,
+  "stderr": null,
+  "tool": {
+    "name": "samtools",
+    "version": "1.23.1"
+  },
+  "toolName": "samtools",
+  "toolVersion": "1.23.1",
+  "wallTimeSeconds": 0.0,
+  "workflowName": "conformance-golden-sarscov2-flagstat"
+}

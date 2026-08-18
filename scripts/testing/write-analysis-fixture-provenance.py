@@ -112,6 +112,8 @@ def build_record(root, relative_fixture, metadata, created_at, executed_argv, ov
         return build_alignment_root_record(root, relative_fixture)
     if relative_fixture.endswith(".lungfishmsa"):
         return build_msa_record(root, relative_fixture)
+    if "goldenRecipeID" in metadata:
+        return build_conformance_golden_record(root, relative_fixture, metadata)
 
     fixture_path = root / relative_fixture
     entries = file_entries(fixture_path)
@@ -160,6 +162,103 @@ def build_record(root, relative_fixture, metadata, created_at, executed_argv, ov
         "historicalBackfill": True,
         "reproducibleShellCommand": shell,
     }
+
+
+def build_conformance_golden_record(root, relative_fixture, metadata):
+    """Provenance for a dependency-set conformance golden.
+
+    Unlike the historical backfill path these fixtures were produced by a real,
+    replayable tool run, so the record names the recipe, the dependency set, and
+    the tool version that produced it, and carries no backfill warning. The
+    recipe id is the key: `scripts/deps/goldens.json` holds the exact command,
+    and `regenerate-goldens.sh` replays it.
+    """
+    fixture_path = root / relative_fixture
+    entries = file_entries(fixture_path)
+    recipe_id = metadata["goldenRecipeID"]
+    dependency_set = metadata["dependencySet"]
+
+    meta_path = fixture_path / "meta.json"
+    generation_meta = {}
+    if meta_path.is_file():
+        try:
+            generation_meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            generation_meta = {}
+
+    recipe = load_golden_recipe(root, recipe_id)
+    argv = [
+        "bash",
+        "scripts/deps/regenerate-goldens.sh",
+        "--set",
+        dependency_set,
+        "--out",
+        f"build/goldens-{dependency_set}",
+        "--only",
+        recipe_id,
+    ]
+    shell = shell_command(argv)
+
+    return {
+        "schemaVersion": 1,
+        "workflowName": metadata["fixtureWorkflowName"],
+        "tool": {
+            "name": metadata["fixtureToolName"],
+            "version": generation_meta.get("toolVersion") or "unknown",
+        },
+        "toolName": metadata["fixtureToolName"],
+        "toolVersion": generation_meta.get("toolVersion") or "unknown",
+        "dependencySet": dependency_set,
+        "createdAt": generation_meta.get("generatedAt") or "1970-01-01T00:00:00Z",
+        "reproducibleCommand": shell,
+        "reproducibleShellCommand": shell,
+        "argv": argv,
+        "options": {
+            "purpose": metadata["purpose"],
+            "fixtureWorkflowName": metadata["fixtureWorkflowName"],
+            "fixtureToolName": metadata["fixtureToolName"],
+            "goldenRecipeID": recipe_id,
+            "dependencySet": dependency_set,
+            "recipeCommand": recipe.get("command", ""),
+            "condaEnvironment": recipe.get("env", ""),
+            "inputPaths": recipe.get("inputs", []),
+            "outputDirectory": relative_fixture,
+            "resolvedDefaults": {
+                "recipeManifest": "scripts/deps/goldens.json",
+                "comparisonTool": "scripts/deps/diff_goldens.py",
+            },
+            "userVisibleOptions": {
+                "fixtureDirectory": relative_fixture,
+                "tool": metadata["fixtureToolName"],
+            },
+        },
+        "runtimeIdentity": runtime_identity(root),
+        "output": {
+            "path": relative_fixture,
+            "fileSize": directory_size(entries),
+            "size": directory_size(entries),
+            "checksumSHA256": directory_checksum(entries),
+        },
+        "files": entries,
+        "exitStatus": 0,
+        "wallTimeSeconds": float(generation_meta.get("wallTimeSeconds", 0.0)),
+        "stderr": None,
+    }
+
+
+def load_golden_recipe(root, recipe_id):
+    """Return one recipe from the golden manifest, or an empty dict if absent."""
+    manifest_path = root / "scripts" / "deps" / "goldens.json"
+    if not manifest_path.is_file():
+        return {}
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    for recipe in manifest.get("goldens", []):
+        if recipe.get("id") == recipe_id:
+            return recipe
+    return {}
 
 
 def build_alignment_root_record(root, relative_fixture):

@@ -1,0 +1,77 @@
+{
+  "argv": [
+    "bash",
+    "scripts/deps/regenerate-goldens.sh",
+    "--set",
+    "2026.1",
+    "--out",
+    "build/goldens-2026.1",
+    "--only",
+    "sarscov2-idxstats"
+  ],
+  "createdAt": "2026-08-18T13:09:38Z",
+  "dependencySet": "2026.1",
+  "exitStatus": 0,
+  "files": [
+    {
+      "checksumSHA256": "236009d9761b529ae3effc487e5b3807b0ffa1be0b0dd845c6e196de4dd15326",
+      "fileSize": 31,
+      "path": "idxstats.tsv",
+      "size": 31
+    },
+    {
+      "checksumSHA256": "f06f6a9e5f76215e709dcd99af30af6df1330d4b604f2cd7cf4bf94eb32bf5b3",
+      "fileSize": 210,
+      "path": "meta.json",
+      "size": 210
+    }
+  ],
+  "options": {
+    "condaEnvironment": "samtools",
+    "dependencySet": "2026.1",
+    "fixtureToolName": "samtools",
+    "fixtureWorkflowName": "conformance-golden-sarscov2-idxstats",
+    "goldenRecipeID": "sarscov2-idxstats",
+    "inputPaths": [
+      "Tests/Fixtures/sarscov2/test.paired_end.sorted.bam"
+    ],
+    "outputDirectory": "Tests/Fixtures/conformance/2026.1/sarscov2-idxstats",
+    "purpose": "Retained samtools conformance golden for dependency set 2026.1 (recipe sarscov2-idxstats).",
+    "recipeCommand": "samtools idxstats {in0} > {out}/idxstats.tsv",
+    "resolvedDefaults": {
+      "comparisonTool": "scripts/deps/diff_goldens.py",
+      "recipeManifest": "scripts/deps/goldens.json"
+    },
+    "userVisibleOptions": {
+      "fixtureDirectory": "Tests/Fixtures/conformance/2026.1/sarscov2-idxstats",
+      "tool": "samtools"
+    }
+  },
+  "output": {
+    "checksumSHA256": "1d5ee68b63ba7164c0af4b4cdc7bc4a8782fea98e0afce4ba2fb168c612e50e8",
+    "fileSize": 241,
+    "path": "Tests/Fixtures/conformance/2026.1/sarscov2-idxstats",
+    "size": 241
+  },
+  "reproducibleCommand": "bash scripts/deps/regenerate-goldens.sh --set 2026.1 --out build/goldens-2026.1 --only sarscov2-idxstats",
+  "reproducibleShellCommand": "bash scripts/deps/regenerate-goldens.sh --set 2026.1 --out build/goldens-2026.1 --only sarscov2-idxstats",
+  "runtimeIdentity": {
+    "condaEnvironment": null,
+    "containerImage": null,
+    "executablePath": "python3",
+    "gitRevision": "15ab3d1942ad521c9e8938939f26f766099d7fa6",
+    "operatingSystemVersion": "macOS-26.5.2-arm64-arm-64bit",
+    "processIdentifier": 36621,
+    "pythonVersion": "3.12.8"
+  },
+  "schemaVersion": 1,
+  "stderr": null,
+  "tool": {
+    "name": "samtools",
+    "version": "1.23.1"
+  },
+  "toolName": "samtools",
+  "toolVersion": "1.23.1",
+  "wallTimeSeconds": 0.0,
+  "workflowName": "conformance-golden-sarscov2-idxstats"
+}

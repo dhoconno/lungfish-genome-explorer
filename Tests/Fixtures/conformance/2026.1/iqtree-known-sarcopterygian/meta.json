@@ -1,0 +1,9 @@
+{
+  "dependencySet": "2026.1",
+  "environment": "iqtree",
+  "generatedAt": "2026-08-18T13:09:53Z",
+  "recipeID": "iqtree-known-sarcopterygian",
+  "tool": "iqtree",
+  "toolVersion": "3.1.1",
+  "wallTimeSeconds": 0
+}

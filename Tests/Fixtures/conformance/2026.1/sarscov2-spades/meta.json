@@ -1,0 +1,9 @@
+{
+  "dependencySet": "2026.1",
+  "environment": "spades",
+  "generatedAt": "2026-08-18T13:09:52Z",
+  "recipeID": "sarscov2-spades",
+  "tool": "spades",
+  "toolVersion": "4.2.0",
+  "wallTimeSeconds": 13
+}

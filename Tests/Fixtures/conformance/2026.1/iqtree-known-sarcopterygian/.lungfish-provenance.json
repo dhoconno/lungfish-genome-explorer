@@ -1,0 +1,77 @@
+{
+  "argv": [
+    "bash",
+    "scripts/deps/regenerate-goldens.sh",
+    "--set",
+    "2026.1",
+    "--out",
+    "build/goldens-2026.1",
+    "--only",
+    "iqtree-known-sarcopterygian"
+  ],
+  "createdAt": "2026-08-18T13:09:53Z",
+  "dependencySet": "2026.1",
+  "exitStatus": 0,
+  "files": [
+    {
+      "checksumSHA256": "ebafe8bca4250ee9e20a2fa16f7c8af4d7591651d00b6a3a1434bb9c77b52445",
+      "fileSize": 215,
+      "path": "meta.json",
+      "size": 215
+    },
+    {
+      "checksumSHA256": "fad1a5ff0f2bc91a1d47793fa033ef341fa9688b5007d8f929485a89147e3b44",
+      "fileSize": 204,
+      "path": "tree.nwk",
+      "size": 204
+    }
+  ],
+  "options": {
+    "condaEnvironment": "iqtree",
+    "dependencySet": "2026.1",
+    "fixtureToolName": "iqtree",
+    "fixtureWorkflowName": "conformance-golden-iqtree-known-sarcopterygian",
+    "goldenRecipeID": "iqtree-known-sarcopterygian",
+    "inputPaths": [
+      "Tests/Fixtures/phylogenetics/known-sarcopterygian/alignment.fasta"
+    ],
+    "outputDirectory": "Tests/Fixtures/conformance/2026.1/iqtree-known-sarcopterygian",
+    "purpose": "Retained iqtree conformance golden for dependency set 2026.1 (recipe iqtree-known-sarcopterygian).",
+    "recipeCommand": "iqtree3 -s {in0} -m JC -seed 1 -nt 2 -pre {out}/run -redo >/dev/null 2>&1 && cp {out}/run.treefile {out}/tree.nwk && rm -f {out}/run.*",
+    "resolvedDefaults": {
+      "comparisonTool": "scripts/deps/diff_goldens.py",
+      "recipeManifest": "scripts/deps/goldens.json"
+    },
+    "userVisibleOptions": {
+      "fixtureDirectory": "Tests/Fixtures/conformance/2026.1/iqtree-known-sarcopterygian",
+      "tool": "iqtree"
+    }
+  },
+  "output": {
+    "checksumSHA256": "17e4d940d8866a99af94bb0f5afb50efa3148d8e1cc6ce49d33bcde3909e1eb9",
+    "fileSize": 419,
+    "path": "Tests/Fixtures/conformance/2026.1/iqtree-known-sarcopterygian",
+    "size": 419
+  },
+  "reproducibleCommand": "bash scripts/deps/regenerate-goldens.sh --set 2026.1 --out build/goldens-2026.1 --only iqtree-known-sarcopterygian",
+  "reproducibleShellCommand": "bash scripts/deps/regenerate-goldens.sh --set 2026.1 --out build/goldens-2026.1 --only iqtree-known-sarcopterygian",
+  "runtimeIdentity": {
+    "condaEnvironment": null,
+    "containerImage": null,
+    "executablePath": "python3",
+    "gitRevision": "15ab3d1942ad521c9e8938939f26f766099d7fa6",
+    "operatingSystemVersion": "macOS-26.5.2-arm64-arm-64bit",
+    "processIdentifier": 36621,
+    "pythonVersion": "3.12.8"
+  },
+  "schemaVersion": 1,
+  "stderr": null,
+  "tool": {
+    "name": "iqtree",
+    "version": "3.1.1"
+  },
+  "toolName": "iqtree",
+  "toolVersion": "3.1.1",
+  "wallTimeSeconds": 0.0,
+  "workflowName": "conformance-golden-iqtree-known-sarcopterygian"
+}

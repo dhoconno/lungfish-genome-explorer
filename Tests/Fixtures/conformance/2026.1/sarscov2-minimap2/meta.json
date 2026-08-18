@@ -1,0 +1,9 @@
+{
+  "dependencySet": "2026.1",
+  "environment": "minimap2",
+  "generatedAt": "2026-08-18T13:09:39Z",
+  "recipeID": "sarscov2-minimap2",
+  "tool": "minimap2",
+  "toolVersion": "2.30",
+  "wallTimeSeconds": 0
+}

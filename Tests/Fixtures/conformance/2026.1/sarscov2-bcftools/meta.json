@@ -1,0 +1,9 @@
+{
+  "dependencySet": "2026.1",
+  "environment": "bcftools",
+  "generatedAt": "2026-08-18T13:09:53Z",
+  "recipeID": "sarscov2-bcftools",
+  "tool": "bcftools",
+  "toolVersion": "1.23.1",
+  "wallTimeSeconds": 0
+}

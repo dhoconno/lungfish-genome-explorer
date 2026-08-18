@@ -22,6 +22,16 @@ RETAINED_FIXTURES = [
     "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa",
     "Tests/Fixtures/classifier-full-viewer",
 ]
+# The dependency-set conformance goldens are enumerated by the golden recipe
+# manifest rather than listed here, so adding a recipe does not require editing
+# this guard list in lockstep.
+GOLDEN_RECIPES = json.loads(
+    (PROJECT_ROOT / "scripts" / "deps" / "goldens.json").read_text(encoding="utf-8")
+)["goldens"]
+CONFORMANCE_GOLDEN_FIXTURES = [
+    recipe["golden"].replace("{set}", "2026.1") for recipe in GOLDEN_RECIPES
+]
+RETAINED_FIXTURES = RETAINED_FIXTURES + CONFORMANCE_GOLDEN_FIXTURES
 CLASSIFIER_FULL_VIEWER_FIXTURE = "Tests/Fixtures/classifier-full-viewer"
 REQUIRED_MSA_PAYLOAD_FILES = [
     "alignment/input.unaligned.fasta",
@@ -900,6 +910,7 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
 
     def _make_retained_fixtures(self, root):
         self._write_root_alignment_source(root)
+        self._write_golden_recipe_manifest(root)
         for fixture in RETAINED_FIXTURES:
             fixture_path = root / fixture
             fixture_path.mkdir(parents=True)
@@ -933,6 +944,17 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
             "evidence.cram.crai",
         ]:
             shutil.copyfile(committed_fixture / name, fixture_path / name)
+
+    def _write_golden_recipe_manifest(self, root):
+        """Copy the golden recipe manifest into the synthetic root.
+
+        The conformance-golden provenance builder reads the recipe's command and
+        inputs from this manifest, so the synthetic root needs it to produce the
+        same record shape as the real repository.
+        """
+        deps = root / "scripts" / "deps"
+        deps.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(PROJECT_ROOT / "scripts" / "deps" / "goldens.json", deps / "goldens.json")
 
     def _write_root_alignment_source(self, root):
         source = root / "Tests" / "Fixtures" / "sarscov2"

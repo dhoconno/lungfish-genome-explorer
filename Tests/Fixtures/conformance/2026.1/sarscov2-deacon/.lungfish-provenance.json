@@ -1,0 +1,78 @@
+{
+  "argv": [
+    "bash",
+    "scripts/deps/regenerate-goldens.sh",
+    "--set",
+    "2026.1",
+    "--out",
+    "build/goldens-2026.1",
+    "--only",
+    "sarscov2-deacon"
+  ],
+  "createdAt": "2026-08-18T13:10:41Z",
+  "dependencySet": "2026.1",
+  "exitStatus": 0,
+  "files": [
+    {
+      "checksumSHA256": "c5a7665612473ea2a9a59372912192b3005bf3b74f971e62b54990a5c4b80676",
+      "fileSize": 204,
+      "path": "meta.json",
+      "size": 204
+    },
+    {
+      "checksumSHA256": "9222dc82af92a975fe6fdd64fb3f81619c6ac989e5aae9e886e323d0de38d0a5",
+      "fileSize": 430,
+      "path": "summary.json",
+      "size": 430
+    }
+  ],
+  "options": {
+    "condaEnvironment": "deacon",
+    "dependencySet": "2026.1",
+    "fixtureToolName": "deacon",
+    "fixtureWorkflowName": "conformance-golden-sarscov2-deacon",
+    "goldenRecipeID": "sarscov2-deacon",
+    "inputPaths": [
+      "Tests/Fixtures/sarscov2/genome.fasta",
+      "Tests/Fixtures/sarscov2/test_1.fastq.gz"
+    ],
+    "outputDirectory": "Tests/Fixtures/conformance/2026.1/sarscov2-deacon",
+    "purpose": "Retained deacon conformance golden for dependency set 2026.1 (recipe sarscov2-deacon).",
+    "recipeCommand": "deacon index build {in0} -o {out}/ref.idx 2>/dev/null && deacon filter -d {out}/ref.idx {in1} -o /dev/null --summary {out}/raw-summary.json 2>/dev/null && python3 -c \"import json; d=json.load(open('{out}/raw-summary.json')); [d.pop(k, None) for k in ('version','index','input','input2','output','output2','time','seqs_per_second','bp_per_second','seqs_per_second_total','bp_per_second_total')]; json.dump(d, open('{out}/summary.json','w'), sort_keys=True, indent=2)\" && rm -f {out}/ref.idx {out}/raw-summary.json",
+    "resolvedDefaults": {
+      "comparisonTool": "scripts/deps/diff_goldens.py",
+      "recipeManifest": "scripts/deps/goldens.json"
+    },
+    "userVisibleOptions": {
+      "fixtureDirectory": "Tests/Fixtures/conformance/2026.1/sarscov2-deacon",
+      "tool": "deacon"
+    }
+  },
+  "output": {
+    "checksumSHA256": "21498ece74c0b3568e94c53f36e43ebb551d39d7ad6880f52fecfd7b3cd8e524",
+    "fileSize": 634,
+    "path": "Tests/Fixtures/conformance/2026.1/sarscov2-deacon",
+    "size": 634
+  },
+  "reproducibleCommand": "bash scripts/deps/regenerate-goldens.sh --set 2026.1 --out build/goldens-2026.1 --only sarscov2-deacon",
+  "reproducibleShellCommand": "bash scripts/deps/regenerate-goldens.sh --set 2026.1 --out build/goldens-2026.1 --only sarscov2-deacon",
+  "runtimeIdentity": {
+    "condaEnvironment": null,
+    "containerImage": null,
+    "executablePath": "python3",
+    "gitRevision": "15ab3d1942ad521c9e8938939f26f766099d7fa6",
+    "operatingSystemVersion": "macOS-26.5.2-arm64-arm-64bit",
+    "processIdentifier": 36621,
+    "pythonVersion": "3.12.8"
+  },
+  "schemaVersion": 1,
+  "stderr": null,
+  "tool": {
+    "name": "deacon",
+    "version": "0.15.0"
+  },
+  "toolName": "deacon",
+  "toolVersion": "0.15.0",
+  "wallTimeSeconds": 0.0,
+  "workflowName": "conformance-golden-sarscov2-deacon"
+}
