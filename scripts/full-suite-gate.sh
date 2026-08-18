@@ -36,6 +36,10 @@ while [ $# -gt 0 ]; do
             FILTER="${2:-}"
             shift 2
             ;;
+        *)
+            echo "unknown argument: $1" >&2
+            exit 64
+            ;;
     esac
 done
 
@@ -49,7 +53,12 @@ LOG="$LOG_DIR/gate-${STAMP}-${SHA}.log"
 # --require-tools "no skips allowed" check. Keep in sync with the conformance suites
 # added under Tests/LungfishWorkflowTests/Conformance/ and the tool/DB-heavy
 # integration suites that ToolAvailability.skipOrFail now gates.
-CONFORMANCE_ALLOWLIST="Test Case '-\[LungfishWorkflowTests\.(.*Conformance.*|FASTQToolIntegrationTests|RecipeIntegrationTests|NativeToolRunnerTests|MAFFTAlignmentPipelineTests|ClassificationPipelineTests)[^]]*\]' skipped"
+# NOTE: ClassificationPipelineIntegrationTests (not ClassificationPipelineTests,
+# which is a sibling class in the same file with no tool/DB skips) is the class
+# that actually holds the kraken2/micromamba/database skips. MAFFTAlignmentPipelineTests
+# is deliberately excluded: its one XCTSkip guards a /usr/bin/gzip fixture-creation
+# failure, not tool/DB availability, so it must never gate --require-tools.
+CONFORMANCE_ALLOWLIST="Test Case '-\[LungfishWorkflowTests\.(.*Conformance.*|FASTQToolIntegrationTests|RecipeIntegrationTests|NativeToolRunnerTests|ClassificationPipelineIntegrationTests)[^]]*\]' skipped"
 
 run_gate() {
     {
