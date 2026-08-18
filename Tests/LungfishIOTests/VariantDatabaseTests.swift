@@ -1291,6 +1291,70 @@ final class VariantDatabaseTests: XCTestCase {
         XCTAssertEqual(db.query(chromosome: "chr1", start: 0, end: 1000).count, 5)
     }
 
+    func testUltraLowMemoryImportOfHeaderOnlyVCFOpensSuccessfully() throws {
+        // Reproduces the "Missing required indexes: idx_variant_info_key,
+        // idx_variant_info_key_value" failure surfaced by
+        // ReadsToVariantsEndToEndTests when iVar produces zero variant records
+        // (e.g. against a fixture BAM with no called variants) and the import
+        // uses .ultraLowMemory (as `lungfish variants call --caller ivar` does).
+        let headerOnlyVCF = """
+        ##fileformat=VCFv4.2
+        ##contig=<ID=MN908947.3,length=29903>
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tivar
+        """
+        let vcfURL = try createTempVCF(content: headerOnlyVCF, name: "empty.vcf")
+        let dbURL = tempDir.appendingPathComponent("empty_ultra.db")
+
+        let inserted = try VariantDatabase.createFromVCF(
+            vcfURL: vcfURL,
+            outputURL: dbURL,
+            parseGenotypes: true,
+            importProfile: .ultraLowMemory
+        )
+        XCTAssertEqual(inserted, 0)
+        XCTAssertEqual(VariantDatabase.importState(at: dbURL), "complete")
+
+        // Reopening (which runs validateSchema) must not fail even though zero
+        // variants means variant_info-related indexes were never needed.
+        let db = try VariantDatabase(url: dbURL)
+        XCTAssertTrue(db.variantInfoSkipped)
+        XCTAssertEqual(db.totalCount(), 0)
+    }
+
+    func testMaterializeVariantInfoOnEmptyUltraLowMemoryDatabaseKeepsSchemaValid() throws {
+        // `lungfish variants call` always requests materializeVariantInfo: true
+        // (VariantsCommand.swift), which runs materializeVariantInfo() right
+        // after a fresh ultraLowMemory import. Reproduces the exact failure
+        // from ReadsToVariantsEndToEndTests via the lowest-layer API involved:
+        // materializeVariantInfo's "empty database" fast path used to flip
+        // skip_variant_info to "false" without ever creating the variant_info
+        // table/indexes that flag exempts, so a later VariantDatabase(url:)
+        // open failed schema validation ("Missing required indexes:
+        // idx_variant_info_key, idx_variant_info_key_value").
+        let headerOnlyVCF = """
+        ##fileformat=VCFv4.2
+        ##contig=<ID=MN908947.3,length=29903>
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tivar
+        """
+        let vcfURL = try createTempVCF(content: headerOnlyVCF, name: "empty_materialize.vcf")
+        let dbURL = tempDir.appendingPathComponent("empty_materialize.db")
+
+        try VariantDatabase.createFromVCF(
+            vcfURL: vcfURL,
+            outputURL: dbURL,
+            parseGenotypes: true,
+            importProfile: .ultraLowMemory
+        )
+
+        let materialized = try VariantDatabase.materializeVariantInfo(existingDBURL: dbURL)
+        XCTAssertEqual(materialized, 0)
+
+        // This is the exact call VariantSQLiteImportCoordinator makes right
+        // after materialization; it must not throw invalidSchema.
+        let db = try VariantDatabase(url: dbURL)
+        XCTAssertEqual(db.totalCount(), 0)
+    }
+
     func testImportStateTracking() throws {
         let vcfURL = try createTempVCF(content: testVCF)
         let dbURL = tempDir.appendingPathComponent("state.db")

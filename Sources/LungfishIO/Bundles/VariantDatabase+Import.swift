@@ -644,9 +644,16 @@ extension VariantDatabase {
         maxIdStmt = nil
 
         guard maxId > 0 else {
-            // Empty database — nothing to materialize.
+            // Empty database (zero variants) — nothing to materialize. Leave
+            // skip_variant_info as createFromVCF set it (still "true"): the
+            // variant_info table/indexes were never built for this database,
+            // so validateSchema's index requirement must keep exempting them.
+            // Flipping the flag to "false" here (as this used to do) would
+            // make validateSchema require idx_variant_info_key/
+            // idx_variant_info_key_value, which do not exist on an empty
+            // ultra-low-memory import, and the next `VariantDatabase(url:)`
+            // open would fail with "Missing required indexes".
             Self.insertMetadataRow(db, key: "materialize_state", value: "complete", replace: true)
-            sqlite3_exec(db, "UPDATE db_metadata SET value = 'false' WHERE key = 'skip_variant_info'", nil, nil, nil)
             return 0
         }
 
