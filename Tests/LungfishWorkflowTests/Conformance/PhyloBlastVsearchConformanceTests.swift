@@ -4,8 +4,9 @@
 //
 // End-to-end conformance: runs the real iqtree3, blastn/makeblastdb, vsearch,
 // and mafft binaries against shared fixtures, then verifies the output
-// through the app's real parsers (or, where the app's Newick parser is not
-// public, a topology-invariant computed directly from the tree file). By
+// through the app's real parsers. The IQ-TREE tree file goes through the
+// production `TreeInputParser`, which is what the app itself uses to import a
+// tree, so a tool whose output the app can no longer read fails here. By
 // default a missing tool is a skip (dev machines drift); with
 // LUNGFISH_REQUIRE_TOOLS=1 a missing tool becomes a hard failure.
 
@@ -40,15 +41,43 @@ final class PhyloBlastVsearchConformanceTests: XCTestCase {
             encoding: .utf8
         )
 
+        // Leaf labels come from the production parser -- the same code path the
+        // app uses to import a tree -- so an IQ-TREE release whose output the
+        // app can no longer read fails here rather than passing against a
+        // test-local reimplementation.
+        let expectedURL = ConformanceFixtures.fixture("phylogenetics/known-sarcopterygian/expected.nwk")
+        let parsed = try TreeInputParser.parse(text: treeText, sourceURL: treefile, requestedFormat: nil)
+        let parsedExpected = try TreeInputParser.parse(text: expectedText, sourceURL: expectedURL, requestedFormat: nil)
+
+        XCTAssertEqual(parsed.sourceFormat, "newick")
+        let treeLeaves = Self.leafLabels(of: parsed.tree)
+        let expectedLeaves = Self.leafLabels(of: parsedExpected.tree)
+        XCTAssertFalse(treeLeaves.isEmpty, "production parser found no leaves in run.treefile")
+        XCTAssertEqual(Set(treeLeaves), Set(expectedLeaves))
+
+        // MinimalNewickTree stays only for the split computation, which
+        // ParsedTree does not expose.
         let tree = try MinimalNewickTree.parse(treeText)
         let expected = try MinimalNewickTree.parse(expectedText)
 
-        XCTAssertEqual(Set(tree.leafNames), Set(expected.leafNames))
+        // The two parsers must agree on the leaf set; if they disagree, the
+        // split comparison below is comparing the wrong thing.
+        XCTAssertEqual(Set(tree.leafNames), Set(treeLeaves))
+
         XCTAssertEqual(
-            tree.unrootedSplits(allLeaves: Set(expected.leafNames)),
-            expected.unrootedSplits(allLeaves: Set(expected.leafNames)),
+            tree.unrootedSplits(allLeaves: Set(expectedLeaves)),
+            expected.unrootedSplits(allLeaves: Set(expectedLeaves)),
             "topology changed vs expected.nwk"
         )
+    }
+
+    /// Leaf display labels of a `ParsedTree`, in traversal order.
+    private static func leafLabels(of node: ParsedTreeNode) -> [String] {
+        if node.children.isEmpty {
+            let label = node.rawLabel ?? node.displayLabel
+            return label.isEmpty ? [] : [label]
+        }
+        return node.children.flatMap { leafLabels(of: $0) }
     }
 
     func testBlastnOutfmt6HasDeclaredFields() async throws {
@@ -145,13 +174,14 @@ final class PhyloBlastVsearchConformanceTests: XCTestCase {
     }
 }
 
-/// A minimal Newick reader used only by this conformance test to compute a
-/// topology-invariant (leaf set + unrooted bipartition splits) directly from
-/// tree text. `LungfishIO`'s real Newick parser (`NewickParser` inside
-/// `PhylogeneticTreeParsing.swift`) is `private` to that file, so tests
-/// cannot call it; this is a deliberately small, independent reimplementation
-/// scoped to what the assertions need (leaf names and unrooted splits), not a
-/// replacement for the app's tree-rendering parser.
+/// A minimal Newick reader used by this conformance test only to compute
+/// unrooted bipartition splits, which `ParsedTree` does not expose.
+///
+/// Leaf labels and the parse itself are verified through the production
+/// `TreeInputParser` (internal to `LungfishIO`, reachable here via
+/// `@testable import`); this type exists solely because the production
+/// `ParsedTree` has no split accessor, not because the production parser is
+/// unreachable from tests.
 struct MinimalNewickTree {
     final class Node {
         var name: String?
@@ -179,11 +209,19 @@ struct MinimalNewickTree {
         }
     }
 
-    /// Every internal edge's bipartition of `allLeaves`, normalized so each
-    /// split is represented by its smaller side (as a sorted array) and the
-    /// whole result is order-independent. This is topology, branch-length,
-    /// and root-placement invariant, which is what IQ-TREE's default
-    /// unrooted output requires comparing against a rooted `expected.nwk`.
+    /// Every internal edge's bipartition of `allLeaves`, canonicalized by
+    /// anchoring on the minimum leaf name: each split is represented by
+    /// whichever side does *not* contain that anchor. This is topology,
+    /// branch-length, and root-placement invariant, which is what IQ-TREE's
+    /// default unrooted output requires comparing against a rooted
+    /// `expected.nwk`.
+    ///
+    /// Anchoring, rather than "take the smaller side", is what
+    /// `diff_goldens._normalise_split` does, and it is required for
+    /// correctness: on an even leaf count the two sides of a split can be the
+    /// same size, and "smaller" then picks arbitrarily between them, so the
+    /// same topology could produce two different canonical forms and compare
+    /// unequal to itself.
     func unrootedSplits(allLeaves: Set<String>) -> Set<[String]> {
         var splits: Set<[String]> = []
         func visit(_ node: Node) -> Set<String> {
@@ -200,8 +238,13 @@ struct MinimalNewickTree {
             // carry topological information.
             if subtreeLeaves.count >= 2 && subtreeLeaves.count <= allLeaves.count - 2 {
                 let complement = allLeaves.subtracting(subtreeLeaves)
-                let canonical = subtreeLeaves.count <= complement.count ? subtreeLeaves : complement
-                splits.insert(canonical.sorted())
+                if let anchor = allLeaves.min() {
+                    // Mirror of diff_goldens._normalise_split: keep the side
+                    // without the anchor, so both sides of one edge always
+                    // canonicalize to the same representation.
+                    let canonical = subtreeLeaves.contains(anchor) ? complement : subtreeLeaves
+                    splits.insert(canonical.sorted())
+                }
             }
             return subtreeLeaves
         }
@@ -254,4 +297,56 @@ struct MinimalNewickTree {
 
 enum MinimalNewickError: Error {
     case empty
+}
+
+/// Tool-free tests for the split canonicalization the IQ-TREE assertion relies
+/// on. These never invoke a binary, so they run in every mode.
+final class MinimalNewickTreeSplitTests: XCTestCase {
+
+    /// The same unrooted topology written with two different roots must give
+    /// the same splits. With four leaves, both sides of the internal edge have
+    /// size two, so a "smaller side wins" rule picks arbitrarily and the two
+    /// rootings disagree; anchoring on the minimum leaf makes them agree.
+    func testEvenSplitIsCanonicalRegardlessOfRooting() throws {
+        let leaves: Set<String> = ["A", "B", "C", "D"]
+        let rootedAtAB = try MinimalNewickTree.parse("((A,B),(C,D));")
+        let rootedAtCD = try MinimalNewickTree.parse("((C,D),(A,B));")
+
+        XCTAssertEqual(
+            rootedAtAB.unrootedSplits(allLeaves: leaves),
+            rootedAtCD.unrootedSplits(allLeaves: leaves)
+        )
+    }
+
+    /// The canonical side is the one without the minimum leaf, matching
+    /// `diff_goldens._normalise_split`.
+    func testCanonicalSideExcludesTheMinimumLeaf() throws {
+        let leaves: Set<String> = ["A", "B", "C", "D"]
+        let tree = try MinimalNewickTree.parse("((A,B),(C,D));")
+        XCTAssertEqual(tree.unrootedSplits(allLeaves: leaves), [["C", "D"]])
+    }
+
+    /// A genuinely different topology must still compare unequal, so the
+    /// canonicalization has not flattened away real differences.
+    func testDifferentTopologiesProduceDifferentSplits() throws {
+        let leaves: Set<String> = ["A", "B", "C", "D"]
+        let ab = try MinimalNewickTree.parse("((A,B),(C,D));")
+        let ac = try MinimalNewickTree.parse("((A,C),(B,D));")
+        XCTAssertNotEqual(
+            ab.unrootedSplits(allLeaves: leaves),
+            ac.unrootedSplits(allLeaves: leaves)
+        )
+    }
+
+    /// Branch lengths and internal support labels carry no topology and must
+    /// not change the result.
+    func testBranchLengthsAndSupportValuesDoNotChangeSplits() throws {
+        let leaves: Set<String> = ["A", "B", "C", "D", "E"]
+        let plain = try MinimalNewickTree.parse("(((A,B),C),D,E);")
+        let decorated = try MinimalNewickTree.parse("(((A:0.1,B:0.2)95:0.3,C:0.4)80:0.5,D:0.6,E:0.7);")
+        XCTAssertEqual(
+            plain.unrootedSplits(allLeaves: leaves),
+            decorated.unrootedSplits(allLeaves: leaves)
+        )
+    }
 }
