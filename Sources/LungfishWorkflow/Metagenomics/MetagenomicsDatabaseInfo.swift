@@ -52,7 +52,10 @@ public struct MetagenomicsDatabaseInfo: Sendable, Codable, Identifiable, Equatab
     public var sizeOnDisk: Int64?
 
     /// URL for downloading the pre-built database tarball.
-    public let downloadURL: String?
+    ///
+    /// Mutable so the registry can re-point a not-yet-installed entry at the
+    /// currently pinned archive when the manifest moves to a newer build.
+    public internal(set) var downloadURL: String?
 
     /// Stable identity of this built-in catalog entry, if applicable.
     ///
@@ -61,7 +64,9 @@ public struct MetagenomicsDatabaseInfo: Sendable, Codable, Identifiable, Equatab
     public let catalogID: String?
 
     /// Reproducible installation recipe for this database, if known.
-    public let installationRecipe: MetagenomicsDatabaseInstallationRecipe?
+    ///
+    /// Mutable for the same reason as ``downloadURL``.
+    public internal(set) var installationRecipe: MetagenomicsDatabaseInstallationRecipe?
 
     /// Optional checksum of the installed payload.
     public var payloadDigest: String?
@@ -267,12 +272,6 @@ public struct MetagenomicsDatabaseInfo: Sendable, Codable, Identifiable, Equatab
 
 extension MetagenomicsDatabaseInfo {
 
-    /// The latest known build date for the pre-built Kraken2 indexes.
-    ///
-    /// Updated when new builds are published at
-    /// `https://benlangmead.github.io/aws-indexes/k2`.
-    static let latestBuildDate = "20240904"
-
     /// Latest catalog version for this database, when it can be determined.
     public var availableUpdateVersion: String? {
         guard status == .ready, path != nil else { return nil }
@@ -292,116 +291,80 @@ extension MetagenomicsDatabaseInfo {
 
     /// Complete built-in catalog of all metagenomics databases.
     ///
-    /// Includes Kraken2 pre-built databases from Ben Langmead's AWS collection
-    /// and EsViritu's curated viral database from Zenodo.
+    /// Derived from the `databases` section of the bundled dependency manifest
+    /// (`third-party-tools-lock.json`), which is the single source of truth for
+    /// pinned versions and download URLs. Entries cover Kraken2 pre-built databases
+    /// from Ben Langmead's AWS collection, the Kraken2 special rRNA databases built
+    /// locally, EsViritu's curated viral database from Zenodo, and the NCBI taxonomy
+    /// dump. Manifest database entries for other tools (bundled sidecars such as the
+    /// human scrubber and Deacon indexes) are managed elsewhere and are skipped here.
     public static let builtInCatalog: [MetagenomicsDatabaseInfo] = {
-        // Kraken2 databases
-        var catalog = DatabaseCollection.allCases.map { collection in
-            MetagenomicsDatabaseInfo(
-                name: collection.displayName,
-                tool: MetagenomicsTool.kraken2.rawValue,
-                version: latestBuildDate,
-                sizeBytes: collection.approximateSizeBytes,
-                sizeOnDisk: collection.approximateSizeBytes,
-                downloadURL: "\(collection.downloadURLBase)_\(latestBuildDate).tar.gz",
-                catalogID: "kraken2-\(collection.rawValue)",
-                installationRecipe: .archive(
-                    url: URL(string: "\(collection.downloadURLBase)_\(latestBuildDate).tar.gz")!
-                ),
-                description: collection.contentsDescription,
-                collection: collection,
-                path: nil,
-                isExternal: false,
-                bookmarkData: nil,
-                lastUpdated: nil,
-                status: .missing,
-                recommendedRAM: collection.approximateRAMBytes
-            )
-        }
-
-        // EsViritu curated viral database
-        catalog.append(MetagenomicsDatabaseInfo(
-            name: "EsViritu Viral DB",
-            tool: MetagenomicsTool.esviritu.rawValue,
-            version: "v3.2.4",
-            sizeBytes: 400 * 1_048_576,  // ~400 MB download
-            sizeOnDisk: 5 * 1_073_741_824,  // ~5 GB extracted
-            downloadURL: "https://zenodo.org/records/17716199/files/esviritu_db_v3.2.4.tar.gz",
-            catalogID: "esviritu-viral-v3",
-            installationRecipe: .archive(
-                url: URL(string: "https://zenodo.org/records/17716199/files/esviritu_db_v3.2.4.tar.gz")!
-            ),
-            description: "19,925 curated viral assemblies across 63 families (Tisza et al. 2023)",
-            collection: nil,
-            path: nil,
-            isExternal: false,
-            bookmarkData: nil,
-            lastUpdated: nil,
-            status: .missing,
-            recommendedRAM: 8 * 1_073_741_824  // ~8 GB RAM recommended
-        ))
-
-        // NCBI Taxonomy dump for taxon ID resolution
-        catalog.append(MetagenomicsDatabaseInfo(
-            name: "NCBI Taxonomy",
-            tool: MetagenomicsTool.ncbiTaxonomy.rawValue,
-            version: "2025-03",
-            sizeBytes: 63 * 1_048_576,          // ~63 MB compressed
-            sizeOnDisk: 200 * 1_048_576,        // ~200 MB extracted
-            downloadURL: "https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz",
-            catalogID: "ncbi-taxonomy",
-            installationRecipe: .archive(
-                url: URL(string: "https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz")!
-            ),
-            description: "NCBI Taxonomy names and hierarchy for taxon ID resolution",
-            collection: nil,
-            path: nil,
-            isExternal: false,
-            bookmarkData: nil,
-            lastUpdated: nil,
-            status: .missing,
-            recommendedRAM: 256 * 1_048_576     // 256 MB
-        ))
-
-        // Kraken2 special databases built from upstream rRNA references.
-        catalog.append(MetagenomicsDatabaseInfo(
-            name: "SILVA",
-            tool: MetagenomicsTool.kraken2.rawValue,
-            version: "kraken2-special-v1",
-            sizeBytes: 12 * 1_073_741_824,
-            sizeOnDisk: 20 * 1_073_741_824,
-            catalogID: "kraken2-special-silva",
-            installationRecipe: .kraken2Special(type: .silva),
-            description: "Kraken2 database built from the SILVA rRNA reference collection",
-            collection: nil,
-            path: nil,
-            isExternal: false,
-            bookmarkData: nil,
-            lastUpdated: nil,
-            status: .missing,
-            recommendedRAM: 24 * 1_073_741_824
-        ))
-
-        catalog.append(MetagenomicsDatabaseInfo(
-            name: "Greengenes",
-            tool: MetagenomicsTool.kraken2.rawValue,
-            version: "kraken2-special-v1",
-            sizeBytes: 8 * 1_073_741_824,
-            sizeOnDisk: 14 * 1_073_741_824,
-            catalogID: "kraken2-special-greengenes",
-            installationRecipe: .kraken2Special(type: .greengenes),
-            description: "Kraken2 database built from the Greengenes rRNA reference collection",
-            collection: nil,
-            path: nil,
-            isExternal: false,
-            bookmarkData: nil,
-            lastUpdated: nil,
-            status: .missing,
-            recommendedRAM: 18 * 1_073_741_824
-        ))
-
-        return catalog
+        ManagedToolLock.bundled.databases.compactMap(catalogEntry(from:))
     }()
+
+    /// Converts one manifest database spec into a catalog entry, or `nil` when the
+    /// spec describes a database this catalog does not manage.
+    private static func catalogEntry(from spec: DatabaseSpec) -> MetagenomicsDatabaseInfo? {
+        switch spec.tool {
+        case MetagenomicsTool.kraken2.rawValue:
+            if let rawCollection = spec.collection {
+                guard let collection = DatabaseCollection(rawValue: rawCollection),
+                      let urlString = spec.url,
+                      let url = URL(string: urlString) else { return nil }
+                return MetagenomicsDatabaseInfo(
+                    name: spec.displayName,
+                    tool: spec.tool,
+                    version: spec.version,
+                    sizeBytes: spec.sizeBytes ?? collection.approximateSizeBytes,
+                    sizeOnDisk: spec.sizeOnDisk ?? collection.approximateSizeBytes,
+                    downloadURL: urlString,
+                    catalogID: spec.id,
+                    installationRecipe: .archive(url: url),
+                    description: spec.description ?? collection.contentsDescription,
+                    collection: collection,
+                    status: .missing,
+                    recommendedRAM: spec.recommendedRAM ?? collection.approximateRAMBytes
+                )
+            }
+            // Kraken2 special databases are built locally from named upstream rRNA sources.
+            guard let special = Kraken2SpecialDatabase.allCases.first(where: {
+                spec.id == "kraken2-special-\($0.rawValue)"
+            }) else { return nil }
+            return MetagenomicsDatabaseInfo(
+                name: spec.displayName,
+                tool: spec.tool,
+                version: spec.version,
+                sizeBytes: spec.sizeBytes ?? 0,
+                sizeOnDisk: spec.sizeOnDisk,
+                downloadURL: nil,
+                catalogID: spec.id,
+                installationRecipe: .kraken2Special(type: special),
+                description: spec.description ?? "",
+                status: .missing,
+                recommendedRAM: spec.recommendedRAM ?? 0
+            )
+
+        case MetagenomicsTool.esviritu.rawValue, MetagenomicsTool.ncbiTaxonomy.rawValue:
+            guard let urlString = spec.url, let url = URL(string: urlString) else { return nil }
+            return MetagenomicsDatabaseInfo(
+                name: spec.displayName,
+                tool: spec.tool,
+                version: spec.version,
+                sizeBytes: spec.sizeBytes ?? 0,
+                sizeOnDisk: spec.sizeOnDisk,
+                downloadURL: urlString,
+                catalogID: spec.id,
+                installationRecipe: .archive(url: url),
+                description: spec.description ?? "",
+                status: .missing,
+                recommendedRAM: spec.recommendedRAM ?? 0
+            )
+
+        default:
+            // Bundled sidecars (human scrubber, Deacon indexes) are not catalog databases.
+            return nil
+        }
+    }
 
     /// Returns a catalog entry by collection, or `nil` if not found.
     ///

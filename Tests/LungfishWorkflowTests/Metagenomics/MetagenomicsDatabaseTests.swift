@@ -219,7 +219,10 @@ final class MetagenomicsDatabaseInfoTests: XCTestCase {
         XCTAssertNil(decoded.collection)
     }
 
-    func testDatabaseInfoTracksInstallDateAndAvailableUpdate() {
+    func testDatabaseInfoTracksInstallDateAndAvailableUpdate() throws {
+        let pinnedVersion = try XCTUnwrap(
+            ManagedToolLock.bundled.database(id: "kraken2-standard-8")?.version
+        )
         let installedAt = Date(timeIntervalSince1970: 1_710_000_000)
         let info = MetagenomicsDatabaseInfo(
             name: "Standard-8",
@@ -237,7 +240,7 @@ final class MetagenomicsDatabaseInfoTests: XCTestCase {
 
         XCTAssertEqual(info.installedAt, installedAt)
         XCTAssertTrue(info.isUpdateAvailable)
-        XCTAssertEqual(info.availableUpdateVersion, MetagenomicsDatabaseInfo.latestBuildDate)
+        XCTAssertEqual(info.availableUpdateVersion, pinnedVersion)
     }
 
     func testCatalogDatabaseWithoutLocalInstallDoesNotReportUpdateAvailable() {

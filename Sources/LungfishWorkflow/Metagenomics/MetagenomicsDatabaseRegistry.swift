@@ -342,9 +342,12 @@ public actor MetagenomicsDatabaseRegistry {
                     addedCount += 1
                 }
             }
-            if addedCount > 0 {
+            let correctedCount = reconcileCatalogURLs()
+            if addedCount > 0 || correctedCount > 0 {
                 try saveManifest()
-                logger.info("Merged \(addedCount, privacy: .public) new catalog entries into existing manifest")
+                logger.info(
+                    "Merged \(addedCount, privacy: .public) new catalog entries and corrected \(correctedCount, privacy: .public) stale download URLs"
+                )
             }
         } else {
             // First launch: populate from built-in catalog.
@@ -1011,6 +1014,33 @@ public actor MetagenomicsDatabaseRegistry {
 
     static func defaultManifestWriter(_ data: Data, _ url: URL) throws {
         try data.write(to: url, options: .atomic)
+    }
+
+    /// Re-points catalog-backed entries that are not installed at the currently pinned
+    /// archive, so registries written before a manifest bump stop referencing retired
+    /// upstream downloads (for example the withdrawn EuPathDB 20240904 build).
+    ///
+    /// Installed databases keep the build they were installed from; only the metadata of
+    /// entries that still have to be downloaded is refreshed.
+    ///
+    /// - Returns: The number of entries corrected.
+    private func reconcileCatalogURLs() -> Int {
+        var corrected = 0
+        for (name, db) in databases where db.status != .ready && db.path == nil {
+            guard let catalogID = db.catalogID,
+                  let fresh = MetagenomicsDatabaseInfo.catalogEntry(catalogID: catalogID),
+                  fresh.downloadURL != db.downloadURL || fresh.version != db.version else { continue }
+            var updated = db
+            updated.version = fresh.version
+            updated.downloadURL = fresh.downloadURL
+            updated.installationRecipe = fresh.installationRecipe
+            databases[name] = updated
+            corrected += 1
+            logger.notice(
+                "Corrected catalog download for \(name, privacy: .public): \(fresh.downloadURL ?? "built locally", privacy: .public)"
+            )
+        }
+        return corrected
     }
 
     private static func matchesCatalogEntry(

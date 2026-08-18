@@ -88,17 +88,26 @@ public actor EsVirituDatabaseManager {
     /// Shared singleton instance.
     public static let shared = EsVirituDatabaseManager()
 
-    /// Current database version.
-    public static let currentVersion = "v3.2.4"
+    /// Manifest identifier for the pinned EsViritu database.
+    static let catalogID = "esviritu-viral-v3"
+
+    /// Current database version, read from the bundled dependency manifest.
+    ///
+    /// The fallback only applies when the bundled manifest resource itself failed to
+    /// load, which is a packaging failure; it keeps the storage path a valid, obviously
+    /// unresolved directory component rather than collapsing it to nothing.
+    public static var currentVersion: String {
+        ManagedToolLock.bundled.database(id: catalogID)?.version ?? "unknown"
+    }
 
     /// Zenodo DOI for the database.
     public static let zenodoDOI = "10.5281/zenodo.17716199"
 
-    /// Direct download URL for the database tarball from Zenodo.
-    ///
-    /// This URL points to the specific version of the database archive.
-    /// Updated when ``currentVersion`` changes.
-    public static let downloadURL = "https://zenodo.org/records/17716199/files/esviritu_db_v3.2.4.tar.gz"
+    /// Direct download URL for the database tarball from Zenodo, read from the
+    /// bundled dependency manifest so the pin lives in one place.
+    public static var downloadURL: String {
+        ManagedToolLock.bundled.database(id: catalogID)?.url ?? ""
+    }
 
     /// Approximate download size in bytes (~2 GB compressed).
     public static let approximateDownloadSize: Int64 = 2_147_483_648

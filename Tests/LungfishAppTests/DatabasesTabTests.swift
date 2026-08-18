@@ -161,7 +161,10 @@ final class DatabasesTabTests: XCTestCase {
         }
     }
 
-    func testDatabaseTrackingSummaryIncludesInstallDateAndUpdateIndicator() {
+    func testDatabaseTrackingSummaryIncludesInstallDateAndUpdateIndicator() throws {
+        let pinnedVersion = try XCTUnwrap(
+            ManagedToolLock.bundled.database(id: "kraken2-standard-8")?.version
+        )
         let installedAt = Date(timeIntervalSince1970: 1_700_000_000)
         let db = MetagenomicsDatabaseInfo(
             name: "Standard-8",
@@ -183,7 +186,7 @@ final class DatabasesTabTests: XCTestCase {
 
         XCTAssertTrue(summary.contains("Installed"))
         XCTAssertTrue(summary.contains("Update available"))
-        XCTAssertTrue(summary.contains(MetagenomicsDatabaseInfo.latestBuildDate))
+        XCTAssertTrue(summary.contains(pinnedVersion))
     }
 
     // MARK: - testDownloadProgressUpdate
@@ -532,12 +535,19 @@ final class DatabasesTabTests: XCTestCase {
         }
     }
 
-    /// Verifies that all DatabaseCollection cases have download URL bases.
-    func testDatabaseCollectionDownloadURLBases() {
+    /// Verifies that the manifest pins an HTTPS download for every DatabaseCollection case.
+    func testDatabaseCollectionDownloadURLsComeFromManifest() throws {
         for collection in DatabaseCollection.allCases {
-            XCTAssertTrue(
-                collection.downloadURLBase.hasPrefix("https://"),
-                "\(collection) download URL should start with https://"
+            let spec = try XCTUnwrap(
+                ManagedToolLock.bundled.database(id: "kraken2-\(collection.rawValue)"),
+                "\(collection) is missing from the dependency manifest"
+            )
+            let url = try XCTUnwrap(spec.url, "\(collection) has no pinned download URL")
+            XCTAssertTrue(url.hasPrefix("https://"), "\(collection) download URL should start with https://")
+            XCTAssertEqual(
+                MetagenomicsDatabaseInfo.catalogEntry(for: collection)?.downloadURL,
+                url,
+                "\(collection) catalog entry should use the manifest URL"
             )
         }
     }

@@ -154,25 +154,6 @@ public enum DatabaseCollection: String, Codable, Sendable, CaseIterable {
             return "Eukaryotic pathogens (EuPathDB)"
         }
     }
-
-    /// Base download URL for this collection's tarball.
-    ///
-    /// The actual URL includes a date suffix (e.g., `k2_standard_20240904.tar.gz`).
-    /// The registry appends the latest known version date.
-    public var downloadURLBase: String {
-        let base = "https://genome-idx.s3.amazonaws.com/kraken"
-        switch self {
-        case .standard:    return "\(base)/k2_standard"
-        case .standard8:   return "\(base)/k2_standard_08gb"
-        case .standard16:  return "\(base)/k2_standard_16gb"
-        case .plusPF:      return "\(base)/k2_pluspf"
-        case .plusPF8:     return "\(base)/k2_pluspf_08gb"
-        case .plusPF16:    return "\(base)/k2_pluspf_16gb"
-        case .viral:       return "\(base)/k2_viral"
-        case .minusB:      return "\(base)/k2_minusb"
-        case .euPathDB46:  return "\(base)/k2_eupathdb48"
-        }
-    }
 }
 
 // MARK: - MetagenomicsDatabaseInstallationRecipe
