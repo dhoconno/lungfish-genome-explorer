@@ -35,13 +35,6 @@ struct ToolsCommand: AsyncParsableCommand {
         defaultSubcommand: UpdateSubcommand.self
     )
 
-    /// Exit status for `--plan` when the plan still has work in it.
-    ///
-    /// Distinct from "the command failed": scripts poll `tools update --plan` and branch on
-    /// this to decide whether to schedule an update window. `CLIExitCode.inputError` shares
-    /// the numeric value 3, but the two never occur on the same path, and a `--plan` run that
-    /// exits 3 always wrote a plan to stdout while an input error never does.
-    static let planPendingExitCode: Int32 = 3
 }
 
 // MARK: - tools update
@@ -53,13 +46,21 @@ extension ToolsCommand {
             commandName: "update",
             abstract: "Plan or apply updates to the pinned dependency set",
             discussion: """
-            With --plan (the default), prints the pending work and exits 3 when anything is
-            pending, 0 when the machine already matches the manifest. With --apply --yes,
-            performs the work and exits non-zero only if an item actually failed.
+            With --plan (the default), prints the pending work without changing anything.
+            With --apply --yes, performs the work.
+
+            Exit codes:
+              0   nothing to do, or the update was applied
+              10  work is pending (--plan only)
+              2   usage error, such as --apply without --yes
+              1   an item failed to install
+
+            A failure to record the dependency receipt warns on stderr but still exits 0:
+            the tools installed, they just were not written down.
             """
         )
 
-        @Flag(name: .customLong("plan"), help: "Print the plan and exit 3 if work is pending")
+        @Flag(name: .customLong("plan"), help: "Print the plan and exit 10 if work is pending")
         var planOnly: Bool = false
 
         @Flag(name: .customLong("apply"), help: "Apply the plan (requires --yes)")
@@ -89,7 +90,7 @@ extension ToolsCommand {
                 FileHandle.standardError.write(
                     Data("Error: --plan and --apply are mutually exclusive\n".utf8)
                 )
-                throw CLIExitCode.inputError.exitCode
+                throw CLIExitCode.usage.exitCode
             }
 
             let root = try resolvedStorageRoot()
@@ -109,14 +110,16 @@ extension ToolsCommand {
                 } else {
                     print(Self.render(plan))
                 }
-                throw plan.isEmpty ? ExitCode.success : ExitCode(ToolsCommand.planPendingExitCode)
+                // Pending work is not a failure: the command did its job and wrote the plan.
+                // `updatesPending` is what scripts branch on to schedule an update window.
+                throw plan.isEmpty ? CLIExitCode.success.exitCode : CLIExitCode.updatesPending.exitCode
             }
 
             // Checked before anything is printed so a JSON consumer never sees a partial
             // document ahead of the refusal.
             guard yes else {
                 FileHandle.standardError.write(Data("Error: tools update --apply requires --yes\n".utf8))
-                throw CLIExitCode.inputError.exitCode
+                throw CLIExitCode.usage.exitCode
             }
 
             if !json {

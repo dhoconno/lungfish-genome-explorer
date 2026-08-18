@@ -147,6 +147,11 @@ enum CLIExitCode: Int32 {
     case inputError = 3
     case outputError = 4
     case formatError = 5
+    /// `tools update --plan`: work is pending.
+    ///
+    /// Distinct from a failure: the command did its job and wrote a plan to stdout. Scripts
+    /// branch on this to decide whether to schedule an update window.
+    case updatesPending = 10
     case workflowError = 64
     case containerError = 65
     case networkError = 66

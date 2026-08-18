@@ -30,7 +30,7 @@ final class ToolsCommandTests: XCTestCase {
             environment: ["LUNGFISH_STORAGE_ROOT": root.path]
         )
 
-        XCTAssertEqual(result.exitCode, ToolsCommand.planPendingExitCode, "stderr:\n\(result.stderr)")
+        XCTAssertEqual(result.exitCode, CLIExitCode.updatesPending.rawValue, "stderr:\n\(result.stderr)")
 
         let json = try XCTUnwrap(
             try JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any],
@@ -70,7 +70,7 @@ final class ToolsCommandTests: XCTestCase {
             environment: ["LUNGFISH_STORAGE_ROOT": root.path]
         )
 
-        XCTAssertEqual(result.exitCode, ToolsCommand.planPendingExitCode, "stderr:\n\(result.stderr)")
+        XCTAssertEqual(result.exitCode, CLIExitCode.updatesPending.rawValue, "stderr:\n\(result.stderr)")
         XCTAssertTrue(
             result.stdout.contains("Target dependency set: \(ManagedToolLock.bundled.resolvedDependencySet)"),
             "stdout:\n\(result.stdout)"
@@ -91,7 +91,7 @@ final class ToolsCommandTests: XCTestCase {
         )
         let elapsed = Date().timeIntervalSince(started)
 
-        XCTAssertEqual(result.exitCode, ToolsCommand.planPendingExitCode)
+        XCTAssertEqual(result.exitCode, CLIExitCode.updatesPending.rawValue)
         XCTAssertLessThan(elapsed, 30, "planning on an empty storage root should not do network or conda work")
     }
 
@@ -139,7 +139,7 @@ final class ToolsCommandTests: XCTestCase {
             environment: [:]
         )
 
-        XCTAssertEqual(result.exitCode, ToolsCommand.planPendingExitCode, "stderr:\n\(result.stderr)")
+        XCTAssertEqual(result.exitCode, CLIExitCode.updatesPending.rawValue, "stderr:\n\(result.stderr)")
     }
 
     // MARK: - Apply guards
@@ -153,7 +153,7 @@ final class ToolsCommandTests: XCTestCase {
             environment: ["LUNGFISH_STORAGE_ROOT": root.path]
         )
 
-        XCTAssertEqual(result.exitCode, CLIExitCode.inputError.rawValue)
+        XCTAssertEqual(result.exitCode, CLIExitCode.usage.rawValue)
         XCTAssertTrue(result.stderr.contains("--yes"), "stderr:\n\(result.stderr)")
     }
 
@@ -166,7 +166,7 @@ final class ToolsCommandTests: XCTestCase {
             environment: ["LUNGFISH_STORAGE_ROOT": root.path]
         )
 
-        XCTAssertEqual(result.exitCode, CLIExitCode.inputError.rawValue)
+        XCTAssertEqual(result.exitCode, CLIExitCode.usage.rawValue)
         XCTAssertEqual(result.stdout, "", "JSON mode must not print a partial document:\n\(result.stdout)")
     }
 
@@ -179,7 +179,7 @@ final class ToolsCommandTests: XCTestCase {
             environment: ["LUNGFISH_STORAGE_ROOT": root.path]
         )
 
-        XCTAssertEqual(result.exitCode, CLIExitCode.inputError.rawValue)
+        XCTAssertEqual(result.exitCode, CLIExitCode.usage.rawValue)
         XCTAssertTrue(result.stderr.contains("mutually exclusive"), "stderr:\n\(result.stderr)")
     }
 
@@ -269,6 +269,27 @@ final class ToolsCommandTests: XCTestCase {
 
         XCTAssertEqual(result.exitCode, 0, "stderr:\n\(result.stderr)")
         XCTAssertTrue(result.stdout.contains("update"), "stdout:\n\(result.stdout)")
+    }
+
+    /// The exit codes are the scripting contract, so help has to state them.
+    func testToolsUpdateHelpDocumentsTheExitCodes() throws {
+        let result = try runCLI(["tools", "update", "--help"], environment: [:])
+
+        XCTAssertEqual(result.exitCode, 0, "stderr:\n\(result.stderr)")
+        for expected in ["Exit codes", "10", "nothing to do", "usage error", "failed"] {
+            XCTAssertTrue(
+                result.stdout.contains(expected),
+                "help should mention '\(expected)':\n\(result.stdout)"
+            )
+        }
+    }
+
+    func testDbUpdateHelpDocumentsAllAndYes() throws {
+        let result = try runCLI(["conda", "db", "update", "--help"], environment: [:])
+
+        XCTAssertEqual(result.exitCode, 0, "stderr:\n\(result.stderr)")
+        XCTAssertTrue(result.stdout.contains("--all"), "stdout:\n\(result.stdout)")
+        XCTAssertTrue(result.stdout.contains("--yes"), "stdout:\n\(result.stdout)")
     }
 
     // MARK: - Helpers

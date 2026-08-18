@@ -296,7 +296,21 @@ extension DbCommand {
     struct DbUpdateSubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "update",
-            abstract: "Update an installed database to the pinned version"
+            abstract: "Update an installed database to the pinned version",
+            discussion: """
+            Replaces an installed database with the version pinned in the dependency manifest.
+
+            Name one database by its catalog identifier, or pass --all to update every
+            installed database that has an update available. Either way --yes is required,
+            because the update replaces the installed copy.
+
+            Databases that are built locally rather than downloaded cannot be updated in
+            place; they are reported as skipped and are refreshed by reinstalling instead.
+
+            Examples:
+              lungfish conda db update kraken2-viral --yes
+              lungfish conda db update --all --yes
+            """
         )
 
         @Argument(help: "Catalog identifier of the database to update (e.g., 'kraken2-viral')")
