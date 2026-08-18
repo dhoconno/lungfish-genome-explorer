@@ -110,7 +110,7 @@ let package = Package(
         .package(url: "https://github.com/apple/containerization.git", exact: "0.24.5"),
         // App-only updater framework. Keep this out of LungfishApp so lungfish-cli
         // does not inherit the graphical updater dependency.
-        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.1"),
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.6"),
     ],
     targets: [
         .target(

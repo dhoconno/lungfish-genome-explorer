@@ -1,6 +1,6 @@
 {
   "formatVersion": "1.0",
-  "lastUpdated": "2026-04-17T04:32:41Z",
+  "lastUpdated": "2026-08-18T20:42:01Z",
   "buildArchitecture": "arm64",
   "tools": [
     {
@@ -13,7 +13,9 @@
       "releaseUrl": "https://github.com/mamba-org/micromamba-releases/releases",
       "licenseUrl": "https://github.com/mamba-org/mamba/blob/main/LICENSE",
       "copyright": "Copyright (c) QuantStack and mamba contributors",
-      "executables": ["micromamba"],
+      "executables": [
+        "micromamba"
+      ],
       "dependencies": [],
       "provisioningMethod": "downloadBinary",
       "notes": "Static conda-compatible package manager for plugin environments"
