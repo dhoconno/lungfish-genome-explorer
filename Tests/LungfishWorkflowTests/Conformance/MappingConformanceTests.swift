@@ -66,9 +66,13 @@ final class MappingConformanceTests: XCTestCase {
 
         // Pipe mpileup -> call via shell to keep it simple and deterministic;
         // ProcessRunner has no built-in pipe support between two processes.
+        // `set -o pipefail` is required: without it, `sh -c`'s exit status is
+        // that of the *last* command in the pipeline (bcftools call), so a
+        // failing mpileup would be silently swallowed and this assertion
+        // would pass on broken input.
         let sh = try ProcessRunner.run(
             URL(fileURLWithPath: "/bin/sh"),
-            ["-c", "'\(bcftools.path)' mpileup -f '\(ref.path)' -Ou '\(bam.path)' | '\(bcftools.path)' call -mv -Ov -o '\(vcf.path)'"],
+            ["-c", "set -o pipefail; '\(bcftools.path)' mpileup -f '\(ref.path)' -Ou '\(bam.path)' | '\(bcftools.path)' call -mv -Ov -o '\(vcf.path)'"],
             timeout: 300
         )
         XCTAssertEqual(sh.status, 0, sh.stderr)
