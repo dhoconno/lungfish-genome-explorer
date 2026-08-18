@@ -46,6 +46,7 @@ struct LungfishCLI: AsyncParsableCommand {
             BundleCommand.self,
             ProjectCommand.self,
             ProvisionToolsCommand.self,
+            ToolsCommand.self,
             CondaCommand.self,
             BlastCommand.self,
             EsVirituCommand.self,

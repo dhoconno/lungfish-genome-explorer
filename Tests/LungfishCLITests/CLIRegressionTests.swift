@@ -4125,8 +4125,9 @@ final class DbCommandRegressionTests: XCTestCase {
 
     func testSubcommands() {
         let subs = DbCommand.configuration.subcommands
-        XCTAssertEqual(subs.count, 5)
+        XCTAssertEqual(subs.count, 6)
         XCTAssertTrue(subs.contains { $0 == DbCommand.DbInfoSubcommand.self })
+        XCTAssertTrue(subs.contains { $0 == DbCommand.DbUpdateSubcommand.self })
     }
 }
 

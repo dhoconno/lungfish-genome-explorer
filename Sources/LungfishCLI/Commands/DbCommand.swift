@@ -36,6 +36,7 @@ struct DbCommand: AsyncParsableCommand {
             DbDownloadSubcommand.self,
             DbRemoveSubcommand.self,
             DbRecommendSubcommand.self,
+            DbUpdateSubcommand.self,
         ]
     )
 }
@@ -279,6 +280,106 @@ extension DbCommand {
                 print("")
                 print(formatter.info("Download with: lungfish conda db download \(recommended.name)"))
             }
+        }
+    }
+}
+
+// MARK: - db update
+
+extension DbCommand {
+
+    /// Updates an installed catalog database to the version pinned in the dependency manifest.
+    ///
+    /// This is the per-database counterpart to `lungfish tools update`: the reconciler routes
+    /// manifest-wide database drift through the same registry call, and this subcommand exposes
+    /// it for one database (or every database with an update available) on its own.
+    struct DbUpdateSubcommand: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "update",
+            abstract: "Update an installed database to the pinned version"
+        )
+
+        @Argument(help: "Catalog identifier of the database to update (e.g., 'kraken2-viral')")
+        var catalogID: String?
+
+        @Flag(name: .customLong("all"), help: "Update every installed database with an update available")
+        var all: Bool = false
+
+        @Flag(name: .customLong("yes"), help: "Confirm the update (required)")
+        var yes: Bool = false
+
+        @OptionGroup var globalOptions: GlobalOptions
+
+        func run() async throws {
+            let formatter = TerminalFormatter(useColors: globalOptions.useColors)
+            let registry = MetagenomicsDatabaseRegistry.shared
+
+            guard catalogID != nil || all else {
+                print(formatter.error("Specify a database catalog identifier or --all"))
+                throw CLIExitCode.inputError.exitCode
+            }
+            guard !(catalogID != nil && all) else {
+                print(formatter.error("Specify either a database catalog identifier or --all, not both"))
+                throw CLIExitCode.inputError.exitCode
+            }
+            guard yes else {
+                print(formatter.error("Updating a database replaces the installed copy; re-run with --yes to confirm"))
+                throw CLIExitCode.inputError.exitCode
+            }
+
+            let targets = try await resolveTargets(registry: registry, formatter: formatter)
+            if targets.isEmpty {
+                print(formatter.info("No databases have an update available."))
+                return
+            }
+
+            var failures: [(String, String)] = []
+            for target in targets {
+                print(formatter.header("Updating \(target)"))
+                do {
+                    try await registry.updateDatabase(catalogID: target) { fraction, message in
+                        if !globalOptions.quiet {
+                            print("\r\(formatter.info("[\(Int((fraction * 100).rounded()))%] \(message)"))", terminator: "")
+                        }
+                    }
+                    print("")
+                    print(formatter.success("Database '\(target)' updated"))
+                } catch let error as MetagenomicsDatabaseRegistryError {
+                    print("")
+                    // A database that cannot be updated in place (locally built, or on a volume
+                    // that is not mounted) is a skip, not a failure: the user is told what to do
+                    // instead and the remaining databases still update.
+                    if case .updateNotSupported = error {
+                        print(formatter.warning("Skipped '\(target)': \(error.localizedDescription)"))
+                    } else {
+                        print(formatter.error("Failed '\(target)': \(error.localizedDescription)"))
+                        failures.append((target, error.localizedDescription))
+                    }
+                } catch {
+                    print("")
+                    print(formatter.error("Failed '\(target)': \(error.localizedDescription)"))
+                    failures.append((target, error.localizedDescription))
+                }
+            }
+
+            if !failures.isEmpty {
+                throw CLIExitCode.failure.exitCode
+            }
+        }
+
+        /// The catalog identifiers this invocation should update.
+        private func resolveTargets(
+            registry: MetagenomicsDatabaseRegistry,
+            formatter: TerminalFormatter
+        ) async throws -> [String] {
+            if let catalogID {
+                return [catalogID]
+            }
+            let databases = try await registry.availableDatabases()
+            return databases
+                .filter { $0.isUpdateAvailable }
+                .compactMap(\.catalogID)
+                .sorted()
         }
     }
 }

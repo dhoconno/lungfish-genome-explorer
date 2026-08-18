@@ -369,7 +369,7 @@ public struct PlanSelection: Sendable, Equatable {
 }
 
 /// What one `apply` accomplished.
-public struct ReconciliationResult: Sendable, Equatable {
+public struct ReconciliationResult: Sendable, Equatable, Codable {
     /// Item identifiers (environment names, database ids, "micromamba") that succeeded.
     public var succeeded: [String]
     /// Item identifier -> failure message.
