@@ -300,6 +300,39 @@ final class DependencyReconcilerTests: XCTestCase {
         XCTAssertEqual(envelope.toolName, "lungfish")
         XCTAssertEqual(envelope.toolVersion, "0.5.0-beta30")
         XCTAssertEqual(envelope.steps.count, 2, "one step per applied item (env + database)")
+
+        // Each step records the version it installed, so a downstream result can be traced to
+        // the exact tool and database build that produced it.
+        let versionsByTool = Dictionary(
+            uniqueKeysWithValues: envelope.steps.map { ($0.toolName, $0.toolVersion) }
+        )
+        XCTAssertEqual(versionsByTool["samtools"], "1.24", "env step records the conda spec version")
+        XCTAssertEqual(versionsByTool["human-scrubber"], "20260706v2", "database step records the target version")
+    }
+
+    func testBootstrapProvenanceStepRecordsMicromambaVersion() async throws {
+        let root = tmpRoot()
+        let reconciler = DependencyReconciler(
+            manifest: manifest(), storageRoot: root,
+            services: services(calls: Calls(), envs: [:], micromambaVersion: "2.8.0-0"),
+            appVersion: "x", operationCenter: nil
+        )
+        let plan = try await reconciler.currentPlan()
+        _ = try await reconciler.apply(plan, selection: .all(from: plan)) { _, _, _ in }
+
+        let directory = root.appendingPathComponent("provenance/dependencies", isDirectory: true)
+        let file = try XCTUnwrap(
+            try FileManager.default.contentsOfDirectory(atPath: directory.path)
+                .first { $0.hasSuffix(".lungfish-provenance.json") }
+        )
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let envelope = try decoder.decode(
+            ProvenanceEnvelope.self,
+            from: try Data(contentsOf: directory.appendingPathComponent(file))
+        )
+        let bootstrapStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "micromamba" })
+        XCTAssertEqual(bootstrapStep.toolVersion, "2.9.0-0")
     }
 
     func testRemovalsAreSkippedWhenARequiredItemFailed() async throws {
@@ -386,17 +419,32 @@ final class DependencyReconcilerTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let calls = Calls()
+        let sink = RecordingSink()
         let reconciler = DependencyReconciler(
             manifest: manifest(), storageRoot: root,
             services: services(calls: calls, envs: [:]),
-            appVersion: "x", operationCenter: nil
+            appVersion: "x", operationCenter: sink
         )
         let plan = try await reconciler.currentPlan()
         let result = try await reconciler.apply(plan, selection: .all(from: plan)) { _, _, _ in }
 
         let created = await calls.created
         XCTAssertEqual(created, ["samtools"], "the install still ran")
-        XCTAssertNotNil(result.failed["dependency-receipt"], "the unsaveable receipt is reported, not thrown")
+        XCTAssertNotNil(
+            result.failed[DependencyReconciler.receiptItemID],
+            "the unsaveable receipt is reported, not thrown"
+        )
+        XCTAssertTrue(
+            result.failed.keys.allSatisfy { $0 == DependencyReconciler.receiptItemID },
+            "no real item failed"
+        )
+
+        // The work succeeded, so the parent operation must not read as a failed update.
+        XCTAssertEqual(sink.failedCount, 0, "parent op must not be failed when only the receipt could not be saved")
+        XCTAssertTrue(
+            sink.warningDetails.contains { $0.contains("receipt not saved") },
+            "parent op completes with a warning: \(sink.warningDetails)"
+        )
     }
 
     // MARK: - Helpers
@@ -439,10 +487,12 @@ final class DependencyReconcilerTests: XCTestCase {
         private var titles: [String] = []
         private var completed = 0
         private var failed = 0
+        private var warnings: [String] = []
 
         var startedTitles: [String] { lock.withLock { titles } }
         var completedCount: Int { lock.withLock { completed } }
         var failedCount: Int { lock.withLock { failed } }
+        var warningDetails: [String] { lock.withLock { warnings } }
 
         func start(title: String, detail: String) -> UUID {
             lock.withLock { titles.append(title) }
@@ -451,6 +501,14 @@ final class DependencyReconcilerTests: XCTestCase {
         func update(id: UUID, progress: Double, detail: String) {}
         func log(id: UUID, message: String) {}
         func complete(id: UUID, detail: String) { lock.withLock { completed += 1 } }
+        // Overrides the protocol's default forwarding so the test can tell a warning-completion
+        // apart from a plain one; it still counts as a completion.
+        func completeWithWarning(id: UUID, detail: String) {
+            lock.withLock {
+                completed += 1
+                warnings.append(detail)
+            }
+        }
         func fail(id: UUID, detail: String, error: String) { lock.withLock { failed += 1 } }
     }
 }

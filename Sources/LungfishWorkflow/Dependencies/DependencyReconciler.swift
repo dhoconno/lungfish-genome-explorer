@@ -5,6 +5,7 @@
 @preconcurrency import Foundation
 import CryptoKit
 import LungfishCore
+import os
 import os.log
 
 private let logger = Logger(subsystem: LogSubsystem.workflow, category: "DependencyReconciler")
@@ -16,7 +17,20 @@ public protocol DependencyOperationSink: Sendable {
     func update(id: UUID, progress: Double, detail: String)
     func log(id: UUID, message: String)
     func complete(id: UUID, detail: String)
+    /// Finishes an operation that did its work but hit a non-fatal problem worth surfacing.
+    ///
+    /// Distinct from `fail` because the user's tools really were installed; distinct from a
+    /// plain `complete` because something (a receipt that could not be written, say) still
+    /// deserves a note. Adapters that have no warning affordance inherit the default below and
+    /// simply complete with the warning folded into the detail.
+    func completeWithWarning(id: UUID, detail: String)
     func fail(id: UUID, detail: String, error: String)
+}
+
+public extension DependencyOperationSink {
+    func completeWithWarning(id: UUID, detail: String) {
+        complete(id: id, detail: detail)
+    }
 }
 
 public enum DependencyReconcilerError: Error, LocalizedError, Equatable {
@@ -242,34 +256,77 @@ public extension ReconcilerServices {
         return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
-    /// `micromamba --version`, or nil when the binary is missing or unrunnable.
+    /// How long `micromamba --version` may take before it is killed and treated as unreadable.
+    ///
+    /// A version probe that has not answered in ten seconds is not going to: the binary is
+    /// wedged, being scanned, or sitting on an unresponsive volume. Reporting nil re-plans a
+    /// bootstrap install, which is the right response to a micromamba that cannot answer.
+    private static let micromambaVersionTimeout: TimeInterval = 10
+
+    /// `micromamba --version`, or nil when the binary is missing, unrunnable, or too slow.
+    ///
+    /// The launch, read, and wait all run on a background queue rather than inline in the
+    /// continuation: `readDataToEndOfFile` and `waitUntilExit` both block, and blocking a
+    /// cooperative-pool thread starves every other task sharing it. stderr goes to the null
+    /// device instead of a `Pipe`, because nothing drains a stderr pipe here and a child that
+    /// fills the 64KB buffer would block forever writing to it.
     private static func readMicromambaVersion(at path: URL) async -> String? {
         guard FileManager.default.isExecutableFile(atPath: path.path) else { return nil }
         return await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
-            let process = Process()
-            process.executableURL = path
-            process.arguments = ["--version"]
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = Pipe()
-            do {
-                try process.run()
-            } catch {
-                continuation.resume(returning: nil)
-                return
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(returning: runMicromambaVersionProbe(at: path))
             }
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0,
-                  let output = String(data: data, encoding: .utf8)?
-                      .trimmingCharacters(in: .whitespacesAndNewlines),
-                  !output.isEmpty
-            else {
-                continuation.resume(returning: nil)
-                return
-            }
-            continuation.resume(returning: output)
         }
+    }
+
+    /// Blocking body of the version probe. Must be called off the cooperative pool.
+    private static func runMicromambaVersionProbe(at path: URL) -> String? {
+        let process = Process()
+        process.executableURL = path
+        process.arguments = ["--version"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+        } catch {
+            logger.warning(
+                "Could not run micromamba --version: \(error.localizedDescription, privacy: .public)"
+            )
+            return nil
+        }
+
+        // Arm the timeout before reading: the read itself is what would otherwise hang, so
+        // terminating the child is what unblocks it.
+        let timedOut = OSAllocatedUnfairLock(initialState: false)
+        let deadline = DispatchWorkItem {
+            timedOut.withLock { $0 = true }
+            process.terminate()
+        }
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(
+            deadline: .now() + micromambaVersionTimeout,
+            execute: deadline
+        )
+        defer { deadline.cancel() }
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+
+        if timedOut.withLock({ $0 }) {
+            logger.warning(
+                "micromamba --version timed out after \(Int(micromambaVersionTimeout), privacy: .public)s"
+            )
+            return nil
+        }
+        guard process.terminationStatus == 0,
+              let output = String(data: data, encoding: .utf8)?
+                  .trimmingCharacters(in: .whitespacesAndNewlines),
+              !output.isEmpty
+        else {
+            return nil
+        }
+        return output
     }
 }
 
@@ -343,6 +400,12 @@ public actor DependencyReconciler {
     /// Guards against a second apply while one is in flight; the receipt is not
     /// safe to interleave writes into.
     private var isApplying = false
+
+    /// Key under which a failure to persist the receipt is reported in `ReconciliationResult.failed`.
+    ///
+    /// Not an installable item: it names the bookkeeping step, so callers can tell "your tools
+    /// did not install" apart from "your tools installed but we could not write that down".
+    public static let receiptItemID = "dependency-receipt"
 
     public init(
         manifest: ManagedToolLock,
@@ -450,6 +513,7 @@ public actor DependencyReconciler {
                 id: "micromamba",
                 title: "Update micromamba to \(bootstrap.targetVersion)",
                 kind: .bootstrap,
+                targetVersion: bootstrap.targetVersion,
                 isRequired: true,
                 progress: progress,
                 succeeded: &succeeded,
@@ -473,12 +537,20 @@ public actor DependencyReconciler {
                     : (lhs.isRequired && !rhs.isRequired)
             }
 
+        // Captured once, before the loop, and deliberately not refreshed inside it. A create
+        // that fails partway can leave a directory behind; re-reading disk per item would make
+        // later items see that debris as "already installed" and try to remove it, turning one
+        // failure into a different kind. The pre-loop snapshot answers the only question this
+        // loop actually asks -- was this environment there when the run started -- and the env
+        // loop is the sole mutator of environment directories during an apply, so nothing else
+        // invalidates it.
         let installedEnvironments = await services.listEnvironments()
         for change in environmentChanges {
             let failure = await runItem(
                 id: change.environment,
                 title: "Install \(change.environment) \(change.targetSpec)",
                 kind: .environment,
+                targetVersion: CondaSpec(spec: change.targetSpec)?.version ?? "unknown",
                 isRequired: change.isRequired,
                 progress: progress,
                 succeeded: &succeeded,
@@ -532,6 +604,7 @@ public actor DependencyReconciler {
                 id: update.id,
                 title: "Update \(update.displayName) to \(update.targetVersion)",
                 kind: .database,
+                targetVersion: update.targetVersion,
                 isRequired: update.policy == .required,
                 progress: progress,
                 succeeded: &succeeded,
@@ -611,19 +684,29 @@ public actor DependencyReconciler {
             logger.error(
                 "Failed to save the dependency receipt after reconciling: \(error.localizedDescription, privacy: .public)"
             )
-            failed["dependency-receipt"] = error.localizedDescription
+            failed[Self.receiptItemID] = error.localizedDescription
         }
 
         if let parent {
-            let detail = failed.isEmpty
-                ? "Updated \(succeeded.count) item(s) to \(plan.targetDependencySet)"
-                : "\(succeeded.count) updated, \(failed.count) failed"
+            // An unsaveable receipt is the one "failure" that is not a failure of the work: every
+            // real item succeeded and the tools are installed. Failing the parent operation over
+            // it would tell the user their update did not happen, which is the opposite of true,
+            // so that case completes with a warning instead.
+            let realFailures = failed.filter { $0.key != Self.receiptItemID }
             if failed.isEmpty {
-                operationCenter?.complete(id: parent, detail: detail)
+                operationCenter?.complete(
+                    id: parent,
+                    detail: "Updated \(succeeded.count) item(s) to \(plan.targetDependencySet)"
+                )
+            } else if realFailures.isEmpty {
+                operationCenter?.completeWithWarning(
+                    id: parent,
+                    detail: "Updated \(succeeded.count) item(s) to \(plan.targetDependencySet); completed with warning: receipt not saved"
+                )
             } else {
                 operationCenter?.fail(
                     id: parent,
-                    detail: detail,
+                    detail: "\(succeeded.count) updated, \(realFailures.count) failed",
                     error: failed.map { "\($0.key): \($0.value)" }.sorted().joined(separator: "; ")
                 )
             }
@@ -705,6 +788,7 @@ public actor DependencyReconciler {
         id: String,
         title: String,
         kind: DependencyReconcilerProvenance.ItemKind,
+        targetVersion: String = "unknown",
         isRequired: Bool,
         progress: @escaping @Sendable (String, Double, String) -> Void,
         succeeded: inout [String],
@@ -725,7 +809,7 @@ public actor DependencyReconciler {
             try await body(report)
             succeeded.append(id)
             records.append(.init(
-                id: id, kind: kind, title: title, failure: nil,
+                id: id, kind: kind, title: title, targetVersion: targetVersion, failure: nil,
                 startedAt: startedAt, endedAt: Date()
             ))
             if let operation { sink?.complete(id: operation, detail: "\(id) ready") }
@@ -735,7 +819,7 @@ public actor DependencyReconciler {
             failed[id] = message
             if isRequired { requiredFailed = true }
             records.append(.init(
-                id: id, kind: kind, title: title, failure: message,
+                id: id, kind: kind, title: title, targetVersion: targetVersion, failure: message,
                 startedAt: startedAt, endedAt: Date()
             ))
             logger.error("Reconcile item '\(id, privacy: .public)' failed: \(message, privacy: .public)")

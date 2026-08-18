@@ -23,20 +23,36 @@ public enum DependencyReconcilerProvenance {
         case removal
     }
 
-    /// One attempted item: what it was, and whether it worked.
+    /// One attempted item: what it was, what version it was moving to, and whether it worked.
     public struct ItemRecord: Sendable {
         public let id: String
         public let kind: ItemKind
         public let title: String
+        /// The version this item was installing: the conda spec's version for an environment,
+        /// the target version for a database, the micromamba version for bootstrap. `"unknown"`
+        /// only when the target genuinely carries no version (an unparsable spec, a removal).
+        ///
+        /// This is the part of the record a downstream result actually needs: tracing an output
+        /// back to "which samtools produced it" requires the version, not just the name.
+        public let targetVersion: String
         /// nil when the item succeeded.
         public let failure: String?
         public let startedAt: Date
         public let endedAt: Date
 
-        public init(id: String, kind: ItemKind, title: String, failure: String?, startedAt: Date, endedAt: Date) {
+        public init(
+            id: String,
+            kind: ItemKind,
+            title: String,
+            targetVersion: String = "unknown",
+            failure: String?,
+            startedAt: Date,
+            endedAt: Date
+        ) {
             self.id = id
             self.kind = kind
             self.title = title
+            self.targetVersion = targetVersion
             self.failure = failure
             self.startedAt = startedAt
             self.endedAt = endedAt
@@ -122,7 +138,7 @@ public enum DependencyReconcilerProvenance {
     private static func step(for record: ItemRecord) -> ProvenanceStep {
         ProvenanceStep(
             toolName: record.id,
-            toolVersion: "unknown",
+            toolVersion: record.targetVersion,
             argv: [record.kind.rawValue, record.id],
             reproducibleCommand: record.title,
             resolvedOptions: ["kind": .string(record.kind.rawValue)],
