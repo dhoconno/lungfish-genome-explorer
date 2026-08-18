@@ -138,3 +138,84 @@ abundance re-estimation runs) matched exactly.
   different build/version during the 2026.1 -> 2026.2 bump (Plan C, tasks
   C5-C8) rather than by editing the verify harness.
 - Tier 2 is **PASS**, 0 differences against the recorded 2026.1 goldens.
+
+## Baseline defects found and fixed
+
+The two tier-1 baseline failures above were investigated and fixed in place.
+Neither needed a pin change, so the 2026.1 baseline is now green and the
+2026.1 -> 2026.2 bump starts from a clean gate.
+
+### Defect 1 (product, user facing): Bracken abundance estimation was broken on Apple Silicon
+
+The only arm64-installable bioconda build, `bioconda::bracken=1.0.0=1`, does
+not ship the real Bracken driver. Its `bin/bracken` is a passthrough wrapper
+that runs `est_abundance.py` directly, and that inner script takes a different
+command line: `-i INPUT -k KMER_DISTR -o OUTPUT [-l LEVEL] [-t THRESH]`, with
+no `-d` and no `-r`. Production built the real driver's `-d <db> ... -r <len>`
+form, so every abundance run on Apple Silicon failed with
+`est_abundance.py: error: the following arguments are required: -k/--kmer_distr`.
+Bracken profiling therefore always degraded, and users never got abundance
+estimates. The wrapper itself is fully functional once called correctly.
+
+Two further problems surfaced while fixing the first:
+
+1. `est_abundance.py` assigns its `u_reads` counter only while parsing an
+   unclassified (`U`) report line, then prints it unconditionally in the run
+   summary. A Kraken report in which every read classified has no `U` line, so
+   the script raises `UnboundLocalError` and exits non-zero, after it has
+   already written and closed the complete abundance table. The shared
+   SARS-CoV-2 fixture classifies 100 percent against the Viral database and hits
+   this on every run.
+2. The wrapper has no version flag at all, so `bracken -v` prints an argparse
+   usage error. The pipeline's generic version detector would have recorded
+   digits scraped out of that usage text as the tool version in provenance.
+
+The fix adds `Sources/LungfishWorkflow/Metagenomics/BrackenInvocationForm.swift`,
+which isolates three decisions behind a conda-free, unit-testable surface:
+detecting the CLI dialect from `bracken --help` usage text, resolving the
+`database<N>mers.kmer_distrib` file (exact read length preferred, else the
+nearest available N, with a clear error naming the database path when the
+directory has none), and building the argument vector for whichever dialect is
+in play. `ClassificationPipeline` probes the dialect once per environment and
+caches it, keeps the historical argument form unchanged for a real Bracken
+driver, reads the version from conda-meta when the wrapper cannot self-report,
+tolerates only the specific `u_reads` crash signature when the output file
+exists, and records both the dialect and the effective argv in the step's
+resolved options so a provenance reader can see exactly which form ran. The
+recorded tool name stays `bracken` and the step semantics are unchanged.
+
+`MetagenomicsDatabaseInstaller` also drives `bracken-build` for the Kraken2
+special recipes, but that path needs no dialect detection: this build ships no
+`bracken-build` executable at all, so the installer already fails earlier and
+explicitly with `missingManagedTool(bracken-build)` before any argument vector
+is constructed. Detection there would have nothing to probe.
+
+### Defect 2 (upstream packaging, test side only): bwa-mem2 self-reports the wrong version
+
+`bioconda::bwa-mem2=2.3=hda5e58c_0` prints `2.2.1` for `bwa-mem2 version`. The
+build ships 2.3 binaries and its own conda-meta correctly records 2.3; the
+version string baked into the binary is simply stale, and no newer arm64 build
+exists. `bracken=1.0.0=1` has the same class of problem for the reason above:
+it cannot report a version at all.
+
+`ToolVersionConformanceTests` now carries a narrow, named exception list of
+exactly these two tool ids. For them, and only them, the installed version is
+asserted against the environment's conda-meta record via `CondaMetaReader`
+instead of the self-reported string. The assertion is not weakened: a
+conda-meta version that disagrees with the manifest pin still fails, under the
+same `LUNGFISH_REQUIRE_TOOLS=1` contract every other tool follows. A guard test
+asserts the list stays exactly these two entries and that each is still a
+pinned pack tool, so a stale exception cannot silently stop checking a tool
+that upstream has since fixed. Both entries are commented with the defect and
+the condition for removal.
+
+### Re-run result
+
+`bash scripts/deps/verify.sh --tier 1 --root ~/.lungfish-verify` is now
+**GATE PASS**: 189 tests executed, 0 failures, 0 skips. The filtered suite
+(`Kraken2BrackenConformanceTests|ToolVersionConformanceTests|ClassificationPipeline|Metagenomics|BrackenInvocationForm`)
+is green in default mode (251 XCTest, 0 failures, 1 tolerated drift skip for
+clair3 against the developer's own `~/.lungfish` root, plus 44 swift-testing)
+and under `LUNGFISH_REQUIRE_TOOLS=1 LUNGFISH_STORAGE_ROOT=$HOME/.lungfish-verify`
+(53 XCTest, 0 failures). Tier 2 remains unaffected, since its golden recipe set
+does not exercise bracken.
