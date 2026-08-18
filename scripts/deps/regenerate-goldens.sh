@@ -27,9 +27,10 @@ registry_json="${storage_root}/databases/metagenomics-db-registry.json"
 dependency_set=""
 out_dir=""
 only=""
+print_command=0
 
 usage() {
-    echo "usage: $(basename "$0") --set <id> --out <dir> [--only id,...] [--recipes <path>]" >&2
+    echo "usage: $(basename "$0") --set <id> --out <dir> [--only id,...] [--recipes <path>] [--print-command]" >&2
 }
 
 while [[ $# -gt 0 ]]; do
@@ -49,6 +50,13 @@ while [[ $# -gt 0 ]]; do
         --recipes)
             recipes="${2:-}"
             shift 2
+            ;;
+        --print-command)
+            # Debug aid: print each recipe's fully expanded command and exit
+            # without running anything. Used by scripts/tests to assert that
+            # substituted paths are shell-safe.
+            print_command=1
+            shift
             ;;
         -h|--help)
             usage
@@ -108,35 +116,63 @@ PYTHON
 }
 
 # Substitute {in0}, {out}, {db}, and {tool} placeholders into a recipe command.
-# Done in python so paths containing spaces or regex metacharacters survive.
+#
+# Substituted values are made shell-safe so a path containing spaces, quotes, or
+# other metacharacters cannot split into extra words or inject shell syntax when
+# the result is handed to `bash -c`. Quoting is context sensitive because several
+# recipes embed a placeholder inside a single-quoted fragment (a `sed` script, an
+# inline `python3 -c` program):
+#
+#   bare            {out}/x.tsv        -> shlex.quote, becoming '/path/x.tsv'
+#   single-quoted   sed 's#{out}/##'   -> escaped for that context, no new quotes
+#
+# Wrapping a bare placeholder in your own quotes in a recipe would nest quotes and
+# break the command, so recipes always write placeholders bare or inside an
+# existing single-quoted fragment.
 expand_command() {
     local template="$1" recipe_out="$2" db_path="$3" inputs_joined="$4"
     TEMPLATE="${template}" RECIPE_OUT="${recipe_out}" DB_PATH="${db_path}" \
     INPUTS="${inputs_joined}" REPO_ROOT="${repo_root}" CONDA_ROOT="${conda_root}" python3 - <<'PYTHON'
 import os
 import re
+import shlex
 
 template = os.environ["TEMPLATE"]
 repo_root = os.environ["REPO_ROOT"]
 conda_root = os.environ["CONDA_ROOT"]
 inputs = [value for value in os.environ["INPUTS"].split("\n") if value]
 
-replacements = {"{out}": os.environ["RECIPE_OUT"]}
+values = {"out": os.environ["RECIPE_OUT"]}
 if os.environ.get("DB_PATH"):
-    replacements["{db}"] = os.environ["DB_PATH"]
+    values["db"] = os.environ["DB_PATH"]
 for index, relative in enumerate(inputs):
-    replacements[f"{{in{index}}}"] = os.path.join(repo_root, relative)
+    values[f"in{index}"] = os.path.join(repo_root, relative)
 
-# Any remaining {name} placeholder names a helper tool from another recipe's
-# environment (for example {samtools} inside the minimap2 recipe): resolve it to
-# that tool's absolute path under the conda root.
-def helper(match):
-    name = match.group(1)
+
+def inside_single_quotes(text, position):
+    """True when `position` in `text` falls inside a single-quoted fragment."""
+    return text.count("'", 0, position) % 2 == 1
+
+
+def resolve(name):
+    """The raw value for a placeholder name, resolving helper tools by convention."""
+    if name in values:
+        return values[name]
+    # Any other {name} names a helper tool from another recipe's environment
+    # (for example {samtools} inside the minimap2 recipe).
     return os.path.join(conda_root, "envs", name, "bin", name)
 
-for placeholder, value in replacements.items():
-    template = template.replace(placeholder, value)
-print(re.sub(r"\{([a-z0-9_.-]+)\}", helper, template), end="")
+
+def substitute(match):
+    value = resolve(match.group(1))
+    if inside_single_quotes(template, match.start()):
+        # Already inside single quotes: close, emit an escaped quote for any
+        # literal quote in the value, and reopen, adding no unbalanced quotes.
+        return value.replace("'", "'\\''")
+    return shlex.quote(value)
+
+
+print(re.sub(r"\{([a-z0-9_.-]+\d*)\}", substitute, template), end="")
 PYTHON
 }
 
@@ -192,11 +228,12 @@ PYTHON
 # Write the per-recipe meta.json recording how this golden was produced.
 write_meta() {
     META_PATH="$1" DEPENDENCY_SET="$2" RECIPE_ID="$3" TOOL="$4" ENV_NAME="$5" \
-    TOOL_VERSION="$6" WALL_SECONDS="$7" python3 - <<'PYTHON'
+    TOOL_VERSION="$6" START_SECONDS="$7" END_SECONDS="$8" python3 - <<'PYTHON'
 import datetime
 import json
 import os
 
+elapsed = float(os.environ["END_SECONDS"]) - float(os.environ["START_SECONDS"])
 record = {
     "dependencySet": os.environ["DEPENDENCY_SET"],
     "recipeID": os.environ["RECIPE_ID"],
@@ -204,7 +241,7 @@ record = {
     "environment": os.environ["ENV_NAME"],
     "toolVersion": os.environ["TOOL_VERSION"],
     "generatedAt": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-    "wallTimeSeconds": int(os.environ["WALL_SECONDS"]),
+    "wallTimeSeconds": round(elapsed, 3),
 }
 with open(os.environ["META_PATH"], "w", encoding="utf-8") as handle:
     json.dump(record, handle, indent=2, sort_keys=True)
@@ -212,6 +249,9 @@ with open(os.environ["META_PATH"], "w", encoding="utf-8") as handle:
 PYTHON
 }
 
+# Capture the selection separately from the assignment so the selector's exit
+# code survives (an assignment always reports the assignment's own status).
+select_status=0
 recipe_ids="$(ONLY="${only}" RECIPES="${recipes}" python3 - <<'PYTHON'
 import json
 import os
@@ -225,19 +265,24 @@ if only:
     wanted = {value.strip() for value in only.split(",") if value.strip()}
     unknown = wanted - set(ids)
     if unknown:
+        # 64 is EX_USAGE: a bad --only value is an argument error, not a run failure.
         sys.stderr.write(f"unknown recipe ids: {', '.join(sorted(unknown))}\n")
-        sys.exit(1)
+        sys.exit(64)
     ids = [value for value in ids if value in wanted]
 print("\n".join(ids))
 PYTHON
-)"
+)" || select_status=$?
 
+if [[ ${select_status} -ne 0 ]]; then
+    exit "${select_status}"
+fi
 if [[ -z "${recipe_ids}" ]]; then
     echo "no recipes selected" >&2
     exit 64
 fi
 
 failures=0
+skips=0
 
 while IFS= read -r recipe_id; do
     [[ -n "${recipe_id}" ]] || continue
@@ -245,10 +290,22 @@ while IFS= read -r recipe_id; do
     fields="$(recipe_fields "${recipe_id}")"
     eval "${fields}"
 
+    if [[ ${print_command} -eq 1 ]]; then
+        # Expand only. The database is resolved when available but never
+        # required, so this stays usable on a machine without the databases.
+        db_path=""
+        if [[ -n "${recipe_database}" ]]; then
+            db_path="$(resolve_database "${recipe_database}" 2>/dev/null || true)"
+        fi
+        expand_command "${recipe_command}" "${out_dir}/${recipe_id}" "${db_path}" "${recipe_inputs}"
+        echo
+        continue
+    fi
+
     env_bin="${conda_root}/envs/${recipe_env}/bin"
     if [[ ! -d "${env_bin}" ]]; then
         echo "SKIP ${recipe_id}: environment not installed: ${env_bin}" >&2
-        failures=$((failures + 1))
+        skips=$((skips + 1))
         continue
     fi
 
@@ -256,7 +313,7 @@ while IFS= read -r recipe_id; do
     if [[ -n "${recipe_database}" ]]; then
         if ! db_path="$(resolve_database "${recipe_database}")"; then
             echo "SKIP ${recipe_id}: could not resolve database ${recipe_database}" >&2
-            failures=$((failures + 1))
+            skips=$((skips + 1))
             continue
         fi
     fi
@@ -268,10 +325,12 @@ while IFS= read -r recipe_id; do
     expanded="$(expand_command "${recipe_command}" "${recipe_out}" "${db_path}" "${recipe_inputs}")"
 
     echo "RUN  ${recipe_id}"
-    start_seconds="$(date +%s)"
+    # python rather than `date +%s.%N`, which is GNU-only and prints a literal
+    # "N" on macOS/BSD.
+    start_seconds="$(python3 -c 'import time; print(time.time())')"
     status=0
     PATH="${env_bin}:${PATH}" bash -o pipefail -c "${expanded}" || status=$?
-    end_seconds="$(date +%s)"
+    end_seconds="$(python3 -c 'import time; print(time.time())')"
 
     if [[ ${status} -ne 0 ]]; then
         echo "FAIL ${recipe_id}: command exited ${status}" >&2
@@ -283,14 +342,25 @@ while IFS= read -r recipe_id; do
     tool_version="$(installed_tool_version "${recipe_env}" "${recipe_tool}")"
 
     write_meta "${recipe_out}/meta.json" "${dependency_set}" "${recipe_id}" \
-        "${recipe_tool}" "${recipe_env}" "${tool_version}" "$((end_seconds - start_seconds))"
+        "${recipe_tool}" "${recipe_env}" "${tool_version}" "${start_seconds}" "${end_seconds}"
 
     echo "OK   ${recipe_id} (${recipe_tool} ${tool_version:-unknown})"
 done <<< "${recipe_ids}"
 
+if [[ ${print_command} -eq 1 ]]; then
+    exit 0
+fi
+
+# A skip means the machine lacks a tool environment or database, which is an
+# environment gap rather than a tool regression, so it gets its own exit code
+# (3) to keep it distinguishable from a recipe that actually failed (1).
 if [[ ${failures} -gt 0 ]]; then
-    echo "${failures} recipe(s) failed or were skipped" >&2
+    echo "${failures} recipe(s) failed, ${skips} skipped" >&2
     exit 1
+fi
+if [[ ${skips} -gt 0 ]]; then
+    echo "${skips} recipe(s) skipped: tool environment or database not installed" >&2
+    exit 3
 fi
 
 echo "wrote goldens to ${out_dir}"

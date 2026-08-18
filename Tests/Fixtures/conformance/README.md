@@ -45,6 +45,23 @@ does not raise a false alarm while real changes still surface.
   branch lengths and root placement.
 - `text` is an exact match after trimming surrounding whitespace.
 
+## Tolerances are provisional
+
+The numeric tolerances in the recipes are informed guesses, not measurements:
+5 percent on the assembler statistics, 1 to 2 percent on fastp, minimap2, and
+deacon, and exact matching everywhere else. They were chosen with a single
+version of each tool installed, so nobody has yet observed how far these numbers
+genuinely move across a version bump. The first upgrade sweep is what calibrates
+them. Treat an unexpected failure as a question about the tolerance as much as
+about the tool, and record the adjustment when you widen or tighten one.
+
+## Known limitation: paths with spaces
+
+`regenerate-goldens.sh` quotes every substituted path, but SPAdes itself fails
+when its output directory contains a space (`spades-hammer` exits 4). Generate
+goldens into a path without spaces. This is the same constraint that keeps the
+conda root at `~/.lungfish/conda`.
+
 ## Starting a new dependency set
 
 Create `Tests/Fixtures/conformance/<set>/`, regenerate with `--set <set>`, copy

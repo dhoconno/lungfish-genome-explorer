@@ -107,6 +107,34 @@ def _row_key(row, key_indexes):
     return tuple(row[index] if index < len(row) else "" for index in key_indexes)
 
 
+def _key_rows(rows, key_indexes):
+    """Map each row key to its rows, keeping duplicates rather than collapsing.
+
+    A plain dict comprehension would silently drop all but the last row sharing a
+    key, so a golden holding the same key twice would compare equal to a
+    candidate holding it once. Keeping the list makes that a reportable
+    difference.
+    """
+    grouped = {}
+    for row in rows:
+        grouped.setdefault(_row_key(row, key_indexes), []).append(row)
+    return grouped
+
+
+def _duplicate_count_diffs(golden_groups, candidate_groups):
+    """Report keys whose number of occurrences differs between the two sides."""
+    diffs = []
+    for key in sorted(set(golden_groups) & set(candidate_groups)):
+        golden_count = len(golden_groups[key])
+        candidate_count = len(candidate_groups[key])
+        if golden_count != candidate_count:
+            diffs.append(
+                f"row {'/'.join(key)} occurs {golden_count} time(s) in golden, "
+                f"{candidate_count} in candidate"
+            )
+    return diffs
+
+
 def compare_tsv(golden, candidate, spec):
     """Positional TSV comparison keyed by ``keyColumns`` index positions.
 
@@ -118,17 +146,23 @@ def compare_tsv(golden, candidate, spec):
     golden_rows = _split_rows(golden)
     candidate_rows = _split_rows(candidate)
 
-    golden_map = {_row_key(row, key_indexes): row for row in golden_rows}
-    candidate_map = {_row_key(row, key_indexes): row for row in candidate_rows}
+    if len(golden_rows) != len(candidate_rows):
+        diffs.append(f"row count differs: golden {len(golden_rows)}, candidate {len(candidate_rows)}")
+
+    golden_map = _key_rows(golden_rows, key_indexes)
+    candidate_map = _key_rows(candidate_rows, key_indexes)
 
     for key in sorted(set(golden_map) - set(candidate_map)):
         diffs.append(f"row missing from candidate: {'/'.join(key)}")
     for key in sorted(set(candidate_map) - set(golden_map)):
         diffs.append(f"row only in candidate: {'/'.join(key)}")
+    diffs.extend(_duplicate_count_diffs(golden_map, candidate_map))
 
     for key in sorted(set(golden_map) & set(candidate_map)):
-        golden_row = golden_map[key]
-        candidate_row = candidate_map[key]
+        # Compare the first row of each group; a differing number of duplicates
+        # is already reported above.
+        golden_row = golden_map[key][0]
+        candidate_row = candidate_map[key][0]
         compare_indexes = spec.get("compareColumns")
         if compare_indexes is None:
             compare_indexes = range(max(len(golden_row), len(candidate_row)))
@@ -183,16 +217,25 @@ def compare_tsv_header(golden, candidate, spec):
             )
         return diffs
 
-    golden_map = {_row_key(row, key_indexes): row for row in golden_rows}
-    candidate_map = {_row_key(row, key_indexes): row for row in candidate_rows}
+    if len(golden_rows) != len(candidate_rows):
+        diffs.append(f"row count differs: golden {len(golden_rows)}, candidate {len(candidate_rows)}")
+
+    golden_map = _key_rows(golden_rows, key_indexes)
+    candidate_map = _key_rows(candidate_rows, key_indexes)
     for key in sorted(set(golden_map) - set(candidate_map)):
         diffs.append(f"row missing from candidate: {'/'.join(key)}")
     for key in sorted(set(candidate_map) - set(golden_map)):
         diffs.append(f"row only in candidate: {'/'.join(key)}")
+    diffs.extend(_duplicate_count_diffs(golden_map, candidate_map))
     for key in sorted(set(golden_map) & set(candidate_map)):
         diffs.extend(
             _compare_named_row(
-                golden_header, golden_map[key], candidate_map[key], compare_names, spec, f"row {'/'.join(key)}"
+                golden_header,
+                golden_map[key][0],
+                candidate_map[key][0],
+                compare_names,
+                spec,
+                f"row {'/'.join(key)}",
             )
         )
     return diffs

@@ -1,7 +1,9 @@
 """Tests for scripts/deps/diff_goldens.py and the golden recipe manifest."""
 
 import json
+import os
 import pathlib
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -13,8 +15,10 @@ sys.path.insert(0, str(ROOT / "scripts/deps"))
 import diff_goldens  # noqa: E402
 
 DIFF_SCRIPT = ROOT / "scripts" / "deps" / "diff_goldens.py"
+REGENERATE_SCRIPT = ROOT / "scripts" / "deps" / "regenerate-goldens.sh"
 RECIPES = ROOT / "scripts" / "deps" / "goldens.json"
 CURRENT_SET = "2026.1"
+GOLDEN_RECIPES = json.loads(RECIPES.read_text(encoding="utf-8"))["goldens"]
 
 
 class DiffGoldensTests(unittest.TestCase):
@@ -51,6 +55,31 @@ class DiffGoldensTests(unittest.TestCase):
         diffs = diff_goldens.compare_tsv(g, c, spec)
         self.assertTrue(any("chr2" in d for d in diffs), diffs)
         self.assertEqual(diff_goldens.compare_tsv(g, g, spec), [])
+
+    def test_tsv_duplicate_keys_are_not_collapsed(self):
+        # A golden holding the same key twice must not compare equal to a
+        # candidate holding it once: a naive dict keyed on the row key would
+        # silently drop the duplicate.
+        g = "chr1\t1\nchr1\t1\nchr2\t2\n"
+        c = "chr1\t1\nchr2\t2\n"
+        spec = {"keyColumns": [0], "compareColumns": [1]}
+        diffs = diff_goldens.compare_tsv(g, c, spec)
+        self.assertTrue(diffs)
+        self.assertTrue(any("chr1" in d for d in diffs), diffs)
+
+    def test_tsv_header_duplicate_keys_are_not_collapsed(self):
+        g = "#CHROM\tPOS\nc1\t5\nc1\t5\n"
+        c = "#CHROM\tPOS\nc1\t5\n"
+        spec = {"keyColumns": ["#CHROM", "POS"], "compareColumns": ["#CHROM", "POS"]}
+        diffs = diff_goldens.compare_tsv_header(g, c, spec)
+        self.assertTrue(diffs)
+
+    def test_tsv_row_count_difference_is_reported(self):
+        g = "chr1\t1\nchr2\t2\n"
+        c = "chr1\t1\n"
+        spec = {"keyColumns": [0], "compareColumns": [1]}
+        diffs = diff_goldens.compare_tsv(g, c, spec)
+        self.assertTrue(any("row count differs" in d for d in diffs), diffs)
 
     def test_tsv_reports_missing_and_extra_rows(self):
         g = "chr1\t1\nchr2\t2\n"
@@ -283,6 +312,105 @@ class DiffGoldensTests(unittest.TestCase):
             self.assertTrue(payload["results"])
 
 
+class RegenerateGoldensScriptTests(unittest.TestCase):
+    """Behaviour of scripts/deps/regenerate-goldens.sh that does not run tools."""
+
+    def _print_command(self, recipe_id, out_dir):
+        result = subprocess.run(
+            [
+                "/bin/bash",
+                str(REGENERATE_SCRIPT),
+                "--set",
+                CURRENT_SET,
+                "--out",
+                out_dir,
+                "--only",
+                recipe_id,
+                "--print-command",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return result.stdout.strip()
+
+    def test_out_dir_with_space_expands_to_a_shell_safe_command(self):
+        # An unquoted substitution would split "/tmp/dir with space" into three
+        # words. Every bare occurrence must be quoted, and the command must
+        # tokenise back to a path that is still a single word.
+        out_dir = "/tmp/dir with space"
+        command = self._print_command("sarscov2-spades", out_dir)
+        self.assertIn(f"'{out_dir}/sarscov2-spades'", command)
+        tokens = shlex.split(command)
+        self.assertIn(f"{out_dir}/sarscov2-spades/spades", tokens)
+
+    def test_expanded_command_has_balanced_quotes(self):
+        # Substituting into an already single-quoted fragment (the sed script)
+        # must not introduce unbalanced quotes; shlex.split raises if it does.
+        for recipe in GOLDEN_RECIPES:
+            command = self._print_command(recipe["id"], "/tmp/dir with space")
+            try:
+                shlex.split(command)
+            except ValueError as error:
+                self.fail(f"{recipe['id']}: unbalanced quoting: {error}")
+
+    def test_input_paths_are_quoted(self):
+        command = self._print_command("sarscov2-flagstat", "/tmp/out")
+        tokens = shlex.split(command)
+        self.assertTrue(
+            any(token.endswith("Tests/Fixtures/sarscov2/test.paired_end.sorted.bam") for token in tokens),
+            tokens,
+        )
+
+    def test_unknown_only_id_exits_with_usage_code(self):
+        result = subprocess.run(
+            [
+                "/bin/bash",
+                str(REGENERATE_SCRIPT),
+                "--set",
+                CURRENT_SET,
+                "--out",
+                "/tmp/unused",
+                "--only",
+                "no-such-recipe",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 64, result.stdout + result.stderr)
+        self.assertIn("unknown recipe ids", result.stderr)
+
+    def test_missing_environment_is_a_skip_not_a_failure(self):
+        # A machine without the tool environment installed should report a skip
+        # (exit 3), which is distinguishable from a recipe that actually failed.
+        with tempfile.TemporaryDirectory() as td:
+            result = subprocess.run(
+                [
+                    "/bin/bash",
+                    str(REGENERATE_SCRIPT),
+                    "--set",
+                    CURRENT_SET,
+                    "--out",
+                    td,
+                    "--only",
+                    "sarscov2-flagstat",
+                ],
+                capture_output=True,
+                text=True,
+                env={**os.environ, "LUNGFISH_CONDA_ROOT": "/nonexistent-conda-root"},
+            )
+            self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
+            self.assertIn("SKIP", result.stderr)
+
+    def test_missing_required_arguments_exit_with_usage_code(self):
+        result = subprocess.run(
+            ["/bin/bash", str(REGENERATE_SCRIPT), "--set", CURRENT_SET],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 64, result.stdout + result.stderr)
+
+
 class GoldenRecipeManifestTests(unittest.TestCase):
     def setUp(self):
         self.manifest = json.loads(RECIPES.read_text(encoding="utf-8"))
@@ -302,11 +430,10 @@ class GoldenRecipeManifestTests(unittest.TestCase):
             self.assertTrue(recipe["outputs"], recipe["id"])
             for name, spec in recipe["outputs"].items():
                 self.assertIn("kind", spec, f"{recipe['id']}:{name}")
-                self.assertIn(
-                    spec["kind"],
-                    {"text", "tsv", "tsv-header", "json", "kreport", "newick-topology"},
-                    f"{recipe['id']}:{name}",
-                )
+                self.assertIn(spec["kind"], diff_goldens.VALID_KINDS, f"{recipe['id']}:{name}")
+
+    def test_valid_kinds_matches_the_comparator_table(self):
+        self.assertEqual(set(diff_goldens.VALID_KINDS), set(diff_goldens.COMPARATORS))
 
     def test_recipe_inputs_exist_in_the_repo(self):
         for recipe in self.manifest["goldens"]:
